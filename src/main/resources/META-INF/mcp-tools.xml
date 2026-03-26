@@ -1,0 +1,8 @@
+<idea-plugin>
+    <!-- MCP Tool registration for IntelliJ 2025.2+ -->
+    <!-- This file is only loaded when the mcpserver plugin is present -->
+    
+    <extensions defaultExtensionNs="com.intellij.mcpServer">
+        <mcpToolsProvider implementation="com.codelens.tools.adapters.CodeLensMcpToolsProvider"/>
+    </extensions>
+</idea-plugin>

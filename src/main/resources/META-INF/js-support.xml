@@ -1,0 +1,4 @@
+<idea-plugin>
+    <!-- JavaScript/TypeScript language support is loaded when JavaScript plugin is present -->
+    <!-- JavaScriptLanguageAdapter is instantiated directly by SymbolServiceImpl via tryLoadAdapter -->
+</idea-plugin>

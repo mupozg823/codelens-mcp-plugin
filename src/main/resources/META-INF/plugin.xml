@@ -1,0 +1,75 @@
+<idea-plugin>
+    <id>com.codelens.mcp</id>
+    <name>CodeLens MCP</name>
+    <vendor url="https://github.com/codelens/codelens-mcp-plugin">CodeLens</vendor>
+
+    <description><![CDATA[
+        <h2>CodeLens MCP - Open Source Symbol-Level Code Intelligence</h2>
+        <p>Exposes JetBrains PSI-powered code analysis tools via MCP (Model Context Protocol).</p>
+    ]]></description>
+
+    <!-- Platform dependency -->
+    <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.lang</depends>
+
+    <!-- Optional language support -->
+    <depends optional="true" config-file="java-support.xml">com.intellij.java</depends>
+    <depends optional="true" config-file="kotlin-support.xml">org.jetbrains.kotlin</depends>
+    <depends optional="true" config-file="python-support.xml">com.intellij.modules.python</depends>
+    <depends optional="true" config-file="js-support.xml">JavaScript</depends>
+    
+    <!-- MCP Server plugin (IntelliJ 2025.2+) -->
+    <depends optional="true" config-file="mcp-tools.xml">com.intellij.mcpServer</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <!-- Project-level services -->
+        <projectService
+            serviceInterface="com.codelens.services.SymbolService"
+            serviceImplementation="com.codelens.services.SymbolServiceImpl"/>
+        <projectService
+            serviceInterface="com.codelens.services.ReferenceService"
+            serviceImplementation="com.codelens.services.ReferenceServiceImpl"/>
+        <projectService
+            serviceInterface="com.codelens.services.SearchService"
+            serviceImplementation="com.codelens.services.SearchServiceImpl"/>
+        <projectService
+            serviceInterface="com.codelens.services.ModificationService"
+            serviceImplementation="com.codelens.services.ModificationServiceImpl"/>
+
+        <!-- Settings configurable -->
+        <projectConfigurable
+            instance="com.codelens.plugin.CodeLensConfigurable"
+            id="com.codelens.mcp.settings"
+            displayName="CodeLens MCP"
+            groupId="tools"/>
+
+        <!-- Notification group -->
+        <notificationGroup id="CodeLens MCP" displayType="BALLOON"/>
+    </extensions>
+
+    <!--
+        MCP Tool Registration:
+        JetBrains 2025.2+ provides the mcp.tool extension point.
+        Tools are registered in mcp-tools.xml which is loaded only when the mcpserver plugin is present.
+        For earlier versions, we register via the startup activity (CodeLensStartupActivity).
+    -->
+
+    <!-- Standalone MCP Server (fallback for pre-2025.2) -->
+    <extensions defaultExtensionNs="com.intellij">
+        <postStartupActivity implementation="com.codelens.plugin.CodeLensStartupActivity"/>
+    </extensions>
+
+    <actions>
+        <group id="CodeLensMcp.ToolMenu" text="CodeLens MCP" popup="true">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+            <action id="CodeLensMcp.RestartServer"
+                    class="com.codelens.plugin.RestartServerAction"
+                    text="Restart MCP Server"
+                    description="Restart the CodeLens MCP server"/>
+            <action id="CodeLensMcp.ShowStatus"
+                    class="com.codelens.plugin.ShowStatusAction"
+                    text="Show Server Status"
+                    description="Show CodeLens MCP server status"/>
+        </group>
+    </actions>
+</idea-plugin>

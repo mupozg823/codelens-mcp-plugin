@@ -1,0 +1,4 @@
+<idea-plugin>
+    <!-- Python language support is loaded when PythonCore/Pythonid is present -->
+    <!-- PythonLanguageAdapter is instantiated directly by SymbolServiceImpl via tryLoadAdapter -->
+</idea-plugin>

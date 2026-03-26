@@ -1,0 +1,207 @@
+# CodeLens MCP
+
+**Open-source JetBrains plugin that exposes PSI-powered code intelligence via MCP (Model Context Protocol).**
+
+Serena JetBrains Plugin의 오픈소스 대안입니다. JetBrains IDE의 강력한 PSI 엔진을 활용하여 AI 코딩 어시스턴트(Claude, GPT 등)가 심볼 단위로 코드를 분석하고 편집할 수 있게 합니다.
+
+---
+
+## Features
+
+| Tool | Description |
+|------|-------------|
+| `get_symbols_overview` | 파일/디렉토리의 심볼 구조 개요 반환 |
+| `find_symbol` | 이름으로 심볼 검색 (본문 포함 옵션) |
+| `find_referencing_symbols` | 심볼 참조 추적 |
+| `search_for_pattern` | 정규식 기반 코드 검색 |
+| `replace_symbol_body` | 심볼 본문 교체 |
+| `insert_after_symbol` | 심볼 뒤에 코드 삽입 |
+| `insert_before_symbol` | 심볼 앞에 코드 삽입 |
+| `rename_symbol` | IDE 리팩토링 기반 심볼 이름 변경 |
+
+### Serena Compatible
+
+도구 이름과 파라미터가 Serena MCP와 동일하여, 기존 CLAUDE.md의 Serena-First 규칙을 수정 없이 사용할 수 있습니다.
+
+### Supported Languages
+
+| Language | Status | Adapter |
+|----------|--------|---------|
+| Java | ✅ Full | `JavaLanguageAdapter` |
+| Kotlin | ✅ Full | `KotlinLanguageAdapter` |
+| Others | ⚡ Basic | `GenericLanguageAdapter` (PSI 기반 폴백) |
+
+> Python, JavaScript/TypeScript, Go 등은 추후 전용 어댑터 추가 예정
+
+---
+
+## Requirements
+
+- **JetBrains IDE** 2025.1+ (IntelliJ IDEA, PyCharm, WebStorm 등)
+- **JDK 21** (빌드 시)
+
+---
+
+## Installation
+
+### From Marketplace (준비 중)
+
+Settings → Plugins → Marketplace → "CodeLens MCP" 검색 → Install
+
+### From Source
+
+```bash
+git clone https://github.com/YOUR_USERNAME/codelens-mcp-plugin.git
+cd codelens-mcp-plugin
+./gradlew buildPlugin
+```
+
+빌드된 플러그인: `build/distributions/codelens-mcp-plugin-0.1.0.zip`
+
+IDE에서 설치: Settings → Plugins → ⚙️ → Install Plugin from Disk
+
+---
+
+## Connecting to AI Assistants
+
+### Claude Desktop
+
+`claude_desktop_config.json`에 추가:
+
+```json
+{
+  "mcpServers": {
+    "jetbrains": {
+      "command": "npx",
+      "args": ["-y", "@jetbrains/mcp-proxy"]
+    }
+  }
+}
+```
+
+### Claude Code
+
+```bash
+claude mcp add jetbrains -- npx -y @jetbrains/mcp-proxy
+```
+
+### 다른 MCP 클라이언트
+
+JetBrains의 내장 MCP Server (포트 6365)를 통해 연결됩니다. `@jetbrains/mcp-proxy`가 Stdio ↔ HTTP 변환을 처리합니다.
+
+---
+
+## Development
+
+### Prerequisites
+
+| Tool | Version |
+|------|---------|
+| JDK | 21+ |
+| IntelliJ IDEA | 2025.1+ |
+| Gradle | 8.13+ (wrapper 포함) |
+
+### Build & Run
+
+```bash
+# 개발 IDE에서 플러그인 실행 (샌드박스)
+./gradlew runIde
+
+# 빌드
+./gradlew buildPlugin
+
+# 테스트
+./gradlew test
+
+# 플러그인 검증
+./gradlew verifyPlugin
+```
+
+### Project Structure
+
+```
+src/main/kotlin/com/codelens/
+├── model/          # Data classes (SymbolInfo, ReferenceInfo, etc.)
+├── util/           # PsiUtils, JsonBuilder
+├── services/       # PSI service layer (interfaces + implementations)
+│   ├── LanguageAdapter.kt          # Language-specific PSI abstraction
+│   ├── JavaLanguageAdapter.kt      # Java PSI support
+│   ├── KotlinLanguageAdapter.kt    # Kotlin PSI support
+│   ├── SymbolService[Impl].kt      # Symbol analysis
+│   ├── ReferenceService[Impl].kt   # Reference tracking
+│   ├── SearchService[Impl].kt      # Pattern search
+│   └── ModificationService[Impl].kt # Code modifications
+├── tools/          # MCP tools (one class per tool)
+│   ├── BaseMcpTool.kt             # Abstract base
+│   ├── ToolRegistry.kt            # Tool registration
+│   └── [8 tool implementations]
+└── plugin/         # Plugin lifecycle & UI
+    ├── CodeLensStartupActivity.kt
+    ├── CodeLensConfigurable.kt     # Settings page
+    └── [Action classes]
+```
+
+---
+
+## Architecture
+
+```
+Claude Code / Claude Desktop
+         │ MCP Protocol (Stdio)
+         │
+@jetbrains/mcp-proxy
+         │ HTTP (localhost:6365)
+         │
+JetBrains IDE
+  └── CodeLens MCP Plugin
+        ├── MCP Tools (8 tools)
+        ├── PSI Service Layer
+        └── Language Adapters (Java, Kotlin, Generic)
+              └── IntelliJ PSI Engine
+```
+
+---
+
+## Comparison
+
+| Feature | Serena MCP (Free) | Serena JetBrains (Paid) | CodeLens MCP |
+|---------|------------------|------------------------|--------------|
+| Code Analysis Engine | LSP | JetBrains PSI | JetBrains PSI |
+| License | Open Source | Paid | **Open Source** |
+| Language Support | 40+ (via LSP) | All JetBrains | All JetBrains |
+| Library Indexing | Partial | Full | Full |
+| Extra Setup | Language Server needed | Plugin only | **Plugin only** |
+
+---
+
+## Roadmap
+
+- [ ] JetBrains 2025.2+ `mcp.tool` 확장 포인트 통합
+- [ ] Python 언어 어댑터
+- [ ] JavaScript/TypeScript 언어 어댑터
+- [ ] Go 언어 어댑터
+- [ ] `get_type_hierarchy` 도구
+- [ ] GotoSymbolContributor 기반 고속 검색
+- [ ] Structural Search and Replace 통합
+- [ ] 성능 최적화 (캐싱, 비동기)
+- [ ] JetBrains Marketplace 배포
+
+---
+
+## Contributing
+
+기여를 환영합니다! [CONTRIBUTING.md](CONTRIBUTING.md)를 참고해주세요.
+
+---
+
+## License
+
+[Apache License 2.0](LICENSE)
+
+---
+
+## Acknowledgments
+
+- [Serena](https://github.com/oraios/serena) — 영감을 준 프로젝트
+- [JetBrains](https://www.jetbrains.com/) — IntelliJ Platform SDK
+- [MCP](https://modelcontextprotocol.io/) — Model Context Protocol 표준

@@ -1,0 +1,38 @@
+package com.codelens.tools
+
+import com.codelens.services.ModificationService
+import com.intellij.openapi.components.service
+import com.intellij.openapi.project.Project
+
+/**
+ * MCP Tool: insert_after_symbol
+ */
+class InsertAfterSymbolTool : BaseMcpTool() {
+
+    override val toolName = "insert_after_symbol"
+
+    override val description = "Insert code after a named symbol."
+
+    override val inputSchema = mapOf(
+        "type" to "object",
+        "properties" to mapOf(
+            "symbol_name" to mapOf("type" to "string", "description" to "Symbol to insert after"),
+            "file_path" to mapOf("type" to "string", "description" to "File containing the symbol"),
+            "content" to mapOf("type" to "string", "description" to "Code to insert")
+        ),
+        "required" to listOf("symbol_name", "file_path", "content")
+    )
+
+    override fun execute(args: Map<String, Any?>, project: Project): String {
+        val symbolName = requireString(args, "symbol_name")
+        val filePath = requireString(args, "file_path")
+        val content = requireString(args, "content")
+
+        return try {
+            val result = project.service<ModificationService>().insertAfterSymbol(symbolName, filePath, content)
+            if (result.success) successResponse(result.toMap()) else errorResponse(result.message)
+        } catch (e: Exception) {
+            errorResponse("insert_after_symbol failed: ${e.message}")
+        }
+    }
+}
