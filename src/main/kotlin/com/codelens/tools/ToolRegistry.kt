@@ -9,6 +9,12 @@ object ToolRegistry {
 
     val tools: List<BaseMcpTool> by lazy {
         listOf(
+            // Phase 0: Runtime and IDE state
+            GetCurrentConfigTool(),
+            GetProjectModulesTool(),
+            GetOpenFilesTool(),
+            GetFileProblemsTool(),
+
             // Phase 1: Read-only symbol analysis
             GetSymbolsOverviewTool(),
             FindSymbolTool(),

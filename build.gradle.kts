@@ -86,8 +86,12 @@ intellijPlatform {
 
         vendor {
             name = "CodeLens"
-            url = "https://github.com/codelens/codelens-mcp-plugin"
+            url = "https://github.com/mupozg823/codelens-mcp-plugin"
         }
+    }
+
+    publishing {
+        token = providers.environmentVariable("JETBRAINS_MARKETPLACE_TOKEN")
     }
 }
 

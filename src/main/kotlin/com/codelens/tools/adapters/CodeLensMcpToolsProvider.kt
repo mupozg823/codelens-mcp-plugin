@@ -10,6 +10,12 @@ import com.intellij.mcpserver.McpToolsProvider
 class CodeLensMcpToolsProvider : McpToolsProvider {
     override fun getTools(): List<McpTool> {
         return listOf(
+            // Runtime and IDE state
+            GetCurrentConfigMcpTool(),
+            GetProjectModulesMcpTool(),
+            GetOpenFilesMcpTool(),
+            GetFileProblemsMcpTool(),
+
             // Symbol analysis (read-only)
             GetSymbolsOverviewMcpTool(),
             FindSymbolMcpTool(),

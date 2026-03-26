@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `get_current_config` — 현재 IDE/프로젝트/도구 등록 상태와 `.serena` 관련 경로 조회
+- `get_project_modules` — IntelliJ 모듈 구조, 루트, 의존성 조회
+- `get_open_files` — 현재 IDE에서 열린 파일과 선택된 파일 조회
+- `get_file_problems` — IntelliJ 하이라이팅 패스를 기반으로 파일 진단 조회
+
+### Changed
+- README와 smoke test 기준을 22개 도구 집합으로 갱신
+
 ## [0.2.1] - 2026-03-27
 
 ### Added

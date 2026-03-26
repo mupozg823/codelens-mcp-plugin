@@ -8,38 +8,44 @@ Serena JetBrains Plugin의 오픈소스 대안입니다. JetBrains IDE의 강력
 
 ## Features
 
-| Tool | Description |
-|------|-------------|
-| `get_symbols_overview` | 파일/디렉토리의 심볼 구조 개요 반환 |
-| `find_symbol` | 이름으로 심볼 검색 (본문 포함 옵션) |
-| `find_referencing_symbols` | 심볼 참조 추적 |
-| `search_for_pattern` | 정규식 기반 코드 검색 |
-| `get_type_hierarchy` | 클래스의 상속/구현 관계와 멤버 구조 조회 |
-| `find_referencing_code_snippets` | 참조 지점의 주변 코드 스니펫 조회 |
-| `replace_symbol_body` | 심볼 본문 교체 |
-| `insert_after_symbol` | 심볼 뒤에 코드 삽입 |
-| `insert_before_symbol` | 심볼 앞에 코드 삽입 |
-| `rename_symbol` | IDE 리팩토링 기반 심볼 이름 변경 |
-| `read_file` | 파일 내용 일부 또는 전체 읽기 |
-| `list_dir` | 디렉터리 목록 조회 |
-| `find_file` | 파일명 패턴으로 파일 검색 |
-| `create_text_file` | 텍스트 파일 생성 |
-| `delete_lines` | 파일의 특정 라인 삭제 |
-| `insert_at_line` | 특정 라인에 텍스트 삽입 |
-| `replace_lines` | 특정 라인 범위 교체 |
-| `replace_content` | 파일 내용 패턴 치환 |
+| Tool                             | Description                                              |
+| -------------------------------- | -------------------------------------------------------- |
+| `get_current_config`             | 현재 프로젝트/IDE/도구 등록 상태와 Serena 관련 경로 조회 |
+| `get_project_modules`            | IntelliJ 모듈 구조, 루트, 의존성 조회                    |
+| `get_open_files`                 | 현재 IDE에서 열린 파일과 선택된 파일 조회                |
+| `get_file_problems`              | IntelliJ 하이라이팅 기반 파일 진단/문제 조회             |
+| `get_symbols_overview`           | 파일/디렉토리의 심볼 구조 개요 반환                      |
+| `find_symbol`                    | 이름으로 심볼 검색 (본문 포함 옵션)                      |
+| `find_referencing_symbols`       | 심볼 참조 추적                                           |
+| `search_for_pattern`             | 정규식 기반 코드 검색                                    |
+| `get_type_hierarchy`             | 클래스의 상속/구현 관계와 멤버 구조 조회                 |
+| `find_referencing_code_snippets` | 참조 지점의 주변 코드 스니펫 조회                        |
+| `replace_symbol_body`            | 심볼 본문 교체                                           |
+| `insert_after_symbol`            | 심볼 뒤에 코드 삽입                                      |
+| `insert_before_symbol`           | 심볼 앞에 코드 삽입                                      |
+| `rename_symbol`                  | IDE 리팩토링 기반 심볼 이름 변경                         |
+| `read_file`                      | 파일 내용 일부 또는 전체 읽기                            |
+| `list_dir`                       | 디렉터리 목록 조회                                       |
+| `find_file`                      | 파일명 패턴으로 파일 검색                                |
+| `create_text_file`               | 텍스트 파일 생성                                         |
+| `delete_lines`                   | 파일의 특정 라인 삭제                                    |
+| `insert_at_line`                 | 특정 라인에 텍스트 삽입                                  |
+| `replace_lines`                  | 특정 라인 범위 교체                                      |
+| `replace_content`                | 파일 내용 패턴 치환                                      |
 
 ### Serena Compatible
 
 도구 이름과 파라미터가 Serena MCP와 동일하여, 기존 CLAUDE.md의 Serena-First 규칙을 수정 없이 사용할 수 있습니다.
 
+최신 Serena 문서 기준으로 `ide`/`codex` context, 프로젝트 활성화, `.serena/memories/` 구조가 워크플로의 핵심입니다. CodeLens는 이에 맞춰 `get_current_config` 에서 현재 프로젝트, 인덱싱 상태, 등록된 도구, `.serena` 메모리 디렉터리 존재 여부를 함께 반환합니다.
+
 ### Supported Languages
 
-| Language | Status | Adapter |
-|----------|--------|---------|
-| Java | ✅ Full | `JavaLanguageAdapter` |
-| Kotlin | ✅ Full | `KotlinLanguageAdapter` |
-| Others | ⚡ Basic | `GenericLanguageAdapter` (PSI 기반 폴백) |
+| Language | Status   | Adapter                                  |
+| -------- | -------- | ---------------------------------------- |
+| Java     | ✅ Full  | `JavaLanguageAdapter`                    |
+| Kotlin   | ✅ Full  | `KotlinLanguageAdapter`                  |
+| Others   | ⚡ Basic | `GenericLanguageAdapter` (PSI 기반 폴백) |
 
 > Python, JavaScript/TypeScript, Go 등은 추후 전용 어댑터 추가 예정
 
@@ -61,7 +67,7 @@ Settings → Plugins → Marketplace → "CodeLens MCP" 검색 → Install
 ### From Source
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/codelens-mcp-plugin.git
+git clone https://github.com/mupozg823/codelens-mcp-plugin.git
 cd codelens-mcp-plugin
 ./gradlew buildPlugin
 ```
@@ -125,11 +131,11 @@ python3 test-mcp-tools.py
 
 ### Prerequisites
 
-| Tool | Version |
-|------|---------|
-| JDK | 21+ |
-| IntelliJ IDEA | 2025.1+ |
-| Gradle | 8.13+ (wrapper 포함) |
+| Tool          | Version              |
+| ------------- | -------------------- |
+| JDK           | 21+                  |
+| IntelliJ IDEA | 2025.1+              |
+| Gradle        | 8.13+ (wrapper 포함) |
 
 ### Build & Run
 
@@ -186,7 +192,7 @@ JetBrains MCP Server
          │
 JetBrains IDE
   └── CodeLens MCP Plugin
-        ├── MCP Tools (18 tools)
+        ├── MCP Tools (22 tools)
         ├── PSI Service Layer
         └── Language Adapters (Java, Kotlin, Generic)
               └── IntelliJ PSI Engine
@@ -196,25 +202,26 @@ JetBrains IDE
 
 ## Comparison
 
-| Feature | Serena MCP (Free) | Serena JetBrains (Paid) | CodeLens MCP |
-|---------|------------------|------------------------|--------------|
-| Code Analysis Engine | LSP | JetBrains PSI | JetBrains PSI |
-| License | Open Source | Paid | **Open Source** |
-| Language Support | 40+ (via LSP) | All JetBrains | All JetBrains |
-| Library Indexing | Partial | Full | Full |
-| Extra Setup | Language Server needed | Plugin only | **Plugin only** |
+| Feature              | Serena MCP (Free)      | Serena JetBrains (Paid) | CodeLens MCP    |
+| -------------------- | ---------------------- | ----------------------- | --------------- |
+| Code Analysis Engine | LSP                    | JetBrains PSI           | JetBrains PSI   |
+| License              | Open Source            | Paid                    | **Open Source** |
+| Language Support     | 40+ (via LSP)          | All JetBrains           | All JetBrains   |
+| Library Indexing     | Partial                | Full                    | Full            |
+| Extra Setup          | Language Server needed | Plugin only             | **Plugin only** |
 
 ---
 
 ## Roadmap
 
-- [ ] JetBrains 2025.2+ `mcp.tool` 확장 포인트 통합
+- [x] JetBrains 2025.2+ `mcp.tool` 확장 포인트 통합
 - [ ] Python 언어 어댑터
 - [ ] JavaScript/TypeScript 언어 어댑터
 - [ ] Go 언어 어댑터
 - [ ] GotoSymbolContributor 기반 고속 검색
 - [ ] Structural Search and Replace 통합
 - [ ] 성능 최적화 (캐싱, 비동기)
+- [ ] `get_file_problems` 에 quick-fix / suppress / scope 정보 추가
 - [ ] JetBrains Marketplace 배포
 
 ---
