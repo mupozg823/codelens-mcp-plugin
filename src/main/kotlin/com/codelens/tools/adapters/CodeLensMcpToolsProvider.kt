@@ -23,6 +23,9 @@ class CodeLensMcpToolsProvider : McpToolsProvider {
             ListMemoriesMcpTool(),
             ReadMemoryMcpTool(),
             WriteMemoryMcpTool(),
+            DeleteMemoryMcpTool(),
+            EditMemoryMcpTool(),
+            RenameMemoryMcpTool(),
 
             // Symbol analysis (read-only)
             GetSymbolsOverviewMcpTool(),
@@ -39,6 +42,12 @@ class CodeLensMcpToolsProvider : McpToolsProvider {
             InsertAfterSymbolMcpTool(),
             InsertBeforeSymbolMcpTool(),
             RenameSymbolMcpTool(),
+
+            // IDE integration
+            GetRunConfigurationsMcpTool(),
+            ExecuteRunConfigurationMcpTool(),
+            ReformatFileMcpTool(),
+            ExecuteTerminalCommandMcpTool(),
 
             // File operations (read)
             ReadFileMcpTool(),

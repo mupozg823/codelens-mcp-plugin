@@ -2,7 +2,9 @@ package com.codelens.serena
 
 import com.codelens.model.SymbolKind
 import com.codelens.util.PsiUtils
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.psi.JavaPsiFacade
@@ -106,6 +108,94 @@ internal class SerenaCompatSymbols(private val project: Project) {
                     ?: return@mapNotNull null
                 toReferenceDto(containing, includeQuickInfo)
             }.distinctBy { "${it["relativePath"]}:${it["namePath"]}:${it["type"]}" }
+        }
+    }
+
+    fun findReferencingCodeSnippets(
+        namePath: String,
+        relativePath: String,
+        contextLinesBefore: Int = 2,
+        contextLinesAfter: Int = 2
+    ): List<Map<String, Any?>> {
+        return ReadAction.compute<List<Map<String, Any?>>, Exception> {
+            val record = findUniqueDeclaration(namePath, relativePath)
+                ?: throw IllegalArgumentException("No symbol with name path '$namePath' found in '$relativePath'")
+
+            val references = ReferencesSearch.search(record.element, GlobalSearchScope.projectScope(project))
+                .findAll()
+
+            references.mapNotNull { ref ->
+                val element = ref.element
+                val psiFile = element.containingFile ?: return@mapNotNull null
+                val document = PsiDocumentManager.getInstance(project).getDocument(psiFile) ?: return@mapNotNull null
+                val lineNumber = document.getLineNumber(element.textOffset)
+                val startLine = maxOf(0, lineNumber - contextLinesBefore)
+                val endLine = minOf(document.lineCount - 1, lineNumber + contextLinesAfter)
+                val startOffset = document.getLineStartOffset(startLine)
+                val endOffset = document.getLineEndOffset(endLine)
+                val snippet = document.getText(com.intellij.openapi.util.TextRange(startOffset, endOffset))
+                val filePath = psiFile.virtualFile?.let { projectRelativePath(it.path) } ?: return@mapNotNull null
+
+                mapOf(
+                    "relativePath" to filePath,
+                    "line" to lineNumber + 1,
+                    "startLine" to startLine + 1,
+                    "endLine" to endLine + 1,
+                    "snippet" to snippet
+                )
+            }.distinctBy { "${it["relativePath"]}:${it["line"]}" }
+        }
+    }
+
+    fun resolveNamedElement(namePath: String, relativePath: String): PsiNamedElement? {
+        return ReadAction.compute<PsiNamedElement?, Exception> {
+            findUniqueDeclaration(namePath, relativePath)?.element
+        }
+    }
+
+    fun replaceSymbolBody(namePath: String, relativePath: String, body: String) {
+        val element = ReadAction.compute<PsiNamedElement, Exception> {
+            findUniqueDeclaration(namePath, relativePath)?.element
+                ?: throw IllegalArgumentException("No symbol '$namePath' found in '$relativePath'")
+        }
+        ApplicationManager.getApplication().invokeAndWait {
+            WriteCommandAction.runWriteCommandAction(project) {
+                val document = PsiDocumentManager.getInstance(project).getDocument(element.containingFile)
+                    ?: throw IllegalStateException("Cannot obtain document for '${element.containingFile.name}'")
+                val range = element.textRange
+                document.replaceString(range.startOffset, range.endOffset, body)
+                PsiDocumentManager.getInstance(project).commitDocument(document)
+            }
+        }
+    }
+
+    fun insertAfterSymbol(namePath: String, relativePath: String, body: String) {
+        val element = ReadAction.compute<PsiNamedElement, Exception> {
+            findUniqueDeclaration(namePath, relativePath)?.element
+                ?: throw IllegalArgumentException("No symbol '$namePath' found in '$relativePath'")
+        }
+        ApplicationManager.getApplication().invokeAndWait {
+            WriteCommandAction.runWriteCommandAction(project) {
+                val document = PsiDocumentManager.getInstance(project).getDocument(element.containingFile)
+                    ?: throw IllegalStateException("Cannot obtain document for '${element.containingFile.name}'")
+                document.insertString(element.textRange.endOffset, "\n$body")
+                PsiDocumentManager.getInstance(project).commitDocument(document)
+            }
+        }
+    }
+
+    fun insertBeforeSymbol(namePath: String, relativePath: String, body: String) {
+        val element = ReadAction.compute<PsiNamedElement, Exception> {
+            findUniqueDeclaration(namePath, relativePath)?.element
+                ?: throw IllegalArgumentException("No symbol '$namePath' found in '$relativePath'")
+        }
+        ApplicationManager.getApplication().invokeAndWait {
+            WriteCommandAction.runWriteCommandAction(project) {
+                val document = PsiDocumentManager.getInstance(project).getDocument(element.containingFile)
+                    ?: throw IllegalStateException("Cannot obtain document for '${element.containingFile.name}'")
+                document.insertString(element.textRange.startOffset, "$body\n")
+                PsiDocumentManager.getInstance(project).commitDocument(document)
+            }
         }
     }
 

@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.codelens"
-version = "0.2.2"
+version = "0.3.0"
 
 repositories {
     mavenCentral()
@@ -23,6 +23,7 @@ dependencies {
 
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.kotlin")
+        bundledPlugin("org.jetbrains.plugins.terminal")
         plugin("com.intellij.mcpServer", "252.28238.29")
 
         pluginVerifier()
@@ -75,12 +76,14 @@ intellijPlatform {
         """.trimIndent()
 
         changeNotes = """
-            <h3>0.2.2</h3>
+            <h3>0.3.0</h3>
             <ul>
-                <li>Added Serena-compatible onboarding and memory workflow tools for project activation and .serena state management</li>
-                <li>Added Serena JetBrains compatibility endpoints for symbol search, references, overview, hierarchy, rename, and refresh flows</li>
-                <li>Expanded smoke tests to verify both the JetBrains MCP SSE transport and Serena compatibility endpoints</li>
-                <li>Fixed hierarchy depth and child limit handling to match Serena JetBrains backend expectations</li>
+                <li>Added execute_terminal_command tool for shell command execution with timeout and output capture</li>
+                <li>Added get_run_configurations and execute_run_configuration tools for IDE run/debug support</li>
+                <li>Added reformat_file tool for IDE code formatting</li>
+                <li>Added edit_memory and rename_memory tools for full Serena memory lifecycle</li>
+                <li>Extended Serena compat REST layer with 6 new endpoints (23 total)</li>
+                <li>Verified Claude Code 2.1.84 compatibility with McpToolsProvider pattern</li>
             </ul>
         """.trimIndent()
 

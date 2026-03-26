@@ -99,7 +99,9 @@ def request_json(method, host, port, path, payload=None, timeout=10):
     raw = response.read()
     conn.close()
     if response.status >= 400:
-        raise RuntimeError(f"{method} {path} failed: {response.status} {response.reason} {raw.decode('utf-8', 'ignore')}")
+        raise RuntimeError(
+            f"{method} {path} failed: {response.status} {response.reason} {raw.decode('utf-8', 'ignore')}"
+        )
     return json.loads(raw.decode("utf-8"))
 
 
@@ -126,7 +128,11 @@ def wait_for_response(req_id, timeout=TIMEOUT):
         except queue.Empty:
             continue
 
-        if event_type == "message" and isinstance(payload, dict) and payload.get("id") == req_id:
+        if (
+            event_type == "message"
+            and isinstance(payload, dict)
+            and payload.get("id") == req_id
+        ):
             for item in stash:
                 EVENT_QUEUE.put(item)
             return payload
@@ -203,7 +209,9 @@ def main():
         sys.exit(1)
 
     server_info = response["result"].get("serverInfo", {})
-    print(f"  Server: {server_info.get('name', '?')} v{server_info.get('version', '?')}")
+    print(
+        f"  Server: {server_info.get('name', '?')} v{server_info.get('version', '?')}"
+    )
 
     status, reason = rpc_notify(message_path, "notifications/initialized")
     print(f"  POST notifications/initialized -> {status} {reason}")
@@ -229,6 +237,9 @@ def main():
         "list_memories",
         "read_memory",
         "write_memory",
+        "delete_memory",
+        "edit_memory",
+        "rename_memory",
         "get_symbols_overview",
         "find_symbol",
         "find_referencing_symbols",
@@ -247,6 +258,10 @@ def main():
         "insert_at_line",
         "replace_lines",
         "replace_content",
+        "get_run_configurations",
+        "execute_run_configuration",
+        "reformat_file",
+        "execute_terminal_command",
     ]
     available = {tool["name"] for tool in tools}
     found = [name for name in codelens_tools if name in available]
@@ -284,7 +299,8 @@ def main():
         (
             "initial_instructions",
             {},
-            lambda data: isinstance(data.get("instructions"), list) and len(data["instructions"]) >= 1,
+            lambda data: isinstance(data.get("instructions"), list)
+            and len(data["instructions"]) >= 1,
         ),
         (
             "list_memories",
@@ -352,7 +368,9 @@ def main():
             print(f"  PASS: {json.dumps(parsed_payload, ensure_ascii=False)[:180]}")
             results.append((tool_name, "PASS"))
         else:
-            print(f"  FAIL: unexpected payload {json.dumps(parsed_payload, ensure_ascii=False)[:180]}")
+            print(
+                f"  FAIL: unexpected payload {json.dumps(parsed_payload, ensure_ascii=False)[:180]}"
+            )
             results.append((tool_name, "FAIL"))
         req_id += 1
 
@@ -368,10 +386,9 @@ def main():
     compat_results = []
     try:
         status_payload = request_json("GET", "127.0.0.1", 24226, "/status")
-        status_ok = (
-            status_payload.get("projectRoot", "").endswith("/codelens-mcp-plugin")
-            and isinstance(status_payload.get("pluginVersion"), str)
-        )
+        status_ok = status_payload.get("projectRoot", "").endswith(
+            "/codelens-mcp-plugin"
+        ) and isinstance(status_payload.get("pluginVersion"), str)
         compat_results.append(("status", status_ok, status_payload))
     except Exception as exc:
         compat_results.append(("status", False, str(exc)))
@@ -394,12 +411,39 @@ def main():
             isinstance(symbols, list)
             and len(symbols) >= 1
             and symbol.get("namePath") == "CodeLensStartupActivity"
-            and symbol.get("relativePath") == "src/main/kotlin/com/codelens/plugin/CodeLensStartupActivity.kt"
+            and symbol.get("relativePath")
+            == "src/main/kotlin/com/codelens/plugin/CodeLensStartupActivity.kt"
             and "textRange" in symbol
         )
         compat_results.append(("findSymbol", symbol_ok, find_symbol_payload))
     except Exception as exc:
         compat_results.append(("findSymbol", False, str(exc)))
+
+    try:
+        references_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/findReferences",
+            {
+                "namePath": "JsonBuilder",
+                "relativePath": "src/main/kotlin/com/codelens/util/JsonBuilder.kt",
+                "includeQuickInfo": True,
+            },
+        )
+        references = references_payload.get("symbols", [])
+        references_ok = (
+            isinstance(references, list)
+            and len(references) >= 1
+            and any(
+                symbol.get("relativePath")
+                != "src/main/kotlin/com/codelens/util/JsonBuilder.kt"
+                for symbol in references
+            )
+        )
+        compat_results.append(("findReferences", references_ok, references_payload))
+    except Exception as exc:
+        compat_results.append(("findReferences", False, str(exc)))
 
     try:
         overview_payload = request_json(
@@ -424,6 +468,186 @@ def main():
         compat_results.append(("getSymbolsOverview", overview_ok, overview_payload))
     except Exception as exc:
         compat_results.append(("getSymbolsOverview", False, str(exc)))
+
+    try:
+        supertypes_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/getSupertypes",
+            {
+                "namePath": "CodeLensStartupActivity",
+                "relativePath": "src/main/kotlin/com/codelens/plugin/CodeLensStartupActivity.kt",
+                "depth": 1,
+                "limitChildren": 2,
+            },
+        )
+        hierarchy = supertypes_payload.get("hierarchy", [])
+        hierarchy_ok = (
+            isinstance(hierarchy, list)
+            and len(hierarchy) >= 1
+            and hierarchy[0].get("symbol", {}).get("namePath")
+        )
+        compat_results.append(("getSupertypes", hierarchy_ok, supertypes_payload))
+    except Exception as exc:
+        compat_results.append(("getSupertypes", False, str(exc)))
+
+    try:
+        subtypes_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/getSubtypes",
+            {
+                "namePath": "BaseMcpTool",
+                "relativePath": "src/main/kotlin/com/codelens/tools/BaseMcpTool.kt",
+                "depth": 1,
+                "limitChildren": 3,
+            },
+        )
+        sub_hierarchy = subtypes_payload.get("hierarchy", [])
+        subtypes_ok = isinstance(sub_hierarchy, list) and len(sub_hierarchy) >= 1
+        compat_results.append(("getSubtypes", subtypes_ok, subtypes_payload))
+    except Exception as exc:
+        compat_results.append(("getSubtypes", False, str(exc)))
+
+    try:
+        read_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/readFile",
+            {
+                "relativePath": "build.gradle.kts",
+                "startLine": 1,
+                "endLine": 5,
+            },
+        )
+        read_ok = (
+            "content" in read_payload
+            and read_payload.get("totalLines", 0) > 0
+            and read_payload.get("startLine") == 1
+        )
+        compat_results.append(("readFile", read_ok, read_payload))
+    except Exception as exc:
+        compat_results.append(("readFile", False, str(exc)))
+
+    try:
+        listdir_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/listDir",
+            {"relativePath": "src/main/kotlin/com/codelens/serena"},
+        )
+        entries = listdir_payload.get("entries", [])
+        listdir_ok = isinstance(entries, list) and len(entries) >= 2
+        compat_results.append(("listDir", listdir_ok, listdir_payload))
+    except Exception as exc:
+        compat_results.append(("listDir", False, str(exc)))
+
+    try:
+        findfile_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/findFile",
+            {"fileMask": "*.kt", "relativePath": "src/main/kotlin/com/codelens/serena"},
+        )
+        files = findfile_payload.get("files", [])
+        findfile_ok = isinstance(files, list) and len(files) >= 2
+        compat_results.append(("findFile", findfile_ok, findfile_payload))
+    except Exception as exc:
+        compat_results.append(("findFile", False, str(exc)))
+
+    try:
+        search_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/searchForPattern",
+            {
+                "pattern": "class SerenaCompat",
+                "relativePath": "src/main/kotlin/com/codelens/serena",
+                "contextLinesBefore": 1,
+                "contextLinesAfter": 1,
+            },
+        )
+        matches = search_payload.get("matches", {})
+        search_ok = isinstance(matches, dict) and len(matches) >= 1
+        compat_results.append(("searchForPattern", search_ok, search_payload))
+    except Exception as exc:
+        compat_results.append(("searchForPattern", False, str(exc)))
+
+    try:
+        snippets_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/findReferencingCodeSnippets",
+            {
+                "namePath": "JsonBuilder",
+                "relativePath": "src/main/kotlin/com/codelens/util/JsonBuilder.kt",
+                "contextLinesBefore": 2,
+                "contextLinesAfter": 2,
+            },
+        )
+        snippets = snippets_payload.get("snippets", [])
+        snippets_ok = (
+            isinstance(snippets, list)
+            and len(snippets) >= 1
+            and "snippet" in snippets[0]
+            and "line" in snippets[0]
+        )
+        compat_results.append(
+            ("findReferencingCodeSnippets", snippets_ok, snippets_payload)
+        )
+    except Exception as exc:
+        compat_results.append(("findReferencingCodeSnippets", False, str(exc)))
+
+    try:
+        runconfigs_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/getRunConfigurations",
+            {},
+        )
+        configs = runconfigs_payload.get("configurations", [])
+        runconfigs_ok = isinstance(configs, list)
+        compat_results.append(
+            ("getRunConfigurations", runconfigs_ok, runconfigs_payload)
+        )
+    except Exception as exc:
+        compat_results.append(("getRunConfigurations", False, str(exc)))
+
+    try:
+        reformat_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/reformatFile",
+            {"relativePath": "src/main/kotlin/com/codelens/tools/BaseMcpTool.kt"},
+        )
+        reformat_ok = reformat_payload.get("status") == "ok"
+        compat_results.append(("reformatFile", reformat_ok, reformat_payload))
+    except Exception as exc:
+        compat_results.append(("reformatFile", False, str(exc)))
+
+    try:
+        terminal_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/executeTerminalCommand",
+            {"command": "echo hello_codelens", "timeout": 5000},
+        )
+        terminal_ok = terminal_payload.get(
+            "exitCode"
+        ) == 0 and "hello_codelens" in terminal_payload.get("output", "")
+        compat_results.append(("executeTerminalCommand", terminal_ok, terminal_payload))
+    except Exception as exc:
+        compat_results.append(("executeTerminalCommand", False, str(exc)))
 
     compat_passed = 0
     for name, ok, payload in compat_results:

@@ -15,6 +15,8 @@
     <!-- Optional language support -->
     <depends optional="true" config-file="java-support.xml">com.intellij.java</depends>
     <depends optional="true" config-file="kotlin-support.xml">org.jetbrains.kotlin</depends>
+    <!-- Terminal plugin (optional, for future terminal UI integration) -->
+    <depends optional="true" config-file="terminal-support.xml">org.jetbrains.plugins.terminal</depends>
     <!-- MCP Server plugin (IntelliJ 2025.2+) -->
     <depends optional="true" config-file="mcp-tools.xml">com.intellij.mcpServer</depends>
 
