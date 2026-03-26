@@ -7,14 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-03-27
+
 ### Added
+- `activate_project` — 현재 IDE 프로젝트 컨텍스트 활성화 및 Serena 경로 검증
 - `get_current_config` — 현재 IDE/프로젝트/도구 등록 상태와 `.serena` 관련 경로 조회
 - `get_project_modules` — IntelliJ 모듈 구조, 루트, 의존성 조회
 - `get_open_files` — 현재 IDE에서 열린 파일과 선택된 파일 조회
 - `get_file_problems` — IntelliJ 하이라이팅 패스를 기반으로 파일 진단 조회
+- `check_onboarding_performed` — `.serena/memories` 기반 온보딩 상태 점검
+- `initial_instructions` — Serena 스타일의 초기 작업 지침 반환
+- `list_memories`, `read_memory`, `write_memory` — Serena 호환 메모리 워크플로 지원
+- Serena JetBrains backend 호환 HTTP endpoint (`/status`, `/findSymbol`, `/findReferences`, `/getSymbolsOverview`, `/getSupertypes`, `/getSubtypes`, `/renameSymbol`, `/refreshFile`)
+- `test-mcp-tools.py` 가 JetBrains MCP SSE smoke test와 Serena 호환 HTTP endpoint smoke test를 함께 수행하도록 확장
 
 ### Changed
-- README와 smoke test 기준을 22개 도구 집합으로 갱신
+- README와 smoke test 기준을 28개 도구 집합으로 갱신
+- `.serena/project.yml` 에서 이 프로젝트의 Serena backend 기본값을 `JetBrains` 로 override
+
+### Fixed
+- Serena 호환 type hierarchy 응답에서 `depth=0` 을 unlimited 로 처리
+- Serena 호환 type hierarchy 응답에서 `limitChildren` 과 `numLevelsNotIncluded` 를 지원
+- `findSymbol` 의 `includeLocation` 과 `getSymbolsOverview` 의 `includeFileDocumentation` 파라미터 전달 정합성 개선
 
 ## [0.2.1] - 2026-03-27
 

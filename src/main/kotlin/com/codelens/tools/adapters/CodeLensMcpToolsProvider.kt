@@ -11,10 +11,18 @@ class CodeLensMcpToolsProvider : McpToolsProvider {
     override fun getTools(): List<McpTool> {
         return listOf(
             // Runtime and IDE state
+            ActivateProjectMcpTool(),
             GetCurrentConfigMcpTool(),
             GetProjectModulesMcpTool(),
             GetOpenFilesMcpTool(),
             GetFileProblemsMcpTool(),
+
+            // Serena onboarding and memory workflow
+            CheckOnboardingPerformedMcpTool(),
+            InitialInstructionsMcpTool(),
+            ListMemoriesMcpTool(),
+            ReadMemoryMcpTool(),
+            WriteMemoryMcpTool(),
 
             // Symbol analysis (read-only)
             GetSymbolsOverviewMcpTool(),

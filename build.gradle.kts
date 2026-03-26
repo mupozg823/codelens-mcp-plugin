@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.codelens"
-version = "0.2.1"
+version = "0.2.2"
 
 repositories {
     mavenCentral()
@@ -75,12 +75,12 @@ intellijPlatform {
         """.trimIndent()
 
         changeNotes = """
-            <h3>0.2.1</h3>
+            <h3>0.2.2</h3>
             <ul>
-                <li>Added a repo-local stdio bridge for the JetBrains SSE MCP transport</li>
-                <li>Updated docs and plugin guidance to prefer the bundled bridge when generic proxies are incompatible</li>
-                <li>Fixed MCP argument type conversion so numeric and boolean tool parameters survive the adapter layer</li>
-                <li>Added direct IDE smoke tests for initialize, tools/list, and representative CodeLens tool calls</li>
+                <li>Added Serena-compatible onboarding and memory workflow tools for project activation and .serena state management</li>
+                <li>Added Serena JetBrains compatibility endpoints for symbol search, references, overview, hierarchy, rename, and refresh flows</li>
+                <li>Expanded smoke tests to verify both the JetBrains MCP SSE transport and Serena compatibility endpoints</li>
+                <li>Fixed hierarchy depth and child limit handling to match Serena JetBrains backend expectations</li>
             </ul>
         """.trimIndent()
 

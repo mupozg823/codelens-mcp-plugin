@@ -88,6 +88,21 @@ def post_json(path, payload):
     return response.status, response.reason
 
 
+def request_json(method, host, port, path, payload=None, timeout=10):
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    conn = http.client.HTTPConnection(host, port, timeout=timeout)
+    headers = {"Accept": "application/json"}
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    conn.request(method, path, body=body, headers=headers)
+    response = conn.getresponse()
+    raw = response.read()
+    conn.close()
+    if response.status >= 400:
+        raise RuntimeError(f"{method} {path} failed: {response.status} {response.reason} {raw.decode('utf-8', 'ignore')}")
+    return json.loads(raw.decode("utf-8"))
+
+
 def rpc_call(message_path, req_id, method, params=None):
     payload = {"jsonrpc": "2.0", "id": req_id, "method": method}
     if params is not None:
@@ -204,6 +219,16 @@ def main():
     print(f"  {len(tools)} total tools registered")
 
     codelens_tools = [
+        "activate_project",
+        "get_current_config",
+        "get_project_modules",
+        "get_open_files",
+        "get_file_problems",
+        "check_onboarding_performed",
+        "initial_instructions",
+        "list_memories",
+        "read_memory",
+        "write_memory",
         "get_symbols_overview",
         "find_symbol",
         "find_referencing_symbols",
@@ -236,6 +261,41 @@ def main():
         sys.exit(1)
 
     checks = [
+        (
+            "activate_project",
+            {"project": "codelens-mcp-plugin"},
+            lambda data: data.get("activated") is True,
+        ),
+        (
+            "get_current_config",
+            {},
+            lambda data: data.get("tool_count", 0) >= len(codelens_tools),
+        ),
+        (
+            "get_project_modules",
+            {},
+            lambda data: data.get("count", 0) >= 1,
+        ),
+        (
+            "check_onboarding_performed",
+            {},
+            lambda data: isinstance(data.get("required_memories"), list),
+        ),
+        (
+            "initial_instructions",
+            {},
+            lambda data: isinstance(data.get("instructions"), list) and len(data["instructions"]) >= 1,
+        ),
+        (
+            "list_memories",
+            {},
+            lambda data: isinstance(data.get("memories"), list),
+        ),
+        (
+            "read_memory",
+            {"memory_name": "project_overview"},
+            lambda data: "CodeLens MCP" in data.get("content", ""),
+        ),
         (
             "get_symbols_overview",
             {
@@ -304,8 +364,79 @@ def main():
             passed += 1
     print(f"\nResult: {passed}/{len(results)} passed")
 
+    print("\n=== Step 4: Serena Compatibility ===")
+    compat_results = []
+    try:
+        status_payload = request_json("GET", "127.0.0.1", 24226, "/status")
+        status_ok = (
+            status_payload.get("projectRoot", "").endswith("/codelens-mcp-plugin")
+            and isinstance(status_payload.get("pluginVersion"), str)
+        )
+        compat_results.append(("status", status_ok, status_payload))
+    except Exception as exc:
+        compat_results.append(("status", False, str(exc)))
+
+    try:
+        find_symbol_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/findSymbol",
+            {
+                "namePath": "CodeLensStartupActivity",
+                "relativePath": "src/main/kotlin/com/codelens/plugin/CodeLensStartupActivity.kt",
+                "includeLocation": True,
+            },
+        )
+        symbols = find_symbol_payload.get("symbols", [])
+        symbol = symbols[0] if symbols else {}
+        symbol_ok = (
+            isinstance(symbols, list)
+            and len(symbols) >= 1
+            and symbol.get("namePath") == "CodeLensStartupActivity"
+            and symbol.get("relativePath") == "src/main/kotlin/com/codelens/plugin/CodeLensStartupActivity.kt"
+            and "textRange" in symbol
+        )
+        compat_results.append(("findSymbol", symbol_ok, find_symbol_payload))
+    except Exception as exc:
+        compat_results.append(("findSymbol", False, str(exc)))
+
+    try:
+        overview_payload = request_json(
+            "POST",
+            "127.0.0.1",
+            24226,
+            "/getSymbolsOverview",
+            {
+                "relativePath": "src/main/kotlin/com/codelens/plugin/CodeLensStartupActivity.kt",
+                "depth": 1,
+                "includeFileDocumentation": False,
+            },
+        )
+        overview_symbols = overview_payload.get("symbols", [])
+        overview_symbol = overview_symbols[0] if overview_symbols else {}
+        overview_ok = (
+            isinstance(overview_symbols, list)
+            and len(overview_symbols) >= 1
+            and overview_symbol.get("namePath") == "CodeLensStartupActivity"
+            and isinstance(overview_symbol.get("children"), list)
+        )
+        compat_results.append(("getSymbolsOverview", overview_ok, overview_payload))
+    except Exception as exc:
+        compat_results.append(("getSymbolsOverview", False, str(exc)))
+
+    compat_passed = 0
+    for name, ok, payload in compat_results:
+        if ok:
+            compat_passed += 1
+            print(f"  PASS: {name} -> {json.dumps(payload, ensure_ascii=False)[:180]}")
+        else:
+            print(f"  FAIL: {name} -> {payload}")
+
+    print(f"\nCompatibility: {compat_passed}/{len(compat_results)} passed")
+
     sse_conn.close()
-    if passed != len(results):
+    if passed != len(results) or compat_passed != len(compat_results):
         sys.exit(1)
 
 

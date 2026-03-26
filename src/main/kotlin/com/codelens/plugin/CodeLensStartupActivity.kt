@@ -1,9 +1,11 @@
 package com.codelens.plugin
 
+import com.codelens.serena.SerenaCompatServer
 import com.codelens.tools.ToolRegistry
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
 import com.intellij.openapi.diagnostic.Logger
+import com.intellij.openapi.components.service
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.startup.ProjectActivity
 
@@ -21,6 +23,7 @@ class CodeLensStartupActivity : ProjectActivity {
         // Initialize tool registry (triggers lazy loading)
         val tools = ToolRegistry.tools
         logger.info("CodeLens MCP: Registered ${tools.size} tools")
+        project.service<SerenaCompatServer>().start()
 
         // Log tool names for debugging
         tools.forEach { tool ->
@@ -33,7 +36,7 @@ class CodeLensStartupActivity : ProjectActivity {
                 .getNotificationGroup("CodeLens MCP")
                 .createNotification(
                     "CodeLens MCP Ready",
-                    "${tools.size} tools registered. Connect through the JetBrains MCP Server transport.",
+                    "${tools.size} tools registered. MCP transport and Serena compatibility server are ready.",
                     NotificationType.INFORMATION
                 )
                 .notify(project)

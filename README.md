@@ -10,10 +10,16 @@ Serena JetBrains Plugin의 오픈소스 대안입니다. JetBrains IDE의 강력
 
 | Tool                             | Description                                              |
 | -------------------------------- | -------------------------------------------------------- |
+| `activate_project`               | 현재 IDE 프로젝트 컨텍스트 활성화 및 Serena 경로 검증    |
 | `get_current_config`             | 현재 프로젝트/IDE/도구 등록 상태와 Serena 관련 경로 조회 |
 | `get_project_modules`            | IntelliJ 모듈 구조, 루트, 의존성 조회                    |
 | `get_open_files`                 | 현재 IDE에서 열린 파일과 선택된 파일 조회                |
 | `get_file_problems`              | IntelliJ 하이라이팅 기반 파일 진단/문제 조회             |
+| `check_onboarding_performed`     | `.serena/memories` 온보딩 메모리 존재 여부 확인          |
+| `initial_instructions`           | Serena 스타일의 초기 작업 지침과 추천 흐름 반환          |
+| `list_memories`                  | `.serena/memories` 메모리 목록과 topic prefix 조회       |
+| `read_memory`                    | Serena 호환 메모리 파일 읽기                             |
+| `write_memory`                   | Serena 호환 메모리 파일 쓰기                             |
 | `get_symbols_overview`           | 파일/디렉토리의 심볼 구조 개요 반환                      |
 | `find_symbol`                    | 이름으로 심볼 검색 (본문 포함 옵션)                      |
 | `find_referencing_symbols`       | 심볼 참조 추적                                           |
@@ -37,7 +43,7 @@ Serena JetBrains Plugin의 오픈소스 대안입니다. JetBrains IDE의 강력
 
 도구 이름과 파라미터가 Serena MCP와 동일하여, 기존 CLAUDE.md의 Serena-First 규칙을 수정 없이 사용할 수 있습니다.
 
-최신 Serena 문서 기준으로 `ide`/`codex` context, 프로젝트 활성화, `.serena/memories/` 구조가 워크플로의 핵심입니다. CodeLens는 이에 맞춰 `get_current_config` 에서 현재 프로젝트, 인덱싱 상태, 등록된 도구, `.serena` 메모리 디렉터리 존재 여부를 함께 반환합니다.
+최신 Serena 문서 기준으로 `ide`/`codex` context, 프로젝트 활성화, `.serena/memories/` 구조가 워크플로의 핵심입니다. CodeLens는 이에 맞춰 현재 IDE 프로젝트를 `activate_project` 로 확인하고, `check_onboarding_performed`, `list_memories`, `read_memory`, `write_memory`, `initial_instructions` 로 Serena의 onboarding/memory 루프를 그대로 사용할 수 있게 맞춥니다.
 
 ### Supported Languages
 
@@ -72,7 +78,7 @@ cd codelens-mcp-plugin
 ./gradlew buildPlugin
 ```
 
-빌드된 플러그인: `build/distributions/codelens-mcp-plugin-0.2.1.zip`
+빌드된 플러그인: `build/distributions/codelens-mcp-plugin-0.2.2.zip`
 
 IDE에서 설치: Settings → Plugins → ⚙️ → Install Plugin from Disk
 
@@ -123,6 +129,11 @@ python3 jetbrains_sse_bridge.py --host 127.0.0.1 --port 64342 --sse-path /sse
 python3 test-mcp-tools.py
 ```
 
+이 smoke test는 두 경로를 함께 검증합니다.
+
+- JetBrains MCP Server SSE transport
+- Serena 호환 HTTP endpoint (`http://127.0.0.1:24226/status`, `findSymbol`, `getSymbolsOverview`)
+
 `tools/list` 가 실패하지만 `/sse` 는 열린 경우에는 CodeLens 플러그인 문제가 아니라 bridge/proxy 버전 불일치일 가능성이 큽니다. 이 경우 `jetbrains_sse_bridge.py` 를 먼저 사용하세요.
 
 ---
@@ -170,7 +181,7 @@ src/main/kotlin/com/codelens/
 ├── tools/          # MCP tools (one class per tool)
 │   ├── BaseMcpTool.kt             # Abstract base
 │   ├── ToolRegistry.kt            # Tool registration
-│   └── [18 tool implementations]
+│   └── [28 tool implementations]
 └── plugin/         # Plugin lifecycle & UI
     ├── CodeLensStartupActivity.kt
     ├── CodeLensConfigurable.kt     # Settings page
@@ -192,7 +203,7 @@ JetBrains MCP Server
          │
 JetBrains IDE
   └── CodeLens MCP Plugin
-        ├── MCP Tools (22 tools)
+        ├── MCP Tools (28 tools)
         ├── PSI Service Layer
         └── Language Adapters (Java, Kotlin, Generic)
               └── IntelliJ PSI Engine

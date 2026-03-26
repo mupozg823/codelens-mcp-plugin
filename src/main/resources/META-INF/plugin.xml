@@ -35,6 +35,8 @@
         <projectService
             serviceInterface="com.codelens.services.FileService"
             serviceImplementation="com.codelens.services.FileServiceImpl"/>
+        <projectService
+            serviceImplementation="com.codelens.serena.SerenaCompatServer"/>
 
         <!-- Settings configurable -->
         <projectConfigurable

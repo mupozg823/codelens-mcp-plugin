@@ -10,10 +10,18 @@ object ToolRegistry {
     val tools: List<BaseMcpTool> by lazy {
         listOf(
             // Phase 0: Runtime and IDE state
+            ActivateProjectTool(),
             GetCurrentConfigTool(),
             GetProjectModulesTool(),
             GetOpenFilesTool(),
             GetFileProblemsTool(),
+
+            // Phase 0.5: Serena onboarding and memory workflow
+            CheckOnboardingPerformedTool(),
+            InitialInstructionsTool(),
+            ListMemoriesTool(),
+            ReadMemoryTool(),
+            WriteMemoryTool(),
 
             // Phase 1: Read-only symbol analysis
             GetSymbolsOverviewTool(),
