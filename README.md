@@ -14,10 +14,20 @@ Serena JetBrains Plugin의 오픈소스 대안입니다. JetBrains IDE의 강력
 | `find_symbol` | 이름으로 심볼 검색 (본문 포함 옵션) |
 | `find_referencing_symbols` | 심볼 참조 추적 |
 | `search_for_pattern` | 정규식 기반 코드 검색 |
+| `get_type_hierarchy` | 클래스의 상속/구현 관계와 멤버 구조 조회 |
+| `find_referencing_code_snippets` | 참조 지점의 주변 코드 스니펫 조회 |
 | `replace_symbol_body` | 심볼 본문 교체 |
 | `insert_after_symbol` | 심볼 뒤에 코드 삽입 |
 | `insert_before_symbol` | 심볼 앞에 코드 삽입 |
 | `rename_symbol` | IDE 리팩토링 기반 심볼 이름 변경 |
+| `read_file` | 파일 내용 일부 또는 전체 읽기 |
+| `list_dir` | 디렉터리 목록 조회 |
+| `find_file` | 파일명 패턴으로 파일 검색 |
+| `create_text_file` | 텍스트 파일 생성 |
+| `delete_lines` | 파일의 특정 라인 삭제 |
+| `insert_at_line` | 특정 라인에 텍스트 삽입 |
+| `replace_lines` | 특정 라인 범위 교체 |
+| `replace_content` | 파일 내용 패턴 치환 |
 
 ### Serena Compatible
 
@@ -56,7 +66,7 @@ cd codelens-mcp-plugin
 ./gradlew buildPlugin
 ```
 
-빌드된 플러그인: `build/distributions/codelens-mcp-plugin-0.1.0.zip`
+빌드된 플러그인: `build/distributions/codelens-mcp-plugin-0.2.0.zip`
 
 IDE에서 설치: Settings → Plugins → ⚙️ → Install Plugin from Disk
 
@@ -134,7 +144,7 @@ src/main/kotlin/com/codelens/
 ├── tools/          # MCP tools (one class per tool)
 │   ├── BaseMcpTool.kt             # Abstract base
 │   ├── ToolRegistry.kt            # Tool registration
-│   └── [8 tool implementations]
+│   └── [18 tool implementations]
 └── plugin/         # Plugin lifecycle & UI
     ├── CodeLensStartupActivity.kt
     ├── CodeLensConfigurable.kt     # Settings page
@@ -154,7 +164,7 @@ Claude Code / Claude Desktop
          │
 JetBrains IDE
   └── CodeLens MCP Plugin
-        ├── MCP Tools (8 tools)
+        ├── MCP Tools (18 tools)
         ├── PSI Service Layer
         └── Language Adapters (Java, Kotlin, Generic)
               └── IntelliJ PSI Engine
@@ -180,7 +190,6 @@ JetBrains IDE
 - [ ] Python 언어 어댑터
 - [ ] JavaScript/TypeScript 언어 어댑터
 - [ ] Go 언어 어댑터
-- [ ] `get_type_hierarchy` 도구
 - [ ] GotoSymbolContributor 기반 고속 검색
 - [ ] Structural Search and Replace 통합
 - [ ] 성능 최적화 (캐싱, 비동기)

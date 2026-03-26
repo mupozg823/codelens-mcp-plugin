@@ -9,17 +9,33 @@ object ToolRegistry {
 
     val tools: List<BaseMcpTool> by lazy {
         listOf(
-            // Phase 1: Read-only analysis
+            // Phase 1: Read-only symbol analysis
             GetSymbolsOverviewTool(),
             FindSymbolTool(),
             FindReferencingSymbolsTool(),
             SearchForPatternTool(),
 
-            // Phase 2: Modifications
+            // Phase 1.5: Advanced code structure analysis
+            TypeHierarchyTool(),
+            FindReferencingCodeSnippetsTool(),
+
+            // Phase 2: Symbol-level modifications
             ReplaceSymbolBodyTool(),
             InsertAfterSymbolTool(),
             InsertBeforeSymbolTool(),
-            RenameSymbolTool()
+            RenameSymbolTool(),
+
+            // Phase 3: File operations (read)
+            ReadFileTool(),
+            ListDirTool(),
+            FindFileTool(),
+
+            // Phase 4: File operations (write)
+            CreateTextFileTool(),
+            DeleteLinesTool(),
+            InsertAtLineTool(),
+            ReplaceLinesTool(),
+            ReplaceContentTool()
         )
     }
 

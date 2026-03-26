@@ -1,7 +1,6 @@
 package com.codelens.tools
 
 import com.codelens.services.FileService
-import com.codelens.utils.JsonBuilder
 import com.intellij.openapi.project.Project
 
 class ListDirTool : BaseMcpTool() {
@@ -30,21 +29,10 @@ class ListDirTool : BaseMcpTool() {
             val fileService = project.getService(FileService::class.java)
             val entries = fileService.listDirectory(relativePath, recursive)
 
-            val entriesData = entries.map { entry ->
-                mapOf(
-                    "name" to entry.name,
-                    "type" to entry.type,
-                    "path" to entry.path,
-                    "size" to entry.size
-                )
-            }
-
-            val data = mapOf(
-                "entries" to entriesData,
+            successResponse(mapOf(
+                "entries" to entries.map { mapOf("name" to it.name, "type" to it.type, "path" to it.path, "size" to it.size) },
                 "count" to entries.size
-            )
-
-            JsonBuilder.toolResponse(success = true, data = data)
+            ))
         } catch (e: Exception) {
             errorResponse("Failed to list directory: ${e.message}")
         }

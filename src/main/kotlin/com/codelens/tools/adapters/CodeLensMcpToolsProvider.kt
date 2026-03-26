@@ -10,14 +10,33 @@ import com.intellij.mcpserver.McpToolsProvider
 class CodeLensMcpToolsProvider : McpToolsProvider {
     override fun getTools(): List<McpTool> {
         return listOf(
+            // Symbol analysis (read-only)
             GetSymbolsOverviewMcpTool(),
             FindSymbolMcpTool(),
             FindReferencingSymbolsMcpTool(),
             SearchForPatternMcpTool(),
+
+            // Advanced code structure
+            TypeHierarchyMcpTool(),
+            FindReferencingCodeSnippetsMcpTool(),
+
+            // Symbol modifications
             ReplaceSymbolBodyMcpTool(),
             InsertAfterSymbolMcpTool(),
             InsertBeforeSymbolMcpTool(),
-            RenameSymbolMcpTool()
+            RenameSymbolMcpTool(),
+
+            // File operations (read)
+            ReadFileMcpTool(),
+            ListDirMcpTool(),
+            FindFileMcpTool(),
+
+            // File operations (write)
+            CreateTextFileMcpTool(),
+            DeleteLinesMcpTool(),
+            InsertAtLineMcpTool(),
+            ReplaceLinesMcpTool(),
+            ReplaceContentMcpTool()
         )
     }
 }

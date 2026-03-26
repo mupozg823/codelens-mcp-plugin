@@ -1,7 +1,6 @@
 package com.codelens.tools
 
 import com.codelens.services.FileService
-import com.codelens.utils.JsonBuilder
 import com.intellij.openapi.project.Project
 
 class ReadFileTool : BaseMcpTool() {
@@ -29,19 +28,17 @@ class ReadFileTool : BaseMcpTool() {
     override fun execute(args: Map<String, Any?>, project: Project): String {
         return try {
             val relativePath = requireString(args, "relative_path")
-            val startLine = optionalInt(args, "start_line", null)
-            val endLine = optionalInt(args, "end_line", null)
+            val startLine = args["start_line"]?.let { (it as? Number)?.toInt() }
+            val endLine = args["end_line"]?.let { (it as? Number)?.toInt() }
 
             val fileService = project.getService(FileService::class.java)
             val result = fileService.readFile(relativePath, startLine, endLine)
 
-            val data = mapOf(
+            successResponse(mapOf(
                 "content" to result.content,
                 "total_lines" to result.totalLines,
                 "file_path" to result.filePath
-            )
-
-            JsonBuilder.toolResponse(success = true, data = data)
+            ))
         } catch (e: Exception) {
             errorResponse("Failed to read file: ${e.message}")
         }

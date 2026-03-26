@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-03-27
+
+### Added
+- `get_type_hierarchy` — 클래스의 상속/구현 관계와 멤버 구조 조회
+- `find_referencing_code_snippets` — 참조 지점 주변의 코드 스니펫 조회
+- File operations:
+  - `read_file`, `list_dir`, `find_file`
+  - `create_text_file`, `delete_lines`, `insert_at_line`, `replace_lines`, `replace_content`
+
+### Changed
+- Type hierarchy tool name aligned to Serena-compatible `get_type_hierarchy`
+
 ## [0.1.0] - 2026-03-26
 
 ### Added

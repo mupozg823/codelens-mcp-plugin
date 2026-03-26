@@ -1,5 +1,6 @@
 package com.codelens.tools.adapters
 
+import com.codelens.tools.McpToolAdapter
 import com.codelens.tools.ReadFileTool
 import com.intellij.mcpserver.McpTool
 

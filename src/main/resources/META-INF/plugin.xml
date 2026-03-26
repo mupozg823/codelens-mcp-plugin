@@ -15,9 +15,6 @@
     <!-- Optional language support -->
     <depends optional="true" config-file="java-support.xml">com.intellij.java</depends>
     <depends optional="true" config-file="kotlin-support.xml">org.jetbrains.kotlin</depends>
-    <depends optional="true" config-file="python-support.xml">com.intellij.modules.python</depends>
-    <depends optional="true" config-file="js-support.xml">JavaScript</depends>
-    
     <!-- MCP Server plugin (IntelliJ 2025.2+) -->
     <depends optional="true" config-file="mcp-tools.xml">com.intellij.mcpServer</depends>
 
@@ -35,6 +32,9 @@
         <projectService
             serviceInterface="com.codelens.services.ModificationService"
             serviceImplementation="com.codelens.services.ModificationServiceImpl"/>
+        <projectService
+            serviceInterface="com.codelens.services.FileService"
+            serviceImplementation="com.codelens.services.FileServiceImpl"/>
 
         <!-- Settings configurable -->
         <projectConfigurable

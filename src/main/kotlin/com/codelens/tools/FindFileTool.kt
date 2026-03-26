@@ -1,7 +1,6 @@
 package com.codelens.tools
 
 import com.codelens.services.FileService
-import com.codelens.utils.JsonBuilder
 import com.intellij.openapi.project.Project
 
 class FindFileTool : BaseMcpTool() {
@@ -30,12 +29,7 @@ class FindFileTool : BaseMcpTool() {
             val fileService = project.getService(FileService::class.java)
             val files = fileService.findFiles(pattern, baseDir)
 
-            val data = mapOf(
-                "files" to files,
-                "count" to files.size
-            )
-
-            JsonBuilder.toolResponse(success = true, data = data)
+            successResponse(mapOf("files" to files, "count" to files.size))
         } catch (e: Exception) {
             errorResponse("Failed to find files: ${e.message}")
         }

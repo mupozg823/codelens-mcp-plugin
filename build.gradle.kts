@@ -1,4 +1,5 @@
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
+import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 
 plugins {
     id("java")
@@ -7,7 +8,7 @@ plugins {
 }
 
 group = "com.codelens"
-version = "0.1.0"
+version = "0.2.0"
 
 repositories {
     mavenCentral()
@@ -24,11 +25,7 @@ dependencies {
         bundledPlugin("org.jetbrains.kotlin")
         bundledPlugin("com.intellij.mcpServer")
 
-        // Optional language plugins from Marketplace (for compilation only)
-        plugin("PythonCore", "252.28238.7")
-
         pluginVerifier()
-        instrumentationTools()
         testFramework(TestFrameworkType.Platform)
     }
 
@@ -50,7 +47,7 @@ kotlin {
 intellijPlatform {
     pluginVerification {
         ides {
-            recommended()
+            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2025.2")
         }
     }
 
@@ -78,12 +75,12 @@ intellijPlatform {
         """.trimIndent()
 
         changeNotes = """
-            <h3>0.1.0</h3>
+            <h3>0.2.0</h3>
             <ul>
-                <li>8 MCP tools: 4 read-only + 4 editing tools</li>
-                <li>Read: get_symbols_overview, find_symbol, find_referencing_symbols, search_for_pattern</li>
-                <li>Edit: replace_symbol_body, insert_after_symbol, insert_before_symbol, rename_symbol</li>
-                <li>Language adapters: Java, Kotlin, Python (+ Generic fallback)</li>
+                <li>18 MCP tools: symbol analysis, type hierarchy, reference snippets, and file operations</li>
+                <li>Added: get_type_hierarchy, find_referencing_code_snippets</li>
+                <li>Added file tools: read_file, list_dir, find_file, create_text_file, delete_lines, insert_at_line, replace_lines, replace_content</li>
+                <li>Language adapters: Java, Kotlin (+ Generic fallback)</li>
                 <li>Serena-compatible tool names for drop-in replacement</li>
             </ul>
         """.trimIndent()

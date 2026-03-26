@@ -2,55 +2,44 @@ package com.codelens.services
 
 import com.codelens.model.FileEntry
 import com.codelens.model.FileReadResult
-import com.codelens.utils.PsiUtils
+import com.codelens.util.PsiUtils
 import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
-import java.nio.file.FileSystems
-import java.nio.file.Paths
+import com.intellij.psi.PsiManager
 
 class FileServiceImpl(private val project: Project) : FileService {
 
     override fun readFile(path: String, startLine: Int?, endLine: Int?): FileReadResult {
-        return ReadAction.compute {
+        return ReadAction.compute<FileReadResult, Exception> {
             val resolvedPath = resolvePath(path)
             val virtualFile = PsiUtils.resolveVirtualFile(resolvedPath)
                 ?: throw IllegalArgumentException("File not found: $path")
-
-            val document = PsiUtils.getDocument(virtualFile)
+            val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
+                ?: throw IllegalArgumentException("Cannot open file: $path")
+            val document = PsiUtils.getDocument(psiFile)
                 ?: throw IllegalArgumentException("Cannot read document: $path")
 
-            val fullContent = document.text
-            val lines = fullContent.split("\n")
+            val lines = document.text.split("\n")
             val totalLines = lines.size
-
-            val start = (startLine ?: 0).coerceIn(0, lines.size)
-            val end = (endLine ?: lines.size).coerceIn(start, lines.size)
-
-            val selectedContent = if (start < end) {
-                lines.subList(start, end).joinToString("\n")
-            } else {
-                ""
-            }
+            val start = (startLine ?: 0).coerceIn(0, totalLines)
+            val end = (endLine ?: totalLines).coerceIn(start, totalLines)
+            val selectedContent = lines.subList(start, end).joinToString("\n")
 
             FileReadResult(
                 content = selectedContent,
                 totalLines = totalLines,
-                filePath = PsiUtils.getRelativePath(project, virtualFile) ?: resolvedPath
+                filePath = PsiUtils.getRelativePath(project, virtualFile)
             )
         }
     }
 
     override fun listDirectory(path: String, recursive: Boolean): List<FileEntry> {
-        return ReadAction.compute {
+        return ReadAction.compute<List<FileEntry>, Exception> {
             val resolvedPath = resolvePath(path)
             val virtualFile = PsiUtils.resolveVirtualFile(resolvedPath)
                 ?: throw IllegalArgumentException("Directory not found: $path")
-
-            if (!virtualFile.isDirectory) {
-                throw IllegalArgumentException("Path is not a directory: $path")
-            }
-
+            if (!virtualFile.isDirectory) throw IllegalArgumentException("Not a directory: $path")
             val entries = mutableListOf<FileEntry>()
             traverseDirectory(virtualFile, path, recursive, entries)
             entries
@@ -58,95 +47,60 @@ class FileServiceImpl(private val project: Project) : FileService {
     }
 
     override fun findFiles(pattern: String, baseDir: String?): List<String> {
-        return ReadAction.compute {
-            val searchDir = if (baseDir != null) {
-                resolvePath(baseDir)
-            } else {
-                project.basePath ?: return@compute emptyList()
-            }
-
+        return ReadAction.compute<List<String>, Exception> {
+            val searchDir = if (baseDir != null) resolvePath(baseDir) else project.basePath ?: return@compute emptyList()
             val virtualFile = PsiUtils.resolveVirtualFile(searchDir)
-                ?: throw IllegalArgumentException("Base directory not found: $baseDir")
-
+                ?: throw IllegalArgumentException("Directory not found: ${baseDir ?: "project root"}")
             val matcher = createMatcher(pattern)
             val results = mutableListOf<String>()
-
-            traverseForPattern(virtualFile, matcher, results, searchDir)
+            traverseForPattern(virtualFile, matcher, results)
             results
         }
     }
 
-    private fun traverseDirectory(
-        virtualFile: VirtualFile,
-        parentPath: String,
-        recursive: Boolean,
-        entries: MutableList<FileEntry>
-    ) {
-        val children = virtualFile.children.sortedBy { it.name }
-
-        for (child in children) {
-            val relativePath = if (parentPath.isEmpty() || parentPath == ".") {
-                child.name
-            } else {
-                "$parentPath/${child.name}"
-            }
-
-            val entry = FileEntry(
-                name = child.name,
-                type = if (child.isDirectory) "directory" else "file",
-                path = relativePath,
-                size = if (child.isDirectory) null else child.length
-            )
-            entries.add(entry)
-
-            if (recursive && child.isDirectory) {
-                traverseDirectory(child, relativePath, true, entries)
-            }
+    private fun traverseDirectory(dir: VirtualFile, parentPath: String, recursive: Boolean, entries: MutableList<FileEntry>) {
+        for (child in dir.children.sortedBy { it.name }) {
+            val relativePath = if (parentPath.isEmpty() || parentPath == ".") child.name else "$parentPath/${child.name}"
+            entries.add(FileEntry(child.name, if (child.isDirectory) "directory" else "file", relativePath, if (child.isDirectory) null else child.length))
+            if (recursive && child.isDirectory) traverseDirectory(child, relativePath, true, entries)
         }
     }
 
-    private fun traverseForPattern(
-        virtualFile: VirtualFile,
-        matcher: (String) -> Boolean,
-        results: MutableList<String>,
-        baseDir: String
-    ) {
-        if (!virtualFile.isValid) return
-
-        val children = virtualFile.children
-
-        for (child in children) {
-            val relativePath = PsiUtils.getRelativePath(project, child) ?: continue
-
-            if (matcher(relativePath)) {
-                results.add(relativePath)
+    private fun traverseForPattern(dir: VirtualFile, matcher: (String) -> Boolean, results: MutableList<String>) {
+        if (!dir.isValid) return
+        for (child in dir.children) {
+            if (!child.isDirectory && matcher(child.name)) {
+                results.add(PsiUtils.getRelativePath(project, child))
             }
-
-            if (child.isDirectory) {
-                traverseForPattern(child, matcher, results, baseDir)
-            }
+            if (child.isDirectory) traverseForPattern(child, matcher, results)
         }
     }
 
     private fun createMatcher(pattern: String): (String) -> Boolean {
+        val regexStr = buildString {
+            for (ch in pattern) {
+                when (ch) {
+                    '.' -> append("\\.")
+                    '*' -> append(".*")
+                    '?' -> append(".")
+                    else -> append(ch)
+                }
+            }
+        }
         return try {
-            val globPattern = pattern.replace(".", "\\.")
-                .replace("*", ".*")
-                .replace("?", ".")
-                .let { if (it.contains(".*")) it else ".*/$it" }
-            val regex = Regex("^$globPattern$")
-            { path -> regex.matches(path) }
+            val compiled = regexStr.toRegex()
+            val fn: (String) -> Boolean = { name -> compiled.containsMatchIn(name) }
+            fn
         } catch (e: Exception) {
-            { path -> path.endsWith(pattern) }
+            val suffix = pattern.removePrefix("*")
+            val fn: (String) -> Boolean = { name -> name.endsWith(suffix) }
+            fn
         }
     }
 
     private fun resolvePath(path: String): String {
-        return if (path.startsWith("/")) {
-            path
-        } else {
-            val basePath = project.basePath ?: ""
-            if (basePath.isEmpty()) path else "$basePath/$path"
-        }
+        if (path.startsWith("/")) return path
+        val basePath = project.basePath ?: return path
+        return "$basePath/$path"
     }
 }
