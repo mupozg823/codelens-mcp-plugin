@@ -33,7 +33,7 @@ class CodeLensStartupActivity : ProjectActivity {
                 .getNotificationGroup("CodeLens MCP")
                 .createNotification(
                     "CodeLens MCP Ready",
-                    "${tools.size} tools registered. Connect via @jetbrains/mcp-proxy.",
+                    "${tools.size} tools registered. Connect through the JetBrains MCP Server transport.",
                     NotificationType.INFORMATION
                 )
                 .notify(project)

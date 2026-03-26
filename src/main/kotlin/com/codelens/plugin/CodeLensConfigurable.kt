@@ -55,9 +55,9 @@ class CodeLensConfigurable(private val project: Project) : Configurable {
             })
             .addVerticalGap(15)
             .addComponent(JBLabel("<html><b>Connection:</b><br>" +
-                "1. Install: <code>npm install -g @jetbrains/mcp-proxy</code><br>" +
-                "2. Claude Desktop: Add jetbrains server with <code>npx @jetbrains/mcp-proxy</code><br>" +
-                "3. Claude Code: <code>claude mcp add jetbrains -- npx -y @jetbrains/mcp-proxy</code>" +
+                "1. Enable JetBrains MCP Server in the IDE<br>" +
+                "2. Prefer the repo bridge <code>python3 jetbrains_sse_bridge.py</code> when generic proxies are incompatible<br>" +
+                "3. Verify the local endpoint with <code>python3 test-mcp-tools.py</code>" +
                 "</html>"))
             .addVerticalGap(10)
             .addComponent(JBLabel("<html><b>Project:</b> ${project.name}<br>" +

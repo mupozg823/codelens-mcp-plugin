@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-03-27
+
+### Added
+- `jetbrains_sse_bridge.py` — repo-local stdio bridge for the JetBrains IDE SSE MCP transport
+- Direct IDE smoke test coverage in `test-mcp-tools.py` without external Python packages
+
+### Changed
+- Connection guidance now prefers the bundled bridge when generic MCP proxies are incompatible
+
+### Fixed
+- `McpToolAdapter` now preserves numeric and boolean argument types instead of coercing all primitives to strings
+- `read_file` line ranges now work correctly when invoked through the MCP adapter layer
+
 ## [0.2.0] - 2026-03-27
 
 ### Added

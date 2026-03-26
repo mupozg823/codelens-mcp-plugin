@@ -182,7 +182,7 @@ Serena MCP의 실제 요청/응답 포맷을 확인하고 완전히 호환되는
 1. **IntelliJ에서 프로젝트 열기** → Gradle sync → 컴파일 에러 수정
 2. **mcp.tool API 확인** → BaseMcpTool 수정
 3. **runIde로 샌드박스 테스트** → Phase 1 도구 동작 확인
-4. **Claude Desktop 연동 테스트** → @jetbrains/mcp-proxy 통해 실제 통신
+4. **JetBrains MCP smoke test** → `python3 test-mcp-tools.py` 로 IDE SSE endpoint 실제 통신 검증
 5. **Phase 2 도구 테스트** → 코드 수정 기능 검증
 6. **추가 언어 어댑터** → Python, JS/TS
 7. **테스트 작성** → 단위 + 통합

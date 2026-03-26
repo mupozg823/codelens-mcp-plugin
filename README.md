@@ -66,7 +66,7 @@ cd codelens-mcp-plugin
 ./gradlew buildPlugin
 ```
 
-빌드된 플러그인: `build/distributions/codelens-mcp-plugin-0.2.0.zip`
+빌드된 플러그인: `build/distributions/codelens-mcp-plugin-0.2.1.zip`
 
 IDE에서 설치: Settings → Plugins → ⚙️ → Install Plugin from Disk
 
@@ -82,8 +82,8 @@ IDE에서 설치: Settings → Plugins → ⚙️ → Install Plugin from Disk
 {
   "mcpServers": {
     "jetbrains": {
-      "command": "npx",
-      "args": ["-y", "@jetbrains/mcp-proxy"]
+      "command": "python3",
+      "args": ["/absolute/path/to/codelens-mcp-plugin/jetbrains_sse_bridge.py"]
     }
   }
 }
@@ -92,12 +92,32 @@ IDE에서 설치: Settings → Plugins → ⚙️ → Install Plugin from Disk
 ### Claude Code
 
 ```bash
-claude mcp add jetbrains -- npx -y @jetbrains/mcp-proxy
+claude mcp add jetbrains -- python3 /absolute/path/to/codelens-mcp-plugin/jetbrains_sse_bridge.py
 ```
 
 ### 다른 MCP 클라이언트
 
-JetBrains의 내장 MCP Server (포트 6365)를 통해 연결됩니다. `@jetbrains/mcp-proxy`가 Stdio ↔ HTTP 변환을 처리합니다.
+JetBrains의 내장 MCP Server를 통해 연결됩니다. 최신 IDE에서는 로컬 SSE endpoint를 직접 노출할 수 있으며, MCP 클라이언트나 bridge는 현재 IDE가 제공하는 transport와 호환되어야 합니다.
+
+repo에 포함된 bridge:
+
+```bash
+python3 jetbrains_sse_bridge.py
+```
+
+필요하면 포트를 직접 지정할 수 있습니다:
+
+```bash
+python3 jetbrains_sse_bridge.py --host 127.0.0.1 --port 64342 --sse-path /sse
+```
+
+문제가 생기면 먼저 다음으로 IDE endpoint 자체를 검증하세요:
+
+```bash
+python3 test-mcp-tools.py
+```
+
+`tools/list` 가 실패하지만 `/sse` 는 열린 경우에는 CodeLens 플러그인 문제가 아니라 bridge/proxy 버전 불일치일 가능성이 큽니다. 이 경우 `jetbrains_sse_bridge.py` 를 먼저 사용하세요.
 
 ---
 
@@ -159,8 +179,10 @@ src/main/kotlin/com/codelens/
 Claude Code / Claude Desktop
          │ MCP Protocol (Stdio)
          │
-@jetbrains/mcp-proxy
-         │ HTTP (localhost:6365)
+Compatible MCP bridge or client
+         │ MCP over IDE-managed transport
+         │
+JetBrains MCP Server
          │
 JetBrains IDE
   └── CodeLens MCP Plugin

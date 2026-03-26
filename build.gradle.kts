@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.codelens"
-version = "0.2.0"
+version = "0.2.1"
 
 repositories {
     mavenCentral()
@@ -23,7 +23,7 @@ dependencies {
 
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.kotlin")
-        bundledPlugin("com.intellij.mcpServer")
+        plugin("com.intellij.mcpServer", "252.28238.29")
 
         pluginVerifier()
         testFramework(TestFrameworkType.Platform)
@@ -75,13 +75,12 @@ intellijPlatform {
         """.trimIndent()
 
         changeNotes = """
-            <h3>0.2.0</h3>
+            <h3>0.2.1</h3>
             <ul>
-                <li>18 MCP tools: symbol analysis, type hierarchy, reference snippets, and file operations</li>
-                <li>Added: get_type_hierarchy, find_referencing_code_snippets</li>
-                <li>Added file tools: read_file, list_dir, find_file, create_text_file, delete_lines, insert_at_line, replace_lines, replace_content</li>
-                <li>Language adapters: Java, Kotlin (+ Generic fallback)</li>
-                <li>Serena-compatible tool names for drop-in replacement</li>
+                <li>Added a repo-local stdio bridge for the JetBrains SSE MCP transport</li>
+                <li>Updated docs and plugin guidance to prefer the bundled bridge when generic proxies are incompatible</li>
+                <li>Fixed MCP argument type conversion so numeric and boolean tool parameters survive the adapter layer</li>
+                <li>Added direct IDE smoke tests for initialize, tools/list, and representative CodeLens tool calls</li>
             </ul>
         """.trimIndent()
 

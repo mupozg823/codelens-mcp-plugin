@@ -4,15 +4,18 @@ import com.intellij.mcpserver.McpTool
 import com.intellij.mcpserver.McpToolCallResult
 import com.intellij.mcpserver.McpToolCallResultContent
 import com.intellij.mcpserver.McpToolDescriptor
-import com.intellij.mcpserver.McpToolInputSchema
+import com.intellij.mcpserver.McpToolSchema
 import com.intellij.openapi.project.ProjectManager
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -24,12 +27,18 @@ class McpToolAdapter(
 ) : McpTool {
 
     private val _descriptor: McpToolDescriptor by lazy {
-        val inputSchema = convertToMcpToolInputSchema(tool.inputSchema)
+        val inputSchema = convertToMcpToolSchema(tool.inputSchema)
 
         McpToolDescriptor(
             name = tool.toolName,
             description = tool.description,
-            inputSchema = inputSchema
+            inputSchema = inputSchema,
+            outputSchema = McpToolSchema(
+                propertiesSchema = JsonObject(emptyMap()),
+                requiredProperties = emptySet(),
+                definitions = emptyMap(),
+                definitionsPath = McpToolSchema.DEFAULT_DEFINITIONS_PATH
+            )
         )
     }
 
@@ -48,6 +57,7 @@ class McpToolAdapter(
             val textContent = McpToolCallResultContent.Text(response)
             McpToolCallResult(
                 content = arrayOf(textContent),
+                structuredContent = JsonObject(emptyMap()),
                 isError = false
             )
         } catch (e: Exception) {
@@ -55,50 +65,58 @@ class McpToolAdapter(
             val textContent = McpToolCallResultContent.Text(errorMessage)
             McpToolCallResult(
                 content = arrayOf(textContent),
+                structuredContent = JsonObject(emptyMap()),
                 isError = true
             )
         }
     }
 
     private fun jsonObjectToMap(json: JsonObject): Map<String, Any?> {
-        return json.mapValues { (_, element) ->
-            when {
-                element is JsonObject -> jsonObjectToMap(element)
-                element == null -> null
-                else -> {
-                    try {
-                        element.jsonPrimitive.content
-                    } catch (e: Exception) {
-                        element.toString()
-                    }
+        return json.mapValues { (_, element) -> jsonElementToValue(element) }
+    }
+
+    private fun jsonElementToValue(element: JsonElement): Any? {
+        return when (element) {
+            is JsonObject -> jsonObjectToMap(element)
+            is JsonArray -> element.map { jsonElementToValue(it) }
+            is JsonPrimitive -> {
+                when {
+                    element.isString -> element.content
+                    element.booleanOrNull != null -> element.booleanOrNull
+                    element.longOrNull != null -> element.longOrNull
+                    element.doubleOrNull != null -> element.doubleOrNull
+                    element.content == "null" -> null
+                    else -> element.content
                 }
             }
+            else -> element.toString()
         }
     }
 
     /**
-     * Convert our inputSchema Map to JetBrains' McpToolInputSchema format.
-     * McpToolInputSchema(parameters: Map<String, JsonElement>, requiredParameters: Set<String>, definitions: Map<String, JsonElement>, definitionsPath: String)
+     * Convert our inputSchema Map to JetBrains' McpToolSchema format.
      */
-    private fun convertToMcpToolInputSchema(schema: Map<String, Any>): McpToolInputSchema {
+    private fun convertToMcpToolSchema(schema: Map<String, Any>): McpToolSchema {
         val properties = schema["properties"] as? Map<String, Any> ?: emptyMap()
         val required = (schema["required"] as? List<*>)?.mapNotNull { it as? String }?.toSet() ?: emptySet()
 
-        val parameters: Map<String, JsonElement> = properties.mapValues { (_, value) ->
-            when (value) {
-                is Map<*, *> -> {
-                    @Suppress("UNCHECKED_CAST")
-                    buildPropertyJson(value as Map<String, Any>)
+        val propertiesSchema = buildJsonObject {
+            properties.forEach { (key, value) ->
+                when (value) {
+                    is Map<*, *> -> {
+                        @Suppress("UNCHECKED_CAST")
+                        put(key, buildPropertyJson(value as Map<String, Any>))
+                    }
+                    else -> put(key, JsonPrimitive(value.toString()))
                 }
-                else -> JsonPrimitive(value.toString())
             }
         }
 
-        return McpToolInputSchema(
-            parameters = parameters,
-            requiredParameters = required,
+        return McpToolSchema(
+            propertiesSchema = propertiesSchema,
+            requiredProperties = required,
             definitions = emptyMap(),
-            definitionsPath = ""
+            definitionsPath = McpToolSchema.DEFAULT_DEFINITIONS_PATH
         )
     }
 
@@ -117,14 +135,18 @@ class McpToolAdapter(
                         }
                     }
                     is List<*> -> {
-                        val stringList = value.mapNotNull { it as? String }
-                        if (stringList.isNotEmpty()) {
-                            put(key, buildJsonArray {
-                                stringList.forEach { add(JsonPrimitive(it)) }
-                            })
-                        }
+                        put(key, buildJsonArray {
+                            value.forEach { item ->
+                                when (item) {
+                                    is String -> add(JsonPrimitive(item))
+                                    is Number -> add(JsonPrimitive(item))
+                                    is Boolean -> add(JsonPrimitive(item))
+                                    else -> if (item != null) add(JsonPrimitive(item.toString()))
+                                }
+                            }
+                        })
                     }
-                    else -> put(key, value.toString())
+                    else -> if (value != null) put(key, value.toString())
                 }
             }
         }
