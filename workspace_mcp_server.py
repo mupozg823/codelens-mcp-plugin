@@ -102,12 +102,22 @@ class ToolError(Exception):
     pass
 
 
+# MCP Tool Annotations (2025-03-26 spec)
+# readOnlyHint=True → auto-approved, no user confirmation
+# destructiveHint=True → user confirmation required
+ANNO_READ = {"readOnlyHint": True, "destructiveHint": False}
+ANNO_WRITE = {"readOnlyHint": False, "destructiveHint": False}
+ANNO_DESTRUCTIVE = {"readOnlyHint": False, "destructiveHint": True}
+ANNO_NOOP = {"readOnlyHint": True, "destructiveHint": False, "idempotentHint": True}
+
+
 @dataclass
 class ToolDefinition:
     name: str
     description: str
     input_schema: Dict[str, Any]
     handler: Callable[[Dict[str, Any]], Dict[str, Any]]
+    annotations: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -155,7 +165,12 @@ class WorkspaceMcpServer:
         self.root_source = root_source
         self.serena_dir = self.workspace_root / ".serena"
         self.memories_dir = self.serena_dir / "memories"
-        self.tools = self._build_tools()
+        raw_tools = self._build_tools()
+        # Auto-apply MCP annotations to all tools
+        for t in raw_tools.values():
+            if t.annotations is None:
+                t.annotations = self._auto_annotate(t.name)
+        self.tools = raw_tools
         # LSP backend — lazy init, graceful fallback to regex
         self._lsp_manager = None
         self._multi_project = None
@@ -184,6 +199,64 @@ class WorkspaceMcpServer:
     _memory_path = server_memory_path
     _list_memory_names = server_list_memory_names
     _validate_range = server_validate_range
+
+    @staticmethod
+    def _auto_annotate(name: str) -> Optional[Dict[str, Any]]:
+        """Auto-assign MCP tool annotations based on tool name patterns."""
+        READ_TOOLS = {
+            "get_symbols_overview",
+            "find_symbol",
+            "find_referencing_symbols",
+            "search_for_pattern",
+            "get_type_hierarchy",
+            "find_referencing_code_snippets",
+            "read_file",
+            "list_dir",
+            "find_file",
+            "list_directory_tree",
+            "get_current_config",
+            "get_project_modules",
+            "get_open_files",
+            "get_file_problems",
+            "get_run_configurations",
+            "get_project_dependencies",
+            "get_repositories",
+            "check_onboarding_performed",
+            "initial_instructions",
+            "list_memories",
+            "read_memory",
+            "list_queryable_projects",
+            "query_project",
+            "jet_brains_find_symbol",
+            "jet_brains_find_referencing_symbols",
+            "jet_brains_get_symbols_overview",
+            "jet_brains_type_hierarchy",
+            "activate_project",
+        }
+        NOOP_TOOLS = {
+            "think_about_collected_information",
+            "think_about_task_adherence",
+            "think_about_whether_you_are_done",
+            "prepare_for_new_conversation",
+            "summarize_changes",
+            "switch_modes",
+            "open_dashboard",
+            "onboarding",
+        }
+        DESTRUCTIVE_TOOLS = {
+            "execute_shell_command",
+            "execute_run_configuration",
+            "delete_lines",
+            "delete_memory",
+            "remove_project",
+        }
+        if name in NOOP_TOOLS:
+            return ANNO_NOOP
+        if name in READ_TOOLS:
+            return ANNO_READ
+        if name in DESTRUCTIVE_TOOLS:
+            return ANNO_DESTRUCTIVE
+        return ANNO_WRITE  # default: write (create, replace, insert, rename, etc.)
 
     def _build_tools(self) -> Dict[str, ToolDefinition]:
         return {
@@ -824,26 +897,37 @@ class WorkspaceMcpServer:
                         "capabilities": {"tools": {"listChanged": False}},
                         "serverInfo": {
                             "name": "codelens-workspace",
-                            "version": "0.6.0",
+                            "version": "0.8.0",
                         },
+                        "instructions": (
+                            "CodeLens: PSI/LSP-powered code intelligence (45 tools). "
+                            "Prefer symbolic tools over file reads: "
+                            "get_symbols_overview for file structure, "
+                            "find_symbol(include_body=true) for source code, "
+                            "find_referencing_symbols for usage tracking, "
+                            "search_for_pattern for regex search. "
+                            "Use replace_symbol_body for atomic symbol edits. "
+                            "Supports 50 language servers (Python, TypeScript, Go, Rust, Java, etc.) with LSP backend."
+                        ),
                     },
                 }
             if method == "notifications/initialized":
                 return None
             if method == "tools/list":
+                tool_list = []
+                for t in self.tools.values():
+                    entry: Dict[str, Any] = {
+                        "name": t.name,
+                        "description": t.description,
+                        "inputSchema": t.input_schema,
+                    }
+                    if t.annotations:
+                        entry["annotations"] = t.annotations
+                    tool_list.append(entry)
                 return {
                     "jsonrpc": "2.0",
                     "id": message_id,
-                    "result": {
-                        "tools": [
-                            {
-                                "name": t.name,
-                                "description": t.description,
-                                "inputSchema": t.input_schema,
-                            }
-                            for t in self.tools.values()
-                        ]
-                    },
+                    "result": {"tools": tool_list},
                 }
             if method == "tools/call":
                 name = params.get("name")
