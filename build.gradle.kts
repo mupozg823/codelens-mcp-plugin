@@ -37,8 +37,13 @@ dependencies {
     // JSON serialization - provided by IntelliJ platform, do NOT bundle
     compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
 
-    // ACP (Agent Client Protocol) SDK — compile-only for now; standalone binary bundles at runtime
-    compileOnly("com.agentclientprotocol:acp:0.17.0")
+    // ACP (Agent Client Protocol) SDK — bundled with plugin for runtime availability
+    implementation("com.agentclientprotocol:acp:0.17.0") {
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-json")
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-core")
+        exclude(group = "org.jetbrains.kotlin", module = "kotlin-stdlib")
+    }
 
     // Tests run inside the IntelliJ test sandbox, so prefer the IDE-bundled Kotlin/coroutines runtime.
     testImplementation("junit:junit:4.13.2")
