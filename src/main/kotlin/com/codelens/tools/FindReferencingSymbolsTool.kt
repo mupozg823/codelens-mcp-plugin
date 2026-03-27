@@ -1,7 +1,6 @@
 package com.codelens.tools
 
-import com.codelens.services.ReferenceService
-import com.intellij.openapi.components.service
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 /**
@@ -27,6 +26,10 @@ class FindReferencingSymbolsTool : BaseMcpTool() {
                 "type" to "string",
                 "description" to "Name of the symbol to find references for"
             ),
+            "name_path" to mapOf(
+                "type" to "string",
+                "description" to "Optional disambiguated name path such as Outer/helper"
+            ),
             "file_path" to mapOf(
                 "type" to "string",
                 "description" to "Optional: file where the symbol is defined (for disambiguation)"
@@ -35,21 +38,26 @@ class FindReferencingSymbolsTool : BaseMcpTool() {
                 "type" to "integer",
                 "description" to "Maximum number of results to return",
                 "default" to 50
+            ),
+            "max_answer_chars" to mapOf(
+                "type" to "integer",
+                "description" to "Maximum characters in the response (-1 = no limit)",
+                "default" to -1
             )
-        ),
-        "required" to listOf("symbol_name")
+        )
     )
 
     override fun execute(args: Map<String, Any?>, project: Project): String {
-        val symbolName = requireString(args, "symbol_name")
+        val symbolName = optionalString(args, "name_path") ?: requireString(args, "symbol_name")
         val filePath = optionalString(args, "file_path")
         val maxResults = optionalInt(args, "max_results", 50)
+        val maxAnswerChars = optionalInt(args, "max_answer_chars", -1)
 
         return try {
-            val referenceService = project.service<ReferenceService>()
-            val references = referenceService.findReferencingSymbols(symbolName, filePath, maxResults)
+            val references = CodeLensBackendProvider.getBackend(project)
+                .findReferencingSymbols(symbolName, filePath, maxResults)
 
-            if (references.isEmpty()) {
+            val response = if (references.isEmpty()) {
                 successResponse(mapOf(
                     "references" to emptyList<Any>(),
                     "message" to "No references found for '$symbolName'"
@@ -60,6 +68,7 @@ class FindReferencingSymbolsTool : BaseMcpTool() {
                     "count" to references.size
                 ))
             }
+            truncateIfNeeded(response, maxAnswerChars)
         } catch (e: Exception) {
             errorResponse("Failed to find references: ${e.message}")
         }

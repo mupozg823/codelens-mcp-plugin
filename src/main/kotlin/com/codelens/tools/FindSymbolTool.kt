@@ -1,7 +1,6 @@
 package com.codelens.tools
 
-import com.codelens.services.SymbolService
-import com.intellij.openapi.components.service
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 /**
@@ -27,6 +26,10 @@ class FindSymbolTool : BaseMcpTool() {
                 "type" to "string",
                 "description" to "Symbol name to search for"
             ),
+            "name_path" to mapOf(
+                "type" to "string",
+                "description" to "Optional disambiguated name path such as Outer/helper"
+            ),
             "file_path" to mapOf(
                 "type" to "string",
                 "description" to "Optional: limit search to a specific file"
@@ -40,22 +43,48 @@ class FindSymbolTool : BaseMcpTool() {
                 "type" to "boolean",
                 "description" to "Whether to require exact name match (false for substring match)",
                 "default" to true
+            ),
+            "substring_matching" to mapOf(
+                "type" to "boolean",
+                "description" to "If true, use substring matching (Serena-compatible alias for exact_match=false)",
+                "default" to false
+            ),
+            "include_info" to mapOf(
+                "type" to "boolean",
+                "description" to "Whether to include additional info (documentation/hover)",
+                "default" to false
+            ),
+            "max_matches" to mapOf(
+                "type" to "integer",
+                "description" to "Maximum number of matches to return (-1 = no limit)",
+                "default" to -1
+            ),
+            "max_answer_chars" to mapOf(
+                "type" to "integer",
+                "description" to "Maximum characters in the response (-1 = no limit)",
+                "default" to -1
             )
-        ),
-        "required" to listOf("name")
+        )
     )
 
     override fun execute(args: Map<String, Any?>, project: Project): String {
-        val name = requireString(args, "name")
+        val name = optionalString(args, "name_path") ?: requireString(args, "name")
         val filePath = optionalString(args, "file_path")
         val includeBody = optionalBoolean(args, "include_body", false)
-        val exactMatch = optionalBoolean(args, "exact_match", true)
+        val substringMatching = optionalBoolean(args, "substring_matching", false)
+        val exactMatch = if (substringMatching) false else optionalBoolean(args, "exact_match", true)
+        val maxMatches = optionalInt(args, "max_matches", -1)
+        val maxAnswerChars = optionalInt(args, "max_answer_chars", -1)
 
         return try {
-            val symbolService = project.service<SymbolService>()
-            val symbols = symbolService.findSymbol(name, filePath, includeBody, exactMatch)
+            var symbols = CodeLensBackendProvider.getBackend(project)
+                .findSymbol(name, filePath, includeBody, exactMatch)
 
-            if (symbols.isEmpty()) {
+            if (maxMatches > 0 && symbols.size > maxMatches) {
+                symbols = symbols.take(maxMatches)
+            }
+
+            val response = if (symbols.isEmpty()) {
                 val scope = filePath?.let { "in '$it'" } ?: "in project"
                 successResponse(mapOf(
                     "symbols" to emptyList<Any>(),
@@ -67,6 +96,7 @@ class FindSymbolTool : BaseMcpTool() {
                     "count" to symbols.size
                 ))
             }
+            truncateIfNeeded(response, maxAnswerChars)
         } catch (e: Exception) {
             errorResponse("Failed to find symbol: ${e.message}")
         }

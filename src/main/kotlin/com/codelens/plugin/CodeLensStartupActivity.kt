@@ -1,5 +1,6 @@
 package com.codelens.plugin
 
+import com.codelens.acp.AcpAutoConfigurator
 import com.codelens.serena.SerenaCompatServer
 import com.codelens.tools.ToolRegistry
 import com.intellij.notification.NotificationGroupManager
@@ -43,6 +44,9 @@ class CodeLensStartupActivity : ProjectActivity {
         } catch (e: Exception) {
             logger.warn("Failed to show notification: ${e.message}")
         }
+
+        // Auto-configure ACP agent registration
+        AcpAutoConfigurator.configure(project)
 
         logger.info("CodeLens MCP plugin initialized successfully")
     }

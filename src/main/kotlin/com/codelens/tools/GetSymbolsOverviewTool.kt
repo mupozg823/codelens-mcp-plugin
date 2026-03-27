@@ -1,7 +1,6 @@
 package com.codelens.tools
 
-import com.codelens.services.SymbolService
-import com.intellij.openapi.components.service
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 /**
@@ -29,8 +28,13 @@ class GetSymbolsOverviewTool : BaseMcpTool() {
             ),
             "depth" to mapOf(
                 "type" to "integer",
-                "description" to "How deep to explore: 1=top-level only, 2=includes nested members",
+                "description" to "How deep to explore: 0=unlimited, 1=top-level only, 2=includes nested members",
                 "default" to 1
+            ),
+            "max_answer_chars" to mapOf(
+                "type" to "integer",
+                "description" to "Maximum characters in the response (-1 = no limit)",
+                "default" to -1
             )
         ),
         "required" to listOf("path")
@@ -39,12 +43,12 @@ class GetSymbolsOverviewTool : BaseMcpTool() {
     override fun execute(args: Map<String, Any?>, project: Project): String {
         val path = requireString(args, "path")
         val depth = optionalInt(args, "depth", 1)
+        val maxAnswerChars = optionalInt(args, "max_answer_chars", -1)
 
         return try {
-            val symbolService = project.service<SymbolService>()
-            val symbols = symbolService.getSymbolsOverview(path, depth)
+            val symbols = CodeLensBackendProvider.getBackend(project).getSymbolsOverview(path, depth)
 
-            if (symbols.isEmpty()) {
+            val response = if (symbols.isEmpty()) {
                 successResponse(mapOf(
                     "symbols" to emptyList<Any>(),
                     "message" to "No symbols found in '$path'"
@@ -55,6 +59,7 @@ class GetSymbolsOverviewTool : BaseMcpTool() {
                     "count" to symbols.size
                 ))
             }
+            truncateIfNeeded(response, maxAnswerChars)
         } catch (e: Exception) {
             errorResponse("Failed to get symbols overview: ${e.message}")
         }

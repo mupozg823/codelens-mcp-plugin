@@ -3,15 +3,16 @@ import org.jetbrains.intellij.platform.gradle.IntelliJPlatformType
 
 plugins {
     id("java")
-    id("org.jetbrains.kotlin.jvm") version "2.1.0"
-    id("org.jetbrains.intellij.platform") version "2.2.1"
+    id("org.jetbrains.kotlin.jvm") version "2.3.0"
+    id("org.jetbrains.intellij.platform") version "2.13.1"
 }
 
 group = "com.codelens"
-version = "0.5.0"
+version = "0.7.0"
 
 repositories {
     mavenCentral()
+    maven("https://s01.oss.sonatype.org/content/repositories/snapshots/")
     intellijPlatform {
         defaultRepositories()
     }
@@ -19,29 +20,28 @@ repositories {
 
 dependencies {
     intellijPlatform {
-        intellijIdeaCommunity("2025.2")
+        local("/Applications/IntelliJ IDEA.app")
 
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.kotlin")
         bundledPlugin("org.jetbrains.plugins.terminal")
-        // McpServer plugin: v252.28238.29 targets IntelliJ 2025.2.
-        // When targeting 261.* (2026.1), the IDE ships its own mcpServer version.
-        // The optional="true" dependency in plugin.xml ensures graceful degradation.
-        plugin("com.intellij.mcpServer", "252.28238.29")
+        bundledPlugin("com.intellij.mcpServer")
 
         pluginVerifier()
         testFramework(TestFrameworkType.Platform)
     }
 
     // Kotlin coroutines - provided by IntelliJ platform, do NOT bundle
-    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    compileOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.1")
 
     // JSON serialization - provided by IntelliJ platform, do NOT bundle
-    compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
+    compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
 
-    // Testing - coroutines needed at test runtime for debug agent
+    // ACP (Agent Client Protocol) SDK — compile-only for now; standalone binary bundles at runtime
+    compileOnly("com.agentclientprotocol:acp:0.17.0")
+
+    // Tests run inside the IntelliJ test sandbox, so prefer the IDE-bundled Kotlin/coroutines runtime.
     testImplementation("junit:junit:4.13.2")
-    testRuntimeOnly("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
 }
 
 kotlin {
@@ -51,7 +51,7 @@ kotlin {
 intellijPlatform {
     pluginVerification {
         ides {
-            ide(IntelliJPlatformType.IntellijIdeaCommunity, "2025.2")
+            create(IntelliJPlatformType.IntellijIdeaUltimate, "2026.1")
         }
     }
 
@@ -61,8 +61,8 @@ intellijPlatform {
         version = project.version.toString()
 
         ideaVersion {
-            sinceBuild = "252"
-            untilBuild = "261.*"
+            sinceBuild = "261"
+            untilBuild = "262.*"
         }
 
         description = """
@@ -79,27 +79,12 @@ intellijPlatform {
         """.trimIndent()
 
         changeNotes = """
-            <h3>0.5.0</h3>
+            <h3>0.6.0</h3>
             <ul>
-                <li>Full Serena tool compatibility: onboarding, prepare_for_new_conversation, remove_project, summarize_changes, switch_modes</li>
-                <li>Full JetBrains MCP parity: get_project_dependencies, list_directory_tree, open_file_in_editor, get_repositories</li>
-                <li>44 MCP tools total — complete Serena + JetBrains native coverage</li>
-            </ul>
-            <h3>0.4.0</h3>
-            <ul>
-                <li>Extended IDE compatibility to IntelliJ 2026.1 (untilBuild 261.*)</li>
-                <li>Added build-time quality gates: tool description 2KB limit check, registry consistency verification</li>
-                <li>Added unit tests for all v0.3.0 tools: memory, run configuration, reformat, terminal</li>
-                <li>Verified Claude Code 2.1.84 compatibility: McpToolsProvider, SSE transport, 2KB description cap</li>
-            </ul>
-            <h3>0.3.0</h3>
-            <ul>
-                <li>Added execute_terminal_command tool for shell command execution with timeout and output capture</li>
-                <li>Added get_run_configurations and execute_run_configuration tools for IDE run/debug support</li>
-                <li>Added reformat_file tool for IDE code formatting</li>
-                <li>Added edit_memory and rename_memory tools for full Serena memory lifecycle</li>
-                <li>Extended Serena compat REST layer with 6 new endpoints (23 total)</li>
-                <li>Verified Claude Code 2.1.84 compatibility with McpToolsProvider pattern</li>
+                <li>Target IntelliJ IDEA 2026.1 (build 261)</li>
+                <li>Fixed MCP protocol compatibility with latest McpServer API</li>
+                <li>Fixed EDT threading violations in tool execution</li>
+                <li>Gradle 9.0 + IntelliJ Platform Gradle Plugin 2.13.1</li>
             </ul>
         """.trimIndent()
 
@@ -120,12 +105,10 @@ tasks {
     }
 
     test {
-        // Fix JVM agent conflict with IntelliJ Platform instrumentation
         jvmArgs(
             "-XX:+AllowEnhancedClassRedefinition",
             "-Djdk.attach.allowAttachSelf=true"
         )
-        // Disable instrumentation agent for tests to avoid FATAL ERROR
         systemProperty("idea.is.internal", "true")
     }
 }

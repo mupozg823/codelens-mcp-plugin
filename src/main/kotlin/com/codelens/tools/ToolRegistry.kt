@@ -36,9 +36,13 @@ object ToolRegistry {
             FindSymbolTool(),
             FindReferencingSymbolsTool(),
             SearchForPatternTool(),
+            JetBrainsGetSymbolsOverviewTool(),
+            JetBrainsFindSymbolTool(),
+            JetBrainsFindReferencingSymbolsTool(),
 
             // Phase 1.5: Advanced code structure analysis
             TypeHierarchyTool(),
+            JetBrainsTypeHierarchyTool(),
             FindReferencingCodeSnippetsTool(),
 
             // Phase 2: Symbol-level modifications
@@ -67,7 +71,16 @@ object ToolRegistry {
             DeleteLinesTool(),
             InsertAtLineTool(),
             ReplaceLinesTool(),
-            ReplaceContentTool()
+            ReplaceContentTool(),
+
+            // Phase 6: Workflow / meta-cognitive tools
+            ThinkAboutCollectedInformationTool(),
+            ThinkAboutTaskAdherenceTool(),
+            ThinkAboutWhetherYouAreDoneTool(),
+
+            // Phase 7: Multi-project query
+            ListQueryableProjectsTool(),
+            QueryProjectTool()
         )
     }
 

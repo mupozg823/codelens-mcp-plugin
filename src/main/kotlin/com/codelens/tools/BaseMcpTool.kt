@@ -96,4 +96,14 @@ abstract class BaseMcpTool {
     protected fun errorResponse(message: String): String {
         return JsonBuilder.toolResponse(success = false, error = message)
     }
+
+    /**
+     * Truncate response if it exceeds maxChars.
+     * @param response The response string to potentially truncate
+     * @param maxChars Maximum character limit (-1 or 0 means no limit)
+     */
+    protected fun truncateIfNeeded(response: String, maxChars: Int): String {
+        if (maxChars <= 0 || response.length <= maxChars) return response
+        return response.take(maxChars) + "\n... (truncated, ${response.length} total chars)"
+    }
 }
