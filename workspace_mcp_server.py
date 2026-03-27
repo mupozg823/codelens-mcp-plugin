@@ -433,6 +433,49 @@ class WorkspaceMcpServer:
                     self.get_type_hierarchy,
                 ),
                 ToolDefinition(
+                    "think_about_collected_information",
+                    "Reflect on collected information before proceeding. No side effects.",
+                    {"type": "object", "properties": {}},
+                    lambda args: {"status": "ok"},
+                ),
+                ToolDefinition(
+                    "think_about_task_adherence",
+                    "Reflect on whether current approach aligns with the task. No side effects.",
+                    {"type": "object", "properties": {}},
+                    lambda args: {"status": "ok"},
+                ),
+                ToolDefinition(
+                    "think_about_whether_you_are_done",
+                    "Evaluate whether the current task is complete. No side effects.",
+                    {"type": "object", "properties": {}},
+                    lambda args: {"status": "ok"},
+                ),
+                ToolDefinition(
+                    "list_queryable_projects",
+                    "List projects available for cross-project queries. In workspace mode, returns the current project only.",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "symbol_access": {"type": "boolean", "default": True}
+                        },
+                    },
+                    self.list_queryable_projects,
+                ),
+                ToolDefinition(
+                    "query_project",
+                    "Execute a read-only tool on the current project (workspace mode only supports single project).",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "project_name": {"type": "string"},
+                            "tool_name": {"type": "string"},
+                            "tool_params_json": {"type": "string"},
+                        },
+                        "required": ["project_name", "tool_name", "tool_params_json"],
+                    },
+                    self.query_project,
+                ),
+                ToolDefinition(
                     "read_file",
                     "Read a file with an optional line range.",
                     {
@@ -1269,6 +1312,52 @@ class WorkspaceMcpServer:
             "type_parameters": [],
             "backend": "Workspace",
         }
+
+    def list_queryable_projects(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "projects": [
+                {
+                    "name": self.workspace_root.name,
+                    "path": str(self.workspace_root),
+                    "is_active": True,
+                }
+            ],
+            "count": 1,
+        }
+
+    def query_project(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        project_name = require_string(arguments, "project_name")
+        tool_name = require_string(arguments, "tool_name")
+        tool_params_json = require_string(arguments, "tool_params_json")
+
+        if project_name != self.workspace_root.name:
+            raise ToolError(
+                f"Project '{project_name}' not found. Only '{self.workspace_root.name}' is available."
+            )
+
+        READ_ONLY = {
+            "find_symbol",
+            "get_symbols_overview",
+            "find_referencing_symbols",
+            "search_for_pattern",
+            "get_type_hierarchy",
+            "read_file",
+            "list_dir",
+            "find_file",
+        }
+        if tool_name not in READ_ONLY:
+            raise ToolError(
+                f"Tool '{tool_name}' is not allowed for cross-project queries."
+            )
+
+        tool = self.tools.get(tool_name)
+        if not tool:
+            raise ToolError(f"Tool '{tool_name}' not found.")
+
+        import json as _json
+
+        params = _json.loads(tool_params_json)
+        return tool.handler(params)
 
     # ── LSP-backed symbol resolution (fallback to regex) ──
 
