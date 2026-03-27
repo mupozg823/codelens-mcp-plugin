@@ -321,6 +321,9 @@ class SerenaCompatServer(private val project: Project) : com.intellij.openapi.Di
                 if (!resolved.canonicalPath.startsWith(java.io.File(basePath).canonicalPath)) {
                     throw IllegalArgumentException("Working directory must be within project")
                 }
+                if (!resolved.isDirectory) {
+                    throw IllegalArgumentException("Working directory not found: $workDirArg")
+                }
                 resolved
             } else java.io.File(basePath)
             val cmdLine = if (com.intellij.openapi.util.SystemInfo.isWindows) {
