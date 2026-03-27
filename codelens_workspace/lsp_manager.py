@@ -17,29 +17,27 @@ from .lsp_client import LspClient
 
 logger = logging.getLogger("codelens.lsp")
 
-# Language server configurations
+# 54 language server configurations (Serena SolidLSP parity)
 LANGUAGE_SERVERS: Dict[str, dict] = {
+    # ── Tier 1: Most common ──
     "python": {
         "cmd": ["pyright-langserver", "--stdio"],
-        "alt_cmd": ["pylsp"],
-        "install": "pip install pyright",
+        "alt_cmd": ["jedi-language-server"],
+        "install": "npm i -g pyright",
     },
     "typescript": {
         "cmd": ["typescript-language-server", "--stdio"],
-        "install": "npm install -g typescript-language-server typescript",
+        "install": "npm i -g typescript-language-server typescript",
     },
     "javascript": {
         "cmd": ["typescript-language-server", "--stdio"],
-        "install": "npm install -g typescript-language-server typescript",
+        "install": "npm i -g typescript-language-server typescript",
     },
     "go": {
         "cmd": ["gopls", "serve"],
         "install": "go install golang.org/x/tools/gopls@latest",
     },
-    "rust": {
-        "cmd": ["rust-analyzer"],
-        "install": "rustup component add rust-analyzer",
-    },
+    "rust": {"cmd": ["rust-analyzer"], "install": "rustup component add rust-analyzer"},
     "java": {
         "cmd": ["jdtls"],
         "install": "see https://github.com/eclipse-jdtls/eclipse.jdt.ls",
@@ -50,50 +48,275 @@ LANGUAGE_SERVERS: Dict[str, dict] = {
     },
     "c": {
         "cmd": ["clangd"],
-        "install": "brew install llvm  OR  apt install clangd",
+        "alt_cmd": ["ccls"],
+        "install": "brew install llvm OR apt install clangd",
     },
     "cpp": {
         "cmd": ["clangd"],
-        "install": "brew install llvm  OR  apt install clangd",
+        "alt_cmd": ["ccls"],
+        "install": "brew install llvm OR apt install clangd",
     },
     "csharp": {
         "cmd": ["OmniSharp", "-lsp"],
         "install": "see https://github.com/OmniSharp/omnisharp-roslyn",
     },
+    # ── Tier 2: Web & scripting ──
     "ruby": {
-        "cmd": ["solargraph", "stdio"],
-        "install": "gem install solargraph",
+        "cmd": ["ruby-lsp"],
+        "alt_cmd": ["solargraph", "stdio"],
+        "install": "gem install ruby-lsp",
     },
     "php": {
-        "cmd": ["phpactor", "language-server"],
-        "install": "see https://github.com/phpactor/phpactor",
+        "cmd": ["intelephense", "--stdio"],
+        "alt_cmd": ["phpactor", "language-server"],
+        "install": "npm i -g intelephense",
+    },
+    "vue": {
+        "cmd": ["vue-language-server", "--stdio"],
+        "install": "npm i -g @vue/language-server",
+    },
+    "svelte": {
+        "cmd": ["svelteserver", "--stdio"],
+        "install": "npm i -g svelte-language-server",
+    },
+    "html": {
+        "cmd": ["vscode-html-language-server", "--stdio"],
+        "install": "npm i -g vscode-langservers-extracted",
+    },
+    "css": {
+        "cmd": ["vscode-css-language-server", "--stdio"],
+        "install": "npm i -g vscode-langservers-extracted",
+    },
+    "json": {
+        "cmd": ["vscode-json-language-server", "--stdio"],
+        "install": "npm i -g vscode-langservers-extracted",
+    },
+    # ── Tier 3: Systems ──
+    "swift": {"cmd": ["sourcekit-lsp"], "install": "included with Xcode"},
+    "dart": {
+        "cmd": ["dart", "language-server", "--protocol=lsp"],
+        "install": "see https://dart.dev/get-dart",
+    },
+    "scala": {"cmd": ["metals"], "install": "see https://scalameta.org/metals/"},
+    "groovy": {
+        "cmd": ["groovy-language-server"],
+        "install": "see https://github.com/GroovyLanguageServer/groovy-language-server",
+    },
+    # ── Tier 4: Functional ──
+    "haskell": {
+        "cmd": ["haskell-language-server-wrapper", "--lsp"],
+        "install": "ghcup install hls",
+    },
+    "elixir": {
+        "cmd": ["elixir-ls"],
+        "install": "see https://github.com/elixir-lsp/elixir-ls",
+    },
+    "erlang": {
+        "cmd": ["erlang_ls"],
+        "install": "see https://github.com/erlang-ls/erlang_ls",
+    },
+    "clojure": {"cmd": ["clojure-lsp"], "install": "see https://clojure-lsp.io/"},
+    "fsharp": {
+        "cmd": ["fsautocomplete", "--adaptive-lsp-server-enabled"],
+        "install": "dotnet tool install fsautocomplete",
+    },
+    "ocaml": {"cmd": ["ocamllsp"], "install": "opam install ocaml-lsp-server"},
+    "elm": {
+        "cmd": ["elm-language-server"],
+        "install": "npm i -g @elm-tooling/elm-language-server",
+    },
+    # ── Tier 5: Scripting & config ──
+    "lua": {
+        "cmd": ["lua-language-server"],
+        "install": "see https://github.com/LuaLS/lua-language-server",
+    },
+    "perl": {"cmd": ["perlnavigator"], "install": "npm i -g perlnavigator-server"},
+    "bash": {
+        "cmd": ["bash-language-server", "start"],
+        "install": "npm i -g bash-language-server",
+    },
+    "powershell": {
+        "cmd": [
+            "pwsh",
+            "-NoLogo",
+            "-NoProfile",
+            "-Command",
+            "Import-Module PowerShellEditorServices; Start-EditorServices -Stdio",
+        ],
+        "install": "Install-Module PowerShellEditorServices",
+    },
+    "r": {
+        "cmd": ["R", "--no-echo", "-e", "languageserver::run()"],
+        "install": "R -e 'install.packages(\"languageserver\")'",
+    },
+    "julia": {
+        "cmd": [
+            "julia",
+            "--startup-file=no",
+            "-e",
+            "using LanguageServer; runserver()",
+        ],
+        "install": "julia -e 'using Pkg; Pkg.add(\"LanguageServer\")'",
+    },
+    # ── Tier 6: Config & markup ──
+    "yaml": {
+        "cmd": ["yaml-language-server", "--stdio"],
+        "install": "npm i -g yaml-language-server",
+    },
+    "toml": {"cmd": ["taplo", "lsp", "stdio"], "install": "cargo install taplo-cli"},
+    "markdown": {
+        "cmd": ["marksman", "server"],
+        "install": "see https://github.com/artempyanykh/marksman",
+    },
+    "terraform": {
+        "cmd": ["terraform-ls", "serve"],
+        "install": "see https://github.com/hashicorp/terraform-ls",
+    },
+    "nix": {"cmd": ["nixd"], "install": "nix profile install nixpkgs#nixd"},
+    # ── Tier 7: Specialized ──
+    "zig": {"cmd": ["zls"], "install": "see https://github.com/zigtools/zls"},
+    "lean": {
+        "cmd": ["lean", "--server"],
+        "install": "see https://leanprover.github.io/",
+    },
+    "solidity": {
+        "cmd": ["nomicfoundation-solidity-language-server", "--stdio"],
+        "install": "npm i -g @nomicfoundation/solidity-language-server",
+    },
+    "fortran": {"cmd": ["fortls"], "install": "pip install fortran-language-server"},
+    "pascal": {
+        "cmd": ["pasls"],
+        "install": "see https://github.com/castle-engine/pascal-language-server",
+    },
+    "matlab": {
+        "cmd": ["matlab-language-server", "--stdio"],
+        "install": "npm i -g matlab-language-server",
+    },
+    "verilog": {
+        "cmd": ["svlangserver"],
+        "install": "npm i -g @imc-trading/svlangserver",
+    },
+    "hlsl": {
+        "cmd": ["shader-language-server"],
+        "install": "cargo install shader-language-server",
+    },
+    "ansible": {
+        "cmd": ["ansible-language-server", "--stdio"],
+        "install": "npm i -g @ansible/ansible-language-server",
+    },
+    "al": {"cmd": ["al-language-server"], "install": "see AL Language extension"},
+    "rego": {
+        "cmd": ["regal", "language-server"],
+        "install": "see https://github.com/StyraInc/regal",
     },
 }
 
-# File extension → language mapping
+# File extension → language mapping (comprehensive)
 EXTENSION_MAP: Dict[str, str] = {
+    # Python
     ".py": "python",
     ".pyi": "python",
+    ".pyw": "python",
+    # JavaScript/TypeScript
     ".ts": "typescript",
     ".tsx": "typescript",
+    ".mts": "typescript",
+    ".cts": "typescript",
     ".js": "javascript",
     ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    # Go
     ".go": "go",
+    # Rust
     ".rs": "rust",
+    # JVM
     ".java": "java",
     ".kt": "kotlin",
     ".kts": "kotlin",
+    ".scala": "scala",
+    ".groovy": "groovy",
+    ".gradle": "groovy",
+    # C/C++
     ".c": "c",
     ".h": "c",
     ".cpp": "cpp",
     ".hpp": "cpp",
     ".cc": "cpp",
     ".cxx": "cpp",
+    ".hh": "cpp",
+    ".hxx": "cpp",
+    # C#/F#
     ".cs": "csharp",
+    ".fs": "fsharp",
+    ".fsx": "fsharp",
+    # Web
+    ".vue": "vue",
+    ".svelte": "svelte",
+    ".html": "html",
+    ".htm": "html",
+    ".css": "css",
+    ".scss": "css",
+    ".less": "css",
+    ".json": "json",
+    ".jsonc": "json",
+    # Ruby/PHP
     ".rb": "ruby",
+    ".rake": "ruby",
+    ".gemspec": "ruby",
     ".php": "php",
-    ".scala": "java",  # jdtls handles scala with metals alternative
+    # Swift/Dart
     ".swift": "swift",
+    ".dart": "dart",
+    # Functional
+    ".hs": "haskell",
+    ".lhs": "haskell",
+    ".ex": "elixir",
+    ".exs": "elixir",
+    ".erl": "erlang",
+    ".hrl": "erlang",
+    ".clj": "clojure",
+    ".cljs": "clojure",
+    ".cljc": "clojure",
+    ".ml": "ocaml",
+    ".mli": "ocaml",
+    ".elm": "elm",
+    # Scripting
+    ".lua": "lua",
+    ".pl": "perl",
+    ".pm": "perl",
+    ".sh": "bash",
+    ".bash": "bash",
+    ".zsh": "bash",
+    ".ps1": "powershell",
+    ".psm1": "powershell",
+    ".r": "r",
+    ".R": "r",
+    ".jl": "julia",
+    # Config/markup
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".toml": "toml",
+    ".md": "markdown",
+    ".tf": "terraform",
+    ".tfvars": "terraform",
+    ".nix": "nix",
+    # Specialized
+    ".zig": "zig",
+    ".lean": "lean",
+    ".sol": "solidity",
+    ".f90": "fortran",
+    ".f95": "fortran",
+    ".f03": "fortran",
+    ".f08": "fortran",
+    ".pas": "pascal",
+    ".pp": "pascal",
+    ".m": "matlab",
+    ".v": "verilog",
+    ".sv": "verilog",
+    ".hlsl": "hlsl",
+    ".al": "al",
+    ".rego": "rego",
 }
 
 

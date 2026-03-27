@@ -87,9 +87,10 @@ class LspClient:
         self._write_lock = threading.Lock()
         self._initialized = False
         self._start_count = 0
+        self._analysis_ready = threading.Event()
         # Track opened files to avoid duplicate didOpen
         self._opened_files: dict[str, int] = {}  # uri → version
-        # 2-level cache: file_path → (content_hash, lsp_result, converted_symbols)
+        # 2-level cache
         self._symbol_cache: dict[str, Tuple[str, list, Any]] = {}
         self._ref_cache: dict[str, Tuple[str, list]] = {}
 
@@ -141,6 +142,8 @@ class LspClient:
                 self._opened_files.clear()
                 self._symbol_cache.clear()
                 self._ref_cache.clear()
+                # Drain initial notifications (analysis progress, diagnostics)
+                self._drain_notifications(timeout=3.0)
                 logger.info(f"LSP '{self.name}' started (attempt #{self._start_count})")
                 return True
         except Exception as e:
@@ -266,9 +269,9 @@ class LspClient:
         )
         refs = result if isinstance(result, list) else []
 
-        # Retry once after short wait if empty (LSP may still be indexing)
+        # Retry after waiting for analysis completion if empty
         if not refs and retry:
-            time.sleep(1.0)
+            self.wait_for_analysis(timeout=5.0)
             result = self._send_request(
                 "textDocument/references",
                 {
@@ -434,7 +437,8 @@ class LspClient:
                 continue
 
             if "id" not in msg:
-                continue  # Skip notifications
+                self._handle_notification(msg)
+                continue
             if msg.get("id") == expected_id:
                 if "error" in msg:
                     logger.debug(f"LSP error: {msg['error']}")
@@ -443,6 +447,85 @@ class LspClient:
 
         logger.debug(f"LSP response timeout for request {expected_id}")
         return None
+
+    def _drain_notifications(self, timeout: float = 3.0):
+        """Read and process pending notifications after initialization."""
+        if not self._process or not self._process.stdout:
+            return
+        import select
+
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            # Check if data available (non-blocking)
+            ready, _, _ = select.select([self._process.stdout], [], [], 0.2)
+            if not ready:
+                if self._analysis_ready.is_set():
+                    break
+                continue
+            # Read one message
+            header_line = b""
+            while True:
+                byte = self._process.stdout.read(1)
+                if not byte:
+                    return
+                header_line += byte
+                if header_line.endswith(b"\r\n\r\n") or header_line.endswith(b"\n\n"):
+                    break
+            content_length = 0
+            for line in header_line.decode("ascii", errors="replace").split("\r\n"):
+                if line.lower().startswith("content-length:"):
+                    content_length = int(line.split(":")[1].strip())
+                    break
+            if content_length == 0:
+                continue
+            body = self._process.stdout.read(content_length)
+            if not body:
+                return
+            try:
+                msg = json.loads(body.decode("utf-8"))
+            except json.JSONDecodeError:
+                continue
+            if "id" not in msg:
+                self._handle_notification(msg)
+
+    def _handle_notification(self, msg: dict):
+        """Process LSP server notifications for analysis readiness."""
+        import re as _re
+
+        method = msg.get("method", "")
+        params = msg.get("params", {})
+
+        if method == "window/logMessage":
+            message = params.get("message", "")
+            # Pyright: "Found X source files"
+            if _re.search(r"Found \d+ source files?", message):
+                logger.debug(f"LSP '{self.name}': workspace scan complete")
+                self._analysis_ready.set()
+
+        elif method == "$/progress":
+            value = params.get("value", {})
+            kind = value.get("kind", "")
+            if kind == "end":
+                logger.debug(f"LSP '{self.name}': progress complete")
+                self._analysis_ready.set()
+
+        elif method == "textDocument/publishDiagnostics":
+            # First diagnostics = server has analyzed at least one file
+            if not self._analysis_ready.is_set():
+                self._analysis_ready.set()
+
+    def wait_for_analysis(self, timeout: float = 5.0) -> bool:
+        """Wait for the LSP server to complete initial workspace analysis."""
+        if self._analysis_ready.is_set():
+            return True
+        logger.debug(f"LSP '{self.name}': waiting for analysis (max {timeout}s)...")
+        result = self._analysis_ready.wait(timeout=timeout)
+        if result:
+            logger.debug(f"LSP '{self.name}': analysis ready")
+        else:
+            logger.debug(f"LSP '{self.name}': analysis timeout, proceeding anyway")
+            self._analysis_ready.set()
+        return result
 
     @staticmethod
     def _detect_language_id(file_path: str) -> str:
