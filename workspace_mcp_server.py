@@ -158,10 +158,12 @@ class WorkspaceMcpServer:
         self.tools = self._build_tools()
         # LSP backend — lazy init, graceful fallback to regex
         self._lsp_manager = None
+        self._multi_project = None
         try:
-            from codelens_workspace.lsp_manager import LspManager
+            from codelens_workspace.lsp_manager import MultiProjectLspManager
 
-            self._lsp_manager = LspManager(str(self.workspace_root))
+            self._multi_project = MultiProjectLspManager(str(self.workspace_root))
+            self._lsp_manager = self._multi_project.primary
         except Exception:
             pass  # LSP unavailable, regex fallback only
 
@@ -604,7 +606,9 @@ class WorkspaceMcpServer:
                 if response is not None:
                     write_stdio_message(response)
         finally:
-            if self._lsp_manager:
+            if self._multi_project:
+                self._multi_project.shutdown_all()
+            elif self._lsp_manager:
                 self._lsp_manager.shutdown_all()
 
     def handle_message(self, message: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -1320,26 +1324,33 @@ class WorkspaceMcpServer:
         }
 
     def list_queryable_projects(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        return {
-            "projects": [
+        if self._multi_project:
+            projects = self._multi_project.list_projects()
+        else:
+            projects = [
                 {
                     "name": self.workspace_root.name,
                     "path": str(self.workspace_root),
                     "is_active": True,
                 }
-            ],
-            "count": 1,
-        }
+            ]
+        return {"projects": projects, "count": len(projects)}
+
+    def add_project(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Register an additional project for cross-project queries."""
+        project_path = require_string(arguments, "project_path")
+        resolved = Path(project_path).resolve()
+        if not resolved.is_dir():
+            raise ToolError(f"Directory not found: {project_path}")
+        if self._multi_project:
+            self._multi_project.add_project(str(resolved))
+            return {"added": True, "name": resolved.name, "path": str(resolved)}
+        raise ToolError("Multi-project support requires LSP backend")
 
     def query_project(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         project_name = require_string(arguments, "project_name")
         tool_name = require_string(arguments, "tool_name")
         tool_params_json = require_string(arguments, "tool_params_json")
-
-        if project_name != self.workspace_root.name:
-            raise ToolError(
-                f"Project '{project_name}' not found. Only '{self.workspace_root.name}' is available."
-            )
 
         READ_ONLY = {
             "find_symbol",
@@ -1356,14 +1367,41 @@ class WorkspaceMcpServer:
                 f"Tool '{tool_name}' is not allowed for cross-project queries."
             )
 
+        # Find target project
+        if self._multi_project:
+            target_manager = self._multi_project.get_manager_by_name(project_name)
+            if target_manager:
+                # Create a temporary server for the target project root
+                target_root = None
+                for root, mgr in self._multi_project._managers.items():
+                    if mgr is target_manager:
+                        target_root = root
+                        break
+                if target_root:
+                    temp_server = WorkspaceMcpServer(
+                        Path(target_root), root_source="query"
+                    )
+                    temp_server._lsp_manager = target_manager
+                    tool = temp_server.tools.get(tool_name)
+                    if tool:
+                        import json as _json
+
+                        return tool.handler(_json.loads(tool_params_json))
+
+        # Fallback: current project only
+        if project_name != self.workspace_root.name:
+            available = (
+                self._multi_project.list_projects() if self._multi_project else []
+            )
+            names = [p["name"] for p in available]
+            raise ToolError(f"Project '{project_name}' not found. Available: {names}")
+
         tool = self.tools.get(tool_name)
         if not tool:
             raise ToolError(f"Tool '{tool_name}' not found.")
-
         import json as _json
 
-        params = _json.loads(tool_params_json)
-        return tool.handler(params)
+        return tool.handler(_json.loads(tool_params_json))
 
     # ── LSP-backed symbol resolution (fallback to regex) ──
 
