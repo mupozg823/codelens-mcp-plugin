@@ -416,11 +416,25 @@ class WorkspaceMcpServer:
                         "type": "object",
                         "properties": {
                             "pattern": {"type": "string"},
+                            "substring_pattern": {
+                                "type": "string",
+                                "description": "Serena alias for pattern",
+                            },
                             "file_glob": {"type": "string"},
+                            "paths_include_glob": {"type": "string"},
+                            "paths_exclude_glob": {"type": "string"},
+                            "relative_path": {"type": "string"},
                             "max_results": {"type": "integer", "default": 50},
                             "context_lines": {"type": "integer", "default": 0},
+                            "context_lines_before": {"type": "integer", "default": 0},
+                            "context_lines_after": {"type": "integer", "default": 0},
+                            "restrict_search_to_code_files": {
+                                "type": "boolean",
+                                "default": False,
+                            },
+                            "max_answer_chars": {"type": "integer", "default": -1},
                         },
-                        "required": ["pattern"],
+                        "required": [],
                     },
                     self.search_for_pattern,
                 ),
@@ -742,16 +756,39 @@ class WorkspaceMcpServer:
                 ),
                 ToolDefinition(
                     "replace_content",
-                    "Replace file content by string match.",
+                    "Replace file content using literal text or regex pattern.",
                     {
                         "type": "object",
                         "properties": {
                             "relative_path": {"type": "string"},
-                            "find": {"type": "string"},
-                            "replace": {"type": "string"},
+                            "needle": {
+                                "type": "string",
+                                "description": "String or regex to find",
+                            },
+                            "find": {
+                                "type": "string",
+                                "description": "Alias for needle",
+                            },
+                            "repl": {
+                                "type": "string",
+                                "description": "Replacement text",
+                            },
+                            "replace": {
+                                "type": "string",
+                                "description": "Alias for repl",
+                            },
+                            "mode": {
+                                "type": "string",
+                                "enum": ["literal", "regex"],
+                                "default": "literal",
+                            },
+                            "allow_multiple_occurrences": {
+                                "type": "boolean",
+                                "default": False,
+                            },
                             "first_only": {"type": "boolean", "default": False},
                         },
-                        "required": ["relative_path", "find", "replace"],
+                        "required": ["relative_path"],
                     },
                     self.replace_content,
                 ),
@@ -1355,10 +1392,25 @@ class WorkspaceMcpServer:
         }
 
     def search_for_pattern(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        pattern = require_string(arguments, "pattern")
-        file_glob = optional_string(arguments, "file_glob")
+        pattern = (
+            optional_string(arguments, "pattern")
+            or optional_string(arguments, "substring_pattern")
+            or ""
+        )
+        if not pattern:
+            return {
+                "results": [],
+                "message": "Either 'pattern' or 'substring_pattern' is required",
+            }
+        file_glob = optional_string(arguments, "paths_include_glob") or optional_string(
+            arguments, "file_glob"
+        )
         max_results = optional_int(arguments, "max_results", 50)
-        context_lines = optional_int(arguments, "context_lines", 0)
+        ctx_fallback = optional_int(arguments, "context_lines", 0)
+        context_lines = max(
+            optional_int(arguments, "context_lines_before", ctx_fallback),
+            optional_int(arguments, "context_lines_after", ctx_fallback),
+        )
         try:
             regex = re.compile(pattern)
         except re.error:
