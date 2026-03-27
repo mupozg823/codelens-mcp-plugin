@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "codelens-workspace": {
+      "command": "python3",
+      "args": [
+        "/absolute/path/to/codelens-mcp-plugin/workspace_mcp_server.py",
+        "--workspace-root",
+        "${workspaceFolder}"
+      ]
+    }
+  }
+}

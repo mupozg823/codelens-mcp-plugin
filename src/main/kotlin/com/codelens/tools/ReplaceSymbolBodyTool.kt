@@ -1,7 +1,6 @@
 package com.codelens.tools
 
-import com.codelens.services.ModificationService
-import com.intellij.openapi.components.service
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 /**
@@ -26,6 +25,10 @@ class ReplaceSymbolBodyTool : BaseMcpTool() {
                 "type" to "string",
                 "description" to "Name of the symbol to replace"
             ),
+            "name_path" to mapOf(
+                "type" to "string",
+                "description" to "Optional disambiguated name path such as Outer/helper"
+            ),
             "file_path" to mapOf(
                 "type" to "string",
                 "description" to "File containing the symbol"
@@ -35,17 +38,16 @@ class ReplaceSymbolBodyTool : BaseMcpTool() {
                 "description" to "New source code to replace the symbol body with"
             )
         ),
-        "required" to listOf("symbol_name", "file_path", "new_body")
+        "required" to listOf("file_path", "new_body")
     )
 
     override fun execute(args: Map<String, Any?>, project: Project): String {
-        val symbolName = requireString(args, "symbol_name")
+        val symbolName = optionalString(args, "name_path") ?: requireString(args, "symbol_name")
         val filePath = requireString(args, "file_path")
         val newBody = requireString(args, "new_body")
 
         return try {
-            val modService = project.service<ModificationService>()
-            val result = modService.replaceSymbolBody(symbolName, filePath, newBody)
+            val result = CodeLensBackendProvider.getBackend(project).replaceSymbolBody(symbolName, filePath, newBody)
             if (result.success) successResponse(result.toMap())
             else errorResponse(result.message)
         } catch (e: Exception) {

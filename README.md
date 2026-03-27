@@ -61,6 +61,7 @@ Serena JetBrains Plugin의 오픈소스 대안입니다. JetBrains IDE의 강력
 
 - **JetBrains IDE** 2025.1+ (IntelliJ IDEA, PyCharm, WebStorm 등)
 - **JDK 21** (빌드 시)
+- **Python 3.10+** (`workspace_mcp_server.py` standalone 사용 시)
 
 ---
 
@@ -85,6 +86,95 @@ IDE에서 설치: Settings → Plugins → ⚙️ → Install Plugin from Disk
 ---
 
 ## Connecting to AI Assistants
+
+### IntelliJ 없이 사용하는 Standalone Workspace Backend
+
+IntelliJ IDEA를 켜지 않고도, 현재 워크스페이스를 직접 스캔하는 standalone MCP 서버를 사용할 수 있습니다.
+
+```bash
+python3 workspace_mcp_server.py --workspace-root /absolute/path/to/repo
+```
+
+`--workspace-root` 를 생략하면 다음 우선순위로 루트를 결정합니다.
+
+1. `CODELENS_WORKSPACE_ROOT`
+2. 현재 작업 디렉터리
+
+MCP 클라이언트 설정 예시:
+
+```json
+{
+  "mcpServers": {
+    "codelens-workspace": {
+      "command": "python3",
+      "args": [
+        "/absolute/path/to/codelens-mcp-plugin/workspace_mcp_server.py",
+        "--workspace-root",
+        "/absolute/path/to/repo"
+      ]
+    }
+  }
+}
+```
+
+이 경로는 JetBrains PSI를 쓰지 않으므로 `find_symbol`, `find_referencing_symbols`, `get_symbols_overview`, `search_for_pattern`, 파일 편집/메모리 도구는 동작하지만, 정밀 리팩토링과 타입 계층은 degraded mode입니다.
+
+### Cursor
+
+프로젝트 단위로 쓰려면 `.cursor/mcp.json` 에 다음처럼 추가하면 됩니다.
+
+```json
+{
+  "mcpServers": {
+    "codelens-workspace": {
+      "command": "python3",
+      "args": [
+        "/absolute/path/to/codelens-mcp-plugin/workspace_mcp_server.py",
+        "--workspace-root",
+        "${workspaceFolder}"
+      ]
+    }
+  }
+}
+```
+
+전역으로 쓰려면 `~/.cursor/mcp.json` 에 같은 형식으로 넣고, `--workspace-root` 는 절대 경로로 지정하세요.
+
+### Antigravity
+
+Antigravity는 `mcp_config.json` 에 stdio MCP 서버를 등록할 수 있습니다.
+
+프로젝트 디렉터리에서 Antigravity를 시작한다면, 현재 작업 디렉터리를 자동 루트로 쓰도록 아래처럼 최소 설정으로도 동작합니다.
+
+```json
+{
+  "mcpServers": {
+    "codelens-workspace": {
+      "command": "python3",
+      "args": ["/absolute/path/to/codelens-mcp-plugin/workspace_mcp_server.py"]
+    }
+  }
+}
+```
+
+클라이언트가 다른 작업 디렉터리에서 서버를 시작한다면, 절대 경로를 직접 넘기세요.
+
+```json
+{
+  "mcpServers": {
+    "codelens-workspace": {
+      "command": "python3",
+      "args": [
+        "/absolute/path/to/codelens-mcp-plugin/workspace_mcp_server.py",
+        "--workspace-root",
+        "/absolute/path/to/repo"
+      ]
+    }
+  }
+}
+```
+
+Antigravity 쪽은 일부 MCP 스펙을 완전히 구현하지 않는 클라이언트가 있을 수 있으므로, 연결 후에는 먼저 `activate_project`, `get_current_config`, `tools/list` 가 정상인지 확인하는 편이 안전합니다.
 
 ### Claude Desktop
 
@@ -193,20 +283,20 @@ src/main/kotlin/com/codelens/
 ## Architecture
 
 ```
-Claude Code / Claude Desktop
-         │ MCP Protocol (Stdio)
+Claude Code / Claude Desktop / Cursor / 기타 MCP Client
          │
-Compatible MCP bridge or client
-         │ MCP over IDE-managed transport
+         ├── MCP stdio → workspace_mcp_server.py
+         │       └── Workspace Backend (filesystem + regex symbol scan)
          │
-JetBrains MCP Server
-         │
-JetBrains IDE
-  └── CodeLens MCP Plugin
-        ├── MCP Tools (28 tools)
-        ├── PSI Service Layer
-        └── Language Adapters (Java, Kotlin, Generic)
-              └── IntelliJ PSI Engine
+         └── MCP stdio → jetbrains_sse_bridge.py
+                 │
+                 └── JetBrains MCP Server
+                         │
+                         └── JetBrains IDE
+                               └── CodeLens MCP Plugin
+                                     ├── MCP Tools
+                                     ├── PSI Service Layer
+                                     └── IntelliJ PSI Engine
 ```
 
 ---
@@ -233,6 +323,8 @@ JetBrains IDE
 - [ ] Structural Search and Replace 통합
 - [ ] 성능 최적화 (캐싱, 비동기)
 - [ ] `get_file_problems` 에 quick-fix / suppress / scope 정보 추가
+- [ ] standalone workspace backend의 symbol/ref 정확도 개선
+- [ ] headless JetBrains backend 검토
 - [ ] JetBrains Marketplace 배포
 
 ---

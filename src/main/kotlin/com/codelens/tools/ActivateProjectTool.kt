@@ -1,7 +1,7 @@
 package com.codelens.tools
 
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
-import java.nio.file.Files
 
 class ActivateProjectTool : BaseMcpTool() {
 
@@ -35,19 +35,28 @@ class ActivateProjectTool : BaseMcpTool() {
 
             val serenaDir = SerenaMemorySupport.serenaDir(project)
             val memoriesDir = SerenaMemorySupport.memoriesDir(project)
+            val backend = CodeLensBackendProvider.getBackend(project)
+            val backendStatus = SerenaConfigSupport.backendStatus(project, activeLanguageBackend = backend.languageBackendName)
+
+            if (!backendStatus.languageBackendCompatible) {
+                return errorResponse(
+                    "The active CodeLens backend is ${backend.languageBackendName}, but Serena is configured for " +
+                        "'${backendStatus.configuredLanguageBackend}' via ${backendStatus.configuredLanguageBackendSource} config."
+                )
+            }
 
             successResponse(
-                mapOf(
-                    "activated" to true,
-                    "project_name" to project.name,
-                    "project_base_path" to basePath,
-                    "requested_project" to requestedProject,
-                    "serena_project_dir" to serenaDir.toString(),
-                    "serena_project_config_path" to serenaDir.resolve("project.yml").toString(),
-                    "serena_project_config_exists" to Files.isRegularFile(serenaDir.resolve("project.yml")),
-                    "serena_memories_dir" to memoriesDir.toString(),
-                    "memory_count" to SerenaMemorySupport.listMemoryNames(project).size
-                )
+                buildMap<String, Any?> {
+                    put("activated", true)
+                    put("project_name", project.name)
+                    put("project_base_path", basePath)
+                    put("requested_project", requestedProject)
+                    put("serena_project_dir", serenaDir.toString())
+                    put("serena_memories_dir", memoriesDir.toString())
+                    put("backend_id", backend.backendId)
+                    put("memory_count", SerenaMemorySupport.listMemoryNames(project).size)
+                    putAll(backendStatus.toMap())
+                }
             )
         } catch (e: Exception) {
             errorResponse("Failed to activate project: ${e.message}")

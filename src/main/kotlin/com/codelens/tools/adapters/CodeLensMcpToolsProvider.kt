@@ -1,74 +1,23 @@
 package com.codelens.tools.adapters
 
+import com.codelens.tools.McpToolAdapter
+import com.codelens.tools.ToolRegistry
 import com.intellij.mcpserver.McpTool
 import com.intellij.mcpserver.McpToolsProvider
 
 /**
  * Provides all CodeLens MCP tools to JetBrains' MCP Server plugin.
  * Registered as an extension point: mcpServer.mcpToolsProvider
+ *
+ * IMPORTANT: Tools are cached to prevent infinite ToolListChangedNotification loops.
+ * The MCP Server compares tool lists by reference — creating new instances each call
+ * triggers list_changed → getTools() → new instances → list_changed → infinite loop.
  */
 class CodeLensMcpToolsProvider : McpToolsProvider {
-    override fun getTools(): List<McpTool> {
-        return listOf(
-            // Runtime and IDE state
-            ActivateProjectMcpTool(),
-            GetCurrentConfigMcpTool(),
-            GetProjectModulesMcpTool(),
-            GetOpenFilesMcpTool(),
-            GetFileProblemsMcpTool(),
 
-            // Serena onboarding and memory workflow
-            CheckOnboardingPerformedMcpTool(),
-            InitialInstructionsMcpTool(),
-            ListMemoriesMcpTool(),
-            ReadMemoryMcpTool(),
-            WriteMemoryMcpTool(),
-            DeleteMemoryMcpTool(),
-            EditMemoryMcpTool(),
-            RenameMemoryMcpTool(),
-            OnboardingMcpTool(),
-            PrepareForNewConversationMcpTool(),
-            RemoveProjectMcpTool(),
-            SummarizeChangesMcpTool(),
-            SwitchModesMcpTool(),
-
-            // Symbol analysis (read-only)
-            GetSymbolsOverviewMcpTool(),
-            FindSymbolMcpTool(),
-            FindReferencingSymbolsMcpTool(),
-            SearchForPatternMcpTool(),
-
-            // Advanced code structure
-            TypeHierarchyMcpTool(),
-            FindReferencingCodeSnippetsMcpTool(),
-
-            // Symbol modifications
-            ReplaceSymbolBodyMcpTool(),
-            InsertAfterSymbolMcpTool(),
-            InsertBeforeSymbolMcpTool(),
-            RenameSymbolMcpTool(),
-
-            // IDE integration
-            GetRunConfigurationsMcpTool(),
-            ExecuteRunConfigurationMcpTool(),
-            ReformatFileMcpTool(),
-            ExecuteTerminalCommandMcpTool(),
-            GetProjectDependenciesMcpTool(),
-            ListDirectoryTreeMcpTool(),
-            OpenFileInEditorMcpTool(),
-            GetRepositoriesMcpTool(),
-
-            // File operations (read)
-            ReadFileMcpTool(),
-            ListDirMcpTool(),
-            FindFileMcpTool(),
-
-            // File operations (write)
-            CreateTextFileMcpTool(),
-            DeleteLinesMcpTool(),
-            InsertAtLineMcpTool(),
-            ReplaceLinesMcpTool(),
-            ReplaceContentMcpTool()
-        )
+    private val cachedTools: List<McpTool> by lazy {
+        ToolRegistry.tools.map(::McpToolAdapter)
     }
+
+    override fun getTools(): List<McpTool> = cachedTools
 }

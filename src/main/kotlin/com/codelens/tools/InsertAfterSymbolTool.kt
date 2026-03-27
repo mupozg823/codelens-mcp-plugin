@@ -1,7 +1,6 @@
 package com.codelens.tools
 
-import com.codelens.services.ModificationService
-import com.intellij.openapi.components.service
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 /**
@@ -17,19 +16,20 @@ class InsertAfterSymbolTool : BaseMcpTool() {
         "type" to "object",
         "properties" to mapOf(
             "symbol_name" to mapOf("type" to "string", "description" to "Symbol to insert after"),
+            "name_path" to mapOf("type" to "string", "description" to "Optional disambiguated name path such as Outer/helper"),
             "file_path" to mapOf("type" to "string", "description" to "File containing the symbol"),
             "content" to mapOf("type" to "string", "description" to "Code to insert")
         ),
-        "required" to listOf("symbol_name", "file_path", "content")
+        "required" to listOf("file_path", "content")
     )
 
     override fun execute(args: Map<String, Any?>, project: Project): String {
-        val symbolName = requireString(args, "symbol_name")
+        val symbolName = optionalString(args, "name_path") ?: requireString(args, "symbol_name")
         val filePath = requireString(args, "file_path")
         val content = requireString(args, "content")
 
         return try {
-            val result = project.service<ModificationService>().insertAfterSymbol(symbolName, filePath, content)
+            val result = CodeLensBackendProvider.getBackend(project).insertAfterSymbol(symbolName, filePath, content)
             if (result.success) successResponse(result.toMap()) else errorResponse(result.message)
         } catch (e: Exception) {
             errorResponse("insert_after_symbol failed: ${e.message}")

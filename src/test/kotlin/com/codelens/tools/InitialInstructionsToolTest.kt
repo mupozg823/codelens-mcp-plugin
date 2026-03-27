@@ -11,5 +11,6 @@ class InitialInstructionsToolTest : CodeLensTestBase() {
         assertTrue(response.contains("\"project_name\":\"${project.name}\""))
         assertTrue(response.contains("\"activate_project\""))
         assertTrue(response.contains("\"list_memories\""))
+        assertTrue(response.contains("\"jet_brains_find_symbol\""))
     }
 }

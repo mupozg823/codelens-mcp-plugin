@@ -1,6 +1,6 @@
 package com.codelens.tools
 
-import com.codelens.services.FileService
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 class FindFileTool : BaseMcpTool() {
@@ -26,8 +26,7 @@ class FindFileTool : BaseMcpTool() {
             val pattern = requireString(args, "wildcard_pattern")
             val baseDir = optionalString(args, "relative_dir")
 
-            val fileService = project.getService(FileService::class.java)
-            val files = fileService.findFiles(pattern, baseDir)
+            val files = CodeLensBackendProvider.getBackend(project).findFiles(pattern, baseDir)
 
             successResponse(mapOf("files" to files, "count" to files.size))
         } catch (e: Exception) {

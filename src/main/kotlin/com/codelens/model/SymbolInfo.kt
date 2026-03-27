@@ -11,6 +11,7 @@ data class SymbolInfo(
     val line: Int,
     val column: Int = 0,
     val signature: String,
+    val namePath: String? = null,
     val body: String? = null,
     val children: List<SymbolInfo> = emptyList(),
     val documentation: String? = null
@@ -22,6 +23,7 @@ data class SymbolInfo(
         put("line", line)
         put("column", column)
         put("signature", signature)
+        if (namePath != null) put("name_path", namePath)
         if (body != null) put("body", body)
         if (children.isNotEmpty()) put("children", children.map { it.toMap() })
         if (documentation != null) put("documentation", documentation)

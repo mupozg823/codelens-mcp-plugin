@@ -12,8 +12,7 @@ class FileServiceImpl(private val project: Project) : FileService {
 
     override fun readFile(path: String, startLine: Int?, endLine: Int?): FileReadResult {
         return ReadAction.compute<FileReadResult, Exception> {
-            val resolvedPath = resolvePath(path)
-            val virtualFile = PsiUtils.resolveVirtualFile(resolvedPath)
+            val virtualFile = resolveVirtualFile(path)
                 ?: throw IllegalArgumentException("File not found: $path")
             val psiFile = PsiManager.getInstance(project).findFile(virtualFile)
                 ?: throw IllegalArgumentException("Cannot open file: $path")
@@ -36,8 +35,7 @@ class FileServiceImpl(private val project: Project) : FileService {
 
     override fun listDirectory(path: String, recursive: Boolean): List<FileEntry> {
         return ReadAction.compute<List<FileEntry>, Exception> {
-            val resolvedPath = resolvePath(path)
-            val virtualFile = PsiUtils.resolveVirtualFile(resolvedPath)
+            val virtualFile = resolveVirtualFile(path)
                 ?: throw IllegalArgumentException("Directory not found: $path")
             if (!virtualFile.isDirectory) throw IllegalArgumentException("Not a directory: $path")
             val entries = mutableListOf<FileEntry>()
@@ -48,12 +46,18 @@ class FileServiceImpl(private val project: Project) : FileService {
 
     override fun findFiles(pattern: String, baseDir: String?): List<String> {
         return ReadAction.compute<List<String>, Exception> {
-            val searchDir = if (baseDir != null) resolvePath(baseDir) else project.basePath ?: return@compute emptyList()
-            val virtualFile = PsiUtils.resolveVirtualFile(searchDir)
-                ?: throw IllegalArgumentException("Directory not found: ${baseDir ?: "project root"}")
             val matcher = createMatcher(pattern)
             val results = mutableListOf<String>()
-            traverseForPattern(virtualFile, matcher, results)
+            val roots = if (baseDir != null) {
+                listOf(resolveVirtualFile(baseDir)
+                    ?: throw IllegalArgumentException("Directory not found: $baseDir"))
+            } else {
+                PsiUtils.getProjectRoots(project)
+            }
+            if (roots.isEmpty()) throw IllegalArgumentException("Directory not found: project root")
+            for (root in roots) {
+                traverseForPattern(root, matcher, results)
+            }
             results
         }
     }
@@ -98,9 +102,7 @@ class FileServiceImpl(private val project: Project) : FileService {
         }
     }
 
-    private fun resolvePath(path: String): String {
-        if (path.startsWith("/")) return path
-        val basePath = project.basePath ?: return path
-        return "$basePath/$path"
+    private fun resolveVirtualFile(path: String): VirtualFile? {
+        return PsiUtils.findProjectFile(project, path)
     }
 }

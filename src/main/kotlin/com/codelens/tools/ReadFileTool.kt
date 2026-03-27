@@ -1,6 +1,6 @@
 package com.codelens.tools
 
-import com.codelens.services.FileService
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 class ReadFileTool : BaseMcpTool() {
@@ -31,8 +31,7 @@ class ReadFileTool : BaseMcpTool() {
             val startLine = args["start_line"]?.let { (it as? Number)?.toInt() }
             val endLine = args["end_line"]?.let { (it as? Number)?.toInt() }
 
-            val fileService = project.getService(FileService::class.java)
-            val result = fileService.readFile(relativePath, startLine, endLine)
+            val result = CodeLensBackendProvider.getBackend(project).readFile(relativePath, startLine, endLine)
 
             successResponse(mapOf(
                 "content" to result.content,

@@ -6,7 +6,6 @@ import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.openapi.vfs.VirtualFile
-import com.intellij.psi.PsiManager
 import java.util.regex.Pattern
 import java.util.regex.PatternSyntaxException
 
@@ -30,23 +29,23 @@ class SearchServiceImpl(private val project: Project) : SearchService {
 
         return ReadAction.compute<List<SearchResult>, Throwable> {
             val results = mutableListOf<SearchResult>()
-            val basePath = project.basePath ?: return@compute results
-            val baseDir = PsiUtils.resolveVirtualFile(basePath) ?: return@compute results
+            for (root in PsiUtils.getProjectRoots(project)) {
+                if (results.size >= maxResults) break
+                VfsUtil.iterateChildrenRecursively(root, { file ->
+                    !file.name.startsWith(".") &&
+                        file.name != "build" &&
+                        file.name != "out" &&
+                        file.name != "node_modules" &&
+                        file.name != "__pycache__" &&
+                        file.name != ".git"
+                }) { file ->
+                    if (results.size >= maxResults) return@iterateChildrenRecursively false
 
-            VfsUtil.iterateChildrenRecursively(baseDir, { file ->
-                !file.name.startsWith(".") &&
-                    file.name != "build" &&
-                    file.name != "out" &&
-                    file.name != "node_modules" &&
-                    file.name != "__pycache__" &&
-                    file.name != ".git"
-            }) { file ->
-                if (results.size >= maxResults) return@iterateChildrenRecursively false
-
-                if (!file.isDirectory && shouldSearchFile(file, extensionFilter)) {
-                    searchInFile(file, compiledPattern, contextLines, results, maxResults)
+                    if (!file.isDirectory && shouldSearchFile(file, extensionFilter)) {
+                        searchInFile(file, compiledPattern, contextLines, results, maxResults)
+                    }
+                    true
                 }
-                true
             }
 
             results
@@ -104,7 +103,7 @@ class SearchServiceImpl(private val project: Project) : SearchService {
 
                     results.add(
                         SearchResult(
-                            filePath = file.path,
+                            filePath = PsiUtils.getRelativePath(project, file),
                             line = index + 1,
                             column = matcher.start() + 1,
                             matchedText = matcher.group(),

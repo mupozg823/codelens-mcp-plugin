@@ -1,0 +1,11 @@
+{
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "jetbrains"
+  ],
+  "permissions": {
+    "allow": [
+      "mcp__ide__getDiagnostics"
+    ]
+  }
+}

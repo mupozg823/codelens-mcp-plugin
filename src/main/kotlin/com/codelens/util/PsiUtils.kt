@@ -6,6 +6,7 @@ import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.LocalFileSystem
 import com.intellij.openapi.vfs.VirtualFile
 import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.roots.ProjectRootManager
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
 import com.intellij.psi.PsiFile
@@ -69,12 +70,33 @@ object PsiUtils {
      * Get the relative path of a file within the project.
      */
     fun getRelativePath(project: Project, virtualFile: VirtualFile): String {
-        val basePath = project.basePath ?: return virtualFile.path
-        return if (virtualFile.path.startsWith(basePath)) {
-            virtualFile.path.removePrefix(basePath).removePrefix("/")
-        } else {
-            virtualFile.path
+        val matchingRoot = getProjectRoots(project)
+            .filter { virtualFile.path.startsWith(it.path) }
+            .maxByOrNull { it.path.length }
+        if (matchingRoot != null) {
+            return virtualFile.path.removePrefix(matchingRoot.path).removePrefix("/")
         }
+        val projectRoot = project.baseDir?.path ?: project.basePath ?: return virtualFile.path
+        return virtualFile.path.removePrefix(projectRoot).removePrefix("/")
+    }
+
+    fun findProjectFile(project: Project, relativePath: String): VirtualFile? {
+        if (relativePath.startsWith("/")) return resolveVirtualFile(relativePath)
+        for (root in getProjectRoots(project)) {
+            root.findFileByRelativePath(relativePath)?.let { return it }
+        }
+        project.baseDir?.findFileByRelativePath(relativePath)?.let { return it }
+        val basePath = project.basePath ?: return resolveVirtualFile(relativePath)
+        return resolveVirtualFile("$basePath/$relativePath")
+    }
+
+    fun getProjectRoots(project: Project): List<VirtualFile> {
+        val contentRoots = ProjectRootManager.getInstance(project).contentRoots.toList()
+        if (contentRoots.isNotEmpty()) return contentRoots
+        val fallbacks = mutableListOf<VirtualFile>()
+        project.baseDir?.let { fallbacks.add(it) }
+        project.basePath?.let { resolveVirtualFile(it)?.let(fallbacks::add) }
+        return fallbacks.distinctBy { it.path }
     }
 
     /**

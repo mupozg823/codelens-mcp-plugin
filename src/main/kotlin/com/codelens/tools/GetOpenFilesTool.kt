@@ -1,6 +1,7 @@
 package com.codelens.tools
 
 import com.codelens.util.PsiUtils
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VirtualFile
@@ -26,10 +27,16 @@ class GetOpenFilesTool : BaseMcpTool() {
 
     override fun execute(args: Map<String, Any?>, project: Project): String {
         return try {
-            val fileEditorManager = FileEditorManager.getInstance(project)
-            val currentFile = fileEditorManager.currentFile
-            val selectedFiles = fileEditorManager.selectedFiles.toSet()
-            val openFiles = fileEditorManager.openFiles
+            var currentFile: VirtualFile? = null
+            var selectedFiles: Set<VirtualFile> = emptySet()
+            var openFiles: Array<VirtualFile> = emptyArray()
+
+            ApplicationManager.getApplication().invokeAndWait {
+                val fileEditorManager = FileEditorManager.getInstance(project)
+                currentFile = fileEditorManager.currentFile
+                selectedFiles = fileEditorManager.selectedFiles.toSet()
+                openFiles = fileEditorManager.openFiles
+            }
 
             successResponse(
                 mapOf(

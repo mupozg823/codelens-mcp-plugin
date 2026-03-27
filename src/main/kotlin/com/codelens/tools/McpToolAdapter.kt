@@ -3,6 +3,7 @@ package com.codelens.tools
 import com.intellij.mcpserver.McpTool
 import com.intellij.mcpserver.McpToolCallResult
 import com.intellij.mcpserver.McpToolCallResultContent
+import com.intellij.mcpserver.McpToolCategory
 import com.intellij.mcpserver.McpToolDescriptor
 import com.intellij.mcpserver.McpToolSchema
 import com.intellij.openapi.project.ProjectManager
@@ -34,6 +35,8 @@ class McpToolAdapter(
         McpToolDescriptor(
             name = tool.toolName,
             description = tool.description,
+            category = McpToolCategory("CodeLens", "com.codelens.mcp.${tool.toolName}"),
+            fullyQualifiedName = "com.codelens.mcp.${tool.toolName}",
             inputSchema = inputSchema,
             outputSchema = McpToolSchema(
                 propertiesSchema = JsonObject(emptyMap()),
@@ -64,8 +67,8 @@ class McpToolAdapter(
                 structuredContent = JsonObject(emptyMap()),
                 isError = false
             )
-        } catch (e: Exception) {
-            val errorMessage = "Error executing tool ${tool.toolName}: ${e.message}"
+        } catch (e: Throwable) {
+            val errorMessage = "Error executing tool ${tool.toolName}: ${e.javaClass.simpleName}: ${e.message}"
             val textContent = McpToolCallResultContent.Text(errorMessage)
             McpToolCallResult(
                 content = arrayOf(textContent),

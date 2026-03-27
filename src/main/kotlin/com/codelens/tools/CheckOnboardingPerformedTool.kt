@@ -1,5 +1,6 @@
 package com.codelens.tools
 
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 import java.nio.file.Files
 
@@ -21,20 +22,23 @@ class CheckOnboardingPerformedTool : BaseMcpTool() {
         return try {
             val serenaDir = SerenaMemorySupport.serenaDir(project)
             val memoriesDir = SerenaMemorySupport.memoriesDir(project)
+            val backend = CodeLensBackendProvider.getBackend(project)
+            val backendStatus = SerenaConfigSupport.backendStatus(project, activeLanguageBackend = backend.languageBackendName)
             val presentMemories = SerenaMemorySupport.listMemoryNames(project)
             val missingMemories = SerenaMemorySupport.requiredOnboardingMemories.filterNot { presentMemories.contains(it) }
 
             successResponse(
-                mapOf(
-                    "onboarding_performed" to missingMemories.isEmpty(),
-                    "required_memories" to SerenaMemorySupport.requiredOnboardingMemories,
-                    "present_memories" to presentMemories,
-                    "missing_memories" to missingMemories,
-                    "serena_project_dir" to serenaDir.toString(),
-                    "serena_project_config_exists" to Files.isRegularFile(serenaDir.resolve("project.yml")),
-                    "serena_memories_dir" to memoriesDir.toString(),
-                    "serena_memories_present" to Files.isDirectory(memoriesDir)
-                )
+                buildMap<String, Any?> {
+                    put("onboarding_performed", missingMemories.isEmpty())
+                    put("required_memories", SerenaMemorySupport.requiredOnboardingMemories)
+                    put("present_memories", presentMemories)
+                    put("missing_memories", missingMemories)
+                    put("serena_project_dir", serenaDir.toString())
+                    put("serena_memories_dir", memoriesDir.toString())
+                    put("serena_memories_present", Files.isDirectory(memoriesDir))
+                    put("backend_id", backend.backendId)
+                    putAll(backendStatus.toMap())
+                }
             )
         } catch (e: Exception) {
             errorResponse("Failed to check onboarding state: ${e.message}")

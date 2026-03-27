@@ -1,5 +1,6 @@
 package com.codelens.tools
 
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 class InitialInstructionsTool : BaseMcpTool() {
@@ -19,28 +20,39 @@ class InitialInstructionsTool : BaseMcpTool() {
     override fun execute(args: Map<String, Any?>, project: Project): String {
         return try {
             val knownMemories = SerenaMemorySupport.listMemoryNames(project)
+            val backend = CodeLensBackendProvider.getBackend(project)
+            val backendStatus = SerenaConfigSupport.backendStatus(project, activeLanguageBackend = backend.languageBackendName)
 
             successResponse(
                 mapOf(
                     "project_name" to project.name,
                     "project_base_path" to project.basePath,
                     "compatible_context" to "ide",
+                    "backend_id" to backend.backendId,
+                    "active_language_backend" to backendStatus.activeLanguageBackend,
+                    "configured_language_backend" to backendStatus.configuredLanguageBackend,
+                    "language_backend_compatible" to backendStatus.languageBackendCompatible,
                     "recommended_tools" to listOf(
                         "activate_project",
                         "get_current_config",
                         "check_onboarding_performed",
                         "list_memories",
                         "read_memory",
-                        "write_memory"
+                        "write_memory",
+                        "jet_brains_find_symbol",
+                        "jet_brains_find_referencing_symbols",
+                        "jet_brains_get_symbols_overview",
+                        "jet_brains_type_hierarchy"
                     ),
                     "known_memories" to knownMemories,
                     "instructions" to listOf(
                         "The active IntelliJ project is already selected; activate_project is informational and validates the current target project.",
+                        "If Serena config sets language_backend, it should be 'JetBrains' for this backend.",
                         "Use get_current_config to inspect IDE state, indexing status, and the registered tool set before doing symbol work.",
                         "Use check_onboarding_performed to confirm whether the standard .serena onboarding memories exist for this project.",
                         "Use list_memories and read_memory before editing memory files so you can reuse the current project context.",
                         "Use write_memory to persist Serena-compatible markdown memories under .serena/memories.",
-                        "For code understanding, prefer get_symbols_overview, find_symbol, find_referencing_symbols, search_for_pattern, and get_type_hierarchy."
+                        "For Serena JetBrains workflows, prefer jet_brains_get_symbols_overview, jet_brains_find_symbol, jet_brains_find_referencing_symbols, and jet_brains_type_hierarchy."
                     )
                 )
             )

@@ -1,6 +1,8 @@
 package com.codelens.tools
 
+import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.ide.plugins.PluginManagerCore
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ApplicationInfo
 import com.intellij.openapi.extensions.PluginId
 import com.intellij.openapi.fileEditor.FileEditorManager
@@ -43,7 +45,14 @@ class GetCurrentConfigTool : BaseMcpTool() {
             val basePath = project.basePath
             val serenaDir = basePath?.let { Path.of(it, ".serena") }
             val memoriesDir = serenaDir?.resolve("memories")
-            val openFiles = FileEditorManager.getInstance(project).openFiles
+            val backend = CodeLensBackendProvider.getBackend(project)
+            val backendStatus = SerenaConfigSupport.backendStatus(project, activeLanguageBackend = backend.languageBackendName)
+            val allToolNames = ToolRegistry.tools.map { it.toolName }.toSet()
+            val supportedProfiles = ToolProfiles.supportedProfiles(backend.backendId, allToolNames)
+            var openFileCount = 0
+            ApplicationManager.getApplication().invokeAndWait {
+                openFileCount = FileEditorManager.getInstance(project).openFiles.size
+            }
 
             successResponse(
                 buildMap<String, Any?> {
@@ -54,13 +63,17 @@ class GetCurrentConfigTool : BaseMcpTool() {
                     put("plugin_id", "com.codelens.mcp")
                     put("plugin_version", plugin?.version ?: "unknown")
                     put("indexing_complete", !DumbService.getInstance(project).isDumb)
-                    put("open_file_count", openFiles.size)
+                    put("open_file_count", openFileCount)
                     put("serena_project_dir", serenaDir?.toString())
                     put("serena_memories_dir", memoriesDir?.toString())
                     put("serena_memories_present", memoriesDir != null && Files.isDirectory(memoriesDir))
                     put("compatible_context", "ide")
                     put("transport", "jetbrains-mcp-server")
+                    put("backend_id", backend.backendId)
                     put("tool_count", ToolRegistry.tools.size)
+                    put("recommended_profile", ToolProfiles.recommendedProfileName(backend.backendId))
+                    put("supported_profiles", supportedProfiles)
+                    putAll(backendStatus.toMap())
                     if (includeTools) {
                         put("tools", ToolRegistry.tools.map { it.toolName })
                     }
