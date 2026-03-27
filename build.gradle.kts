@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.codelens"
-version = "0.3.0"
+version = "0.4.0"
 
 repositories {
     mavenCentral()
@@ -24,6 +24,9 @@ dependencies {
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.kotlin")
         bundledPlugin("org.jetbrains.plugins.terminal")
+        // McpServer plugin: v252.28238.29 targets IntelliJ 2025.2.
+        // When targeting 261.* (2026.1), the IDE ships its own mcpServer version.
+        // The optional="true" dependency in plugin.xml ensures graceful degradation.
         plugin("com.intellij.mcpServer", "252.28238.29")
 
         pluginVerifier()
@@ -59,7 +62,7 @@ intellijPlatform {
 
         ideaVersion {
             sinceBuild = "252"
-            untilBuild = "253.*"
+            untilBuild = "261.*"
         }
 
         description = """
@@ -76,6 +79,13 @@ intellijPlatform {
         """.trimIndent()
 
         changeNotes = """
+            <h3>0.4.0</h3>
+            <ul>
+                <li>Extended IDE compatibility to IntelliJ 2026.1 (untilBuild 261.*)</li>
+                <li>Added build-time quality gates: tool description 2KB limit check, registry consistency verification</li>
+                <li>Added unit tests for all v0.3.0 tools: memory, run configuration, reformat, terminal</li>
+                <li>Verified Claude Code 2.1.84 compatibility: McpToolsProvider, SSE transport, 2KB description cap</li>
+            </ul>
             <h3>0.3.0</h3>
             <ul>
                 <li>Added execute_terminal_command tool for shell command execution with timeout and output capture</li>
