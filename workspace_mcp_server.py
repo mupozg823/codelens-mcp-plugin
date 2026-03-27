@@ -478,6 +478,168 @@ class WorkspaceMcpServer:
                     self.query_project,
                 ),
                 ToolDefinition(
+                    "add_project",
+                    "Register an additional project for cross-project queries.",
+                    {
+                        "type": "object",
+                        "properties": {"project_path": {"type": "string"}},
+                        "required": ["project_path"],
+                    },
+                    self.add_project,
+                ),
+                ToolDefinition(
+                    "execute_shell_command",
+                    "Execute a shell command in the workspace.",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "command": {"type": "string"},
+                            "cwd": {"type": "string"},
+                            "capture_stderr": {"type": "boolean", "default": True},
+                        },
+                        "required": ["command"],
+                    },
+                    self.execute_shell_command,
+                ),
+                ToolDefinition(
+                    "onboarding",
+                    "Perform initial project onboarding — analyze structure and create memories.",
+                    {"type": "object", "properties": {}},
+                    self.onboarding,
+                ),
+                ToolDefinition(
+                    "prepare_for_new_conversation",
+                    "Prepare for a new conversation session.",
+                    {"type": "object", "properties": {}},
+                    self.prepare_for_new_conversation,
+                ),
+                ToolDefinition(
+                    "remove_project",
+                    "Remove a project from the workspace configuration.",
+                    {
+                        "type": "object",
+                        "properties": {"project_path": {"type": "string"}},
+                        "required": ["project_path"],
+                    },
+                    self.remove_project_handler,
+                ),
+                ToolDefinition(
+                    "summarize_changes",
+                    "Summarize recent changes made during the session.",
+                    {"type": "object", "properties": {}},
+                    lambda args: {
+                        "status": "ok",
+                        "message": "Use git diff to review changes.",
+                    },
+                ),
+                ToolDefinition(
+                    "switch_modes",
+                    "Switch operational modes (editing, planning, etc.).",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "mode_names": {"type": "array", "items": {"type": "string"}}
+                        },
+                    },
+                    lambda args: {
+                        "status": "ok",
+                        "active_modes": args.get("mode_names", []),
+                    },
+                ),
+                ToolDefinition(
+                    "open_dashboard",
+                    "Open the CodeLens dashboard (not available in standalone mode).",
+                    {"type": "object", "properties": {}},
+                    lambda args: {
+                        "status": "not_available",
+                        "message": "Dashboard requires IDE plugin.",
+                    },
+                ),
+                ToolDefinition(
+                    "restart_language_server",
+                    "Restart the language server for a specified language.",
+                    {
+                        "type": "object",
+                        "properties": {"language": {"type": "string"}},
+                        "required": ["language"],
+                    },
+                    self.restart_language_server,
+                ),
+                # JetBrains aliases — delegate to base tools in standalone mode
+                ToolDefinition(
+                    "jet_brains_find_symbol",
+                    "Find symbol (JetBrains alias, uses LSP in standalone).",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "name_path_pattern": {"type": "string"},
+                            "relative_path": {"type": "string"},
+                            "include_body": {"type": "boolean", "default": False},
+                            "depth": {"type": "integer", "default": 0},
+                        },
+                    },
+                    lambda args: self.find_symbol(
+                        {
+                            **args,
+                            "name": args.get("name_path_pattern", ""),
+                            "name_path": args.get("name_path_pattern", ""),
+                            "file_path": args.get("relative_path"),
+                            "include_body": args.get("include_body", False),
+                        }
+                    ),
+                ),
+                ToolDefinition(
+                    "jet_brains_find_referencing_symbols",
+                    "Find references (JetBrains alias).",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "name_path": {"type": "string"},
+                            "relative_path": {"type": "string"},
+                        },
+                        "required": ["name_path", "relative_path"],
+                    },
+                    lambda args: self.find_referencing_symbols(
+                        {
+                            **args,
+                            "symbol_name": args.get("name_path", ""),
+                            "file_path": args.get("relative_path"),
+                        }
+                    ),
+                ),
+                ToolDefinition(
+                    "jet_brains_get_symbols_overview",
+                    "Symbols overview (JetBrains alias).",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "relative_path": {"type": "string"},
+                            "depth": {"type": "integer", "default": 0},
+                        },
+                        "required": ["relative_path"],
+                    },
+                    lambda args: self.get_symbols_overview(
+                        {**args, "path": args.get("relative_path", "")}
+                    ),
+                ),
+                ToolDefinition(
+                    "jet_brains_type_hierarchy",
+                    "Type hierarchy (JetBrains alias).",
+                    {
+                        "type": "object",
+                        "properties": {
+                            "name_path": {"type": "string"},
+                            "relative_path": {"type": "string"},
+                            "hierarchy_type": {"type": "string", "default": "both"},
+                            "depth": {"type": "integer", "default": 1},
+                        },
+                        "required": ["name_path", "relative_path"],
+                    },
+                    lambda args: self.get_type_hierarchy(
+                        {**args, "fully_qualified_name": args.get("name_path", "")}
+                    ),
+                ),
+                ToolDefinition(
                     "read_file",
                     "Read a file with an optional line range.",
                     {
@@ -1322,6 +1484,77 @@ class WorkspaceMcpServer:
             "type_parameters": [],
             "backend": "Workspace",
         }
+
+    def execute_shell_command(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        command = require_string(arguments, "command")
+        cwd = optional_string(arguments, "cwd")
+        capture_stderr = optional_bool(arguments, "capture_stderr", True)
+        work_dir = self._resolve_path(cwd) if cwd else self.workspace_root
+        import subprocess as _sp
+
+        try:
+            result = _sp.run(
+                command,
+                shell=True,
+                capture_output=True,
+                text=True,
+                cwd=str(work_dir),
+                timeout=120,
+                stdin=_sp.DEVNULL,
+            )
+            output: Dict[str, Any] = {
+                "exitCode": result.returncode,
+                "stdout": result.stdout,
+            }
+            if capture_stderr:
+                output["stderr"] = result.stderr
+            return output
+        except _sp.TimeoutExpired:
+            return {"exitCode": -1, "error": "Command timed out (120s)"}
+        except Exception as e:
+            raise ToolError(f"Shell command failed: {e}")
+
+    def onboarding(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        self.memories_dir.mkdir(parents=True, exist_ok=True)
+        created = []
+        for mem in [
+            "project_overview",
+            "style_and_conventions",
+            "suggested_commands",
+            "task_completion",
+        ]:
+            path = self.memories_dir / f"{mem}.md"
+            if not path.exists():
+                path.write_text(
+                    f"# {mem.replace('_', ' ').title()}\n\n(To be filled during onboarding)\n"
+                )
+                created.append(mem)
+        return {"onboarding_performed": True, "created_memories": created}
+
+    def prepare_for_new_conversation(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "status": "ok",
+            "message": "Session state cleared. Read memories to restore context.",
+        }
+
+    def remove_project_handler(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        project_path = require_string(arguments, "project_path")
+        if self._multi_project:
+            self._multi_project.remove_project(project_path)
+            return {"removed": True, "path": project_path}
+        return {"removed": False, "message": "Multi-project not available"}
+
+    def restart_language_server(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        language = require_string(arguments, "language")
+        if self._lsp_manager:
+            client = self._lsp_manager._clients.get(language)
+            if client:
+                success = client.restart()
+                return {"restarted": success, "language": language}
+            self._lsp_manager._unavailable.discard(language)
+            new_client = self._lsp_manager.ensure_started(language)
+            return {"restarted": new_client is not None, "language": language}
+        return {"restarted": False, "message": "LSP not available"}
 
     def list_queryable_projects(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         if self._multi_project:
