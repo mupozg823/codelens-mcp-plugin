@@ -118,6 +118,7 @@ class ToolDefinition:
     input_schema: Dict[str, Any]
     handler: Callable[[Dict[str, Any]], Dict[str, Any]]
     annotations: Optional[Dict[str, Any]] = None
+    title: Optional[str] = None
 
 
 @dataclass
@@ -166,10 +167,11 @@ class WorkspaceMcpServer:
         self.serena_dir = self.workspace_root / ".serena"
         self.memories_dir = self.serena_dir / "memories"
         raw_tools = self._build_tools()
-        # Auto-apply MCP annotations to all tools
         for t in raw_tools.values():
             if t.annotations is None:
                 t.annotations = self._auto_annotate(t.name)
+            if t.title is None:
+                t.title = t.name.replace("_", " ").title()
         self.tools = raw_tools
         # LSP backend — lazy init, graceful fallback to regex
         self._lsp_manager = None
@@ -893,7 +895,7 @@ class WorkspaceMcpServer:
                     "jsonrpc": "2.0",
                     "id": message_id,
                     "result": {
-                        "protocolVersion": "2024-11-05",
+                        "protocolVersion": "2025-11-25",
                         "capabilities": {"tools": {"listChanged": False}},
                         "serverInfo": {
                             "name": "codelens-workspace",
@@ -921,6 +923,8 @@ class WorkspaceMcpServer:
                         "description": t.description,
                         "inputSchema": t.input_schema,
                     }
+                    if t.title:
+                        entry["title"] = t.title
                     if t.annotations:
                         entry["annotations"] = t.annotations
                     tool_list.append(entry)
@@ -1628,10 +1632,12 @@ class WorkspaceMcpServer:
         work_dir = self._resolve_path(cwd) if cwd else self.workspace_root
         import subprocess as _sp
 
+        import shlex as _shlex
+
         try:
             result = _sp.run(
-                command,
-                shell=True,
+                _shlex.split(command),
+                shell=False,
                 capture_output=True,
                 text=True,
                 cwd=str(work_dir),
