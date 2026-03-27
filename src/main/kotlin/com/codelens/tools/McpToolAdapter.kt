@@ -17,6 +17,8 @@ import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Adapter that implements com.intellij.mcpserver.McpTool interface.
@@ -52,7 +54,9 @@ class McpToolAdapter(
             val project = ProjectManager.getInstance().openProjects.firstOrNull()
                 ?: throw IllegalStateException("No active project found")
 
-            val response = tool.execute(argsMap, project)
+            val response = withContext(Dispatchers.IO) {
+                tool.execute(argsMap, project)
+            }
 
             val textContent = McpToolCallResultContent.Text(response)
             McpToolCallResult(

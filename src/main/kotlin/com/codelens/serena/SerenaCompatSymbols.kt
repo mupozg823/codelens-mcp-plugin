@@ -7,6 +7,12 @@ import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.command.WriteCommandAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VfsUtil
+import com.intellij.openapi.vfs.VirtualFile
+import com.intellij.openapi.vfs.VirtualFileFilter
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent
+import java.util.concurrent.ConcurrentHashMap
 import com.intellij.psi.JavaPsiFacade
 import com.intellij.psi.PsiDocumentManager
 import com.intellij.psi.PsiElement
@@ -30,6 +36,24 @@ internal class SerenaCompatSymbols(private val project: Project) {
         val kind: SymbolKind,
         val children: List<SymbolRecord> = emptyList()
     )
+
+    private val symbolCache = ConcurrentHashMap<String, List<SymbolRecord>>()
+
+    private val dirFilter = VirtualFileFilter { file ->
+        if (!file.isDirectory) true
+        else file.name !in EXCLUDED_DIRS
+    }
+
+    init {
+        project.messageBus.connect().subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
+            override fun after(events: List<VFileEvent>) {
+                for (event in events) {
+                    val path = event.file?.let { projectRelativePath(it.path) } ?: continue
+                    symbolCache.keys.removeIf { it.startsWith(path) || path.startsWith(it) }
+                }
+            }
+        })
+    }
 
     fun projectRelativePath(path: String): String {
         if (path.startsWith("/")) {
@@ -221,9 +245,9 @@ internal class SerenaCompatSymbols(private val project: Project) {
         }
     }
 
-    private fun getDirectoryOverview(directory: com.intellij.openapi.vfs.VirtualFile, depth: Int): List<Map<String, Any?>> {
+    private fun getDirectoryOverview(directory: VirtualFile, depth: Int): List<Map<String, Any?>> {
         val result = mutableListOf<Map<String, Any?>>()
-        VfsUtil.iterateChildrenRecursively(directory, null) { file ->
+        VfsUtil.iterateChildrenRecursively(directory, dirFilter) { file ->
             if (!file.isDirectory) {
                 val psiFile = PsiManager.getInstance(project).findFile(file)
                 val symbols = collectFileDeclarations(psiFile, depth)
@@ -265,9 +289,9 @@ internal class SerenaCompatSymbols(private val project: Project) {
         return collectDirectoryDeclarations(root, depth)
     }
 
-    private fun collectDirectoryDeclarations(directory: com.intellij.openapi.vfs.VirtualFile, depth: Int): List<SymbolRecord> {
+    private fun collectDirectoryDeclarations(directory: VirtualFile, depth: Int): List<SymbolRecord> {
         val result = mutableListOf<SymbolRecord>()
-        VfsUtil.iterateChildrenRecursively(directory, null) { file ->
+        VfsUtil.iterateChildrenRecursively(directory, dirFilter) { file ->
             if (!file.isDirectory) {
                 val psiFile = PsiManager.getInstance(project).findFile(file)
                 result += collectFileDeclarations(psiFile, depth)
@@ -424,7 +448,12 @@ internal class SerenaCompatSymbols(private val project: Project) {
     }
 
     private fun findUniqueDeclaration(namePath: String, relativePath: String): SymbolRecord? {
-        return collectFileDeclarations(resolvePsiFile(relativePath), 8).firstOrNull { it.namePath == namePath }
+        val targetDepth = namePath.count { it == '/' }
+        val cacheKey = "$relativePath:$targetDepth"
+        val declarations = symbolCache.getOrPut(cacheKey) {
+            collectFileDeclarations(resolvePsiFile(relativePath), targetDepth)
+        }
+        return declarations.firstOrNull { it.namePath == namePath }
     }
 
     private fun resolvePsiClass(namePath: String, relativePath: String): com.intellij.psi.PsiClass? {
@@ -539,5 +568,13 @@ internal class SerenaCompatSymbols(private val project: Project) {
     private enum class Direction {
         SUPER,
         SUB
+    }
+
+    companion object {
+        private val EXCLUDED_DIRS = setOf(
+            ".git", ".idea", ".gradle", ".serena",
+            "build", "out", "dist", "target",
+            "node_modules", "__pycache__", ".venv", "venv"
+        )
     }
 }

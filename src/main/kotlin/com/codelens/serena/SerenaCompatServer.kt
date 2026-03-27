@@ -33,7 +33,7 @@ class SerenaCompatServer(private val project: Project) : com.intellij.openapi.Di
         for (port in BASE_PORT until BASE_PORT + NUM_PORTS_TO_SCAN) {
             try {
                 val httpServer = HttpServer.create(InetSocketAddress(baseAddress, port), 0)
-                httpServer.executor = Executors.newCachedThreadPool()
+                httpServer.executor = Executors.newFixedThreadPool(8)
                 registerRoutes(httpServer)
                 httpServer.start()
                 server = httpServer
@@ -162,6 +162,7 @@ class SerenaCompatServer(private val project: Project) : com.intellij.openapi.Di
             val basePath = project.basePath ?: throw IllegalStateException("No project base path")
             val file = java.io.File("$basePath/${relativePath.removePrefix("/")}")
             if (!file.exists()) throw IllegalArgumentException("File not found: $relativePath")
+            if (file.length() > 10_000_000) throw IllegalArgumentException("File too large (>${file.length() / 1_000_000}MB): $relativePath")
             val lines = file.readLines()
             val start = maxOf(1, startLine) - 1
             val end = if (endLine != null) minOf(endLine, lines.size) else lines.size
@@ -192,8 +193,10 @@ class SerenaCompatServer(private val project: Project) : com.intellij.openapi.Di
             val basePath = project.basePath ?: throw IllegalStateException("No project base path")
             val searchDir = java.io.File("$basePath/${relativePath.removePrefix("/")}")
             val regex = Regex(fileMask.replace(".", "\\.").replace("*", ".*").replace("?", "."))
+            val excludedDirs = setOf(".git", ".idea", ".gradle", "build", "out", "node_modules", "__pycache__")
             val matches = mutableListOf<String>()
             searchDir.walkTopDown()
+                .onEnter { dir -> dir.name !in excludedDirs }
                 .filter { it.isFile && regex.matches(it.name) }
                 .take(200)
                 .forEach { matches.add(compat.projectRelativePath(it.absolutePath)) }
@@ -208,10 +211,15 @@ class SerenaCompatServer(private val project: Project) : com.intellij.openapi.Di
             val searchDir = java.io.File("$basePath/${relativePath.removePrefix("/")}")
             val regex = Regex(pattern, setOf(RegexOption.DOT_MATCHES_ALL))
             val results = mutableMapOf<String, MutableList<Map<String, Any?>>>()
-            val files = if (searchDir.isFile) listOf(searchDir) else {
-                searchDir.walkTopDown().filter { it.isFile && !it.path.contains("/.git/") }.toList()
+            val excludedDirs = setOf(".git", ".idea", ".gradle", "build", "out", "node_modules", "__pycache__")
+            val fileSeq = if (searchDir.isFile) sequenceOf(searchDir) else {
+                searchDir.walkTopDown()
+                    .onEnter { dir -> dir.name !in excludedDirs }
+                    .filter { it.isFile && it.length() < 10_000_000 }
             }
-            for (file in files.take(500)) {
+            var fileCount = 0
+            for (file in fileSeq) {
+                if (fileCount++ >= 500) break
                 try {
                     val lines = file.readLines()
                     val content = lines.joinToString("\n")
