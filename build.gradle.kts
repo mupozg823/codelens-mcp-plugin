@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.codelens"
-version = "0.4.0"
+version = "0.5.0"
 
 repositories {
     mavenCentral()
@@ -79,6 +79,12 @@ intellijPlatform {
         """.trimIndent()
 
         changeNotes = """
+            <h3>0.5.0</h3>
+            <ul>
+                <li>Full Serena tool compatibility: onboarding, prepare_for_new_conversation, remove_project, summarize_changes, switch_modes</li>
+                <li>Full JetBrains MCP parity: get_project_dependencies, list_directory_tree, open_file_in_editor, get_repositories</li>
+                <li>44 MCP tools total — complete Serena + JetBrains native coverage</li>
+            </ul>
             <h3>0.4.0</h3>
             <ul>
                 <li>Extended IDE compatibility to IntelliJ 2026.1 (untilBuild 261.*)</li>

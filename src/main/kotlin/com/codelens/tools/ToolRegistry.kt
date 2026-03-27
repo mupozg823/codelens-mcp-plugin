@@ -25,6 +25,11 @@ object ToolRegistry {
             DeleteMemoryTool(),
             EditMemoryTool(),
             RenameMemoryTool(),
+            OnboardingTool(),
+            PrepareForNewConversationTool(),
+            RemoveProjectTool(),
+            SummarizeChangesTool(),
+            SwitchModesTool(),
 
             // Phase 1: Read-only symbol analysis
             GetSymbolsOverviewTool(),
@@ -52,6 +57,10 @@ object ToolRegistry {
             ExecuteRunConfigurationTool(),
             ReformatFileTool(),
             ExecuteTerminalCommandTool(),
+            GetProjectDependenciesTool(),
+            ListDirectoryTreeTool(),
+            OpenFileInEditorTool(),
+            GetRepositoriesTool(),
 
             // Phase 4: File operations (write)
             CreateTextFileTool(),

@@ -26,6 +26,11 @@ class CodeLensMcpToolsProvider : McpToolsProvider {
             DeleteMemoryMcpTool(),
             EditMemoryMcpTool(),
             RenameMemoryMcpTool(),
+            OnboardingMcpTool(),
+            PrepareForNewConversationMcpTool(),
+            RemoveProjectMcpTool(),
+            SummarizeChangesMcpTool(),
+            SwitchModesMcpTool(),
 
             // Symbol analysis (read-only)
             GetSymbolsOverviewMcpTool(),
@@ -48,6 +53,10 @@ class CodeLensMcpToolsProvider : McpToolsProvider {
             ExecuteRunConfigurationMcpTool(),
             ReformatFileMcpTool(),
             ExecuteTerminalCommandMcpTool(),
+            GetProjectDependenciesMcpTool(),
+            ListDirectoryTreeMcpTool(),
+            OpenFileInEditorMcpTool(),
+            GetRepositoriesMcpTool(),
 
             // File operations (read)
             ReadFileMcpTool(),

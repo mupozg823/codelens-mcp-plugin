@@ -262,6 +262,15 @@ def main():
         "execute_run_configuration",
         "reformat_file",
         "execute_terminal_command",
+        "onboarding",
+        "prepare_for_new_conversation",
+        "remove_project",
+        "summarize_changes",
+        "switch_modes",
+        "get_project_dependencies",
+        "list_directory_tree",
+        "open_file_in_editor",
+        "get_repositories",
     ]
     available = {tool["name"] for tool in tools}
     found = [name for name in codelens_tools if name in available]
