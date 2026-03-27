@@ -794,9 +794,15 @@ class WorkspaceMcpServer:
         file_path = optional_string(arguments, "file_path")
         include_body = optional_bool(arguments, "include_body", False)
         exact_match = optional_bool(arguments, "exact_match", True)
-        roots = self._collect_symbols(
-            self._resolve_path(file_path) if file_path else self.workspace_root,
-            include_bodies=include_body,
+        target = self._resolve_path(file_path) if file_path else self.workspace_root
+        # Try LSP first for single files
+        lsp_roots = None
+        if target.is_file():
+            lsp_roots = self._lsp_document_symbols(target, include_bodies=include_body)
+        roots = (
+            lsp_roots
+            if lsp_roots
+            else self._collect_symbols(target, include_bodies=include_body)
         )
         matcher = self._symbol_matcher(selector, exact_match)
         matches = [
@@ -1361,7 +1367,9 @@ class WorkspaceMcpServer:
 
     # ── LSP-backed symbol resolution (fallback to regex) ──
 
-    def _lsp_document_symbols(self, file_path: Path) -> Optional[List[ParsedSymbol]]:
+    def _lsp_document_symbols(
+        self, file_path: Path, include_bodies: bool = False
+    ) -> Optional[List[ParsedSymbol]]:
         """Try to get symbols via LSP. Returns None if LSP unavailable."""
         if not self._lsp_manager:
             return None
@@ -1369,17 +1377,26 @@ class WorkspaceMcpServer:
         if not client:
             return None
         try:
-            from codelens_workspace.lsp_client import LSP_KIND_MAP, _uri_to_path
-
             lsp_symbols = client.document_symbols(str(file_path.resolve()))
             if not lsp_symbols:
                 return None
-            return self._convert_lsp_symbols(lsp_symbols, file_path)
+            # Read file lines once for body extraction
+            lines = None
+            if include_bodies:
+                try:
+                    lines = file_path.read_text(errors="replace").splitlines()
+                except Exception:
+                    pass
+            return self._convert_lsp_symbols(lsp_symbols, file_path, "", lines)
         except Exception:
             return None
 
     def _convert_lsp_symbols(
-        self, lsp_symbols: list, file_path: Path, parent_path: str = ""
+        self,
+        lsp_symbols: list,
+        file_path: Path,
+        parent_path: str = "",
+        file_lines: Optional[List[str]] = None,
     ) -> List[ParsedSymbol]:
         """Convert LSP DocumentSymbol[] to ParsedSymbol[]."""
         from codelens_workspace.lsp_client import LSP_KIND_MAP
@@ -1393,11 +1410,20 @@ class WorkspaceMcpServer:
             rng = sym.get("range", sym.get("location", {}).get("range", {}))
             start = rng.get("start", {})
             end = rng.get("end", {})
+            start_line = start.get("line", 0)
+            end_line = end.get("line", 0)
             name_path = f"{parent_path}/{name}" if parent_path else name
+
+            # Extract body from file lines using LSP range
+            body = None
+            if file_lines and end_line >= start_line:
+                body = "\n".join(file_lines[start_line : end_line + 1])
 
             children_lsp = sym.get("children", [])
             children = (
-                self._convert_lsp_symbols(children_lsp, file_path, name_path)
+                self._convert_lsp_symbols(
+                    children_lsp, file_path, name_path, file_lines
+                )
                 if children_lsp
                 else []
             )
@@ -1407,12 +1433,12 @@ class WorkspaceMcpServer:
                 name_path=name_path,
                 kind=kind,
                 file_path=rel_path,
-                line=start.get("line", 0) + 1,
+                line=start_line + 1,
                 column=start.get("character", 0) + 1,
                 signature=sym.get("detail", name),
-                start_line=start.get("line", 0) + 1,
-                end_line=end.get("line", 0) + 1,
-                body=None,
+                start_line=start_line + 1,
+                end_line=end_line + 1,
+                body=body,
                 children=children,
             )
             result.append(parsed)
