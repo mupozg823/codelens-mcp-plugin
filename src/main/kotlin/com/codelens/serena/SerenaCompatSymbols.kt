@@ -45,14 +45,79 @@ internal class SerenaCompatSymbols(private val project: Project) {
     }
 
     init {
+        // VFS listener for external file changes (git, file system)
         project.messageBus.connect().subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
             override fun after(events: List<VFileEvent>) {
                 for (event in events) {
                     val path = event.file?.let { projectRelativePath(it.path) } ?: continue
-                    symbolCache.keys.removeIf { it.startsWith(path) || path.startsWith(it) }
+                    invalidateCacheForPath(path)
                 }
             }
         })
+        // PSI listener for in-IDE edits (more precise, fires before file save)
+        PsiManager.getInstance(project).addPsiTreeChangeListener(object : com.intellij.psi.PsiTreeChangeAdapter() {
+            override fun childrenChanged(event: com.intellij.psi.PsiTreeChangeEvent) {
+                val file = event.file ?: return
+                val path = file.virtualFile?.let { projectRelativePath(it.path) } ?: return
+                invalidateCacheForPath(path)
+            }
+        }, project)
+    }
+
+    private fun invalidateCacheForPath(path: String) {
+        symbolCache.keys.removeIf { it.startsWith(path) || path.startsWith(it) }
+    }
+
+    private fun findSymbolsViaIndex(name: String, depth: Int): List<SymbolRecord> {
+        val scope = GlobalSearchScope.projectScope(project)
+        val results = mutableListOf<SymbolRecord>()
+
+        // Kotlin classes/objects/interfaces/enums
+        try {
+            val ktClasses = org.jetbrains.kotlin.idea.stubindex.KotlinClassShortNameIndex.Helper.get(name, project, scope)
+            for (element in ktClasses) {
+                val kind = classifyDeclaration(element) ?: continue
+                val namePath = computeNamePath(element) ?: continue
+                val relPath = element.containingFile?.virtualFile?.let { PsiUtils.getRelativePath(project, it) } ?: continue
+                val children = if (depth > 0) element.children.flatMap { collectDeclarationRecords(it, relPath, depth, 1, namePath.split("/")) } else emptyList()
+                results.add(SymbolRecord(element, namePath, relPath, kind, children))
+            }
+        } catch (_: Exception) { /* Kotlin plugin may not be available */ }
+
+        // Kotlin functions
+        try {
+            val ktFunctions = org.jetbrains.kotlin.idea.stubindex.KotlinFunctionShortNameIndex.Helper.get(name, project, scope)
+            for (element in ktFunctions) {
+                val namePath = computeNamePath(element) ?: continue
+                val relPath = element.containingFile?.virtualFile?.let { PsiUtils.getRelativePath(project, it) } ?: continue
+                results.add(SymbolRecord(element, namePath, relPath, SymbolKind.FUNCTION))
+            }
+        } catch (_: Exception) { }
+
+        // Java classes
+        try {
+            val javaClasses = com.intellij.psi.search.PsiShortNamesCache.getInstance(project).getClassesByName(name, scope)
+            for (element in javaClasses) {
+                if (element is KtLightClass) continue  // avoid Kotlin duplicates
+                val kind = classifyDeclaration(element) ?: continue
+                val namePath = computeNamePath(element) ?: continue
+                val relPath = element.containingFile?.virtualFile?.let { PsiUtils.getRelativePath(project, it) } ?: continue
+                val children = if (depth > 0) element.children.flatMap { collectDeclarationRecords(it, relPath, depth, 1, namePath.split("/")) } else emptyList()
+                results.add(SymbolRecord(element, namePath, relPath, kind, children))
+            }
+        } catch (_: Exception) { }
+
+        // Java methods
+        try {
+            val javaMethods = com.intellij.psi.search.PsiShortNamesCache.getInstance(project).getMethodsByName(name, scope)
+            for (element in javaMethods) {
+                val namePath = computeNamePath(element) ?: continue
+                val relPath = element.containingFile?.virtualFile?.let { PsiUtils.getRelativePath(project, it) } ?: continue
+                results.add(SymbolRecord(element, namePath, relPath, SymbolKind.METHOD))
+            }
+        } catch (_: Exception) { }
+
+        return results
     }
 
     fun projectRelativePath(path: String): String {
@@ -74,7 +139,16 @@ internal class SerenaCompatSymbols(private val project: Project) {
         includeLocation: Boolean = false
     ): List<Map<String, Any?>> {
         return ReadAction.compute<List<Map<String, Any?>>, Exception> {
-            scanDeclarations(relativePath, depth).asSequence()
+            val simpleName = namePathPattern.removePrefix("/")
+            val useIndex = relativePath == null && !simpleName.contains("/")
+
+            val records = if (useIndex) {
+                findSymbolsViaIndex(simpleName, depth)
+            } else {
+                scanDeclarations(relativePath, depth)
+            }
+
+            records.asSequence()
                 .filter { matchesNamePathPattern(namePathPattern, it.namePath) }
                 .map {
                     toSymbolDto(
@@ -248,6 +322,7 @@ internal class SerenaCompatSymbols(private val project: Project) {
     private fun getDirectoryOverview(directory: VirtualFile, depth: Int): List<Map<String, Any?>> {
         val result = mutableListOf<Map<String, Any?>>()
         VfsUtil.iterateChildrenRecursively(directory, dirFilter) { file ->
+            com.intellij.openapi.progress.ProgressManager.checkCanceled()
             if (!file.isDirectory) {
                 val psiFile = PsiManager.getInstance(project).findFile(file)
                 val symbols = collectFileDeclarations(psiFile, depth)
@@ -292,6 +367,7 @@ internal class SerenaCompatSymbols(private val project: Project) {
     private fun collectDirectoryDeclarations(directory: VirtualFile, depth: Int): List<SymbolRecord> {
         val result = mutableListOf<SymbolRecord>()
         VfsUtil.iterateChildrenRecursively(directory, dirFilter) { file ->
+            com.intellij.openapi.progress.ProgressManager.checkCanceled()
             if (!file.isDirectory) {
                 val psiFile = PsiManager.getInstance(project).findFile(file)
                 result += collectFileDeclarations(psiFile, depth)
@@ -346,20 +422,37 @@ internal class SerenaCompatSymbols(private val project: Project) {
     }
 
     private fun classifyDeclaration(element: PsiElement): SymbolKind? {
-        val simpleName = element.javaClass.simpleName
-        return when {
-            simpleName.contains("Class") -> SymbolKind.CLASS
-            simpleName.contains("Interface") -> SymbolKind.INTERFACE
-            simpleName.contains("Enum") -> SymbolKind.ENUM
-            simpleName.contains("Annotation") -> SymbolKind.ANNOTATION
-            simpleName.contains("Constructor") -> SymbolKind.CONSTRUCTOR
-            simpleName.contains("Method") -> SymbolKind.METHOD
-            simpleName.contains("Function") -> SymbolKind.FUNCTION
-            simpleName.contains("Property") -> SymbolKind.PROPERTY
-            simpleName.contains("Field") -> SymbolKind.FIELD
-            simpleName.contains("Object") -> SymbolKind.OBJECT
-            simpleName.contains("TypeAlias") -> SymbolKind.TYPE_ALIAS
-            else -> null
+        return when (element) {
+            is org.jetbrains.kotlin.psi.KtObjectDeclaration -> SymbolKind.OBJECT
+            is KtClass -> when {
+                element.isEnum() -> SymbolKind.ENUM
+                element.isInterface() -> SymbolKind.INTERFACE
+                element.isAnnotation() -> SymbolKind.ANNOTATION
+                else -> SymbolKind.CLASS
+            }
+            is org.jetbrains.kotlin.psi.KtNamedFunction -> SymbolKind.FUNCTION
+            is org.jetbrains.kotlin.psi.KtProperty -> SymbolKind.PROPERTY
+            is org.jetbrains.kotlin.psi.KtTypeAlias -> SymbolKind.TYPE_ALIAS
+            is org.jetbrains.kotlin.psi.KtConstructor<*> -> SymbolKind.CONSTRUCTOR
+            is com.intellij.psi.PsiClass -> when {
+                element.isEnum -> SymbolKind.ENUM
+                element.isInterface -> SymbolKind.INTERFACE
+                element.isAnnotationType -> SymbolKind.ANNOTATION
+                else -> SymbolKind.CLASS
+            }
+            is com.intellij.psi.PsiMethod -> if (element.isConstructor) SymbolKind.CONSTRUCTOR else SymbolKind.METHOD
+            is com.intellij.psi.PsiField -> SymbolKind.FIELD
+            else -> {
+                val simpleName = element.javaClass.simpleName
+                when {
+                    simpleName.contains("Function") -> SymbolKind.FUNCTION
+                    simpleName.contains("Class") -> SymbolKind.CLASS
+                    simpleName.contains("Method") -> SymbolKind.METHOD
+                    simpleName.contains("Property") -> SymbolKind.PROPERTY
+                    simpleName.contains("Field") -> SymbolKind.FIELD
+                    else -> null
+                }
+            }
         }
     }
 
