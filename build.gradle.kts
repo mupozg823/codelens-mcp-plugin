@@ -40,23 +40,23 @@ dependencies {
     // JSON serialization - provided by IntelliJ platform, do NOT bundle
     compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
 
-    // Tree-sitter JVM binding — standalone-only (AST-based symbol parsing for 10 languages)
-    // These are excluded from plugin distribution (IntelliJ uses PSI instead)
-    implementation("io.github.bonede:tree-sitter:0.25.3")
-    implementation("io.github.bonede:tree-sitter-python:0.23.4")
-    implementation("io.github.bonede:tree-sitter-javascript:0.23.1")
-    implementation("io.github.bonede:tree-sitter-typescript:0.23.2")
-    implementation("io.github.bonede:tree-sitter-tsx:0.23.2")
-    implementation("io.github.bonede:tree-sitter-go:0.23.3")
-    implementation("io.github.bonede:tree-sitter-rust:0.23.1")
-    implementation("io.github.bonede:tree-sitter-ruby:0.23.1")
-    implementation("io.github.bonede:tree-sitter-java:0.23.4")
-    implementation("io.github.bonede:tree-sitter-kotlin:0.3.8.1")
-    implementation("io.github.bonede:tree-sitter-c:0.23.2")
-    implementation("io.github.bonede:tree-sitter-cpp:0.23.4")
-    implementation("io.github.bonede:tree-sitter-php:0.24.2")
-    implementation("io.github.bonede:tree-sitter-swift:0.5.0")
-    implementation("io.github.bonede:tree-sitter-scala:0.24.0")
+    // Tree-sitter JVM binding — standalone fat-jar only (NOT bundled in plugin zip)
+    // IntelliJ plugin uses PSI; standalone uses tree-sitter for AST-based parsing
+    compileOnly("io.github.bonede:tree-sitter:0.25.3")
+    compileOnly("io.github.bonede:tree-sitter-python:0.23.4")
+    compileOnly("io.github.bonede:tree-sitter-javascript:0.23.1")
+    compileOnly("io.github.bonede:tree-sitter-typescript:0.23.2")
+    compileOnly("io.github.bonede:tree-sitter-tsx:0.23.2")
+    compileOnly("io.github.bonede:tree-sitter-go:0.23.3")
+    compileOnly("io.github.bonede:tree-sitter-rust:0.23.1")
+    compileOnly("io.github.bonede:tree-sitter-ruby:0.23.1")
+    compileOnly("io.github.bonede:tree-sitter-java:0.23.4")
+    compileOnly("io.github.bonede:tree-sitter-kotlin:0.3.8.1")
+    compileOnly("io.github.bonede:tree-sitter-c:0.23.2")
+    compileOnly("io.github.bonede:tree-sitter-cpp:0.23.4")
+    compileOnly("io.github.bonede:tree-sitter-php:0.24.2")
+    compileOnly("io.github.bonede:tree-sitter-swift:0.5.0")
+    compileOnly("io.github.bonede:tree-sitter-scala:0.24.0")
 
     // ACP (Agent Client Protocol) SDK — bundled with plugin for runtime availability
     implementation("com.agentclientprotocol:acp:0.17.0") {
@@ -191,7 +191,7 @@ tasks {
         )
 
         // Bundle compileOnly dependencies that the standalone jar actually needs at runtime:
-        // kotlin-stdlib, kotlinx-coroutines-core, kotlinx-serialization-json
+        // kotlin-stdlib, kotlinx-coroutines/serialization, AND tree-sitter (not in plugin zip)
         val standaloneCompileOnly = configurations.compileClasspath.get().resolvedConfiguration
             .resolvedArtifacts
             .filter { artifact ->
@@ -201,7 +201,8 @@ tasks {
                 (group == "org.jetbrains.kotlinx" && (
                     module.startsWith("kotlinx-serialization") ||
                     module.startsWith("kotlinx-coroutines-core")
-                ))
+                )) ||
+                (group == "io.github.bonede" && module.startsWith("tree-sitter"))
             }
             .map { it.file }
             .filter { it.extension == "jar" }

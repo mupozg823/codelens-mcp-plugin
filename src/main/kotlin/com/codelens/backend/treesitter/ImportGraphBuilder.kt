@@ -28,7 +28,7 @@ class ImportGraphBuilder {
 
     private val excludedDirs = setOf(
         ".git", "node_modules", "__pycache__", ".idea", "build", "dist", "out", ".gradle",
-        "target", "vendor", ".venv", "venv", "env", ".tox"
+        "target", "vendor", ".venv", "venv", "env", ".tox", ".next", ".nuxt", ".svelte-kit"
     )
 
     // ---------------------------------------------------------------------------

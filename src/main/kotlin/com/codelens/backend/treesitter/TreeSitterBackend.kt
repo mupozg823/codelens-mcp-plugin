@@ -229,9 +229,13 @@ class TreeSitterBackend(private val projectRoot: Path) : CodeLensBackend {
             pathStr.contains("/node_modules/") ||
             pathStr.contains("/build/") ||
             pathStr.contains("/out/") ||
+            pathStr.contains("/dist/") ||
+            pathStr.contains("/.next/") ||
             pathStr.contains("/__pycache__/") ||
             pathStr.contains("/target/") ||
-            pathStr.contains("/vendor/")
+            pathStr.contains("/vendor/") ||
+            pathStr.contains("/.venv/") ||
+            pathStr.contains("/.gradle/")
     }
 
     private fun isCodeFile(path: Path): Boolean {

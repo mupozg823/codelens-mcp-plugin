@@ -166,6 +166,8 @@ class WorkspaceCodeLensBackend(private val projectRoot: Path) : CodeLensBackend 
     }
 
     private fun shouldSearchFile(path: Path, extensionFilter: String?): Boolean {
+        val pathStr = path.toString()
+        if (EXCLUDED_DIRS.any { pathStr.contains(it) }) return false
         val extension = path.fileName.toString().substringAfterLast('.', "")
         if (extension.isEmpty()) return false
         if (extensionFilter != null) return extension == extensionFilter
@@ -258,5 +260,13 @@ class WorkspaceCodeLensBackend(private val projectRoot: Path) : CodeLensBackend 
 
     private fun relativize(path: Path): String {
         return projectRoot.relativize(path).invariantSeparatorsPathString
+    }
+
+    companion object {
+        private val EXCLUDED_DIRS = listOf(
+            "/node_modules/", "/.git/", "/__pycache__/", "/.next/", "/.nuxt/",
+            "/build/", "/dist/", "/out/", "/target/", "/vendor/",
+            "/.venv/", "/.gradle/", "/.svelte-kit/"
+        )
     }
 }

@@ -1,7 +1,6 @@
 package com.codelens.standalone
 
 import com.codelens.backend.CodeLensBackend
-import com.codelens.backend.treesitter.TreeSitterBackend
 import com.codelens.backend.workspace.WorkspaceCodeLensBackend
 import com.codelens.model.SymbolInfo
 import com.codelens.services.RenameScope
@@ -21,9 +20,11 @@ import java.nio.file.Path
 class StandaloneToolDispatcher(private val projectRoot: Path) {
 
     private val backend: CodeLensBackend = try {
-        TreeSitterBackend(projectRoot)
-    } catch (_: UnsatisfiedLinkError) {
-        WorkspaceCodeLensBackend(projectRoot) // JNI load failure → regex fallback
+        // Reflection-based load: avoids compile-time dependency on tree-sitter native libs
+        val clazz = Class.forName("com.codelens.backend.treesitter.TreeSitterBackend")
+        clazz.getConstructor(java.nio.file.Path::class.java).newInstance(projectRoot) as CodeLensBackend
+    } catch (_: Throwable) {
+        WorkspaceCodeLensBackend(projectRoot) // JNI/class load failure → regex fallback
     }
     private val memoriesDir: Path get() = projectRoot.resolve(".serena").resolve("memories")
 
@@ -853,43 +854,9 @@ class StandaloneToolDispatcher(private val projectRoot: Path) {
                     ))
                 }
 
-                // ── Import graph ─────────────────────────────────────────────
-                "find_importers" -> {
-                    val filePath = req(args, "file_path")
-                    val maxResults = optInt(args, "max_results", 50)
-                    val builder = com.codelens.backend.treesitter.ImportGraphBuilder()
-                    val graph = builder.buildGraph(projectRoot)
-                    val importers = builder.getImporters(graph, filePath).take(maxResults)
-                    ok(mapOf("file" to filePath, "importers" to importers, "count" to importers.size))
-                }
-
-                "get_blast_radius" -> {
-                    val filePath = req(args, "file_path")
-                    val maxDepth = optInt(args, "max_depth", 3)
-                    val builder = com.codelens.backend.treesitter.ImportGraphBuilder()
-                    val graph = builder.buildGraph(projectRoot)
-                    val radius = builder.getBlastRadius(graph, filePath, maxDepth)
-                    val sorted = radius.entries.sortedBy { it.value }.map { mapOf("file" to it.key, "depth" to it.value) }
-                    ok(mapOf("file" to filePath, "affected_files" to sorted, "count" to sorted.size))
-                }
-
-                "get_symbol_importance" -> {
-                    val topN = optInt(args, "top_n", 20)
-                    val builder = com.codelens.backend.treesitter.ImportGraphBuilder()
-                    val graph = builder.buildGraph(projectRoot)
-                    val ranks = builder.getImportance(graph)
-                    val sorted = ranks.entries.sortedByDescending { it.value }
-                        .take(topN)
-                        .map { mapOf("file" to it.key, "score" to String.format("%.4f", it.value)) }
-                    ok(mapOf("ranking" to sorted, "count" to sorted.size))
-                }
-
-                "find_dead_code" -> {
-                    val maxResults = optInt(args, "max_results", 50)
-                    val builder = com.codelens.backend.treesitter.ImportGraphBuilder()
-                    val graph = builder.buildGraph(projectRoot)
-                    val dead = builder.findDeadCode(graph, null, projectRoot).take(maxResults)
-                    ok(mapOf("dead_code" to dead, "count" to dead.size))
+                // ── Import graph (tree-sitter required) ────────────────────
+                "find_importers", "get_blast_radius", "get_symbol_importance", "find_dead_code" -> {
+                    dispatchImportGraphTool(toolName, args)
                 }
 
                 // ── Git integration ─────────────────────────────────────────
@@ -1245,6 +1212,56 @@ class StandaloneToolDispatcher(private val projectRoot: Path) {
         require(resolved.startsWith(memoriesDir.normalize())) { "Memory path escapes .serena/memories: $name" }
         if (createParents) Files.createDirectories(resolved.parent)
         return resolved
+    }
+
+    // ── Import graph dispatch (isolated to avoid class-loading tree-sitter at init) ─
+
+    @Suppress("UNCHECKED_CAST")
+    private fun dispatchImportGraphTool(toolName: String, args: Map<String, Any?>): String {
+        return try {
+            val builderClass = Class.forName("com.codelens.backend.treesitter.ImportGraphBuilder")
+            val builder = builderClass.getDeclaredConstructor().newInstance()
+            val buildGraph = builderClass.getMethod("buildGraph", java.nio.file.Path::class.java)
+            val graph = buildGraph.invoke(builder, projectRoot) as Map<String, Any>
+
+            when (toolName) {
+                "find_importers" -> {
+                    val filePath = req(args, "file_path")
+                    val maxResults = optInt(args, "max_results", 50)
+                    val method = builderClass.getMethod("getImporters", Map::class.java, String::class.java)
+                    val importers = (method.invoke(builder, graph, filePath) as Set<String>).take(maxResults)
+                    ok(mapOf("file" to filePath, "importers" to importers, "count" to importers.size))
+                }
+                "get_blast_radius" -> {
+                    val filePath = req(args, "file_path")
+                    val maxDepth = optInt(args, "max_depth", 3)
+                    val method = builderClass.getMethod("getBlastRadius", Map::class.java, String::class.java, Int::class.java)
+                    val radius = method.invoke(builder, graph, filePath, maxDepth) as Map<String, Int>
+                    val sorted = radius.entries.sortedBy { it.value }.map { mapOf("file" to it.key, "depth" to it.value) }
+                    ok(mapOf("file" to filePath, "affected_files" to sorted, "count" to sorted.size))
+                }
+                "get_symbol_importance" -> {
+                    val topN = optInt(args, "top_n", 20)
+                    val method = builderClass.getMethod("getImportance", Map::class.java)
+                    val ranks = method.invoke(builder, graph) as Map<String, Double>
+                    val sorted = ranks.entries.sortedByDescending { it.value }
+                        .take(topN)
+                        .map { mapOf("file" to it.key, "score" to String.format("%.4f", it.value)) }
+                    ok(mapOf("ranking" to sorted, "count" to sorted.size))
+                }
+                "find_dead_code" -> {
+                    val maxResults = optInt(args, "max_results", 50)
+                    val method = builderClass.methods.first { it.name == "findDeadCode" }
+                    val dead = (method.invoke(builder, graph, null, projectRoot) as List<Map<String, Any?>>).take(maxResults)
+                    ok(mapOf("dead_code" to dead, "count" to dead.size))
+                }
+                else -> err("Unknown import graph tool: $toolName")
+            }
+        } catch (_: ClassNotFoundException) {
+            err("Import graph tools require tree-sitter (not available in this environment)")
+        } catch (_: NoClassDefFoundError) {
+            err("Import graph tools require tree-sitter (not available in this environment)")
+        }
     }
 
     // ── Symbol helper ────────────────────────────────────────────────────────

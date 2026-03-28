@@ -1,337 +1,239 @@
-# CodeLens MCP
+# CodeLens MCP — Open Source Symbol-Level Code Intelligence
 
-**Open-source JetBrains plugin that exposes PSI-powered code intelligence via MCP (Model Context Protocol).**
+**64 tools (IntelliJ plugin) / 46 tools (standalone). Three backends: PSI, Tree-sitter AST, Workspace regex.**
 
-Serena JetBrains Plugin의 오픈소스 대안입니다. JetBrains IDE의 강력한 PSI 엔진을 활용하여 AI 코딩 어시스턴트(Claude, GPT 등)가 심볼 단위로 코드를 분석하고 편집할 수 있게 합니다.
+A drop-in open-source replacement for Serena JetBrains backend. Exposes symbol-level code intelligence to AI coding assistants (Claude Code, Codex, Cline, Cursor, etc.) via MCP (Model Context Protocol).
 
 ---
 
 ## Features
 
-| Tool                             | Description                                              |
-| -------------------------------- | -------------------------------------------------------- |
-| `activate_project`               | 현재 IDE 프로젝트 컨텍스트 활성화 및 Serena 경로 검증    |
-| `get_current_config`             | 현재 프로젝트/IDE/도구 등록 상태와 Serena 관련 경로 조회 |
-| `get_project_modules`            | IntelliJ 모듈 구조, 루트, 의존성 조회                    |
-| `get_open_files`                 | 현재 IDE에서 열린 파일과 선택된 파일 조회                |
-| `get_file_problems`              | IntelliJ 하이라이팅 기반 파일 진단/문제 조회             |
-| `check_onboarding_performed`     | `.serena/memories` 온보딩 메모리 존재 여부 확인          |
-| `initial_instructions`           | Serena 스타일의 초기 작업 지침과 추천 흐름 반환          |
-| `list_memories`                  | `.serena/memories` 메모리 목록과 topic prefix 조회       |
-| `read_memory`                    | Serena 호환 메모리 파일 읽기                             |
-| `write_memory`                   | Serena 호환 메모리 파일 쓰기                             |
-| `get_symbols_overview`           | 파일/디렉토리의 심볼 구조 개요 반환                      |
-| `find_symbol`                    | 이름으로 심볼 검색 (본문 포함 옵션)                      |
-| `find_referencing_symbols`       | 심볼 참조 추적                                           |
-| `search_for_pattern`             | 정규식 기반 코드 검색                                    |
-| `get_type_hierarchy`             | 클래스의 상속/구현 관계와 멤버 구조 조회                 |
-| `find_referencing_code_snippets` | 참조 지점의 주변 코드 스니펫 조회                        |
-| `replace_symbol_body`            | 심볼 본문 교체                                           |
-| `insert_after_symbol`            | 심볼 뒤에 코드 삽입                                      |
-| `insert_before_symbol`           | 심볼 앞에 코드 삽입                                      |
-| `rename_symbol`                  | IDE 리팩토링 기반 심볼 이름 변경                         |
-| `read_file`                      | 파일 내용 일부 또는 전체 읽기                            |
-| `list_dir`                       | 디렉터리 목록 조회                                       |
-| `find_file`                      | 파일명 패턴으로 파일 검색                                |
-| `create_text_file`               | 텍스트 파일 생성                                         |
-| `delete_lines`                   | 파일의 특정 라인 삭제                                    |
-| `insert_at_line`                 | 특정 라인에 텍스트 삽입                                  |
-| `replace_lines`                  | 특정 라인 범위 교체                                      |
-| `replace_content`                | 파일 내용 패턴 치환                                      |
+### Symbol Analysis (8)
 
-### Serena Compatible
+| Tool                                  | Description                                                 |
+| ------------------------------------- | ----------------------------------------------------------- |
+| `get_symbols_overview`                | File/directory symbol structure overview                    |
+| `find_symbol`                         | Search symbols by name or stable `symbol_id`; optional body |
+| `find_referencing_symbols`            | Trace all references to a symbol                            |
+| `get_type_hierarchy`                  | Class inheritance/implementation tree and member structure  |
+| `get_call_hierarchy`                  | Caller/callee graph for a function (IntelliJ PSI only)      |
+| `get_ranked_context`                  | Token-budget-aware symbol ranking for context window        |
+| `jet_brains_find_symbol`              | JetBrains-native variant with PSI extras                    |
+| `jet_brains_find_referencing_symbols` | JetBrains-native reference search variant                   |
 
-도구 이름과 파라미터가 Serena MCP와 동일하여, 기존 CLAUDE.md의 Serena-First 규칙을 수정 없이 사용할 수 있습니다.
+### Symbol Editing (4)
 
-최신 Serena 문서 기준으로 `ide`/`codex` context, 프로젝트 활성화, `.serena/memories/` 구조가 워크플로의 핵심입니다. CodeLens는 이에 맞춰 현재 IDE 프로젝트를 `activate_project` 로 확인하고, `check_onboarding_performed`, `list_memories`, `read_memory`, `write_memory`, `initial_instructions` 로 Serena의 onboarding/memory 루프를 그대로 사용할 수 있게 맞춥니다.
+| Tool                   | Description                                        |
+| ---------------------- | -------------------------------------------------- |
+| `replace_symbol_body`  | Replace symbol body with new code                  |
+| `insert_after_symbol`  | Insert code after a symbol                         |
+| `insert_before_symbol` | Insert code before a symbol                        |
+| `rename_symbol`        | IDE refactoring-based rename across all references |
 
-### Supported Languages
+### Import Graph (4)
 
-| Language | Status   | Adapter                                  |
-| -------- | -------- | ---------------------------------------- |
-| Java     | ✅ Full  | `JavaLanguageAdapter`                    |
-| Kotlin   | ✅ Full  | `KotlinLanguageAdapter`                  |
-| Others   | ⚡ Basic | `GenericLanguageAdapter` (PSI 기반 폴백) |
+| Tool                    | Description                                        |
+| ----------------------- | -------------------------------------------------- |
+| `find_importers`        | Find files that import a given module/symbol       |
+| `get_blast_radius`      | Estimate change impact via transitive import graph |
+| `get_symbol_importance` | PageRank-based symbol importance score             |
+| `find_dead_code`        | Detect unreferenced symbols across the project     |
 
-> Python, JavaScript/TypeScript, Go 등은 추후 전용 어댑터 추가 예정
+### Git Integration (2)
 
----
+| Tool                | Description                                   |
+| ------------------- | --------------------------------------------- |
+| `get_diff_symbols`  | Symbols changed in a git diff                 |
+| `get_changed_files` | Files changed between commits or working tree |
 
-## Requirements
+### Code Analysis (3)
 
-- **JetBrains IDE** 2025.1+ (IntelliJ IDEA, PyCharm, WebStorm 등)
-- **JDK 21** (빌드 시)
-- **Python 3.10+** (`workspace_mcp_server.py` standalone 사용 시)
+| Tool               | Description                                         |
+| ------------------ | --------------------------------------------------- |
+| `get_complexity`   | Cyclomatic complexity for functions/classes         |
+| `find_tests`       | Locate test files and test symbols                  |
+| `find_annotations` | Find TODO/FIXME/HACK annotations across the project |
 
----
+### File Operations (10+)
 
-## Installation
+| Tool                  | Description                                  |
+| --------------------- | -------------------------------------------- |
+| `read_file`           | Read file contents (partial or full)         |
+| `list_dir`            | Directory listing                            |
+| `list_directory_tree` | Recursive directory tree                     |
+| `find_file`           | Find files by name pattern                   |
+| `create_text_file`    | Create a new text file                       |
+| `delete_lines`        | Delete specific lines from a file            |
+| `insert_at_line`      | Insert text at a specific line               |
+| `replace_lines`       | Replace a line range                         |
+| `replace_content`     | Pattern-based content replacement            |
+| `search_for_pattern`  | Regex-based code search across the workspace |
 
-### From Marketplace (준비 중)
+### IDE-Specific (8+)
 
-Settings → Plugins → Marketplace → "CodeLens MCP" 검색 → Install
+| Tool                        | Description                              |
+| --------------------------- | ---------------------------------------- |
+| `get_file_problems`         | IntelliJ highlighting-based diagnostics  |
+| `get_open_files`            | Currently open/selected files in the IDE |
+| `reformat_file`             | Reformat file using IDE code style       |
+| `execute_terminal_command`  | Run a command in the IDE terminal        |
+| `get_project_dependencies`  | Project dependency graph                 |
+| `get_project_modules`       | IntelliJ module structure and roots      |
+| `get_run_configurations`    | List available run/debug configurations  |
+| `execute_run_configuration` | Execute a run/debug configuration        |
 
-### From Source
+### Memory (6)
 
-```bash
-git clone https://github.com/mupozg823/codelens-mcp-plugin.git
-cd codelens-mcp-plugin
-./gradlew buildPlugin
-```
+| Tool            | Description                                       |
+| --------------- | ------------------------------------------------- |
+| `list_memories` | List `.serena/memories` files with topic prefixes |
+| `read_memory`   | Read a memory file                                |
+| `write_memory`  | Write a memory file                               |
+| `edit_memory`   | Edit an existing memory file                      |
+| `delete_memory` | Delete a memory file                              |
+| `rename_memory` | Rename a memory file                              |
 
-빌드된 플러그인: `build/distributions/codelens-mcp-plugin-0.2.2.zip`
+### Meta (6+)
 
-IDE에서 설치: Settings → Plugins → ⚙️ → Install Plugin from Disk
-
----
-
-## Connecting to AI Assistants
-
-### IntelliJ 없이 사용하는 Standalone Workspace Backend
-
-IntelliJ IDEA를 켜지 않고도, 현재 워크스페이스를 직접 스캔하는 standalone MCP 서버를 사용할 수 있습니다.
-
-```bash
-python3 workspace_mcp_server.py --workspace-root /absolute/path/to/repo
-```
-
-`--workspace-root` 를 생략하면 다음 우선순위로 루트를 결정합니다.
-
-1. `CODELENS_WORKSPACE_ROOT`
-2. 현재 작업 디렉터리
-
-MCP 클라이언트 설정 예시:
-
-```json
-{
-  "mcpServers": {
-    "codelens-workspace": {
-      "command": "python3",
-      "args": [
-        "/absolute/path/to/codelens-mcp-plugin/workspace_mcp_server.py",
-        "--workspace-root",
-        "/absolute/path/to/repo"
-      ]
-    }
-  }
-}
-```
-
-이 경로는 JetBrains PSI를 쓰지 않으므로 `find_symbol`, `find_referencing_symbols`, `get_symbols_overview`, `search_for_pattern`, 파일 편집/메모리 도구는 동작하지만, 정밀 리팩토링과 타입 계층은 degraded mode입니다.
-
-### Cursor
-
-프로젝트 단위로 쓰려면 `.cursor/mcp.json` 에 다음처럼 추가하면 됩니다.
-
-```json
-{
-  "mcpServers": {
-    "codelens-workspace": {
-      "command": "python3",
-      "args": [
-        "/absolute/path/to/codelens-mcp-plugin/workspace_mcp_server.py",
-        "--workspace-root",
-        "${workspaceFolder}"
-      ]
-    }
-  }
-}
-```
-
-전역으로 쓰려면 `~/.cursor/mcp.json` 에 같은 형식으로 넣고, `--workspace-root` 는 절대 경로로 지정하세요.
-
-### Antigravity
-
-Antigravity는 `mcp_config.json` 에 stdio MCP 서버를 등록할 수 있습니다.
-
-프로젝트 디렉터리에서 Antigravity를 시작한다면, 현재 작업 디렉터리를 자동 루트로 쓰도록 아래처럼 최소 설정으로도 동작합니다.
-
-```json
-{
-  "mcpServers": {
-    "codelens-workspace": {
-      "command": "python3",
-      "args": ["/absolute/path/to/codelens-mcp-plugin/workspace_mcp_server.py"]
-    }
-  }
-}
-```
-
-클라이언트가 다른 작업 디렉터리에서 서버를 시작한다면, 절대 경로를 직접 넘기세요.
-
-```json
-{
-  "mcpServers": {
-    "codelens-workspace": {
-      "command": "python3",
-      "args": [
-        "/absolute/path/to/codelens-mcp-plugin/workspace_mcp_server.py",
-        "--workspace-root",
-        "/absolute/path/to/repo"
-      ]
-    }
-  }
-}
-```
-
-Antigravity 쪽은 일부 MCP 스펙을 완전히 구현하지 않는 클라이언트가 있을 수 있으므로, 연결 후에는 먼저 `activate_project`, `get_current_config`, `tools/list` 가 정상인지 확인하는 편이 안전합니다.
-
-### Claude Desktop
-
-`claude_desktop_config.json`에 추가:
-
-```json
-{
-  "mcpServers": {
-    "jetbrains": {
-      "command": "python3",
-      "args": ["/absolute/path/to/codelens-mcp-plugin/jetbrains_sse_bridge.py"]
-    }
-  }
-}
-```
-
-### Claude Code
-
-```bash
-claude mcp add jetbrains -- python3 /absolute/path/to/codelens-mcp-plugin/jetbrains_sse_bridge.py
-```
-
-### 다른 MCP 클라이언트
-
-JetBrains의 내장 MCP Server를 통해 연결됩니다. 최신 IDE에서는 로컬 SSE endpoint를 직접 노출할 수 있으며, MCP 클라이언트나 bridge는 현재 IDE가 제공하는 transport와 호환되어야 합니다.
-
-repo에 포함된 bridge:
-
-```bash
-python3 jetbrains_sse_bridge.py
-```
-
-필요하면 포트를 직접 지정할 수 있습니다:
-
-```bash
-python3 jetbrains_sse_bridge.py --host 127.0.0.1 --port 64342 --sse-path /sse
-```
-
-문제가 생기면 먼저 다음으로 IDE endpoint 자체를 검증하세요:
-
-```bash
-python3 test-mcp-tools.py
-```
-
-이 smoke test는 두 경로를 함께 검증합니다.
-
-- JetBrains MCP Server SSE transport
-- Serena 호환 HTTP endpoint (`http://127.0.0.1:24226/status`, `findSymbol`, `getSymbolsOverview`)
-
-`tools/list` 가 실패하지만 `/sse` 는 열린 경우에는 CodeLens 플러그인 문제가 아니라 bridge/proxy 버전 불일치일 가능성이 큽니다. 이 경우 `jetbrains_sse_bridge.py` 를 먼저 사용하세요.
+| Tool                                | Description                                           |
+| ----------------------------------- | ----------------------------------------------------- |
+| `activate_project`                  | Activate project context and validate paths           |
+| `get_current_config`                | Current project/IDE/tool registration status          |
+| `onboarding`                        | Run project onboarding sequence                       |
+| `check_onboarding_performed`        | Check if onboarding memory exists                     |
+| `initial_instructions`              | Return initial task instructions and recommended flow |
+| `think_about_collected_information` | Structured reasoning over gathered context            |
+| `think_about_task_adherence`        | Verify implementation stays on-task                   |
+| `think_about_whether_you_are_done`  | Self-check before declaring completion                |
+| `prepare_for_new_conversation`      | Summarize state for context handoff                   |
 
 ---
 
-## Development
+## Supported Languages
 
-### Prerequisites
-
-| Tool          | Version              |
-| ------------- | -------------------- |
-| JDK           | 21+                  |
-| IntelliJ IDEA | 2025.1+              |
-| Gradle        | 8.13+ (wrapper 포함) |
-
-### Build & Run
-
-```bash
-# 개발 IDE에서 플러그인 실행 (샌드박스)
-./gradlew runIde
-
-# 빌드
-./gradlew buildPlugin
-
-# 테스트
-./gradlew test
-
-# 플러그인 검증
-./gradlew verifyPlugin
-```
-
-### Project Structure
-
-```
-src/main/kotlin/com/codelens/
-├── model/          # Data classes (SymbolInfo, ReferenceInfo, etc.)
-├── util/           # PsiUtils, JsonBuilder
-├── services/       # PSI service layer (interfaces + implementations)
-│   ├── LanguageAdapter.kt          # Language-specific PSI abstraction
-│   ├── JavaLanguageAdapter.kt      # Java PSI support
-│   ├── KotlinLanguageAdapter.kt    # Kotlin PSI support
-│   ├── SymbolService[Impl].kt      # Symbol analysis
-│   ├── ReferenceService[Impl].kt   # Reference tracking
-│   ├── SearchService[Impl].kt      # Pattern search
-│   └── ModificationService[Impl].kt # Code modifications
-├── tools/          # MCP tools (one class per tool)
-│   ├── BaseMcpTool.kt             # Abstract base
-│   ├── ToolRegistry.kt            # Tool registration
-│   └── [28 tool implementations]
-└── plugin/         # Plugin lifecycle & UI
-    ├── CodeLensStartupActivity.kt
-    ├── CodeLensConfigurable.kt     # Settings page
-    └── [Action classes]
-```
+| Backend         | Languages                                                                    | Count |
+| --------------- | ---------------------------------------------------------------------------- | ----- |
+| PSI (IntelliJ)  | Java, Kotlin, JS/TS, Groovy, Shell, Python                                   | 6     |
+| Tree-sitter AST | Python, JS, TS, TSX, Go, Rust, Ruby, Java, Kotlin, C, C++, PHP, Swift, Scala | 14    |
+| Workspace regex | Same 14 + fallback                                                           | 14    |
 
 ---
 
 ## Architecture
 
 ```
-Claude Code / Claude Desktop / Cursor / 기타 MCP Client
-         │
-         ├── MCP stdio → workspace_mcp_server.py
-         │       └── Workspace Backend (filesystem + regex symbol scan)
-         │
-         └── MCP stdio → jetbrains_sse_bridge.py
-                 │
-                 └── JetBrains MCP Server
-                         │
-                         └── JetBrains IDE
-                               └── CodeLens MCP Plugin
-                                     ├── MCP Tools
-                                     ├── PSI Service Layer
-                                     └── IntelliJ PSI Engine
+Claude Code / Codex / Cline
+  │
+  ├─ IntelliJ Plugin (64 tools)
+  │   └─ ACP + MCP → ToolRegistry → PSI Backend
+  │
+  └─ Standalone Server (46 tools)
+      └─ HTTP/Stdio → StandaloneToolDispatcher
+          ├─ Tree-sitter AST Backend (14 languages)
+          └─ Workspace Regex Backend (fallback)
 ```
+
+---
+
+## Installation
+
+### IntelliJ Plugin
+
+1. Download the latest zip from [Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases), or build from source:
+   ```bash
+   ./gradlew buildPlugin
+   ```
+2. In IntelliJ: **Settings → Plugins → ⚙ → Install Plugin from Disk**, select the zip.
+3. The plugin auto-registers an MCP server on port **24226** (HTTP) / **24227** (MCP endpoint). No additional setup required.
+
+### Standalone (no IDE required)
+
+```bash
+# HTTP mode
+java -jar codelens-mcp-plugin-1.0.0-standalone.jar /path/to/project --port 24226
+
+# Stdio mode (for Claude Code, Codex)
+java -jar codelens-mcp-plugin-1.0.0-standalone.jar /path/to/project --stdio
+```
+
+---
+
+## Configuration
+
+### Claude Code (`~/.claude.json`)
+
+```json
+{
+  "mcpServers": {
+    "codelens": {
+      "type": "http",
+      "url": "http://127.0.0.1:24227/mcp"
+    },
+    "codelens-standalone": {
+      "type": "stdio",
+      "command": "java",
+      "args": [
+        "-jar",
+        "/path/to/codelens-mcp-plugin-1.0.0-standalone.jar",
+        ".",
+        "--stdio"
+      ]
+    }
+  }
+}
+```
+
+### Codex (`~/.codex/config.toml`)
+
+```toml
+[mcp_servers.codelens-standalone]
+command = "java"
+args = ["-jar", "/path/to/codelens-mcp-plugin-1.0.0-standalone.jar", ".", "--stdio"]
+```
+
+---
+
+## Building
+
+```bash
+./gradlew buildPlugin          # IntelliJ plugin zip
+./gradlew standaloneFatJar     # Standalone fat-jar (~20MB)
+./gradlew test                 # Run tests
+```
+
+### Prerequisites
+
+| Tool          | Version                  |
+| ------------- | ------------------------ |
+| JDK           | 21+                      |
+| IntelliJ IDEA | 2026.1+ (plugin only)    |
+| Gradle        | 8.13+ (wrapper included) |
+
+---
+
+## Serena Compatibility
+
+CodeLens is a drop-in replacement for Serena MCP. Tool names, parameters, and `.serena/memories/` structure are identical — existing `CLAUDE.md` Serena-First rules work without modification.
 
 ---
 
 ## Comparison
 
-| Feature              | Serena MCP (Free)      | Serena JetBrains (Paid) | CodeLens MCP    |
-| -------------------- | ---------------------- | ----------------------- | --------------- |
-| Code Analysis Engine | LSP                    | JetBrains PSI           | JetBrains PSI   |
-| License              | Open Source            | Paid                    | **Open Source** |
-| Language Support     | 40+ (via LSP)          | All JetBrains           | All JetBrains   |
-| Library Indexing     | Partial                | Full                    | Full            |
-| Extra Setup          | Language Server needed | Plugin only             | **Plugin only** |
-
----
-
-## Roadmap
-
-- [x] JetBrains 2025.2+ `mcp.tool` 확장 포인트 통합
-- [ ] Python 언어 어댑터
-- [ ] JavaScript/TypeScript 언어 어댑터
-- [ ] Go 언어 어댑터
-- [ ] GotoSymbolContributor 기반 고속 검색
-- [ ] Structural Search and Replace 통합
-- [ ] 성능 최적화 (캐싱, 비동기)
-- [ ] `get_file_problems` 에 quick-fix / suppress / scope 정보 추가
-- [ ] standalone workspace backend의 symbol/ref 정확도 개선
-- [ ] headless JetBrains backend 검토
-- [ ] JetBrains Marketplace 배포
+| Feature                       | Serena MCP (Free)      | Serena JetBrains (Paid) | CodeLens MCP         |
+| ----------------------------- | ---------------------- | ----------------------- | -------------------- |
+| Code Analysis Engine          | LSP                    | JetBrains PSI           | JetBrains PSI        |
+| License                       | Open Source            | Paid                    | **Open Source**      |
+| Language Support (plugin)     | 40+ (via LSP)          | All JetBrains           | 6 PSI adapters       |
+| Language Support (standalone) | —                      | —                       | **14 (Tree-sitter)** |
+| Import Graph / PageRank       | —                      | —                       | **Yes**              |
+| Git Integration               | —                      | —                       | **Yes**              |
+| Extra Setup                   | Language Server needed | Plugin only             | **Plugin only**      |
 
 ---
 
 ## Contributing
 
-기여를 환영합니다! [CONTRIBUTING.md](CONTRIBUTING.md)를 참고해주세요.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ---
 
@@ -343,6 +245,7 @@ Claude Code / Claude Desktop / Cursor / 기타 MCP Client
 
 ## Acknowledgments
 
-- [Serena](https://github.com/oraios/serena) — 영감을 준 프로젝트
+- [Serena](https://github.com/oraios/serena) — inspiration
 - [JetBrains](https://www.jetbrains.com/) — IntelliJ Platform SDK
-- [MCP](https://modelcontextprotocol.io/) — Model Context Protocol 표준
+- [MCP](https://modelcontextprotocol.io/) — Model Context Protocol specification
+- [tree-sitter](https://tree-sitter.github.io/) — incremental parsing library

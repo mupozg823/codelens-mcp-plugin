@@ -32,6 +32,15 @@ jobs:
       - name: Run Tests
         run: ./gradlew test
 
+      - name: Build Standalone Fat Jar
+        run: ./gradlew standaloneFatJar
+
+      - name: Upload Standalone Jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: codelens-standalone-jar
+          path: build/libs/*-standalone.jar
+
       - name: Upload Plugin Artifact
         if: success()
         uses: actions/upload-artifact@v4

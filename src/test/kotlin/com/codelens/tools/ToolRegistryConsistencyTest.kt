@@ -7,7 +7,7 @@ class ToolRegistryConsistencyTest : CodeLensTestBase() {
 
     fun testToolCountMatches() {
         val registryCount = ToolRegistry.tools.size
-        assertTrue("ToolRegistry should have at least 52 tools, found $registryCount", registryCount >= 52)
+        assertTrue("ToolRegistry should have at least 64 tools, found $registryCount", registryCount >= 64)
     }
 
     fun testNoToolNameDuplicates() {

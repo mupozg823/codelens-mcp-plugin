@@ -28,10 +28,15 @@ jobs:
       - name: Verify Plugin
         run: ./gradlew verifyPlugin
 
+      - name: Build Standalone Fat Jar
+        run: ./gradlew standaloneFatJar
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/distributions/*.zip
+          files: |
+            build/distributions/*.zip
+            build/libs/*-standalone.jar
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

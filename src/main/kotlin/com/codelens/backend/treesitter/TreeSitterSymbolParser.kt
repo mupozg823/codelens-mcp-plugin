@@ -245,9 +245,7 @@ class TreeSitterSymbolParser {
 
     private fun tryLoad(factory: () -> LangConfig): LangConfig? = try {
         factory()
-    } catch (e: UnsatisfiedLinkError) {
-        null
-    } catch (e: Exception) {
+    } catch (_: Throwable) { // UnsatisfiedLinkError, NoClassDefFoundError, etc.
         null
     }
 

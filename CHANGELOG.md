@@ -7,9 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-03-28
+
+### Added
+
+- Tree-sitter AST backend with 14 language grammars (Python, JS/TS/TSX, Go, Rust, Ruby, Java, Kotlin, C, C++, PHP, Swift, Scala)
+- Byte-offset symbol indexing with modification-time caching (SymbolIndex)
+- Stable symbol IDs: `{filePath}#{kind}:{namePath}` format
+- `get_ranked_context` tool — token-budget-aware symbol ranking
+- Import graph analysis: `find_importers`, `get_blast_radius`, `get_symbol_importance` (PageRank), `find_dead_code`
+- Git integration: `get_diff_symbols`, `get_changed_files`
+- Code analysis: `get_complexity` (cyclomatic), `find_tests`, `find_annotations` (TODO/FIXME/HACK)
+- `get_call_hierarchy` tool (IntelliJ PSI only)
+- Tool schema optimization: disabled tools excluded from `tools/list`
+- CompanionSkill v1.0: auto-installed Claude Code skill with usage guide
+- PersistentStateComponent settings (per-tool enable/disable)
+- 6 PSI language adapters: Java, Kotlin, JavaScript/TypeScript, Groovy, Shell, Python (reflection-based)
+- PaginationService with LRU cursor caching
+- Structured McpException hierarchy (InvalidParams, NotFound, IndexNotReady, ToolDisabled, InternalError)
+
+### Changed
+
+- Standalone backend: tree-sitter first, regex fallback on JNI failure
+- Tool count: 54 → 64 (plugin), 36 → 46 (standalone)
+- tree-sitter dependencies excluded from plugin zip (standalone fat-jar only)
+
 ## [0.2.2] - 2026-03-27
 
 ### Added
+
 - `activate_project` — 현재 IDE 프로젝트 컨텍스트 활성화 및 Serena 경로 검증
 - `get_current_config` — 현재 IDE/프로젝트/도구 등록 상태와 `.serena` 관련 경로 조회
 - `get_project_modules` — IntelliJ 모듈 구조, 루트, 의존성 조회
@@ -22,10 +48,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `test-mcp-tools.py` 가 JetBrains MCP SSE smoke test와 Serena 호환 HTTP endpoint smoke test를 함께 수행하도록 확장
 
 ### Changed
+
 - README와 smoke test 기준을 28개 도구 집합으로 갱신
 - `.serena/project.yml` 에서 이 프로젝트의 Serena backend 기본값을 `JetBrains` 로 override
 
 ### Fixed
+
 - Serena 호환 type hierarchy 응답에서 `depth=0` 을 unlimited 로 처리
 - Serena 호환 type hierarchy 응답에서 `limitChildren` 과 `numLevelsNotIncluded` 를 지원
 - `findSymbol` 의 `includeLocation` 과 `getSymbolsOverview` 의 `includeFileDocumentation` 파라미터 전달 정합성 개선
@@ -33,19 +61,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.1] - 2026-03-27
 
 ### Added
+
 - `jetbrains_sse_bridge.py` — repo-local stdio bridge for the JetBrains IDE SSE MCP transport
 - Direct IDE smoke test coverage in `test-mcp-tools.py` without external Python packages
 
 ### Changed
+
 - Connection guidance now prefers the bundled bridge when generic MCP proxies are incompatible
 
 ### Fixed
+
 - `McpToolAdapter` now preserves numeric and boolean argument types instead of coercing all primitives to strings
 - `read_file` line ranges now work correctly when invoked through the MCP adapter layer
 
 ## [0.2.0] - 2026-03-27
 
 ### Added
+
 - `get_type_hierarchy` — 클래스의 상속/구현 관계와 멤버 구조 조회
 - `find_referencing_code_snippets` — 참조 지점 주변의 코드 스니펫 조회
 - File operations:
@@ -53,11 +85,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `create_text_file`, `delete_lines`, `insert_at_line`, `replace_lines`, `replace_content`
 
 ### Changed
+
 - Type hierarchy tool name aligned to Serena-compatible `get_type_hierarchy`
 
 ## [0.1.0] - 2026-03-26
 
 ### Added
+
 - Initial project structure with Gradle IntelliJ Platform Plugin 2.x
 - **Symbol Analysis Tools**
   - `get_symbols_overview` — file/directory symbol structure overview
