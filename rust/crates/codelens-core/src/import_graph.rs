@@ -1,5 +1,5 @@
 use crate::project::ProjectRoot;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use regex::Regex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -7,7 +7,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
-const SUPPORTED_EXTENSIONS: &[&str] = &["py", "js", "jsx", "ts", "tsx", "mjs", "cjs"];
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "go", "java", "kt", "rs", "rb", "c", "cc", "cpp",
+    "cxx", "h", "hh", "hpp", "hxx", "php",
+];
 const EXCLUDED_DIRS: &[&str] = &[
     ".git",
     ".idea",
@@ -271,6 +274,13 @@ fn extract_imports(path: &Path) -> Vec<String> {
     {
         "py" => extract_python_imports(&content),
         "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => extract_js_imports(&content),
+        "go" => extract_go_imports(&content),
+        "java" => extract_java_imports(&content),
+        "kt" => extract_kotlin_imports(&content),
+        "rs" => extract_rust_imports(&content),
+        "rb" => extract_ruby_imports(&content),
+        "c" | "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" => extract_c_imports(&content),
+        "php" => extract_php_imports(&content),
         _ => Vec::new(),
     }
 }
@@ -325,12 +335,126 @@ fn extract_js_imports(content: &str) -> Vec<String> {
     imports
 }
 
+fn extract_go_imports(content: &str) -> Vec<String> {
+    // Handles: import "path" and import ( "path" ... )
+    let single_re = Regex::new(r#"(?m)^\s*import\s+"([^"]+)""#).expect("valid regex");
+    let block_re = Regex::new(r#""([^"]+)""#).expect("valid regex");
+
+    let mut imports = Vec::new();
+    // Single-line imports
+    for cap in single_re.captures_iter(content) {
+        if let Some(m) = cap.get(1) {
+            imports.push(m.as_str().to_owned());
+        }
+    }
+    // Block imports: find import ( ... ) sections
+    let block_section_re = Regex::new(r#"(?s)\bimport\s*\(([^)]*)\)"#).expect("valid regex");
+    for section in block_section_re.captures_iter(content) {
+        if let Some(body) = section.get(1) {
+            for cap in block_re.captures_iter(body.as_str()) {
+                if let Some(m) = cap.get(1) {
+                    imports.push(m.as_str().to_owned());
+                }
+            }
+        }
+    }
+    imports
+}
+
+fn extract_java_imports(content: &str) -> Vec<String> {
+    // import pkg.Class; and import static pkg.Class.method;
+    let re =
+        Regex::new(r"(?m)^\s*import\s+(?:static\s+)?([A-Za-z0-9_.]+)\s*;").expect("valid regex");
+    re.captures_iter(content)
+        .filter_map(|cap| cap.get(1))
+        .map(|m| m.as_str().to_owned())
+        .collect()
+}
+
+fn extract_kotlin_imports(content: &str) -> Vec<String> {
+    // import pkg.Class  and  import pkg.Class as Alias
+    let re = Regex::new(r"(?m)^\s*import\s+([A-Za-z0-9_.]+)(?:\s+as\s+[A-Za-z0-9_]+)?")
+        .expect("valid regex");
+    re.captures_iter(content)
+        .filter_map(|cap| cap.get(1))
+        .map(|m| m.as_str().to_owned())
+        .collect()
+}
+
+fn extract_rust_imports(content: &str) -> Vec<String> {
+    // use crate::module;  use super::module;  mod module;
+    let use_re = Regex::new(r"(?m)^\s*use\s+([A-Za-z0-9_:]+)").expect("valid regex");
+    let mod_re = Regex::new(r"(?m)^\s*mod\s+([A-Za-z0-9_]+)\s*;").expect("valid regex");
+
+    let mut imports = Vec::new();
+    for re in [&use_re, &mod_re] {
+        for cap in re.captures_iter(content) {
+            if let Some(m) = cap.get(1) {
+                imports.push(m.as_str().to_owned());
+            }
+        }
+    }
+    imports
+}
+
+fn extract_ruby_imports(content: &str) -> Vec<String> {
+    // require "file"  require_relative "file"  load "file"
+    let re = Regex::new(r#"(?m)^\s*(?:require|require_relative|load)\s+["']([^"']+)["']"#)
+        .expect("valid regex");
+    re.captures_iter(content)
+        .filter_map(|cap| cap.get(1))
+        .map(|m| m.as_str().to_owned())
+        .collect()
+}
+
+fn extract_c_imports(content: &str) -> Vec<String> {
+    // #include "file.h"  and  #include <file.h>
+    let re = Regex::new(r#"(?m)^\s*#\s*include\s+[<"]([^>"]+)[>"]"#).expect("valid regex");
+    re.captures_iter(content)
+        .filter_map(|cap| cap.get(1))
+        .map(|m| m.as_str().to_owned())
+        .collect()
+}
+
+fn extract_php_imports(content: &str) -> Vec<String> {
+    // use Namespace\Class;
+    let use_re = Regex::new(r"(?m)^\s*use\s+([A-Za-z0-9_\\]+)\s*;").expect("valid regex");
+    // require/include "file"; (with or without _once)
+    let req_re = Regex::new(
+        r#"(?m)^\s*(?:require|require_once|include|include_once)\s+["']([^"']+)["']\s*;"#,
+    )
+    .expect("valid regex");
+
+    let mut imports = Vec::new();
+    for re in [&use_re, &req_re] {
+        for cap in re.captures_iter(content) {
+            if let Some(m) = cap.get(1) {
+                imports.push(m.as_str().to_owned());
+            }
+        }
+    }
+    imports
+}
+
 fn resolve_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
-    let source_ext = source_file.extension().and_then(|ext| ext.to_str())?;
-    if source_ext.eq_ignore_ascii_case("py") {
-        resolve_python_module(project, source_file, module)
-    } else {
-        resolve_js_module(project, source_file, module)
+    let source_ext = source_file
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|e| e.to_ascii_lowercase())?;
+    match source_ext.as_str() {
+        "py" => resolve_python_module(project, source_file, module),
+        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => {
+            resolve_js_module(project, source_file, module)
+        }
+        "go" => resolve_go_module(project, module),
+        "java" | "kt" => resolve_jvm_module(project, module),
+        "rs" => resolve_rust_module(project, source_file, module),
+        "rb" => resolve_ruby_module(project, source_file, module),
+        "c" | "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" => {
+            resolve_c_module(project, source_file, module)
+        }
+        "php" => resolve_php_module(project, source_file, module),
+        _ => None,
     }
 }
 
@@ -398,6 +522,146 @@ fn js_resolution_candidates(base: &Path) -> Vec<PathBuf> {
         }
     }
     candidates
+}
+
+/// Go: import paths are module-relative (e.g. "github.com/user/repo/pkg").
+/// We try to locate a directory named after the last path component under the project root.
+fn resolve_go_module(project: &ProjectRoot, module: &str) -> Option<String> {
+    let last = module.split('/').last().unwrap_or(module);
+    // Look for <last>/*.go or <last>.go at project root
+    let dir_candidate = project.as_path().join(last);
+    if dir_candidate.is_dir() {
+        // Return the directory as a representative path (first .go file)
+        if let Ok(mut rd) = std::fs::read_dir(&dir_candidate) {
+            while let Some(Ok(entry)) = rd.next() {
+                if entry.path().extension().and_then(|e| e.to_str()) == Some("go") {
+                    return Some(project.to_relative(entry.path()));
+                }
+            }
+        }
+    }
+    let file_candidate = project.as_path().join(format!("{last}.go"));
+    if file_candidate.is_file() {
+        return Some(project.to_relative(file_candidate));
+    }
+    None
+}
+
+/// Java/Kotlin: convert fully-qualified class name to file path.
+/// e.g. com.example.Foo -> com/example/Foo.java (or .kt)
+fn resolve_jvm_module(project: &ProjectRoot, module: &str) -> Option<String> {
+    let path_part = module.replace('.', "/");
+    for ext in ["java", "kt"] {
+        let candidate = project.as_path().join(format!("{path_part}.{ext}"));
+        if candidate.is_file() {
+            return Some(project.to_relative(candidate));
+        }
+        // Also check common src layouts: src/main/java/... src/main/kotlin/...
+        for prefix in ["src/main/java", "src/main/kotlin", "src"] {
+            let candidate = project
+                .as_path()
+                .join(prefix)
+                .join(format!("{path_part}.{ext}"));
+            if candidate.is_file() {
+                return Some(project.to_relative(candidate));
+            }
+        }
+    }
+    None
+}
+
+/// Rust: `use crate::foo::bar` -> look for src/foo/bar.rs or src/foo/bar/mod.rs.
+///       `mod foo;` -> look for foo.rs or foo/mod.rs relative to source dir.
+fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
+    let stripped = module
+        .trim_start_matches("crate::")
+        .trim_start_matches("super::")
+        .trim_start_matches("self::");
+    let path_part = stripped.replace("::", "/");
+
+    // Relative to source file directory (for mod declarations)
+    if let Some(parent) = source_file.parent() {
+        for candidate in [
+            parent.join(format!("{path_part}.rs")),
+            parent.join(&path_part).join("mod.rs"),
+        ] {
+            if candidate.is_file() {
+                return Some(project.to_relative(candidate));
+            }
+        }
+    }
+    // Relative to src/ at project root
+    let src = project.as_path().join("src");
+    for candidate in [
+        src.join(format!("{path_part}.rs")),
+        src.join(&path_part).join("mod.rs"),
+    ] {
+        if candidate.is_file() {
+            return Some(project.to_relative(candidate));
+        }
+    }
+    None
+}
+
+/// Ruby: resolve require/require_relative paths to .rb files.
+fn resolve_ruby_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
+    // require_relative paths are relative to the source file
+    let source_dir = source_file.parent().unwrap_or(project.as_path());
+    let base = if module.starts_with('.') {
+        source_dir.join(module)
+    } else {
+        project.as_path().join(module)
+    };
+    // Add .rb extension if not present
+    let with_ext = if base.extension().is_some() {
+        base.clone()
+    } else {
+        base.with_extension("rb")
+    };
+    if with_ext.is_file() {
+        return Some(project.to_relative(with_ext));
+    }
+    if base.is_file() {
+        return Some(project.to_relative(base));
+    }
+    None
+}
+
+/// C/C++: resolve #include "file.h" (relative includes) and <file.h> (system includes).
+/// Only relative (quoted) includes can be resolved to project files.
+fn resolve_c_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
+    let source_dir = source_file.parent().unwrap_or(project.as_path());
+    // Try relative to source file first, then project root
+    for base in [source_dir.join(module), project.as_path().join(module)] {
+        if base.is_file() {
+            return Some(project.to_relative(base));
+        }
+    }
+    None
+}
+
+/// PHP: use Namespace\Class -> Namespace/Class.php; require/include "file"
+fn resolve_php_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
+    // Namespace\Class style
+    let by_namespace = module.replace('\\', "/");
+    let source_dir = source_file.parent().unwrap_or(project.as_path());
+
+    for base_dir in [source_dir, project.as_path()] {
+        let with_php = if by_namespace.ends_with(".php") {
+            base_dir.join(&by_namespace)
+        } else {
+            base_dir.join(format!("{by_namespace}.php"))
+        };
+        if with_php.is_file() {
+            return Some(project.to_relative(with_php));
+        }
+        // Try as-is (for require "file.php" paths)
+        let as_is = base_dir.join(&by_namespace);
+        if as_is.is_file() {
+            return Some(project.to_relative(as_is));
+        }
+    }
+    None
 }
 
 fn normalize_key(file_path: &str) -> String {
@@ -481,7 +745,87 @@ mod tests {
     fn reports_supported_extensions() {
         assert!(supports_import_graph("main.py"));
         assert!(supports_import_graph("main.ts"));
-        assert!(!supports_import_graph("Main.java"));
+        assert!(supports_import_graph("Main.java"));
+        assert!(supports_import_graph("main.go"));
+        assert!(supports_import_graph("main.kt"));
+        assert!(supports_import_graph("main.rs"));
+        assert!(supports_import_graph("main.rb"));
+        assert!(supports_import_graph("main.c"));
+        assert!(supports_import_graph("main.cpp"));
+        assert!(supports_import_graph("main.h"));
+        assert!(supports_import_graph("main.php"));
+        assert!(!supports_import_graph("main.swift"));
+    }
+
+    #[test]
+    fn extracts_go_imports() {
+        let content = r#"
+package main
+
+import "fmt"
+import (
+    "os"
+    "path/filepath"
+)
+"#;
+        let imports = super::extract_go_imports(content);
+        assert!(imports.contains(&"fmt".to_owned()), "single import");
+        assert!(imports.contains(&"os".to_owned()), "block import os");
+        assert!(
+            imports.contains(&"path/filepath".to_owned()),
+            "block import path"
+        );
+    }
+
+    #[test]
+    fn extracts_java_imports() {
+        let content = "import com.example.Foo;\nimport static com.example.Utils.helper;\n";
+        let imports = super::extract_java_imports(content);
+        assert!(imports.contains(&"com.example.Foo".to_owned()));
+        assert!(imports.contains(&"com.example.Utils.helper".to_owned()));
+    }
+
+    #[test]
+    fn extracts_kotlin_imports() {
+        let content = "import com.example.Foo\nimport com.example.Bar as B\n";
+        let imports = super::extract_kotlin_imports(content);
+        assert!(imports.contains(&"com.example.Foo".to_owned()));
+        assert!(imports.contains(&"com.example.Bar".to_owned()));
+    }
+
+    #[test]
+    fn extracts_rust_imports() {
+        let content = "use crate::utils;\nuse super::models;\nmod config;\n";
+        let imports = super::extract_rust_imports(content);
+        assert!(imports.contains(&"crate::utils".to_owned()));
+        assert!(imports.contains(&"super::models".to_owned()));
+        assert!(imports.contains(&"config".to_owned()));
+    }
+
+    #[test]
+    fn extracts_ruby_imports() {
+        let content = "require \"json\"\nrequire_relative \"../lib/helper\"\nload \"tasks.rb\"\n";
+        let imports = super::extract_ruby_imports(content);
+        assert!(imports.contains(&"json".to_owned()));
+        assert!(imports.contains(&"../lib/helper".to_owned()));
+        assert!(imports.contains(&"tasks.rb".to_owned()));
+    }
+
+    #[test]
+    fn extracts_c_imports() {
+        let content = "#include \"mylib.h\"\n#include <stdio.h>\n";
+        let imports = super::extract_c_imports(content);
+        assert!(imports.contains(&"mylib.h".to_owned()));
+        assert!(imports.contains(&"stdio.h".to_owned()));
+    }
+
+    #[test]
+    fn extracts_php_imports() {
+        let content =
+            "use App\\Http\\Controllers\\HomeController;\nrequire \"vendor/autoload.php\";\n";
+        let imports = super::extract_php_imports(content);
+        assert!(imports.contains(&"App\\Http\\Controllers\\HomeController".to_owned()));
+        assert!(imports.contains(&"vendor/autoload.php".to_owned()));
     }
 
     #[test]
