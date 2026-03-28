@@ -18,6 +18,8 @@ categories = ["development-tools", "command-line-utilities"]
 
 [workspace.dependencies]
 anyhow = "1.0"
+axum = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
 globset = "0.4"
 petgraph = "0.7"
 rayon = "1.10"

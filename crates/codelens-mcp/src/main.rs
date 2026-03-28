@@ -127,11 +127,30 @@ fn main() -> Result<()> {
         ".".to_string()
     };
 
+    let transport = args
+        .iter()
+        .position(|a| a == "--transport")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.as_str())
+        .unwrap_or("stdio");
+
+    let port: u16 = args
+        .iter()
+        .position(|a| a == "--port")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(7837);
+
     let project = ProjectRoot::new(&effective_path)?;
-    run_stdio(AppState::new(project, preset))
+    let state = Arc::new(AppState::new(project, preset));
+
+    match transport {
+        "http" => run_http(state, port),
+        _ => run_stdio(state),
+    }
 }
 
-fn run_stdio(state: AppState) -> Result<()> {
+fn run_stdio(state: Arc<AppState>) -> Result<()> {
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
 
@@ -151,6 +170,39 @@ fn run_stdio(state: AppState) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[tokio::main]
+async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
+    use axum::{Router, extract::State, http::StatusCode, routing::post};
+
+    let app = Router::new()
+        .route("/mcp", post(mcp_handler))
+        .with_state(state);
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    eprintln!("CodeLens MCP HTTP server listening on http://{addr}/mcp");
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+async fn mcp_handler(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    body: String,
+) -> (axum::http::StatusCode, String) {
+    let response = match serde_json::from_str::<JsonRpcRequest>(&body) {
+        Ok(request) => handle_request(&state, request),
+        Err(error) => JsonRpcResponse::error(None, -32700, format!("Parse error: {error}")),
+    };
+    match serde_json::to_string(&response) {
+        Ok(json) => (axum::http::StatusCode::OK, json),
+        Err(e) => (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            format!("{{\"error\":\"{e}\"}}"),
+        ),
+    }
 }
 
 fn handle_request(state: &AppState, request: JsonRpcRequest) -> JsonRpcResponse {
