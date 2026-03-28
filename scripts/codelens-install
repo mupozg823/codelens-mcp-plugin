@@ -1,0 +1,125 @@
+#!/usr/bin/env bash
+# Auto-detect installed AI coding agents and configure CodeLens MCP server
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+RUST_BIN="$REPO_ROOT/rust/target/release/codelens-mcp"
+FAT_JAR=$(find "$REPO_ROOT/standalone/build/libs" -name "*-standalone.jar" 2>/dev/null | head -1)
+
+# Determine the best available command
+if [ -x "$RUST_BIN" ]; then
+    BRIDGE_ARG="-Dcodelens.rust.bridge.command=$RUST_BIN"
+fi
+
+if [ -n "$FAT_JAR" ] && [ -f "$FAT_JAR" ]; then
+    MCP_COMMAND="java"
+    MCP_ARGS="${BRIDGE_ARG:+$BRIDGE_ARG }-jar $FAT_JAR . --stdio"
+elif [ -x "$RUST_BIN" ]; then
+    MCP_COMMAND="$RUST_BIN"
+    MCP_ARGS="."
+else
+    echo "Error: No CodeLens binary found. Build first:" >&2
+    echo "  cd rust && cargo build --release" >&2
+    echo "  OR ./gradlew :standalone:standaloneFatJar" >&2
+    exit 1
+fi
+
+CONFIGURED=0
+
+# ── Claude Code ──
+CLAUDE_MCP="$HOME/.claude/mcp.json"
+if [ -d "$HOME/.claude" ]; then
+    echo "Found: Claude Code"
+    if [ -x "$RUST_BIN" ] && [ -n "$FAT_JAR" ]; then
+        # Kotlin + Rust bridge
+        cat > "$CLAUDE_MCP" << HEREDOC
+{
+  "mcpServers": {
+    "codelens-standalone": {
+      "command": "java",
+      "args": [
+        "-Dcodelens.rust.bridge.command=$RUST_BIN",
+        "-jar",
+        "$FAT_JAR",
+        ".",
+        "--stdio"
+      ]
+    }
+  }
+}
+HEREDOC
+    elif [ -x "$RUST_BIN" ]; then
+        cat > "$CLAUDE_MCP" << HEREDOC
+{
+  "mcpServers": {
+    "codelens-standalone": {
+      "command": "$RUST_BIN",
+      "args": ["."]
+    }
+  }
+}
+HEREDOC
+    fi
+    echo "  -> $CLAUDE_MCP configured"
+    CONFIGURED=$((CONFIGURED + 1))
+fi
+
+# ── Codex (OpenAI) ──
+CODEX_DIR="$HOME/.codex"
+if [ -d "$CODEX_DIR" ]; then
+    echo "Found: Codex"
+    CODEX_CONFIG="$CODEX_DIR/config.toml"
+    if ! grep -q "codelens" "$CODEX_CONFIG" 2>/dev/null; then
+        cat >> "$CODEX_CONFIG" << HEREDOC
+
+[mcp_servers.codelens]
+command = "$MCP_COMMAND"
+args = [$(echo "$MCP_ARGS" | sed 's/ /", "/g; s/^/"/; s/$/"/')]
+HEREDOC
+        echo "  -> $CODEX_CONFIG configured"
+    else
+        echo "  -> already configured"
+    fi
+    CONFIGURED=$((CONFIGURED + 1))
+fi
+
+# ── Cursor ──
+CURSOR_DIR="$HOME/.cursor"
+if [ -d "$CURSOR_DIR" ]; then
+    echo "Found: Cursor"
+    CURSOR_MCP="$CURSOR_DIR/mcp.json"
+    if [ ! -f "$CURSOR_MCP" ] || ! grep -q "codelens" "$CURSOR_MCP" 2>/dev/null; then
+        cat > "$CURSOR_MCP" << HEREDOC
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "$MCP_COMMAND",
+      "args": [$(echo "$MCP_ARGS" | sed 's/ /", "/g; s/^/"/; s/$/"/')]
+    }
+  }
+}
+HEREDOC
+        echo "  -> $CURSOR_MCP configured"
+    else
+        echo "  -> already configured"
+    fi
+    CONFIGURED=$((CONFIGURED + 1))
+fi
+
+# ── VS Code / Cline ──
+VSCODE_DIR="$HOME/.vscode"
+if [ -d "$VSCODE_DIR" ]; then
+    echo "Found: VS Code"
+    echo "  -> Add MCP server manually in .vscode/mcp.json or via Cline extension"
+    CONFIGURED=$((CONFIGURED + 1))
+fi
+
+# ── Summary ──
+echo ""
+if [ $CONFIGURED -eq 0 ]; then
+    echo "No supported AI coding agents detected."
+    echo "Manually configure your MCP client — see docs/CLIENT_SETUP.md"
+else
+    echo "Configured $CONFIGURED agent(s). Restart your agent to load CodeLens."
+fi
