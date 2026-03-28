@@ -5,63 +5,31 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUST_BIN="$REPO_ROOT/rust/target/release/codelens-mcp"
-FAT_JAR=$(find "$REPO_ROOT/standalone/build/libs" -name "*-standalone.jar" 2>/dev/null | head -1)
 
-# Determine the best available command
-if [ -x "$RUST_BIN" ]; then
-    BRIDGE_ARG="-Dcodelens.rust.bridge.command=$RUST_BIN"
-fi
-
-if [ -n "$FAT_JAR" ] && [ -f "$FAT_JAR" ]; then
-    MCP_COMMAND="java"
-    MCP_ARGS="${BRIDGE_ARG:+$BRIDGE_ARG }-jar $FAT_JAR . --stdio"
-elif [ -x "$RUST_BIN" ]; then
-    MCP_COMMAND="$RUST_BIN"
-    MCP_ARGS="."
-else
-    echo "Error: No CodeLens binary found. Build first:" >&2
-    echo "  cd rust && cargo build --release" >&2
-    echo "  OR ./gradlew :standalone:standaloneFatJar" >&2
+if [ ! -x "$RUST_BIN" ]; then
+    echo "Error: Rust binary not found at $RUST_BIN" >&2
+    echo "Build with: cd rust && cargo build --release" >&2
     exit 1
 fi
 
 CONFIGURED=0
 
 # ── Claude Code ──
-CLAUDE_MCP="$HOME/.claude/mcp.json"
 if [ -d "$HOME/.claude" ]; then
     echo "Found: Claude Code"
-    if [ -x "$RUST_BIN" ] && [ -n "$FAT_JAR" ]; then
-        # Kotlin + Rust bridge
-        cat > "$CLAUDE_MCP" << HEREDOC
-{
-  "mcpServers": {
-    "codelens-standalone": {
-      "command": "java",
-      "args": [
-        "-Dcodelens.rust.bridge.command=$RUST_BIN",
-        "-jar",
-        "$FAT_JAR",
-        ".",
-        "--stdio"
-      ]
-    }
-  }
+    # Update mcpServers in ~/.claude.json via python
+    python3 -c "
+import json, os
+path = os.path.expanduser('~/.claude.json')
+data = json.load(open(path)) if os.path.exists(path) else {}
+data.setdefault('mcpServers', {})['codelens-standalone'] = {
+    'type': 'stdio',
+    'command': '$RUST_BIN',
+    'args': ['.']
 }
-HEREDOC
-    elif [ -x "$RUST_BIN" ]; then
-        cat > "$CLAUDE_MCP" << HEREDOC
-{
-  "mcpServers": {
-    "codelens-standalone": {
-      "command": "$RUST_BIN",
-      "args": ["."]
-    }
-  }
-}
-HEREDOC
-    fi
-    echo "  -> $CLAUDE_MCP configured"
+json.dump(data, open(path, 'w'), indent=2)
+print('  -> ~/.claude.json configured')
+"
     CONFIGURED=$((CONFIGURED + 1))
 fi
 
@@ -74,8 +42,8 @@ if [ -d "$CODEX_DIR" ]; then
         cat >> "$CODEX_CONFIG" << HEREDOC
 
 [mcp_servers.codelens]
-command = "$MCP_COMMAND"
-args = [$(echo "$MCP_ARGS" | sed 's/ /", "/g; s/^/"/; s/$/"/')]
+command = "$RUST_BIN"
+args = ["."]
 HEREDOC
         echo "  -> $CODEX_CONFIG configured"
     else
@@ -94,8 +62,8 @@ if [ -d "$CURSOR_DIR" ]; then
 {
   "mcpServers": {
     "codelens": {
-      "command": "$MCP_COMMAND",
-      "args": [$(echo "$MCP_ARGS" | sed 's/ /", "/g; s/^/"/; s/$/"/')]
+      "command": "$RUST_BIN",
+      "args": ["."]
     }
   }
 }
@@ -108,8 +76,7 @@ HEREDOC
 fi
 
 # ── VS Code / Cline ──
-VSCODE_DIR="$HOME/.vscode"
-if [ -d "$VSCODE_DIR" ]; then
+if [ -d "$HOME/.vscode" ]; then
     echo "Found: VS Code"
     echo "  -> Add MCP server manually in .vscode/mcp.json or via Cline extension"
     CONFIGURED=$((CONFIGURED + 1))
@@ -119,7 +86,6 @@ fi
 echo ""
 if [ $CONFIGURED -eq 0 ]; then
     echo "No supported AI coding agents detected."
-    echo "Manually configure your MCP client — see docs/CLIENT_SETUP.md"
 else
     echo "Configured $CONFIGURED agent(s). Restart your agent to load CodeLens."
 fi

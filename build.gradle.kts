@@ -97,7 +97,7 @@ intellijPlatform {
                 <li>Analysis: get_complexity, find_tests, find_annotations, find_dead_code</li>
                 <li>Token budget: get_ranked_context with automatic relevance ranking</li>
                 <li>Tool schema optimization: disabled tools excluded from tools/list</li>
-                <li>64 tools (plugin), 46 tools (standalone)</li>
+                <li>59 tools via Rust MCP engine + IntelliJ PSI backend</li>
             </ul>
         """.trimIndent()
 

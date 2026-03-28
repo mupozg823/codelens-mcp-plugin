@@ -20,7 +20,7 @@ class FindImportersTool : BaseMcpTool() {
     )
 
     override fun execute(args: Map<String, Any?>, project: Project): String =
-        errorResponse("find_importers requires the Rust engine (standalone mode)")
+        errorResponse("find_importers is handled by the Rust MCP engine")
 }
 
 class GetBlastRadiusTool : BaseMcpTool() {
@@ -37,7 +37,7 @@ class GetBlastRadiusTool : BaseMcpTool() {
     )
 
     override fun execute(args: Map<String, Any?>, project: Project): String =
-        errorResponse("get_blast_radius requires the Rust engine (standalone mode)")
+        errorResponse("get_blast_radius is handled by the Rust MCP engine")
 }
 
 class GetSymbolImportanceTool : BaseMcpTool() {
@@ -53,7 +53,7 @@ class GetSymbolImportanceTool : BaseMcpTool() {
     )
 
     override fun execute(args: Map<String, Any?>, project: Project): String =
-        errorResponse("get_symbol_importance requires the Rust engine (standalone mode)")
+        errorResponse("get_symbol_importance is handled by the Rust MCP engine")
 }
 
 class FindDeadCodeTool : BaseMcpTool() {
@@ -69,5 +69,5 @@ class FindDeadCodeTool : BaseMcpTool() {
     )
 
     override fun execute(args: Map<String, Any?>, project: Project): String =
-        errorResponse("find_dead_code requires the Rust engine (standalone mode)")
+        errorResponse("find_dead_code is handled by the Rust MCP engine")
 }

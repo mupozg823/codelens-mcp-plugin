@@ -36,3 +36,12 @@ config-test/
 # CodeLens port file and index (auto-generated at runtime)
 .codelens-port
 .codelens/
+
+# Rust build artifacts
+rust/target/
+
+# Serena memory cache
+.serena/
+
+# Accidental temp files
+temp:/
