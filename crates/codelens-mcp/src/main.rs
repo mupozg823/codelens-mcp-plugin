@@ -2,14 +2,14 @@ mod protocol;
 
 use anyhow::Result;
 use codelens_core::{
-    check_lsp_status, create_text_file, delete_lines, extract_word_at_position,
-    find_circular_dependencies, find_dead_code, find_dead_code_v2, find_files,
-    find_referencing_symbols_via_text, find_scoped_references, get_blast_radius, get_callees,
-    get_callers, get_change_coupling, get_changed_files, get_diff_symbols, get_importance,
-    get_importers, get_lsp_recipe, get_type_hierarchy_native, insert_after_symbol, insert_at_line,
-    insert_before_symbol, list_dir, read_file, rename, replace_content, replace_lines,
-    replace_symbol_body, search_for_pattern, search_for_pattern_smart, search_symbols_hybrid,
-    LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
+    add_import, analyze_missing_imports, check_lsp_status, create_text_file, delete_lines,
+    extract_word_at_position, find_circular_dependencies, find_dead_code, find_dead_code_v2,
+    find_files, find_referencing_symbols_via_text, find_scoped_references, get_blast_radius,
+    get_callees, get_callers, get_change_coupling, get_changed_files, get_diff_symbols,
+    get_importance, get_importers, get_lsp_recipe, get_type_hierarchy_native, insert_after_symbol,
+    insert_at_line, insert_before_symbol, list_dir, read_file, rename, replace_content,
+    replace_lines, replace_symbol_body, search_for_pattern, search_for_pattern_smart,
+    search_symbols_hybrid, LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
     LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot, SymbolIndex, SymbolInfo,
     SymbolKind,
 };
@@ -1359,6 +1359,23 @@ fn dispatch_tool(
                 },
             )
         }
+        // ── Auto-import tools ────────────────────────────────────────────
+        "analyze_missing_imports" => {
+            let file_path = required_string(&arguments, "file_path")?;
+            analyze_missing_imports(&state.project, file_path)
+                .map(|value| (json!(value), success_meta("tree-sitter+index", 0.85)))
+        }
+        "add_import" => {
+            let file_path = required_string(&arguments, "file_path")?;
+            let import_statement = required_string(&arguments, "import_statement")?;
+            add_import(&state.project, file_path, import_statement)
+                .map(|content| {
+                    (
+                        json!({"success": true, "file_path": file_path, "content_length": content.len()}),
+                        success_meta("filesystem", 1.0),
+                    )
+                })
+        }
         // ── Serena-compatible: no-op thinking/mode tools ────────────────
         "think_about_collected_information"
         | "think_about_task_adherence"
@@ -2272,6 +2289,17 @@ fn tools() -> Vec<Tool> {
                 "required":["query"]
             }),
         ),
+        // ── Auto-import tools ────────────────────────────────────────────
+        Tool::new(
+            "analyze_missing_imports",
+            "Detect unresolved symbols in a file and suggest import statements from the project's symbol index.",
+            json!({"type":"object","properties":{"file_path":{"type":"string","description":"File to analyze"}},"required":["file_path"]}),
+        ),
+        Tool::new(
+            "add_import",
+            "Insert an import statement at the correct position in a file.",
+            json!({"type":"object","properties":{"file_path":{"type":"string"},"import_statement":{"type":"string","description":"Import statement to add"}},"required":["file_path","import_statement"]}),
+        ),
         // ── Serena-compatible: no-op thinking/mode tools ────────────────
         Tool::new("think_about_collected_information", "Thinking tool: review and reflect on collected information.", json!({"type":"object","properties":{}})),
         Tool::new("think_about_task_adherence", "Thinking tool: verify that planned actions adhere to the original task.", json!({"type":"object","properties":{}})),
@@ -2406,7 +2434,7 @@ mod tests {
                 params: None,
             },
         );
-        assert_eq!(tools().len(), 60);
+        assert_eq!(tools().len(), 62);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("read_file"));
     }

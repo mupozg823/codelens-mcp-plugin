@@ -38,6 +38,7 @@ pub use lsp::{
     find_referencing_symbols_via_lsp, get_diagnostics_via_lsp, get_lsp_recipe,
     get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
 };
+pub use auto_import::{ImportSuggestion, MissingImportAnalysis, add_import, analyze_missing_imports};
 pub use project::ProjectRoot;
 pub use rename::{RenameResult, RenameScope, rename_symbol};
 pub use scope_analysis::{ScopedReference, ReferenceKind, find_scoped_references, find_scoped_references_in_file};
