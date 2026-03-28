@@ -150,7 +150,7 @@ impl SymbolIndex {
         Ok(())
     }
 
-    #[cfg(test)]
+    /// Create an in-memory index (for tests and benchmarks — no disk persistence).
     pub fn new_memory(project: ProjectRoot) -> Self {
         let db = IndexDb::open_memory().unwrap();
         Self { project, db }

@@ -32,3 +32,11 @@ tree-sitter-scala.workspace = true
 tree-sitter-ruby.workspace = true
 url.workspace = true
 walkdir.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+tempfile = "3.15"
+
+[[bench]]
+name = "indexing"
+harness = false

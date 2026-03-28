@@ -36,5 +36,6 @@ tree-sitter-php = "0.24"
 tree-sitter-swift = "0.7"
 tree-sitter-scala = "0.25"
 tree-sitter-ruby = "0.23"
+criterion = { version = "0.5", features = ["html_reports"] }
 url = "2.5"
 walkdir = "2.5"
