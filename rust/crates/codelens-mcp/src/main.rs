@@ -19,24 +19,82 @@ struct AppState {
     project: ProjectRoot,
     symbol_index: Mutex<SymbolIndex>,
     lsp_pool: Mutex<LspSessionPool>,
+    preset: ToolPreset,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolPreset {
+    Minimal,  // 20 core tools — symbol/file/search only
+    Balanced, // 30 tools — + analysis, git, editing
+    Full,     // all tools
+}
+
+impl ToolPreset {
+    fn from_str(s: &str) -> Self {
+        match s.to_ascii_lowercase().as_str() {
+            "minimal" | "min" => Self::Minimal,
+            "balanced" | "bal" => Self::Balanced,
+            _ => Self::Full,
+        }
+    }
+}
+
+const MINIMAL_TOOLS: &[&str] = &[
+    "get_current_config",
+    "read_file",
+    "list_dir",
+    "find_file",
+    "search_for_pattern",
+    "get_symbols_overview",
+    "find_symbol",
+    "get_ranked_context",
+    "find_referencing_symbols",
+    "get_type_hierarchy",
+    "refresh_symbol_index",
+    "get_file_diagnostics",
+    "search_workspace_symbols",
+    "plan_symbol_rename",
+    "replace_symbol_body",
+    "insert_before_symbol",
+    "insert_after_symbol",
+    "create_text_file",
+    "replace_content",
+    "find_referencing_code_snippets",
+];
+
+const BALANCED_EXCLUDES: &[&str] = &[
+    "find_circular_dependencies",
+    "get_change_coupling",
+    "get_callers",
+    "get_callees",
+    "get_symbol_importance",
+    "find_dead_code",
+];
+
 impl AppState {
-    fn new(project: ProjectRoot) -> Self {
+    fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
         let symbol_index = SymbolIndex::new(project.clone());
         let lsp_pool = LspSessionPool::new(project.clone());
         Self {
             project,
             symbol_index: Mutex::new(symbol_index),
             lsp_pool: Mutex::new(lsp_pool),
+            preset,
         }
     }
 }
 
 fn main() -> Result<()> {
-    let project_arg = std::env::args().nth(1).unwrap_or_else(|| ".".to_owned());
+    let args: Vec<String> = std::env::args().collect();
+    let project_arg = args.get(1).map(|s| s.as_str()).unwrap_or(".");
+    let preset = args
+        .iter()
+        .position(|a| a == "--preset")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| ToolPreset::from_str(s))
+        .unwrap_or(ToolPreset::Full);
     let project = ProjectRoot::new(project_arg)?;
-    run_stdio(AppState::new(project))
+    run_stdio(AppState::new(project, preset))
 }
 
 fn run_stdio(state: AppState) -> Result<()> {
@@ -78,7 +136,17 @@ fn handle_request(state: &AppState, request: JsonRpcRequest) -> JsonRpcResponse 
                 }
             }),
         ),
-        "tools/list" => JsonRpcResponse::result(request.id, json!({ "tools": tools() })),
+        "tools/list" => {
+            let filtered: Vec<_> = tools()
+                .into_iter()
+                .filter(|t| match state.preset {
+                    ToolPreset::Full => true,
+                    ToolPreset::Minimal => MINIMAL_TOOLS.contains(&t.name),
+                    ToolPreset::Balanced => !BALANCED_EXCLUDES.contains(&t.name),
+                })
+                .collect();
+            JsonRpcResponse::result(request.id, json!({ "tools": filtered }))
+        }
         "tools/call" => match request.params {
             Some(params) => dispatch_tool(state, request.id, params),
             None => JsonRpcResponse::error(request.id, -32602, "Missing params"),
@@ -1672,7 +1740,7 @@ mod tests {
     #[test]
     fn lists_tools() {
         let project = project_root();
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -1690,7 +1758,7 @@ mod tests {
     #[test]
     fn reads_file_via_tool_call() {
         let project = project_root();
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -1722,7 +1790,7 @@ mod tests {
             "class Service:\n    def run(self):\n        return True\n",
         )
         .expect("write python");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
 
         let response = handle_request(
             &state,
@@ -1757,7 +1825,7 @@ mod tests {
             "class Service:\n    def run(self):\n        return True\n",
         )
         .expect("write python");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -1794,7 +1862,7 @@ mod tests {
             "class Service:\n    def run(self):\n        return True\n\ndef greet():\n    return 1\n",
         )
         .expect("write python");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -1842,7 +1910,7 @@ mod tests {
             "class User:\n    pass\n",
         )
         .expect("write models");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -1885,7 +1953,7 @@ mod tests {
             "def greet():\n    return 1\n",
         )
         .expect("write utils");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -1933,7 +2001,7 @@ mod tests {
             "class User:\n    pass\n",
         )
         .expect("write models");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -1976,7 +2044,7 @@ mod tests {
             "def helper():\n    return 2\n",
         )
         .expect("write unused");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -2014,7 +2082,7 @@ mod tests {
             "# FIXME handle retries\n\ndef run():\n    return 2\n",
         )
         .expect("write worker");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -2055,7 +2123,7 @@ mod tests {
             "describe('suite', () => { test('works', () => {}) })\n",
         )
         .expect("write js test file");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -2089,7 +2157,7 @@ mod tests {
             "def greet(flag):\n    if flag:\n        return 1\n    return 0\n",
         )
         .expect("write sample");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -2139,7 +2207,7 @@ mod tests {
         )
         .expect("write untracked");
 
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -2214,7 +2282,7 @@ while True:
 "#,
         )
         .expect("write mock lsp");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -2293,7 +2361,7 @@ while True:
 "#,
         )
         .expect("write mock lsp");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -2373,7 +2441,7 @@ while True:
 "#,
         )
         .expect("write mock lsp");
-        let state = super::AppState::new(project.clone());
+        let state = super::AppState::new(project.clone(), super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -2462,7 +2530,7 @@ while True:
 "#,
         )
         .expect("write mock lsp");
-        let state = super::AppState::new(project.clone());
+        let state = super::AppState::new(project.clone(), super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
@@ -2542,7 +2610,7 @@ while True:
 "#,
         )
         .expect("write mock lsp");
-        let state = super::AppState::new(project);
+        let state = super::AppState::new(project, super::ToolPreset::Full);
         let response = handle_request(
             &state,
             super::protocol::JsonRpcRequest {
