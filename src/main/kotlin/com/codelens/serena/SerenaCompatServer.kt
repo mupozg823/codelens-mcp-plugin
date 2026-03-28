@@ -27,6 +27,8 @@ class SerenaCompatServer(private val project: Project) : com.intellij.openapi.Di
     private var server: HttpServer? = null
     private var boundPort: Int? = null
 
+    fun getPort(): Int? = boundPort
+
     fun start() {
         if (server != null) return
         val baseAddress = "127.0.0.1"
@@ -38,6 +40,7 @@ class SerenaCompatServer(private val project: Project) : com.intellij.openapi.Di
                 httpServer.start()
                 server = httpServer
                 boundPort = port
+                writePortFile(port)
                 logger.info("CodeLens Serena compat server started on $baseAddress:$port for ${project.name}")
                 return
             } catch (_: IOException) {
@@ -48,9 +51,30 @@ class SerenaCompatServer(private val project: Project) : com.intellij.openapi.Di
     }
 
     override fun dispose() {
+        deletePortFile()
         server?.stop(0)
         server = null
         boundPort = null
+    }
+
+    private fun writePortFile(port: Int) {
+        try {
+            val basePath = project.basePath ?: return
+            val portFile = java.nio.file.Paths.get(basePath, PORT_FILE_NAME)
+            java.nio.file.Files.writeString(portFile, port.toString())
+        } catch (e: Exception) {
+            logger.warn("Failed to write port file: ${e.message}")
+        }
+    }
+
+    private fun deletePortFile() {
+        try {
+            val basePath = project.basePath ?: return
+            val portFile = java.nio.file.Paths.get(basePath, PORT_FILE_NAME)
+            java.nio.file.Files.deleteIfExists(portFile)
+        } catch (e: Exception) {
+            logger.warn("Failed to delete port file: ${e.message}")
+        }
     }
 
     private fun registerRoutes(httpServer: HttpServer) {
@@ -479,5 +503,6 @@ class SerenaCompatServer(private val project: Project) : com.intellij.openapi.Di
         const val BASE_PORT = 0x5EA2
         const val NUM_PORTS_TO_SCAN = 20
         const val COMPAT_PLUGIN_VERSION = "2026.3.27"
+        const val PORT_FILE_NAME = ".codelens-port"
     }
 }
