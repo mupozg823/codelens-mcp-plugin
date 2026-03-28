@@ -50,6 +50,28 @@ pub struct PatternMatch {
     pub line_content: String,
 }
 
+/// Pattern match enriched with enclosing symbol context (Smart Excerpt).
+#[derive(Debug, Clone, Serialize)]
+pub struct SmartPatternMatch {
+    pub file_path: String,
+    pub line: usize,
+    pub column: usize,
+    pub matched_text: String,
+    pub line_content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub enclosing_symbol: Option<EnclosingSymbol>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EnclosingSymbol {
+    pub name: String,
+    pub kind: String,
+    pub name_path: String,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub signature: String,
+}
+
 pub fn read_file(
     project: &ProjectRoot,
     path: &str,
@@ -183,6 +205,125 @@ pub fn search_for_pattern(
     }
 
     Ok(results)
+}
+
+/// Smart search: pattern search enriched with enclosing symbol context.
+/// For each match, finds the nearest enclosing function/class/method via tree-sitter.
+pub fn search_for_pattern_smart(
+    project: &ProjectRoot,
+    pattern: &str,
+    file_glob: Option<&str>,
+    max_results: usize,
+) -> Result<Vec<SmartPatternMatch>> {
+    use crate::symbols::{get_symbols_overview, SymbolInfo};
+
+    let base_results = search_for_pattern(project, pattern, file_glob, max_results)?;
+
+    // Group results by file to avoid re-parsing the same file multiple times
+    let mut by_file: std::collections::HashMap<String, Vec<&PatternMatch>> =
+        std::collections::HashMap::new();
+    for result in &base_results {
+        by_file
+            .entry(result.file_path.clone())
+            .or_default()
+            .push(result);
+    }
+
+    // Cache symbols per file
+    let mut symbol_cache: std::collections::HashMap<String, Vec<FlatSymbol>> =
+        std::collections::HashMap::new();
+    for file_path in by_file.keys() {
+        if let Ok(symbols) = get_symbols_overview(project, file_path, 3) {
+            symbol_cache.insert(file_path.clone(), flatten_to_ranges(&symbols));
+        }
+    }
+
+    let smart_results = base_results
+        .into_iter()
+        .map(|m| {
+            let enclosing = symbol_cache
+                .get(&m.file_path)
+                .and_then(|symbols| find_enclosing_symbol(symbols, m.line));
+            SmartPatternMatch {
+                file_path: m.file_path,
+                line: m.line,
+                column: m.column,
+                matched_text: m.matched_text,
+                line_content: m.line_content,
+                enclosing_symbol: enclosing,
+            }
+        })
+        .collect();
+
+    Ok(smart_results)
+}
+
+struct FlatSymbol {
+    name: String,
+    kind: String,
+    name_path: String,
+    start_line: usize,
+    end_line: usize,
+    signature: String,
+}
+
+fn flatten_to_ranges(symbols: &[crate::symbols::SymbolInfo]) -> Vec<FlatSymbol> {
+    let mut flat = Vec::new();
+    for s in symbols {
+        // Estimate end_line from children or use start_line + 1
+        let end_line = estimate_end_line(s);
+        if matches!(
+            s.kind,
+            crate::symbols::SymbolKind::Function
+                | crate::symbols::SymbolKind::Method
+                | crate::symbols::SymbolKind::Class
+                | crate::symbols::SymbolKind::Interface
+                | crate::symbols::SymbolKind::Module
+        ) {
+            flat.push(FlatSymbol {
+                name: s.name.clone(),
+                kind: s.kind.as_label().to_owned(),
+                name_path: s.name_path.clone(),
+                start_line: s.line,
+                end_line,
+                signature: s.signature.clone(),
+            });
+        }
+        // Recurse into children
+        flat.extend(flatten_to_ranges(&s.children));
+    }
+    flat
+}
+
+fn estimate_end_line(symbol: &crate::symbols::SymbolInfo) -> usize {
+    if let Some(body) = &symbol.body {
+        symbol.line + body.lines().count()
+    } else if !symbol.children.is_empty() {
+        symbol
+            .children
+            .iter()
+            .map(|c| estimate_end_line(c))
+            .max()
+            .unwrap_or(symbol.line + 10)
+    } else {
+        symbol.line + 10 // heuristic: assume ~10 lines per symbol
+    }
+}
+
+fn find_enclosing_symbol(symbols: &[FlatSymbol], line: usize) -> Option<EnclosingSymbol> {
+    // Find the tightest (smallest range) symbol containing this line
+    symbols
+        .iter()
+        .filter(|s| s.start_line <= line && line <= s.end_line)
+        .min_by_key(|s| s.end_line - s.start_line)
+        .map(|s| EnclosingSymbol {
+            name: s.name.clone(),
+            kind: s.kind.clone(),
+            name_path: s.name_path.clone(),
+            start_line: s.start_line,
+            end_line: s.end_line,
+            signature: s.signature.clone(),
+        })
 }
 
 pub fn create_text_file(

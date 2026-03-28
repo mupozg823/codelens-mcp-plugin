@@ -17,6 +17,7 @@ pub use file_ops::{
     DirectoryEntry, FileMatch, FileReadResult, PatternMatch, create_text_file, delete_lines,
     find_files, insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file,
     replace_content, replace_lines, replace_symbol_body, search_for_pattern,
+    search_for_pattern_smart, SmartPatternMatch, EnclosingSymbol,
 };
 pub use git::{ChangedFile, DiffSymbol, DiffSymbolEntry, get_changed_files, get_diff_symbols};
 pub use import_graph::{

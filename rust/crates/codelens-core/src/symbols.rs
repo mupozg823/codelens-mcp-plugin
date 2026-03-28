@@ -42,7 +42,7 @@ pub enum SymbolKind {
 }
 
 impl SymbolKind {
-    fn as_label(&self) -> &'static str {
+    pub fn as_label(&self) -> &'static str {
         match self {
             SymbolKind::File => "file",
             SymbolKind::Class => "class",

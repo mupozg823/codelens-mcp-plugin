@@ -6,9 +6,9 @@ use codelens_core::{
     get_blast_radius, get_callees, get_callers, get_change_coupling, get_changed_files,
     get_diff_symbols, get_importance, get_importers, insert_after_symbol, insert_at_line,
     insert_before_symbol, list_dir, read_file, replace_content, replace_lines, replace_symbol_body,
-    search_for_pattern, LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
-    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot, SymbolIndex, SymbolInfo,
-    SymbolKind,
+    search_for_pattern, search_for_pattern_smart, LspDiagnosticRequest, LspRenamePlanRequest,
+    LspRequest, LspSessionPool, LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot,
+    SymbolIndex, SymbolInfo, SymbolKind,
 };
 use protocol::{JsonRpcRequest, JsonRpcResponse, Tool, ToolCallResponse, ToolResponseMeta};
 use serde_json::json;
@@ -167,12 +167,27 @@ fn dispatch_tool(
                 .get("max_results")
                 .and_then(|value| value.as_u64())
                 .unwrap_or(50) as usize;
-            search_for_pattern(&state.project, pattern, file_glob, max_results).map(|value| {
-                (
-                    json!({ "matches": value, "count": value.len() }),
-                    success_meta("filesystem", 0.98),
+            let smart = arguments
+                .get("smart")
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            if smart {
+                search_for_pattern_smart(&state.project, pattern, file_glob, max_results).map(
+                    |value| {
+                        (
+                            json!({ "matches": value, "count": value.len() }),
+                            success_meta("tree-sitter+filesystem", 0.96),
+                        )
+                    },
                 )
-            })
+            } else {
+                search_for_pattern(&state.project, pattern, file_glob, max_results).map(|value| {
+                    (
+                        json!({ "matches": value, "count": value.len() }),
+                        success_meta("filesystem", 0.98),
+                    )
+                })
+            }
         }
         "find_annotations" => {
             let tags = arguments
@@ -1204,14 +1219,15 @@ fn tools() -> Vec<Tool> {
         ),
         Tool::new(
             "search_for_pattern",
-            "Search for a regex pattern across project files with optional glob filter.",
+            "Search for a regex pattern across project files. Set smart=true to include enclosing symbol context (Smart Excerpt).",
             json!({
                 "type":"object",
                 "properties":{
                     "pattern":{"type":"string"},
                     "substring_pattern":{"type":"string"},
                     "file_glob":{"type":"string"},
-                    "max_results":{"type":"integer"}
+                    "max_results":{"type":"integer"},
+                    "smart":{"type":"boolean","description":"Include enclosing symbol context for each match"}
                 }
             }),
         ),
