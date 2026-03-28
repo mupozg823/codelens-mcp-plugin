@@ -5,7 +5,7 @@ import com.codelens.model.ModificationResult
 import com.codelens.model.SymbolInfo
 import com.codelens.model.SymbolKind
 import com.codelens.services.RenameScope
-import com.codelens.tools.SharedContract
+import com.codelens.model.SharedContract
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.regex.Pattern

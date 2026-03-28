@@ -44,8 +44,3 @@ interface ModificationService {
         scope: RenameScope = RenameScope.PROJECT
     ): ModificationResult
 }
-
-enum class RenameScope {
-    FILE,
-    PROJECT
-}

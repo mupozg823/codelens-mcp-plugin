@@ -2,7 +2,7 @@ package com.codelens.backend.workspace
 
 import com.codelens.model.SymbolInfo
 import com.codelens.model.SymbolKind
-import com.codelens.tools.SharedContract
+import com.codelens.model.SharedContract
 import java.nio.file.Path
 
 internal data class ParsedSymbol(
