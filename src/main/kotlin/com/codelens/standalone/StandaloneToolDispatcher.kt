@@ -62,15 +62,43 @@ class StandaloneToolDispatcher(private val projectRoot: Path) {
             .filter { it.name !in disabledTools }
             .map { t -> mapOf("name" to t.name, "description" to t.description, "inputSchema" to t.inputSchema) }
 
-    /** Dispatch a tool call by name and return a JSON result string. */
+    // Tools that must stay local (state-dependent, no Rust equivalent)
+    private val localOnlyTools = setOf(
+        "activate_project", "get_current_config", "check_onboarding_performed",
+        "initial_instructions", "onboarding", "prepare_for_new_conversation",
+        "summarize_changes", "switch_modes", "list_queryable_projects",
+        "think_about_collected_information", "think_about_task_adherence",
+        "think_about_whether_you_are_done",
+        "list_memories", "read_memory", "write_memory",
+        "delete_memory", "edit_memory", "rename_memory"
+    )
+
+    // Tools with specialized bridge methods in handlers (response normalization needed)
+    private val specializedBridgeTools = setOf(
+        "get_symbols_overview", "find_symbol", "find_referencing_symbols",
+        "search_for_pattern", "get_type_hierarchy", "find_referencing_code_snippets",
+        "get_ranked_context", "find_importers", "get_blast_radius"
+    )
+
+    /**
+     * Dispatch a tool call with 3-tier fallback:
+     * 1. JetBrains PSI (if IDE running) — richest semantic analysis
+     * 2. Rust bridge (if configured) — editor-independent primary runtime
+     * 3. Kotlin local handlers — regex/tree-sitter fallback
+     */
     fun dispatch(toolName: String, args: Map<String, Any?>): String {
         return try {
-            // Try JetBrains first if available (PSI quality)
+            // Tier 1: JetBrains PSI proxy
             if (jetbrainsProxy.isAvailable()) {
                 val result = jetbrainsProxy.dispatch(toolName, args)
                 if (result != null) return result
             }
-            // Fall back to local handlers
+            // Tier 2: Rust generic bridge (skip local-only and specialized-bridge tools)
+            if (toolName !in localOnlyTools && toolName !in specializedBridgeTools && ctx.rustBridge.isConfigured()) {
+                val result = runCatching { ctx.rustBridge.callTool(toolName, args) }.getOrNull()
+                if (result != null) return result
+            }
+            // Tier 3: Kotlin local handlers
             for (handler in handlers) {
                 val result = handler.dispatch(toolName, args)
                 if (result != null) return result
