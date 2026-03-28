@@ -35,7 +35,16 @@ sourceSets {
         resources.srcDir(rootProject.file("src/main/resources"))
     }
     test {
-        kotlin.srcDirs(rootProject.file("src/test/kotlin"))
+        kotlin.srcDir(rootProject.file("src/test/kotlin"))
+        kotlin.exclude(
+            // IntelliJ test fixtures (require BasePlatformTestCase)
+            "**/com/codelens/CodeLensTestBase.kt",
+            "**/com/codelens/acp/**",
+            "**/com/codelens/tools/**",
+            "**/com/codelens/serena/**",
+            "**/com/codelens/services/**",
+            "**/com/codelens/util/PsiUtilsTest.kt",
+        )
     }
 }
 

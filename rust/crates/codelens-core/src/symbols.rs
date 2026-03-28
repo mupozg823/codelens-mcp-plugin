@@ -509,69 +509,6 @@ impl SymbolIndex {
 
         Ok(symbols)
     }
-
-    /// Index a single file (used by refresh_all inside a transaction).
-    fn index_file(&mut self, file: &Path, relative: &str) -> Result<()> {
-        let content = match fs::read(file) {
-            Ok(c) => c,
-            Err(_) => return Ok(()),
-        };
-        let mtime = file_modified_ms(file)? as i64;
-        let hash = content_hash(&content);
-
-        if self.db.get_fresh_file(relative, mtime, &hash)?.is_some() {
-            return Ok(());
-        }
-
-        let source = String::from_utf8_lossy(&content);
-        let symbols = if let Some(config) = language_for_path(file) {
-            parse_symbols(&config, relative, &source, false)?
-        } else {
-            Vec::new()
-        };
-
-        let ext = file
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase());
-
-        let file_id =
-            self.db
-                .upsert_file(relative, mtime, &hash, content.len() as i64, ext.as_deref())?;
-
-        let flat = flatten_symbols(symbols);
-        let new_syms: Vec<NewSymbol> = flat
-            .iter()
-            .map(|s| NewSymbol {
-                name: s.name.clone(),
-                kind: s.kind.as_label().to_owned(),
-                line: s.line as i64,
-                column_num: s.column as i64,
-                start_byte: s.start_byte as i64,
-                end_byte: s.end_byte as i64,
-                signature: s.signature.clone(),
-                name_path: s.name_path.clone(),
-                parent_id: None,
-            })
-            .collect();
-        self.db.insert_symbols(file_id, &new_syms)?;
-
-        let raw_imports = extract_imports_for_file(file);
-        let new_imports: Vec<NewImport> = raw_imports
-            .iter()
-            .filter_map(|raw| {
-                resolve_module_for_file(&self.project, file, raw).map(|target| NewImport {
-                    target_path: target,
-                    raw_import: raw.clone(),
-                })
-            })
-            .collect();
-        if !new_imports.is_empty() {
-            self.db.insert_imports(file_id, &new_imports)?;
-        }
-
-        Ok(())
-    }
 }
 
 pub fn get_symbols_overview(

@@ -215,7 +215,7 @@ pub fn search_for_pattern_smart(
     file_glob: Option<&str>,
     max_results: usize,
 ) -> Result<Vec<SmartPatternMatch>> {
-    use crate::symbols::{get_symbols_overview, SymbolInfo};
+    use crate::symbols::get_symbols_overview;
 
     let base_results = search_for_pattern(project, pattern, file_glob, max_results)?;
 

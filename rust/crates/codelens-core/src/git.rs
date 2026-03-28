@@ -1,5 +1,5 @@
 use crate::project::ProjectRoot;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use serde::Serialize;
 use std::process::Command;
 
@@ -120,14 +120,42 @@ pub fn get_changed_files(
 }
 
 pub fn get_diff_symbols(project: &ProjectRoot, git_ref: Option<&str>) -> Result<Vec<DiffSymbol>> {
+    use crate::symbols::{get_symbols_overview, SymbolKind};
+
     let changed = get_changed_files(project, git_ref, false)?;
-    let result = changed
-        .into_iter()
-        .map(|cf| DiffSymbol {
+    let mut result = Vec::new();
+
+    for cf in changed {
+        // Skip deleted files — no symbols to parse
+        if cf.status == "D" {
+            result.push(DiffSymbol {
+                file: cf.file,
+                status: cf.status,
+                symbols: Vec::new(),
+            });
+            continue;
+        }
+
+        // Parse symbols from the changed file
+        let symbols = match get_symbols_overview(project, &cf.file, 2) {
+            Ok(syms) => syms
+                .into_iter()
+                .filter(|s| !matches!(s.kind, SymbolKind::File | SymbolKind::Variable))
+                .map(|s| DiffSymbolEntry {
+                    name: s.name,
+                    kind: s.kind.as_label().to_owned(),
+                    line: s.line,
+                })
+                .collect(),
+            Err(_) => Vec::new(),
+        };
+
+        result.push(DiffSymbol {
             file: cf.file,
             status: cf.status,
-            symbols: Vec::new(),
-        })
-        .collect();
+            symbols,
+        });
+    }
+
     Ok(result)
 }
