@@ -453,6 +453,58 @@ fn dispatch_tool(
                 )
             })
         }
+        "get_impact_analysis" => {
+            let file_path = required_string(&arguments, "file_path")?;
+            let max_depth = arguments
+                .get("max_depth")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(3) as usize;
+
+            // 1. Blast radius
+            let blast = get_blast_radius(&state.project, file_path, max_depth).unwrap_or_default();
+
+            // 2. Symbols in the target file
+            let symbols = state
+                .symbol_index
+                .lock()
+                .map_err(|_| anyhow::anyhow!("lock poisoned"))?
+                .get_symbols_overview(file_path, 1)
+                .unwrap_or_default();
+            let symbol_names: Vec<_> = flatten_symbols(&symbols)
+                .iter()
+                .map(|s| json!({"name": s.name, "kind": s.kind.as_label(), "line": s.line}))
+                .collect();
+
+            // 3. Importers (direct)
+            let importers = get_importers(&state.project, file_path, 20).unwrap_or_default();
+
+            // 4. Affected file summary with symbol counts
+            let affected: Vec<_> = blast
+                .iter()
+                .map(|b| {
+                    let sym_count = state
+                        .symbol_index
+                        .lock()
+                        .ok()
+                        .and_then(|mut idx| idx.get_symbols_overview(&b.file, 1).ok())
+                        .map(|s| s.len())
+                        .unwrap_or(0);
+                    json!({"file": b.file, "depth": b.depth, "symbol_count": sym_count})
+                })
+                .collect();
+
+            Ok((
+                json!({
+                    "file": file_path,
+                    "symbols": symbol_names,
+                    "symbol_count": symbol_names.len(),
+                    "direct_importers": importers,
+                    "blast_radius": affected,
+                    "total_affected_files": affected.len(),
+                }),
+                success_meta("import-graph+tree-sitter", 0.85),
+            ))
+        }
         "find_importers" => {
             let file_path = required_string(&arguments, "file_path")?;
             let max_results = arguments
@@ -1367,6 +1419,18 @@ fn tools() -> Vec<Tool> {
             }),
         ),
         Tool::new(
+            "get_impact_analysis",
+            "One-shot impact analysis: symbols in file + direct importers + blast radius with symbol counts. Replaces multiple sequential tool calls.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "file_path":{"type":"string"},
+                    "max_depth":{"type":"integer"}
+                },
+                "required":["file_path"]
+            }),
+        ),
+        Tool::new(
             "find_importers",
             "Find reverse import dependencies for supported Python/JS/TS import graphs.",
             json!({
@@ -1750,7 +1814,7 @@ mod tests {
                 params: None,
             },
         );
-        assert_eq!(tools().len(), 36);
+        assert_eq!(tools().len(), 37);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("read_file"));
     }
