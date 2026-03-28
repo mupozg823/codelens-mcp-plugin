@@ -1,4 +1,4 @@
-use crate::db::{content_hash, index_db_path, IndexDb, NewImport, NewSymbol};
+use crate::db::{content_hash, index_db_path, IndexDb, NewCall, NewImport, NewSymbol};
 use crate::import_graph::{extract_imports_for_file, resolve_module_for_file};
 use crate::project::ProjectRoot;
 use anyhow::{bail, Context, Result};
@@ -217,6 +217,15 @@ impl SymbolIndex {
                         })
                     })
                     .collect();
+                // Extract call edges for call graph caching
+                let call_edges: Vec<NewCall> = crate::call_graph::extract_calls(file)
+                    .into_iter()
+                    .map(|e| NewCall {
+                        caller_name: e.caller_name,
+                        callee_name: e.callee_name,
+                        line: e.line as i64,
+                    })
+                    .collect();
                 Some((
                     relative,
                     mtime,
@@ -225,6 +234,7 @@ impl SymbolIndex {
                     ext,
                     symbols,
                     new_imports,
+                    call_edges,
                 ))
             })
             .collect();
@@ -232,7 +242,7 @@ impl SymbolIndex {
         // Phase 2: sequential DB write (SQLite single-writer)
         self.db.begin_transaction()?;
         let mut on_disk = HashSet::new();
-        for (relative, mtime, hash, size, ext, symbols, new_imports) in parsed {
+        for (relative, mtime, hash, size, ext, symbols, new_imports, call_edges) in parsed {
             on_disk.insert(relative.clone());
             if self.db.get_fresh_file(&relative, mtime, &hash)?.is_some() {
                 continue;
@@ -258,6 +268,9 @@ impl SymbolIndex {
             self.db.insert_symbols(file_id, &new_syms)?;
             if !new_imports.is_empty() {
                 self.db.insert_imports(file_id, &new_imports)?;
+            }
+            if !call_edges.is_empty() {
+                self.db.insert_calls(file_id, &call_edges)?;
             }
         }
 
@@ -443,21 +456,22 @@ impl SymbolIndex {
 
     /// Ensure a file is indexed; returns parsed symbols for immediate use.
     fn ensure_indexed(&mut self, file: &Path, relative: &str) -> Result<Vec<ParsedSymbol>> {
-        let content =
-            fs::read(file).with_context(|| format!("failed to read {}", file.display()))?;
         let mtime = file_modified_ms(file)? as i64;
-        let hash = content_hash(&content);
 
-        // Check if already fresh
-        if self.db.get_fresh_file(relative, mtime, &hash)?.is_some() {
-            // Re-parse from source for the caller (symbols are in DB but caller needs ParsedSymbol tree)
-            let source = String::from_utf8_lossy(&content);
+        // Fast path: mtime unchanged → symbols already in DB, re-parse from source
+        if self.db.get_fresh_file_by_mtime(relative, mtime)?.is_some() {
+            let source = fs::read_to_string(file)
+                .with_context(|| format!("failed to read {}", file.display()))?;
             if let Some(config) = language_for_path(file) {
                 return parse_symbols(&config, relative, &source, false);
             }
             return Ok(Vec::new());
         }
 
+        // Slow path: file changed or new — read, hash, parse, index
+        let content =
+            fs::read(file).with_context(|| format!("failed to read {}", file.display()))?;
+        let hash = content_hash(&content);
         let source = String::from_utf8_lossy(&content);
         let symbols = if let Some(config) = language_for_path(file) {
             parse_symbols(&config, relative, &source, false)?

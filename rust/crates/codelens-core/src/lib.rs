@@ -13,7 +13,7 @@ pub mod symbols;
 pub use call_graph::{CallEdge, CalleeEntry, CallerEntry, extract_calls, get_callees, get_callers};
 pub use circular::{CircularDependency, find_circular_dependencies};
 pub use coupling::{CouplingEntry, get_change_coupling};
-pub use db::{IndexDb, NewImport, NewSymbol, content_hash, index_db_path};
+pub use db::{IndexDb, NewCall, NewImport, NewSymbol, content_hash, index_db_path};
 pub use file_ops::{
     DirectoryEntry, FileMatch, FileReadResult, PatternMatch, create_text_file, delete_lines,
     find_files, insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file,

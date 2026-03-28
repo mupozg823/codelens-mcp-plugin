@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 /// SQLite-backed symbol and import index for a single project.
 pub struct IndexDb {
@@ -129,10 +129,65 @@ impl IndexDb {
             INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '1');",
         )?;
 
+        // Schema v2: calls table for call graph caching
+        let v2_check: Option<i64> = self
+            .conn
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        if v2_check.unwrap_or(0) < 2 {
+            self.conn.execute_batch(
+                "CREATE TABLE IF NOT EXISTS calls (
+                    id INTEGER PRIMARY KEY,
+                    caller_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                    caller_name TEXT NOT NULL,
+                    callee_name TEXT NOT NULL,
+                    line INTEGER NOT NULL
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_calls_callee ON calls(callee_name);
+                CREATE INDEX IF NOT EXISTS idx_calls_caller ON calls(caller_name);
+                CREATE INDEX IF NOT EXISTS idx_calls_file ON calls(caller_file_id);
+
+                INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2');",
+            )?;
+        }
+
         Ok(())
     }
 
     // ---- File operations ----
+
+    /// Fast mtime-only freshness check. Avoids content hashing entirely.
+    /// Returns the file row if mtime matches (good enough for incremental reads).
+    pub fn get_fresh_file_by_mtime(
+        &self,
+        relative_path: &str,
+        mtime_ms: i64,
+    ) -> Result<Option<FileRow>> {
+        self.conn
+            .query_row(
+                "SELECT id, relative_path, mtime_ms, content_hash, size_bytes, language
+                 FROM files WHERE relative_path = ?1 AND mtime_ms = ?2",
+                params![relative_path, mtime_ms],
+                |row| {
+                    Ok(FileRow {
+                        id: row.get(0)?,
+                        relative_path: row.get(1)?,
+                        mtime_ms: row.get(2)?,
+                        content_hash: row.get(3)?,
+                        size_bytes: row.get(4)?,
+                        language: row.get(5)?,
+                    })
+                },
+            )
+            .optional()
+            .context("get_fresh_file_by_mtime query failed")
+    }
 
     /// Returns the file row if it exists and is fresh (same mtime and hash).
     pub fn get_fresh_file(
@@ -489,6 +544,97 @@ impl IndexDb {
         Ok(graph)
     }
 
+    // ---- Call graph operations ----
+
+    /// Bulk insert call edges for a file (clears old edges first).
+    pub fn insert_calls(&self, file_id: i64, calls: &[NewCall]) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM calls WHERE caller_file_id = ?1",
+            params![file_id],
+        )?;
+        let mut stmt = self.conn.prepare(
+            "INSERT INTO calls (caller_file_id, caller_name, callee_name, line)
+             VALUES (?1, ?2, ?3, ?4)",
+        )?;
+        for call in calls {
+            stmt.execute(params![
+                file_id,
+                call.caller_name,
+                call.callee_name,
+                call.line
+            ])?;
+        }
+        Ok(())
+    }
+
+    /// Find all callers of a function name (from DB cache).
+    pub fn get_callers_cached(
+        &self,
+        callee_name: &str,
+        max_results: usize,
+    ) -> Result<Vec<(String, String, i64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT f.relative_path, c.caller_name, c.line FROM calls c
+             JOIN files f ON c.caller_file_id = f.id
+             WHERE c.callee_name = ?1
+             ORDER BY f.relative_path, c.line
+             LIMIT ?2",
+        )?;
+        let mut rows = stmt.query(params![callee_name, max_results as i64])?;
+        let mut results = Vec::new();
+        while let Some(row) = rows.next()? {
+            results.push((row.get(0)?, row.get(1)?, row.get(2)?));
+        }
+        Ok(results)
+    }
+
+    /// Find all callees of a function name (from DB cache).
+    pub fn get_callees_cached(
+        &self,
+        caller_name: &str,
+        file_path: Option<&str>,
+        max_results: usize,
+    ) -> Result<Vec<(String, i64)>> {
+        let (sql, use_file) = match file_path {
+            Some(_) => (
+                "SELECT c.callee_name, c.line FROM calls c
+                 JOIN files f ON c.caller_file_id = f.id
+                 WHERE c.caller_name = ?1 AND f.relative_path = ?2
+                 ORDER BY c.line LIMIT ?3",
+                true,
+            ),
+            None => (
+                "SELECT c.callee_name, c.line FROM calls c
+                 WHERE c.caller_name = ?1
+                 ORDER BY c.line LIMIT ?2",
+                false,
+            ),
+        };
+        let mut stmt = self.conn.prepare(sql)?;
+        let mut rows = if use_file {
+            stmt.query(params![
+                caller_name,
+                file_path.unwrap_or(""),
+                max_results as i64
+            ])?
+        } else {
+            stmt.query(params![caller_name, max_results as i64])?
+        };
+        let mut results = Vec::new();
+        while let Some(row) = rows.next()? {
+            results.push((row.get(0)?, row.get(1)?));
+        }
+        Ok(results)
+    }
+
+    /// Check if calls table has any data.
+    pub fn has_call_data(&self) -> Result<bool> {
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM calls", [], |row| row.get(0))?;
+        Ok(count > 0)
+    }
+
     /// Begin a transaction for batch operations.
     pub fn begin_transaction(&self) -> Result<()> {
         self.conn.execute_batch("BEGIN TRANSACTION")?;
@@ -527,6 +673,14 @@ pub struct NewSymbol {
 pub struct NewImport {
     pub target_path: String,
     pub raw_import: String,
+}
+
+/// Call edge data for insertion.
+#[derive(Debug, Clone)]
+pub struct NewCall {
+    pub caller_name: String,
+    pub callee_name: String,
+    pub line: i64,
 }
 
 /// Compute SHA-256 hex digest of content.
