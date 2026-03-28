@@ -863,6 +863,11 @@ fn language_for_path(path: &Path) -> Option<LanguageConfig> {
             language: tree_sitter_scala::LANGUAGE.into(),
             query: SCALA_QUERY,
         }),
+        "rb" => Some(LanguageConfig {
+            extension: "rb",
+            language: tree_sitter_ruby::LANGUAGE.into(),
+            query: RUBY_QUERY,
+        }),
         _ => None,
     }
 }
@@ -960,9 +965,16 @@ const SCALA_QUERY: &str = r#"
 (function_definition name: (identifier) @function.name) @function.def
 "#;
 
+const RUBY_QUERY: &str = r#"
+(class name: (constant) @class.name) @class.def
+(module name: (constant) @module.name) @module.def
+(method name: (identifier) @function.name) @function.def
+(singleton_method name: (identifier) @function.name) @function.def
+"#;
+
 #[cfg(test)]
 mod tests {
-    use super::{SymbolIndex, SymbolKind, find_symbol, get_symbols_overview};
+    use super::{find_symbol, get_symbols_overview, SymbolIndex, SymbolKind};
     use crate::ProjectRoot;
     use std::fs;
 
@@ -985,13 +997,11 @@ mod tests {
             find_symbol(&project, "fetchUser", None, true, true, 10).expect("find symbol");
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].kind, SymbolKind::Function);
-        assert!(
-            matches[0]
-                .body
-                .as_ref()
-                .expect("body")
-                .contains("return userId")
-        );
+        assert!(matches[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("return userId"));
     }
 
     #[test]
@@ -1015,13 +1025,11 @@ mod tests {
             .find_symbol("loadUser", None, true, true, 10)
             .expect("refreshed symbol lookup");
         assert_eq!(refreshed.len(), 1);
-        assert!(
-            refreshed[0]
-                .body
-                .as_ref()
-                .expect("body")
-                .contains("loadUser")
-        );
+        assert!(refreshed[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("loadUser"));
     }
 
     #[test]
@@ -1062,13 +1070,11 @@ mod tests {
         assert!(!ranked.symbols.is_empty());
         assert_eq!(ranked.symbols[0].name, "fetchUser");
         assert_eq!(ranked.symbols[0].relevance_score, 100);
-        assert!(
-            ranked.symbols[0]
-                .body
-                .as_ref()
-                .expect("body")
-                .contains("fetchUser")
-        );
+        assert!(ranked.symbols[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("fetchUser"));
         assert!(ranked.chars_used <= ranked.token_budget * 4);
     }
 
