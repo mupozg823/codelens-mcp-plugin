@@ -6,11 +6,12 @@ use codelens_core::{
     find_circular_dependencies, find_dead_code, find_dead_code_v2, find_files,
     find_referencing_symbols_via_text, find_scoped_references, get_blast_radius, get_callees,
     get_callers, get_change_coupling, get_changed_files, get_diff_symbols, get_importance,
-    get_importers, get_lsp_recipe, insert_after_symbol, insert_at_line, insert_before_symbol,
-    list_dir, read_file, rename, replace_content, replace_lines, replace_symbol_body,
-    search_for_pattern, search_for_pattern_smart, search_symbols_hybrid, LspDiagnosticRequest,
-    LspRenamePlanRequest, LspRequest, LspSessionPool, LspTypeHierarchyRequest,
-    LspWorkspaceSymbolRequest, ProjectRoot, SymbolIndex, SymbolInfo, SymbolKind,
+    get_importers, get_lsp_recipe, get_type_hierarchy_native, insert_after_symbol, insert_at_line,
+    insert_before_symbol, list_dir, read_file, rename, replace_content, replace_lines,
+    replace_symbol_body, search_for_pattern, search_for_pattern_smart, search_symbols_hybrid,
+    LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
+    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot, SymbolIndex, SymbolInfo,
+    SymbolKind,
 };
 use protocol::{JsonRpcRequest, JsonRpcResponse, Tool, ToolCallResponse, ToolResponseMeta};
 use serde_json::json;
@@ -884,31 +885,67 @@ fn dispatch_tool(
                 .get("depth")
                 .and_then(|value| value.as_u64())
                 .unwrap_or(1) as usize;
-            let command = required_string(&arguments, "command")?.to_owned();
-            let args = arguments
-                .get("args")
-                .and_then(|value| value.as_array())
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| item.as_str().map(ToOwned::to_owned))
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_else(|| default_lsp_args_for_command(&command));
+            let command = arguments
+                .get("command")
+                .and_then(|value| value.as_str())
+                .map(ToOwned::to_owned)
+                .or_else(|| {
+                    relative_path
+                        .as_deref()
+                        .and_then(|p| default_lsp_command_for_path(p))
+                });
 
-            state
-                .lsp_pool
-                .lock()
-                .map_err(|_| anyhow::anyhow!("lsp pool lock poisoned"))?
-                .get_type_hierarchy(&LspTypeHierarchyRequest {
-                    command,
-                    args,
-                    query,
-                    relative_path,
-                    hierarchy_type,
-                    depth: if depth == 0 { 8 } else { depth },
-                })
-                .map(|value| (json!(value), success_meta("lsp_pooled", 0.82)))
+            // Try LSP first, fall back to native tree-sitter
+            if let Some(command) = command {
+                let args = arguments
+                    .get("args")
+                    .and_then(|value| value.as_array())
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| item.as_str().map(ToOwned::to_owned))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_else(|| default_lsp_args_for_command(&command));
+
+                let lsp_result = state
+                    .lsp_pool
+                    .lock()
+                    .map_err(|_| anyhow::anyhow!("lsp pool lock poisoned"))?
+                    .get_type_hierarchy(&LspTypeHierarchyRequest {
+                        command,
+                        args,
+                        query: query.clone(),
+                        relative_path: relative_path.clone(),
+                        hierarchy_type: hierarchy_type.clone(),
+                        depth: if depth == 0 { 8 } else { depth },
+                    });
+
+                match lsp_result {
+                    Ok(value) => Ok((json!(value), success_meta("lsp_pooled", 0.82))),
+                    Err(_) => {
+                        // LSP failed — fall back to native
+                        get_type_hierarchy_native(
+                            &state.project,
+                            &query,
+                            relative_path.as_deref(),
+                            &hierarchy_type,
+                            depth,
+                        )
+                        .map(|value| (json!(value), success_meta("tree-sitter-native", 0.80)))
+                    }
+                }
+            } else {
+                // No LSP command — use native directly
+                get_type_hierarchy_native(
+                    &state.project,
+                    &query,
+                    relative_path.as_deref(),
+                    &hierarchy_type,
+                    depth,
+                )
+                .map(|value| (json!(value), success_meta("tree-sitter-native", 0.80)))
+            }
         }
         "plan_symbol_rename" => {
             let file_path = required_string(&arguments, "file_path")?.to_owned();
