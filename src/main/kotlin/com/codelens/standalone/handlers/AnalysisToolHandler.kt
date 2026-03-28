@@ -99,6 +99,12 @@ internal class AnalysisToolHandler(private val ctx: ToolContext) : StandaloneToo
     private fun getComplexity(args: Map<String, Any?>): String {
         val path = ctx.req(args, "path")
         val symbolName = ctx.optStr(args, "symbol_name")
+        val rustResult = runCatching {
+            ctx.rustBridge.getComplexityCall(path, symbolName)
+        }.getOrNull()
+        if (rustResult != null) {
+            return rustResult
+        }
         val fileResult = ctx.backend.readFile(path)
         val lines = fileResult.content.lines()
         val symbols = ctx.backend.getSymbolsOverview(path, 2)
@@ -130,6 +136,12 @@ internal class AnalysisToolHandler(private val ctx: ToolContext) : StandaloneToo
         @Suppress("UNUSED_VARIABLE")
         val path = ctx.optStr(args, "path") ?: "."
         val maxResults = ctx.optInt(args, "max_results", 100)
+        val rustResult = runCatching {
+            ctx.rustBridge.findTestsCall(maxResults)
+        }.getOrNull()
+        if (rustResult != null) {
+            return rustResult
+        }
         val pattern = """\b(def test_|func Test|@Test\b|it\s*\(|describe\s*\(|test\s*\()"""
         val results = ctx.backend.searchForPattern(pattern, null, maxResults, 0)
         return ctx.ok(mapOf("tests" to results.map { it.toMap() }, "count" to results.size))
@@ -138,6 +150,12 @@ internal class AnalysisToolHandler(private val ctx: ToolContext) : StandaloneToo
     private fun findAnnotations(args: Map<String, Any?>): String {
         val tags = ctx.optStr(args, "tags") ?: "TODO,FIXME,HACK,DEPRECATED,XXX,NOTE"
         val maxResults = ctx.optInt(args, "max_results", 100)
+        val rustResult = runCatching {
+            ctx.rustBridge.findAnnotationsCall(tags, maxResults)
+        }.getOrNull()
+        if (rustResult != null) {
+            return rustResult
+        }
         val tagList = tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         val pattern = "\\b(${tagList.joinToString("|")})\\b[:\\s]*(.*)"
         val results = ctx.backend.searchForPattern(pattern, null, maxResults, 0)
@@ -152,11 +170,39 @@ internal class AnalysisToolHandler(private val ctx: ToolContext) : StandaloneToo
 
     @Suppress("UNCHECKED_CAST")
     private fun dispatchImportGraphTool(toolName: String, args: Map<String, Any?>): String {
+        if (toolName == "find_importers") {
+            val filePath = ctx.req(args, "file_path")
+            val maxResults = ctx.optInt(args, "max_results", 50)
+            val rustResult = runCatching {
+                ctx.rustBridge.findImportersCall(filePath, maxResults)
+            }.getOrNull()
+            if (rustResult != null) {
+                return rustResult
+            }
+        }
         if (toolName == "get_blast_radius") {
             val filePath = ctx.req(args, "file_path")
             val maxDepth = ctx.optInt(args, "max_depth", 3)
             val rustResult = runCatching {
                 ctx.rustBridge.getBlastRadiusCall(filePath, maxDepth)
+            }.getOrNull()
+            if (rustResult != null) {
+                return rustResult
+            }
+        }
+        if (toolName == "get_symbol_importance") {
+            val topN = ctx.optInt(args, "top_n", 20)
+            val rustResult = runCatching {
+                ctx.rustBridge.getSymbolImportanceCall(topN)
+            }.getOrNull()
+            if (rustResult != null) {
+                return rustResult
+            }
+        }
+        if (toolName == "find_dead_code") {
+            val maxResults = ctx.optInt(args, "max_results", 50)
+            val rustResult = runCatching {
+                ctx.rustBridge.findDeadCodeCall(maxResults)
             }.getOrNull()
             if (rustResult != null) {
                 return rustResult

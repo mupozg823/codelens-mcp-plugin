@@ -23,7 +23,7 @@ internal class JetBrainsProxy(private val projectRoot: Path) {
 
     fun isAvailable(): Boolean {
         val now = System.currentTimeMillis()
-        if (now - lastCheck < 5_000) return cachedPort != null
+        if (now - lastCheck < 30_000) return cachedPort != null
         lastCheck = now
         val port = readPort() ?: run { cachedPort = null; return false }
         return try {

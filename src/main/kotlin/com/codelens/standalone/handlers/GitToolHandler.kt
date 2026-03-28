@@ -79,6 +79,12 @@ internal class GitToolHandler(private val ctx: ToolContext) : StandaloneToolHand
     private fun getChangedFiles(args: Map<String, Any?>): String {
         val ref = ctx.optStr(args, "ref") ?: "HEAD"
         val includeUntracked = ctx.optBool(args, "include_untracked", true)
+        val rustResult = runCatching {
+            ctx.rustBridge.getChangedFilesCall(ref, includeUntracked)
+        }.getOrNull()
+        if (rustResult != null) {
+            return rustResult
+        }
 
         val proc = ProcessBuilder("git", "diff", ref, "--name-status")
             .directory(ctx.projectRoot.toFile()).redirectErrorStream(true).start()

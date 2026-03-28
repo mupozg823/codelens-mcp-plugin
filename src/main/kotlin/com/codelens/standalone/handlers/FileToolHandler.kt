@@ -117,25 +117,46 @@ internal class FileToolHandler(private val ctx: ToolContext) : StandaloneToolHan
             val path = ctx.req(args, "relative_path")
             val startLine = args["start_line"]?.let { (it as? Number)?.toInt() }
             val endLine = args["end_line"]?.let { (it as? Number)?.toInt() }
-            val result = ctx.backend.readFile(path, startLine, endLine)
-            ctx.ok(mapOf("content" to result.content, "total_lines" to result.totalLines, "file_path" to result.filePath))
+            val rustResult = runCatching {
+                ctx.rustBridge.readFileCall(path, startLine, endLine)
+            }.getOrNull()
+            if (rustResult != null) {
+                rustResult
+            } else {
+                val result = ctx.backend.readFile(path, startLine, endLine)
+                ctx.ok(mapOf("content" to result.content, "total_lines" to result.totalLines, "file_path" to result.filePath))
+            }
         }
 
         "list_dir" -> {
             val path = ctx.req(args, "relative_path")
             val recursive = ctx.optBool(args, "recursive", false)
-            val entries = ctx.backend.listDirectory(path, recursive)
-            ctx.ok(mapOf(
-                "entries" to entries.map { mapOf("name" to it.name, "type" to it.type, "path" to it.path, "size" to it.size) },
-                "count" to entries.size
-            ))
+            val rustResult = runCatching {
+                ctx.rustBridge.listDirCall(path, recursive)
+            }.getOrNull()
+            if (rustResult != null) {
+                rustResult
+            } else {
+                val entries = ctx.backend.listDirectory(path, recursive)
+                ctx.ok(mapOf(
+                    "entries" to entries.map { mapOf("name" to it.name, "type" to it.type, "path" to it.path, "size" to it.size) },
+                    "count" to entries.size
+                ))
+            }
         }
 
         "find_file" -> {
             val pattern = ctx.req(args, "wildcard_pattern")
             val baseDir = ctx.optStr(args, "relative_dir")
-            val files = ctx.backend.findFiles(pattern, baseDir)
-            ctx.ok(mapOf("files" to files, "count" to files.size))
+            val rustResult = runCatching {
+                ctx.rustBridge.findFileCall(pattern, baseDir)
+            }.getOrNull()
+            if (rustResult != null) {
+                rustResult
+            } else {
+                val files = ctx.backend.findFiles(pattern, baseDir)
+                ctx.ok(mapOf("files" to files, "count" to files.size))
+            }
         }
 
         "create_text_file" -> {

@@ -127,6 +127,108 @@ internal class RustMcpBridge(private val projectRoot: Path) {
         )
     }
 
+    fun findImportersCall(filePath: String, maxResults: Int): String? {
+        if (!isConfigured() || !supportsImportGraph(filePath)) return null
+        return callTool(
+            "find_importers",
+            mapOf(
+                "file_path" to filePath,
+                "max_results" to maxResults
+            )
+        )
+    }
+
+    fun getSymbolImportanceCall(topN: Int): String? {
+        if (!isConfigured()) return null
+        return callTool(
+            "get_symbol_importance",
+            mapOf("top_n" to topN)
+        )
+    }
+
+    fun findDeadCodeCall(maxResults: Int): String? {
+        if (!isConfigured()) return null
+        return callTool(
+            "find_dead_code",
+            mapOf("max_results" to maxResults)
+        )
+    }
+
+    fun findAnnotationsCall(tags: String, maxResults: Int): String? {
+        if (!isConfigured()) return null
+        return callTool(
+            "find_annotations",
+            mapOf(
+                "tags" to tags,
+                "max_results" to maxResults
+            )
+        )
+    }
+
+    fun findTestsCall(maxResults: Int): String? {
+        if (!isConfigured()) return null
+        return callTool(
+            "find_tests",
+            mapOf("max_results" to maxResults)
+        )
+    }
+
+    fun getComplexityCall(path: String, symbolName: String?): String? {
+        if (!isConfigured()) return null
+        return callTool(
+            "get_complexity",
+            buildMap<String, Any?> {
+                put("path", path)
+                if (!symbolName.isNullOrBlank()) put("symbol_name", symbolName)
+            }
+        )
+    }
+
+    fun readFileCall(relativePath: String, startLine: Int?, endLine: Int?): String? {
+        if (!isConfigured()) return null
+        return callTool(
+            "read_file",
+            buildMap<String, Any?> {
+                put("relative_path", relativePath)
+                if (startLine != null) put("start_line", startLine)
+                if (endLine != null) put("end_line", endLine)
+            }
+        )
+    }
+
+    fun listDirCall(relativePath: String, recursive: Boolean): String? {
+        if (!isConfigured()) return null
+        return callTool(
+            "list_dir",
+            mapOf(
+                "relative_path" to relativePath,
+                "recursive" to recursive
+            )
+        )
+    }
+
+    fun findFileCall(wildcardPattern: String, relativeDir: String?): String? {
+        if (!isConfigured()) return null
+        return callTool(
+            "find_file",
+            buildMap<String, Any?> {
+                put("wildcard_pattern", wildcardPattern)
+                if (!relativeDir.isNullOrBlank()) put("relative_dir", relativeDir)
+            }
+        )
+    }
+
+    fun getChangedFilesCall(ref: String?, includeUntracked: Boolean): String? {
+        if (!isConfigured()) return null
+        return callTool(
+            "get_changed_files",
+            buildMap<String, Any?> {
+                if (!ref.isNullOrBlank()) put("ref", ref)
+                put("include_untracked", includeUntracked)
+            }
+        )
+    }
+
     fun inferredTypeHierarchyCall(
         query: String,
         relativePath: String?,
@@ -241,7 +343,7 @@ internal class RustMcpBridge(private val projectRoot: Path) {
         val args = splitPropertyList(System.getProperty(BRIDGE_ARGS_PROPERTY))
         val process = ProcessBuilder(listOf(command) + args + listOf(projectRoot.toString()))
             .directory(projectRoot.toFile())
-            .redirectErrorStream(true)
+            .redirectErrorStream(false)
             .start()
         this.process = process
         this.reader = process.inputStream.bufferedReader()
@@ -264,7 +366,9 @@ internal class RustMcpBridge(private val projectRoot: Path) {
 
     private fun supportsImportGraph(relativePath: String): Boolean {
         return when (relativePath.substringAfterLast('.', "").lowercase()) {
-            "py", "js", "jsx", "ts", "tsx", "mjs", "cjs" -> true
+            "py", "js", "jsx", "ts", "tsx", "mjs", "cjs",
+            "go", "java", "kt", "rs", "rb",
+            "c", "cc", "cpp", "cxx", "h", "hh", "hpp", "hxx", "php" -> true
             else -> false
         }
     }

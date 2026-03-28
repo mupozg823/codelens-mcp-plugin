@@ -45,6 +45,364 @@ class Service:
     }
 
     @Test
+    fun `get_complexity can delegate to rust bridge when configured`() {
+        val project = createTestProject()
+        val bridgeScript = project.resolve("mock_rust_bridge.py")
+        Files.writeString(
+            bridgeScript,
+            """
+            #!/usr/bin/env python3
+            import json
+            import sys
+
+            def read_message():
+                line = sys.stdin.readline()
+                if not line:
+                    return None
+                return json.loads(line)
+
+            while True:
+                message = read_message()
+                if message is None:
+                    break
+                if message.get("method") != "tools/call":
+                    continue
+                params = message.get("params", {})
+                if params.get("name") != "get_complexity":
+                    continue
+                payload = {
+                    "success": True,
+                    "backend_used": "tree-sitter-cached",
+                    "confidence": 0.89,
+                    "data": {
+                        "path": "hello.py",
+                        "functions": [
+                            {"name": "greet", "kind": "function", "file": "hello.py", "line": 1, "branches": 1, "complexity": 2}
+                        ],
+                        "count": 1,
+                        "avg_complexity": 2.0
+                    }
+                }
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}]
+                    }
+                }
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            """.trimIndent()
+        )
+        bridgeScript.toFile().setExecutable(true)
+
+        val previousBridgeCommand = System.getProperty("codelens.rust.bridge.command")
+        val previousBridgeArgs = System.getProperty("codelens.rust.bridge.args")
+
+        try {
+            System.setProperty("codelens.rust.bridge.command", "python3")
+            System.setProperty("codelens.rust.bridge.args", bridgeScript.toString())
+
+            val dispatcher = createDispatcher(project) ?: return
+            val result = dispatcher.dispatch("get_complexity", mapOf("path" to "hello.py"))
+            val payload = Json.parseToJsonElement(result).jsonObject
+            assertEquals("true", payload["success"]?.toString())
+            assertEquals("\"tree-sitter-cached\"", payload["backend_used"]?.toString())
+            assertTrue(result.contains("\"functions\""))
+            assertTrue(result.contains("\"name\":\"greet\"") || result.contains("\"name\": \"greet\""))
+            assertTrue(result.contains("\"complexity\":2") || result.contains("\"complexity\": 2"))
+        } finally {
+            restoreProperty("codelens.rust.bridge.command", previousBridgeCommand)
+            restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `read_file can delegate to rust bridge when configured`() {
+        val project = createTestProject()
+        val bridgeScript = project.resolve("mock_rust_bridge.py")
+        Files.writeString(
+            bridgeScript,
+            """
+            #!/usr/bin/env python3
+            import json
+            import sys
+
+            def read_message():
+                line = sys.stdin.readline()
+                if not line:
+                    return None
+                return json.loads(line)
+
+            while True:
+                message = read_message()
+                if message is None:
+                    break
+                if message.get("method") != "tools/call":
+                    continue
+                params = message.get("params", {})
+                if params.get("name") != "read_file":
+                    continue
+                payload = {
+                    "success": True,
+                    "backend_used": "filesystem",
+                    "confidence": 1.0,
+                    "data": {
+                        "file_path": "hello.py",
+                        "total_lines": 6,
+                        "content": "def greet(name):\n    return f'Hello {name}'"
+                    }
+                }
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}]
+                    }
+                }
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            """.trimIndent()
+        )
+        bridgeScript.toFile().setExecutable(true)
+
+        val previousBridgeCommand = System.getProperty("codelens.rust.bridge.command")
+        val previousBridgeArgs = System.getProperty("codelens.rust.bridge.args")
+
+        try {
+            System.setProperty("codelens.rust.bridge.command", "python3")
+            System.setProperty("codelens.rust.bridge.args", bridgeScript.toString())
+
+            val dispatcher = createDispatcher(project) ?: return
+            val result = dispatcher.dispatch("read_file", mapOf("relative_path" to "hello.py", "start_line" to 1, "end_line" to 2))
+            val payload = Json.parseToJsonElement(result).jsonObject
+            assertEquals("true", payload["success"]?.toString())
+            assertEquals("\"filesystem\"", payload["backend_used"]?.toString())
+            assertTrue(result.contains("\"file_path\":\"hello.py\"") || result.contains("\"file_path\": \"hello.py\""))
+            assertTrue(result.contains("def greet(name):"))
+        } finally {
+            restoreProperty("codelens.rust.bridge.command", previousBridgeCommand)
+            restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `list_dir can delegate to rust bridge when configured`() {
+        val project = createTestProject()
+        val bridgeScript = project.resolve("mock_rust_bridge.py")
+        Files.writeString(
+            bridgeScript,
+            """
+            #!/usr/bin/env python3
+            import json
+            import sys
+
+            def read_message():
+                line = sys.stdin.readline()
+                if not line:
+                    return None
+                return json.loads(line)
+
+            while True:
+                message = read_message()
+                if message is None:
+                    break
+                if message.get("method") != "tools/call":
+                    continue
+                params = message.get("params", {})
+                if params.get("name") != "list_dir":
+                    continue
+                payload = {
+                    "success": True,
+                    "backend_used": "filesystem",
+                    "confidence": 1.0,
+                    "data": {
+                        "entries": [
+                            {"name": "hello.py", "entry_type": "file", "path": "hello.py", "size": 99}
+                        ],
+                        "count": 1
+                    }
+                }
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}]
+                    }
+                }
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            """.trimIndent()
+        )
+        bridgeScript.toFile().setExecutable(true)
+
+        val previousBridgeCommand = System.getProperty("codelens.rust.bridge.command")
+        val previousBridgeArgs = System.getProperty("codelens.rust.bridge.args")
+
+        try {
+            System.setProperty("codelens.rust.bridge.command", "python3")
+            System.setProperty("codelens.rust.bridge.args", bridgeScript.toString())
+
+            val dispatcher = createDispatcher(project) ?: return
+            val result = dispatcher.dispatch("list_dir", mapOf("relative_path" to ".", "recursive" to false))
+            val payload = Json.parseToJsonElement(result).jsonObject
+            assertEquals("true", payload["success"]?.toString())
+            assertEquals("\"filesystem\"", payload["backend_used"]?.toString())
+            assertTrue(result.contains("\"entries\""))
+            assertTrue(result.contains("\"path\":\"hello.py\"") || result.contains("\"path\": \"hello.py\""))
+        } finally {
+            restoreProperty("codelens.rust.bridge.command", previousBridgeCommand)
+            restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `find_file can delegate to rust bridge when configured`() {
+        val project = createTestProject()
+        val bridgeScript = project.resolve("mock_rust_bridge.py")
+        Files.writeString(
+            bridgeScript,
+            """
+            #!/usr/bin/env python3
+            import json
+            import sys
+
+            def read_message():
+                line = sys.stdin.readline()
+                if not line:
+                    return None
+                return json.loads(line)
+
+            while True:
+                message = read_message()
+                if message is None:
+                    break
+                if message.get("method") != "tools/call":
+                    continue
+                params = message.get("params", {})
+                if params.get("name") != "find_file":
+                    continue
+                payload = {
+                    "success": True,
+                    "backend_used": "filesystem",
+                    "confidence": 1.0,
+                    "data": {
+                        "files": [{"path": "hello.py"}],
+                        "count": 1
+                    }
+                }
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}]
+                    }
+                }
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            """.trimIndent()
+        )
+        bridgeScript.toFile().setExecutable(true)
+
+        val previousBridgeCommand = System.getProperty("codelens.rust.bridge.command")
+        val previousBridgeArgs = System.getProperty("codelens.rust.bridge.args")
+
+        try {
+            System.setProperty("codelens.rust.bridge.command", "python3")
+            System.setProperty("codelens.rust.bridge.args", bridgeScript.toString())
+
+            val dispatcher = createDispatcher(project) ?: return
+            val result = dispatcher.dispatch("find_file", mapOf("wildcard_pattern" to "*.py"))
+            val payload = Json.parseToJsonElement(result).jsonObject
+            assertEquals("true", payload["success"]?.toString())
+            assertEquals("\"filesystem\"", payload["backend_used"]?.toString())
+            assertTrue(result.contains("\"files\""))
+            assertTrue(result.contains("\"path\":\"hello.py\"") || result.contains("\"path\": \"hello.py\""))
+        } finally {
+            restoreProperty("codelens.rust.bridge.command", previousBridgeCommand)
+            restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `get_changed_files can delegate to rust bridge when configured`() {
+        val project = createTestProject()
+        val bridgeScript = project.resolve("mock_rust_bridge.py")
+        Files.writeString(
+            bridgeScript,
+            """
+            #!/usr/bin/env python3
+            import json
+            import sys
+
+            def read_message():
+                line = sys.stdin.readline()
+                if not line:
+                    return None
+                return json.loads(line)
+
+            while True:
+                message = read_message()
+                if message is None:
+                    break
+                if message.get("method") != "tools/call":
+                    continue
+                params = message.get("params", {})
+                if params.get("name") != "get_changed_files":
+                    continue
+                payload = {
+                    "success": True,
+                    "backend_used": "filesystem",
+                    "confidence": 0.95,
+                    "data": {
+                        "ref": "HEAD",
+                        "files": [
+                            {"file": "tracked.py", "status": "M", "symbol_count": 1},
+                            {"file": "new_file.py", "status": "?", "symbol_count": 1}
+                        ],
+                        "count": 2
+                    }
+                }
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}]
+                    }
+                }
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            """.trimIndent()
+        )
+        bridgeScript.toFile().setExecutable(true)
+
+        val previousBridgeCommand = System.getProperty("codelens.rust.bridge.command")
+        val previousBridgeArgs = System.getProperty("codelens.rust.bridge.args")
+
+        try {
+            System.setProperty("codelens.rust.bridge.command", "python3")
+            System.setProperty("codelens.rust.bridge.args", bridgeScript.toString())
+
+            val dispatcher = createDispatcher(project) ?: return
+            val result = dispatcher.dispatch("get_changed_files", mapOf("include_untracked" to true))
+            val payload = Json.parseToJsonElement(result).jsonObject
+            assertEquals("true", payload["success"]?.toString())
+            assertEquals("\"filesystem\"", payload["backend_used"]?.toString())
+            assertTrue(result.contains("\"file\":\"tracked.py\"") || result.contains("\"file\": \"tracked.py\""))
+            assertTrue(result.contains("\"status\":\"M\"") || result.contains("\"status\": \"M\""))
+            assertTrue(result.contains("\"file\":\"new_file.py\"") || result.contains("\"file\": \"new_file.py\""))
+        } finally {
+            restoreProperty("codelens.rust.bridge.command", previousBridgeCommand)
+            restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
     fun `get_symbols_overview can delegate to rust bridge when configured`() {
         val project = createTestProject()
         val bridgeScript = project.resolve("mock_rust_bridge.py")
@@ -455,6 +813,377 @@ class Service:
             restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
             restoreProperty("codelens.rust.lsp.python.command", previousPythonCommand)
             restoreProperty("codelens.rust.lsp.python.args", previousPythonArgs)
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `find_importers can delegate to rust bridge when configured`() {
+        val project = createTestProject()
+        val bridgeScript = project.resolve("mock_rust_bridge.py")
+        Files.writeString(
+            bridgeScript,
+            """
+            #!/usr/bin/env python3
+            import json
+            import sys
+
+            def read_message():
+                line = sys.stdin.readline()
+                if not line:
+                    return None
+                return json.loads(line)
+
+            while True:
+                message = read_message()
+                if message is None:
+                    break
+                if message.get("method") != "tools/call":
+                    continue
+                params = message.get("params", {})
+                if params.get("name") != "find_importers":
+                    continue
+                payload = {
+                    "success": True,
+                    "backend_used": "import-graph",
+                    "confidence": 0.87,
+                    "data": {
+                        "file": "utils.py",
+                        "importers": [
+                            {"file": "main.py"},
+                            {"file": "worker.py"}
+                        ],
+                        "count": 2
+                    }
+                }
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}]
+                    }
+                }
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            """.trimIndent()
+        )
+        bridgeScript.toFile().setExecutable(true)
+
+        val previousBridgeCommand = System.getProperty("codelens.rust.bridge.command")
+        val previousBridgeArgs = System.getProperty("codelens.rust.bridge.args")
+
+        try {
+            System.setProperty("codelens.rust.bridge.command", "python3")
+            System.setProperty("codelens.rust.bridge.args", bridgeScript.toString())
+
+            val dispatcher = createDispatcher(project) ?: return
+            val result = dispatcher.dispatch("find_importers", mapOf("file_path" to "utils.py", "max_results" to 10))
+            val payload = Json.parseToJsonElement(result).jsonObject
+            assertEquals("true", payload["success"]?.toString())
+            assertEquals("\"import-graph\"", payload["backend_used"]?.toString())
+            assertTrue(result.contains("\"importers\""))
+            assertTrue(result.contains("\"file\":\"main.py\"") || result.contains("\"file\": \"main.py\""))
+            assertTrue(result.contains("\"file\":\"worker.py\"") || result.contains("\"file\": \"worker.py\""))
+        } finally {
+            restoreProperty("codelens.rust.bridge.command", previousBridgeCommand)
+            restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `get_symbol_importance can delegate to rust bridge when configured`() {
+        val project = createTestProject()
+        val bridgeScript = project.resolve("mock_rust_bridge.py")
+        Files.writeString(
+            bridgeScript,
+            """
+            #!/usr/bin/env python3
+            import json
+            import sys
+
+            def read_message():
+                line = sys.stdin.readline()
+                if not line:
+                    return None
+                return json.loads(line)
+
+            while True:
+                message = read_message()
+                if message is None:
+                    break
+                if message.get("method") != "tools/call":
+                    continue
+                params = message.get("params", {})
+                if params.get("name") != "get_symbol_importance":
+                    continue
+                payload = {
+                    "success": True,
+                    "backend_used": "import-graph",
+                    "confidence": 0.84,
+                    "data": {
+                        "ranking": [
+                            {"file": "models.py", "score": "0.4638"},
+                            {"file": "utils.py", "score": "0.3141"}
+                        ],
+                        "count": 2
+                    }
+                }
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}]
+                    }
+                }
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            """.trimIndent()
+        )
+        bridgeScript.toFile().setExecutable(true)
+
+        val previousBridgeCommand = System.getProperty("codelens.rust.bridge.command")
+        val previousBridgeArgs = System.getProperty("codelens.rust.bridge.args")
+
+        try {
+            System.setProperty("codelens.rust.bridge.command", "python3")
+            System.setProperty("codelens.rust.bridge.args", bridgeScript.toString())
+
+            val dispatcher = createDispatcher(project) ?: return
+            val result = dispatcher.dispatch("get_symbol_importance", mapOf("top_n" to 10))
+            val payload = Json.parseToJsonElement(result).jsonObject
+            assertEquals("true", payload["success"]?.toString())
+            assertEquals("\"import-graph\"", payload["backend_used"]?.toString())
+            assertTrue(result.contains("\"ranking\""))
+            assertTrue(result.contains("\"file\":\"models.py\"") || result.contains("\"file\": \"models.py\""))
+            assertTrue(result.contains("\"score\":\"0.4638\"") || result.contains("\"score\": \"0.4638\""))
+        } finally {
+            restoreProperty("codelens.rust.bridge.command", previousBridgeCommand)
+            restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `find_dead_code can delegate to rust bridge when configured`() {
+        val project = createTestProject()
+        val bridgeScript = project.resolve("mock_rust_bridge.py")
+        Files.writeString(
+            bridgeScript,
+            """
+            #!/usr/bin/env python3
+            import json
+            import sys
+
+            def read_message():
+                line = sys.stdin.readline()
+                if not line:
+                    return None
+                return json.loads(line)
+
+            while True:
+                message = read_message()
+                if message is None:
+                    break
+                if message.get("method") != "tools/call":
+                    continue
+                params = message.get("params", {})
+                if params.get("name") != "find_dead_code":
+                    continue
+                payload = {
+                    "success": True,
+                    "backend_used": "import-graph",
+                    "confidence": 0.83,
+                    "data": {
+                        "dead_code": [
+                            {"file": "unused.py", "symbol": None, "reason": "no importers"},
+                            {"file": "main.py", "symbol": None, "reason": "no importers"}
+                        ],
+                        "count": 2
+                    }
+                }
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}]
+                    }
+                }
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            """.trimIndent()
+        )
+        bridgeScript.toFile().setExecutable(true)
+
+        val previousBridgeCommand = System.getProperty("codelens.rust.bridge.command")
+        val previousBridgeArgs = System.getProperty("codelens.rust.bridge.args")
+
+        try {
+            System.setProperty("codelens.rust.bridge.command", "python3")
+            System.setProperty("codelens.rust.bridge.args", bridgeScript.toString())
+
+            val dispatcher = createDispatcher(project) ?: return
+            val result = dispatcher.dispatch("find_dead_code", mapOf("max_results" to 10))
+            val payload = Json.parseToJsonElement(result).jsonObject
+            assertEquals("true", payload["success"]?.toString())
+            assertEquals("\"import-graph\"", payload["backend_used"]?.toString())
+            assertTrue(result.contains("\"dead_code\""))
+            assertTrue(result.contains("\"file\":\"unused.py\"") || result.contains("\"file\": \"unused.py\""))
+            assertTrue(result.contains("\"reason\":\"no importers\"") || result.contains("\"reason\": \"no importers\""))
+        } finally {
+            restoreProperty("codelens.rust.bridge.command", previousBridgeCommand)
+            restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `find_annotations can delegate to rust bridge when configured`() {
+        val project = createTestProject()
+        val bridgeScript = project.resolve("mock_rust_bridge.py")
+        Files.writeString(
+            bridgeScript,
+            """
+            #!/usr/bin/env python3
+            import json
+            import sys
+
+            def read_message():
+                line = sys.stdin.readline()
+                if not line:
+                    return None
+                return json.loads(line)
+
+            while True:
+                message = read_message()
+                if message is None:
+                    break
+                if message.get("method") != "tools/call":
+                    continue
+                params = message.get("params", {})
+                if params.get("name") != "find_annotations":
+                    continue
+                payload = {
+                    "success": True,
+                    "backend_used": "filesystem",
+                    "confidence": 0.97,
+                    "data": {
+                        "tags": {
+                            "TODO": [
+                                {"file": "hello.py", "line": 1, "text": "# TODO: fix greet"}
+                            ],
+                            "FIXME": [
+                                {"file": "hello.py", "line": 2, "text": "# FIXME: return proper value"}
+                            ]
+                        },
+                        "total": 2
+                    }
+                }
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}]
+                    }
+                }
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            """.trimIndent()
+        )
+        bridgeScript.toFile().setExecutable(true)
+
+        val previousBridgeCommand = System.getProperty("codelens.rust.bridge.command")
+        val previousBridgeArgs = System.getProperty("codelens.rust.bridge.args")
+
+        try {
+            System.setProperty("codelens.rust.bridge.command", "python3")
+            System.setProperty("codelens.rust.bridge.args", bridgeScript.toString())
+
+            val dispatcher = createDispatcher(project) ?: return
+            val result = dispatcher.dispatch("find_annotations", mapOf("tags" to "TODO,FIXME", "max_results" to 10))
+            val payload = Json.parseToJsonElement(result).jsonObject
+            assertEquals("true", payload["success"]?.toString())
+            assertEquals("\"filesystem\"", payload["backend_used"]?.toString())
+            assertTrue(result.contains("\"tags\""))
+            assertTrue(result.contains("\"TODO\""))
+            assertTrue(result.contains("\"FIXME\""))
+            assertTrue(result.contains("\"text\":\"# TODO: fix greet\"") || result.contains("\"text\": \"# TODO: fix greet\""))
+        } finally {
+            restoreProperty("codelens.rust.bridge.command", previousBridgeCommand)
+            restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
+            project.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `find_tests can delegate to rust bridge when configured`() {
+        val project = createTestProject()
+        val bridgeScript = project.resolve("mock_rust_bridge.py")
+        Files.writeString(
+            bridgeScript,
+            """
+            #!/usr/bin/env python3
+            import json
+            import sys
+
+            def read_message():
+                line = sys.stdin.readline()
+                if not line:
+                    return None
+                return json.loads(line)
+
+            while True:
+                message = read_message()
+                if message is None:
+                    break
+                if message.get("method") != "tools/call":
+                    continue
+                params = message.get("params", {})
+                if params.get("name") != "find_tests":
+                    continue
+                payload = {
+                    "success": True,
+                    "backend_used": "filesystem",
+                    "confidence": 0.97,
+                    "data": {
+                        "tests": [
+                            {"file_path": "test_main.py", "line": 1, "column": 1, "matched_text": "def test_", "line_content": "def test_greet():"},
+                            {"file_path": "spec.js", "line": 1, "column": 1, "matched_text": "describe(", "line_content": "describe('suite', () => {})"}
+                        ],
+                        "count": 2
+                    }
+                }
+                response = {
+                    "jsonrpc": "2.0",
+                    "id": message.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}]
+                    }
+                }
+                sys.stdout.write(json.dumps(response) + "\n")
+                sys.stdout.flush()
+            """.trimIndent()
+        )
+        bridgeScript.toFile().setExecutable(true)
+
+        val previousBridgeCommand = System.getProperty("codelens.rust.bridge.command")
+        val previousBridgeArgs = System.getProperty("codelens.rust.bridge.args")
+
+        try {
+            System.setProperty("codelens.rust.bridge.command", "python3")
+            System.setProperty("codelens.rust.bridge.args", bridgeScript.toString())
+
+            val dispatcher = createDispatcher(project) ?: return
+            val result = dispatcher.dispatch("find_tests", mapOf("max_results" to 10))
+            val payload = Json.parseToJsonElement(result).jsonObject
+            assertEquals("true", payload["success"]?.toString())
+            assertEquals("\"filesystem\"", payload["backend_used"]?.toString())
+            assertTrue(result.contains("\"tests\""))
+            assertTrue(result.contains("\"file_path\":\"test_main.py\"") || result.contains("\"file_path\": \"test_main.py\""))
+            assertTrue(result.contains("\"file_path\":\"spec.js\"") || result.contains("\"file_path\": \"spec.js\""))
+        } finally {
+            restoreProperty("codelens.rust.bridge.command", previousBridgeCommand)
+            restoreProperty("codelens.rust.bridge.args", previousBridgeArgs)
             project.toFile().deleteRecursively()
         }
     }
