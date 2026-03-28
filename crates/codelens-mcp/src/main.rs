@@ -3,6 +3,8 @@ mod tools;
 
 use anyhow::Result;
 use codelens_core::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
+#[cfg(feature = "semantic")]
+use codelens_core::EmbeddingEngine;
 use protocol::{JsonRpcRequest, JsonRpcResponse, Tool, ToolAnnotations, ToolCallResponse};
 use serde_json::json;
 use std::io::{self, BufRead, Write};
@@ -17,6 +19,8 @@ struct AppState {
     preset: ToolPreset,
     memories_dir: std::path::PathBuf,
     watcher: Option<FileWatcher>,
+    #[cfg(feature = "semantic")]
+    embedding: Option<EmbeddingEngine>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,6 +89,9 @@ impl AppState {
         )
         .ok();
 
+        #[cfg(feature = "semantic")]
+        let embedding = EmbeddingEngine::new(&project).ok();
+
         Self {
             project,
             symbol_index,
@@ -93,6 +100,8 @@ impl AppState {
             preset,
             memories_dir,
             watcher,
+            #[cfg(feature = "semantic")]
+            embedding,
         }
     }
 }
@@ -170,6 +179,46 @@ fn run_stdio(state: Arc<AppState>) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(feature = "semantic")]
+fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let query = tools::required_string(arguments, "query")?;
+    let max_results = arguments
+        .get("max_results")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20) as usize;
+
+    let engine = state
+        .embedding
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Embedding engine not available. Build with --features semantic"))?;
+
+    if !engine.is_indexed() {
+        return Err(anyhow::anyhow!(
+            "Embedding index is empty. Call index_embeddings first to build the semantic index."
+        ));
+    }
+
+    let results = engine.search(query, max_results)?;
+    Ok((
+        json!({"query": query, "results": results, "count": results.len()}),
+        tools::success_meta("semantic-embedding", 0.85),
+    ))
+}
+
+#[cfg(feature = "semantic")]
+fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let engine = state
+        .embedding
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
+
+    let count = engine.index_from_project(&state.project)?;
+    Ok((
+        json!({"indexed_symbols": count, "status": "ok"}),
+        tools::success_meta("semantic-embedding", 0.95),
+    ))
 }
 
 #[tokio::main]
@@ -386,6 +435,12 @@ fn dispatch_tool(
             tools::composite::refactor_extract_function(state, &arguments)
         }
 
+        // Semantic search (feature-gated)
+        #[cfg(feature = "semantic")]
+        "semantic_search" => semantic_search_handler(state, &arguments),
+        #[cfg(feature = "semantic")]
+        "index_embeddings" => index_embeddings_handler(state, &arguments),
+
         other => Err(anyhow::anyhow!("Unknown tool: {other}")),
     };
 
@@ -423,7 +478,7 @@ fn tools() -> Vec<Tool> {
     let ro = ToolAnnotations::read_only();
     let destructive = ToolAnnotations::destructive();
     let mutating = ToolAnnotations::mutating();
-    vec![
+    let mut tools = vec![
         // ── Filesystem / search (read-only) ─────────────────────────────
         Tool::new("get_current_config", "Return Rust core runtime information and symbol index stats.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("read_file", "Read the contents of a file with optional line range.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"}},"required":["relative_path"]})).with_annotations(ro.clone()),
@@ -496,7 +551,17 @@ fn tools() -> Vec<Tool> {
         Tool::new("prepare_for_new_conversation", "Returns project context for a new conversation.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("get_watch_status", "Returns file watcher status: running, events processed, files reindexed.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         // summarize_changes, list_queryable_projects: kept in dispatch for compat, not listed
-    ]
+    ];
+
+    // ── Semantic (feature-gated) ────────────────────────────────────
+    #[cfg(feature = "semantic")]
+    {
+        let ro = ro;
+        tools.push(Tool::new("semantic_search", "Search symbols by natural language query using vector embeddings. Call index_embeddings first to build the index.", json!({"type":"object","properties":{"query":{"type":"string","description":"Natural language search query"},"max_results":{"type":"integer","description":"Max results (default 20)"}},"required":["query"]})).with_annotations(ro.clone()));
+        tools.push(Tool::new("index_embeddings", "Build the semantic embedding index from all project symbols. Required before semantic_search.", json!({"type":"object","properties":{}})).with_annotations(ro));
+    }
+
+    tools
 }
 
 // ── MCP Resources ────────────────────────────────────────────────────────
@@ -709,6 +774,10 @@ mod tests {
                 params: None,
             },
         );
+        // 49 base + 2 semantic (feature-gated)
+        #[cfg(feature = "semantic")]
+        assert_eq!(tools().len(), 51);
+        #[cfg(not(feature = "semantic"))]
         assert_eq!(tools().len(), 49);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("get_symbols_overview"));

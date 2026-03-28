@@ -17,6 +17,9 @@ Thumbs.db
 .codelens-port
 .serena/
 
+# ML model cache
+.fastembed_cache/
+
 # Environment
 .env
 .env.local

@@ -36,6 +36,12 @@ notify.workspace = true
 notify-debouncer-mini.workspace = true
 url.workspace = true
 walkdir.workspace = true
+fastembed = { workspace = true, optional = true }
+sqlite-vec = { workspace = true, optional = true }
+
+[features]
+default = ["semantic"]
+semantic = ["dep:fastembed", "dep:sqlite-vec"]
 
 [dev-dependencies]
 criterion.workspace = true
