@@ -1,4 +1,0 @@
-<idea-plugin>
-    <!-- Java language support is loaded when com.intellij.java is present -->
-    <!-- JavaLanguageAdapter is instantiated directly by SymbolServiceImpl via tryLoadAdapter -->
-</idea-plugin>

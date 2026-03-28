@@ -1,4 +1,0 @@
-<idea-plugin>
-    <!-- Terminal plugin support is loaded when org.jetbrains.plugins.terminal is present -->
-    <!-- ExecuteTerminalCommandTool uses platform GeneralCommandLine, not terminal plugin APIs -->
-</idea-plugin>

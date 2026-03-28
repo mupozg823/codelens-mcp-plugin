@@ -1,232 +1,59 @@
-# CodeLens — Open Source Code Intelligence Engine
+# CodeLens MCP
 
-**Rust-first code intelligence for AI coding assistants.** 32 Rust-native tools + 14 Kotlin session tools. Works with Claude Code, Codex, Cursor, Cline, and any MCP client.
+**Pure Rust MCP server for code intelligence.** 59 tools, zero dependencies, instant startup.
 
----
+Works with Claude Code, Cursor, Windsurf, Cline, Codex, and any MCP-compatible client.
 
-## Architecture
-
-```
-AI Coding Assistant (Claude Code / Codex / Cursor / Cline)
-  │
-  ├─ Rust Engine (primary, 32 tools)
-  │   └─ codelens-mcp binary (stdio JSON-RPC)
-  │       ├─ SQLite symbol index (14 languages, tree-sitter)
-  │       ├─ Import graph (PageRank, blast radius, dead code)
-  │       ├─ Pooled LSP (references, diagnostics, type hierarchy)
-  │       └─ File editing (symbol-aware insert/replace/delete)
-  │
-  ├─ Standalone Server (46 tools, Kotlin fat-jar)
-  │   └─ HTTP/Stdio → Rust-first dispatch → Kotlin fallback
-  │       ├─ Session management (project registry, memories)
-  │       └─ Tree-sitter + workspace regex backends
-  │
-  └─ IntelliJ Adapter (64 tools, optional)
-      └─ JetBrains PSI → refactoring-backed rename, diagnostics
-```
-
-**Dispatch order:** Rust → JetBrains (optional) → Kotlin fallback
-
----
-
-## Install
-
-### One-line install (macOS / Linux)
+## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
+# Build
+cargo build --release
+
+# Run
+./target/release/codelens-mcp /path/to/project
 ```
 
-Downloads the binary, adds to PATH, auto-configures Claude Code.
+## Configure MCP Client
 
-### From source (Rust)
-
-```bash
-cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
-```
-
-### Download binary
-
-Pre-built binaries for macOS (arm64/x86_64) and Linux (x86_64/arm64):
-[Latest Release](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest)
-
-### Standalone Server (Kotlin, optional)
-
-```bash
-./gradlew :standalone:standaloneFatJar
-java -jar standalone/build/libs/standalone-*-standalone.jar /path/to/project --stdio
-```
-
-### IntelliJ Plugin (optional)
-
-```bash
-./gradlew buildPlugin
-# Settings → Plugins → Install from Disk → select zip
-```
-
----
-
-## Tools (32 Rust-native + 14 Kotlin session)
-
-### Symbol Analysis
-
-| Tool                             | Engine | Description                             |
-| -------------------------------- | ------ | --------------------------------------- |
-| `get_symbols_overview`           | Rust   | File/directory symbol structure         |
-| `find_symbol`                    | Rust   | Search by name, stable ID, or name_path |
-| `find_referencing_symbols`       | Rust   | LSP-backed reference tracing            |
-| `get_type_hierarchy`             | Rust   | Inheritance tree via LSP                |
-| `get_ranked_context`             | Rust   | Token-budget symbol ranking             |
-| `find_referencing_code_snippets` | Rust   | Pattern search with context lines       |
-| `search_workspace_symbols`       | Rust   | LSP workspace/symbol search             |
-| `get_file_diagnostics`           | Rust   | LSP diagnostics                         |
-| `refresh_symbol_index`           | Rust   | Rebuild SQLite symbol cache             |
-
-### Symbol Editing
-
-| Tool                   | Engine     | Description                                 |
-| ---------------------- | ---------- | ------------------------------------------- |
-| `replace_symbol_body`  | Rust       | Replace symbol body (byte-offset aware)     |
-| `insert_before_symbol` | Rust       | Insert code before symbol                   |
-| `insert_after_symbol`  | Rust       | Insert code after symbol                    |
-| `plan_symbol_rename`   | Rust       | LSP prepareRename (read-only plan)          |
-| `rename_symbol`        | Kotlin+PSI | IDE refactoring rename (JetBrains optional) |
-
-### Import Graph
-
-| Tool                    | Engine | Description                 |
-| ----------------------- | ------ | --------------------------- |
-| `find_importers`        | Rust   | Reverse import dependencies |
-| `get_blast_radius`      | Rust   | Transitive change impact    |
-| `get_symbol_importance` | Rust   | PageRank file importance    |
-| `find_dead_code`        | Rust   | Unreferenced file detection |
-
-### Code Analysis
-
-| Tool               | Engine | Description              |
-| ------------------ | ------ | ------------------------ |
-| `get_complexity`   | Rust   | Cyclomatic complexity    |
-| `find_tests`       | Rust   | Test function discovery  |
-| `find_annotations` | Rust   | TODO/FIXME/HACK scanning |
-
-### File Operations
-
-| Tool                 | Engine | Description                    |
-| -------------------- | ------ | ------------------------------ |
-| `read_file`          | Rust   | Read with optional line range  |
-| `list_dir`           | Rust   | Directory listing              |
-| `find_file`          | Rust   | Wildcard file search           |
-| `search_for_pattern` | Rust   | Regex search across project    |
-| `create_text_file`   | Rust   | Create new file                |
-| `delete_lines`       | Rust   | Delete line range              |
-| `insert_at_line`     | Rust   | Insert at line number          |
-| `replace_lines`      | Rust   | Replace line range             |
-| `replace_content`    | Rust   | Literal/regex find-and-replace |
-
-### Git Integration
-
-| Tool                | Engine | Description                   |
-| ------------------- | ------ | ----------------------------- |
-| `get_changed_files` | Rust   | Git diff file list            |
-| `get_diff_symbols`  | Rust   | Changed files + symbol counts |
-
-### Session (Kotlin-only)
-
-| Tool                                                                                                 | Description                      |
-| ---------------------------------------------------------------------------------------------------- | -------------------------------- |
-| `activate_project`                                                                                   | Switch active project context    |
-| `get_current_config`                                                                                 | Server/backend status            |
-| `list_memories` / `read_memory` / `write_memory` / `edit_memory` / `delete_memory` / `rename_memory` | .serena/memories management      |
-| `onboarding` / `check_onboarding_performed` / `initial_instructions`                                 | Project onboarding flow          |
-| `prepare_for_new_conversation` / `summarize_changes` / `switch_modes`                                | Session management               |
-| `think_about_*` (3)                                                                                  | Structured reasoning scaffolding |
-
----
-
-## Supported Languages (14)
-
-Python, JavaScript, TypeScript, TSX, Go, Rust, Ruby, Java, Kotlin, C, C++, PHP, Swift, Scala
-
-All languages supported by both tree-sitter symbol parsing and import graph analysis.
-
----
-
-## Configuration
-
-### Claude Code
+**Claude Code** (`~/.claude.json`):
 
 ```json
 {
   "mcpServers": {
     "codelens": {
-      "command": "java",
-      "args": [
-        "-jar",
-        "/path/to/standalone-1.0.0-standalone.jar",
-        ".",
-        "--stdio"
-      ]
+      "command": "/path/to/codelens-mcp",
+      "args": ["."]
     }
   }
 }
 ```
 
-### Codex
+## 59 Tools
 
-```toml
-[mcp_servers.codelens]
-command = "java"
-args = ["-jar", "/path/to/standalone-1.0.0-standalone.jar", ".", "--stdio"]
-```
+### Symbol Analysis
 
-### Cursor
+`get_symbols_overview` · `find_symbol` · `find_referencing_symbols` · `get_ranked_context` · `search_symbols_fuzzy` · `get_type_hierarchy`
 
-Add MCP server in Cursor settings with the same command as above.
+### Code Search & Edit
 
----
+`search_for_pattern` · `rename_symbol` · `replace_symbol_body` · `insert_before_symbol` · `insert_after_symbol` · `create_text_file` · `replace_content`
 
-## Building
+### Analysis
 
-```bash
-# Rust engine
-cd rust && cargo build --release && cargo test
+`get_complexity` · `get_blast_radius` · `find_importers` · `find_dead_code` · `find_circular_dependencies` · `get_callers` · `get_callees`
 
-# Standalone server (no IntelliJ SDK required)
-./gradlew :standalone:standaloneFatJar
+### Serena Compatible
 
-# IntelliJ plugin (requires IntelliJ IDEA 2026.1+)
-./gradlew buildPlugin
+`activate_project` · `onboarding` · `list_memories` · `read_memory` · `write_memory` + 12 more
 
-# All tests
-cd rust && cargo test          # 59 Rust tests
-./gradlew test                 # Kotlin tests (IntelliJ sandbox)
-```
+## Tech Stack
 
-### Prerequisites
-
-| Tool          | Version | Required for      |
-| ------------- | ------- | ----------------- |
-| Rust          | 1.82+   | Rust engine       |
-| JDK           | 21+     | Standalone server |
-| IntelliJ IDEA | 2026.1+ | Plugin only       |
-
----
-
-## Serena Compatibility
-
-CodeLens is a drop-in replacement for Serena MCP. All 21 Serena tool names, parameters, and `.serena/memories/` structure are identical.
-
----
+- **tree-sitter**: 14 languages
+- **SQLite**: WAL-mode incremental index
+- **Rayon**: parallel parsing
+- **MCP**: stdio JSON-RPC 2.0
 
 ## License
 
-[Apache License 2.0](LICENSE)
-
----
-
-## Acknowledgments
-
-- [tree-sitter](https://tree-sitter.github.io/) — incremental parsing
-- [MCP](https://modelcontextprotocol.io/) — Model Context Protocol
-- [JetBrains](https://www.jetbrains.com/) — IntelliJ Platform SDK
-- [Serena](https://github.com/oraios/serena) — original inspiration
+Apache-2.0

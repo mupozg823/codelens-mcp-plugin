@@ -1,1 +1,0 @@
-When finishing a task, run the smallest relevant test first and then broaden to `./gradlew test` if the change affects shared behavior. Build artifacts with `./gradlew buildPlugin` when preparing a release. Ensure `git diff --check` passes, keep changelog/README aligned with user-visible changes, and avoid deleting files unless explicitly requested.

@@ -1,38 +1,40 @@
 # CodeLens MCP
 
+Pure Rust MCP server for code intelligence — 59 tools, zero dependencies.
+
 ## Architecture
 
-- **Rust MCP Server** (sole runtime): `rust/crates/codelens-core/` (11 modules) + `rust/crates/codelens-mcp/` — 59 tools, SQLite index, tree-sitter 14 languages, Serena compatible
-- **IntelliJ Plugin** (optional): `src/main/kotlin/com/codelens/plugin/` — PSI backend, JetBrains Marketplace
+```
+crates/
+├── codelens-core/    # 14 modules — symbols, search, rename, LSP, etc.
+│   └── src/
+│       ├── symbols.rs         # tree-sitter symbol parsing + SQLite index
+│       ├── file_ops.rs        # file CRUD + text references
+│       ├── rename.rs          # column-precise rename
+│       ├── scope_analysis.rs  # [WIP] scope-aware reference analysis
+│       ├── type_hierarchy.rs  # [WIP] native type hierarchy
+│       ├── auto_import.rs     # [WIP] auto-import suggestion
+│       ├── import_graph.rs    # import graph + PageRank + dead code
+│       ├── call_graph.rs      # function call graph
+│       ├── search.rs          # fuzzy + BM25 hybrid search
+│       ├── db.rs              # SQLite index
+│       ├── lsp.rs             # pooled LSP integration
+│       ├── git.rs             # git diff integration
+│       ├── circular.rs        # circular dependency detection
+│       └── coupling.rs        # git change coupling
+└── codelens-mcp/     # MCP stdio server (59 tools)
+```
 
 ## Verification
 
 ```bash
-cd rust && cargo test              # 100 Rust tests
-cd rust && cargo build --release -p codelens-mcp  # release binary
-./gradlew compileKotlin            # IntelliJ plugin compile check
+cargo test              # 102 tests
+cargo build --release   # release binary
 ```
-
-## Key Files
-
-| File                                            | Role                                       |
-| ----------------------------------------------- | ------------------------------------------ |
-| `rust/crates/codelens-core/src/symbols.rs`      | SymbolIndex (SQLite, Rayon, stable ID)     |
-| `rust/crates/codelens-core/src/file_ops.rs`     | File CRUD + Smart Excerpts + text refs     |
-| `rust/crates/codelens-core/src/rename.rs`       | rename_symbol (column-precise, shadowing)  |
-| `rust/crates/codelens-core/src/import_graph.rs` | Import graph, PageRank, Dead Code v2       |
-| `rust/crates/codelens-core/src/call_graph.rs`   | Function call graph (6 languages)          |
-| `rust/crates/codelens-core/src/circular.rs`     | Circular dependency detection (Tarjan SCC) |
-| `rust/crates/codelens-core/src/search.rs`       | Fuzzy + BM25 hybrid symbol search          |
-| `rust/crates/codelens-core/src/db.rs`           | SQLite index (files, symbols, imports)     |
-| `rust/crates/codelens-core/src/lsp.rs`          | Pooled LSP + 10 auto-install recipes       |
-| `rust/crates/codelens-core/src/git.rs`          | Git diff integration                       |
-| `rust/crates/codelens-mcp/src/main.rs`          | Rust MCP server (59 tools, stdio JSON-RPC) |
 
 ## Conventions
 
-- Tool names are Serena-compatible (snake_case)
-- Rust binary is the sole MCP server — no Java/JVM needed
-- SQLite index at `.codelens/index/symbols.db`
-- Serena memory at `.serena/memories/`
-- Tool presets: `--preset minimal` (20) / `balanced` (35) / `full` (59)
+- Tool names: Serena-compatible snake_case
+- SQLite index: `.codelens/index/symbols.db`
+- Serena memory: `.serena/memories/`
+- Presets: `--preset minimal|balanced|full`

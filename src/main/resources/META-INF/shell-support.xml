@@ -1,4 +1,0 @@
-<idea-plugin>
-    <!-- Shell Script support is loaded when com.jetbrains.sh is present -->
-    <!-- ShellLanguageAdapter is instantiated directly by SymbolServiceImpl via tryLoadAdapter -->
-</idea-plugin>
