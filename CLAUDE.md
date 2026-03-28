@@ -1,6 +1,6 @@
 # CodeLens MCP
 
-Pure Rust MCP server — 52 tools, 27MB binary, 100ms cold start.
+Pure Rust MCP server — 53 tools, 32MB binary, 16 languages, file watcher.
 
 ## Verification
 
@@ -13,13 +13,14 @@ cargo build --release     # release binary at target/release/codelens-mcp
 
 ```
 crates/
-├── codelens-core/   # analysis engine (14 modules)
+├── codelens-core/   # analysis engine (15 modules)
 │   └── src/
 │       ├── symbols.rs        # tree-sitter parsing + SQLite index
 │       ├── lsp.rs            # pooled LSP session management
 │       ├── import_graph.rs   # import graph + PageRank + dead code
 │       ├── file_ops.rs       # file CRUD + text search
 │       ├── project.rs        # ProjectRoot + shared fs utils
+│       ├── watcher.rs        # notify-based file watcher + auto reindex
 │       ├── db.rs             # SQLite schema
 │       └── ...               # call_graph, rename, scope_analysis, etc.
 └── codelens-mcp/    # MCP stdio server
@@ -45,7 +46,7 @@ crates/
 - Memory dir: `.serena/memories/`
 - 500-line max per file
 
-## Tool Categories (52 listed, legacy aliases in dispatch)
+## Tool Categories (53 listed, legacy aliases in dispatch)
 
 | Category   | Tools | Notes                                                              |
 | ---------- | ----- | ------------------------------------------------------------------ |
@@ -55,5 +56,9 @@ crates/
 | Graph      | 7     | get_impact_analysis, find_dead_code, find_circular_dependencies... |
 | Mutation   | 11    | rename_symbol, replace_symbol_body, add_import...                  |
 | Memory     | 6     | list/read/write/delete/edit/rename_memory                          |
-| Session    | 5     | activate_project, onboarding, initial_instructions...              |
+| Session    | 6     | activate_project, onboarding, get_watch_status...                  |
 | Composite  | 3     | summarize_file, explain_code_flow, refactor_extract_function       |
+
+## Languages (16)
+
+Python, JavaScript, TypeScript, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, **C#**, **Dart**
