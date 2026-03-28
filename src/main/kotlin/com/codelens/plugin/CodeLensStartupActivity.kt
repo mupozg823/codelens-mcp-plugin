@@ -1,6 +1,7 @@
 package com.codelens.plugin
 
 import com.codelens.acp.AcpAutoConfigurator
+import com.codelens.acp.ClaudeJsonAutoConfigurator
 import com.codelens.serena.SerenaCompatServer
 import com.codelens.tools.ToolRegistry
 import com.intellij.notification.NotificationGroupManager
@@ -47,6 +48,12 @@ class CodeLensStartupActivity : ProjectActivity {
 
         // Auto-configure ACP agent registration
         AcpAutoConfigurator.configure(project)
+
+        // Auto-configure claude.json MCP server entry
+        val server = project.service<SerenaCompatServer>()
+        server.getPort()?.let { port ->
+            ClaudeJsonAutoConfigurator.configure(port)
+        }
 
         logger.info("CodeLens MCP plugin initialized successfully")
     }
