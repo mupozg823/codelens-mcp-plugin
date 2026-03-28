@@ -7,12 +7,70 @@ on:
     branches: [ main ]
 
 jobs:
-  build:
+  rust:
+    name: Rust Engine
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('rust/Cargo.lock') }}
+
+      - name: Test
+        working-directory: rust
+        run: cargo test
+
+      - name: Build Release
+        working-directory: rust
+        run: cargo build --release
+
+      - name: Upload Rust Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: codelens-mcp-binary
+          path: rust/target/release/codelens-mcp
+
+  standalone:
+    name: Standalone Server (no IntelliJ)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Compile Standalone
+        run: ./gradlew :standalone:compileKotlin
+
+      - name: Build Standalone Fat Jar
+        run: ./gradlew :standalone:standaloneFatJar
+
+      - name: Upload Standalone Jar
+        uses: actions/upload-artifact@v4
+        with:
+          name: codelens-standalone-jar
+          path: standalone/build/libs/*-standalone.jar
+
+  plugin:
+    name: IntelliJ Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
 
       - name: Setup JDK 21
         uses: actions/setup-java@v4
@@ -29,20 +87,7 @@ jobs:
       - name: Verify Plugin
         run: ./gradlew verifyPlugin
 
-      - name: Run Tests
-        run: ./gradlew test
-
-      - name: Build Standalone Fat Jar
-        run: ./gradlew standaloneFatJar
-
-      - name: Upload Standalone Jar
-        uses: actions/upload-artifact@v4
-        with:
-          name: codelens-standalone-jar
-          path: build/libs/*-standalone.jar
-
-      - name: Upload Plugin Artifact
-        if: success()
+      - name: Upload Plugin
         uses: actions/upload-artifact@v4
         with:
           name: codelens-mcp-plugin

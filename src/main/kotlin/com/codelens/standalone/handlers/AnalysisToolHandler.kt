@@ -84,6 +84,92 @@ internal class AnalysisToolHandler(private val ctx: ToolContext) : StandaloneToo
                     "max_results" to intProp("Maximum number of results", 50)
                 )
             )
+        ),
+        // ── Rust-primary tools (dispatched via Rust bridge, no Kotlin fallback) ──
+        ToolMeta(
+            name = "get_callers",
+            description = "Find functions that call a given function (tree-sitter call graph).",
+            inputSchema = schema(
+                mapOf(
+                    "function_name" to strProp("Name of the function to find callers for"),
+                    "max_results" to intProp("Maximum number of results", 50)
+                ),
+                required = listOf("function_name")
+            )
+        ),
+        ToolMeta(
+            name = "get_callees",
+            description = "Find functions called by a given function (tree-sitter call graph).",
+            inputSchema = schema(
+                mapOf(
+                    "function_name" to strProp("Name of the function to find callees for"),
+                    "file_path" to strProp("Optional file path to scope the search"),
+                    "max_results" to intProp("Maximum number of results", 50)
+                ),
+                required = listOf("function_name")
+            )
+        ),
+        ToolMeta(
+            name = "find_circular_dependencies",
+            description = "Detect circular import dependency cycles using Tarjan SCC.",
+            inputSchema = schema(
+                mapOf("max_results" to intProp("Maximum number of cycles to return", 50))
+            )
+        ),
+        ToolMeta(
+            name = "get_change_coupling",
+            description = "Find files that frequently change together in git history.",
+            inputSchema = schema(
+                mapOf(
+                    "months" to intProp("Analysis window in months", 6),
+                    "min_strength" to mapOf("type" to "number", "description" to "Minimum coupling strength 0-1", "default" to 0.3),
+                    "min_commits" to intProp("Minimum co-change count", 3),
+                    "max_results" to intProp("Maximum results", 30)
+                )
+            )
+        ),
+        ToolMeta(
+            name = "find_dead_code_v2",
+            description = "Multi-pass dead code detection: unreferenced files + unreferenced symbols + exception filtering.",
+            inputSchema = schema(
+                mapOf("max_results" to intProp("Maximum number of results", 50))
+            )
+        ),
+        ToolMeta(
+            name = "search_symbols_fuzzy",
+            description = "Hybrid symbol search: exact + substring + Jaro-Winkler fuzzy matching.",
+            inputSchema = schema(
+                mapOf(
+                    "query" to strProp("Search query (symbol name or partial name)"),
+                    "max_results" to intProp("Maximum results", 30),
+                    "fuzzy_threshold" to mapOf("type" to "number", "description" to "Minimum similarity 0-1", "default" to 0.6)
+                ),
+                required = listOf("query")
+            )
+        ),
+        ToolMeta(
+            name = "get_impact_analysis",
+            description = "One-shot impact analysis: symbols + importers + blast radius in a single call.",
+            inputSchema = schema(
+                mapOf(
+                    "file_path" to strProp("File to analyze"),
+                    "max_depth" to intProp("Blast radius depth", 3)
+                ),
+                required = listOf("file_path")
+            )
+        ),
+        ToolMeta(
+            name = "check_lsp_status",
+            description = "Check which LSP servers are installed and which are missing, with install commands.",
+            inputSchema = schema(emptyMap())
+        ),
+        ToolMeta(
+            name = "get_lsp_recipe",
+            description = "Get LSP server install recipe for a file extension.",
+            inputSchema = schema(
+                mapOf("extension" to strProp("File extension (e.g. py, ts, rs)")),
+                required = listOf("extension")
+            )
         )
     )
 
