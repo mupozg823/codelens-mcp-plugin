@@ -1,5 +1,6 @@
 package com.codelens.standalone.handlers
 
+import com.codelens.standalone.JetBrainsProxy
 import com.codelens.standalone.ProjectRegistry
 import com.codelens.standalone.StandaloneToolHandler
 import com.codelens.standalone.StandaloneMcpHandler
@@ -129,18 +130,28 @@ internal class ConfigToolHandler(private val ctx: ToolContext) : StandaloneToolH
         "get_current_config" -> {
             val includeTools = ctx.optBool(args, "include_tools", true)
             val toolNames = allToolNames
+            val home = java.nio.file.Path.of(System.getProperty("user.home"))
+            val registry = ProjectRegistry(home)
+            val jetbrainsAvailable = JetBrainsProxy(ctx.projectRoot).isAvailable()
+
             buildMap<String, Any?> {
                 put("project_name", ctx.projectRoot.fileName.toString())
                 put("project_base_path", ctx.projectRoot.toString())
                 put("compatible_context", "standalone")
                 put("transport", "standalone-http")
                 put("backend_id", ctx.backend.backendId)
+                put("backend_chain", buildMap<String, Any> {
+                    put("jetbrains_available", jetbrainsAvailable)
+                    put("active_backend", if (jetbrainsAvailable) "jetbrains-proxy" else ctx.backend.backendId)
+                    put("fallback_chain", listOf("jetbrains-proxy", "tree-sitter", "workspace"))
+                })
                 put("server_name", StandaloneMcpHandler.SERVER_NAME)
                 put("server_version", StandaloneMcpHandler.SERVER_VERSION)
                 put("tool_count", toolNames.size)
-                put("rust_bridge_configured", ctx.rustBridge.isConfigured())
                 put("serena_memories_dir", ctx.memoriesDir.toString())
                 put("serena_memories_present", java.nio.file.Files.isDirectory(ctx.memoriesDir))
+                put("registered_projects", registry.list().size)
+                put("rust_bridge_configured", ctx.rustBridge.isConfigured())
                 if (includeTools) put("tools", toolNames)
             }.let { ctx.ok(it) }
         }
