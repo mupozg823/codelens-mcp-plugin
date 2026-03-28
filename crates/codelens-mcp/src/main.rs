@@ -61,10 +61,15 @@ const MINIMAL_TOOLS: &[&str] = &[
 const BALANCED_EXCLUDES: &[&str] = &[
     "find_circular_dependencies",
     "get_change_coupling",
-    "get_callers",
-    "get_callees",
     "get_symbol_importance",
     "find_dead_code",
+    "refactor_extract_function",
+    "summarize_file",
+    "explain_code_flow",
+    "get_complexity",
+    "search_symbols_fuzzy",
+    "check_lsp_status",
+    "get_lsp_recipe",
 ];
 
 impl AppState {
@@ -244,14 +249,17 @@ fn dispatch_tool(
         "get_lsp_recipe" => tools::lsp::get_lsp_recipe(state, &arguments),
 
         // Graph / analysis
-        "get_changed_files" => tools::graph::get_changed_files_tool(state, &arguments),
-        "get_diff_symbols" => tools::graph::get_diff_symbols_tool(state, &arguments),
+        "get_changed_files" | "get_diff_symbols" => {
+            tools::graph::get_changed_files_tool(state, &arguments)
+        }
         "get_blast_radius" => tools::graph::get_blast_radius_tool(state, &arguments),
         "get_impact_analysis" => tools::graph::get_impact_analysis(state, &arguments),
         "find_importers" => tools::graph::find_importers_tool(state, &arguments),
         "get_symbol_importance" => tools::graph::get_symbol_importance(state, &arguments),
-        "find_dead_code" => tools::graph::find_dead_code_tool(state, &arguments),
-        "find_dead_code_v2" => tools::graph::find_dead_code_v2_tool(state, &arguments),
+        "find_dead_code" | "find_dead_code_v2" => {
+            tools::graph::find_dead_code_v2_tool(state, &arguments)
+        }
+        // find_referencing_code_snippets: kept as alias for backward compat, delegates to search_for_pattern
         "find_referencing_code_snippets" => {
             tools::graph::find_referencing_code_snippets(state, &arguments)
         }
@@ -353,14 +361,10 @@ fn tools() -> Vec<Tool> {
         Tool::new("find_annotations", "Find annotation comments such as TODO, FIXME, and HACK across the project.", json!({"type":"object","properties":{"tags":{"type":"string"},"max_results":{"type":"integer"}}})),
         Tool::new("find_tests", "Find test functions or test blocks across the project using regex heuristics.", json!({"type":"object","properties":{"path":{"type":"string"},"max_results":{"type":"integer"}}})),
         Tool::new("get_complexity", "Calculate approximate cyclomatic complexity for functions or methods in a file.", json!({"type":"object","properties":{"path":{"type":"string"},"symbol_name":{"type":"string"}},"required":["path"]})),
-        Tool::new("get_changed_files", "Return files changed compared to a git ref, with symbol counts.", json!({"type":"object","properties":{"ref":{"type":"string"},"include_untracked":{"type":"boolean"}}})),
-        Tool::new("get_diff_symbols", "Return changed files with symbol counts for each file, compared to a git ref.", json!({"type":"object","properties":{"ref":{"type":"string"}}})),
-        Tool::new("get_blast_radius", "Return files transitively affected by a file change for supported Python/JS/TS import graphs.", json!({"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}},"required":["file_path"]})),
-        Tool::new("get_impact_analysis", "One-shot impact analysis: symbols in file + direct importers + blast radius with symbol counts.", json!({"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}},"required":["file_path"]})),
-        Tool::new("find_importers", "Find reverse import dependencies for supported Python/JS/TS import graphs.", json!({"type":"object","properties":{"file_path":{"type":"string"},"max_results":{"type":"integer"}},"required":["file_path"]})),
+        Tool::new("get_changed_files", "Return files changed compared to a git ref, with symbol counts. Also accepts legacy name 'get_diff_symbols'.", json!({"type":"object","properties":{"ref":{"type":"string"},"include_untracked":{"type":"boolean"}}})),
+        Tool::new("get_impact_analysis", "One-shot impact analysis: symbols + importers + blast radius. Replaces find_importers and get_blast_radius.", json!({"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}},"required":["file_path"]})),
         Tool::new("get_symbol_importance", "Return file importance ranking based on import-graph PageRank for supported Python/JS/TS projects.", json!({"type":"object","properties":{"top_n":{"type":"integer"}}})),
-        Tool::new("find_dead_code", "Return dead-code file candidates for supported Python/JS/TS import-graph projects.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})),
-        Tool::new("find_dead_code_v2", "Multi-pass dead code detection: unreferenced files (pass 1) and unreferenced symbols via call-graph analysis (pass 2), with entry-point and decorator exception filters.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})),
+        Tool::new("find_dead_code", "Multi-pass dead code detection: unreferenced files + unreferenced symbols via call-graph. Also accepts legacy name 'find_dead_code_v2'.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})),
         Tool::new("get_symbols_overview", "Get an overview of code symbols in a file or directory.", json!({"type":"object","properties":{"path":{"type":"string"},"depth":{"type":"integer"}},"required":["path"]})),
         Tool::new("find_symbol", "Find a symbol by name or stable ID. Use symbol_id (e.g. 'src/main.py#function:Service/greet') for fastest exact lookup.", json!({"type":"object","properties":{"name":{"type":"string","description":"Symbol name to search for"},"symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},"file_path":{"type":"string"},"include_body":{"type":"boolean"},"exact_match":{"type":"boolean"},"max_matches":{"type":"integer"}}})),
         Tool::new("get_ranked_context", "Return the most relevant symbols for a query within a token budget.", json!({"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"}},"required":["query"]})),
@@ -379,10 +383,9 @@ fn tools() -> Vec<Tool> {
         Tool::new("replace_symbol_body", "Replace the entire body of a named symbol (function, class, etc.) in a file using tree-sitter byte offsets. Optionally disambiguate with name_path (e.g. 'ClassName/method').", json!({"type":"object","properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"new_body":{"type":"string"}},"required":["relative_path","symbol_name","new_body"]})),
         Tool::new("insert_before_symbol", "Insert content immediately before a named symbol in a file using tree-sitter byte offsets. Optionally disambiguate with name_path.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"content":{"type":"string"}},"required":["relative_path","symbol_name","content"]})),
         Tool::new("insert_after_symbol", "Insert content immediately after a named symbol in a file using tree-sitter byte offsets. Optionally disambiguate with name_path.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"content":{"type":"string"}},"required":["relative_path","symbol_name","content"]})),
-        Tool::new("find_referencing_code_snippets", "Find all code snippets that reference (use) a given symbol name across the project.", json!({"type":"object","properties":{"symbol_name":{"type":"string"},"file_glob":{"type":"string"},"context_lines":{"type":"integer"},"max_results":{"type":"integer"}},"required":["symbol_name"]})),
+        // find_referencing_code_snippets: kept in dispatch for compat, use search_for_pattern instead
         Tool::new("find_scoped_references", "Scope-aware reference search using tree-sitter AST. Classifies each reference as definition/read/write/import with enclosing scope context.", json!({"type":"object","properties":{"symbol_name":{"type":"string","description":"Symbol name to find references for"},"file_path":{"type":"string","description":"Declaration file (for sorting, optional)"},"max_results":{"type":"integer","description":"Max results (default 50)"}},"required":["symbol_name"]})),
-        Tool::new("get_callers", "Find all functions that call a given function across the project using tree-sitter call graph analysis.", json!({"type":"object","properties":{"function_name":{"type":"string"},"max_results":{"type":"integer"}},"required":["function_name"]})),
-        Tool::new("get_callees", "Find all functions called by a given function using tree-sitter call graph analysis. Optionally scoped to a specific file.", json!({"type":"object","properties":{"function_name":{"type":"string"},"file_path":{"type":"string"},"max_results":{"type":"integer"}},"required":["function_name"]})),
+        // get_callers/get_callees: kept in dispatch for compat, use explain_code_flow instead
         Tool::new("find_circular_dependencies", "Detect circular import dependencies in the project using Tarjan SCC algorithm on the import graph.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})),
         Tool::new("get_change_coupling", "Analyze git history to find files that frequently change together (temporal coupling).", json!({"type":"object","properties":{"months":{"type":"integer"},"min_strength":{"type":"number"},"min_commits":{"type":"integer"},"max_results":{"type":"integer"}}})),
         Tool::new("check_lsp_status", "Check which LSP servers are installed on this machine and which are missing, with install commands.", json!({"type":"object","properties":{}})),
@@ -395,11 +398,7 @@ fn tools() -> Vec<Tool> {
         Tool::new("summarize_file", "Get a comprehensive summary of a file: structure, symbols, importers, line count — all in one call.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File to summarize"}},"required":["file_path"]})),
         Tool::new("explain_code_flow", "Explain the call flow around a function: who calls it (callers) and what it calls (callees).", json!({"type":"object","properties":{"function_name":{"type":"string","description":"Function to trace"},"max_depth":{"type":"integer","description":"Max traversal depth (default 3)"},"max_results":{"type":"integer","description":"Max results per direction (default 20)"}},"required":["function_name"]})),
         Tool::new("refactor_extract_function", "Extract a line range into a new function. Replaces the original lines with a function call. Use dry_run=true to preview.", json!({"type":"object","properties":{"file_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"new_name":{"type":"string","description":"Name for the new function"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}},"required":["file_path","start_line","end_line","new_name"]})),
-        // No-op / thinking
-        Tool::new("think_about_collected_information", "Thinking tool: review and reflect on collected information.", json!({"type":"object","properties":{}})),
-        Tool::new("think_about_task_adherence", "Thinking tool: verify that planned actions adhere to the original task.", json!({"type":"object","properties":{}})),
-        Tool::new("think_about_whether_you_are_done", "Thinking tool: assess whether the current task is truly complete.", json!({"type":"object","properties":{}})),
-        Tool::new("switch_modes", "Switches the server operating mode (no-op in standalone mode).", json!({"type":"object","properties":{"mode":{"type":"string","description":"Target mode"}}})),
+        // No-op (kept in dispatch for backward compat, not listed in tools)
         // Memory
         Tool::new("list_memories", "Lists all memory files stored under .serena/memories.", json!({"type":"object","properties":{"topic":{"type":"string","description":"Optional topic to filter"}}})),
         Tool::new("read_memory", "Reads the content of a named memory file.", json!({"type":"object","properties":{"memory_name":{"type":"string"}},"required":["memory_name"]})),
@@ -413,8 +412,7 @@ fn tools() -> Vec<Tool> {
         Tool::new("initial_instructions", "Returns initial instructions for starting work.", json!({"type":"object","properties":{}})),
         Tool::new("onboarding", "Creates default .serena/memories onboarding files.", json!({"type":"object","properties":{"force":{"type":"boolean","description":"Re-create even if exists"}}})),
         Tool::new("prepare_for_new_conversation", "Returns project context for a new conversation.", json!({"type":"object","properties":{}})),
-        Tool::new("summarize_changes", "Provides instructions for summarising recent changes.", json!({"type":"object","properties":{}})),
-        Tool::new("list_queryable_projects", "Lists projects queryable by this server.", json!({"type":"object","properties":{}})),
+        // summarize_changes, list_queryable_projects: kept in dispatch for compat, not listed
     ]
 }
 
@@ -628,7 +626,7 @@ mod tests {
                 params: None,
             },
         );
-        assert_eq!(tools().len(), 65);
+        assert_eq!(tools().len(), 52);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("get_symbols_overview"));
     }
