@@ -127,7 +127,27 @@ impl SymbolIndex {
     pub fn new(project: ProjectRoot) -> Self {
         let db_path = index_db_path(project.as_path());
         let db = IndexDb::open(&db_path).unwrap_or_else(|_| IndexDb::open_memory().unwrap());
-        Self { project, db }
+        let mut idx = Self { project, db };
+        // Auto-migrate from legacy JSON index if DB is empty
+        if idx.db.file_count().unwrap_or(0) == 0 {
+            let _ = idx.migrate_from_json();
+        }
+        idx
+    }
+
+    /// One-time migration from legacy symbols-v1.json to SQLite.
+    fn migrate_from_json(&mut self) -> Result<()> {
+        let json_path = self
+            .project
+            .as_path()
+            .join(".codelens/index/symbols-v1.json");
+        if !json_path.is_file() {
+            return Ok(());
+        }
+        // Trigger a full refresh which populates the DB, then remove the old file
+        self.refresh_all()?;
+        let _ = fs::remove_file(&json_path);
+        Ok(())
     }
 
     #[cfg(test)]

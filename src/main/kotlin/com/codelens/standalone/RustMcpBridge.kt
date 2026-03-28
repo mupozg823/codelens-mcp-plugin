@@ -348,6 +348,14 @@ internal class RustMcpBridge(private val projectRoot: Path) {
         this.process = process
         this.reader = process.inputStream.bufferedReader()
         this.writer = process.outputStream.bufferedWriter()
+        // Drain stderr in background to prevent pipe blocking and log errors
+        Thread({
+            process.errorStream.bufferedReader().use { err ->
+                err.forEachLine { line ->
+                    System.err.println("[rust-bridge] $line")
+                }
+            }
+        }, "rust-bridge-stderr").apply { isDaemon = true; start() }
     }
 
     private fun inferLanguageServer(relativePath: String): Pair<String, List<String>>? {
