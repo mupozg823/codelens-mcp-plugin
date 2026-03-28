@@ -29,24 +29,35 @@ AI Coding Assistant (Claude Code / Codex / Cursor / Cline)
 
 ---
 
-## Quick Start
+## Install
 
-### Option 1: Rust Engine (recommended)
+### One-line install (macOS / Linux)
 
 ```bash
-cd rust && cargo build --release
-# Stdio mode — direct MCP connection
-./target/release/codelens-mcp /path/to/project
+curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
 ```
 
-### Option 2: Standalone Server (Kotlin)
+Downloads the binary, adds to PATH, auto-configures Claude Code.
+
+### From source (Rust)
+
+```bash
+cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
+```
+
+### Download binary
+
+Pre-built binaries for macOS (arm64/x86_64) and Linux (x86_64/arm64):
+[Latest Release](https://github.com/mupozg823/codelens-mcp-plugin/releases/latest)
+
+### Standalone Server (Kotlin, optional)
 
 ```bash
 ./gradlew :standalone:standaloneFatJar
 java -jar standalone/build/libs/standalone-*-standalone.jar /path/to/project --stdio
 ```
 
-### Option 3: IntelliJ Plugin
+### IntelliJ Plugin (optional)
 
 ```bash
 ./gradlew buildPlugin

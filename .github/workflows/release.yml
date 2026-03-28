@@ -6,43 +6,103 @@ on:
       - 'v*'
 
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  rust-binary:
+    name: Rust (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            name: darwin-arm64
+          - target: x86_64-apple-darwin
+            os: macos-13
+            name: darwin-x86_64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: linux-arm64
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup JDK 21
-        uses: actions/setup-java@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux ARM64)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cargo install cross --locked
+
+      - name: Build
+        working-directory: rust
+        run: |
+          if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Package
+        run: |
+          cp rust/target/${{ matrix.target }}/release/codelens-mcp codelens-mcp
+          tar czf codelens-mcp-${{ matrix.name }}.tar.gz codelens-mcp
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codelens-mcp-${{ matrix.name }}
+          path: codelens-mcp-${{ matrix.name }}.tar.gz
+
+  standalone-jar:
+    name: Standalone JAR
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew :standalone:standaloneFatJar
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codelens-standalone-jar
+          path: standalone/build/libs/*-standalone.jar
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+  plugin:
+    name: IntelliJ Plugin
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+      - run: ./gradlew buildPlugin
+      - uses: actions/upload-artifact@v4
+        with:
+          name: codelens-intellij-plugin
+          path: build/distributions/*.zip
 
-      - name: Build Plugin
-        run: ./gradlew buildPlugin
+  publish:
+    name: GitHub Release
+    needs: [rust-binary, standalone-jar, plugin]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
 
-      - name: Verify Plugin
-        run: ./gradlew verifyPlugin
-
-      - name: Build Standalone Fat Jar
-        run: ./gradlew standaloneFatJar
-
-      - name: Create GitHub Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            build/distributions/*.zip
-            build/libs/*-standalone.jar
+            codelens-mcp-*.tar.gz
+            *-standalone.jar
+            *.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # Uncomment when ready to publish to JetBrains Marketplace
-      # - name: Publish to Marketplace
-      #   run: ./gradlew publishPlugin
-      #   env:
-      #     PUBLISH_TOKEN: ${{ secrets.JETBRAINS_MARKETPLACE_TOKEN }}
