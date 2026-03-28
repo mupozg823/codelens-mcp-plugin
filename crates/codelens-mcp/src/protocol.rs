@@ -32,6 +32,18 @@ pub struct Tool {
     pub description: &'static str,
     #[serde(rename = "inputSchema")]
     pub input_schema: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub annotations: Option<ToolAnnotations>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct ToolAnnotations {
+    #[serde(rename = "readOnlyHint", skip_serializing_if = "Option::is_none")]
+    pub read_only_hint: Option<bool>,
+    #[serde(rename = "destructiveHint", skip_serializing_if = "Option::is_none")]
+    pub destructive_hint: Option<bool>,
+    #[serde(rename = "idempotentHint", skip_serializing_if = "Option::is_none")]
+    pub idempotent_hint: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -85,6 +97,38 @@ impl Tool {
             name,
             description,
             input_schema,
+            annotations: None,
+        }
+    }
+
+    pub fn with_annotations(mut self, annotations: ToolAnnotations) -> Self {
+        self.annotations = Some(annotations);
+        self
+    }
+}
+
+impl ToolAnnotations {
+    pub fn read_only() -> Self {
+        Self {
+            read_only_hint: Some(true),
+            destructive_hint: Some(false),
+            idempotent_hint: None,
+        }
+    }
+
+    pub fn destructive() -> Self {
+        Self {
+            read_only_hint: Some(false),
+            destructive_hint: Some(true),
+            idempotent_hint: None,
+        }
+    }
+
+    pub fn mutating() -> Self {
+        Self {
+            read_only_hint: Some(false),
+            destructive_hint: Some(false),
+            idempotent_hint: None,
         }
     }
 }
