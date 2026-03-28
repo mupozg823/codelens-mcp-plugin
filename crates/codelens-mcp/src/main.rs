@@ -6,12 +6,12 @@ use codelens_core::{
     extract_word_at_position, find_circular_dependencies, find_dead_code, find_dead_code_v2,
     find_files, find_referencing_symbols_via_text, find_scoped_references, get_blast_radius,
     get_callees, get_callers, get_change_coupling, get_changed_files, get_diff_symbols,
-    get_importance, get_importers, get_lsp_recipe, get_type_hierarchy_native, insert_after_symbol,
-    insert_at_line, insert_before_symbol, list_dir, read_file, rename, replace_content,
-    replace_lines, replace_symbol_body, search_for_pattern, search_for_pattern_smart,
-    search_symbols_hybrid, LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
-    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot, SymbolIndex, SymbolInfo,
-    SymbolKind,
+    get_importance, get_importers, get_lsp_recipe, get_symbols_overview, get_type_hierarchy_native,
+    insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file, rename,
+    replace_content, replace_lines, replace_symbol_body, search_for_pattern,
+    search_for_pattern_smart, search_symbols_hybrid, LspDiagnosticRequest, LspRenamePlanRequest,
+    LspRequest, LspSessionPool, LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot,
+    SymbolIndex, SymbolInfo, SymbolKind,
 };
 use protocol::{JsonRpcRequest, JsonRpcResponse, Tool, ToolCallResponse, ToolResponseMeta};
 use serde_json::json;
@@ -1680,6 +1680,190 @@ fn dispatch_tool(
                 success_meta("session", 1.0),
             ))
         }
+        // ── Agent high-level composite tools ─────────────────────────────
+        "summarize_file" => {
+            let file_path = required_string(&arguments, "file_path")?;
+            let symbols = get_symbols_overview(&state.project, file_path, 2)?;
+            let importers = get_importers(&state.project, file_path, 20).unwrap_or_default();
+            let source =
+                std::fs::read_to_string(state.project.resolve(file_path)?).unwrap_or_default();
+            let line_count = source.lines().count();
+
+            // Count functions/classes
+            let mut functions = 0usize;
+            let mut classes = 0usize;
+            for sym in &symbols {
+                match sym.kind {
+                    SymbolKind::Function | SymbolKind::Method => functions += 1,
+                    SymbolKind::Class | SymbolKind::Interface => classes += 1,
+                    _ => {}
+                }
+                for child in &sym.children {
+                    match child.kind {
+                        SymbolKind::Function | SymbolKind::Method => functions += 1,
+                        _ => {}
+                    }
+                }
+            }
+
+            Ok((
+                json!({
+                    "file_path": file_path,
+                    "lines": line_count,
+                    "classes": classes,
+                    "functions": functions,
+                    "symbols": symbols.iter().map(|s| json!({
+                        "name": s.name, "kind": s.kind, "line": s.line,
+                        "signature": s.signature, "id": s.id
+                    })).collect::<Vec<_>>(),
+                    "importers": importers.iter().map(|i| &i.file).collect::<Vec<_>>(),
+                    "importer_count": importers.len(),
+                }),
+                success_meta("composite", 0.95),
+            ))
+        }
+        "explain_code_flow" => {
+            let function_name = required_string(&arguments, "function_name")?;
+            let max_depth = arguments
+                .get("max_depth")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(3) as usize;
+            let max_results = arguments
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(20) as usize;
+
+            let callers = get_callers(&state.project, function_name, max_results)?;
+            let callees = get_callees(&state.project, function_name, None, max_results)?;
+
+            Ok((
+                json!({
+                    "function": function_name,
+                    "callers": callers.iter().map(|c| json!({
+                        "name": c.function, "file": c.file, "line": c.line
+                    })).collect::<Vec<_>>(),
+                    "caller_count": callers.len(),
+                    "callees": callees.iter().map(|c| json!({
+                        "name": c.name, "line": c.line
+                    })).collect::<Vec<_>>(),
+                    "callee_count": callees.len(),
+                    "flow_summary": format!(
+                        "{} is called by {} function(s) and calls {} function(s)",
+                        function_name, callers.len(), callees.len()
+                    )
+                }),
+                success_meta("call-graph", 0.90),
+            ))
+        }
+        "refactor_extract_function" => {
+            let file_path = required_string(&arguments, "file_path")?;
+            let start_line = arguments
+                .get("start_line")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| anyhow::anyhow!("Missing start_line"))?
+                as usize;
+            let end_line = arguments
+                .get("end_line")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| anyhow::anyhow!("Missing end_line"))?
+                as usize;
+            let new_name = required_string(&arguments, "new_name")?;
+            let dry_run = arguments
+                .get("dry_run")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true);
+
+            let resolved = state.project.resolve(file_path)?;
+            let source = std::fs::read_to_string(&resolved)?;
+            let lines: Vec<&str> = source.lines().collect();
+
+            if start_line < 1 || end_line < start_line || end_line > lines.len() {
+                return Err(anyhow::anyhow!(
+                    "Invalid line range: {start_line}-{end_line} (file has {} lines)",
+                    lines.len()
+                ));
+            }
+
+            // Detect language for syntax
+            let ext = resolved.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+            // Extract the selected lines
+            let extracted: Vec<&str> = lines[(start_line - 1)..end_line].to_vec();
+            let indent = extracted
+                .first()
+                .map(|l| {
+                    let trimmed = l.trim_start();
+                    &l[..l.len() - trimmed.len()]
+                })
+                .unwrap_or("");
+            let body = extracted
+                .iter()
+                .map(|l| {
+                    if l.len() > indent.len() && l.starts_with(indent) {
+                        format!("    {}", &l[indent.len()..])
+                    } else {
+                        format!("    {}", l.trim())
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            // Generate function definition and call based on language
+            let (func_def, func_call) = match ext {
+                "py" => (
+                    format!("def {new_name}():\n{body}\n"),
+                    format!("{indent}{new_name}()"),
+                ),
+                "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => (
+                    format!("function {new_name}() {{\n{body}\n}}\n"),
+                    format!("{indent}{new_name}();"),
+                ),
+                "rs" => (
+                    format!("fn {new_name}() {{\n{body}\n}}\n"),
+                    format!("{indent}{new_name}();"),
+                ),
+                "go" => (
+                    format!("func {new_name}() {{\n{body}\n}}\n"),
+                    format!("{indent}{new_name}()"),
+                ),
+                "java" | "kt" => (
+                    format!("private void {new_name}() {{\n{body}\n}}\n"),
+                    format!("{indent}{new_name}();"),
+                ),
+                _ => (
+                    format!("function {new_name}() {{\n{body}\n}}\n"),
+                    format!("{indent}{new_name}();"),
+                ),
+            };
+
+            if !dry_run {
+                let mut new_lines = lines.iter().map(|l| l.to_string()).collect::<Vec<_>>();
+                // Replace extracted range with call
+                new_lines.drain((start_line - 1)..end_line);
+                new_lines.insert(start_line - 1, func_call.clone());
+                // Append function definition at end
+                new_lines.push(String::new());
+                new_lines.push(func_def.clone());
+                let mut result = new_lines.join("\n");
+                if source.ends_with('\n') && !result.ends_with('\n') {
+                    result.push('\n');
+                }
+                std::fs::write(&resolved, &result)?;
+            }
+
+            Ok((
+                json!({
+                    "success": true,
+                    "file_path": file_path,
+                    "extracted_lines": format!("{start_line}-{end_line}"),
+                    "new_function_name": new_name,
+                    "function_definition": func_def,
+                    "call_replacement": func_call,
+                    "dry_run": dry_run
+                }),
+                success_meta("refactor", 0.90),
+            ))
+        }
         other => Err(anyhow::anyhow!("Unknown tool: {other}")),
     })();
 
@@ -2340,6 +2524,22 @@ fn tools() -> Vec<Tool> {
             "Insert an import statement at the correct position in a file.",
             json!({"type":"object","properties":{"file_path":{"type":"string"},"import_statement":{"type":"string","description":"Import statement to add"}},"required":["file_path","import_statement"]}),
         ),
+        // ── Agent high-level composite tools ─────────────────────────────
+        Tool::new(
+            "summarize_file",
+            "Get a comprehensive summary of a file: structure, symbols, importers, line count — all in one call.",
+            json!({"type":"object","properties":{"file_path":{"type":"string","description":"File to summarize"}},"required":["file_path"]}),
+        ),
+        Tool::new(
+            "explain_code_flow",
+            "Explain the call flow around a function: who calls it (callers) and what it calls (callees).",
+            json!({"type":"object","properties":{"function_name":{"type":"string","description":"Function to trace"},"max_depth":{"type":"integer","description":"Max traversal depth (default 3)"},"max_results":{"type":"integer","description":"Max results per direction (default 20)"}},"required":["function_name"]}),
+        ),
+        Tool::new(
+            "refactor_extract_function",
+            "Extract a line range into a new function. Replaces the original lines with a function call. Use dry_run=true to preview.",
+            json!({"type":"object","properties":{"file_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"new_name":{"type":"string","description":"Name for the new function"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}},"required":["file_path","start_line","end_line","new_name"]}),
+        ),
         // ── Serena-compatible: no-op thinking/mode tools ────────────────
         Tool::new("think_about_collected_information", "Thinking tool: review and reflect on collected information.", json!({"type":"object","properties":{}})),
         Tool::new("think_about_task_adherence", "Thinking tool: verify that planned actions adhere to the original task.", json!({"type":"object","properties":{}})),
@@ -2672,7 +2872,7 @@ mod tests {
                 params: None,
             },
         );
-        assert_eq!(tools().len(), 62);
+        assert_eq!(tools().len(), 65);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("read_file"));
     }
