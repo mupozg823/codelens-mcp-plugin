@@ -1,5 +1,6 @@
+use crate::db::{IndexDb, index_db_path};
 use crate::project::ProjectRoot;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use regex::Regex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -196,6 +197,36 @@ pub fn find_dead_code(project: &ProjectRoot, max_results: usize) -> Result<Vec<D
 }
 
 fn build_graph(project: &ProjectRoot) -> Result<HashMap<String, FileNode>> {
+    // Try to load from SQLite first
+    let db_path = index_db_path(project.as_path());
+    if db_path.is_file() {
+        if let Ok(db) = IndexDb::open(&db_path) {
+            if db.file_count()? > 0 {
+                return build_graph_from_db(&db);
+            }
+        }
+    }
+
+    // Fallback: scan files directly
+    build_graph_from_files(project)
+}
+
+fn build_graph_from_db(db: &IndexDb) -> Result<HashMap<String, FileNode>> {
+    let db_graph = db.build_import_graph()?;
+    let mut graph = HashMap::new();
+    for (path, (imports, imported_by)) in db_graph {
+        graph.insert(
+            path,
+            FileNode {
+                imports: imports.into_iter().collect(),
+                imported_by: imported_by.into_iter().collect(),
+            },
+        );
+    }
+    Ok(graph)
+}
+
+fn build_graph_from_files(project: &ProjectRoot) -> Result<HashMap<String, FileNode>> {
     let files = collect_candidate_files(project.as_path())?;
     let mut graph = HashMap::new();
 
@@ -259,6 +290,20 @@ fn is_excluded(path: &Path) -> bool {
         let value = component.as_os_str().to_string_lossy();
         EXCLUDED_DIRS.contains(&value.as_ref())
     })
+}
+
+/// Extract raw import strings from a file. Public for use by the indexer.
+pub fn extract_imports_for_file(path: &Path) -> Vec<String> {
+    extract_imports(path)
+}
+
+/// Resolve a raw import string to a relative path within the project. Public for use by the indexer.
+pub fn resolve_module_for_file(
+    project: &ProjectRoot,
+    source_file: &Path,
+    module: &str,
+) -> Option<String> {
+    resolve_module(project, source_file, module)
 }
 
 fn extract_imports(path: &Path) -> Vec<String> {

@@ -1,7 +1,9 @@
+use crate::db::{content_hash, index_db_path, IndexDb, NewImport, NewSymbol};
+use crate::import_graph::{extract_imports_for_file, resolve_module_for_file};
 use crate::project::ProjectRoot;
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -115,63 +117,78 @@ struct ParsedSymbol {
     children: Vec<ParsedSymbol>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct CacheEntry {
-    modified_ms: u128,
-    symbols: Vec<ParsedSymbol>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct DiskSymbolIndex {
-    version: u32,
-    entries: HashMap<String, CacheEntry>,
-}
-
-#[derive(Debug, Clone)]
+/// SQLite-backed symbol index for a project.
 pub struct SymbolIndex {
     project: ProjectRoot,
-    cache: HashMap<String, CacheEntry>,
+    db: IndexDb,
 }
 
 impl SymbolIndex {
     pub fn new(project: ProjectRoot) -> Self {
-        let cache = load_disk_index(&project).unwrap_or_default();
-        Self { project, cache }
+        let db_path = index_db_path(project.as_path());
+        let db = IndexDb::open(&db_path).unwrap_or_else(|_| IndexDb::open_memory().unwrap());
+        Self { project, db }
+    }
+
+    #[cfg(test)]
+    pub fn new_memory(project: ProjectRoot) -> Self {
+        let db = IndexDb::open_memory().unwrap();
+        Self { project, db }
     }
 
     pub fn stats(&self) -> Result<IndexStats> {
         let supported_files = collect_candidate_files(self.project.as_path())?;
-        let stale_files = self
-            .cache
-            .iter()
-            .filter(|(relative, entry)| {
-                let path = self.project.as_path().join(relative);
-                match file_modified_ms(&path) {
-                    Ok(current) => current != entry.modified_ms,
-                    Err(_) => true,
+        let indexed_files = self.db.file_count()?;
+        let indexed_paths = self.db.all_file_paths()?;
+
+        let mut stale = 0usize;
+        for rel in &indexed_paths {
+            let path = self.project.as_path().join(rel);
+            if !path.is_file() {
+                stale += 1;
+                continue;
+            }
+            let content = match fs::read(&path) {
+                Ok(c) => c,
+                Err(_) => {
+                    stale += 1;
+                    continue;
                 }
-            })
-            .count();
+            };
+            let hash = content_hash(&content);
+            let mtime = file_modified_ms(&path).unwrap_or(0) as i64;
+            if self.db.get_fresh_file(rel, mtime, &hash)?.is_none() {
+                stale += 1;
+            }
+        }
 
         Ok(IndexStats {
-            indexed_files: self.cache.len(),
+            indexed_files,
             supported_files: supported_files.len(),
-            stale_files,
+            stale_files: stale,
         })
     }
 
     pub fn refresh_all(&mut self) -> Result<IndexStats> {
         let files = collect_candidate_files(self.project.as_path())?;
-        let mut refreshed = HashMap::new();
+        self.db.begin_transaction()?;
 
-        for file in files {
-            let relative = self.project.to_relative(&file);
-            let entry = self.build_cache_entry(&file, &relative)?;
-            refreshed.insert(relative, entry);
+        // Track which files are still on disk
+        let mut on_disk = HashSet::new();
+        for file in &files {
+            let relative = self.project.to_relative(file);
+            on_disk.insert(relative.clone());
+            self.index_file(file, &relative)?;
         }
 
-        self.cache = refreshed;
-        self.persist()?;
+        // Remove files that no longer exist on disk
+        for indexed_path in self.db.all_file_paths()? {
+            if !on_disk.contains(&indexed_path) {
+                self.db.delete_file(&indexed_path)?;
+            }
+        }
+
+        self.db.commit()?;
         self.stats()
     }
 
@@ -188,7 +205,7 @@ impl SymbolIndex {
                     continue;
                 }
                 let relative = self.project.to_relative(file.path());
-                let parsed = self.ensure_cached(file.path(), &relative)?;
+                let parsed = self.ensure_indexed(file.path(), &relative)?;
                 if !parsed.is_empty() {
                     symbols.push(SymbolInfo {
                         name: relative.clone(),
@@ -214,7 +231,7 @@ impl SymbolIndex {
         }
 
         let relative = self.project.to_relative(&resolved);
-        let parsed = self.ensure_cached(&resolved, &relative)?;
+        let parsed = self.ensure_indexed(&resolved, &relative)?;
         Ok(parsed
             .into_iter()
             .map(|symbol| to_symbol_info(symbol, depth))
@@ -229,46 +246,47 @@ impl SymbolIndex {
         exact_match: bool,
         max_matches: usize,
     ) -> Result<Vec<SymbolInfo>> {
-        let files = match file_path {
-            Some(path) => vec![self.project.resolve(path)?],
-            None => collect_candidate_files(self.project.as_path())?,
-        };
-
-        let query = name.to_lowercase();
-        let mut results = Vec::new();
-        let mut source_cache: HashMap<String, String> = HashMap::new();
-
-        for file in files {
-            let relative = self.project.to_relative(&file);
-            let parsed = self.ensure_cached(&file, &relative)?;
-            for symbol in flatten_symbols(parsed) {
-                let matched = if exact_match {
-                    symbol.name == name
-                } else {
-                    symbol.name.to_lowercase().contains(&query)
-                };
-                if matched {
-                    let source = if include_body {
-                        Some(
-                            source_cache
-                                .entry(relative.clone())
-                                .or_insert_with(|| fs::read_to_string(&file).unwrap_or_default()),
-                        )
-                    } else {
-                        None
-                    };
-                    results.push(to_symbol_info_with_source(
-                        symbol,
-                        usize::MAX,
-                        source.map(|s| s.as_str()),
-                    ));
-                    if results.len() >= max_matches {
-                        return Ok(results);
-                    }
-                }
+        // Ensure target files are indexed first
+        if let Some(fp) = file_path {
+            let resolved = self.project.resolve(fp)?;
+            let relative = self.project.to_relative(&resolved);
+            self.ensure_indexed(&resolved, &relative)?;
+        } else {
+            // Ensure all files are indexed for a global search
+            let files = collect_candidate_files(self.project.as_path())?;
+            for file in &files {
+                let relative = self.project.to_relative(file);
+                self.ensure_indexed(file, &relative)?;
             }
         }
 
+        let db_rows = self
+            .db
+            .find_symbols_by_name(name, file_path, exact_match, max_matches)?;
+
+        let mut results = Vec::new();
+        for row in db_rows {
+            let rel_path = self.db.get_file_path(row.file_id)?.unwrap_or_default();
+            let body = if include_body {
+                let abs = self.project.as_path().join(&rel_path);
+                fs::read_to_string(&abs).ok().map(|source| {
+                    slice_source(&source, row.start_byte as usize, row.end_byte as usize)
+                })
+            } else {
+                None
+            };
+            results.push(SymbolInfo {
+                name: row.name,
+                kind: str_to_kind(&row.kind),
+                file_path: rel_path,
+                line: row.line as usize,
+                column: row.column_num as usize,
+                signature: row.signature,
+                name_path: row.name_path,
+                body,
+                children: Vec::new(), // flat result from DB
+            });
+        }
         Ok(results)
     }
 
@@ -338,40 +356,141 @@ impl SymbolIndex {
         })
     }
 
-    fn ensure_cached(&mut self, file: &Path, relative: &str) -> Result<Vec<ParsedSymbol>> {
-        let modified_ms = file_modified_ms(file)?;
-        if let Some(entry) = self.cache.get(relative) {
-            if entry.modified_ms == modified_ms {
-                return Ok(entry.symbols.clone());
+    /// Access the underlying database (e.g. for import graph queries).
+    pub fn db(&self) -> &IndexDb {
+        &self.db
+    }
+
+    /// Ensure a file is indexed; returns parsed symbols for immediate use.
+    fn ensure_indexed(&mut self, file: &Path, relative: &str) -> Result<Vec<ParsedSymbol>> {
+        let content =
+            fs::read(file).with_context(|| format!("failed to read {}", file.display()))?;
+        let mtime = file_modified_ms(file)? as i64;
+        let hash = content_hash(&content);
+
+        // Check if already fresh
+        if self.db.get_fresh_file(relative, mtime, &hash)?.is_some() {
+            // Re-parse from source for the caller (symbols are in DB but caller needs ParsedSymbol tree)
+            let source = String::from_utf8_lossy(&content);
+            if let Some(config) = language_for_path(file) {
+                return parse_symbols(&config, relative, &source, false);
             }
+            return Ok(Vec::new());
         }
 
-        let entry = self.build_cache_entry(file, relative)?;
-        let symbols = entry.symbols.clone();
-        self.cache.insert(relative.to_owned(), entry);
-        self.persist()?;
+        let source = String::from_utf8_lossy(&content);
+        let symbols = if let Some(config) = language_for_path(file) {
+            parse_symbols(&config, relative, &source, false)?
+        } else {
+            Vec::new()
+        };
+
+        let ext = file
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase());
+
+        let file_id =
+            self.db
+                .upsert_file(relative, mtime, &hash, content.len() as i64, ext.as_deref())?;
+
+        // Flatten and insert symbols
+        let flat = flatten_symbols(symbols.clone());
+        let new_syms: Vec<NewSymbol> = flat
+            .iter()
+            .map(|s| NewSymbol {
+                name: s.name.clone(),
+                kind: s.kind.as_label().to_owned(),
+                line: s.line as i64,
+                column_num: s.column as i64,
+                start_byte: s.start_byte as i64,
+                end_byte: s.end_byte as i64,
+                signature: s.signature.clone(),
+                name_path: s.name_path.clone(),
+                parent_id: None,
+            })
+            .collect();
+        self.db.insert_symbols(file_id, &new_syms)?;
+
+        // Index imports
+        let raw_imports = extract_imports_for_file(file);
+        let new_imports: Vec<NewImport> = raw_imports
+            .iter()
+            .filter_map(|raw| {
+                resolve_module_for_file(&self.project, file, raw).map(|target| NewImport {
+                    target_path: target,
+                    raw_import: raw.clone(),
+                })
+            })
+            .collect();
+        if !new_imports.is_empty() {
+            self.db.insert_imports(file_id, &new_imports)?;
+        }
+
         Ok(symbols)
     }
 
-    fn build_cache_entry(&self, file: &Path, relative: &str) -> Result<CacheEntry> {
-        let modified_ms = file_modified_ms(file)?;
-        let Some(language_config) = language_for_path(file) else {
-            return Ok(CacheEntry {
-                modified_ms,
-                symbols: Vec::new(),
-            });
+    /// Index a single file (used by refresh_all inside a transaction).
+    fn index_file(&mut self, file: &Path, relative: &str) -> Result<()> {
+        let content = match fs::read(file) {
+            Ok(c) => c,
+            Err(_) => return Ok(()),
         };
-        let source = fs::read_to_string(file)
-            .with_context(|| format!("failed to read {}", file.display()))?;
-        let symbols = parse_symbols(&language_config, relative, &source, false)?;
-        Ok(CacheEntry {
-            modified_ms,
-            symbols,
-        })
-    }
+        let mtime = file_modified_ms(file)? as i64;
+        let hash = content_hash(&content);
 
-    fn persist(&self) -> Result<()> {
-        persist_disk_index(&self.project, &self.cache)
+        if self.db.get_fresh_file(relative, mtime, &hash)?.is_some() {
+            return Ok(());
+        }
+
+        let source = String::from_utf8_lossy(&content);
+        let symbols = if let Some(config) = language_for_path(file) {
+            parse_symbols(&config, relative, &source, false)?
+        } else {
+            Vec::new()
+        };
+
+        let ext = file
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.to_ascii_lowercase());
+
+        let file_id =
+            self.db
+                .upsert_file(relative, mtime, &hash, content.len() as i64, ext.as_deref())?;
+
+        let flat = flatten_symbols(symbols);
+        let new_syms: Vec<NewSymbol> = flat
+            .iter()
+            .map(|s| NewSymbol {
+                name: s.name.clone(),
+                kind: s.kind.as_label().to_owned(),
+                line: s.line as i64,
+                column_num: s.column as i64,
+                start_byte: s.start_byte as i64,
+                end_byte: s.end_byte as i64,
+                signature: s.signature.clone(),
+                name_path: s.name_path.clone(),
+                parent_id: None,
+            })
+            .collect();
+        self.db.insert_symbols(file_id, &new_syms)?;
+
+        let raw_imports = extract_imports_for_file(file);
+        let new_imports: Vec<NewImport> = raw_imports
+            .iter()
+            .filter_map(|raw| {
+                resolve_module_for_file(&self.project, file, raw).map(|target| NewImport {
+                    target_path: target,
+                    raw_import: raw.clone(),
+                })
+            })
+            .collect();
+        if !new_imports.is_empty() {
+            self.db.insert_imports(file_id, &new_imports)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -385,6 +504,42 @@ pub fn get_symbols_overview(
         return get_directory_symbols(project, &resolved, depth);
     }
     get_file_symbols(project, &resolved, depth)
+}
+
+/// Find the byte range (start_byte, end_byte) of a named symbol in a file.
+/// If name_path is provided (e.g. "ClassName/method"), matches by full name_path;
+/// otherwise matches by symbol name alone.
+pub fn find_symbol_range(
+    project: &ProjectRoot,
+    relative_path: &str,
+    symbol_name: &str,
+    name_path: Option<&str>,
+) -> Result<(usize, usize)> {
+    let file = project.resolve(relative_path)?;
+    let rel = project.to_relative(&file);
+    let Some(language_config) = language_for_path(&file) else {
+        bail!("unsupported file type: {}", file.display());
+    };
+    let source =
+        fs::read_to_string(&file).with_context(|| format!("failed to read {}", file.display()))?;
+    let parsed = parse_symbols(&language_config, &rel, &source, false)?;
+    let flat = flatten_symbols(parsed);
+
+    let candidate = if let Some(np) = name_path {
+        flat.into_iter()
+            .find(|sym| sym.name_path == np || sym.name == symbol_name && sym.name_path == np)
+    } else {
+        flat.into_iter().find(|sym| sym.name == symbol_name)
+    };
+
+    match candidate {
+        Some(sym) => Ok((sym.start_byte, sym.end_byte)),
+        None => bail!(
+            "symbol '{}' not found in {}",
+            name_path.unwrap_or(symbol_name),
+            relative_path
+        ),
+    }
 }
 
 pub fn find_symbol(
@@ -703,38 +858,19 @@ fn file_modified_ms(path: &Path) -> Result<u128> {
         .as_millis())
 }
 
-fn disk_index_path(project: &ProjectRoot) -> PathBuf {
-    project.as_path().join(".codelens/index/symbols-v1.json")
-}
-
-fn load_disk_index(project: &ProjectRoot) -> Result<HashMap<String, CacheEntry>> {
-    let path = disk_index_path(project);
-    if !path.is_file() {
-        return Ok(HashMap::new());
+fn str_to_kind(s: &str) -> SymbolKind {
+    match s {
+        "class" => SymbolKind::Class,
+        "interface" => SymbolKind::Interface,
+        "enum" => SymbolKind::Enum,
+        "module" => SymbolKind::Module,
+        "method" => SymbolKind::Method,
+        "function" => SymbolKind::Function,
+        "property" => SymbolKind::Property,
+        "variable" => SymbolKind::Variable,
+        "type_alias" => SymbolKind::TypeAlias,
+        _ => SymbolKind::Unknown,
     }
-
-    let content =
-        fs::read_to_string(&path).with_context(|| format!("failed to read {}", path.display()))?;
-    let disk: DiskSymbolIndex = serde_json::from_str(&content)
-        .with_context(|| format!("failed to parse {}", path.display()))?;
-    if disk.version != 1 {
-        return Ok(HashMap::new());
-    }
-    Ok(disk.entries)
-}
-
-fn persist_disk_index(project: &ProjectRoot, entries: &HashMap<String, CacheEntry>) -> Result<()> {
-    let path = disk_index_path(project);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create {}", parent.display()))?;
-    }
-    let disk = DiskSymbolIndex {
-        version: 1,
-        entries: entries.clone(),
-    };
-    let content = serde_json::to_string_pretty(&disk)?;
-    fs::write(&path, content).with_context(|| format!("failed to write {}", path.display()))
 }
 
 fn is_excluded(path: &Path) -> bool {
@@ -974,7 +1110,7 @@ const RUBY_QUERY: &str = r#"
 
 #[cfg(test)]
 mod tests {
-    use super::{SymbolIndex, SymbolKind, find_symbol, get_symbols_overview};
+    use super::{find_symbol, get_symbols_overview, SymbolIndex, SymbolKind};
     use crate::ProjectRoot;
     use std::fs;
 
@@ -997,20 +1133,18 @@ mod tests {
             find_symbol(&project, "fetchUser", None, true, true, 10).expect("find symbol");
         assert_eq!(matches.len(), 1);
         assert_eq!(matches[0].kind, SymbolKind::Function);
-        assert!(
-            matches[0]
-                .body
-                .as_ref()
-                .expect("body")
-                .contains("return userId")
-        );
+        assert!(matches[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("return userId"));
     }
 
     #[test]
     fn index_refreshes_after_file_change() {
         let root = fixture_root();
         let project = ProjectRoot::new(&root).expect("project");
-        let mut index = SymbolIndex::new(project.clone());
+        let mut index = SymbolIndex::new_memory(project.clone());
 
         let initial = index
             .find_symbol("fetchUser", None, false, true, 10)
@@ -1027,20 +1161,18 @@ mod tests {
             .find_symbol("loadUser", None, true, true, 10)
             .expect("refreshed symbol lookup");
         assert_eq!(refreshed.len(), 1);
-        assert!(
-            refreshed[0]
-                .body
-                .as_ref()
-                .expect("body")
-                .contains("loadUser")
-        );
+        assert!(refreshed[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("loadUser"));
     }
 
     #[test]
     fn refresh_all_populates_stats() {
         let root = fixture_root();
         let project = ProjectRoot::new(&root).expect("project");
-        let mut index = SymbolIndex::new(project);
+        let mut index = SymbolIndex::new_memory(project);
         let stats = index.refresh_all().expect("refresh all");
         assert_eq!(stats.supported_files, 2);
         assert_eq!(stats.indexed_files, 2);
@@ -1051,6 +1183,7 @@ mod tests {
     fn reloads_index_from_disk() {
         let root = fixture_root();
         let project = ProjectRoot::new(&root).expect("project");
+        // Use real disk-backed SymbolIndex for persistence test
         let mut index = SymbolIndex::new(project.clone());
         index.refresh_all().expect("refresh all");
 
@@ -1063,7 +1196,7 @@ mod tests {
     fn ranked_context_prefers_exact_matches_and_respects_budget() {
         let root = fixture_root();
         let project = ProjectRoot::new(&root).expect("project");
-        let mut index = SymbolIndex::new(project);
+        let mut index = SymbolIndex::new_memory(project);
 
         let ranked = index
             .get_ranked_context("fetchUser", None, 40, true, 2)
@@ -1074,13 +1207,11 @@ mod tests {
         assert!(!ranked.symbols.is_empty());
         assert_eq!(ranked.symbols[0].name, "fetchUser");
         assert_eq!(ranked.symbols[0].relevance_score, 100);
-        assert!(
-            ranked.symbols[0]
-                .body
-                .as_ref()
-                .expect("body")
-                .contains("fetchUser")
-        );
+        assert!(ranked.symbols[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("fetchUser"));
         assert!(ranked.chars_used <= ranked.token_budget * 4);
     }
 

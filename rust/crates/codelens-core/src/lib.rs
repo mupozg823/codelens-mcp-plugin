@@ -1,16 +1,22 @@
+pub mod db;
 pub mod file_ops;
+pub mod git;
 pub mod import_graph;
 pub mod lsp;
 pub mod project;
 pub mod symbols;
 
+pub use db::{IndexDb, NewImport, NewSymbol, content_hash, index_db_path};
 pub use file_ops::{
-    DirectoryEntry, FileMatch, FileReadResult, PatternMatch, find_files, list_dir, read_file,
-    search_for_pattern,
+    DirectoryEntry, FileMatch, FileReadResult, PatternMatch, create_text_file, delete_lines,
+    find_files, insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file,
+    replace_content, replace_lines, replace_symbol_body, search_for_pattern,
 };
+pub use git::{ChangedFile, DiffSymbol, DiffSymbolEntry, get_changed_files, get_diff_symbols};
 pub use import_graph::{
-    BlastRadiusEntry, DeadCodeEntry, ImportanceEntry, ImporterEntry, find_dead_code,
-    get_blast_radius, get_importance, get_importers, supports_import_graph,
+    BlastRadiusEntry, DeadCodeEntry, ImportanceEntry, ImporterEntry, extract_imports_for_file,
+    find_dead_code, get_blast_radius, get_importance, get_importers, resolve_module_for_file,
+    supports_import_graph,
 };
 pub use lsp::{
     LspDiagnostic, LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest,
@@ -21,5 +27,5 @@ pub use lsp::{
 pub use project::ProjectRoot;
 pub use symbols::{
     IndexStats, RankedContextEntry, RankedContextResult, SymbolIndex, SymbolInfo, SymbolKind,
-    find_symbol, get_symbols_overview,
+    find_symbol, find_symbol_range, get_symbols_overview,
 };
