@@ -355,6 +355,40 @@ class SerenaCompatServer(private val project: Project) : com.intellij.openapi.Di
             }
             mapOf("status" to "ok")
         })
+
+        // MCP Streamable HTTP endpoint
+        val mcpHandler = McpProtocolHandler(project)
+        httpServer.createContext("/mcp", McpHttpHandler(project, mcpHandler))
+    }
+
+    private class McpHttpHandler(
+        private val project: Project,
+        private val handler: McpProtocolHandler
+    ) : HttpHandler {
+        private val logger = Logger.getInstance(McpHttpHandler::class.java)
+
+        override fun handle(exchange: HttpExchange) {
+            try {
+                if (exchange.requestMethod.uppercase() != "POST") {
+                    exchange.sendResponseHeaders(405, -1)
+                    return
+                }
+                val requestBody = exchange.requestBody.readAllBytes().toString(StandardCharsets.UTF_8)
+                val responseBody = handler.handleRequest(requestBody)
+
+                if (responseBody.isEmpty()) {
+                    exchange.sendResponseHeaders(204, -1)
+                } else {
+                    val bytes = responseBody.toByteArray(StandardCharsets.UTF_8)
+                    exchange.responseHeaders.add("Content-Type", "application/json")
+                    exchange.sendResponseHeaders(200, bytes.size.toLong())
+                    exchange.responseBody.use { it.write(bytes) }
+                }
+            } catch (e: Exception) {
+                logger.warn("MCP HTTP handler error", e)
+                exchange.sendResponseHeaders(500, -1)
+            }
+        }
     }
 
     private class JsonHandler(
