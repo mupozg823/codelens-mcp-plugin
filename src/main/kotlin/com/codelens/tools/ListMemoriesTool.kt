@@ -4,6 +4,7 @@ import com.intellij.openapi.project.Project
 
 class ListMemoriesTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "list_memories"
 
     override val description = """

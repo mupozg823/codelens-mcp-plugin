@@ -18,6 +18,7 @@ import java.nio.file.Path
  */
 class GetCurrentConfigTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "get_current_config"
 
     override val description = """

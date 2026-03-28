@@ -1,0 +1,4 @@
+<idea-plugin>
+    <!-- Groovy language support is loaded when org.intellij.groovy is present -->
+    <!-- GroovyLanguageAdapter is instantiated directly by SymbolServiceImpl via tryLoadAdapter -->
+</idea-plugin>

@@ -43,6 +43,8 @@ object ToolRegistry {
             // Phase 1.5: Advanced code structure analysis
             TypeHierarchyTool(),
             JetBrainsTypeHierarchyTool(),
+            CallHierarchyTool(),
+            GetRankedContextTool(),
             FindReferencingCodeSnippetsTool(),
 
             // Phase 2: Symbol-level modifications
@@ -65,6 +67,8 @@ object ToolRegistry {
             ListDirectoryTreeTool(),
             OpenFileInEditorTool(),
             GetRepositoriesTool(),
+            GetDiffSymbolsTool(),
+            GetChangedFilesTool(),
 
             // Phase 4: File operations (write)
             CreateTextFileTool(),
@@ -80,7 +84,18 @@ object ToolRegistry {
 
             // Phase 7: Multi-project query
             ListQueryableProjectsTool(),
-            QueryProjectTool()
+            QueryProjectTool(),
+
+            // Phase 7: Import graph analysis
+            FindImportersTool(),
+            GetBlastRadiusTool(),
+            GetSymbolImportanceTool(),
+            FindDeadCodeTool(),
+
+            // Phase 8: Analysis tools
+            GetComplexityTool(),
+            FindTestsTool(),
+            FindAnnotationsTool()
         )
     }
 
@@ -92,12 +107,18 @@ object ToolRegistry {
      * Generate the MCP tools/list response payload.
      */
     fun toMcpToolsList(): List<Map<String, Any>> {
-        return tools.map { tool ->
-            mapOf(
-                "name" to tool.toolName,
-                "description" to tool.description,
-                "inputSchema" to tool.inputSchema
-            )
-        }
+        val settings = try {
+            com.codelens.plugin.CodeLensSettings.getInstance()
+        } catch (_: Exception) { null }
+
+        return tools
+            .filter { settings?.isToolEnabled(it.toolName) != false }
+            .map { tool ->
+                mapOf(
+                    "name" to tool.toolName,
+                    "description" to tool.description,
+                    "inputSchema" to tool.inputSchema
+                )
+            }
     }
 }

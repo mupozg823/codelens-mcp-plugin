@@ -90,6 +90,12 @@ class CodeLensAgentSession(
             return
         }
 
+        // Check if tool is disabled in settings
+        if (!com.codelens.plugin.CodeLensSettings.getInstance().isToolEnabled(toolName)) {
+            send(emitAgentMessage("Tool '$toolName' is disabled in CodeLens settings."))
+            return
+        }
+
         val toolCallId = ToolCallId(UUID.randomUUID().toString())
 
         // Emit tool call start
@@ -156,14 +162,16 @@ class CodeLensAgentSession(
     }
 
     private suspend fun kotlinx.coroutines.channels.ProducerScope<Event>.handleGeneralPrompt(prompt: String) {
-        val toolsList = ToolRegistry.tools.joinToString("\n") { tool ->
+        val settings = com.codelens.plugin.CodeLensSettings.getInstance()
+        val enabledTools = ToolRegistry.tools.filter { settings.isToolEnabled(it.toolName) }
+        val toolsList = enabledTools.joinToString("\n") { tool ->
             "  - **${tool.toolName}**: ${tool.description.lines().first()}"
         }
 
         val response = buildString {
             appendLine("# CodeLens — PSI-Powered Code Intelligence")
             appendLine()
-            appendLine("CodeLens provides ${ToolRegistry.tools.size} tools for symbol-level code analysis and editing.")
+            appendLine("CodeLens provides ${enabledTools.size} tools for symbol-level code analysis and editing.")
             appendLine()
             appendLine("## Available Tools")
             appendLine(toolsList)
@@ -187,7 +195,9 @@ class CodeLensAgentSession(
     }
 
     private fun listToolNames(): String {
-        return ToolRegistry.tools.joinToString(", ") { it.toolName }
+        val settings = com.codelens.plugin.CodeLensSettings.getInstance()
+        return ToolRegistry.tools.filter { settings.isToolEnabled(it.toolName) }
+            .joinToString(", ") { it.toolName }
     }
 
     private fun parseArgsJson(json: String): Map<String, Any?> {

@@ -4,6 +4,7 @@ import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 class FindFileTool : BaseMcpTool() {
+    override val requiresPsiSync: Boolean = false
     override val toolName = "find_file"
     override val description = "Find files matching a wildcard pattern within the project or specified directory"
     override val inputSchema = mapOf(

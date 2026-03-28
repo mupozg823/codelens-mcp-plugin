@@ -14,7 +14,9 @@ data class SymbolInfo(
     val namePath: String? = null,
     val body: String? = null,
     val children: List<SymbolInfo> = emptyList(),
-    val documentation: String? = null
+    val documentation: String? = null,
+    /** Stable ID: {filePath}#{kind}:{namePath}. Null for non-indexed backends. */
+    val id: String? = null
 ) {
     fun toMap(): Map<String, Any?> = buildMap {
         put("name", name)
@@ -23,6 +25,7 @@ data class SymbolInfo(
         put("line", line)
         put("column", column)
         put("signature", signature)
+        if (id != null) put("id", id)
         if (namePath != null) put("name_path", namePath)
         if (body != null) put("body", body)
         if (children.isNotEmpty()) put("children", children.map { it.toMap() })

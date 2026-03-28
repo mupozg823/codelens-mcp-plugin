@@ -5,6 +5,7 @@ import java.io.File
 
 class ListDirectoryTreeTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "list_directory_tree"
 
     override val description = "List directory structure in a hierarchical tree format."

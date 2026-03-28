@@ -4,6 +4,7 @@ import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 class ReadFileTool : BaseMcpTool() {
+    override val requiresPsiSync: Boolean = false
     override val toolName = "read_file"
     override val description = "Read the contents of a file with optional line range"
     override val inputSchema = mapOf(

@@ -3,14 +3,16 @@ package com.codelens.services
 import com.codelens.model.SymbolInfo
 import com.codelens.model.SymbolKind
 import com.codelens.util.PsiUtils
-import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.application.readAction
 import com.intellij.openapi.project.DumbService
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.vfs.VfsUtil
 import com.intellij.psi.PsiManager
 import com.intellij.psi.PsiNamedElement
+import com.codelens.tools.SharedContract
 import com.intellij.psi.search.FilenameIndex
 import com.intellij.psi.search.GlobalSearchScope
+import kotlinx.coroutines.runBlocking
 
 class SymbolServiceImpl(private val project: Project) : SymbolService {
 
@@ -20,7 +22,10 @@ class SymbolServiceImpl(private val project: Project) : SymbolService {
             tryLoadAdapter { JavaLanguageAdapter() }?.let { add(it) }
             tryLoadAdapter { KotlinLanguageAdapter() }?.let { add(it) }
             tryLoadAdapter { JavaScriptLanguageAdapter() }?.let { add(it) }
-            // Additional language adapters can be added in optional modules later.
+            tryLoadAdapter { GroovyLanguageAdapter() }?.let { add(it) }
+            tryLoadAdapter { ShellLanguageAdapter() }?.let { add(it) }
+            // Python: reflection-based, no compile dependency on PythonCore
+            add(PythonLanguageAdapter())
             // Generic adapter is always available as fallback
             add(GenericLanguageAdapter())
         }
@@ -39,10 +44,9 @@ class SymbolServiceImpl(private val project: Project) : SymbolService {
     }
 
     override fun getSymbolsOverview(path: String, depth: Int): List<SymbolInfo> {
-        return DumbService.getInstance(project).runReadActionInSmartMode<List<SymbolInfo>> {
+        return smartRead {
             val resolvedPath = resolvePath(path)
-            val virtualFile = PsiUtils.resolveVirtualFile(resolvedPath)
-                ?: return@runReadActionInSmartMode emptyList()
+            val virtualFile = PsiUtils.resolveVirtualFile(resolvedPath) ?: return@smartRead emptyList()
 
             if (virtualFile.isDirectory) {
                 getDirectorySymbols(virtualFile, depth)
@@ -104,7 +108,7 @@ class SymbolServiceImpl(private val project: Project) : SymbolService {
         includeBody: Boolean,
         exactMatch: Boolean
     ): List<SymbolInfo> {
-        return DumbService.getInstance(project).runReadActionInSmartMode<List<SymbolInfo>> {
+        return smartRead {
             if (filePath != null) {
                 findSymbolInFile(name, resolvePath(filePath), includeBody, exactMatch)
             } else {
@@ -146,13 +150,10 @@ class SymbolServiceImpl(private val project: Project) : SymbolService {
         val scope = GlobalSearchScope.projectScope(project)
         val results = mutableListOf<SymbolInfo>()
 
-        // Search through all project files
-        // Note: For better performance, consider using GotoSymbolContributor
-        val files = FilenameIndex.getAllFilesByExt(project, "java", scope) +
-            FilenameIndex.getAllFilesByExt(project, "kt", scope) +
-            FilenameIndex.getAllFilesByExt(project, "py", scope) +
-            FilenameIndex.getAllFilesByExt(project, "js", scope) +
-            FilenameIndex.getAllFilesByExt(project, "ts", scope)
+        // Search through all project files with searchable extensions from contract
+        val files = SEARCHABLE_CODE_EXTENSIONS.flatMap { ext ->
+            FilenameIndex.getAllFilesByExt(project, ext, scope)
+        }
 
         for (file in files) {
             val psiFile = PsiManager.getInstance(project).findFile(file) ?: continue
@@ -188,5 +189,20 @@ class SymbolServiceImpl(private val project: Project) : SymbolService {
         if (path.startsWith("/")) return path
         val basePath = project.basePath ?: return path
         return "$basePath/$path"
+    }
+
+    /**
+     * Non-deprecated ReadAction that waits for smart mode.
+     * Replaces DumbService.runReadActionInSmartMode (deprecated in 2026.1).
+     */
+    private fun <T> smartRead(action: () -> T): T {
+        DumbService.getInstance(project).waitForSmartMode()
+        return runBlocking { readAction { action() } }
+    }
+
+    companion object {
+        private val SEARCHABLE_CODE_EXTENSIONS = SharedContract.workspaceSearchableExtensions.filter { ext ->
+            ext !in setOf("xml", "json", "yaml", "yml", "toml", "md", "txt", "sql", "html", "css", "scss", "less")
+        }
     }
 }

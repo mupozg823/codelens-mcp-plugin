@@ -12,6 +12,7 @@ import com.intellij.openapi.project.Project
  */
 class ThinkAboutTaskAdherenceTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "think_about_task_adherence"
 
     override val description = """

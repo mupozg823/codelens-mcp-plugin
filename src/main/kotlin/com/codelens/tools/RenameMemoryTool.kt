@@ -8,6 +8,7 @@ import java.nio.file.Files
 
 class RenameMemoryTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "rename_memory"
 
     override val description = "Rename a Serena memory entry, moving the file to a new name/topic."

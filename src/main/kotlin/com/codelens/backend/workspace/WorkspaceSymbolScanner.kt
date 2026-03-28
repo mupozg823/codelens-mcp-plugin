@@ -359,6 +359,15 @@ internal class WorkspaceSymbolScanner(private val projectRoot: Path) {
 
     private fun parseFile(path: Path, includeBodies: Boolean): List<ParsedSymbol> {
         val lines = runCatching { path.readLines() }.getOrNull() ?: return emptyList()
+        return when (scopeStrategyFor(path)) {
+            ScopeStrategy.INDENT -> parseFileIndentScoped(lines, path, includeBodies)
+            ScopeStrategy.END_KEYWORD -> parseFileEndKeywordScoped(lines, path, includeBodies)
+            ScopeStrategy.BRACE -> parseFileBraceScoped(lines, path, includeBodies)
+        }
+    }
+
+    /** Brace-based scope tracking (Java, Kotlin, JS/TS, Go, Rust, Swift, C/C++, etc.) */
+    private fun parseFileBraceScoped(lines: List<String>, path: Path, includeBodies: Boolean): List<ParsedSymbol> {
         val roots = mutableListOf<ParsedSymbol>()
         val scopes = ArrayDeque<Scope>()
         var braceDepth = 0
@@ -392,6 +401,99 @@ internal class WorkspaceSymbolScanner(private val projectRoot: Path) {
         return roots
     }
 
+    /** Indentation-based scope tracking (Python) */
+    private fun parseFileIndentScoped(lines: List<String>, path: Path, includeBodies: Boolean): List<ParsedSymbol> {
+        val roots = mutableListOf<ParsedSymbol>()
+        val scopes = ArrayDeque<IndentScope>()
+
+        for ((index, line) in lines.withIndex()) {
+            val stripped = line.trimEnd()
+            if (stripped.isBlank() || stripped.startsWith("#")) continue
+
+            val indent = line.length - line.trimStart().length
+
+            // Pop scopes whose indent level is >= current line's indent
+            while (scopes.isNotEmpty() && scopes.last().indentLevel >= indent) {
+                scopes.removeLast().symbol.endLine = findLastNonBlankLine(lines, index - 1) + 1
+            }
+
+            val declaration = parseDeclaration(line, path, index, lines, includeBodies)
+            if (declaration != null) {
+                val symbol = declaration.symbol
+                val parent = scopes.lastOrNull()?.symbol
+                symbol.namePath = if (parent != null) "${parent.namePath}/${symbol.name}" else symbol.name
+                if (parent != null) {
+                    parent.children.add(symbol)
+                } else {
+                    roots.add(symbol)
+                }
+                // Python class/def opens scope if line ends with ':'
+                if (stripped.endsWith(":")) {
+                    scopes.addLast(IndentScope(symbol, indent))
+                }
+            }
+        }
+
+        while (scopes.isNotEmpty()) {
+            scopes.removeLast().symbol.endLine = lines.size
+        }
+
+        return roots
+    }
+
+    /** End-keyword scope tracking (Ruby) */
+    private fun parseFileEndKeywordScoped(lines: List<String>, path: Path, includeBodies: Boolean): List<ParsedSymbol> {
+        val roots = mutableListOf<ParsedSymbol>()
+        val scopes = ArrayDeque<Scope>()
+        var endKeywordDepth = 0
+
+        for ((index, line) in lines.withIndex()) {
+            val trimmed = line.trimStart()
+
+            // Count scope openers (only at statement level, not in strings)
+            if (RUBY_SCOPE_OPENER.containsMatchIn(trimmed)) {
+                endKeywordDepth++
+            }
+
+            val declaration = parseDeclaration(line, path, index, lines, includeBodies)
+            if (declaration != null) {
+                val symbol = declaration.symbol
+                val parent = scopes.lastOrNull()?.symbol
+                symbol.namePath = if (parent != null) "${parent.namePath}/${symbol.name}" else symbol.name
+                if (parent != null) {
+                    parent.children.add(symbol)
+                } else {
+                    roots.add(symbol)
+                }
+                // Ruby class/module/def always open a scope
+                if (trimmed.startsWith("class ") || trimmed.startsWith("module ") || trimmed.startsWith("def ")) {
+                    scopes.addLast(Scope(symbol, endKeywordDepth))
+                }
+            }
+
+            // Count 'end' keywords
+            if (trimmed == "end" || trimmed.startsWith("end ") || trimmed.startsWith("end;")) {
+                endKeywordDepth--
+                while (scopes.isNotEmpty() && scopes.last().targetDepth > endKeywordDepth) {
+                    scopes.removeLast().symbol.endLine = index + 1
+                }
+            }
+        }
+
+        while (scopes.isNotEmpty()) {
+            scopes.removeLast().symbol.endLine = lines.size
+        }
+
+        return roots
+    }
+
+    private fun findLastNonBlankLine(lines: List<String>, fromIndex: Int): Int {
+        for (i in fromIndex downTo 0) {
+            if (lines[i].isNotBlank()) return i
+        }
+        return fromIndex
+    }
+
     private fun parseDeclaration(
         line: String,
         path: Path,
@@ -414,6 +516,25 @@ internal class WorkspaceSymbolScanner(private val projectRoot: Path) {
                 filePath = relativize(path),
                 line = index + 1,
                 column = classMatch.range.first + 1,
+                signature = line.trim(),
+                startLine = index + 1,
+                endLine = index + 1,
+                body = if (includeBodies) extractBody(lines, index) else null
+            )
+            return ParsedDeclaration(symbol, opensScope = line.contains('{'))
+        }
+
+        // Go: type Name struct/interface (reversed group order: group1=name, group2=kind)
+        val goTypeMatch = GO_TYPE_REGEX.find(line)
+        if (goTypeMatch != null) {
+            val name = goTypeMatch.groups[1]?.value ?: return null
+            val kind = classKindFor(goTypeMatch.groups[2]?.value.orEmpty())
+            val symbol = ParsedSymbol(
+                name = name,
+                kind = kind,
+                filePath = relativize(path),
+                line = index + 1,
+                column = goTypeMatch.range.first + 1,
                 signature = line.trim(),
                 startLine = index + 1,
                 endLine = index + 1,
@@ -462,7 +583,17 @@ internal class WorkspaceSymbolScanner(private val projectRoot: Path) {
 
     private fun extractBody(lines: List<String>, startIndex: Int): String {
         val startLine = lines[startIndex]
+
+        // Python/Ruby: indent or end-keyword based body
+        if (startLine.trimEnd().endsWith(":")) {
+            return extractIndentBody(lines, startIndex)
+        }
+
         if (!startLine.contains('{')) {
+            // Ruby: def method_name / class Name without braces
+            if (startLine.trimStart().let { it.startsWith("def ") || it.startsWith("class ") || it.startsWith("module ") }) {
+                return extractEndKeywordBody(lines, startIndex)
+            }
             return startLine.trim()
         }
 
@@ -476,6 +607,36 @@ internal class WorkspaceSymbolScanner(private val projectRoot: Path) {
             }
         }
 
+        return lines.subList(startIndex, lines.size).joinToString("\n")
+    }
+
+    /** Extract body for Python (indentation-based) */
+    private fun extractIndentBody(lines: List<String>, startIndex: Int): String {
+        val baseIndent = lines[startIndex].length - lines[startIndex].trimStart().length
+        for (lineIndex in (startIndex + 1) until lines.size) {
+            val line = lines[lineIndex]
+            if (line.isBlank()) continue
+            val indent = line.length - line.trimStart().length
+            if (indent <= baseIndent) {
+                return lines.subList(startIndex, lineIndex).joinToString("\n")
+            }
+        }
+        return lines.subList(startIndex, lines.size).joinToString("\n")
+    }
+
+    /** Extract body for Ruby (end-keyword based) */
+    private fun extractEndKeywordBody(lines: List<String>, startIndex: Int): String {
+        var depth = 1
+        for (lineIndex in (startIndex + 1) until lines.size) {
+            val trimmed = lines[lineIndex].trimStart()
+            if (RUBY_SCOPE_OPENER.containsMatchIn(trimmed)) depth++
+            if (trimmed == "end" || trimmed.startsWith("end ") || trimmed.startsWith("end;")) {
+                depth--
+                if (depth <= 0) {
+                    return lines.subList(startIndex, lineIndex + 1).joinToString("\n")
+                }
+            }
+        }
         return lines.subList(startIndex, lines.size).joinToString("\n")
     }
 
@@ -548,6 +709,9 @@ internal class WorkspaceSymbolScanner(private val projectRoot: Path) {
         "enum", "enum class" -> SymbolKind.ENUM
         "object" -> SymbolKind.OBJECT
         "annotation class" -> SymbolKind.ANNOTATION
+        "trait", "protocol" -> SymbolKind.INTERFACE
+        "namespace", "module" -> SymbolKind.MODULE
+        "struct", "union", "record" -> SymbolKind.CLASS
         else -> SymbolKind.CLASS
     }
 
@@ -631,7 +795,16 @@ internal class WorkspaceSymbolScanner(private val projectRoot: Path) {
         return path.extension in SEARCHABLE_EXTENSIONS
     }
 
+    private enum class ScopeStrategy { BRACE, INDENT, END_KEYWORD }
+
+    private fun scopeStrategyFor(path: Path): ScopeStrategy = when (path.extension) {
+        "py" -> ScopeStrategy.INDENT
+        "rb" -> ScopeStrategy.END_KEYWORD
+        else -> ScopeStrategy.BRACE
+    }
+
     private data class Scope(val symbol: ParsedSymbol, val targetDepth: Int)
+    private data class IndentScope(val symbol: ParsedSymbol, val indentLevel: Int)
 
     private data class ParsedDeclaration(val symbol: ParsedSymbol, val opensScope: Boolean)
 
@@ -672,24 +845,79 @@ internal class WorkspaceSymbolScanner(private val projectRoot: Path) {
 
     private companion object {
         private val CLASS_REGEXES = listOf(
+            // Kotlin/Java core
             Regex("""^\s*(enum\s+class|annotation\s+class|class|interface|object)\s+([A-Za-z_][A-Za-z0-9_]*)\b"""),
-            Regex("""^\s*(?:public|private|protected|internal|abstract|final|open|sealed|data|static|export|default|actual|expect|non-sealed)\s+(class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)\b""")
+            Regex("""^\s*(?:public|private|protected|internal|abstract|final|open|sealed|data|static|export|default|actual|expect|non-sealed)\s+(class|interface|enum|record)\s+([A-Za-z_][A-Za-z0-9_]*)\b"""),
+            // Rust: [pub] struct/enum/trait Name
+            Regex("""^\s*(?:pub(?:\([^)]*\))?\s+)?(struct|enum|trait)\s+([A-Za-z_][A-Za-z0-9_]*)\b"""),
+            // Swift: [mods] struct/protocol Name
+            Regex("""^\s*(?:public|private|internal|open|final|\s)*(struct|protocol)\s+([A-Za-z_][A-Za-z0-9_]*)\b"""),
+            // C#: [mods] namespace/struct Name
+            Regex("""^\s*(?:public|private|protected|internal|static|sealed|partial|\s)*(namespace|struct)\s+([A-Za-z_][A-Za-z0-9_.]*)\b"""),
+            // Scala: [mods] trait Name / case class Name
+            Regex("""^\s*(?:sealed|abstract|final|\s)*(trait)\s+([A-Za-z_][A-Za-z0-9_]*)\b"""),
+            Regex("""^\s*(?:sealed|abstract|final|\s)*case\s+(class)\s+([A-Za-z_][A-Za-z0-9_]*)\b"""),
+            // C/C++: [typedef] struct/union Name {
+            Regex("""^\s*(?:typedef\s+)?(struct|union)\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{"""),
+            // PHP: trait Name
+            Regex("""^\s*(?:abstract\s+)?(?:final\s+)?(trait)\s+([A-Za-z_][A-Za-z0-9_]*)\b"""),
+            // Ruby: module Name
+            Regex("""^\s*(module)\s+([A-Za-z_][A-Za-z0-9_:]*)\b""")
         )
+        // Go: type Name struct/interface — reversed group order (group1=name, group2=kind)
+        private val GO_TYPE_REGEX = Regex("""^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\s+(struct|interface)\b""")
         private val FUNCTION_REGEXES = listOf(
+            // Kotlin: fun name(
             Regex("""^\s*(?:public|private|protected|internal|open|abstract|override|suspend|inline|operator|tailrec|external|infix|actual|expect|\s)*fun\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("""),
+            // JS/TS: function name(
             Regex("""^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("""),
+            // JS/TS: const name = (...) =>
             Regex("""^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(?:async\s*)?\([^)]*\)\s*=>"""),
-            Regex("""^\s*(?:public|private|protected|static|final|abstract|synchronized|native|default|async|\s)+(?:<[^>]+>\s*)?(?:[A-Za-z_][\w<>\[\],.?]*\s+)+([A-Za-z_][A-Za-z0-9_]*)\s*\([^;=]*\)\s*\{?""")
+            // Java: [modifiers] ReturnType name(
+            Regex("""^\s*(?:public|private|protected|static|final|abstract|synchronized|native|default|async|\s)+(?:<[^>]+>\s*)?(?:[A-Za-z_][\w<>\[\],.?]*\s+)+([A-Za-z_][A-Za-z0-9_]*)\s*\([^;=]*\)\s*\{?"""),
+            // Python: [async] def name(
+            Regex("""^\s*(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("""),
+            // Go: func [receiver] name(
+            Regex("""^\s*func\s+(?:\([^)]*\)\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\("""),
+            // Rust: [pub] [async] [unsafe] [const] fn name
+            Regex("""^\s*(?:pub(?:\([^)]*\))?\s+)?(?:async\s+)?(?:unsafe\s+)?(?:const\s+)?fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*[<(]"""),
+            // Swift: [modifiers] func name
+            Regex("""^\s*(?:public|private|internal|open|static|class|override|mutating|\s)*func\s+([A-Za-z_][A-Za-z0-9_]*)\s*[<(]"""),
+            // Scala/Groovy: [modifiers] def name
+            Regex("""^\s*(?:override\s+)?(?:private|protected|\s)*def\s+([A-Za-z_][A-Za-z0-9_]*)\s*[(\[:]"""),
+            // Shell: function name() { / name() {
+            Regex("""^\s*function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(?\)?\s*\{"""),
+            Regex("""^([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{"""),
+            // Ruby: def [self.]name
+            Regex("""^\s*def\s+(?:self\.)?([A-Za-z_][A-Za-z0-9_?!]*)\b""")
         )
         private val PROPERTY_REGEXES = listOf(
+            // Kotlin: val/var name
             Regex("""^\s*(?:public|private|protected|internal|override|lateinit|const|open|final|actual|expect|\s)*(val|var)\s+([A-Za-z_][A-Za-z0-9_]*)\b"""),
+            // JS/TS: const/let/var name =
             Regex("""^\s*(?:export\s+)?(const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*="""),
-            Regex("""^\s*((?:public|private|protected|static|final|transient|volatile|\s)+(?:[A-Za-z_][\w<>\[\],.?]*\s+)+)([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|;)""")
+            // Java: [modifiers] Type name = / ;
+            Regex("""^\s*((?:public|private|protected|static|final|transient|volatile|\s)+(?:[A-Za-z_][\w<>\[\],.?]*\s+)+)([A-Za-z_][A-Za-z0-9_]*)\s*(?:=|;)"""),
+            // Swift: [modifiers] let name
+            Regex("""^\s*(?:public|private|internal|static|\s)*(let)\s+([A-Za-z_][A-Za-z0-9_]*)\b"""),
+            // Rust: [pub] let/const/static [mut] name
+            Regex("""^\s*(?:pub(?:\([^)]*\))?\s+)?(let|const|static)\s+(?:mut\s+)?([A-Za-z_][A-Za-z0-9_]*)\b"""),
+            // Go: var/const name
+            Regex("""^\s*(var|const)\s+([A-Za-z_][A-Za-z0-9_]*)\s""")
         )
-        private val RESERVED_WORDS = setOf("if", "for", "while", "switch", "catch", "when")
+        private val RESERVED_WORDS = setOf(
+            "if", "for", "while", "switch", "catch", "when",
+            "elif", "else", "except", "finally", "unless", "until",
+            "yield", "assert", "del", "print", "exec"
+        )
         private val STATEMENT_PREFIXES = setOf(
-            "return ", "throw ", "new ", "if ", "for ", "while ", "switch ", "catch ", "when "
+            "return ", "throw ", "new ", "if ", "for ", "while ", "switch ", "catch ", "when ",
+            "import ", "from ", "require ", "include ", "use ", "#include ", "#define ",
+            "raise ", "yield ", "assert ", "package ", "defer ", "go ", "del ",
+            "puts ", "print ", "println ", "echo ", "printf "
         )
+        // Ruby scope openers (class, module, def, do, begin, if/unless/while/until at statement level)
+        private val RUBY_SCOPE_OPENER = Regex("""^\s*(?:class|module|def|do|begin|if|unless|while|until|case|for)\b""")
         private val SEARCHABLE_EXTENSIONS = SharedContract.workspaceSearchableExtensions
         private val IDENTIFIER_REGEX = Regex("""[A-Za-z_][A-Za-z0-9_]*""")
         private val PACKAGE_REGEX = Regex("""^\s*package\s+([A-Za-z_][\w.]*)""")

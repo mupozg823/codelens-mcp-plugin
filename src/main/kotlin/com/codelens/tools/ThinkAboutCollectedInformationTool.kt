@@ -12,6 +12,7 @@ import com.intellij.openapi.project.Project
  */
 class ThinkAboutCollectedInformationTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "think_about_collected_information"
 
     override val description = """

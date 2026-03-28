@@ -4,6 +4,7 @@ import com.codelens.backend.CodeLensBackendProvider
 import com.intellij.openapi.project.Project
 
 class ListDirTool : BaseMcpTool() {
+    override val requiresPsiSync: Boolean = false
     override val toolName = "list_dir"
     override val description = "List contents of a directory with optional recursive traversal"
     override val inputSchema = mapOf(

@@ -47,9 +47,12 @@ abstract class BaseMcpTool {
     /**
      * Helper: extract a required string argument.
      */
+    /** Whether this tool requires PSI to be synced before execution. Override to false for non-PSI tools. */
+    open val requiresPsiSync: Boolean = true
+
     protected fun requireString(args: Map<String, Any?>, key: String): String {
         return args[key]?.toString()
-            ?: throw IllegalArgumentException("Missing required parameter: $key")
+            ?: throw McpException.InvalidParams("Missing required parameter: $key")
     }
 
     /**

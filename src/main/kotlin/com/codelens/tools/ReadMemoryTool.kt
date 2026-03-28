@@ -5,6 +5,7 @@ import java.nio.file.Files
 
 class ReadMemoryTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "read_memory"
 
     override val description = "Read a Serena-compatible markdown memory from .serena/memories."

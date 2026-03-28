@@ -8,6 +8,7 @@ import java.nio.file.Files
 
 class DeleteMemoryTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "delete_memory"
 
     override val description = "Delete a Serena-compatible markdown memory from .serena/memories."

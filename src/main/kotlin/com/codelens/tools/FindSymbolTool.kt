@@ -30,6 +30,10 @@ class FindSymbolTool : BaseMcpTool() {
                 "type" to "string",
                 "description" to "Optional disambiguated name path such as Outer/helper"
             ),
+            "symbol_id" to mapOf(
+                "type" to "string",
+                "description" to "Stable symbol ID (e.g. 'src/main.py#function:UserService/find_user'). Fastest lookup."
+            ),
             "file_path" to mapOf(
                 "type" to "string",
                 "description" to "Optional: limit search to a specific file"
@@ -68,7 +72,8 @@ class FindSymbolTool : BaseMcpTool() {
     )
 
     override fun execute(args: Map<String, Any?>, project: Project): String {
-        val name = optionalString(args, "name_path") ?: requireString(args, "name")
+        val symbolId = optionalString(args, "symbol_id")
+        val name = symbolId ?: optionalString(args, "name_path") ?: requireString(args, "name")
         val filePath = optionalString(args, "file_path")
         val includeBody = optionalBoolean(args, "include_body", false)
         val substringMatching = optionalBoolean(args, "substring_matching", false)

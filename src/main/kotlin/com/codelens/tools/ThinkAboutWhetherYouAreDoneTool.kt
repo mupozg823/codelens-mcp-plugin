@@ -12,6 +12,7 @@ import com.intellij.openapi.project.Project
  */
 class ThinkAboutWhetherYouAreDoneTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "think_about_whether_you_are_done"
 
     override val description = """

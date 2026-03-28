@@ -55,6 +55,9 @@ class CodeLensStartupActivity : ProjectActivity {
             ClaudeJsonAutoConfigurator.configure(port)
         }
 
+        // Install companion skill to ~/.claude/skills/
+        CompanionSkillInstaller.install()
+
         logger.info("CodeLens MCP plugin initialized successfully")
     }
 }

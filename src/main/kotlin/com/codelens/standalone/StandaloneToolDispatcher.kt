@@ -1,6 +1,9 @@
 package com.codelens.standalone
 
+import com.codelens.backend.CodeLensBackend
+import com.codelens.backend.treesitter.TreeSitterBackend
 import com.codelens.backend.workspace.WorkspaceCodeLensBackend
+import com.codelens.model.SymbolInfo
 import com.codelens.services.RenameScope
 import com.codelens.util.JsonBuilder
 import java.nio.file.Files
@@ -17,7 +20,11 @@ import java.nio.file.Path
  */
 class StandaloneToolDispatcher(private val projectRoot: Path) {
 
-    private val backend = WorkspaceCodeLensBackend(projectRoot)
+    private val backend: CodeLensBackend = try {
+        TreeSitterBackend(projectRoot)
+    } catch (_: UnsatisfiedLinkError) {
+        WorkspaceCodeLensBackend(projectRoot) // JNI load failure → regex fallback
+    }
     private val memoriesDir: Path get() = projectRoot.resolve(".serena").resolve("memories")
 
     // ── Tool metadata ────────────────────────────────────────────────────────
@@ -44,11 +51,12 @@ class StandaloneToolDispatcher(private val projectRoot: Path) {
         ),
         ToolMeta(
             "find_symbol",
-            "Find a symbol (class, function, variable) by name across the project or in a specific file.",
+            "Find a symbol by name, name_path, or stable ID. Returns symbol metadata and optionally body.",
             schema(
                 props = mapOf(
                     "name" to strProp("Symbol name to search for"),
                     "name_path" to strProp("Optional disambiguated name path such as Outer/helper"),
+                    "symbol_id" to strProp("Stable symbol ID (e.g. 'src/main.py#function:UserService/find_user'). Fastest lookup."),
                     "file_path" to strProp("Optional: limit search to a specific file"),
                     "include_body" to boolProp("Whether to include the full source code body", false),
                     "exact_match" to boolProp("Require exact name match (false = substring match)", true),
@@ -270,6 +278,120 @@ class StandaloneToolDispatcher(private val projectRoot: Path) {
                 required = listOf("relative_path")
             )
         ),
+        // ── Token budget ─────────────────────────────────────────────────────
+        ToolMeta(
+            "get_ranked_context",
+            "Get the most relevant symbols for a query, ranked by relevance, within a token budget. " +
+                "Returns symbol signatures and optionally bodies, automatically fitting within the limit.",
+            schema(
+                props = mapOf(
+                    "query" to strProp("Search query (symbol name, concept, or pattern)"),
+                    "path" to strProp("File or directory to search in (relative to project root)"),
+                    "max_tokens" to intProp("Maximum tokens in response (~4 chars/token)", 4000),
+                    "include_body" to boolProp("Include symbol bodies (true) or signatures only (false)", false),
+                    "depth" to intProp("Symbol nesting depth", 2)
+                ),
+                required = listOf("query")
+            )
+        ),
+        // ── Import graph ─────────────────────────────────────────────────────
+        ToolMeta(
+            "find_importers",
+            "Find all files that import/require a given file (reverse dependency).",
+            schema(
+                props = mapOf(
+                    "file_path" to strProp("File path to find importers for (relative to project root)"),
+                    "max_results" to intProp("Maximum results", 50)
+                ),
+                required = listOf("file_path")
+            )
+        ),
+        ToolMeta(
+            "get_blast_radius",
+            "Get the transitive impact of changing a file — all files affected, with depth scores.",
+            schema(
+                props = mapOf(
+                    "file_path" to strProp("File path to analyze"),
+                    "max_depth" to intProp("Maximum dependency depth to traverse", 3)
+                ),
+                required = listOf("file_path")
+            )
+        ),
+        ToolMeta(
+            "get_symbol_importance",
+            "Rank files by importance using PageRank on the import graph.",
+            schema(
+                props = mapOf(
+                    "path" to strProp("Directory to analyze (default: project root)"),
+                    "top_n" to intProp("Number of top results", 20)
+                )
+            )
+        ),
+        ToolMeta(
+            "find_dead_code",
+            "Find exported symbols that are never imported or referenced by other files.",
+            schema(
+                props = mapOf(
+                    "path" to strProp("Directory to analyze"),
+                    "max_results" to intProp("Maximum results", 50)
+                )
+            )
+        ),
+        // ── Git integration ─────────────────────────────────────────────────
+        ToolMeta(
+            "get_diff_symbols",
+            "Get symbols affected by git changes — maps diff hunks to symbol-level changes.",
+            schema(
+                props = mapOf(
+                    "ref" to strProp("Git ref to diff against (default: HEAD)"),
+                    "file_path" to strProp("Limit to specific file"),
+                    "include_body" to boolProp("Include symbol bodies", false)
+                )
+            )
+        ),
+        ToolMeta(
+            "get_changed_files",
+            "List files changed in git diff with symbol counts per file.",
+            schema(
+                props = mapOf(
+                    "ref" to strProp("Git ref to diff against (default: HEAD)"),
+                    "include_untracked" to boolProp("Include untracked files", true)
+                )
+            )
+        ),
+        // ── Analysis ────────────────────────────────────────────────────────
+        ToolMeta(
+            "get_complexity",
+            "Calculate cyclomatic complexity for functions in a file.",
+            schema(
+                props = mapOf(
+                    "path" to strProp("File path to analyze"),
+                    "symbol_name" to strProp("Specific symbol to analyze (optional)")
+                ),
+                required = listOf("path")
+            )
+        ),
+        ToolMeta(
+            "find_tests",
+            "Find test functions and test files across the project.",
+            schema(
+                props = mapOf(
+                    "path" to strProp("Directory to search (default: project root)"),
+                    "max_results" to intProp("Maximum results", 100)
+                )
+            )
+        ),
+        ToolMeta(
+            "find_annotations",
+            "Find TODO, FIXME, HACK, DEPRECATED and other annotation comments.",
+            schema(
+                props = mapOf(
+                    "path" to strProp("File or directory to search"),
+                    "tags" to strProp("Comma-separated tags (default: TODO,FIXME,HACK,DEPRECATED,XXX,NOTE)"),
+                    "max_results" to intProp("Maximum results", 100)
+                )
+            )
+        ),
         // ── Memory ──────────────────────────────────────────────────────────
         ToolMeta(
             "list_memories",
@@ -401,10 +523,21 @@ class StandaloneToolDispatcher(private val projectRoot: Path) {
         )
     )
 
-    /** Return the MCP tools/list payload. */
-    fun toolsList(): List<Map<String, Any>> = tools.map { t ->
-        mapOf("name" to t.name, "description" to t.description, "inputSchema" to t.inputSchema)
+    /**
+     * Tool names disabled via .codelens/disabled-tools.txt (one per line).
+     * Reduces schema size in tools/list — each tool saves 100-400 tokens.
+     */
+    private val disabledTools: Set<String> by lazy {
+        val file = projectRoot.resolve(".codelens").resolve("disabled-tools.txt")
+        if (Files.isRegularFile(file)) {
+            Files.readAllLines(file).map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }.toSet()
+        } else emptySet()
     }
+
+    /** Return the MCP tools/list payload, excluding disabled tools. */
+    fun toolsList(): List<Map<String, Any>> = tools
+        .filter { it.name !in disabledTools }
+        .map { t -> mapOf("name" to t.name, "description" to t.description, "inputSchema" to t.inputSchema) }
 
     /** Dispatch a tool call by name and return a JSON result string. */
     fun dispatch(toolName: String, args: Map<String, Any?>): String {
@@ -425,7 +558,8 @@ class StandaloneToolDispatcher(private val projectRoot: Path) {
                 }
 
                 "find_symbol" -> {
-                    val name = optStr(args, "name_path") ?: req(args, "name")
+                    val symbolId = optStr(args, "symbol_id")
+                    val name = symbolId ?: optStr(args, "name_path") ?: req(args, "name")
                     val filePath = optStr(args, "file_path")
                     val includeBody = optBool(args, "include_body", false)
                     val substring = optBool(args, "substring_matching", false)
@@ -651,6 +785,238 @@ class StandaloneToolDispatcher(private val projectRoot: Path) {
                     }
                     file.writeText(newContent)
                     ok(mapOf("success" to true, "file_path" to path, "replacements" to replacementCount))
+                }
+
+                // ── Token budget ─────────────────────────────────────────────
+                "get_ranked_context" -> {
+                    val query = req(args, "query")
+                    val path = optStr(args, "path")
+                    val maxTokens = optInt(args, "max_tokens", 4000)
+                    val includeBody = optBool(args, "include_body", false)
+                    val depth = optInt(args, "depth", 2)
+                    val maxChars = maxTokens * 4 // ~4 chars per token approximation
+
+                    // Gather candidate symbols
+                    val allSymbols = if (path != null) {
+                        backend.getSymbolsOverview(path, depth)
+                    } else {
+                        backend.findSymbol(query, null, includeBody = false, exactMatch = false)
+                    }
+
+                    // Score and rank by relevance to query
+                    val queryLower = query.lowercase()
+                    val scored = allSymbols.flatMap { flattenSymbolInfo(it) }
+                        .map { sym ->
+                            val nameScore = when {
+                                sym.name.equals(query, ignoreCase = true) -> 100
+                                sym.name.contains(query, ignoreCase = true) -> 60
+                                sym.signature.contains(query, ignoreCase = true) -> 30
+                                sym.namePath?.contains(query, ignoreCase = true) == true -> 20
+                                else -> 0
+                            }
+                            sym to nameScore
+                        }
+                        .filter { it.second > 0 }
+                        .sortedByDescending { it.second }
+
+                    // Fit within token budget
+                    val selected = mutableListOf<Map<String, Any?>>()
+                    var charBudget = maxChars
+                    for ((sym, score) in scored) {
+                        val body = if (includeBody) {
+                            backend.findSymbol(sym.name, sym.filePath, includeBody = true, exactMatch = true)
+                                .firstOrNull()?.body
+                        } else null
+
+                        val entry = buildMap<String, Any?> {
+                            put("name", sym.name)
+                            put("kind", sym.kind.displayName)
+                            put("file", sym.filePath)
+                            put("line", sym.line)
+                            put("signature", sym.signature)
+                            if (sym.id != null) put("id", sym.id)
+                            put("relevance_score", score)
+                            if (body != null) put("body", body)
+                        }
+                        val entrySize = entry.toString().length
+                        if (charBudget - entrySize < 0 && selected.isNotEmpty()) break
+                        selected.add(entry)
+                        charBudget -= entrySize
+                    }
+
+                    ok(mapOf(
+                        "query" to query,
+                        "symbols" to selected,
+                        "count" to selected.size,
+                        "token_budget" to maxTokens,
+                        "chars_used" to (maxChars - charBudget)
+                    ))
+                }
+
+                // ── Import graph ─────────────────────────────────────────────
+                "find_importers" -> {
+                    val filePath = req(args, "file_path")
+                    val maxResults = optInt(args, "max_results", 50)
+                    val builder = com.codelens.backend.treesitter.ImportGraphBuilder()
+                    val graph = builder.buildGraph(projectRoot)
+                    val importers = builder.getImporters(graph, filePath).take(maxResults)
+                    ok(mapOf("file" to filePath, "importers" to importers, "count" to importers.size))
+                }
+
+                "get_blast_radius" -> {
+                    val filePath = req(args, "file_path")
+                    val maxDepth = optInt(args, "max_depth", 3)
+                    val builder = com.codelens.backend.treesitter.ImportGraphBuilder()
+                    val graph = builder.buildGraph(projectRoot)
+                    val radius = builder.getBlastRadius(graph, filePath, maxDepth)
+                    val sorted = radius.entries.sortedBy { it.value }.map { mapOf("file" to it.key, "depth" to it.value) }
+                    ok(mapOf("file" to filePath, "affected_files" to sorted, "count" to sorted.size))
+                }
+
+                "get_symbol_importance" -> {
+                    val topN = optInt(args, "top_n", 20)
+                    val builder = com.codelens.backend.treesitter.ImportGraphBuilder()
+                    val graph = builder.buildGraph(projectRoot)
+                    val ranks = builder.getImportance(graph)
+                    val sorted = ranks.entries.sortedByDescending { it.value }
+                        .take(topN)
+                        .map { mapOf("file" to it.key, "score" to String.format("%.4f", it.value)) }
+                    ok(mapOf("ranking" to sorted, "count" to sorted.size))
+                }
+
+                "find_dead_code" -> {
+                    val maxResults = optInt(args, "max_results", 50)
+                    val builder = com.codelens.backend.treesitter.ImportGraphBuilder()
+                    val graph = builder.buildGraph(projectRoot)
+                    val dead = builder.findDeadCode(graph, null, projectRoot).take(maxResults)
+                    ok(mapOf("dead_code" to dead, "count" to dead.size))
+                }
+
+                // ── Git integration ─────────────────────────────────────────
+                "get_diff_symbols" -> {
+                    val ref = optStr(args, "ref") ?: "HEAD"
+                    val filePath = optStr(args, "file_path")
+                    val includeBody = optBool(args, "include_body", false)
+                    val cmd = mutableListOf("git", "diff", ref, "--unified=0")
+                    if (filePath != null) cmd.addAll(listOf("--", filePath))
+                    val proc = ProcessBuilder(cmd).directory(projectRoot.toFile()).redirectErrorStream(true).start()
+                    val output = proc.inputStream.bufferedReader().readText()
+                    proc.waitFor()
+
+                    val changedSymbols = mutableListOf<Map<String, Any?>>()
+                    var currentFile: String? = null
+                    val addedRanges = mutableListOf<IntRange>()
+
+                    for (line in output.lines()) {
+                        if (line.startsWith("diff --git")) {
+                            if (currentFile != null) {
+                                changedSymbols.addAll(matchSymbolsToRanges(currentFile, addedRanges, includeBody))
+                            }
+                            currentFile = line.substringAfter(" b/")
+                            addedRanges.clear()
+                        } else if (line.startsWith("@@") && currentFile != null) {
+                            val match = Regex("""\+(\d+)(?:,(\d+))?""").find(line)
+                            if (match != null) {
+                                val start = match.groupValues[1].toInt()
+                                val count = match.groupValues[2].toIntOrNull() ?: 1
+                                if (count > 0) addedRanges.add(start..(start + count - 1))
+                            }
+                        }
+                    }
+                    if (currentFile != null) {
+                        changedSymbols.addAll(matchSymbolsToRanges(currentFile, addedRanges, includeBody))
+                    }
+
+                    ok(mapOf("ref" to ref, "symbols" to changedSymbols, "count" to changedSymbols.size))
+                }
+
+                "get_changed_files" -> {
+                    val ref = optStr(args, "ref") ?: "HEAD"
+                    val includeUntracked = optBool(args, "include_untracked", true)
+
+                    val proc = ProcessBuilder("git", "diff", ref, "--name-status")
+                        .directory(projectRoot.toFile()).redirectErrorStream(true).start()
+                    val output = proc.inputStream.bufferedReader().readText()
+                    proc.waitFor()
+
+                    val files = mutableListOf<Map<String, Any?>>()
+                    for (line in output.lines()) {
+                        if (line.isBlank()) continue
+                        val parts = line.split("\t", limit = 2)
+                        if (parts.size >= 2) {
+                            val status = parts[0].trim()
+                            val file = parts[1].trim()
+                            val symCount = runCatching { backend.getSymbolsOverview(file, 1).size }.getOrDefault(0)
+                            files.add(mapOf("file" to file, "status" to status, "symbol_count" to symCount))
+                        }
+                    }
+
+                    if (includeUntracked) {
+                        val proc2 = ProcessBuilder("git", "ls-files", "--others", "--exclude-standard")
+                            .directory(projectRoot.toFile()).redirectErrorStream(true).start()
+                        val untracked = proc2.inputStream.bufferedReader().readText()
+                        proc2.waitFor()
+                        for (file in untracked.lines().filter { it.isNotBlank() }) {
+                            val symCount = runCatching { backend.getSymbolsOverview(file, 1).size }.getOrDefault(0)
+                            files.add(mapOf("file" to file, "status" to "?", "symbol_count" to symCount))
+                        }
+                    }
+
+                    ok(mapOf("ref" to ref, "files" to files, "count" to files.size))
+                }
+
+                // ── Analysis ────────────────────────────────────────────────
+                "get_complexity" -> {
+                    val path = req(args, "path")
+                    val symbolName = optStr(args, "symbol_name")
+                    val fileResult = backend.readFile(path)
+                    val lines = fileResult.content.lines()
+                    val symbols = backend.getSymbolsOverview(path, 2)
+                        .flatMap { flattenSymbolInfo(it) }
+                        .filter { it.kind.displayName in setOf("function", "method", "constructor") }
+
+                    val branchPattern = Regex("""\b(if|elif|else\s+if|for|while|catch|except|case)\b|&&|\|\||\b(and|or)\b""")
+                    val results = if (symbols.isEmpty()) {
+                        val branches = lines.sumOf { branchPattern.findAll(it).count() }
+                        listOf(mapOf("name" to path, "branches" to branches, "complexity" to 1 + branches))
+                    } else {
+                        val filtered = if (symbolName != null) symbols.filter { it.name == symbolName } else symbols
+                        filtered.map { sym ->
+                            val symLines = lines.subList(
+                                (sym.line - 1).coerceIn(0, lines.size),
+                                lines.size.coerceAtMost(sym.line + 50)
+                            )
+                            val branches = symLines.sumOf { branchPattern.findAll(it).count() }
+                            mapOf("name" to sym.name, "kind" to sym.kind.displayName,
+                                "file" to sym.filePath, "line" to sym.line,
+                                "branches" to branches, "complexity" to 1 + branches)
+                        }
+                    }
+                    ok(mapOf("path" to path, "functions" to results, "count" to results.size,
+                        "avg_complexity" to if (results.isNotEmpty()) results.map { it["complexity"] as Int }.average() else 0.0))
+                }
+
+                "find_tests" -> {
+                    val path = optStr(args, "path") ?: "."
+                    val maxResults = optInt(args, "max_results", 100)
+                    val pattern = """\b(def test_|func Test|@Test\b|it\s*\(|describe\s*\(|test\s*\()"""
+                    val results = backend.searchForPattern(pattern, null, maxResults, 0)
+                    ok(mapOf("tests" to results.map { it.toMap() }, "count" to results.size))
+                }
+
+                "find_annotations" -> {
+                    val tags = optStr(args, "tags") ?: "TODO,FIXME,HACK,DEPRECATED,XXX,NOTE"
+                    val maxResults = optInt(args, "max_results", 100)
+                    val tagList = tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                    val pattern = "\\b(${tagList.joinToString("|")})\\b[:\\s]*(.*)"
+                    val results = backend.searchForPattern(pattern, null, maxResults, 0)
+
+                    val grouped = tagList.associateWith { tag ->
+                        results.filter { it.matchedText.startsWith(tag, ignoreCase = true) || it.lineContent.contains(tag) }
+                            .map { mapOf("file" to it.filePath, "line" to it.line, "text" to it.lineContent) }
+                    }.filter { it.value.isNotEmpty() }
+
+                    ok(mapOf("tags" to grouped, "total" to results.size))
                 }
 
                 // ── Memory ───────────────────────────────────────────────────
@@ -879,6 +1245,34 @@ class StandaloneToolDispatcher(private val projectRoot: Path) {
         require(resolved.startsWith(memoriesDir.normalize())) { "Memory path escapes .serena/memories: $name" }
         if (createParents) Files.createDirectories(resolved.parent)
         return resolved
+    }
+
+    // ── Symbol helper ────────────────────────────────────────────────────────
+
+    private fun flattenSymbolInfo(sym: SymbolInfo): List<SymbolInfo> =
+        listOf(sym) + sym.children.flatMap { flattenSymbolInfo(it) }
+
+    private fun matchSymbolsToRanges(
+        file: String,
+        ranges: List<IntRange>,
+        includeBody: Boolean
+    ): List<Map<String, Any?>> {
+        if (ranges.isEmpty()) return emptyList()
+        val symbols = runCatching { backend.getSymbolsOverview(file, 2) }
+            .getOrDefault(emptyList())
+            .flatMap { flattenSymbolInfo(it) }
+        return symbols.filter { sym -> ranges.any { sym.line in it } }
+            .map { sym ->
+                buildMap<String, Any?> {
+                    put("name", sym.name)
+                    put("kind", sym.kind.displayName)
+                    put("file", file)
+                    put("line", sym.line)
+                    put("signature", sym.signature)
+                    if (sym.id != null) put("id", sym.id)
+                    if (includeBody && sym.body != null) put("body", sym.body)
+                }
+            }
     }
 
     // ── File helper ──────────────────────────────────────────────────────────

@@ -25,6 +25,8 @@ dependencies {
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.kotlin")
         bundledPlugin("JavaScript")
+        bundledPlugin("org.intellij.groovy")
+        bundledPlugin("com.jetbrains.sh")
         bundledPlugin("org.jetbrains.plugins.terminal")
         bundledPlugin("com.intellij.mcpServer")
 
@@ -37,6 +39,24 @@ dependencies {
 
     // JSON serialization - provided by IntelliJ platform, do NOT bundle
     compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
+
+    // Tree-sitter JVM binding — standalone-only (AST-based symbol parsing for 10 languages)
+    // These are excluded from plugin distribution (IntelliJ uses PSI instead)
+    implementation("io.github.bonede:tree-sitter:0.25.3")
+    implementation("io.github.bonede:tree-sitter-python:0.23.4")
+    implementation("io.github.bonede:tree-sitter-javascript:0.23.1")
+    implementation("io.github.bonede:tree-sitter-typescript:0.23.2")
+    implementation("io.github.bonede:tree-sitter-tsx:0.23.2")
+    implementation("io.github.bonede:tree-sitter-go:0.23.3")
+    implementation("io.github.bonede:tree-sitter-rust:0.23.1")
+    implementation("io.github.bonede:tree-sitter-ruby:0.23.1")
+    implementation("io.github.bonede:tree-sitter-java:0.23.4")
+    implementation("io.github.bonede:tree-sitter-kotlin:0.3.8.1")
+    implementation("io.github.bonede:tree-sitter-c:0.23.2")
+    implementation("io.github.bonede:tree-sitter-cpp:0.23.4")
+    implementation("io.github.bonede:tree-sitter-php:0.24.2")
+    implementation("io.github.bonede:tree-sitter-swift:0.5.0")
+    implementation("io.github.bonede:tree-sitter-scala:0.24.0")
 
     // ACP (Agent Client Protocol) SDK — bundled with plugin for runtime availability
     implementation("com.agentclientprotocol:acp:0.17.0") {

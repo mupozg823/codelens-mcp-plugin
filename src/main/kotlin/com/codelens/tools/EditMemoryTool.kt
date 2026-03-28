@@ -8,6 +8,7 @@ import java.nio.file.Files
 
 class EditMemoryTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "edit_memory"
 
     override val description = "Edit an existing Serena memory. Fails if the memory does not exist."

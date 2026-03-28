@@ -8,6 +8,7 @@ import java.nio.file.Files
 
 class WriteMemoryTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "write_memory"
 
     override val description = """

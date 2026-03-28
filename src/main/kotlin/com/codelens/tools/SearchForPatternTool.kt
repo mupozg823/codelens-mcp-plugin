@@ -11,6 +11,7 @@ import com.intellij.openapi.project.Project
  */
 class SearchForPatternTool : BaseMcpTool() {
 
+    override val requiresPsiSync: Boolean = false
     override val toolName = "search_for_pattern"
 
     override val description = """

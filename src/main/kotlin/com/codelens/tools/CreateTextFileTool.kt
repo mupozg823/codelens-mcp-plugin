@@ -7,6 +7,7 @@ import com.intellij.openapi.vfs.LocalFileSystem
 import java.io.File
 
 class CreateTextFileTool : BaseMcpTool() {
+    override val requiresPsiSync: Boolean = false
     override val toolName = "create_text_file"
     override val description = "Create a new text file with the given content. Creates parent directories if needed."
     override val inputSchema = mapOf(
