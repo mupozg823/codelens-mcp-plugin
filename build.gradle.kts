@@ -40,24 +40,6 @@ dependencies {
     // JSON serialization - provided by IntelliJ platform, do NOT bundle
     compileOnly("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0")
 
-    // Tree-sitter JVM binding — standalone fat-jar only (NOT bundled in plugin zip)
-    // IntelliJ plugin uses PSI; standalone uses tree-sitter for AST-based parsing
-    compileOnly("io.github.bonede:tree-sitter:0.25.3")
-    compileOnly("io.github.bonede:tree-sitter-python:0.23.4")
-    compileOnly("io.github.bonede:tree-sitter-javascript:0.23.1")
-    compileOnly("io.github.bonede:tree-sitter-typescript:0.23.2")
-    compileOnly("io.github.bonede:tree-sitter-tsx:0.23.2")
-    compileOnly("io.github.bonede:tree-sitter-go:0.23.3")
-    compileOnly("io.github.bonede:tree-sitter-rust:0.23.1")
-    compileOnly("io.github.bonede:tree-sitter-ruby:0.23.1")
-    compileOnly("io.github.bonede:tree-sitter-java:0.23.4")
-    compileOnly("io.github.bonede:tree-sitter-kotlin:0.3.8.1")
-    compileOnly("io.github.bonede:tree-sitter-c:0.23.2")
-    compileOnly("io.github.bonede:tree-sitter-cpp:0.23.4")
-    compileOnly("io.github.bonede:tree-sitter-php:0.24.2")
-    compileOnly("io.github.bonede:tree-sitter-swift:0.5.0")
-    compileOnly("io.github.bonede:tree-sitter-scala:0.24.0")
-
     // ACP (Agent Client Protocol) SDK — bundled with plugin for runtime availability
     implementation("com.agentclientprotocol:acp:0.17.0") {
         exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-coroutines-core")
@@ -143,82 +125,4 @@ tasks {
         systemProperty("idea.is.internal", "true")
     }
 
-    /**
-     * Builds a self-contained fat-jar for the standalone MCP server.
-     *
-     * The jar bundles only JDK + kotlinx runtime classes — all IntelliJ
-     * Platform JARs are excluded so the result runs without an IDE.
-     *
-     * Usage:
-     *   ./gradlew standaloneFatJar
-     *   java -jar build/libs/codelens-standalone.jar /path/to/project [--port 24226] [--stdio]
-     */
-    register<Jar>("standaloneFatJar") {
-        group = "build"
-        description = "Assembles a standalone fat-jar (no IntelliJ Platform required)"
-        archiveClassifier.set("standalone")
-
-        manifest {
-            attributes(
-                "Main-Class" to "com.codelens.standalone.StandaloneMcpServerKt",
-                "Implementation-Title" to "CodeLens Standalone MCP Server",
-                "Implementation-Version" to project.version
-            )
-        }
-
-        // Include compiled output from the main source set
-        from(sourceSets.main.get().output)
-
-        // Helper: true for jars that belong to the IntelliJ Platform SDK
-        fun isIdeJar(file: java.io.File): Boolean {
-            val name = file.name
-            val path = file.absolutePath
-            return name == "app.jar" ||
-                name == "app-client.jar" ||
-                path.contains("/plugins/") && (path.contains("/intellij/") || path.contains("/idea/")) ||
-                path.contains("ideaIC") || path.contains("ideaIU") ||
-                path.contains("/com.jetbrains.") ||
-                name.startsWith("com.jetbrains.") ||
-                // IntelliJ platform itself — bundled inside .app or extracted SDK
-                (path.contains("IntelliJ IDEA") && !path.contains(".gradle"))
-        }
-
-        // Bundle runtimeClasspath dependencies (ACP SDK and its transitives)
-        from(
-            configurations.runtimeClasspath.get()
-                .filter { dep -> dep.extension == "jar" && !isIdeJar(dep) }
-                .map { if (it.isDirectory) it else zipTree(it) }
-        )
-
-        // Bundle compileOnly dependencies that the standalone jar actually needs at runtime:
-        // kotlin-stdlib, kotlinx-coroutines/serialization, AND tree-sitter (not in plugin zip)
-        val standaloneCompileOnly = configurations.compileClasspath.get().resolvedConfiguration
-            .resolvedArtifacts
-            .filter { artifact ->
-                val group = artifact.moduleVersion.id.group
-                val module = artifact.moduleVersion.id.module.name
-                (group == "org.jetbrains.kotlin" && module == "kotlin-stdlib") ||
-                (group == "org.jetbrains.kotlinx" && (
-                    module.startsWith("kotlinx-serialization") ||
-                    module.startsWith("kotlinx-coroutines-core")
-                )) ||
-                (group == "io.github.bonede" && module.startsWith("tree-sitter"))
-            }
-            .map { it.file }
-            .filter { it.extension == "jar" }
-
-        from(standaloneCompileOnly.map { zipTree(it) })
-
-        // Deduplicate conflicting META-INF entries from merged jars
-        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-
-        // Exclude IntelliJ Platform package roots that may slip through
-        exclude(
-            "com/intellij/**",
-            "org/jetbrains/annotations/**",
-            "kotlin/reflect/jvm/internal/impl/**",
-            "META-INF/plugin.xml",
-            "META-INF/*.kotlin_module"
-        )
-    }
 }
