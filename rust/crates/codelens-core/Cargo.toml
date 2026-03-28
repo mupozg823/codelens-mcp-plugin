@@ -8,6 +8,7 @@ license.workspace = true
 anyhow.workspace = true
 globset.workspace = true
 petgraph.workspace = true
+rayon.workspace = true
 regex.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true

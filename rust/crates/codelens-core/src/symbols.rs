@@ -190,15 +190,75 @@ impl SymbolIndex {
     }
 
     pub fn refresh_all(&mut self) -> Result<IndexStats> {
-        let files = collect_candidate_files(self.project.as_path())?;
-        self.db.begin_transaction()?;
+        use rayon::prelude::*;
 
-        // Track which files are still on disk
+        let files = collect_candidate_files(self.project.as_path())?;
+
+        // Phase 1: parallel parse (CPU-bound, no DB access)
+        let parsed: Vec<_> = files
+            .par_iter()
+            .filter_map(|file| {
+                let relative = self.project.to_relative(file);
+                let content = fs::read(file).ok()?;
+                let mtime = file_modified_ms(file).ok()? as i64;
+                let hash = content_hash(&content);
+                let source = String::from_utf8_lossy(&content);
+                let ext = file.extension()?.to_str()?.to_ascii_lowercase();
+                let symbols = language_for_path(file)
+                    .and_then(|config| parse_symbols(&config, &relative, &source, false).ok())
+                    .unwrap_or_default();
+                let raw_imports = extract_imports_for_file(file);
+                let new_imports: Vec<NewImport> = raw_imports
+                    .iter()
+                    .filter_map(|raw| {
+                        resolve_module_for_file(&self.project, file, raw).map(|target| NewImport {
+                            target_path: target,
+                            raw_import: raw.clone(),
+                        })
+                    })
+                    .collect();
+                Some((
+                    relative,
+                    mtime,
+                    hash,
+                    content.len() as i64,
+                    ext,
+                    symbols,
+                    new_imports,
+                ))
+            })
+            .collect();
+
+        // Phase 2: sequential DB write (SQLite single-writer)
+        self.db.begin_transaction()?;
         let mut on_disk = HashSet::new();
-        for file in &files {
-            let relative = self.project.to_relative(file);
+        for (relative, mtime, hash, size, ext, symbols, new_imports) in parsed {
             on_disk.insert(relative.clone());
-            self.index_file(file, &relative)?;
+            if self.db.get_fresh_file(&relative, mtime, &hash)?.is_some() {
+                continue;
+            }
+            let file_id = self
+                .db
+                .upsert_file(&relative, mtime, &hash, size, Some(&ext))?;
+            let flat = flatten_symbols(symbols);
+            let new_syms: Vec<NewSymbol> = flat
+                .iter()
+                .map(|s| NewSymbol {
+                    name: s.name.clone(),
+                    kind: s.kind.as_label().to_owned(),
+                    line: s.line as i64,
+                    column_num: s.column as i64,
+                    start_byte: s.start_byte as i64,
+                    end_byte: s.end_byte as i64,
+                    signature: s.signature.clone(),
+                    name_path: s.name_path.clone(),
+                    parent_id: None,
+                })
+                .collect();
+            self.db.insert_symbols(file_id, &new_syms)?;
+            if !new_imports.is_empty() {
+                self.db.insert_imports(file_id, &new_imports)?;
+            }
         }
 
         // Remove files that no longer exist on disk
