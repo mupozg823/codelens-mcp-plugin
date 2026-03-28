@@ -2,7 +2,7 @@ mod protocol;
 mod tools;
 
 use anyhow::Result;
-use codelens_core::{LspSessionPool, ProjectRoot, SymbolIndex};
+use codelens_core::{GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
 use protocol::{JsonRpcRequest, JsonRpcResponse, Tool, ToolAnnotations, ToolCallResponse};
 use serde_json::json;
 use std::io::{self, BufRead, Write};
@@ -13,6 +13,7 @@ struct AppState {
     project: ProjectRoot,
     symbol_index: Mutex<SymbolIndex>,
     lsp_pool: Mutex<LspSessionPool>,
+    graph_cache: GraphCache,
     preset: ToolPreset,
     memories_dir: std::path::PathBuf,
 }
@@ -81,6 +82,7 @@ impl AppState {
             project,
             symbol_index: Mutex::new(symbol_index),
             lsp_pool: Mutex::new(lsp_pool),
+            graph_cache: GraphCache::new(30),
             preset,
             memories_dir,
         }

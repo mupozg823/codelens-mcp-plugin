@@ -7,7 +7,8 @@ use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 // ── Python ────────────────────────────────────────────────────────────────────
 static PY_IMPORT_RE: LazyLock<Regex> =
@@ -112,9 +113,54 @@ pub struct DeadCodeEntry {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct FileNode {
+pub struct FileNode {
     pub(crate) imports: HashSet<String>,
     pub(crate) imported_by: HashSet<String>,
+}
+
+pub struct GraphCache {
+    inner: Mutex<GraphCacheInner>,
+}
+
+struct GraphCacheInner {
+    graph: Option<Arc<HashMap<String, FileNode>>>,
+    built_at: Option<Instant>,
+    ttl: Duration,
+}
+
+impl GraphCache {
+    pub fn new(ttl_secs: u64) -> Self {
+        Self {
+            inner: Mutex::new(GraphCacheInner {
+                graph: None,
+                built_at: None,
+                ttl: Duration::from_secs(ttl_secs),
+            }),
+        }
+    }
+
+    pub fn get_or_build(&self, project: &ProjectRoot) -> Result<Arc<HashMap<String, FileNode>>> {
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|_| anyhow::anyhow!("graph cache lock poisoned"))?;
+        if let (Some(graph), Some(built_at)) = (&inner.graph, inner.built_at) {
+            if built_at.elapsed() < inner.ttl {
+                return Ok(Arc::clone(graph));
+            }
+        }
+        let graph = Arc::new(build_graph(project)?);
+        inner.graph = Some(Arc::clone(&graph));
+        inner.built_at = Some(Instant::now());
+        Ok(graph)
+    }
+
+    pub fn invalidate(&self) {
+        if let Ok(mut inner) = self.inner.lock() {
+            inner.graph = None;
+            inner.built_at = None;
+        }
+    }
 }
 
 pub fn supports_import_graph(file_path: &str) -> bool {
@@ -129,12 +175,13 @@ pub fn get_blast_radius(
     project: &ProjectRoot,
     file_path: &str,
     max_depth: usize,
+    cache: &GraphCache,
 ) -> Result<Vec<BlastRadiusEntry>> {
     if !supports_import_graph(file_path) {
         bail!("unsupported import-graph language for '{file_path}'");
     }
 
-    let graph = build_graph(project)?;
+    let graph = cache.get_or_build(project)?;
     let target = normalize_key(file_path);
     let mut result = HashMap::new();
     let mut queue = VecDeque::from([(target.clone(), 0usize)]);
@@ -169,12 +216,13 @@ pub fn get_importers(
     project: &ProjectRoot,
     file_path: &str,
     max_results: usize,
+    cache: &GraphCache,
 ) -> Result<Vec<ImporterEntry>> {
     if !supports_import_graph(file_path) {
         bail!("unsupported import-graph language for '{file_path}'");
     }
 
-    let graph = build_graph(project)?;
+    let graph = cache.get_or_build(project)?;
     let target = normalize_key(file_path);
     let importers = graph
         .get(&target)
@@ -195,8 +243,12 @@ pub fn get_importers(
     Ok(importers)
 }
 
-pub fn get_importance(project: &ProjectRoot, top_n: usize) -> Result<Vec<ImportanceEntry>> {
-    let graph = build_graph(project)?;
+pub fn get_importance(
+    project: &ProjectRoot,
+    top_n: usize,
+    cache: &GraphCache,
+) -> Result<Vec<ImportanceEntry>> {
+    let graph = cache.get_or_build(project)?;
     if graph.is_empty() {
         return Ok(Vec::new());
     }
@@ -211,8 +263,8 @@ pub fn get_importance(project: &ProjectRoot, top_n: usize) -> Result<Vec<Importa
         .collect();
 
     for _ in 0..20 {
-        let mut next = HashMap::new();
-        for (key, node) in &graph {
+        let mut next: HashMap<String, f64> = HashMap::new();
+        for (key, node) in graph.iter() {
             let mut incoming = 0.0;
             for importer in &node.imported_by {
                 let importer_score = scores.get(importer).copied().unwrap_or(0.0);
@@ -239,13 +291,17 @@ pub fn get_importance(project: &ProjectRoot, top_n: usize) -> Result<Vec<Importa
     Ok(entries)
 }
 
-pub fn find_dead_code(project: &ProjectRoot, max_results: usize) -> Result<Vec<DeadCodeEntry>> {
-    let graph = build_graph(project)?;
+pub fn find_dead_code(
+    project: &ProjectRoot,
+    max_results: usize,
+    cache: &GraphCache,
+) -> Result<Vec<DeadCodeEntry>> {
+    let graph = cache.get_or_build(project)?;
     let mut dead: Vec<_> = graph
-        .into_iter()
+        .iter()
         .filter(|(_, node)| node.imported_by.is_empty())
         .map(|(file, _)| DeadCodeEntry {
-            file,
+            file: file.clone(),
             symbol: None,
             reason: "no importers".to_owned(),
         })
@@ -306,12 +362,13 @@ fn has_decorator(lines: &[&str], symbol_line: usize) -> bool {
 pub fn find_dead_code_v2(
     project: &ProjectRoot,
     max_results: usize,
+    cache: &GraphCache,
 ) -> Result<Vec<DeadCodeEntryV2>> {
     let mut results: Vec<DeadCodeEntryV2> = Vec::new();
 
     // ── Pass 1: unreferenced files ────────────────────────────────────────────
-    let graph = build_graph(project)?;
-    for (file, node) in &graph {
+    let graph = cache.get_or_build(project)?;
+    for (file, node) in graph.iter() {
         if node.imported_by.is_empty() && !is_entry_point_file(file) {
             results.push(DeadCodeEntryV2 {
                 file: file.clone(),
@@ -438,8 +495,11 @@ fn collect_top_level_funcs(path: &Path, source: &str, funcs: &mut HashMap<String
 }
 
 /// Public accessor for the import graph, used by sibling modules (e.g. circular).
-pub(crate) fn build_graph_pub(project: &ProjectRoot) -> Result<HashMap<String, FileNode>> {
-    build_graph(project)
+pub(crate) fn build_graph_pub(
+    project: &ProjectRoot,
+    cache: &GraphCache,
+) -> Result<Arc<HashMap<String, FileNode>>> {
+    cache.get_or_build(project)
 }
 
 fn build_graph(project: &ProjectRoot) -> Result<HashMap<String, FileNode>> {
@@ -918,6 +978,7 @@ fn normalize_key(file_path: &str) -> String {
 mod tests {
     use super::{
         find_dead_code, get_blast_radius, get_importance, get_importers, supports_import_graph,
+        GraphCache,
     };
     use crate::ProjectRoot;
     use std::fs;
@@ -938,7 +999,8 @@ mod tests {
         fs::write(dir.join("models.py"), "class User:\n    pass\n").expect("write models");
 
         let project = ProjectRoot::new(&dir).expect("project");
-        let radius = get_blast_radius(&project, "models.py", 3).expect("blast radius");
+        let cache = GraphCache::new(0);
+        let radius = get_blast_radius(&project, "models.py", 3, &cache).expect("blast radius");
         assert_eq!(
             radius,
             vec![
@@ -971,7 +1033,8 @@ mod tests {
         fs::write(dir.join("lib/user.ts"), "export class User {}\n").expect("write user");
 
         let project = ProjectRoot::new(&dir).expect("project");
-        let radius = get_blast_radius(&project, "lib/user.ts", 3).expect("blast radius");
+        let cache = GraphCache::new(0);
+        let radius = get_blast_radius(&project, "lib/user.ts", 3, &cache).expect("blast radius");
         assert_eq!(
             radius,
             vec![
@@ -1090,7 +1153,8 @@ import (
         fs::write(dir.join("utils.py"), "def greet():\n    return 1\n").expect("write utils");
 
         let project = ProjectRoot::new(&dir).expect("project");
-        let importers = get_importers(&project, "utils.py", 10).expect("importers");
+        let cache = GraphCache::new(0);
+        let importers = get_importers(&project, "utils.py", 10, &cache).expect("importers");
         assert_eq!(
             importers,
             vec![
@@ -1125,7 +1189,8 @@ import (
         fs::write(dir.join("models.py"), "class User:\n    pass\n").expect("write models");
 
         let project = ProjectRoot::new(&dir).expect("project");
-        let ranking = get_importance(&project, 10).expect("importance");
+        let cache = GraphCache::new(0);
+        let ranking = get_importance(&project, 10, &cache).expect("importance");
         assert!(!ranking.is_empty());
         assert_eq!(
             ranking.first().map(|it| it.file.as_str()),
@@ -1146,7 +1211,8 @@ import (
         fs::write(dir.join("unused.py"), "def helper():\n    return 2\n").expect("write unused");
 
         let project = ProjectRoot::new(&dir).expect("project");
-        let dead = find_dead_code(&project, 10).expect("dead code");
+        let cache = GraphCache::new(0);
+        let dead = find_dead_code(&project, 10, &cache).expect("dead code");
         assert_eq!(
             dead,
             vec![

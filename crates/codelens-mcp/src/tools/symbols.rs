@@ -75,6 +75,7 @@ pub fn refresh_symbol_index(state: &AppState, _arguments: &serde_json::Value) ->
         .lock()
         .map_err(|_| anyhow::anyhow!("symbol index lock poisoned"))?
         .refresh_all()?;
+    state.graph_cache.invalidate();
     Ok((json!(stats), success_meta("tree-sitter-cached", 0.95)))
 }
 

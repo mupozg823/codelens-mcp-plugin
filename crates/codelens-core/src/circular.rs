@@ -1,4 +1,4 @@
-use crate::import_graph::build_graph_pub;
+use crate::import_graph::{build_graph_pub, GraphCache};
 use crate::project::ProjectRoot;
 use anyhow::Result;
 use petgraph::algo::tarjan_scc;
@@ -16,19 +16,20 @@ pub struct CircularDependency {
 pub fn find_circular_dependencies(
     project: &ProjectRoot,
     max_results: usize,
+    cache: &GraphCache,
 ) -> Result<Vec<CircularDependency>> {
-    let graph = build_graph_pub(project)?;
+    let graph = build_graph_pub(project, cache)?;
 
     // Build petgraph DiGraph
     let mut digraph: DiGraph<String, ()> = DiGraph::new();
     let mut node_indices: HashMap<String, petgraph::graph::NodeIndex> = HashMap::new();
 
-    for file in graph.keys() {
+    for file in graph.as_ref().keys() {
         let idx = digraph.add_node(file.clone());
         node_indices.insert(file.clone(), idx);
     }
 
-    for (file, node) in &graph {
+    for (file, node) in graph.iter() {
         let from_idx = node_indices[file];
         for import in &node.imports {
             if let Some(&to_idx) = node_indices.get(import) {
@@ -63,6 +64,7 @@ pub fn find_circular_dependencies(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::import_graph::GraphCache;
     use std::fs;
 
     fn temp_project_dir(name: &str) -> std::path::PathBuf {
@@ -86,7 +88,8 @@ mod tests {
         fs::write(dir.join("c.py"), "import os\n").expect("write c (no cycle)");
 
         let project = ProjectRoot::new(&dir).expect("project");
-        let cycles = find_circular_dependencies(&project, 50).expect("cycles");
+        let cache = GraphCache::new(0);
+        let cycles = find_circular_dependencies(&project, 50, &cache).expect("cycles");
         assert!(!cycles.is_empty(), "should find at least one cycle");
         let first = &cycles[0];
         assert_eq!(first.length, 2);
@@ -102,7 +105,8 @@ mod tests {
         fs::write(dir.join("models.py"), "class User:\n    pass\n").expect("write models");
 
         let project = ProjectRoot::new(&dir).expect("project");
-        let cycles = find_circular_dependencies(&project, 50).expect("cycles");
+        let cache = GraphCache::new(0);
+        let cycles = find_circular_dependencies(&project, 50, &cache).expect("cycles");
         assert!(cycles.is_empty(), "DAG should have no cycles");
     }
 }

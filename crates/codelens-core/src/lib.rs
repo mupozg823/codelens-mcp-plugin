@@ -27,7 +27,7 @@ pub use file_ops::{
 };
 pub use git::{ChangedFile, DiffSymbol, DiffSymbolEntry, get_changed_files, get_diff_symbols};
 pub use import_graph::{
-    BlastRadiusEntry, DeadCodeEntry, DeadCodeEntryV2, ImportanceEntry, ImporterEntry,
+    BlastRadiusEntry, DeadCodeEntry, DeadCodeEntryV2, GraphCache, ImportanceEntry, ImporterEntry,
     extract_imports_for_file, find_dead_code, find_dead_code_v2, get_blast_radius, get_importance,
     get_importers, resolve_module_for_file, supports_import_graph,
 };

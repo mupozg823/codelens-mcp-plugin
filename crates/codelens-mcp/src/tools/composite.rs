@@ -5,7 +5,8 @@ use serde_json::json;
 pub fn summarize_file(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     let symbols = get_symbols_overview(&state.project, file_path, 2)?;
-    let importers = get_importers(&state.project, file_path, 20).unwrap_or_default();
+    let importers =
+        get_importers(&state.project, file_path, 20, &state.graph_cache).unwrap_or_default();
     let source = std::fs::read_to_string(state.project.resolve(file_path)?).unwrap_or_default();
     let line_count = source.lines().count();
 

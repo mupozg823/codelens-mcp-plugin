@@ -53,7 +53,7 @@ pub fn get_blast_radius_tool(state: &AppState, arguments: &serde_json::Value) ->
         .get("max_depth")
         .and_then(|v| v.as_u64())
         .unwrap_or(3) as usize;
-    get_blast_radius(&state.project, file_path, max_depth).map(|value| {
+    get_blast_radius(&state.project, file_path, max_depth, &state.graph_cache).map(|value| {
         (
             json!({ "file": file_path, "affected_files": value, "count": value.len() }),
             success_meta("import-graph", 0.86),
@@ -68,7 +68,8 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
         .and_then(|v| v.as_u64())
         .unwrap_or(3) as usize;
 
-    let blast = get_blast_radius(&state.project, file_path, max_depth).unwrap_or_default();
+    let blast = get_blast_radius(&state.project, file_path, max_depth, &state.graph_cache)
+        .unwrap_or_default();
     let symbols = state
         .symbol_index
         .lock()
@@ -79,7 +80,8 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
         .iter()
         .map(|s| json!({"name": s.name, "kind": s.kind.as_label(), "line": s.line}))
         .collect();
-    let importers = get_importers(&state.project, file_path, 20).unwrap_or_default();
+    let importers =
+        get_importers(&state.project, file_path, 20, &state.graph_cache).unwrap_or_default();
     let affected: Vec<_> = blast
         .iter()
         .map(|b| {
@@ -113,7 +115,7 @@ pub fn find_importers_tool(state: &AppState, arguments: &serde_json::Value) -> T
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    get_importers(&state.project, file_path, max_results).map(|value| {
+    get_importers(&state.project, file_path, max_results, &state.graph_cache).map(|value| {
         (
             json!({ "file": file_path, "importers": value, "count": value.len() }),
             success_meta("import-graph", 0.87),
@@ -126,7 +128,7 @@ pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) ->
         .get("top_n")
         .and_then(|v| v.as_u64())
         .unwrap_or(20) as usize;
-    get_importance(&state.project, top_n).map(|value| {
+    get_importance(&state.project, top_n, &state.graph_cache).map(|value| {
         (
             json!({ "ranking": value, "count": value.len() }),
             success_meta("import-graph", 0.84),
@@ -139,7 +141,7 @@ pub fn find_dead_code_tool(state: &AppState, arguments: &serde_json::Value) -> T
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    find_dead_code(&state.project, max_results).map(|value| {
+    find_dead_code(&state.project, max_results, &state.graph_cache).map(|value| {
         (
             json!({ "dead_code": value, "count": value.len() }),
             success_meta("import-graph", 0.83),
@@ -152,7 +154,7 @@ pub fn find_dead_code_v2_tool(state: &AppState, arguments: &serde_json::Value) -
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    find_dead_code_v2(&state.project, max_results).map(|value| {
+    find_dead_code_v2(&state.project, max_results, &state.graph_cache).map(|value| {
         (
             json!({ "dead_code": value, "count": value.len() }),
             success_meta("call-graph+import-graph", 0.82),
@@ -261,7 +263,7 @@ pub fn find_circular_dependencies_tool(
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    find_circular_dependencies(&state.project, max_results).map(|value| {
+    find_circular_dependencies(&state.project, max_results, &state.graph_cache).map(|value| {
         (
             json!({ "cycles": value, "count": value.len() }),
             success_meta("import-graph", 0.88),
