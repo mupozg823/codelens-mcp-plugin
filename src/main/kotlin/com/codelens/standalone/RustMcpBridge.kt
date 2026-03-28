@@ -19,7 +19,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicLong
 
-internal class RustMcpBridge(private val projectRoot: Path) {
+internal class RustMcpBridge(private val projectRoot: Path) : AutoCloseable {
 
     companion object {
         private const val BRIDGE_COMMAND_PROPERTY = "codelens.rust.bridge.command"
@@ -44,6 +44,15 @@ internal class RustMcpBridge(private val projectRoot: Path) {
     private var writer: BufferedWriter? = null
 
     fun isConfigured(): Boolean = !System.getProperty(BRIDGE_COMMAND_PROPERTY).isNullOrBlank()
+
+    override fun close() {
+        runCatching { writer?.close() }
+        runCatching { reader?.close() }
+        runCatching { process?.destroyForcibly() }
+        process = null
+        reader = null
+        writer = null
+    }
 
     fun symbolsOverviewCall(path: String, depth: Int): String? {
         if (!isConfigured()) return null

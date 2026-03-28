@@ -32,6 +32,8 @@ internal class ToolContext(
         } catch (_: Throwable) {
             WorkspaceCodeLensBackend(projectRoot)
         }
+        // Close previous Rust bridge process before creating a new one
+        rustBridge.close()
         rustBridge = RustMcpBridge(projectRoot)
         onProjectSwitch?.invoke()
     }
