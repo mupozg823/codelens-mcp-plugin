@@ -1224,6 +1224,24 @@ pub const LSP_RECIPES: &[LspRecipe] = &[
         args: &[],
         package_manager: "xcode",
     },
+    LspRecipe {
+        language: "csharp",
+        extensions: &["cs"],
+        server_name: "omnisharp",
+        install_command: "dotnet tool install -g csharp-ls",
+        binary_name: "csharp-ls",
+        args: &[],
+        package_manager: "dotnet",
+    },
+    LspRecipe {
+        language: "dart",
+        extensions: &["dart"],
+        server_name: "dart-language-server",
+        install_command: "dart pub global activate dart_language_server",
+        binary_name: "dart",
+        args: &["language-server", "--protocol=lsp"],
+        package_manager: "dart",
+    },
 ];
 
 /// Check which LSP servers are installed and which are missing.

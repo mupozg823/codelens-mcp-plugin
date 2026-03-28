@@ -1202,6 +1202,16 @@ pub(crate) fn language_for_path(path: &Path) -> Option<LanguageConfig> {
             language: tree_sitter_ruby::LANGUAGE.into(),
             query: RUBY_QUERY,
         }),
+        "cs" => Some(LanguageConfig {
+            extension: "cs",
+            language: tree_sitter_c_sharp::LANGUAGE.into(),
+            query: CSHARP_QUERY,
+        }),
+        "dart" => Some(LanguageConfig {
+            extension: "dart",
+            language: tree_sitter_dart::LANGUAGE.into(),
+            query: DART_QUERY,
+        }),
         _ => None,
     }
 }
@@ -1304,6 +1314,24 @@ const RUBY_QUERY: &str = r#"
     (module name: [(constant) (scope_resolution)] @module.name) @module.def
     (method name: [(identifier) (constant) (simple_symbol) (delimited_symbol) (setter)] @method.name) @method.def
     (singleton_method name: [(identifier) (constant) (simple_symbol) (delimited_symbol) (setter)] @method.name) @method.def
+"#;
+
+const CSHARP_QUERY: &str = r#"
+    (class_declaration name: (identifier) @class.name) @class.def
+    (struct_declaration name: (identifier) @class.name) @class.def
+    (interface_declaration name: (identifier) @interface.name) @interface.def
+    (enum_declaration name: (identifier) @enum.name) @enum.def
+    (method_declaration name: (identifier) @method.name) @method.def
+    (constructor_declaration name: (identifier) @method.name) @method.def
+    (namespace_declaration name: (identifier) @module.name) @module.def
+"#;
+
+const DART_QUERY: &str = r#"
+    (class_declaration name: (identifier) @class.name) @class.def
+    (mixin_declaration name: (identifier) @class.name) @class.def
+    (enum_declaration name: (identifier) @enum.name) @enum.def
+    (class_member (method_signature (function_signature name: (identifier) @method.name))) @method.def
+    (function_signature name: (identifier) @function.name) @function.def
 "#;
 
 #[cfg(test)]
@@ -1626,5 +1654,84 @@ mod tests {
         )
         .expect("write ts");
         dir
+    }
+
+    #[test]
+    fn extracts_csharp_symbols() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-csharp-fixture-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("create dir");
+        fs::write(
+            dir.join("Service.cs"),
+            "namespace MyApp {\n    public class Service {\n        public Service() {}\n        public void Run() {}\n    }\n    public interface IService {}\n    public enum Status { Active, Inactive }\n}\n",
+        )
+        .expect("write cs");
+        let project = ProjectRoot::new(&dir).expect("project");
+        let symbols = get_symbols_overview(&project, "Service.cs", 2).expect("symbols");
+        let names: Vec<&str> = symbols
+            .iter()
+            .flat_map(|s| {
+                let mut v = vec![s.name.as_str()];
+                v.extend(s.children.iter().map(|c| c.name.as_str()));
+                v
+            })
+            .collect();
+        assert!(
+            names.contains(&"MyApp"),
+            "expected namespace MyApp, got {names:?}"
+        );
+        assert!(
+            names.contains(&"Service"),
+            "expected class Service, got {names:?}"
+        );
+        assert!(
+            names.contains(&"IService"),
+            "expected interface IService, got {names:?}"
+        );
+        assert!(
+            names.contains(&"Status"),
+            "expected enum Status, got {names:?}"
+        );
+    }
+
+    #[test]
+    fn extracts_dart_symbols() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-dart-fixture-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("create dir");
+        fs::write(
+            dir.join("main.dart"),
+            "class UserService {\n  void fetchUser() {}\n}\n\nenum Role { admin, user }\n\nvoid main() {}\n",
+        )
+        .expect("write dart");
+        let project = ProjectRoot::new(&dir).expect("project");
+        let symbols = get_symbols_overview(&project, "main.dart", 2).expect("symbols");
+        let names: Vec<&str> = symbols
+            .iter()
+            .flat_map(|s| {
+                let mut v = vec![s.name.as_str()];
+                v.extend(s.children.iter().map(|c| c.name.as_str()));
+                v
+            })
+            .collect();
+        assert!(
+            names.contains(&"UserService"),
+            "expected class UserService, got {names:?}"
+        );
+        assert!(names.contains(&"Role"), "expected enum Role, got {names:?}");
+        assert!(
+            names.contains(&"main"),
+            "expected function main, got {names:?}"
+        );
     }
 }

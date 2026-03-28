@@ -65,6 +65,16 @@ static PHP_REQ_RE: LazyLock<Regex> = LazyLock::new(|| {
         .unwrap()
 });
 
+// ── C# ───────────────────────────────────────────────────────────────────────
+static CS_USING_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*using\s+(?:static\s+)?([A-Za-z0-9_.]+)\s*;").unwrap());
+
+// ── Dart ─────────────────────────────────────────────────────────────────────
+static DART_IMPORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^\s*import\s+["']([^"']+)["']"#).unwrap());
+static DART_EXPORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^\s*export\s+["']([^"']+)["']"#).unwrap());
+
 // ── collect_top_level_funcs patterns ─────────────────────────────────────────
 static TLF_PY_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?m)^def ([A-Za-z_][A-Za-z0-9_]*)").unwrap());
@@ -85,7 +95,7 @@ static TLF_RS_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "go", "java", "kt", "rs", "rb", "c", "cc", "cpp",
-    "cxx", "h", "hh", "hpp", "hxx", "php",
+    "cxx", "h", "hh", "hpp", "hxx", "php", "cs", "dart",
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -475,8 +485,9 @@ fn collect_top_level_funcs(path: &Path, source: &str, funcs: &mut HashMap<String
         "py" => &[&*TLF_PY_RE],
         "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" => &[&*TLF_JS_RE1, &*TLF_JS_RE2],
         "go" => &[&*TLF_GO_RE],
-        "java" | "kt" => &[&*TLF_JVM_RE],
+        "java" | "kt" | "cs" => &[&*TLF_JVM_RE],
         "rs" => &[&*TLF_RS_RE],
+        "dart" => &[&*TLF_PY_RE, &*TLF_JVM_RE],
         _ => return,
     };
 
@@ -613,6 +624,8 @@ fn extract_imports(path: &Path) -> Vec<String> {
         "rb" => extract_ruby_imports(&content),
         "c" | "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" => extract_c_imports(&content),
         "php" => extract_php_imports(&content),
+        "cs" => extract_csharp_imports(&content),
+        "dart" => extract_dart_imports(&content),
         _ => Vec::new(),
     }
 }
@@ -742,6 +755,29 @@ fn extract_php_imports(content: &str) -> Vec<String> {
     imports
 }
 
+fn extract_csharp_imports(content: &str) -> Vec<String> {
+    CS_USING_RE
+        .captures_iter(content)
+        .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_owned()))
+        .collect()
+}
+
+fn extract_dart_imports(content: &str) -> Vec<String> {
+    let mut imports = Vec::new();
+    for re in [&*DART_IMPORT_RE, &*DART_EXPORT_RE] {
+        for cap in re.captures_iter(content) {
+            if let Some(m) = cap.get(1) {
+                let path = m.as_str();
+                // Skip dart: SDK imports
+                if !path.starts_with("dart:") {
+                    imports.push(path.to_owned());
+                }
+            }
+        }
+    }
+    imports
+}
+
 fn resolve_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
     let source_ext = source_file
         .extension()
@@ -760,6 +796,8 @@ fn resolve_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Op
             resolve_c_module(project, source_file, module)
         }
         "php" => resolve_php_module(project, source_file, module),
+        "cs" => resolve_csharp_module(project, module),
+        "dart" => resolve_dart_module(project, source_file, module),
         _ => None,
     }
 }
@@ -965,6 +1003,45 @@ fn resolve_php_module(project: &ProjectRoot, source_file: &Path, module: &str) -
         let as_is = base_dir.join(&by_namespace);
         if as_is.is_file() {
             return Some(project.to_relative(as_is));
+        }
+    }
+    None
+}
+
+fn resolve_csharp_module(project: &ProjectRoot, module: &str) -> Option<String> {
+    // C# using: namespace-based, try mapping Namespace.Class to Namespace/Class.cs
+    let as_path = module.replace('.', "/");
+    let candidate = project.as_path().join(format!("{as_path}.cs"));
+    if candidate.is_file() {
+        return Some(project.to_relative(candidate));
+    }
+    // Try last segment as filename
+    if let Some(last) = module.rsplit('.').next() {
+        let candidate = project.as_path().join(format!("{last}.cs"));
+        if candidate.is_file() {
+            return Some(project.to_relative(candidate));
+        }
+    }
+    None
+}
+
+fn resolve_dart_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
+    // package:foo/bar.dart or relative path
+    if let Some(stripped) = module.strip_prefix("package:") {
+        // package:my_app/src/service.dart → lib/src/service.dart
+        if let Some(slash_pos) = stripped.find('/') {
+            let rest = &stripped[slash_pos + 1..];
+            let candidate = project.as_path().join("lib").join(rest);
+            if candidate.is_file() {
+                return Some(project.to_relative(candidate));
+            }
+        }
+    } else {
+        // Relative import
+        let source_dir = source_file.parent().unwrap_or(project.as_path());
+        let candidate = source_dir.join(module);
+        if candidate.is_file() {
+            return Some(project.to_relative(candidate));
         }
     }
     None
