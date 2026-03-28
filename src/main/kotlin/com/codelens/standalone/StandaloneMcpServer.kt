@@ -26,7 +26,11 @@ fun main(args: Array<String>) {
         System.exit(1)
     }
 
-    val projectRoot = Path.of(args[0]).toAbsolutePath().normalize()
+    val rawRoot = Path.of(args[0]).toAbsolutePath().normalize()
+    val projectRoot = ProjectRootDetector.detect(rawRoot)
+    if (projectRoot != rawRoot) {
+        System.err.println("Auto-detected project root: $projectRoot (from $rawRoot)")
+    }
     if (!projectRoot.toFile().isDirectory) {
         System.err.println("Error: project root does not exist or is not a directory: $projectRoot")
         System.exit(1)

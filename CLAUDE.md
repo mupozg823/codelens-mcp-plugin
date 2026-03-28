@@ -16,22 +16,28 @@
 
 ## Key Files
 
-| File                                           | Role                                          |
-| ---------------------------------------------- | --------------------------------------------- |
-| `build.gradle.kts`                             | Dependencies, version, fat-jar task           |
-| `standalone/StandaloneToolDispatcher.kt`       | All 46 standalone tool definitions + dispatch |
-| `standalone/StandaloneMcpServer.kt`            | HTTP + stdio entry point                      |
-| `backend/treesitter/TreeSitterSymbolParser.kt` | AST parsing, 14 languages                     |
-| `backend/treesitter/TreeSitterBackend.kt`      | CodeLensBackend impl                          |
-| `backend/treesitter/SymbolIndex.kt`            | Byte-offset cache + stable IDs                |
-| `backend/treesitter/ImportGraphBuilder.kt`     | Import graph + PageRank                       |
-| `backend/workspace/WorkspaceSymbolScanner.kt`  | Regex fallback, 14 languages                  |
-| `tools/ToolRegistry.kt`                        | Plugin tool registration (64 tools)           |
-| `plugin/CompanionSkillInstaller.kt`            | Auto-installs Claude skill                    |
+| File                                           | Role                                                     |
+| ---------------------------------------------- | -------------------------------------------------------- |
+| `build.gradle.kts`                             | Dependencies, version, fat-jar task                      |
+| `standalone/StandaloneToolDispatcher.kt`       | All 46 standalone tool definitions + dispatch            |
+| `standalone/StandaloneMcpServer.kt`            | HTTP + stdio entry point                                 |
+| `backend/treesitter/TreeSitterSymbolParser.kt` | AST parsing, 14 languages                                |
+| `backend/treesitter/TreeSitterBackend.kt`      | CodeLensBackend impl                                     |
+| `backend/treesitter/SymbolIndex.kt`            | Byte-offset cache + stable IDs                           |
+| `backend/treesitter/ImportGraphBuilder.kt`     | Import graph + PageRank                                  |
+| `backend/workspace/WorkspaceSymbolScanner.kt`  | Regex fallback, 14 languages                             |
+| `tools/ToolRegistry.kt`                        | Plugin tool registration (64 tools)                      |
+| `plugin/CompanionSkillInstaller.kt`            | Auto-installs Claude skill                               |
+| `standalone/ProjectRootDetector.kt`            | Auto-detects project root from .git markers              |
+| `standalone/JetBrainsProxy.kt`                 | HTTP proxy to running JetBrains IDE                      |
+| `standalone/ProjectRegistry.kt`                | ~/.codelens/projects.yml management                      |
+| `standalone/handlers/`                         | 6 handler files (symbol/file/git/analysis/memory/config) |
 
 ## Conventions
 
 - Tool names are Serena-compatible (snake_case)
 - tree-sitter objects have NO `close()` method — do not add try/finally
 - `requiresPsiSync = false` for non-PSI tools (file I/O, memory, thinking)
-- Standalone dispatch uses `when (toolName)` pattern
+- Standalone dispatch uses handler chain pattern (SymbolToolHandler, FileToolHandler, etc.)
+- Backend selection: JetBrains proxy → tree-sitter → workspace regex (automatic)
+- Project switching via activate_project updates backend + memories atomically
