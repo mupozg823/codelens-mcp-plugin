@@ -41,6 +41,8 @@ class StandaloneToolDispatcher(private val projectRoot: Path) {
     init {
         // Provide all tool names to ConfigToolHandler for get_current_config
         configHandler.allToolNames = handlers.flatMap { it.tools().map { t -> t.name } }
+        // Re-create JetBrains proxy when the active project switches
+        ctx.onProjectSwitch = { jetbrainsProxy = JetBrainsProxy(ctx.projectRoot) }
     }
 
     /**
