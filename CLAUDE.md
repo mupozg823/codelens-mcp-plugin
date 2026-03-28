@@ -1,43 +1,42 @@
-# CodeLens MCP Plugin
+# CodeLens MCP
 
 ## Architecture
 
-- **JetBrains Plugin** (Kotlin/Gradle): `src/main/kotlin/com/codelens/` — 64 tools via ACP + MCP
-- **Standalone Server** (Kotlin fat-jar): `src/main/kotlin/com/codelens/standalone/` — 46 tools, tree-sitter AST
-- **Backends**: PSI (IntelliJ) > Tree-sitter (standalone) > Workspace regex (fallback)
+- **Rust Engine** (primary): `rust/crates/codelens-core/` + `rust/crates/codelens-mcp/` — 32 tools, SQLite index, tree-sitter 14 languages
+- **Standalone Server** (Kotlin): `src/main/kotlin/com/codelens/standalone/` — 46 tools, Rust-first dispatch
+- **IntelliJ Adapter** (optional): `src/main/kotlin/com/codelens/plugin/` — 64 tools, PSI backend
+- **Dispatch order**: Rust → JetBrains (optional) → Kotlin fallback
 
 ## Verification
 
 ```bash
-./gradlew test                    # IntelliJ platform tests
-./gradlew compileKotlin           # compile check
-./gradlew standaloneFatJar        # build standalone jar (~20MB)
+cd rust && cargo test              # 59 Rust tests
+./gradlew compileKotlin            # Kotlin compile check
+./gradlew :standalone:compileKotlin # standalone (no IntelliJ SDK)
+./gradlew :standalone:standaloneFatJar # fat-jar (~20MB)
 ```
 
 ## Key Files
 
-| File                                           | Role                                                     |
-| ---------------------------------------------- | -------------------------------------------------------- |
-| `build.gradle.kts`                             | Dependencies, version, fat-jar task                      |
-| `standalone/StandaloneToolDispatcher.kt`       | All 46 standalone tool definitions + dispatch            |
-| `standalone/StandaloneMcpServer.kt`            | HTTP + stdio entry point                                 |
-| `backend/treesitter/TreeSitterSymbolParser.kt` | AST parsing, 14 languages                                |
-| `backend/treesitter/TreeSitterBackend.kt`      | CodeLensBackend impl                                     |
-| `backend/treesitter/SymbolIndex.kt`            | Byte-offset cache + stable IDs                           |
-| `backend/treesitter/ImportGraphBuilder.kt`     | Import graph + PageRank                                  |
-| `backend/workspace/WorkspaceSymbolScanner.kt`  | Regex fallback, 14 languages                             |
-| `tools/ToolRegistry.kt`                        | Plugin tool registration (64 tools)                      |
-| `plugin/CompanionSkillInstaller.kt`            | Auto-installs Claude skill                               |
-| `standalone/ProjectRootDetector.kt`            | Auto-detects project root from .git markers              |
-| `standalone/JetBrainsProxy.kt`                 | HTTP proxy to running JetBrains IDE                      |
-| `standalone/ProjectRegistry.kt`                | ~/.codelens/projects.yml management                      |
-| `standalone/handlers/`                         | 6 handler files (symbol/file/git/analysis/memory/config) |
+| File                                            | Role                                                     |
+| ----------------------------------------------- | -------------------------------------------------------- |
+| `rust/crates/codelens-core/src/db.rs`           | SQLite index (files, symbols, imports)                   |
+| `rust/crates/codelens-core/src/symbols.rs`      | SymbolIndex (SQLite-backed, tree-sitter)                 |
+| `rust/crates/codelens-core/src/import_graph.rs` | Import graph (PageRank, blast radius)                    |
+| `rust/crates/codelens-core/src/file_ops.rs`     | File read/search/edit operations                         |
+| `rust/crates/codelens-core/src/git.rs`          | Git diff integration                                     |
+| `rust/crates/codelens-core/src/lsp.rs`          | Pooled LSP client                                        |
+| `rust/crates/codelens-mcp/src/main.rs`          | Rust MCP server (32 tools, stdio JSON-RPC)               |
+| `standalone/build.gradle.kts`                   | Standalone module (no IntelliJ SDK)                      |
+| `standalone/StandaloneToolDispatcher.kt`        | Rust-first 3-tier dispatch                               |
+| `standalone/RustMcpBridge.kt`                   | Kotlin→Rust stdio bridge                                 |
+| `standalone/handlers/`                          | 6 handler files (symbol/file/git/analysis/memory/config) |
 
 ## Conventions
 
 - Tool names are Serena-compatible (snake_case)
 - tree-sitter objects have NO `close()` method — do not add try/finally
-- `requiresPsiSync = false` for non-PSI tools (file I/O, memory, thinking)
-- Standalone dispatch uses handler chain pattern (SymbolToolHandler, FileToolHandler, etc.)
-- Backend selection: JetBrains proxy → tree-sitter → workspace regex (automatic)
-- Project switching via activate_project updates backend + memories atomically
+- Standalone dispatch: Rust → JetBrains (rename_symbol only) → Kotlin fallback
+- Kotlin-only tools: 18 session/memory/config (see `kotlinOnlyTools` in dispatcher)
+- SQLite index at `.codelens/index/symbols.db` — auto-migrates from legacy JSON
+- Import graph stored in same SQLite DB via `imports` table

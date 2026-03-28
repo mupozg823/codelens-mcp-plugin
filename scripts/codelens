@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# CodeLens MCP launcher — auto-detects Rust binary or falls back to Kotlin fat-jar
+set -euo pipefail
+
+PROJECT_ROOT="${1:-.}"
+PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
+shift 2>/dev/null || true
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Prefer Rust binary
+RUST_BIN="$REPO_ROOT/rust/target/release/codelens-mcp"
+if [ -x "$RUST_BIN" ]; then
+    exec "$RUST_BIN" "$PROJECT_ROOT" "$@"
+fi
+
+# Fall back to standalone fat-jar
+FAT_JAR=$(find "$REPO_ROOT/standalone/build/libs" -name "*-standalone.jar" 2>/dev/null | head -1)
+if [ -n "$FAT_JAR" ] && [ -f "$FAT_JAR" ]; then
+    exec java -jar "$FAT_JAR" "$PROJECT_ROOT" --stdio "$@"
+fi
+
+echo "Error: No CodeLens binary found. Build with:" >&2
+echo "  cd rust && cargo build --release" >&2
+echo "  OR" >&2
+echo "  ./gradlew :standalone:standaloneFatJar" >&2
+exit 1
