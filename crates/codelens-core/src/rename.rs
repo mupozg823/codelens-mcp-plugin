@@ -171,7 +171,7 @@ fn collect_project_scope_edits(
     Ok(edits)
 }
 
-use crate::file_ops::is_excluded;
+use crate::project::is_excluded;
 
 /// Find ALL word-boundary matches of `symbol_name` across the project.
 /// Unlike search_for_pattern, this returns multiple matches per line via find_iter.

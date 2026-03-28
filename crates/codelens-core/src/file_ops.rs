@@ -1,4 +1,4 @@
-use crate::project::ProjectRoot;
+use crate::project::{is_excluded, ProjectRoot};
 use anyhow::{bail, Context, Result};
 use globset::{Glob, GlobMatcher};
 use regex::Regex;
@@ -6,20 +6,6 @@ use serde::Serialize;
 use std::fs;
 use std::path::Path;
 use walkdir::WalkDir;
-
-const EXCLUDED_DIRS: &[&str] = &[
-    ".git",
-    ".idea",
-    ".gradle",
-    "build",
-    "dist",
-    "out",
-    "node_modules",
-    "__pycache__",
-    "target",
-    ".next",
-    ".venv",
-];
 
 #[derive(Debug, Clone, Serialize)]
 pub struct FileReadResult {
@@ -779,13 +765,6 @@ fn compile_glob(pattern: &str) -> Result<GlobMatcher> {
     Glob::new(pattern)
         .with_context(|| format!("invalid glob: {pattern}"))
         .map(|glob| glob.compile_matcher())
-}
-
-pub(crate) fn is_excluded(path: &Path) -> bool {
-    path.components().any(|component| {
-        let value = component.as_os_str().to_string_lossy();
-        EXCLUDED_DIRS.contains(&value.as_ref())
-    })
 }
 
 #[cfg(test)]

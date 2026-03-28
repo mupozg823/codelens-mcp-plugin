@@ -11,19 +11,7 @@ use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Parser, Query, QueryCapture, QueryCursor};
 use walkdir::WalkDir;
 
-const EXCLUDED_DIRS: &[&str] = &[
-    ".git",
-    ".idea",
-    ".gradle",
-    "build",
-    "dist",
-    "out",
-    "node_modules",
-    "__pycache__",
-    "target",
-    ".next",
-    ".venv",
-];
+use crate::project::{collect_files, is_excluded};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -957,17 +945,7 @@ fn slice_source(source: &str, start_byte: usize, end_byte: usize) -> String {
 }
 
 fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|entry| !is_excluded(entry.path()))
-    {
-        let entry = entry?;
-        if entry.file_type().is_file() && language_for_path(entry.path()).is_some() {
-            files.push(entry.path().to_path_buf());
-        }
-    }
-    Ok(files)
+    collect_files(root, |path| language_for_path(path).is_some())
 }
 
 fn file_modified_ms(path: &Path) -> Result<u128> {
@@ -994,13 +972,6 @@ fn str_to_kind(s: &str) -> SymbolKind {
         "type_alias" => SymbolKind::TypeAlias,
         _ => SymbolKind::Unknown,
     }
-}
-
-fn is_excluded(path: &Path) -> bool {
-    path.components().any(|component| {
-        let value = component.as_os_str().to_string_lossy();
-        EXCLUDED_DIRS.contains(&value.as_ref())
-    })
 }
 
 fn capture_name_to_kind(capture_name: &str) -> SymbolKind {

@@ -183,6 +183,25 @@ pub fn get_rename_plan_via_lsp(
     pool.get_rename_plan(request)
 }
 
+fn ensure_session<'a>(
+    sessions: &'a mut HashMap<SessionKey, LspSession>,
+    project: &ProjectRoot,
+    command: &str,
+    args: &[String],
+) -> Result<&'a mut LspSession> {
+    let key = SessionKey {
+        command: command.to_owned(),
+        args: args.to_owned(),
+    };
+    match sessions.entry(key) {
+        std::collections::hash_map::Entry::Occupied(e) => Ok(e.into_mut()),
+        std::collections::hash_map::Entry::Vacant(e) => {
+            let session = LspSession::start(project, command, args)?;
+            Ok(e.insert(session))
+        }
+    }
+}
+
 impl LspSessionPool {
     pub fn new(project: ProjectRoot) -> Self {
         Self {
@@ -196,20 +215,8 @@ impl LspSessionPool {
     }
 
     pub fn find_referencing_symbols(&mut self, request: &LspRequest) -> Result<Vec<LspReference>> {
-        let key = SessionKey {
-            command: request.command.clone(),
-            args: request.args.clone(),
-        };
-
-        if !self.sessions.contains_key(&key) {
-            let session = LspSession::start(&self.project, &request.command, &request.args)?;
-            self.sessions.insert(key.clone(), session);
-        }
-
-        let session = self
-            .sessions
-            .get_mut(&key)
-            .context("failed to access pooled LSP session")?;
+        let session =
+            ensure_session(&mut self.sessions, &self.project, &request.command, &request.args)?;
         session.find_references(request)
     }
 
@@ -217,20 +224,8 @@ impl LspSessionPool {
         &mut self,
         request: &LspDiagnosticRequest,
     ) -> Result<Vec<LspDiagnostic>> {
-        let key = SessionKey {
-            command: request.command.clone(),
-            args: request.args.clone(),
-        };
-
-        if !self.sessions.contains_key(&key) {
-            let session = LspSession::start(&self.project, &request.command, &request.args)?;
-            self.sessions.insert(key.clone(), session);
-        }
-
-        let session = self
-            .sessions
-            .get_mut(&key)
-            .context("failed to access pooled LSP session")?;
+        let session =
+            ensure_session(&mut self.sessions, &self.project, &request.command, &request.args)?;
         session.get_diagnostics(request)
     }
 
@@ -238,20 +233,8 @@ impl LspSessionPool {
         &mut self,
         request: &LspWorkspaceSymbolRequest,
     ) -> Result<Vec<LspWorkspaceSymbol>> {
-        let key = SessionKey {
-            command: request.command.clone(),
-            args: request.args.clone(),
-        };
-
-        if !self.sessions.contains_key(&key) {
-            let session = LspSession::start(&self.project, &request.command, &request.args)?;
-            self.sessions.insert(key.clone(), session);
-        }
-
-        let session = self
-            .sessions
-            .get_mut(&key)
-            .context("failed to access pooled LSP session")?;
+        let session =
+            ensure_session(&mut self.sessions, &self.project, &request.command, &request.args)?;
         session.search_workspace_symbols(request)
     }
 
@@ -259,38 +242,14 @@ impl LspSessionPool {
         &mut self,
         request: &LspTypeHierarchyRequest,
     ) -> Result<HashMap<String, Value>> {
-        let key = SessionKey {
-            command: request.command.clone(),
-            args: request.args.clone(),
-        };
-
-        if !self.sessions.contains_key(&key) {
-            let session = LspSession::start(&self.project, &request.command, &request.args)?;
-            self.sessions.insert(key.clone(), session);
-        }
-
-        let session = self
-            .sessions
-            .get_mut(&key)
-            .context("failed to access pooled LSP session")?;
+        let session =
+            ensure_session(&mut self.sessions, &self.project, &request.command, &request.args)?;
         session.get_type_hierarchy(request)
     }
 
     pub fn get_rename_plan(&mut self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
-        let key = SessionKey {
-            command: request.command.clone(),
-            args: request.args.clone(),
-        };
-
-        if !self.sessions.contains_key(&key) {
-            let session = LspSession::start(&self.project, &request.command, &request.args)?;
-            self.sessions.insert(key.clone(), session);
-        }
-
-        let session = self
-            .sessions
-            .get_mut(&key)
-            .context("failed to access pooled LSP session")?;
+        let session =
+            ensure_session(&mut self.sessions, &self.project, &request.command, &request.args)?;
         session.get_rename_plan(request)
     }
 }

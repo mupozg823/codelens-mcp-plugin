@@ -2,7 +2,7 @@
 //!
 //! Replaces JetBrains PSI `find_references` with tree-sitter scope resolution.
 
-use crate::file_ops::is_excluded;
+use crate::project::is_excluded;
 use crate::project::ProjectRoot;
 use crate::symbols::language_for_path;
 use anyhow::Result;

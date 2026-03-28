@@ -6,21 +6,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Parser, Query, QueryCursor};
-use walkdir::WalkDir;
 
-const EXCLUDED_DIRS: &[&str] = &[
-    ".git",
-    ".idea",
-    ".gradle",
-    "build",
-    "dist",
-    "out",
-    "node_modules",
-    "__pycache__",
-    "target",
-    ".next",
-    ".venv",
-];
+use crate::project::collect_files;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CallEdge {
@@ -101,25 +88,8 @@ fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
     }
 }
 
-fn is_excluded(path: &Path) -> bool {
-    path.components().any(|c| {
-        let v = c.as_os_str().to_string_lossy();
-        EXCLUDED_DIRS.contains(&v.as_ref())
-    })
-}
-
 fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|e| !is_excluded(e.path()))
-    {
-        let entry = entry?;
-        if entry.file_type().is_file() && call_language_for_path(entry.path()).is_some() {
-            files.push(entry.path().to_path_buf());
-        }
-    }
-    Ok(files)
+    collect_files(root, |path| call_language_for_path(path).is_some())
 }
 
 /// Parse a file and extract all call edges within each function.

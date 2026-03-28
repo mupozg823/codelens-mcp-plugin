@@ -78,6 +78,46 @@ impl ProjectRoot {
     }
 }
 
+// ── Shared directory exclusion & file collection ────────────────────────
+
+pub const EXCLUDED_DIRS: &[&str] = &[
+    ".git",
+    ".idea",
+    ".gradle",
+    "build",
+    "dist",
+    "out",
+    "node_modules",
+    "__pycache__",
+    "target",
+    ".next",
+    ".venv",
+];
+
+/// Returns `true` if any component of `path` matches an excluded directory.
+pub fn is_excluded(path: &Path) -> bool {
+    path.components().any(|component| {
+        let value = component.as_os_str().to_string_lossy();
+        EXCLUDED_DIRS.contains(&value.as_ref())
+    })
+}
+
+/// Walk `root` collecting files that pass `filter`, skipping excluded dirs.
+pub fn collect_files(root: &Path, filter: impl Fn(&Path) -> bool) -> Result<Vec<PathBuf>> {
+    use walkdir::WalkDir;
+    let mut files = Vec::new();
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|entry| !is_excluded(entry.path()))
+    {
+        let entry = entry?;
+        if entry.file_type().is_file() && filter(entry.path()) {
+            files.push(entry.path().to_path_buf());
+        }
+    }
+    Ok(files)
+}
+
 /// Walk up from `start` until a directory containing a root marker is found.
 fn detect_root(start: &Path) -> Option<PathBuf> {
     let home = dirs_fallback();

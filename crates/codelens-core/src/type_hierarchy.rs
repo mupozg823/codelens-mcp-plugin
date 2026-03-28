@@ -2,7 +2,7 @@
 //!
 //! Replaces JetBrains PSI `getTypeHierarchy` with direct AST node traversal.
 
-use crate::file_ops::is_excluded;
+use crate::project::is_excluded;
 use crate::project::ProjectRoot;
 use crate::symbols::language_for_path;
 use anyhow::{bail, Result};

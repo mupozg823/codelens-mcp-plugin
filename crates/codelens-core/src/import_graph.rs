@@ -1,30 +1,90 @@
 use crate::call_graph::extract_calls;
 use crate::db::{index_db_path, IndexDb};
-use crate::project::ProjectRoot;
+use crate::project::{collect_files, ProjectRoot};
 use anyhow::{bail, Result};
 use regex::Regex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
-use walkdir::WalkDir;
+use std::sync::LazyLock;
+
+// ── Python ────────────────────────────────────────────────────────────────────
+static PY_IMPORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*import\s+([A-Za-z0-9_.,\s]+)").unwrap());
+static PY_FROM_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*from\s+([A-Za-z0-9_\.]+)\s+import\s+").unwrap());
+
+// ── JavaScript / TypeScript ───────────────────────────────────────────────────
+static JS_IMPORT_FROM_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)\bimport\s+[^;]*?\sfrom\s+["']([^"']+)["']"#).unwrap());
+static JS_IMPORT_SIDE_EFFECT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)\bimport\s+["']([^"']+)["']"#).unwrap());
+static JS_REQUIRE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"require\(\s*["']([^"']+)["']\s*\)"#).unwrap());
+static JS_DYNAMIC_IMPORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"import\(\s*["']([^"']+)["']\s*\)"#).unwrap());
+
+// ── Go ────────────────────────────────────────────────────────────────────────
+static GO_SINGLE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^\s*import\s+"([^"]+)""#).unwrap());
+static GO_BLOCK_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#""([^"]+)""#).unwrap());
+static GO_BLOCK_SECTION_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?s)\bimport\s*\(([^)]*)\)"#).unwrap());
+
+// ── Java ──────────────────────────────────────────────────────────────────────
+static JAVA_IMPORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*import\s+(?:static\s+)?([A-Za-z0-9_.]+)\s*;").unwrap());
+
+// ── Kotlin ────────────────────────────────────────────────────────────────────
+static KT_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*import\s+([A-Za-z0-9_.]+)(?:\s+as\s+[A-Za-z0-9_]+)?").unwrap()
+});
+
+// ── Rust ──────────────────────────────────────────────────────────────────────
+static RS_USE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*use\s+([A-Za-z0-9_:]+)").unwrap());
+static RS_MOD_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*mod\s+([A-Za-z0-9_]+)\s*;").unwrap());
+
+// ── Ruby ──────────────────────────────────────────────────────────────────────
+static RB_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?m)^\s*(?:require|require_relative|load)\s+["']([^"']+)["']"#).unwrap()
+});
+
+// ── C / C++ ───────────────────────────────────────────────────────────────────
+static C_INCLUDE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)^\s*#\s*include\s+[<"]([^>"]+)[>"]"#).unwrap());
+
+// ── PHP ───────────────────────────────────────────────────────────────────────
+static PHP_USE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*use\s+([A-Za-z0-9_\\]+)\s*;").unwrap());
+static PHP_REQ_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?m)^\s*(?:require|require_once|include|include_once)\s+["']([^"']+)["']\s*;"#)
+        .unwrap()
+});
+
+// ── collect_top_level_funcs patterns ─────────────────────────────────────────
+static TLF_PY_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^def ([A-Za-z_][A-Za-z0-9_]*)").unwrap());
+static TLF_JS_RE1: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^function ([A-Za-z_][A-Za-z0-9_]*)").unwrap());
+static TLF_JS_RE2: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^(?:export\s+)?(?:async\s+)?function ([A-Za-z_][A-Za-z0-9_]*)").unwrap()
+});
+static TLF_GO_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^func ([A-Za-z_][A-Za-z0-9_]*)").unwrap());
+static TLF_JVM_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)(?:public|private|protected|static|\s)+\s+\w+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(")
+        .unwrap()
+});
+static TLF_RS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^(?:pub(?:\([^)]*\))?\s+)?fn ([A-Za-z_][A-Za-z0-9_]*)").unwrap()
+});
 
 const SUPPORTED_EXTENSIONS: &[&str] = &[
     "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "go", "java", "kt", "rs", "rb", "c", "cc", "cpp",
     "cxx", "h", "hh", "hpp", "hxx", "php",
-];
-const EXCLUDED_DIRS: &[&str] = &[
-    ".git",
-    ".idea",
-    ".gradle",
-    "build",
-    "dist",
-    "out",
-    "node_modules",
-    "__pycache__",
-    "target",
-    ".next",
-    ".venv",
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -354,24 +414,16 @@ fn collect_top_level_funcs(path: &Path, source: &str, funcs: &mut HashMap<String
         .map(|e| e.to_ascii_lowercase())
         .unwrap_or_default();
 
-    let patterns: &[&str] = match ext.as_str() {
-        "py" => &[r"(?m)^def ([A-Za-z_][A-Za-z0-9_]*)"],
-        "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" => &[
-            r"(?m)^function ([A-Za-z_][A-Za-z0-9_]*)",
-            r"(?m)^(?:export\s+)?(?:async\s+)?function ([A-Za-z_][A-Za-z0-9_]*)",
-        ],
-        "go" => &[r"(?m)^func ([A-Za-z_][A-Za-z0-9_]*)"],
-        "java" | "kt" => {
-            &[r"(?m)(?:public|private|protected|static|\s)+\s+\w+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("]
-        }
-        "rs" => &[r"(?m)^(?:pub(?:\([^)]*\))?\s+)?fn ([A-Za-z_][A-Za-z0-9_]*)"],
+    let regexes: &[&Regex] = match ext.as_str() {
+        "py" => &[&*TLF_PY_RE],
+        "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" => &[&*TLF_JS_RE1, &*TLF_JS_RE2],
+        "go" => &[&*TLF_GO_RE],
+        "java" | "kt" => &[&*TLF_JVM_RE],
+        "rs" => &[&*TLF_RS_RE],
         _ => return,
     };
 
-    for pattern in patterns {
-        let Ok(re) = Regex::new(pattern) else {
-            continue;
-        };
+    for re in regexes {
         for cap in re.captures_iter(source) {
             let Some(m) = cap.get(1) else { continue };
             let name = m.as_str().to_owned();
@@ -460,29 +512,10 @@ fn build_graph_from_files(project: &ProjectRoot) -> Result<HashMap<String, FileN
 }
 
 fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    for entry in WalkDir::new(root)
-        .into_iter()
-        .filter_entry(|entry| !is_excluded(entry.path()))
-    {
-        let entry = entry?;
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let Some(ext) = entry.path().extension().and_then(|ext| ext.to_str()) else {
-            continue;
-        };
-        if SUPPORTED_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()) {
-            files.push(entry.path().to_path_buf());
-        }
-    }
-    Ok(files)
-}
-
-fn is_excluded(path: &Path) -> bool {
-    path.components().any(|component| {
-        let value = component.as_os_str().to_string_lossy();
-        EXCLUDED_DIRS.contains(&value.as_ref())
+    collect_files(root, |path| {
+        path.extension()
+            .and_then(|ext| ext.to_str())
+            .is_some_and(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
     })
 }
 
@@ -525,11 +558,8 @@ fn extract_imports(path: &Path) -> Vec<String> {
 }
 
 fn extract_python_imports(content: &str) -> Vec<String> {
-    let import_re = Regex::new(r"(?m)^\s*import\s+([A-Za-z0-9_.,\s]+)").expect("valid regex");
-    let from_re = Regex::new(r"(?m)^\s*from\s+([A-Za-z0-9_\.]+)\s+import\s+").expect("valid regex");
-
     let mut imports = Vec::new();
-    for capture in import_re.captures_iter(content) {
+    for capture in PY_IMPORT_RE.captures_iter(content) {
         let Some(modules) = capture.get(1) else {
             continue;
         };
@@ -540,7 +570,7 @@ fn extract_python_imports(content: &str) -> Vec<String> {
             }
         }
     }
-    for capture in from_re.captures_iter(content) {
+    for capture in PY_FROM_RE.captures_iter(content) {
         let Some(module) = capture.get(1) else {
             continue;
         };
@@ -550,19 +580,12 @@ fn extract_python_imports(content: &str) -> Vec<String> {
 }
 
 fn extract_js_imports(content: &str) -> Vec<String> {
-    let import_from_re =
-        Regex::new(r#"(?m)\bimport\s+[^;]*?\sfrom\s+["']([^"']+)["']"#).expect("valid regex");
-    let import_side_effect_re =
-        Regex::new(r#"(?m)\bimport\s+["']([^"']+)["']"#).expect("valid regex");
-    let require_re = Regex::new(r#"require\(\s*["']([^"']+)["']\s*\)"#).expect("valid regex");
-    let dynamic_import_re = Regex::new(r#"import\(\s*["']([^"']+)["']\s*\)"#).expect("valid regex");
-
     let mut imports = Vec::new();
     for regex in [
-        &import_from_re,
-        &import_side_effect_re,
-        &require_re,
-        &dynamic_import_re,
+        &*JS_IMPORT_FROM_RE,
+        &*JS_IMPORT_SIDE_EFFECT_RE,
+        &*JS_REQUIRE_RE,
+        &*JS_DYNAMIC_IMPORT_RE,
     ] {
         for capture in regex.captures_iter(content) {
             let Some(module) = capture.get(1) else {
@@ -576,21 +599,17 @@ fn extract_js_imports(content: &str) -> Vec<String> {
 
 fn extract_go_imports(content: &str) -> Vec<String> {
     // Handles: import "path" and import ( "path" ... )
-    let single_re = Regex::new(r#"(?m)^\s*import\s+"([^"]+)""#).expect("valid regex");
-    let block_re = Regex::new(r#""([^"]+)""#).expect("valid regex");
-
     let mut imports = Vec::new();
     // Single-line imports
-    for cap in single_re.captures_iter(content) {
+    for cap in GO_SINGLE_RE.captures_iter(content) {
         if let Some(m) = cap.get(1) {
             imports.push(m.as_str().to_owned());
         }
     }
     // Block imports: find import ( ... ) sections
-    let block_section_re = Regex::new(r#"(?s)\bimport\s*\(([^)]*)\)"#).expect("valid regex");
-    for section in block_section_re.captures_iter(content) {
+    for section in GO_BLOCK_SECTION_RE.captures_iter(content) {
         if let Some(body) = section.get(1) {
-            for cap in block_re.captures_iter(body.as_str()) {
+            for cap in GO_BLOCK_RE.captures_iter(body.as_str()) {
                 if let Some(m) = cap.get(1) {
                     imports.push(m.as_str().to_owned());
                 }
@@ -602,9 +621,8 @@ fn extract_go_imports(content: &str) -> Vec<String> {
 
 fn extract_java_imports(content: &str) -> Vec<String> {
     // import pkg.Class; and import static pkg.Class.method;
-    let re =
-        Regex::new(r"(?m)^\s*import\s+(?:static\s+)?([A-Za-z0-9_.]+)\s*;").expect("valid regex");
-    re.captures_iter(content)
+    JAVA_IMPORT_RE
+        .captures_iter(content)
         .filter_map(|cap| cap.get(1))
         .map(|m| m.as_str().to_owned())
         .collect()
@@ -612,9 +630,8 @@ fn extract_java_imports(content: &str) -> Vec<String> {
 
 fn extract_kotlin_imports(content: &str) -> Vec<String> {
     // import pkg.Class  and  import pkg.Class as Alias
-    let re = Regex::new(r"(?m)^\s*import\s+([A-Za-z0-9_.]+)(?:\s+as\s+[A-Za-z0-9_]+)?")
-        .expect("valid regex");
-    re.captures_iter(content)
+    KT_IMPORT_RE
+        .captures_iter(content)
         .filter_map(|cap| cap.get(1))
         .map(|m| m.as_str().to_owned())
         .collect()
@@ -622,11 +639,8 @@ fn extract_kotlin_imports(content: &str) -> Vec<String> {
 
 fn extract_rust_imports(content: &str) -> Vec<String> {
     // use crate::module;  use super::module;  mod module;
-    let use_re = Regex::new(r"(?m)^\s*use\s+([A-Za-z0-9_:]+)").expect("valid regex");
-    let mod_re = Regex::new(r"(?m)^\s*mod\s+([A-Za-z0-9_]+)\s*;").expect("valid regex");
-
     let mut imports = Vec::new();
-    for re in [&use_re, &mod_re] {
+    for re in [&*RS_USE_RE, &*RS_MOD_RE] {
         for cap in re.captures_iter(content) {
             if let Some(m) = cap.get(1) {
                 imports.push(m.as_str().to_owned());
@@ -638,9 +652,8 @@ fn extract_rust_imports(content: &str) -> Vec<String> {
 
 fn extract_ruby_imports(content: &str) -> Vec<String> {
     // require "file"  require_relative "file"  load "file"
-    let re = Regex::new(r#"(?m)^\s*(?:require|require_relative|load)\s+["']([^"']+)["']"#)
-        .expect("valid regex");
-    re.captures_iter(content)
+    RB_IMPORT_RE
+        .captures_iter(content)
         .filter_map(|cap| cap.get(1))
         .map(|m| m.as_str().to_owned())
         .collect()
@@ -648,8 +661,8 @@ fn extract_ruby_imports(content: &str) -> Vec<String> {
 
 fn extract_c_imports(content: &str) -> Vec<String> {
     // #include "file.h"  and  #include <file.h>
-    let re = Regex::new(r#"(?m)^\s*#\s*include\s+[<"]([^>"]+)[>"]"#).expect("valid regex");
-    re.captures_iter(content)
+    C_INCLUDE_RE
+        .captures_iter(content)
         .filter_map(|cap| cap.get(1))
         .map(|m| m.as_str().to_owned())
         .collect()
@@ -657,15 +670,9 @@ fn extract_c_imports(content: &str) -> Vec<String> {
 
 fn extract_php_imports(content: &str) -> Vec<String> {
     // use Namespace\Class;
-    let use_re = Regex::new(r"(?m)^\s*use\s+([A-Za-z0-9_\\]+)\s*;").expect("valid regex");
     // require/include "file"; (with or without _once)
-    let req_re = Regex::new(
-        r#"(?m)^\s*(?:require|require_once|include|include_once)\s+["']([^"']+)["']\s*;"#,
-    )
-    .expect("valid regex");
-
     let mut imports = Vec::new();
-    for re in [&use_re, &req_re] {
+    for re in [&*PHP_USE_RE, &*PHP_REQ_RE] {
         for cap in re.captures_iter(content) {
             if let Some(m) = cap.get(1) {
                 imports.push(m.as_str().to_owned());
