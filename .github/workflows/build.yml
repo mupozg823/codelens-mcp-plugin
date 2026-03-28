@@ -29,6 +29,10 @@ jobs:
         working-directory: rust
         run: cargo test
 
+      - name: Benchmark
+        working-directory: rust
+        run: cargo bench --bench indexing -- --output-format bencher | tee bench-output.txt
+
       - name: Build Release
         working-directory: rust
         run: cargo build --release
