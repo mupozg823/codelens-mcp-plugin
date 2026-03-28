@@ -1176,26 +1176,18 @@ fn dispatch_tool(
     })();
 
     match result {
-        Ok((payload, meta)) => {
-            let hints = navigation_hints(name);
-            let response = if hints.is_empty() {
-                ToolCallResponse::success(payload, meta)
-            } else {
-                ToolCallResponse::success_with_hints(payload, meta, hints)
-            };
-            JsonRpcResponse::result(
-                id,
-                json!({
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": serde_json::to_string(&response)
-                                .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())
-                        }
-                    ]
-                }),
-            )
-        }
+        Ok((payload, meta)) => JsonRpcResponse::result(
+            id,
+            json!({
+                "content": [
+                    {
+                        "type": "text",
+                        "text": serde_json::to_string(&ToolCallResponse::success(payload, meta))
+                            .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())
+                    }
+                ]
+            }),
+        ),
         Err(error) => JsonRpcResponse::result(
             id,
             json!({
@@ -1279,60 +1271,6 @@ impl SymbolKindLabel for SymbolKind {
             SymbolKind::TypeAlias => "type_alias",
             SymbolKind::Unknown => "unknown",
         }
-    }
-}
-
-fn navigation_hints(tool_name: &str) -> Vec<String> {
-    match tool_name {
-        "find_symbol" => vec![
-            "get_callers: find functions that call this symbol".into(),
-            "get_callees: find functions called by this symbol".into(),
-            "find_referencing_symbols: trace all references".into(),
-            "get_blast_radius: estimate change impact".into(),
-            "get_complexity: check cyclomatic complexity".into(),
-        ],
-        "get_symbols_overview" => vec![
-            "find_symbol: search for a specific symbol with body".into(),
-            "get_ranked_context: get token-budget-aware context".into(),
-        ],
-        "get_blast_radius" => vec![
-            "find_circular_dependencies: check for circular imports".into(),
-            "get_change_coupling: find historically co-changed files".into(),
-            "find_dead_code: detect unreferenced files".into(),
-        ],
-        "find_importers" => vec![
-            "get_blast_radius: full transitive impact analysis".into(),
-            "get_symbol_importance: PageRank file ranking".into(),
-        ],
-        "get_callers" => vec![
-            "get_callees: reverse direction — what does this function call?".into(),
-            "find_referencing_symbols: LSP-backed reference tracing".into(),
-        ],
-        "get_callees" => vec![
-            "get_callers: reverse direction — who calls this function?".into(),
-            "get_complexity: check callee complexity".into(),
-        ],
-        "get_changed_files" => vec![
-            "get_diff_symbols: see symbols in changed files".into(),
-            "get_change_coupling: find historically co-changed files".into(),
-        ],
-        "get_change_coupling" => vec![
-            "find_circular_dependencies: check circular imports in coupled files".into(),
-            "get_blast_radius: estimate change impact for coupled files".into(),
-        ],
-        "find_circular_dependencies" => vec![
-            "get_blast_radius: estimate impact of breaking the cycle".into(),
-            "find_importers: trace specific import chains".into(),
-        ],
-        "search_for_pattern" => vec![
-            "find_symbol: structured symbol search (faster for known names)".into(),
-            "find_referencing_code_snippets: search with context lines".into(),
-        ],
-        "get_complexity" => vec![
-            "find_symbol: read the function body".into(),
-            "get_callers: see who calls this complex function".into(),
-        ],
-        _ => vec![],
     }
 }
 

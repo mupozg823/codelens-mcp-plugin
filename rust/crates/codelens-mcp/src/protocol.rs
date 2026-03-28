@@ -47,8 +47,6 @@ pub struct ToolCallResponse {
     pub data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub hints: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,19 +98,6 @@ impl ToolCallResponse {
             degraded_reason: meta.degraded_reason,
             data: Some(data),
             error: None,
-            hints: None,
-        }
-    }
-
-    pub fn success_with_hints(data: Value, meta: ToolResponseMeta, hints: Vec<String>) -> Self {
-        Self {
-            success: true,
-            backend_used: Some(meta.backend_used),
-            confidence: Some(meta.confidence),
-            degraded_reason: meta.degraded_reason,
-            data: Some(data),
-            error: None,
-            hints: if hints.is_empty() { None } else { Some(hints) },
         }
     }
 
@@ -124,7 +109,6 @@ impl ToolCallResponse {
             degraded_reason: None,
             data: None,
             error: Some(message.into()),
-            hints: None,
         }
     }
 }
