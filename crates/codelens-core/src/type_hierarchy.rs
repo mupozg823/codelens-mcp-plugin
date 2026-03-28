@@ -206,15 +206,39 @@ fn extract_types_from_node(
         }
         // Rust: impl Trait for Struct — adds Trait as supertype of Struct
         "impl_item" => {
-            if let (Some(trait_node), Some(type_node)) = (
-                node.child_by_field_name("trait"),
-                node.child_by_field_name("type"),
-            ) {
+            // Try field names first
+            let by_field = node
+                .child_by_field_name("trait")
+                .zip(node.child_by_field_name("type"));
+            if let Some((trait_node, type_node)) = by_field {
                 let struct_name = node_text(type_node, source).to_string();
                 let trait_name = node_text(trait_node, source).to_string();
                 if let Some(existing) = map.get_mut(&struct_name) {
                     if !existing.supertypes.contains(&trait_name) {
                         existing.supertypes.push(trait_name);
+                    }
+                }
+            } else {
+                // Fallback: scan child type_identifiers — pattern: impl TRAIT for TYPE
+                let mut type_ids = Vec::new();
+                let mut has_for = false;
+                for i in 0..node.child_count() {
+                    if let Some(child) = node.child(i) {
+                        if child.kind() == "type_identifier" {
+                            type_ids.push(node_text(child, source).to_string());
+                        }
+                        if node_text(child, source) == "for" {
+                            has_for = true;
+                        }
+                    }
+                }
+                if has_for && type_ids.len() >= 2 {
+                    let trait_name = &type_ids[0];
+                    let struct_name = &type_ids[1];
+                    if let Some(existing) = map.get_mut(struct_name) {
+                        if !existing.supertypes.contains(trait_name) {
+                            existing.supertypes.push(trait_name.clone());
+                        }
                     }
                 }
             }
@@ -517,6 +541,30 @@ mod tests {
         let result = get_type_hierarchy_native(&project, "Dog", None, "super", 0).unwrap();
         let names: Vec<_> = result.nodes.iter().map(|n| n.name.as_str()).collect();
         assert!(names.contains(&"Animal"), "should find Animal: {names:?}");
+    }
+
+    #[test]
+    fn rust_trait_impl() {
+        let dir = temp_dir("rs-impl");
+        fs::write(
+            dir.join("lib.rs"),
+            "pub trait Drawable { fn draw(&self); }\npub struct Circle { pub radius: f64 }\nimpl Drawable for Circle { fn draw(&self) {} }\n",
+        ).unwrap();
+        let project = ProjectRoot::new(&dir).unwrap();
+
+        let result = get_type_hierarchy_native(&project, "Circle", None, "super", 0).unwrap();
+        let names: Vec<_> = result.nodes.iter().map(|n| n.name.as_str()).collect();
+        assert!(
+            names.contains(&"Circle"),
+            "should include Circle: {names:?}"
+        );
+        // Circle should have Drawable as supertype
+        let circle = result.nodes.iter().find(|n| n.name == "Circle").unwrap();
+        assert!(
+            circle.supertypes.contains(&"Drawable".to_string()),
+            "Circle should impl Drawable: {:?}",
+            circle.supertypes
+        );
     }
 
     #[test]

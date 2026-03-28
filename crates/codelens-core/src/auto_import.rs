@@ -5,13 +5,13 @@
 
 use crate::import_graph::extract_imports_for_file;
 use crate::project::ProjectRoot;
-use crate::scope_analysis::{find_scoped_references_in_file, ReferenceKind};
-use crate::symbols::{find_symbol, get_symbols_overview, SymbolInfo, SymbolKind};
+use crate::symbols::{get_symbols_overview, language_for_path, SymbolIndex, SymbolInfo};
 use anyhow::Result;
 use serde::Serialize;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
+use tree_sitter::{Node, Parser};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportSuggestion {
@@ -42,11 +42,8 @@ pub fn analyze_missing_imports(
         .unwrap_or("")
         .to_ascii_lowercase();
 
-    // Step 1: Collect all identifier usages (reads) via scope analysis
-    let all_refs = find_scoped_references_in_file(project, file_path, "", None);
-    // scope_analysis searches for a specific name — we need a different approach.
-    // Instead: collect all uppercase-starting identifiers as type candidates
-    let used_types = collect_type_candidates(&source, &ext);
+    // Step 1: Extract type identifiers via tree-sitter (not regex)
+    let used_types = collect_type_candidates_ast(&resolved, &source)?;
 
     // Step 2: Collect locally defined symbols
     let local_symbols: HashSet<String> = get_symbols_overview(project, file_path, 0)?
@@ -57,28 +54,36 @@ pub fn analyze_missing_imports(
     // Step 3: Collect already-imported symbols
     let existing_imports = extract_existing_import_names(&resolved);
 
-    // Step 4: Find unresolved = used - local - imported
+    // Step 4: Find unresolved = used - local - imported - builtins
     let unresolved: Vec<String> = used_types
         .into_iter()
         .filter(|name| !local_symbols.contains(name) && !existing_imports.contains(name))
         .filter(|name| !is_builtin(name, &ext))
         .collect();
 
-    // Step 5: For each unresolved, search project symbols and generate suggestion
+    // Step 5: Batch lookup via SymbolIndex (SQLite) — much faster than per-name find_symbol
     let insert_line = find_import_insert_line(&source, &ext);
     let mut suggestions = Vec::new();
+    let mut index = SymbolIndex::new(project.clone());
 
     for name in &unresolved {
-        let matches = find_symbol(project, name, None, false, true, 5)?;
-        if let Some(best) = matches.first() {
-            let import_stmt = generate_import_statement(name, &best.file_path, &ext);
-            suggestions.push(ImportSuggestion {
-                symbol_name: name.clone(),
-                source_file: best.file_path.clone(),
-                import_statement: import_stmt,
-                insert_line,
-                confidence: if matches.len() == 1 { 0.95 } else { 0.7 },
-            });
+        if let Ok(matches) = index.find_symbol(name, None, false, true, 3) {
+            // Skip if only found in the same file
+            let external: Vec<_> = matches
+                .iter()
+                .filter(|m| m.file_path != file_path)
+                .collect();
+            let best_ref = external.first().copied().or(matches.first());
+            if let Some(best) = best_ref {
+                let import_stmt = generate_import_statement(name, &best.file_path, &ext);
+                suggestions.push(ImportSuggestion {
+                    symbol_name: name.clone(),
+                    source_file: best.file_path.clone(),
+                    import_statement: import_stmt,
+                    insert_line,
+                    confidence: if external.len() == 1 { 0.95 } else { 0.7 },
+                });
+            }
         }
     }
 
@@ -123,25 +128,84 @@ pub fn add_import(
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-/// Collect type candidates: uppercase-starting identifiers used in the file.
-fn collect_type_candidates(source: &str, ext: &str) -> Vec<String> {
+/// Collect type candidates from AST — only real type identifiers, not strings/comments.
+fn collect_type_candidates_ast(file_path: &Path, source: &str) -> Result<Vec<String>> {
+    let Some(config) = language_for_path(file_path) else {
+        // Fallback to regex for unsupported languages
+        return Ok(collect_type_candidates_regex(source));
+    };
+
+    let mut parser = Parser::new();
+    parser.set_language(&config.language)?;
+    let Some(tree) = parser.parse(source, None) else {
+        return Ok(collect_type_candidates_regex(source));
+    };
+
+    let source_bytes = source.as_bytes();
+    let mut seen = HashSet::new();
+    let mut result = Vec::new();
+    collect_type_nodes(tree.root_node(), source_bytes, &mut seen, &mut result);
+    Ok(result)
+}
+
+fn collect_type_nodes(
+    node: Node,
+    source: &[u8],
+    seen: &mut HashSet<String>,
+    out: &mut Vec<String>,
+) {
+    let kind = node.kind();
+
+    // Skip comments and strings entirely
+    if matches!(
+        kind,
+        "comment"
+            | "line_comment"
+            | "block_comment"
+            | "string"
+            | "string_literal"
+            | "template_string"
+            | "raw_string_literal"
+            | "interpreted_string_literal"
+    ) {
+        return;
+    }
+
+    // Collect type identifiers and uppercase identifiers in type positions
+    if kind == "type_identifier" || kind == "identifier" {
+        let text = std::str::from_utf8(&source[node.byte_range()]).unwrap_or("");
+        if !text.is_empty()
+            && text
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+            && !is_keyword(text)
+            && seen.insert(text.to_string())
+        {
+            out.push(text.to_string());
+        }
+    }
+
+    for i in 0..node.child_count() {
+        if let Some(child) = node.child(i) {
+            collect_type_nodes(child, source, seen, out);
+        }
+    }
+}
+
+/// Regex fallback for unsupported languages.
+fn collect_type_candidates_regex(source: &str) -> Vec<String> {
     let re = regex::Regex::new(r"\b([A-Z][a-zA-Z0-9_]*)\b").unwrap();
     let mut seen = HashSet::new();
     let mut result = Vec::new();
-
     for line in source.lines() {
         let trimmed = line.trim();
-        // Skip comments
-        if trimmed.starts_with('#')
-            || trimmed.starts_with("//")
-            || trimmed.starts_with('*')
-            || trimmed.starts_with("/*")
-        {
+        if trimmed.starts_with('#') || trimmed.starts_with("//") || trimmed.starts_with("/*") {
             continue;
         }
         for cap in re.find_iter(line) {
             let name = cap.as_str().to_string();
-            // Skip common keywords/constants
             if !is_keyword(&name) && seen.insert(name.clone()) {
                 result.push(name);
             }
@@ -369,6 +433,47 @@ fn is_builtin(name: &str, ext: &str) -> bool {
                 | "Deprecated"
                 | "Test"
                 | "Suppress"
+        ),
+        "rs" => matches!(
+            name,
+            "Ok" | "Err"
+                | "Some"
+                | "Copy"
+                | "Clone"
+                | "Debug"
+                | "Default"
+                | "Display"
+                | "From"
+                | "Into"
+                | "Send"
+                | "Sync"
+                | "Sized"
+                | "Drop"
+                | "Fn"
+                | "FnMut"
+                | "FnOnce"
+                | "Box"
+                | "Rc"
+                | "Arc"
+                | "Mutex"
+                | "RwLock"
+                | "Pin"
+                | "Serialize"
+                | "Deserialize"
+                | "Regex"
+                | "Path"
+                | "PathBuf"
+                | "File"
+                | "Read"
+                | "Write"
+                | "BufRead"
+                | "BufReader"
+                | "BufWriter"
+                | "WalkDir"
+                | "Context"
+                | "Cow"
+                | "PhantomData"
+                | "ManuallyDrop"
         ),
         _ => false,
     }

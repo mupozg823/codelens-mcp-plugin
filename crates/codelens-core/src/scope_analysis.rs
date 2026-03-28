@@ -334,11 +334,25 @@ fn classify_reference(node: Node) -> ReferenceKind {
             return ReferenceKind::Import;
         }
 
-        // Definition detection: identifier is the "name" child of a definition node
+        // Definition detection
         if DEFINITION_PARENTS.contains(&parent_type) {
-            // Check if this identifier is the name field (usually first identifier child)
+            // Parameters: ALL identifier children are definitions
+            if is_parameter_context(parent) {
+                return ReferenceKind::Definition;
+            }
+            // Other definitions: only the "name" child
             if is_name_child(node, parent) {
                 return ReferenceKind::Definition;
+            }
+        }
+        // Also check grandparent for typed_parameter → identifier patterns
+        if let Some(grandparent) = parent.parent() {
+            let gp_type = grandparent.kind();
+            if is_parameter_context(grandparent) && is_identifier_node(node.kind()) {
+                // identifier inside a typed_parameter/default_parameter = definition
+                if parent.kind().contains("parameter") || parent.kind().contains("pattern") {
+                    return ReferenceKind::Definition;
+                }
             }
         }
 
@@ -373,6 +387,24 @@ fn is_name_child(node: Node, parent: Node) -> bool {
         }
     }
     false
+}
+
+fn is_parameter_context(node: Node) -> bool {
+    let kind = node.kind();
+    matches!(
+        kind,
+        "parameters"
+            | "formal_parameters"
+            | "required_parameter"
+            | "optional_parameter"
+            | "rest_parameter"
+            | "formal_parameter"
+            | "parameter_declaration"
+            | "typed_parameter"
+            | "typed_default_parameter"
+            | "default_parameter"
+            | "parameter"
+    )
 }
 
 fn is_inside_import(node: Node) -> bool {
