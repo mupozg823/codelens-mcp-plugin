@@ -3,6 +3,15 @@ name = "codelens-mcp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "codelens-mcp"
+path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true

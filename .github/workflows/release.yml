@@ -15,15 +15,23 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             name: darwin-arm64
+            ext: ""
           - target: x86_64-apple-darwin
             os: macos-13
             name: darwin-x86_64
+            ext: ""
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             name: linux-x86_64
+            ext: ""
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             name: linux-arm64
+            ext: ""
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: windows-x86_64
+            ext: ".exe"
 
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +45,7 @@ jobs:
         run: cargo install cross --locked
 
       - name: Build
+        shell: bash
         run: |
           if [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
             cross build --release --target ${{ matrix.target }}
@@ -44,20 +53,30 @@ jobs:
             cargo build --release --target ${{ matrix.target }}
           fi
 
-      - name: Package
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
         run: |
           cp target/${{ matrix.target }}/release/codelens-mcp codelens-mcp
           tar czf codelens-mcp-${{ matrix.name }}.tar.gz codelens-mcp
 
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          cp target/${{ matrix.target }}/release/codelens-mcp.exe codelens-mcp.exe
+          7z a codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe
+
       - uses: actions/upload-artifact@v4
         with:
           name: codelens-mcp-${{ matrix.name }}
-          path: codelens-mcp-${{ matrix.name }}.tar.gz
+          path: codelens-mcp-${{ matrix.name }}.*
 
   publish:
     name: GitHub Release
     needs: [build]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -66,7 +85,9 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: codelens-mcp-*.tar.gz
+          files: |
+            codelens-mcp-*.tar.gz
+            codelens-mcp-*.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

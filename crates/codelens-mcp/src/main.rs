@@ -136,13 +136,53 @@ fn handle_request(state: &AppState, request: JsonRpcRequest) -> JsonRpcResponse 
             request.id,
             json!({
                 "protocolVersion": "2025-03-26",
-                "capabilities": { "tools": {} },
+                "capabilities": {
+                    "tools": {},
+                    "resources": { "listChanged": false },
+                    "prompts": { "listChanged": false }
+                },
                 "serverInfo": {
-                    "name": "codelens-rust",
+                    "name": "codelens-mcp",
                     "version": env!("CARGO_PKG_VERSION")
                 }
             }),
         ),
+        "resources/list" => JsonRpcResponse::result(
+            request.id,
+            json!({
+                "resources": resources(state)
+            }),
+        ),
+        "resources/read" => {
+            let uri = request
+                .params
+                .as_ref()
+                .and_then(|p| p.get("uri"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            JsonRpcResponse::result(request.id, read_resource(state, uri))
+        }
+        "prompts/list" => JsonRpcResponse::result(
+            request.id,
+            json!({
+                "prompts": prompts()
+            }),
+        ),
+        "prompts/get" => {
+            let name = request
+                .params
+                .as_ref()
+                .and_then(|p| p.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let args = request
+                .params
+                .as_ref()
+                .and_then(|p| p.get("arguments"))
+                .cloned()
+                .unwrap_or(json!({}));
+            JsonRpcResponse::result(request.id, get_prompt(state, name, &args))
+        }
         "tools/list" => {
             let filtered: Vec<_> = tools()
                 .into_iter()
@@ -2380,6 +2420,204 @@ fn resolve_memory_path(
         anyhow::bail!("Memory path must not contain '..': {name}");
     }
     Ok(memories_dir.join(format!("{normalized}.md")))
+}
+
+// ── MCP Resources ────────────────────────────────────────────────────────
+
+fn resources(state: &AppState) -> Vec<serde_json::Value> {
+    let project_name = state
+        .project
+        .as_path()
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    vec![
+        json!({
+            "uri": "codelens://project/overview",
+            "name": format!("Project: {project_name}"),
+            "description": "Project root path and symbol index statistics",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://symbols/index",
+            "name": "Symbol Index",
+            "description": "All indexed files and symbol counts",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://tools/list",
+            "name": "Available Tools",
+            "description": "List of all 62 MCP tools with descriptions",
+            "mimeType": "application/json"
+        }),
+    ]
+}
+
+fn read_resource(state: &AppState, uri: &str) -> serde_json::Value {
+    match uri {
+        "codelens://project/overview" => {
+            let stats = state
+                .symbol_index
+                .lock()
+                .ok()
+                .and_then(|idx| idx.stats().ok());
+            json!({
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": serde_json::to_string_pretty(&json!({
+                        "project_root": state.project.as_path().to_string_lossy(),
+                        "symbol_index": stats,
+                        "memories_dir": state.memories_dir.to_string_lossy(),
+                        "tool_count": 62
+                    })).unwrap_or_default()
+                }]
+            })
+        }
+        "codelens://symbols/index" => {
+            let stats = state
+                .symbol_index
+                .lock()
+                .ok()
+                .and_then(|idx| idx.stats().ok());
+            json!({
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": serde_json::to_string_pretty(&json!({
+                        "stats": stats
+                    })).unwrap_or_default()
+                }]
+            })
+        }
+        "codelens://tools/list" => {
+            let tool_names: Vec<&str> = tools().iter().map(|t| t.name).collect();
+            json!({
+                "contents": [{
+                    "uri": uri,
+                    "mimeType": "application/json",
+                    "text": serde_json::to_string_pretty(&tool_names).unwrap_or_default()
+                }]
+            })
+        }
+        _ => json!({
+            "contents": [{
+                "uri": uri,
+                "mimeType": "text/plain",
+                "text": format!("Unknown resource: {uri}")
+            }]
+        }),
+    }
+}
+
+// ── MCP Prompts ──────────────────────────────────────────────────────────
+
+fn prompts() -> Vec<serde_json::Value> {
+    vec![
+        json!({
+            "name": "review-file",
+            "description": "Review a file for code quality, bugs, and improvements",
+            "arguments": [{
+                "name": "file_path",
+                "description": "File to review",
+                "required": true
+            }]
+        }),
+        json!({
+            "name": "onboard-project",
+            "description": "Get a comprehensive overview of the project for onboarding",
+            "arguments": []
+        }),
+        json!({
+            "name": "analyze-impact",
+            "description": "Analyze the impact of modifying a specific file",
+            "arguments": [{
+                "name": "file_path",
+                "description": "File to analyze",
+                "required": true
+            }]
+        }),
+    ]
+}
+
+fn get_prompt(state: &AppState, name: &str, args: &serde_json::Value) -> serde_json::Value {
+    let project_root = state.project.as_path().to_string_lossy().to_string();
+    match name {
+        "review-file" => {
+            let file_path = args
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
+            json!({
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "Please review the file `{file_path}` in the project at `{project_root}`.\n\n\
+                            Use these tools to analyze:\n\
+                            1. `get_symbols_overview` to understand the file structure\n\
+                            2. `find_scoped_references` to check how symbols are used\n\
+                            3. `get_complexity` to identify complex functions\n\
+                            4. `analyze_missing_imports` to find import issues\n\n\
+                            Focus on: bugs, performance, readability, and missing error handling."
+                        )
+                    }
+                }]
+            })
+        }
+        "onboard-project" => {
+            json!({
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "I'm new to the project at `{project_root}`. Help me understand it.\n\n\
+                            Use these tools:\n\
+                            1. `get_symbols_overview` on the root to see top-level structure\n\
+                            2. `get_symbol_importance` to find the most important files\n\
+                            3. `find_circular_dependencies` to understand architecture issues\n\
+                            4. `search_for_pattern` for key patterns (main entry, config, tests)\n\n\
+                            Give me: architecture overview, key files, entry points, and test strategy."
+                        )
+                    }
+                }]
+            })
+        }
+        "analyze-impact" => {
+            let file_path = args
+                .get("file_path")
+                .and_then(|v| v.as_str())
+                .unwrap_or(".");
+            json!({
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "Analyze the impact of modifying `{file_path}` in `{project_root}`.\n\n\
+                            Use these tools:\n\
+                            1. `get_blast_radius` to find affected files\n\
+                            2. `find_importers` to find direct dependents\n\
+                            3. `get_symbols_overview` to understand what's in the file\n\
+                            4. `find_scoped_references` for each exported symbol\n\n\
+                            Assess: risk level, affected modules, required test coverage."
+                        )
+                    }
+                }]
+            })
+        }
+        _ => json!({
+            "messages": [{
+                "role": "user",
+                "content": {
+                    "type": "text",
+                    "text": format!("Unknown prompt: {name}")
+                }
+            }]
+        }),
+    }
 }
 
 fn default_lsp_command_for_path(file_path: &str) -> Option<String> {
