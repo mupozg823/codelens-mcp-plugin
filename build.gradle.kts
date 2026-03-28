@@ -24,6 +24,7 @@ dependencies {
 
         bundledPlugin("com.intellij.java")
         bundledPlugin("org.jetbrains.kotlin")
+        bundledPlugin("JavaScript")
         bundledPlugin("org.jetbrains.plugins.terminal")
         bundledPlugin("com.intellij.mcpServer")
 

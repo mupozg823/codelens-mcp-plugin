@@ -19,6 +19,7 @@ class SymbolServiceImpl(private val project: Project) : SymbolService {
             // Try to load language-specific adapters (order matters: specific first)
             tryLoadAdapter { JavaLanguageAdapter() }?.let { add(it) }
             tryLoadAdapter { KotlinLanguageAdapter() }?.let { add(it) }
+            tryLoadAdapter { JavaScriptLanguageAdapter() }?.let { add(it) }
             // Additional language adapters can be added in optional modules later.
             // Generic adapter is always available as fallback
             add(GenericLanguageAdapter())
