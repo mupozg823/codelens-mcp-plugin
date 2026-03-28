@@ -2,7 +2,7 @@ package com.codelens.tools
 
 import com.codelens.util.JsonBuilder
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.project.ProjectManager
+
 
 /**
  * Base class for all MCP tools exposed by this plugin.
@@ -37,16 +37,6 @@ abstract class BaseMcpTool {
      */
     abstract fun execute(args: Map<String, Any?>, project: Project): String
 
-    /**
-     * Get the active project, with fallback.
-     */
-    protected fun getActiveProject(): Project? {
-        return ProjectManager.getInstance().openProjects.firstOrNull()
-    }
-
-    /**
-     * Helper: extract a required string argument.
-     */
     /** Whether this tool requires PSI to be synced before execution. Override to false for non-PSI tools. */
     open val requiresPsiSync: Boolean = true
 
