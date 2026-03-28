@@ -66,12 +66,9 @@ const BALANCED_EXCLUDES: &[&str] = &[
     "get_symbol_importance",
     "find_dead_code",
     "refactor_extract_function",
-    "summarize_file",
-    "explain_code_flow",
     "get_complexity",
     "search_symbols_fuzzy",
     "check_lsp_status",
-    "get_lsp_recipe",
 ];
 
 impl AppState {
@@ -108,7 +105,12 @@ fn main() -> Result<()> {
         .position(|a| a == "--preset")
         .and_then(|i| args.get(i + 1))
         .map(|s| ToolPreset::from_str(s))
-        .unwrap_or(ToolPreset::Full);
+        .or_else(|| {
+            std::env::var("CODELENS_PRESET")
+                .ok()
+                .map(|s| ToolPreset::from_str(&s))
+        })
+        .unwrap_or(ToolPreset::Balanced);
 
     // Project root resolution priority:
     // 1. Explicit path argument (if not ".")
@@ -394,7 +396,7 @@ fn tools() -> Vec<Tool> {
         Tool::new("get_type_hierarchy", "Get the type hierarchy through a pooled stdio LSP server.", json!({"type":"object","properties":{"name_path":{"type":"string"},"fully_qualified_name":{"type":"string"},"relative_path":{"type":"string"},"hierarchy_type":{"type":"string","enum":["super","sub","both"]},"depth":{"type":"integer"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}})).with_annotations(ro.clone()),
         Tool::new("plan_symbol_rename", "Plan a safe symbol rename through pooled LSP prepareRename without applying edits.", json!({"type":"object","properties":{"file_path":{"type":"string"},"line":{"type":"integer"},"column":{"type":"integer"},"new_name":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}},"required":["file_path","line","column"]})).with_annotations(ro.clone()),
         Tool::new("check_lsp_status", "Check which LSP servers are installed on this machine and which are missing, with install commands.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
-        Tool::new("get_lsp_recipe", "Get the LSP server recipe (binary name, install command, args) for a given file extension.", json!({"type":"object","properties":{"extension":{"type":"string","description":"File extension without dot, e.g. 'py', 'ts', 'rs'"}},"required":["extension"]})).with_annotations(ro.clone()),
+        // get_lsp_recipe: migrated to Skill, kept in dispatch for compat
 
         // ── Graph / analysis (read-only) ─────────────────────────────────
         Tool::new("get_changed_files", "Return files changed compared to a git ref, with symbol counts. Also accepts legacy name 'get_diff_symbols'.", json!({"type":"object","properties":{"ref":{"type":"string"},"include_untracked":{"type":"boolean"}}})).with_annotations(ro.clone()),
@@ -422,8 +424,7 @@ fn tools() -> Vec<Tool> {
         Tool::new("add_import", "Insert an import statement at the correct position in a file.", json!({"type":"object","properties":{"file_path":{"type":"string"},"import_statement":{"type":"string","description":"Import statement to add"}},"required":["file_path","import_statement"]})).with_annotations(mutating.clone()),
 
         // ── Composite ────────────────────────────────────────────────────
-        Tool::new("summarize_file", "Get a comprehensive summary of a file: structure, symbols, importers, line count — all in one call.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File to summarize"}},"required":["file_path"]})).with_annotations(ro.clone()),
-        Tool::new("explain_code_flow", "Explain the call flow around a function: who calls it (callers) and what it calls (callees).", json!({"type":"object","properties":{"function_name":{"type":"string","description":"Function to trace"},"max_depth":{"type":"integer","description":"Max traversal depth (default 3)"},"max_results":{"type":"integer","description":"Max results per direction (default 20)"}},"required":["function_name"]})).with_annotations(ro.clone()),
+        // summarize_file, explain_code_flow: migrated to Skills, kept in dispatch for compat
         Tool::new("refactor_extract_function", "Extract a line range into a new function. Replaces the original lines with a function call. Use dry_run=true to preview.", json!({"type":"object","properties":{"file_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"new_name":{"type":"string","description":"Name for the new function"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}},"required":["file_path","start_line","end_line","new_name"]})).with_annotations(mutating.clone()),
 
         // ── Memory ───────────────────────────────────────────────────────
@@ -439,7 +440,7 @@ fn tools() -> Vec<Tool> {
         Tool::new("activate_project", "Activates and validates the current project.", json!({"type":"object","properties":{"project":{"type":"string","description":"Optional project name or path"}}})).with_annotations(ro.clone()),
         Tool::new("check_onboarding_performed", "Checks whether Serena onboarding memories are present.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("initial_instructions", "Returns initial instructions for starting work.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
-        Tool::new("onboarding", "Creates default .serena/memories onboarding files.", json!({"type":"object","properties":{"force":{"type":"boolean","description":"Re-create even if exists"}}})).with_annotations(mutating.clone()),
+        // onboarding: migrated to Skill, kept in dispatch for compat
         Tool::new("prepare_for_new_conversation", "Returns project context for a new conversation.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("get_watch_status", "Returns file watcher status: running, events processed, files reindexed.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         // summarize_changes, list_queryable_projects: kept in dispatch for compat, not listed
@@ -656,7 +657,7 @@ mod tests {
                 params: None,
             },
         );
-        assert_eq!(tools().len(), 53);
+        assert_eq!(tools().len(), 49);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("get_symbols_overview"));
     }
