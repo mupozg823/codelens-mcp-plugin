@@ -1,180 +1,157 @@
-# CodeLens MCP — Open Source Symbol-Level Code Intelligence
+# CodeLens — Open Source Code Intelligence Engine
 
-**64 tools (IntelliJ plugin) / 46 tools (standalone). Three backends: PSI, Tree-sitter AST, Workspace regex.**
-
-A drop-in open-source replacement for Serena JetBrains backend. Exposes symbol-level code intelligence to AI coding assistants (Claude Code, Codex, Cline, Cursor, etc.) via MCP (Model Context Protocol).
-
----
-
-## Features
-
-### Symbol Analysis (8)
-
-| Tool                                  | Description                                                 |
-| ------------------------------------- | ----------------------------------------------------------- |
-| `get_symbols_overview`                | File/directory symbol structure overview                    |
-| `find_symbol`                         | Search symbols by name or stable `symbol_id`; optional body |
-| `find_referencing_symbols`            | Trace all references to a symbol                            |
-| `get_type_hierarchy`                  | Class inheritance/implementation tree and member structure  |
-| `get_call_hierarchy`                  | Caller/callee graph for a function (IntelliJ PSI only)      |
-| `get_ranked_context`                  | Token-budget-aware symbol ranking for context window        |
-| `jet_brains_find_symbol`              | JetBrains-native variant with PSI extras                    |
-| `jet_brains_find_referencing_symbols` | JetBrains-native reference search variant                   |
-
-### Symbol Editing (4)
-
-| Tool                   | Description                                        |
-| ---------------------- | -------------------------------------------------- |
-| `replace_symbol_body`  | Replace symbol body with new code                  |
-| `insert_after_symbol`  | Insert code after a symbol                         |
-| `insert_before_symbol` | Insert code before a symbol                        |
-| `rename_symbol`        | IDE refactoring-based rename across all references |
-
-### Import Graph (4)
-
-| Tool                    | Description                                        |
-| ----------------------- | -------------------------------------------------- |
-| `find_importers`        | Find files that import a given module/symbol       |
-| `get_blast_radius`      | Estimate change impact via transitive import graph |
-| `get_symbol_importance` | PageRank-based symbol importance score             |
-| `find_dead_code`        | Detect unreferenced symbols across the project     |
-
-### Git Integration (2)
-
-| Tool                | Description                                   |
-| ------------------- | --------------------------------------------- |
-| `get_diff_symbols`  | Symbols changed in a git diff                 |
-| `get_changed_files` | Files changed between commits or working tree |
-
-### Code Analysis (3)
-
-| Tool               | Description                                         |
-| ------------------ | --------------------------------------------------- |
-| `get_complexity`   | Cyclomatic complexity for functions/classes         |
-| `find_tests`       | Locate test files and test symbols                  |
-| `find_annotations` | Find TODO/FIXME/HACK annotations across the project |
-
-### File Operations (10+)
-
-| Tool                  | Description                                  |
-| --------------------- | -------------------------------------------- |
-| `read_file`           | Read file contents (partial or full)         |
-| `list_dir`            | Directory listing                            |
-| `list_directory_tree` | Recursive directory tree                     |
-| `find_file`           | Find files by name pattern                   |
-| `create_text_file`    | Create a new text file                       |
-| `delete_lines`        | Delete specific lines from a file            |
-| `insert_at_line`      | Insert text at a specific line               |
-| `replace_lines`       | Replace a line range                         |
-| `replace_content`     | Pattern-based content replacement            |
-| `search_for_pattern`  | Regex-based code search across the workspace |
-
-### IDE-Specific (8+)
-
-| Tool                        | Description                              |
-| --------------------------- | ---------------------------------------- |
-| `get_file_problems`         | IntelliJ highlighting-based diagnostics  |
-| `get_open_files`            | Currently open/selected files in the IDE |
-| `reformat_file`             | Reformat file using IDE code style       |
-| `execute_terminal_command`  | Run a command in the IDE terminal        |
-| `get_project_dependencies`  | Project dependency graph                 |
-| `get_project_modules`       | IntelliJ module structure and roots      |
-| `get_run_configurations`    | List available run/debug configurations  |
-| `execute_run_configuration` | Execute a run/debug configuration        |
-
-### Memory (6)
-
-| Tool            | Description                                       |
-| --------------- | ------------------------------------------------- |
-| `list_memories` | List `.serena/memories` files with topic prefixes |
-| `read_memory`   | Read a memory file                                |
-| `write_memory`  | Write a memory file                               |
-| `edit_memory`   | Edit an existing memory file                      |
-| `delete_memory` | Delete a memory file                              |
-| `rename_memory` | Rename a memory file                              |
-
-### Meta (6+)
-
-| Tool                                | Description                                           |
-| ----------------------------------- | ----------------------------------------------------- |
-| `activate_project`                  | Activate project context and validate paths           |
-| `get_current_config`                | Current project/IDE/tool registration status          |
-| `onboarding`                        | Run project onboarding sequence                       |
-| `check_onboarding_performed`        | Check if onboarding memory exists                     |
-| `initial_instructions`              | Return initial task instructions and recommended flow |
-| `think_about_collected_information` | Structured reasoning over gathered context            |
-| `think_about_task_adherence`        | Verify implementation stays on-task                   |
-| `think_about_whether_you_are_done`  | Self-check before declaring completion                |
-| `prepare_for_new_conversation`      | Summarize state for context handoff                   |
-
----
-
-## Supported Languages
-
-| Backend         | Languages                                                                    | Count |
-| --------------- | ---------------------------------------------------------------------------- | ----- |
-| PSI (IntelliJ)  | Java, Kotlin, JS/TS, Groovy, Shell, Python                                   | 6     |
-| Tree-sitter AST | Python, JS, TS, TSX, Go, Rust, Ruby, Java, Kotlin, C, C++, PHP, Swift, Scala | 14    |
-| Workspace regex | Same 14 + fallback                                                           | 14    |
+**Rust-first code intelligence for AI coding assistants.** 32 Rust-native tools + 14 Kotlin session tools. Works with Claude Code, Codex, Cursor, Cline, and any MCP client.
 
 ---
 
 ## Architecture
 
 ```
-Claude Code / Codex / Cline
+AI Coding Assistant (Claude Code / Codex / Cursor / Cline)
   │
-  ├─ IntelliJ Plugin (64 tools)
-  │   └─ ACP + MCP → ToolRegistry → PSI Backend
+  ├─ Rust Engine (primary, 32 tools)
+  │   └─ codelens-mcp binary (stdio JSON-RPC)
+  │       ├─ SQLite symbol index (14 languages, tree-sitter)
+  │       ├─ Import graph (PageRank, blast radius, dead code)
+  │       ├─ Pooled LSP (references, diagnostics, type hierarchy)
+  │       └─ File editing (symbol-aware insert/replace/delete)
   │
-  └─ Standalone Server (46 tools)
-      └─ HTTP/Stdio → StandaloneToolDispatcher
-          ├─ Tree-sitter AST Backend (14 languages)
-          └─ Workspace Regex Backend (fallback)
+  ├─ Standalone Server (46 tools, Kotlin fat-jar)
+  │   └─ HTTP/Stdio → Rust-first dispatch → Kotlin fallback
+  │       ├─ Session management (project registry, memories)
+  │       └─ Tree-sitter + workspace regex backends
+  │
+  └─ IntelliJ Adapter (64 tools, optional)
+      └─ JetBrains PSI → refactoring-backed rename, diagnostics
+```
+
+**Dispatch order:** Rust → JetBrains (optional) → Kotlin fallback
+
+---
+
+## Quick Start
+
+### Option 1: Rust Engine (recommended)
+
+```bash
+cd rust && cargo build --release
+# Stdio mode — direct MCP connection
+./target/release/codelens-mcp /path/to/project
+```
+
+### Option 2: Standalone Server (Kotlin)
+
+```bash
+./gradlew :standalone:standaloneFatJar
+java -jar standalone/build/libs/standalone-*-standalone.jar /path/to/project --stdio
+```
+
+### Option 3: IntelliJ Plugin
+
+```bash
+./gradlew buildPlugin
+# Settings → Plugins → Install from Disk → select zip
 ```
 
 ---
 
-## Installation
+## Tools (32 Rust-native + 14 Kotlin session)
 
-### IntelliJ Plugin
+### Symbol Analysis
 
-1. Download the latest zip from [Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases), or build from source:
-   ```bash
-   ./gradlew buildPlugin
-   ```
-2. In IntelliJ: **Settings → Plugins → ⚙ → Install Plugin from Disk**, select the zip.
-3. The plugin auto-registers an MCP server on port **24226** (HTTP) / **24227** (MCP endpoint). No additional setup required.
+| Tool                             | Engine | Description                             |
+| -------------------------------- | ------ | --------------------------------------- |
+| `get_symbols_overview`           | Rust   | File/directory symbol structure         |
+| `find_symbol`                    | Rust   | Search by name, stable ID, or name_path |
+| `find_referencing_symbols`       | Rust   | LSP-backed reference tracing            |
+| `get_type_hierarchy`             | Rust   | Inheritance tree via LSP                |
+| `get_ranked_context`             | Rust   | Token-budget symbol ranking             |
+| `find_referencing_code_snippets` | Rust   | Pattern search with context lines       |
+| `search_workspace_symbols`       | Rust   | LSP workspace/symbol search             |
+| `get_file_diagnostics`           | Rust   | LSP diagnostics                         |
+| `refresh_symbol_index`           | Rust   | Rebuild SQLite symbol cache             |
 
-### Standalone (no IDE required)
+### Symbol Editing
 
-```bash
-# HTTP mode
-java -jar codelens-mcp-plugin-1.0.0-standalone.jar /path/to/project --port 24226
+| Tool                   | Engine     | Description                                 |
+| ---------------------- | ---------- | ------------------------------------------- |
+| `replace_symbol_body`  | Rust       | Replace symbol body (byte-offset aware)     |
+| `insert_before_symbol` | Rust       | Insert code before symbol                   |
+| `insert_after_symbol`  | Rust       | Insert code after symbol                    |
+| `plan_symbol_rename`   | Rust       | LSP prepareRename (read-only plan)          |
+| `rename_symbol`        | Kotlin+PSI | IDE refactoring rename (JetBrains optional) |
 
-# Stdio mode (for Claude Code, Codex)
-java -jar codelens-mcp-plugin-1.0.0-standalone.jar /path/to/project --stdio
-```
+### Import Graph
+
+| Tool                    | Engine | Description                 |
+| ----------------------- | ------ | --------------------------- |
+| `find_importers`        | Rust   | Reverse import dependencies |
+| `get_blast_radius`      | Rust   | Transitive change impact    |
+| `get_symbol_importance` | Rust   | PageRank file importance    |
+| `find_dead_code`        | Rust   | Unreferenced file detection |
+
+### Code Analysis
+
+| Tool               | Engine | Description              |
+| ------------------ | ------ | ------------------------ |
+| `get_complexity`   | Rust   | Cyclomatic complexity    |
+| `find_tests`       | Rust   | Test function discovery  |
+| `find_annotations` | Rust   | TODO/FIXME/HACK scanning |
+
+### File Operations
+
+| Tool                 | Engine | Description                    |
+| -------------------- | ------ | ------------------------------ |
+| `read_file`          | Rust   | Read with optional line range  |
+| `list_dir`           | Rust   | Directory listing              |
+| `find_file`          | Rust   | Wildcard file search           |
+| `search_for_pattern` | Rust   | Regex search across project    |
+| `create_text_file`   | Rust   | Create new file                |
+| `delete_lines`       | Rust   | Delete line range              |
+| `insert_at_line`     | Rust   | Insert at line number          |
+| `replace_lines`      | Rust   | Replace line range             |
+| `replace_content`    | Rust   | Literal/regex find-and-replace |
+
+### Git Integration
+
+| Tool                | Engine | Description                   |
+| ------------------- | ------ | ----------------------------- |
+| `get_changed_files` | Rust   | Git diff file list            |
+| `get_diff_symbols`  | Rust   | Changed files + symbol counts |
+
+### Session (Kotlin-only)
+
+| Tool                                                                                                 | Description                      |
+| ---------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `activate_project`                                                                                   | Switch active project context    |
+| `get_current_config`                                                                                 | Server/backend status            |
+| `list_memories` / `read_memory` / `write_memory` / `edit_memory` / `delete_memory` / `rename_memory` | .serena/memories management      |
+| `onboarding` / `check_onboarding_performed` / `initial_instructions`                                 | Project onboarding flow          |
+| `prepare_for_new_conversation` / `summarize_changes` / `switch_modes`                                | Session management               |
+| `think_about_*` (3)                                                                                  | Structured reasoning scaffolding |
+
+---
+
+## Supported Languages (14)
+
+Python, JavaScript, TypeScript, TSX, Go, Rust, Ruby, Java, Kotlin, C, C++, PHP, Swift, Scala
+
+All languages supported by both tree-sitter symbol parsing and import graph analysis.
 
 ---
 
 ## Configuration
 
-### Claude Code (`~/.claude.json`)
+### Claude Code
 
 ```json
 {
   "mcpServers": {
     "codelens": {
-      "type": "http",
-      "url": "http://127.0.0.1:24227/mcp"
-    },
-    "codelens-standalone": {
-      "type": "stdio",
       "command": "java",
       "args": [
         "-jar",
-        "/path/to/codelens-mcp-plugin-1.0.0-standalone.jar",
+        "/path/to/standalone-1.0.0-standalone.jar",
         ".",
         "--stdio"
       ]
@@ -183,57 +160,50 @@ java -jar codelens-mcp-plugin-1.0.0-standalone.jar /path/to/project --stdio
 }
 ```
 
-### Codex (`~/.codex/config.toml`)
+### Codex
 
 ```toml
-[mcp_servers.codelens-standalone]
+[mcp_servers.codelens]
 command = "java"
-args = ["-jar", "/path/to/codelens-mcp-plugin-1.0.0-standalone.jar", ".", "--stdio"]
+args = ["-jar", "/path/to/standalone-1.0.0-standalone.jar", ".", "--stdio"]
 ```
+
+### Cursor
+
+Add MCP server in Cursor settings with the same command as above.
 
 ---
 
 ## Building
 
 ```bash
-./gradlew buildPlugin          # IntelliJ plugin zip
-./gradlew standaloneFatJar     # Standalone fat-jar (~20MB)
-./gradlew test                 # Run tests
+# Rust engine
+cd rust && cargo build --release && cargo test
+
+# Standalone server (no IntelliJ SDK required)
+./gradlew :standalone:standaloneFatJar
+
+# IntelliJ plugin (requires IntelliJ IDEA 2026.1+)
+./gradlew buildPlugin
+
+# All tests
+cd rust && cargo test          # 59 Rust tests
+./gradlew test                 # Kotlin tests (IntelliJ sandbox)
 ```
 
 ### Prerequisites
 
-| Tool          | Version                  |
-| ------------- | ------------------------ |
-| JDK           | 21+                      |
-| IntelliJ IDEA | 2026.1+ (plugin only)    |
-| Gradle        | 8.13+ (wrapper included) |
+| Tool          | Version | Required for      |
+| ------------- | ------- | ----------------- |
+| Rust          | 1.82+   | Rust engine       |
+| JDK           | 21+     | Standalone server |
+| IntelliJ IDEA | 2026.1+ | Plugin only       |
 
 ---
 
 ## Serena Compatibility
 
-CodeLens is a drop-in replacement for Serena MCP. Tool names, parameters, and `.serena/memories/` structure are identical — existing `CLAUDE.md` Serena-First rules work without modification.
-
----
-
-## Comparison
-
-| Feature                       | Serena MCP (Free)      | Serena JetBrains (Paid) | CodeLens MCP         |
-| ----------------------------- | ---------------------- | ----------------------- | -------------------- |
-| Code Analysis Engine          | LSP                    | JetBrains PSI           | JetBrains PSI        |
-| License                       | Open Source            | Paid                    | **Open Source**      |
-| Language Support (plugin)     | 40+ (via LSP)          | All JetBrains           | 6 PSI adapters       |
-| Language Support (standalone) | —                      | —                       | **14 (Tree-sitter)** |
-| Import Graph / PageRank       | —                      | —                       | **Yes**              |
-| Git Integration               | —                      | —                       | **Yes**              |
-| Extra Setup                   | Language Server needed | Plugin only             | **Plugin only**      |
-
----
-
-## Contributing
-
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+CodeLens is a drop-in replacement for Serena MCP. All 21 Serena tool names, parameters, and `.serena/memories/` structure are identical.
 
 ---
 
@@ -245,7 +215,7 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Acknowledgments
 
-- [Serena](https://github.com/oraios/serena) — inspiration
+- [tree-sitter](https://tree-sitter.github.io/) — incremental parsing
+- [MCP](https://modelcontextprotocol.io/) — Model Context Protocol
 - [JetBrains](https://www.jetbrains.com/) — IntelliJ Platform SDK
-- [MCP](https://modelcontextprotocol.io/) — Model Context Protocol specification
-- [tree-sitter](https://tree-sitter.github.io/) — incremental parsing library
+- [Serena](https://github.com/oraios/serena) — original inspiration
