@@ -26,7 +26,7 @@ class StandaloneMcpHandler(projectRoot: Path) {
     companion object {
         const val PROTOCOL_VERSION = "2025-03-26"
         const val SERVER_NAME = "codelens-standalone"
-        const val SERVER_VERSION = "0.8.0"
+        const val SERVER_VERSION = "1.0.0"
     }
 
     /**

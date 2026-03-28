@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "com.codelens"
-version = "0.7.0"
+version = "1.0.0"
 
 repositories {
     mavenCentral()
@@ -105,12 +105,17 @@ intellijPlatform {
         """.trimIndent()
 
         changeNotes = """
-            <h3>0.6.0</h3>
+            <h3>1.0.0</h3>
             <ul>
-                <li>Target IntelliJ IDEA 2026.1 (build 261)</li>
-                <li>Fixed MCP protocol compatibility with latest McpServer API</li>
-                <li>Fixed EDT threading violations in tool execution</li>
-                <li>Gradle 9.0 + IntelliJ Platform Gradle Plugin 2.13.1</li>
+                <li>Tree-sitter AST backend: 14-language support with zero false positives</li>
+                <li>Byte-offset symbol indexing with modification-time caching</li>
+                <li>Stable symbol IDs for precise cross-call references</li>
+                <li>Import graph: find_importers, get_blast_radius, PageRank importance</li>
+                <li>Git integration: get_diff_symbols, get_changed_files</li>
+                <li>Analysis: get_complexity, find_tests, find_annotations, find_dead_code</li>
+                <li>Token budget: get_ranked_context with automatic relevance ranking</li>
+                <li>Tool schema optimization: disabled tools excluded from tools/list</li>
+                <li>64 tools (plugin), 46 tools (standalone)</li>
             </ul>
         """.trimIndent()
 
