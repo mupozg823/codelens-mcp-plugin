@@ -2,11 +2,12 @@ mod protocol;
 
 use anyhow::Result;
 use codelens_core::{
-    check_lsp_status, create_text_file, delete_lines, find_circular_dependencies, find_dead_code,
-    find_dead_code_v2, find_files, get_blast_radius, get_callees, get_callers, get_change_coupling,
-    get_changed_files, get_diff_symbols, get_importance, get_importers, get_lsp_recipe,
-    insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file,
-    replace_content, replace_lines, replace_symbol_body, search_for_pattern,
+    check_lsp_status, create_text_file, delete_lines, extract_word_at_position,
+    find_circular_dependencies, find_dead_code, find_dead_code_v2, find_files,
+    find_referencing_symbols_via_text, get_blast_radius, get_callees, get_callers,
+    get_change_coupling, get_changed_files, get_diff_symbols, get_importance, get_importers,
+    get_lsp_recipe, insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file,
+    rename, replace_content, replace_lines, replace_symbol_body, search_for_pattern,
     search_for_pattern_smart, search_symbols_hybrid, LspDiagnosticRequest, LspRenamePlanRequest,
     LspRequest, LspSessionPool, LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot,
     SymbolIndex, SymbolInfo, SymbolKind,
@@ -21,6 +22,7 @@ struct AppState {
     symbol_index: Mutex<SymbolIndex>,
     lsp_pool: Mutex<LspSessionPool>,
     preset: ToolPreset,
+    memories_dir: std::path::PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,6 +57,7 @@ const MINIMAL_TOOLS: &[&str] = &[
     "get_file_diagnostics",
     "search_workspace_symbols",
     "plan_symbol_rename",
+    "rename_symbol",
     "replace_symbol_body",
     "insert_before_symbol",
     "insert_after_symbol",
@@ -76,11 +79,13 @@ impl AppState {
     fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
         let symbol_index = SymbolIndex::new(project.clone());
         let lsp_pool = LspSessionPool::new(project.clone());
+        let memories_dir = project.as_path().join(".serena").join("memories");
         Self {
             project,
             symbol_index: Mutex::new(symbol_index),
             lsp_pool: Mutex::new(lsp_pool),
             preset,
+            memories_dir,
         }
     }
 }
@@ -240,17 +245,45 @@ fn dispatch_tool(
                 .get("smart")
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
+            let ctx_fallback = arguments
+                .get("context_lines")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0) as usize;
+            let ctx_before = arguments
+                .get("context_lines_before")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .unwrap_or(ctx_fallback);
+            let ctx_after = arguments
+                .get("context_lines_after")
+                .and_then(|v| v.as_u64())
+                .map(|v| v as usize)
+                .unwrap_or(ctx_fallback);
             if smart {
-                search_for_pattern_smart(&state.project, pattern, file_glob, max_results).map(
-                    |value| {
-                        (
-                            json!({ "matches": value, "count": value.len() }),
-                            success_meta("tree-sitter+filesystem", 0.96),
-                        )
-                    },
+                search_for_pattern_smart(
+                    &state.project,
+                    pattern,
+                    file_glob,
+                    max_results,
+                    ctx_before,
+                    ctx_after,
                 )
+                .map(|value| {
+                    (
+                        json!({ "matches": value, "count": value.len() }),
+                        success_meta("tree-sitter+filesystem", 0.96),
+                    )
+                })
             } else {
-                search_for_pattern(&state.project, pattern, file_glob, max_results).map(|value| {
+                search_for_pattern(
+                    &state.project,
+                    pattern,
+                    file_glob,
+                    max_results,
+                    ctx_before,
+                    ctx_after,
+                )
+                .map(|value| {
                     (
                         json!({ "matches": value, "count": value.len() }),
                         success_meta("filesystem", 0.98),
@@ -273,7 +306,7 @@ fn dispatch_tool(
                 .filter(|tag| !tag.is_empty())
                 .collect::<Vec<_>>();
             let pattern = format!(r"\b({})\b[:\s]*(.*)", tag_list.join("|"));
-            search_for_pattern(&state.project, &pattern, None, max_results).map(|value| {
+            search_for_pattern(&state.project, &pattern, None, max_results, 0, 0).map(|value| {
                 let grouped = tag_list
                     .iter()
                     .filter_map(|tag| {
@@ -313,7 +346,7 @@ fn dispatch_tool(
                 .and_then(|value| value.as_u64())
                 .unwrap_or(100) as usize;
             let pattern = r"\b(def test_|func Test|@Test\b|it\s*\(|describe\s*\(|test\s*\()";
-            search_for_pattern(&state.project, pattern, None, max_results).map(|value| {
+            search_for_pattern(&state.project, pattern, None, max_results, 0, 0).map(|value| {
                 (
                     json!({
                         "tests": value,
@@ -587,7 +620,10 @@ fn dispatch_tool(
                 })
         }
         "find_symbol" => {
-            let name = required_string(&arguments, "name")?;
+            let symbol_id = arguments.get("symbol_id").and_then(|v| v.as_str());
+            let name = symbol_id
+                .or_else(|| arguments.get("name").and_then(|v| v.as_str()))
+                .ok_or_else(|| anyhow::anyhow!("either 'symbol_id' or 'name' is required"))?;
             let file_path = arguments.get("file_path").and_then(|value| value.as_str());
             let include_body = arguments
                 .get("include_body")
@@ -645,56 +681,109 @@ fn dispatch_tool(
         }
         "find_referencing_symbols" => {
             let file_path = required_string(&arguments, "file_path")?.to_owned();
-            let line = arguments
-                .get("line")
-                .and_then(|value| value.as_u64())
-                .ok_or_else(|| anyhow::anyhow!("Missing line"))? as usize;
-            let column = arguments
-                .get("column")
-                .and_then(|value| value.as_u64())
-                .ok_or_else(|| anyhow::anyhow!("Missing column"))?
-                as usize;
-            let command = arguments
-                .get("command")
-                .and_then(|value| value.as_str())
-                .map(ToOwned::to_owned)
-                .or_else(|| default_lsp_command_for_path(&file_path))
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Missing command and no default LSP mapping for file")
-                })?;
-            let args = arguments
-                .get("args")
-                .and_then(|value| value.as_array())
-                .map(|items| {
-                    items
-                        .iter()
-                        .filter_map(|item| item.as_str().map(ToOwned::to_owned))
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_else(|| default_lsp_args_for_command(&command));
+            let symbol_name_param = arguments.get("symbol_name").and_then(|v| v.as_str());
             let max_results = arguments
                 .get("max_results")
                 .and_then(|value| value.as_u64())
                 .unwrap_or(50) as usize;
 
-            state
-                .lsp_pool
-                .lock()
-                .map_err(|_| anyhow::anyhow!("lsp pool lock poisoned"))?
-                .find_referencing_symbols(&LspRequest {
-                    command,
-                    args,
-                    file_path,
-                    line,
-                    column,
+            // Fast path: symbol_name provided -> text-based search directly
+            if let Some(sym_name) = symbol_name_param {
+                find_referencing_symbols_via_text(
+                    &state.project,
+                    sym_name,
+                    Some(&file_path),
                     max_results,
-                })
+                )
                 .map(|value| {
                     (
                         json!({ "references": value, "count": value.len() }),
-                        success_meta("lsp_pooled", 0.9),
+                        success_meta("text_search", 0.80),
                     )
                 })
+            } else {
+                // LSP path with text fallback
+                let line = arguments
+                    .get("line")
+                    .and_then(|value| value.as_u64())
+                    .ok_or_else(|| anyhow::anyhow!("Missing line or symbol_name"))?
+                    as usize;
+                let column = arguments
+                    .get("column")
+                    .and_then(|value| value.as_u64())
+                    .ok_or_else(|| anyhow::anyhow!("Missing column or symbol_name"))?
+                    as usize;
+                let command = arguments
+                    .get("command")
+                    .and_then(|value| value.as_str())
+                    .map(ToOwned::to_owned)
+                    .or_else(|| default_lsp_command_for_path(&file_path));
+
+                if let Some(command) = command {
+                    let args = arguments
+                        .get("args")
+                        .and_then(|value| value.as_array())
+                        .map(|items| {
+                            items
+                                .iter()
+                                .filter_map(|item| item.as_str().map(ToOwned::to_owned))
+                                .collect::<Vec<_>>()
+                        })
+                        .unwrap_or_else(|| default_lsp_args_for_command(&command));
+
+                    let lsp_result = state
+                        .lsp_pool
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("lsp pool lock poisoned"))?
+                        .find_referencing_symbols(&LspRequest {
+                            command,
+                            args,
+                            file_path: file_path.clone(),
+                            line,
+                            column,
+                            max_results,
+                        });
+
+                    match lsp_result {
+                        Ok(value) => Ok((
+                            json!({ "references": value, "count": value.len() }),
+                            success_meta("lsp_pooled", 0.9),
+                        )),
+                        Err(_) => {
+                            // LSP failed -> text fallback
+                            let word =
+                                extract_word_at_position(&state.project, &file_path, line, column)?;
+                            find_referencing_symbols_via_text(
+                                &state.project,
+                                &word,
+                                Some(&file_path),
+                                max_results,
+                            )
+                            .map(|value| {
+                                (
+                                    json!({ "references": value, "count": value.len() }),
+                                    success_meta("text_fallback", 0.75),
+                                )
+                            })
+                        }
+                    }
+                } else {
+                    // No LSP command available -> text fallback directly
+                    let word = extract_word_at_position(&state.project, &file_path, line, column)?;
+                    find_referencing_symbols_via_text(
+                        &state.project,
+                        &word,
+                        Some(&file_path),
+                        max_results,
+                    )
+                    .map(|value| {
+                        (
+                            json!({ "references": value, "count": value.len() }),
+                            success_meta("text_fallback", 0.75),
+                        )
+                    })
+                }
+            }
         }
         "get_file_diagnostics" => {
             let file_path = required_string(&arguments, "file_path")?.to_owned();
@@ -869,6 +958,34 @@ fn dispatch_tool(
                 })
                 .map(|value| (json!(value), success_meta("lsp_pooled", 0.86)))
         }
+        "rename_symbol" => {
+            let file_path = required_string(&arguments, "file_path")?;
+            let symbol_name = arguments
+                .get("symbol_name")
+                .or_else(|| arguments.get("name"))
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| anyhow::anyhow!("Missing symbol_name or name"))?;
+            let new_name = required_string(&arguments, "new_name")?;
+            let name_path = arguments.get("name_path").and_then(|v| v.as_str());
+            let scope = match arguments.get("scope").and_then(|v| v.as_str()) {
+                Some("file") => rename::RenameScope::File,
+                _ => rename::RenameScope::Project,
+            };
+            let dry_run = arguments
+                .get("dry_run")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            rename::rename_symbol(
+                &state.project,
+                file_path,
+                symbol_name,
+                new_name,
+                name_path,
+                scope,
+                dry_run,
+            )
+            .map(|value| (json!(value), success_meta("tree-sitter+filesystem", 0.90)))
+        }
         "create_text_file" => {
             let relative_path = required_string(&arguments, "relative_path")?;
             let content = required_string(&arguments, "content")?;
@@ -1033,18 +1150,32 @@ fn dispatch_tool(
                 .get("max_results")
                 .and_then(|v| v.as_u64())
                 .unwrap_or(50) as usize;
-            search_for_pattern(&state.project, symbol_name, file_glob, max_results).map(|matches| {
+            search_for_pattern(
+                &state.project,
+                symbol_name,
+                file_glob,
+                max_results,
+                context_lines,
+                context_lines,
+            )
+            .map(|matches| {
                 let snippets = matches
                     .iter()
                     .map(|m| {
-                        json!({
+                        let mut obj = json!({
                             "file_path": m.file_path,
                             "line": m.line,
                             "column": m.column,
                             "matched_text": m.matched_text,
                             "line_content": m.line_content,
-                            "context_lines": context_lines
-                        })
+                        });
+                        if !m.context_before.is_empty() {
+                            obj["context_before"] = json!(m.context_before);
+                        }
+                        if !m.context_after.is_empty() {
+                            obj["context_after"] = json!(m.context_after);
+                        }
+                        obj
                     })
                     .collect::<Vec<_>>();
                 (
@@ -1171,6 +1302,270 @@ fn dispatch_tool(
                     )
                 },
             )
+        }
+        // ── Serena-compatible: no-op thinking/mode tools ────────────────
+        "think_about_collected_information"
+        | "think_about_task_adherence"
+        | "think_about_whether_you_are_done" => Ok((json!(""), success_meta("noop", 1.0))),
+        "switch_modes" => {
+            let mode = arguments
+                .get("mode")
+                .and_then(|v| v.as_str())
+                .unwrap_or("default");
+            Ok((
+                json!({"status":"ok","mode":mode,"note":"Mode switching is a no-op in standalone mode"}),
+                success_meta("noop", 1.0),
+            ))
+        }
+        // ── Serena-compatible: memory tools (.serena/memories/) ─────────
+        "list_memories" => {
+            let topic = arguments.get("topic").and_then(|v| v.as_str());
+            let names = list_memory_names(&state.memories_dir, topic);
+            Ok((
+                json!({"topic": topic, "count": names.len(), "memories": names.iter().map(|n| json!({"name": n, "path": format!(".serena/memories/{n}.md")})).collect::<Vec<_>>()}),
+                success_meta("filesystem", 1.0),
+            ))
+        }
+        "read_memory" => {
+            let name = required_string(&arguments, "memory_name")?;
+            let path = resolve_memory_path(&state.memories_dir, name)?;
+            let content = std::fs::read_to_string(&path)
+                .map_err(|_| anyhow::anyhow!("Memory not found: {name}"))?;
+            Ok((
+                json!({"memory_name": name, "content": content}),
+                success_meta("filesystem", 1.0),
+            ))
+        }
+        "write_memory" => {
+            let name = required_string(&arguments, "memory_name")?;
+            let content = required_string(&arguments, "content")?;
+            let path = resolve_memory_path(&state.memories_dir, name)?;
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&path, content)?;
+            Ok((
+                json!({"status":"ok","memory_name": name}),
+                success_meta("filesystem", 1.0),
+            ))
+        }
+        "delete_memory" => {
+            let name = required_string(&arguments, "memory_name")?;
+            let path = resolve_memory_path(&state.memories_dir, name)?;
+            if !path.is_file() {
+                return Err(anyhow::anyhow!("Memory not found: {name}"));
+            }
+            std::fs::remove_file(&path)?;
+            Ok((
+                json!({"status":"ok","memory_name": name}),
+                success_meta("filesystem", 1.0),
+            ))
+        }
+        "edit_memory" => {
+            let name = required_string(&arguments, "memory_name")?;
+            let content = required_string(&arguments, "content")?;
+            let path = resolve_memory_path(&state.memories_dir, name)?;
+            if !path.is_file() {
+                return Err(anyhow::anyhow!("Memory not found: {name}"));
+            }
+            std::fs::write(&path, content)?;
+            Ok((
+                json!({"status":"ok","memory_name": name}),
+                success_meta("filesystem", 1.0),
+            ))
+        }
+        "rename_memory" => {
+            let old_name = required_string(&arguments, "old_name")?;
+            let new_name = required_string(&arguments, "new_name")?;
+            let old_path = resolve_memory_path(&state.memories_dir, old_name)?;
+            let new_path = resolve_memory_path(&state.memories_dir, new_name)?;
+            if !old_path.is_file() {
+                return Err(anyhow::anyhow!("Memory not found: {old_name}"));
+            }
+            if new_path.exists() {
+                return Err(anyhow::anyhow!("Target already exists: {new_name}"));
+            }
+            if let Some(parent) = new_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::rename(&old_path, &new_path)?;
+            Ok((
+                json!({"status":"ok","old_name": old_name,"new_name": new_name}),
+                success_meta("filesystem", 1.0),
+            ))
+        }
+        // ── Serena-compatible: session/config tools ─────────────────────
+        "activate_project" => {
+            let project_name = state
+                .project
+                .as_path()
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let memory_count = list_memory_names(&state.memories_dir, None).len();
+            Ok((
+                json!({
+                    "activated": true,
+                    "project_name": project_name,
+                    "project_base_path": state.project.as_path().to_string_lossy(),
+                    "backend_id": "rust-core",
+                    "memory_count": memory_count,
+                    "serena_memories_dir": state.memories_dir.to_string_lossy()
+                }),
+                success_meta("session", 1.0),
+            ))
+        }
+        "check_onboarding_performed" => {
+            let required = [
+                "project_overview",
+                "style_and_conventions",
+                "suggested_commands",
+                "task_completion",
+            ];
+            let present = list_memory_names(&state.memories_dir, None);
+            let missing: Vec<_> = required
+                .iter()
+                .filter(|r| !present.contains(&r.to_string()))
+                .map(|s| *s)
+                .collect();
+            Ok((
+                json!({
+                    "onboarding_performed": missing.is_empty(),
+                    "required_memories": required,
+                    "present_memories": present,
+                    "missing_memories": missing,
+                    "serena_memories_dir": state.memories_dir.to_string_lossy(),
+                    "backend_id": "rust-core"
+                }),
+                success_meta("session", 1.0),
+            ))
+        }
+        "initial_instructions" => {
+            let project_name = state
+                .project
+                .as_path()
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let memories = list_memory_names(&state.memories_dir, None);
+            Ok((
+                json!({
+                    "project_name": project_name,
+                    "project_base_path": state.project.as_path().to_string_lossy(),
+                    "compatible_context": "standalone",
+                    "backend_id": "rust-core",
+                    "known_memories": memories,
+                    "recommended_tools": [
+                        "activate_project","get_current_config","check_onboarding_performed",
+                        "list_memories","read_memory","write_memory",
+                        "get_symbols_overview","find_symbol","find_referencing_symbols",
+                        "search_for_pattern","get_type_hierarchy"
+                    ]
+                }),
+                success_meta("session", 1.0),
+            ))
+        }
+        "onboarding" => {
+            let force = arguments
+                .get("force")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            if !force {
+                let existing = list_memory_names(&state.memories_dir, None);
+                let required = [
+                    "project_overview",
+                    "style_and_conventions",
+                    "suggested_commands",
+                    "task_completion",
+                ];
+                if required.iter().all(|r| existing.contains(&r.to_string())) {
+                    return Ok((
+                        json!({"status":"already_onboarded","existing_memories": existing}),
+                        success_meta("session", 1.0),
+                    ));
+                }
+            }
+            std::fs::create_dir_all(&state.memories_dir)?;
+            let project_name = state
+                .project
+                .as_path()
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let defaults = [
+                (
+                    "project_overview",
+                    format!(
+                        "# Project: {project_name}\nBase path: {}\n",
+                        state.project.as_path().display()
+                    ),
+                ),
+                (
+                    "style_and_conventions",
+                    "# Style & Conventions\nTo be filled during onboarding.".to_string(),
+                ),
+                (
+                    "suggested_commands",
+                    "# Suggested Commands\n- cargo build\n- cargo test".to_string(),
+                ),
+                (
+                    "task_completion",
+                    "# Task Completion Checklist\n- Build passes\n- Tests pass\n- No regressions"
+                        .to_string(),
+                ),
+            ];
+            for (name, content) in &defaults {
+                let path = state.memories_dir.join(format!("{name}.md"));
+                if !path.exists() {
+                    std::fs::write(&path, content)?;
+                }
+            }
+            let created = list_memory_names(&state.memories_dir, None);
+            Ok((
+                json!({"status":"onboarded","project_name": project_name,"memories_created": created}),
+                success_meta("session", 1.0),
+            ))
+        }
+        "prepare_for_new_conversation" => {
+            let project_name = state
+                .project
+                .as_path()
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            Ok((
+                json!({
+                    "status":"ready",
+                    "project_name": project_name,
+                    "project_base_path": state.project.as_path().to_string_lossy(),
+                    "backend_id": "rust-core",
+                    "memory_count": list_memory_names(&state.memories_dir, None).len()
+                }),
+                success_meta("session", 1.0),
+            ))
+        }
+        "summarize_changes" => Ok((
+            json!({
+                "instructions": "To summarize your changes:\n1. Use search_for_pattern to identify modified symbols\n2. Use get_symbols_overview to understand file structure\n3. Write a summary to memory using write_memory with name 'session_summary'",
+                "project_name": state.project.as_path().file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+            }),
+            success_meta("session", 1.0),
+        )),
+        "list_queryable_projects" => {
+            let project_name = state
+                .project
+                .as_path()
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let has_memories = state.memories_dir.is_dir();
+            Ok((
+                json!({
+                    "projects": [{"name": project_name, "path": state.project.as_path().to_string_lossy(), "is_active": true, "has_memories": has_memories}],
+                    "count": 1
+                }),
+                success_meta("session", 1.0),
+            ))
         }
         other => Err(anyhow::anyhow!("Unknown tool: {other}")),
     })();
@@ -1336,7 +1731,10 @@ fn tools() -> Vec<Tool> {
                     "substring_pattern":{"type":"string"},
                     "file_glob":{"type":"string"},
                     "max_results":{"type":"integer"},
-                    "smart":{"type":"boolean","description":"Include enclosing symbol context for each match"}
+                    "smart":{"type":"boolean","description":"Include enclosing symbol context for each match"},
+                    "context_lines":{"type":"integer","description":"Number of context lines before and after each match (default 0)"},
+                    "context_lines_before":{"type":"integer","description":"Context lines before each match (overrides context_lines)"},
+                    "context_lines_after":{"type":"integer","description":"Context lines after each match (overrides context_lines)"}
                 }
             }),
         ),
@@ -1475,17 +1873,17 @@ fn tools() -> Vec<Tool> {
         ),
         Tool::new(
             "find_symbol",
-            "Find a symbol by name with optional body retrieval.",
+            "Find a symbol by name or stable ID. Use symbol_id (e.g. 'src/main.py#function:Service/greet') for fastest exact lookup.",
             json!({
                 "type":"object",
                 "properties":{
-                    "name":{"type":"string"},
+                    "name":{"type":"string","description":"Symbol name to search for"},
+                    "symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},
                     "file_path":{"type":"string"},
                     "include_body":{"type":"boolean"},
                     "exact_match":{"type":"boolean"},
                     "max_matches":{"type":"integer"}
-                },
-                "required":["name"]
+                }
             }),
         ),
         Tool::new(
@@ -1513,18 +1911,19 @@ fn tools() -> Vec<Tool> {
         ),
         Tool::new(
             "find_referencing_symbols",
-            "Find references through a stdio LSP server. Requires file position; command/args may be provided explicitly.",
+            "Find references via LSP or text-based fallback. Provide symbol_name for direct text search without LSP, or line/column for LSP (with automatic text fallback on failure).",
             json!({
                 "type":"object",
                 "properties":{
-                    "file_path":{"type":"string"},
-                    "line":{"type":"integer"},
-                    "column":{"type":"integer"},
+                    "file_path":{"type":"string","description":"File containing or declaring the symbol"},
+                    "symbol_name":{"type":"string","description":"Symbol name for text-based search (skips LSP)"},
+                    "line":{"type":"integer","description":"Line number for LSP lookup"},
+                    "column":{"type":"integer","description":"Column number for LSP lookup"},
                     "command":{"type":"string"},
                     "args":{"type":"array","items":{"type":"string"}},
                     "max_results":{"type":"integer"}
                 },
-                "required":["file_path","line","column"]
+                "required":["file_path"]
             }),
         ),
         Tool::new(
@@ -1585,6 +1984,23 @@ fn tools() -> Vec<Tool> {
                     "args":{"type":"array","items":{"type":"string"}}
                 },
                 "required":["file_path","line","column"]
+            }),
+        ),
+        Tool::new(
+            "rename_symbol",
+            "Rename a symbol across one file (file scope) or the entire project. Supports dry_run for preview.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "file_path":{"type":"string","description":"File containing the symbol declaration"},
+                    "symbol_name":{"type":"string","description":"Current symbol name"},
+                    "name":{"type":"string","description":"Alias for symbol_name"},
+                    "new_name":{"type":"string","description":"Desired new name"},
+                    "name_path":{"type":"string","description":"Qualified name path (e.g. 'Class/method')"},
+                    "scope":{"type":"string","enum":["file","project"],"description":"Rename scope (default: project)"},
+                    "dry_run":{"type":"boolean","description":"Preview changes without modifying files"}
+                },
+                "required":["file_path","new_name"]
             }),
         ),
         Tool::new(
@@ -1787,7 +2203,86 @@ fn tools() -> Vec<Tool> {
                 "required":["query"]
             }),
         ),
+        // ── Serena-compatible: no-op thinking/mode tools ────────────────
+        Tool::new("think_about_collected_information", "Thinking tool: review and reflect on collected information.", json!({"type":"object","properties":{}})),
+        Tool::new("think_about_task_adherence", "Thinking tool: verify that planned actions adhere to the original task.", json!({"type":"object","properties":{}})),
+        Tool::new("think_about_whether_you_are_done", "Thinking tool: assess whether the current task is truly complete.", json!({"type":"object","properties":{}})),
+        Tool::new("switch_modes", "Switches the server operating mode (no-op in standalone mode).", json!({"type":"object","properties":{"mode":{"type":"string","description":"Target mode"}}})),
+        // ── Serena-compatible: memory tools ──────────────────────────────
+        Tool::new("list_memories", "Lists all memory files stored under .serena/memories.", json!({"type":"object","properties":{"topic":{"type":"string","description":"Optional topic to filter"}}})),
+        Tool::new("read_memory", "Reads the content of a named memory file.", json!({"type":"object","properties":{"memory_name":{"type":"string"}},"required":["memory_name"]})),
+        Tool::new("write_memory", "Writes (creates or overwrites) a named memory file.", json!({"type":"object","properties":{"memory_name":{"type":"string"},"content":{"type":"string"}},"required":["memory_name","content"]})),
+        Tool::new("delete_memory", "Deletes a named memory file.", json!({"type":"object","properties":{"memory_name":{"type":"string"}},"required":["memory_name"]})),
+        Tool::new("edit_memory", "Replaces the content of an existing named memory file.", json!({"type":"object","properties":{"memory_name":{"type":"string"},"content":{"type":"string"}},"required":["memory_name","content"]})),
+        Tool::new("rename_memory", "Renames a memory file.", json!({"type":"object","properties":{"old_name":{"type":"string"},"new_name":{"type":"string"}},"required":["old_name","new_name"]})),
+        // ── Serena-compatible: session/config tools ──────────────────────
+        Tool::new("activate_project", "Activates and validates the current project.", json!({"type":"object","properties":{"project":{"type":"string","description":"Optional project name or path"}}})),
+        Tool::new("check_onboarding_performed", "Checks whether Serena onboarding memories are present.", json!({"type":"object","properties":{}})),
+        Tool::new("initial_instructions", "Returns initial instructions for starting work.", json!({"type":"object","properties":{}})),
+        Tool::new("onboarding", "Creates default .serena/memories onboarding files.", json!({"type":"object","properties":{"force":{"type":"boolean","description":"Re-create even if exists"}}})),
+        Tool::new("prepare_for_new_conversation", "Returns project context for a new conversation.", json!({"type":"object","properties":{}})),
+        Tool::new("summarize_changes", "Provides instructions for summarising recent changes.", json!({"type":"object","properties":{}})),
+        Tool::new("list_queryable_projects", "Lists projects queryable by this server.", json!({"type":"object","properties":{}})),
     ]
+}
+
+// ── Serena memory helpers ────────────────────────────────────────────────
+
+fn list_memory_names(memories_dir: &std::path::Path, topic: Option<&str>) -> Vec<String> {
+    if !memories_dir.is_dir() {
+        return Vec::new();
+    }
+    let mut names = Vec::new();
+    collect_memory_files(memories_dir, memories_dir, &mut names);
+    names.sort();
+    if let Some(t) = topic {
+        let t = t.trim().trim_matches('/');
+        if !t.is_empty() {
+            names.retain(|n| n == t || n.starts_with(&format!("{t}/")));
+        }
+    }
+    names
+}
+
+fn collect_memory_files(base: &std::path::Path, dir: &std::path::Path, names: &mut Vec<String>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_memory_files(base, &path, names);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
+            if let Ok(rel) = path.strip_prefix(base) {
+                let name = rel
+                    .to_string_lossy()
+                    .replace('\\', "/")
+                    .trim_end_matches(".md")
+                    .to_string();
+                names.push(name);
+            }
+        }
+    }
+}
+
+fn resolve_memory_path(
+    memories_dir: &std::path::Path,
+    name: &str,
+) -> anyhow::Result<std::path::PathBuf> {
+    let normalized = name
+        .trim()
+        .replace('\\', "/")
+        .trim_matches('/')
+        .trim_end_matches(".md")
+        .to_string();
+    if normalized.is_empty() {
+        anyhow::bail!("Memory name must not be empty");
+    }
+    if normalized.contains("..") {
+        anyhow::bail!("Memory path must not contain '..': {name}");
+    }
+    Ok(memories_dir.join(format!("{normalized}.md")))
 }
 
 fn default_lsp_command_for_path(file_path: &str) -> Option<String> {
@@ -1842,7 +2337,7 @@ mod tests {
                 params: None,
             },
         );
-        assert_eq!(tools().len(), 41);
+        assert_eq!(tools().len(), 59);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("read_file"));
     }

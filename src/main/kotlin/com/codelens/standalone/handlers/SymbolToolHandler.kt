@@ -178,20 +178,13 @@ internal class SymbolToolHandler(private val ctx: ToolContext) : StandaloneToolH
             val path = ctx.req(args, "path")
             val depth = ctx.optInt(args, "depth", 1)
             val maxChars = ctx.optInt(args, "max_answer_chars", -1)
-            val rustResult = runCatching {
-                ctx.rustBridge.symbolsOverviewCall(path, depth)
-            }.getOrNull()
-            if (rustResult != null) {
-                ctx.truncate(rustResult, maxChars)
+            val symbols = ctx.backend.getSymbolsOverview(path, depth)
+            val resp = if (symbols.isEmpty()) {
+                ctx.ok(mapOf("symbols" to emptyList<Any>(), "message" to "No symbols found in '$path'"))
             } else {
-                val symbols = ctx.backend.getSymbolsOverview(path, depth)
-                val resp = if (symbols.isEmpty()) {
-                    ctx.ok(mapOf("symbols" to emptyList<Any>(), "message" to "No symbols found in '$path'"))
-                } else {
-                    ctx.ok(mapOf("symbols" to symbols.map { it.toMap() }, "count" to symbols.size))
-                }
-                ctx.truncate(resp, maxChars)
+                ctx.ok(mapOf("symbols" to symbols.map { it.toMap() }, "count" to symbols.size))
             }
+            ctx.truncate(resp, maxChars)
         }
 
         "find_symbol" -> {
@@ -203,21 +196,14 @@ internal class SymbolToolHandler(private val ctx: ToolContext) : StandaloneToolH
             val exactMatch = if (substring) false else ctx.optBool(args, "exact_match", true)
             val maxMatches = ctx.optInt(args, "max_matches", -1)
             val maxChars = ctx.optInt(args, "max_answer_chars", -1)
-            val rustResult = runCatching {
-                ctx.rustBridge.findSymbolCall(name, filePath, includeBody, exactMatch, maxMatches)
-            }.getOrNull()
-            if (rustResult != null) {
-                ctx.truncate(rustResult, maxChars)
+            var symbols = ctx.backend.findSymbol(name, filePath, includeBody, exactMatch)
+            if (maxMatches > 0 && symbols.size > maxMatches) symbols = symbols.take(maxMatches)
+            val resp = if (symbols.isEmpty()) {
+                ctx.ok(mapOf("symbols" to emptyList<Any>(), "message" to "Symbol '$name' not found"))
             } else {
-                var symbols = ctx.backend.findSymbol(name, filePath, includeBody, exactMatch)
-                if (maxMatches > 0 && symbols.size > maxMatches) symbols = symbols.take(maxMatches)
-                val resp = if (symbols.isEmpty()) {
-                    ctx.ok(mapOf("symbols" to emptyList<Any>(), "message" to "Symbol '$name' not found"))
-                } else {
-                    ctx.ok(mapOf("symbols" to symbols.map { it.toMap() }, "count" to symbols.size))
-                }
-                ctx.truncate(resp, maxChars)
+                ctx.ok(mapOf("symbols" to symbols.map { it.toMap() }, "count" to symbols.size))
             }
+            ctx.truncate(resp, maxChars)
         }
 
         "find_referencing_symbols" -> {
@@ -225,20 +211,13 @@ internal class SymbolToolHandler(private val ctx: ToolContext) : StandaloneToolH
             val filePath = ctx.optStr(args, "file_path")
             val maxResults = ctx.optInt(args, "max_results", 50)
             val maxChars = ctx.optInt(args, "max_answer_chars", -1)
-            val rustResult = runCatching {
-                ctx.rustBridge.findReferencesForSymbolCall(symbolName, filePath, maxResults)
-            }.getOrNull()
-            if (rustResult != null) {
-                ctx.truncate(rustResult, maxChars)
+            val refs = ctx.backend.findReferencingSymbols(symbolName, filePath, maxResults)
+            val resp = if (refs.isEmpty()) {
+                ctx.ok(mapOf("references" to emptyList<Any>(), "message" to "No references found for '$symbolName'"))
             } else {
-                val refs = ctx.backend.findReferencingSymbols(symbolName, filePath, maxResults)
-                val resp = if (refs.isEmpty()) {
-                    ctx.ok(mapOf("references" to emptyList<Any>(), "message" to "No references found for '$symbolName'"))
-                } else {
-                    ctx.ok(mapOf("references" to refs.map { it.toMap() }, "count" to refs.size))
-                }
-                ctx.truncate(resp, maxChars)
+                ctx.ok(mapOf("references" to refs.map { it.toMap() }, "count" to refs.size))
             }
+            ctx.truncate(resp, maxChars)
         }
 
         "search_for_pattern" -> {
@@ -253,14 +232,6 @@ internal class SymbolToolHandler(private val ctx: ToolContext) : StandaloneToolH
                 ctx.optInt(args, "context_lines_after", contextFallback)
             )
             val maxChars = ctx.optInt(args, "max_answer_chars", -1)
-            if (relativePath.isNullOrBlank()) {
-                val rustResult = runCatching {
-                    ctx.rustBridge.searchForPatternCall(pattern, fileGlob, maxResults, contextLines)
-                }.getOrNull()
-                if (rustResult != null) {
-                    return ctx.truncate(rustResult, maxChars)
-                }
-            }
             val results = ctx.backend.searchForPattern(pattern, fileGlob, maxResults, contextLines)
             val resp = if (results.isEmpty()) {
                 ctx.ok(mapOf("results" to emptyList<Any>(), "message" to "No matches found for pattern: $pattern"))
@@ -277,15 +248,8 @@ internal class SymbolToolHandler(private val ctx: ToolContext) : StandaloneToolH
             val hierarchyType = ctx.optStr(args, "hierarchy_type") ?: "both"
             val depth = ctx.optInt(args, "depth", 1)
             val maxChars = ctx.optInt(args, "max_answer_chars", -1)
-            val rustResult = runCatching {
-                ctx.rustBridge.inferredTypeHierarchyCall(fqn, relativePath, hierarchyType, depth)
-            }.getOrNull()
-            if (rustResult != null) {
-                ctx.truncate(rustResult, maxChars)
-            } else {
-                val result = ctx.backend.getTypeHierarchy(fqn, hierarchyType, depth)
-                ctx.truncate(ctx.ok(result), maxChars)
-            }
+            val result = ctx.backend.getTypeHierarchy(fqn, hierarchyType, depth)
+            ctx.truncate(ctx.ok(result), maxChars)
         }
 
         "find_referencing_code_snippets" -> {
@@ -293,12 +257,6 @@ internal class SymbolToolHandler(private val ctx: ToolContext) : StandaloneToolH
             val filePath = ctx.optStr(args, "file_path")
             val contextLines = ctx.optInt(args, "context_lines", 3)
             val maxResults = ctx.optInt(args, "max_results", 20)
-            val rustResult = runCatching {
-                ctx.rustBridge.findReferencingCodeSnippetsCall(symbolName, filePath, contextLines, maxResults)
-            }.getOrNull()
-            if (rustResult != null) {
-                return rustResult
-            }
             val results = ctx.backend.searchForPattern(
                 pattern = "\\b${Regex.escape(symbolName)}\\b",
                 maxResults = maxResults,
@@ -352,13 +310,6 @@ internal class SymbolToolHandler(private val ctx: ToolContext) : StandaloneToolH
             val includeBody = ctx.optBool(args, "include_body", false)
             val depth = ctx.optInt(args, "depth", 2)
             val maxChars = maxTokens * 4
-            val rustResult = runCatching {
-                ctx.rustBridge.rankedContextCall(query, path, maxTokens, includeBody, depth)
-            }.getOrNull()
-            if (rustResult != null) {
-                return rustResult
-            }
-
             val allSymbols = if (path != null) {
                 ctx.backend.getSymbolsOverview(path, depth)
             } else {

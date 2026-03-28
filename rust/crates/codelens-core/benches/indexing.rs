@@ -272,7 +272,7 @@ fn bench_search_for_pattern(c: &mut Criterion) {
 
     c.bench_function("search_for_pattern (def.*user)", |b| {
         b.iter(|| {
-            search_for_pattern(black_box(&project), r"def.*user", None, 50).unwrap();
+            search_for_pattern(black_box(&project), r"def.*user", None, 50, 0, 0).unwrap();
         })
     });
 }

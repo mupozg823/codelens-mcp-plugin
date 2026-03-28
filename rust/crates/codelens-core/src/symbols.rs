@@ -68,10 +68,30 @@ pub struct SymbolInfo {
     pub column: usize,
     pub signature: String,
     pub name_path: String,
+    pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<SymbolInfo>,
+}
+
+/// Construct a stable symbol ID: `{file_path}#{kind}:{name_path}`
+pub fn make_symbol_id(file_path: &str, kind: &SymbolKind, name_path: &str) -> String {
+    format!("{}#{}:{}", file_path, kind.as_label(), name_path)
+}
+
+/// Parse a stable symbol ID. Returns `(file_path, kind_label, name_path)` or `None`.
+pub fn parse_symbol_id(input: &str) -> Option<(&str, &str, &str)> {
+    let hash_pos = input.find('#')?;
+    let after_hash = &input[hash_pos + 1..];
+    let colon_pos = after_hash.find(':')?;
+    let file_path = &input[..hash_pos];
+    let kind = &after_hash[..colon_pos];
+    let name_path = &after_hash[colon_pos + 1..];
+    if file_path.is_empty() || kind.is_empty() || name_path.is_empty() {
+        return None;
+    }
+    Some((file_path, kind, name_path))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -300,6 +320,7 @@ impl SymbolIndex {
                 let relative = self.project.to_relative(file.path());
                 let parsed = self.ensure_indexed(file.path(), &relative)?;
                 if !parsed.is_empty() {
+                    let id = make_symbol_id(&relative, &SymbolKind::File, &relative);
                     symbols.push(SymbolInfo {
                         name: relative.clone(),
                         kind: SymbolKind::File,
@@ -312,6 +333,7 @@ impl SymbolIndex {
                             parsed.len()
                         ),
                         name_path: relative,
+                        id,
                         body: None,
                         children: parsed
                             .into_iter()
@@ -339,6 +361,48 @@ impl SymbolIndex {
         exact_match: bool,
         max_matches: usize,
     ) -> Result<Vec<SymbolInfo>> {
+        // Fast path: if name looks like a stable symbol ID, parse and do targeted lookup
+        if let Some((id_file, _id_kind, id_name_path)) = parse_symbol_id(name) {
+            let resolved = self.project.resolve(id_file)?;
+            let relative = self.project.to_relative(&resolved);
+            self.ensure_indexed(&resolved, &relative)?;
+            // Extract the leaf name from name_path (after last '/')
+            let leaf_name = id_name_path.rsplit('/').next().unwrap_or(id_name_path);
+            let db_rows =
+                self.db
+                    .find_symbols_by_name(leaf_name, Some(id_file), true, max_matches)?;
+            let mut results = Vec::new();
+            for row in db_rows {
+                if row.name_path != id_name_path {
+                    continue;
+                }
+                let rel_path = self.db.get_file_path(row.file_id)?.unwrap_or_default();
+                let body = if include_body {
+                    let abs = self.project.as_path().join(&rel_path);
+                    fs::read_to_string(&abs).ok().map(|source| {
+                        slice_source(&source, row.start_byte as usize, row.end_byte as usize)
+                    })
+                } else {
+                    None
+                };
+                let kind = str_to_kind(&row.kind);
+                let id = make_symbol_id(&rel_path, &kind, &row.name_path);
+                results.push(SymbolInfo {
+                    name: row.name,
+                    kind,
+                    file_path: rel_path,
+                    line: row.line as usize,
+                    column: row.column_num as usize,
+                    signature: row.signature,
+                    name_path: row.name_path,
+                    id,
+                    body,
+                    children: Vec::new(),
+                });
+            }
+            return Ok(results);
+        }
+
         // Ensure target files are indexed first
         if let Some(fp) = file_path {
             let resolved = self.project.resolve(fp)?;
@@ -368,14 +432,17 @@ impl SymbolIndex {
             } else {
                 None
             };
+            let kind = str_to_kind(&row.kind);
+            let id = make_symbol_id(&rel_path, &kind, &row.name_path);
             results.push(SymbolInfo {
                 name: row.name,
-                kind: str_to_kind(&row.kind),
+                kind,
                 file_path: rel_path,
                 line: row.line as usize,
                 column: row.column_num as usize,
                 signature: row.signature,
                 name_path: row.name_path,
+                id,
                 body,
                 children: Vec::new(), // flat result from DB
             });
@@ -581,6 +648,27 @@ pub fn find_symbol(
     exact_match: bool,
     max_matches: usize,
 ) -> Result<Vec<SymbolInfo>> {
+    // Fast path: stable symbol ID
+    if let Some((id_file, _id_kind, id_name_path)) = parse_symbol_id(name) {
+        let resolved = project.resolve(id_file)?;
+        let rel = project.to_relative(&resolved);
+        let Some(language_config) = language_for_path(&resolved) else {
+            return Ok(Vec::new());
+        };
+        let source = fs::read_to_string(&resolved)?;
+        let parsed = parse_symbols(&language_config, &rel, &source, include_body)?;
+        let mut results = Vec::new();
+        for symbol in flatten_symbols(parsed) {
+            if symbol.name_path == id_name_path {
+                results.push(to_symbol_info(symbol, usize::MAX));
+                if results.len() >= max_matches {
+                    return Ok(results);
+                }
+            }
+        }
+        return Ok(results);
+    }
+
     let files = match file_path {
         Some(path) => vec![project.resolve(path)?],
         None => collect_candidate_files(project.as_path())?,
@@ -638,6 +726,7 @@ fn get_directory_symbols(
         let file_symbols = get_file_symbols(project, path, depth)?;
         if !file_symbols.is_empty() {
             let relative = project.to_relative(path);
+            let id = make_symbol_id(&relative, &SymbolKind::File, &relative);
             symbols.push(SymbolInfo {
                 name: relative.clone(),
                 kind: SymbolKind::File,
@@ -652,6 +741,7 @@ fn get_directory_symbols(
                     file_symbols.len()
                 ),
                 name_path: relative,
+                id,
                 body: None,
                 children: file_symbols,
             });
@@ -840,6 +930,7 @@ fn to_symbol_info_with_source(
         Vec::new()
     };
 
+    let id = make_symbol_id(&symbol.file_path, &symbol.kind, &symbol.name_path);
     SymbolInfo {
         name: symbol.name,
         kind: symbol.kind,
@@ -848,6 +939,7 @@ fn to_symbol_info_with_source(
         column: symbol.column,
         signature: symbol.signature,
         name_path: symbol.name_path,
+        id,
         body: source
             .map(|source| slice_source(source, symbol.start_byte, symbol.end_byte))
             .or(symbol.body),
@@ -1347,6 +1439,96 @@ mod tests {
             "expected Handler trait, got {names:?}"
         );
         assert!(names.contains(&"run"), "expected run fn, got {names:?}");
+    }
+
+    #[test]
+    fn make_symbol_id_format() {
+        use super::make_symbol_id;
+        assert_eq!(
+            make_symbol_id("src/service.py", &SymbolKind::Class, "Service"),
+            "src/service.py#class:Service"
+        );
+        assert_eq!(
+            make_symbol_id("src/service.py", &SymbolKind::Method, "Service/run"),
+            "src/service.py#method:Service/run"
+        );
+    }
+
+    #[test]
+    fn parse_symbol_id_valid() {
+        use super::parse_symbol_id;
+        let result = parse_symbol_id("src/service.py#function:Service/run");
+        assert_eq!(result, Some(("src/service.py", "function", "Service/run")));
+    }
+
+    #[test]
+    fn parse_symbol_id_plain_name_returns_none() {
+        use super::parse_symbol_id;
+        assert_eq!(parse_symbol_id("fetchUser"), None);
+        assert_eq!(parse_symbol_id("#class:"), None);
+        assert_eq!(parse_symbol_id(""), None);
+    }
+
+    #[test]
+    fn find_symbol_returns_id_field() {
+        let root = fixture_root();
+        let project = ProjectRoot::new(&root).expect("project");
+        let matches =
+            find_symbol(&project, "fetchUser", None, false, true, 10).expect("find symbol");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].id, "src/user.ts#function:fetchUser");
+    }
+
+    #[test]
+    fn find_symbol_by_stable_id() {
+        let root = fixture_root();
+        let project = ProjectRoot::new(&root).expect("project");
+        let matches = find_symbol(
+            &project,
+            "src/user.ts#function:fetchUser",
+            None,
+            true,
+            true,
+            10,
+        )
+        .expect("find by id");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].name, "fetchUser");
+        assert_eq!(matches[0].kind, SymbolKind::Function);
+        assert!(matches[0].body.is_some());
+    }
+
+    #[test]
+    fn find_symbol_by_nested_id() {
+        let root = fixture_root();
+        let project = ProjectRoot::new(&root).expect("project");
+        let matches = find_symbol(
+            &project,
+            "src/service.py#function:Service/run",
+            None,
+            false,
+            true,
+            10,
+        )
+        .expect("find nested by id");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].name, "run");
+        assert_eq!(matches[0].name_path, "Service/run");
+    }
+
+    #[test]
+    fn get_symbols_overview_includes_id() {
+        let root = fixture_root();
+        let project = ProjectRoot::new(&root).expect("project");
+        let symbols = get_symbols_overview(&project, "src/service.py", 2).expect("symbols");
+        // Top-level class
+        assert!(!symbols[0].id.is_empty());
+        assert!(symbols[0].id.contains("#class:"));
+        // Nested method
+        let child = &symbols[0].children[0];
+        assert!(
+            child.id.contains("#method:Service/run") || child.id.contains("#function:Service/run")
+        );
     }
 
     fn fixture_root() -> std::path::PathBuf {

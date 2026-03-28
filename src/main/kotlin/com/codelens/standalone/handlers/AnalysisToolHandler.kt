@@ -185,12 +185,6 @@ internal class AnalysisToolHandler(private val ctx: ToolContext) : StandaloneToo
     private fun getComplexity(args: Map<String, Any?>): String {
         val path = ctx.req(args, "path")
         val symbolName = ctx.optStr(args, "symbol_name")
-        val rustResult = runCatching {
-            ctx.rustBridge.getComplexityCall(path, symbolName)
-        }.getOrNull()
-        if (rustResult != null) {
-            return rustResult
-        }
         val fileResult = ctx.backend.readFile(path)
         val lines = fileResult.content.lines()
         val symbols = ctx.backend.getSymbolsOverview(path, 2)
@@ -222,12 +216,6 @@ internal class AnalysisToolHandler(private val ctx: ToolContext) : StandaloneToo
         @Suppress("UNUSED_VARIABLE")
         val path = ctx.optStr(args, "path") ?: "."
         val maxResults = ctx.optInt(args, "max_results", 100)
-        val rustResult = runCatching {
-            ctx.rustBridge.findTestsCall(maxResults)
-        }.getOrNull()
-        if (rustResult != null) {
-            return rustResult
-        }
         val pattern = """\b(def test_|func Test|@Test\b|it\s*\(|describe\s*\(|test\s*\()"""
         val results = ctx.backend.searchForPattern(pattern, null, maxResults, 0)
         return ctx.ok(mapOf("tests" to results.map { it.toMap() }, "count" to results.size))
@@ -236,12 +224,6 @@ internal class AnalysisToolHandler(private val ctx: ToolContext) : StandaloneToo
     private fun findAnnotations(args: Map<String, Any?>): String {
         val tags = ctx.optStr(args, "tags") ?: "TODO,FIXME,HACK,DEPRECATED,XXX,NOTE"
         val maxResults = ctx.optInt(args, "max_results", 100)
-        val rustResult = runCatching {
-            ctx.rustBridge.findAnnotationsCall(tags, maxResults)
-        }.getOrNull()
-        if (rustResult != null) {
-            return rustResult
-        }
         val tagList = tags.split(",").map { it.trim() }.filter { it.isNotEmpty() }
         val pattern = "\\b(${tagList.joinToString("|")})\\b[:\\s]*(.*)"
         val results = ctx.backend.searchForPattern(pattern, null, maxResults, 0)
@@ -254,89 +236,9 @@ internal class AnalysisToolHandler(private val ctx: ToolContext) : StandaloneToo
         return ctx.ok(mapOf("tags" to grouped, "total" to results.size))
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun dispatchImportGraphTool(toolName: String, args: Map<String, Any?>): String {
-        if (toolName == "find_importers") {
-            val filePath = ctx.req(args, "file_path")
-            val maxResults = ctx.optInt(args, "max_results", 50)
-            val rustResult = runCatching {
-                ctx.rustBridge.findImportersCall(filePath, maxResults)
-            }.getOrNull()
-            if (rustResult != null) {
-                return rustResult
-            }
-        }
-        if (toolName == "get_blast_radius") {
-            val filePath = ctx.req(args, "file_path")
-            val maxDepth = ctx.optInt(args, "max_depth", 3)
-            val rustResult = runCatching {
-                ctx.rustBridge.getBlastRadiusCall(filePath, maxDepth)
-            }.getOrNull()
-            if (rustResult != null) {
-                return rustResult
-            }
-        }
-        if (toolName == "get_symbol_importance") {
-            val topN = ctx.optInt(args, "top_n", 20)
-            val rustResult = runCatching {
-                ctx.rustBridge.getSymbolImportanceCall(topN)
-            }.getOrNull()
-            if (rustResult != null) {
-                return rustResult
-            }
-        }
-        if (toolName == "find_dead_code") {
-            val maxResults = ctx.optInt(args, "max_results", 50)
-            val rustResult = runCatching {
-                ctx.rustBridge.findDeadCodeCall(maxResults)
-            }.getOrNull()
-            if (rustResult != null) {
-                return rustResult
-            }
-        }
-        return try {
-            val builderClass = Class.forName("com.codelens.backend.treesitter.ImportGraphBuilder")
-            val builder = builderClass.getDeclaredConstructor().newInstance()
-            val buildGraph = builderClass.getMethod("buildGraph", java.nio.file.Path::class.java)
-            val graph = buildGraph.invoke(builder, ctx.projectRoot) as Map<String, Any>
-
-            when (toolName) {
-                "find_importers" -> {
-                    val filePath = ctx.req(args, "file_path")
-                    val maxResults = ctx.optInt(args, "max_results", 50)
-                    val method = builderClass.getMethod("getImporters", Map::class.java, String::class.java)
-                    val importers = (method.invoke(builder, graph, filePath) as Set<String>).take(maxResults)
-                    ctx.ok(mapOf("file" to filePath, "importers" to importers, "count" to importers.size))
-                }
-                "get_blast_radius" -> {
-                    val filePath = ctx.req(args, "file_path")
-                    val maxDepth = ctx.optInt(args, "max_depth", 3)
-                    val method = builderClass.getMethod("getBlastRadius", Map::class.java, String::class.java, Int::class.java)
-                    val radius = method.invoke(builder, graph, filePath, maxDepth) as Map<String, Int>
-                    val sorted = radius.entries.sortedBy { it.value }.map { mapOf("file" to it.key, "depth" to it.value) }
-                    ctx.ok(mapOf("file" to filePath, "affected_files" to sorted, "count" to sorted.size))
-                }
-                "get_symbol_importance" -> {
-                    val topN = ctx.optInt(args, "top_n", 20)
-                    val method = builderClass.getMethod("getImportance", Map::class.java)
-                    val ranks = method.invoke(builder, graph) as Map<String, Double>
-                    val sorted = ranks.entries.sortedByDescending { it.value }
-                        .take(topN)
-                        .map { mapOf("file" to it.key, "score" to String.format("%.4f", it.value)) }
-                    ctx.ok(mapOf("ranking" to sorted, "count" to sorted.size))
-                }
-                "find_dead_code" -> {
-                    val maxResults = ctx.optInt(args, "max_results", 50)
-                    val method = builderClass.methods.first { it.name == "findDeadCode" }
-                    val dead = (method.invoke(builder, graph, null, ctx.projectRoot) as List<Map<String, Any?>>).take(maxResults)
-                    ctx.ok(mapOf("dead_code" to dead, "count" to dead.size))
-                }
-                else -> ctx.err("Unknown import graph tool: $toolName")
-            }
-        } catch (_: ClassNotFoundException) {
-            ctx.err("Import graph tools require tree-sitter (not available in this environment)")
-        } catch (_: NoClassDefFoundError) {
-            ctx.err("Import graph tools require tree-sitter (not available in this environment)")
-        }
+    private fun dispatchImportGraphTool(toolName: String, @Suppress("UNUSED_PARAMETER") args: Map<String, Any?>): String {
+        // Import graph tools are now Rust-only (ImportGraphBuilder was removed in Phase B).
+        // This handler is only reached when Rust bridge is unavailable.
+        return ctx.err("Import graph tools require the Rust bridge (not available in this environment)")
     }
 }

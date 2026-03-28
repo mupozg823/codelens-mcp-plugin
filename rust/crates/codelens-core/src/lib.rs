@@ -7,6 +7,7 @@ pub mod git;
 pub mod import_graph;
 pub mod lsp;
 pub mod project;
+pub mod rename;
 pub mod search;
 pub mod symbols;
 
@@ -15,8 +16,9 @@ pub use circular::{CircularDependency, find_circular_dependencies};
 pub use coupling::{CouplingEntry, get_change_coupling};
 pub use db::{IndexDb, NewCall, NewImport, NewSymbol, content_hash, index_db_path};
 pub use file_ops::{
-    DirectoryEntry, FileMatch, FileReadResult, PatternMatch, create_text_file, delete_lines,
-    find_files, insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file,
+    DirectoryEntry, FileMatch, FileReadResult, PatternMatch, TextReference, create_text_file,
+    delete_lines, extract_word_at_position, find_files, find_referencing_symbols_via_text,
+    insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file,
     replace_content, replace_lines, replace_symbol_body, search_for_pattern,
     search_for_pattern_smart, SmartPatternMatch, EnclosingSymbol,
 };
@@ -34,8 +36,9 @@ pub use lsp::{
     get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
 };
 pub use project::ProjectRoot;
+pub use rename::{RenameResult, RenameScope, rename_symbol};
 pub use search::{SearchResult, search_symbols_hybrid};
 pub use symbols::{
     IndexStats, RankedContextEntry, RankedContextResult, SymbolIndex, SymbolInfo, SymbolKind,
-    find_symbol, find_symbol_range, get_symbols_overview,
+    find_symbol, find_symbol_range, get_symbols_overview, make_symbol_id, parse_symbol_id,
 };
