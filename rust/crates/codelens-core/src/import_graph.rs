@@ -1,6 +1,6 @@
-use crate::db::{IndexDb, index_db_path};
+use crate::db::{index_db_path, IndexDb};
 use crate::project::ProjectRoot;
-use anyhow::{Result, bail};
+use anyhow::{bail, Result};
 use regex::Regex;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -51,9 +51,9 @@ pub struct DeadCodeEntry {
 }
 
 #[derive(Debug, Clone)]
-struct FileNode {
-    imports: HashSet<String>,
-    imported_by: HashSet<String>,
+pub(crate) struct FileNode {
+    pub(crate) imports: HashSet<String>,
+    pub(crate) imported_by: HashSet<String>,
 }
 
 pub fn supports_import_graph(file_path: &str) -> bool {
@@ -194,6 +194,11 @@ pub fn find_dead_code(project: &ProjectRoot, max_results: usize) -> Result<Vec<D
         dead.truncate(max_results);
     }
     Ok(dead)
+}
+
+/// Public accessor for the import graph, used by sibling modules (e.g. circular).
+pub(crate) fn build_graph_pub(project: &ProjectRoot) -> Result<HashMap<String, FileNode>> {
+    build_graph(project)
 }
 
 fn build_graph(project: &ProjectRoot) -> Result<HashMap<String, FileNode>> {

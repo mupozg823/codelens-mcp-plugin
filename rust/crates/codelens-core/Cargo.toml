@@ -7,6 +7,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 globset.workspace = true
+petgraph.workspace = true
 regex.workspace = true
 rusqlite.workspace = true
 sha2.workspace = true

@@ -2,12 +2,13 @@ mod protocol;
 
 use anyhow::Result;
 use codelens_core::{
-    create_text_file, delete_lines, find_dead_code, find_files, get_blast_radius,
-    get_changed_files, get_diff_symbols, get_importance, get_importers, insert_after_symbol,
-    insert_at_line, insert_before_symbol, list_dir, read_file, replace_content, replace_lines,
-    replace_symbol_body, search_for_pattern, LspDiagnosticRequest, LspRenamePlanRequest,
-    LspRequest, LspSessionPool, LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot,
-    SymbolIndex, SymbolInfo, SymbolKind,
+    create_text_file, delete_lines, find_circular_dependencies, find_dead_code, find_files,
+    get_blast_radius, get_callees, get_callers, get_change_coupling, get_changed_files,
+    get_diff_symbols, get_importance, get_importers, insert_after_symbol, insert_at_line,
+    insert_before_symbol, list_dir, read_file, replace_content, replace_lines, replace_symbol_body,
+    search_for_pattern, LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
+    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot, SymbolIndex, SymbolInfo,
+    SymbolKind,
 };
 use protocol::{JsonRpcRequest, JsonRpcResponse, Tool, ToolCallResponse, ToolResponseMeta};
 use serde_json::json;
@@ -901,22 +902,114 @@ fn dispatch_tool(
                 )
             })
         }
+        "get_callers" => {
+            let function_name = required_string(&arguments, "function_name")?;
+            let max_results = arguments
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(50) as usize;
+            get_callers(&state.project, function_name, max_results).map(|value| {
+                (
+                    json!({
+                        "function": function_name,
+                        "callers": value,
+                        "count": value.len()
+                    }),
+                    success_meta("call-graph", 0.85),
+                )
+            })
+        }
+        "get_callees" => {
+            let function_name = required_string(&arguments, "function_name")?;
+            let file_path = arguments.get("file_path").and_then(|v| v.as_str());
+            let max_results = arguments
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(50) as usize;
+            get_callees(&state.project, function_name, file_path, max_results).map(|value| {
+                (
+                    json!({
+                        "function": function_name,
+                        "callees": value,
+                        "count": value.len()
+                    }),
+                    success_meta("call-graph", 0.85),
+                )
+            })
+        }
+        "find_circular_dependencies" => {
+            let max_results = arguments
+                .get("max_results")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(50) as usize;
+            find_circular_dependencies(&state.project, max_results).map(|value| {
+                (
+                    json!({
+                        "cycles": value,
+                        "count": value.len()
+                    }),
+                    success_meta("import-graph", 0.88),
+                )
+            })
+        }
+        "get_change_coupling" => {
+            let months = arguments
+                .get("months")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(6) as usize;
+            let min_strength = arguments
+                .get("min_strength")
+                .and_then(|value| value.as_f64())
+                .unwrap_or(0.3);
+            let min_commits = arguments
+                .get("min_commits")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(3) as usize;
+            let max_results = arguments
+                .get("max_results")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(30) as usize;
+            get_change_coupling(
+                &state.project,
+                months,
+                min_strength,
+                min_commits,
+                max_results,
+            )
+            .map(|value| {
+                (
+                    json!({
+                        "coupling": value,
+                        "count": value.len()
+                    }),
+                    success_meta("git", 0.85),
+                )
+            })
+        }
         other => Err(anyhow::anyhow!("Unknown tool: {other}")),
     })();
 
     match result {
-        Ok((payload, meta)) => JsonRpcResponse::result(
-            id,
-            json!({
-                "content": [
-                    {
-                        "type": "text",
-                        "text": serde_json::to_string(&ToolCallResponse::success(payload, meta))
-                            .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())
-                    }
-                ]
-            }),
-        ),
+        Ok((payload, meta)) => {
+            let hints = navigation_hints(name);
+            let response = if hints.is_empty() {
+                ToolCallResponse::success(payload, meta)
+            } else {
+                ToolCallResponse::success_with_hints(payload, meta, hints)
+            };
+            JsonRpcResponse::result(
+                id,
+                json!({
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": serde_json::to_string(&response)
+                                .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())
+                        }
+                    ]
+                }),
+            )
+        }
         Err(error) => JsonRpcResponse::result(
             id,
             json!({
@@ -1000,6 +1093,60 @@ impl SymbolKindLabel for SymbolKind {
             SymbolKind::TypeAlias => "type_alias",
             SymbolKind::Unknown => "unknown",
         }
+    }
+}
+
+fn navigation_hints(tool_name: &str) -> Vec<String> {
+    match tool_name {
+        "find_symbol" => vec![
+            "get_callers: find functions that call this symbol".into(),
+            "get_callees: find functions called by this symbol".into(),
+            "find_referencing_symbols: trace all references".into(),
+            "get_blast_radius: estimate change impact".into(),
+            "get_complexity: check cyclomatic complexity".into(),
+        ],
+        "get_symbols_overview" => vec![
+            "find_symbol: search for a specific symbol with body".into(),
+            "get_ranked_context: get token-budget-aware context".into(),
+        ],
+        "get_blast_radius" => vec![
+            "find_circular_dependencies: check for circular imports".into(),
+            "get_change_coupling: find historically co-changed files".into(),
+            "find_dead_code: detect unreferenced files".into(),
+        ],
+        "find_importers" => vec![
+            "get_blast_radius: full transitive impact analysis".into(),
+            "get_symbol_importance: PageRank file ranking".into(),
+        ],
+        "get_callers" => vec![
+            "get_callees: reverse direction — what does this function call?".into(),
+            "find_referencing_symbols: LSP-backed reference tracing".into(),
+        ],
+        "get_callees" => vec![
+            "get_callers: reverse direction — who calls this function?".into(),
+            "get_complexity: check callee complexity".into(),
+        ],
+        "get_changed_files" => vec![
+            "get_diff_symbols: see symbols in changed files".into(),
+            "get_change_coupling: find historically co-changed files".into(),
+        ],
+        "get_change_coupling" => vec![
+            "find_circular_dependencies: check circular imports in coupled files".into(),
+            "get_blast_radius: estimate change impact for coupled files".into(),
+        ],
+        "find_circular_dependencies" => vec![
+            "get_blast_radius: estimate impact of breaking the cycle".into(),
+            "find_importers: trace specific import chains".into(),
+        ],
+        "search_for_pattern" => vec![
+            "find_symbol: structured symbol search (faster for known names)".into(),
+            "find_referencing_code_snippets: search with context lines".into(),
+        ],
+        "get_complexity" => vec![
+            "find_symbol: read the function body".into(),
+            "get_callers: see who calls this complex function".into(),
+        ],
+        _ => vec![],
     }
 }
 
@@ -1416,6 +1563,54 @@ fn tools() -> Vec<Tool> {
                 "required":["symbol_name"]
             }),
         ),
+        Tool::new(
+            "get_callers",
+            "Find all functions that call a given function across the project using tree-sitter call graph analysis.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "function_name":{"type":"string"},
+                    "max_results":{"type":"integer"}
+                },
+                "required":["function_name"]
+            }),
+        ),
+        Tool::new(
+            "get_callees",
+            "Find all functions called by a given function using tree-sitter call graph analysis. Optionally scoped to a specific file.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "function_name":{"type":"string"},
+                    "file_path":{"type":"string"},
+                    "max_results":{"type":"integer"}
+                },
+                "required":["function_name"]
+            }),
+        ),
+        Tool::new(
+            "find_circular_dependencies",
+            "Detect circular import dependencies in the project using Tarjan SCC algorithm on the import graph.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "max_results":{"type":"integer"}
+                }
+            }),
+        ),
+        Tool::new(
+            "get_change_coupling",
+            "Analyze git history to find files that frequently change together (temporal coupling).",
+            json!({
+                "type":"object",
+                "properties":{
+                    "months":{"type":"integer"},
+                    "min_strength":{"type":"number"},
+                    "min_commits":{"type":"integer"},
+                    "max_results":{"type":"integer"}
+                }
+            }),
+        ),
     ]
 }
 
@@ -1471,7 +1666,7 @@ mod tests {
                 params: None,
             },
         );
-        assert_eq!(tools().len(), 32);
+        assert_eq!(tools().len(), 36);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("read_file"));
     }

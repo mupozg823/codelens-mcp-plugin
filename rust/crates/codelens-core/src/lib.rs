@@ -1,3 +1,6 @@
+pub mod call_graph;
+pub mod circular;
+pub mod coupling;
 pub mod db;
 pub mod file_ops;
 pub mod git;
@@ -6,6 +9,9 @@ pub mod lsp;
 pub mod project;
 pub mod symbols;
 
+pub use call_graph::{CallEdge, CalleeEntry, CallerEntry, extract_calls, get_callees, get_callers};
+pub use circular::{CircularDependency, find_circular_dependencies};
+pub use coupling::{CouplingEntry, get_change_coupling};
 pub use db::{IndexDb, NewImport, NewSymbol, content_hash, index_db_path};
 pub use file_ops::{
     DirectoryEntry, FileMatch, FileReadResult, PatternMatch, create_text_file, delete_lines,
