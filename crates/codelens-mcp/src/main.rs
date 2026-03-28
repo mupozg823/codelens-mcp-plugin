@@ -100,7 +100,23 @@ fn main() -> Result<()> {
         .and_then(|i| args.get(i + 1))
         .map(|s| ToolPreset::from_str(s))
         .unwrap_or(ToolPreset::Full);
-    let project = ProjectRoot::new(project_arg)?;
+
+    // Project root resolution priority:
+    // 1. Explicit path argument (if not ".")
+    // 2. CLAUDE_PROJECT_DIR environment variable (set by Claude Code)
+    // 3. MCP_PROJECT_DIR environment variable (generic)
+    // 4. Current working directory with .git/.cargo marker detection
+    let effective_path = if project_arg != "." {
+        project_arg.to_string()
+    } else if let Ok(dir) = std::env::var("CLAUDE_PROJECT_DIR") {
+        dir
+    } else if let Ok(dir) = std::env::var("MCP_PROJECT_DIR") {
+        dir
+    } else {
+        ".".to_string()
+    };
+
+    let project = ProjectRoot::new(&effective_path)?;
     run_stdio(AppState::new(project, preset))
 }
 
