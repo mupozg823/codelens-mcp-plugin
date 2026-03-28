@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
@@ -6,8 +6,36 @@ pub struct ProjectRoot {
     root: PathBuf,
 }
 
+const ROOT_MARKERS: &[&str] = &[
+    ".git",
+    ".serena/project.yml",
+    ".codelens",
+    "build.gradle.kts",
+    "build.gradle",
+    "package.json",
+    "pyproject.toml",
+    "Cargo.toml",
+    "pom.xml",
+    "go.mod",
+];
+
 impl ProjectRoot {
+    /// Create a ProjectRoot, auto-detecting the actual root by walking up from
+    /// the given path until a root marker (.git, Cargo.toml, etc.) is found.
+    /// Falls back to the given path if no marker is found.
     pub fn new(path: impl AsRef<Path>) -> Result<Self> {
+        let start = path.as_ref().canonicalize().with_context(|| {
+            format!("failed to resolve project root {}", path.as_ref().display())
+        })?;
+        if !start.is_dir() {
+            bail!("project root is not a directory: {}", start.display());
+        }
+        let root = detect_root(&start).unwrap_or_else(|| start.clone());
+        Ok(Self { root })
+    }
+
+    /// Create a ProjectRoot at the exact given path without auto-detection.
+    pub fn new_exact(path: impl AsRef<Path>) -> Result<Self> {
         let root = path.as_ref().canonicalize().with_context(|| {
             format!("failed to resolve project root {}", path.as_ref().display())
         })?;
@@ -48,6 +76,31 @@ impl ProjectRoot {
             .to_string_lossy()
             .replace('\\', "/")
     }
+}
+
+/// Walk up from `start` until a directory containing a root marker is found.
+fn detect_root(start: &Path) -> Option<PathBuf> {
+    let home = dirs_fallback();
+    let mut current = start.to_path_buf();
+    loop {
+        for marker in ROOT_MARKERS {
+            if current.join(marker).exists() {
+                return Some(current);
+            }
+        }
+        // Don't go above home directory
+        if Some(current.as_path()) == home.as_deref() {
+            break;
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
+}
+
+fn dirs_fallback() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from)
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
