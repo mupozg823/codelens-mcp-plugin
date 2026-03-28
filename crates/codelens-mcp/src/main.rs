@@ -2,20 +2,21 @@ mod protocol;
 mod tools;
 
 use anyhow::Result;
-use codelens_core::{GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
+use codelens_core::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
 use protocol::{JsonRpcRequest, JsonRpcResponse, Tool, ToolAnnotations, ToolCallResponse};
 use serde_json::json;
 use std::io::{self, BufRead, Write};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use tools::ToolResult;
 
 struct AppState {
     project: ProjectRoot,
-    symbol_index: Mutex<SymbolIndex>,
+    symbol_index: Arc<Mutex<SymbolIndex>>,
     lsp_pool: Mutex<LspSessionPool>,
-    graph_cache: GraphCache,
+    graph_cache: Arc<GraphCache>,
     preset: ToolPreset,
     memories_dir: std::path::PathBuf,
+    watcher: Option<FileWatcher>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,16 +76,26 @@ const BALANCED_EXCLUDES: &[&str] = &[
 
 impl AppState {
     fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
-        let symbol_index = SymbolIndex::new(project.clone());
+        let symbol_index = Arc::new(Mutex::new(SymbolIndex::new(project.clone())));
         let lsp_pool = LspSessionPool::new(project.clone());
+        let graph_cache = Arc::new(GraphCache::new(30));
         let memories_dir = project.as_path().join(".serena").join("memories");
+
+        let watcher = FileWatcher::start(
+            project.as_path(),
+            Arc::clone(&symbol_index),
+            Arc::clone(&graph_cache),
+        )
+        .ok();
+
         Self {
             project,
-            symbol_index: Mutex::new(symbol_index),
+            symbol_index,
             lsp_pool: Mutex::new(lsp_pool),
-            graph_cache: GraphCache::new(30),
+            graph_cache,
             preset,
             memories_dir,
+            watcher,
         }
     }
 }
@@ -308,6 +319,7 @@ fn dispatch_tool(
         }
         "summarize_changes" => tools::session::summarize_changes(state, &arguments),
         "list_queryable_projects" => tools::session::list_queryable_projects(state, &arguments),
+        "get_watch_status" => tools::session::get_watch_status(state, &arguments),
         "think_about_collected_information"
         | "think_about_task_adherence"
         | "think_about_whether_you_are_done" => tools::session::think_noop(state, &arguments),
@@ -429,6 +441,7 @@ fn tools() -> Vec<Tool> {
         Tool::new("initial_instructions", "Returns initial instructions for starting work.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("onboarding", "Creates default .serena/memories onboarding files.", json!({"type":"object","properties":{"force":{"type":"boolean","description":"Re-create even if exists"}}})).with_annotations(mutating.clone()),
         Tool::new("prepare_for_new_conversation", "Returns project context for a new conversation.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
+        Tool::new("get_watch_status", "Returns file watcher status: running, events processed, files reindexed.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         // summarize_changes, list_queryable_projects: kept in dispatch for compat, not listed
     ]
 }
@@ -643,7 +656,7 @@ mod tests {
                 params: None,
             },
         );
-        assert_eq!(tools().len(), 52);
+        assert_eq!(tools().len(), 53);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("get_symbols_overview"));
     }

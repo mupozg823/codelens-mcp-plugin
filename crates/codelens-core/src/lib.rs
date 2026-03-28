@@ -13,6 +13,7 @@ pub mod scope_analysis;
 pub mod search;
 pub mod symbols;
 pub mod type_hierarchy;
+pub mod watcher;
 
 pub use call_graph::{CallEdge, CalleeEntry, CallerEntry, extract_calls, get_callees, get_callers};
 pub use circular::{CircularDependency, find_circular_dependencies};
@@ -44,6 +45,7 @@ pub use rename::{RenameResult, RenameScope, rename_symbol};
 pub use scope_analysis::{ScopedReference, ReferenceKind, find_scoped_references, find_scoped_references_in_file};
 pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};
 pub use search::{SearchResult, search_symbols_hybrid};
+pub use watcher::{FileWatcher, WatcherStats};
 pub use symbols::{
     IndexStats, RankedContextEntry, RankedContextResult, SymbolIndex, SymbolInfo, SymbolKind,
     find_symbol, find_symbol_range, get_symbols_overview, make_symbol_id, parse_symbol_id,

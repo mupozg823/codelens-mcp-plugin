@@ -293,6 +293,110 @@ impl SymbolIndex {
         self.stats()
     }
 
+    /// Incrementally re-index only the given files (changed/created).
+    /// Deleted files should be passed separately via `remove_files`.
+    pub fn index_files(&mut self, paths: &[PathBuf]) -> Result<usize> {
+        use rayon::prelude::*;
+
+        let parsed: Vec<_> = paths
+            .par_iter()
+            .filter_map(|file| {
+                if !file.is_file() {
+                    return None;
+                }
+                language_for_path(file)?;
+                let relative = self.project.to_relative(file);
+                let content = fs::read(file).ok()?;
+                let mtime = file_modified_ms(file).ok()? as i64;
+                let hash = content_hash(&content);
+                let source = String::from_utf8_lossy(&content);
+                let ext = file.extension()?.to_str()?.to_ascii_lowercase();
+                let symbols = language_for_path(file)
+                    .and_then(|config| parse_symbols(&config, &relative, &source, false).ok())
+                    .unwrap_or_default();
+                let raw_imports = extract_imports_for_file(file);
+                let new_imports: Vec<NewImport> = raw_imports
+                    .iter()
+                    .filter_map(|raw| {
+                        resolve_module_for_file(&self.project, file, raw).map(|target| NewImport {
+                            target_path: target,
+                            raw_import: raw.clone(),
+                        })
+                    })
+                    .collect();
+                let call_edges: Vec<NewCall> = crate::call_graph::extract_calls(file)
+                    .into_iter()
+                    .map(|e| NewCall {
+                        caller_name: e.caller_name,
+                        callee_name: e.callee_name,
+                        line: e.line as i64,
+                    })
+                    .collect();
+                Some((
+                    relative,
+                    mtime,
+                    hash,
+                    content.len() as i64,
+                    ext,
+                    symbols,
+                    new_imports,
+                    call_edges,
+                ))
+            })
+            .collect();
+
+        let count = parsed.len();
+        if count == 0 {
+            return Ok(0);
+        }
+
+        self.db.begin_transaction()?;
+        for (relative, mtime, hash, size, ext, symbols, new_imports, call_edges) in parsed {
+            if self.db.get_fresh_file(&relative, mtime, &hash)?.is_some() {
+                continue;
+            }
+            let file_id = self
+                .db
+                .upsert_file(&relative, mtime, &hash, size, Some(&ext))?;
+            let flat = flatten_symbols(symbols);
+            let new_syms: Vec<NewSymbol> = flat
+                .iter()
+                .map(|s| NewSymbol {
+                    name: s.name.clone(),
+                    kind: s.kind.as_label().to_owned(),
+                    line: s.line as i64,
+                    column_num: s.column as i64,
+                    start_byte: s.start_byte as i64,
+                    end_byte: s.end_byte as i64,
+                    signature: s.signature.clone(),
+                    name_path: s.name_path.clone(),
+                    parent_id: None,
+                })
+                .collect();
+            self.db.insert_symbols(file_id, &new_syms)?;
+            if !new_imports.is_empty() {
+                self.db.insert_imports(file_id, &new_imports)?;
+            }
+            if !call_edges.is_empty() {
+                self.db.insert_calls(file_id, &call_edges)?;
+            }
+        }
+        self.db.commit()?;
+        Ok(count)
+    }
+
+    /// Remove deleted files from the index.
+    pub fn remove_files(&mut self, paths: &[PathBuf]) -> Result<usize> {
+        let count = paths.len();
+        self.db.begin_transaction()?;
+        for path in paths {
+            let relative = self.project.to_relative(path);
+            self.db.delete_file(&relative)?;
+        }
+        self.db.commit()?;
+        Ok(count)
+    }
+
     pub fn get_symbols_overview(&mut self, path: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
         let resolved = self.project.resolve(path)?;
         if resolved.is_dir() {

@@ -10,6 +10,11 @@ pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> Too
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     let memory_count = list_memory_names(&state.memories_dir, None).len();
+    let watcher_running = state
+        .watcher
+        .as_ref()
+        .map(|w| w.stats().running)
+        .unwrap_or(false);
     Ok((
         json!({
             "activated": true,
@@ -17,7 +22,8 @@ pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> Too
             "project_base_path": state.project.as_path().to_string_lossy(),
             "backend_id": "rust-core",
             "memory_count": memory_count,
-            "serena_memories_dir": state.memories_dir.to_string_lossy()
+            "serena_memories_dir": state.memories_dir.to_string_lossy(),
+            "file_watcher": watcher_running
         }),
         success_meta("session", 1.0),
     ))
@@ -184,6 +190,19 @@ pub fn list_queryable_projects(state: &AppState, _arguments: &serde_json::Value)
         }),
         success_meta("session", 1.0),
     ))
+}
+
+pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    match &state.watcher {
+        Some(watcher) => {
+            let stats = watcher.stats();
+            Ok((json!(stats), success_meta("watcher", 1.0)))
+        }
+        None => Ok((
+            json!({"running": false, "events_processed": 0, "files_reindexed": 0, "note": "File watcher not started"}),
+            success_meta("watcher", 1.0),
+        )),
+    }
 }
 
 pub fn think_noop(_state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
