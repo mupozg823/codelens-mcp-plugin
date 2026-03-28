@@ -31,3 +31,6 @@ config-test/
 # Environment
 .env
 .env.local
+
+# CodeLens port file (auto-generated at runtime)
+.codelens-port
