@@ -82,12 +82,16 @@ jobs:
         with:
           merge-multiple: true
 
+      - name: Generate checksums
+        run: sha256sum codelens-mcp-* > checksums-sha256.txt
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             codelens-mcp-*.tar.gz
             codelens-mcp-*.zip
+            checksums-sha256.txt
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

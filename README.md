@@ -1,20 +1,24 @@
 # CodeLens MCP
 
-**Pure Rust MCP server for code intelligence.** 59 tools, zero dependencies, instant startup.
+**Pure Rust MCP server for code intelligence.** 49 tools, 16 languages, file watcher, instant startup.
 
 Works with Claude Code, Cursor, Windsurf, Cline, Codex, and any MCP-compatible client.
 
-## Quick Start
+## Install
 
 ```bash
-# Build
-cargo build --release
+# Homebrew (macOS/Linux)
+brew tap mupozg823/codelens
+brew install codelens-mcp
 
-# Run
-./target/release/codelens-mcp /path/to/project
+# Cargo
+cargo install codelens-mcp
+
+# From source
+cargo build --release
 ```
 
-## Configure MCP Client
+## Configure
 
 **Claude Code** (`~/.claude.json`):
 
@@ -22,37 +26,62 @@ cargo build --release
 {
   "mcpServers": {
     "codelens": {
-      "command": "/path/to/codelens-mcp",
+      "command": "codelens-mcp",
       "args": ["."]
     }
   }
 }
 ```
 
-## 59 Tools
+### Presets
 
-### Symbol Analysis
+```bash
+codelens-mcp .                        # balanced (default, 41 tools)
+codelens-mcp . --preset full          # all 49 tools
+codelens-mcp . --preset minimal       # 18 tools (for subagents)
+CODELENS_PRESET=minimal codelens-mcp . # via env var
+```
 
-`get_symbols_overview` · `find_symbol` · `find_referencing_symbols` · `get_ranked_context` · `search_symbols_fuzzy` · `get_type_hierarchy`
+## Features
 
-### Code Search & Edit
+### 49 Tools
 
-`search_for_pattern` · `rename_symbol` · `replace_symbol_body` · `insert_before_symbol` · `insert_after_symbol` · `create_text_file` · `replace_content`
+| Category   | Tools | Highlights                                       |
+| ---------- | ----- | ------------------------------------------------ |
+| Filesystem | 7     | read, list, search, find files/annotations/tests |
+| Symbols    | 6     | tree-sitter overview, find, ranked context       |
+| LSP        | 6     | references, diagnostics, type hierarchy, rename  |
+| Graph      | 7     | blast radius, dead code, callers, circular deps  |
+| Mutation   | 11    | rename, replace, insert, auto-import             |
+| Memory     | 6     | Serena-compatible CRUD                           |
+| Session    | 5     | activate, watch status, config                   |
+| Composite  | 1     | extract function refactoring                     |
 
-### Analysis
+### 16 Languages
 
-`get_complexity` · `get_blast_radius` · `find_importers` · `find_dead_code` · `find_circular_dependencies` · `get_callers` · `get_callees`
+Python, JavaScript, TypeScript, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, C#, Dart
 
-### Serena Compatible
+### File Watcher
 
-`activate_project` · `onboarding` · `list_memories` · `read_memory` · `write_memory` + 12 more
+Automatic re-indexing on file changes (300ms debounce) with GraphCache invalidation.
+
+### Performance
+
+| Metric         | Value |
+| -------------- | ----- |
+| Cold start     | ~12ms |
+| Symbol search  | 131ms |
+| Pattern search | 6ms   |
+| Binary size    | ~32MB |
+| Memory (idle)  | ~10MB |
 
 ## Tech Stack
 
-- **tree-sitter**: 14 languages
-- **SQLite**: WAL-mode incremental index
+- **tree-sitter**: 16 languages, native bindings
+- **SQLite**: WAL-mode incremental index (rusqlite)
+- **notify**: file watcher with debounce
 - **Rayon**: parallel parsing
-- **MCP**: stdio JSON-RPC 2.0
+- **MCP**: stdio JSON-RPC 2.0 + Tool Annotations
 
 ## License
 
