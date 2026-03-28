@@ -1048,13 +1048,13 @@ fn node_text<'a>(node: Node<'_>, source_bytes: &'a [u8]) -> &'a str {
     std::str::from_utf8(&source_bytes[start..end]).unwrap_or_default()
 }
 
-struct LanguageConfig {
-    extension: &'static str,
-    language: Language,
-    query: &'static str,
+pub(crate) struct LanguageConfig {
+    pub extension: &'static str,
+    pub language: Language,
+    pub query: &'static str,
 }
 
-fn language_for_path(path: &Path) -> Option<LanguageConfig> {
+pub(crate) fn language_for_path(path: &Path) -> Option<LanguageConfig> {
     let extension = path.extension()?.to_str()?.to_ascii_lowercase();
     match extension.as_str() {
         "py" => Some(LanguageConfig {

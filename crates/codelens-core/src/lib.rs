@@ -40,6 +40,7 @@ pub use lsp::{
 };
 pub use project::ProjectRoot;
 pub use rename::{RenameResult, RenameScope, rename_symbol};
+pub use scope_analysis::{ScopedReference, ReferenceKind, find_scoped_references, find_scoped_references_in_file};
 pub use search::{SearchResult, search_symbols_hybrid};
 pub use symbols::{
     IndexStats, RankedContextEntry, RankedContextResult, SymbolIndex, SymbolInfo, SymbolKind,

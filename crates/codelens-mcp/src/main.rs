@@ -4,13 +4,13 @@ use anyhow::Result;
 use codelens_core::{
     check_lsp_status, create_text_file, delete_lines, extract_word_at_position,
     find_circular_dependencies, find_dead_code, find_dead_code_v2, find_files,
-    find_referencing_symbols_via_text, get_blast_radius, get_callees, get_callers,
-    get_change_coupling, get_changed_files, get_diff_symbols, get_importance, get_importers,
-    get_lsp_recipe, insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file,
-    rename, replace_content, replace_lines, replace_symbol_body, search_for_pattern,
-    search_for_pattern_smart, search_symbols_hybrid, LspDiagnosticRequest, LspRenamePlanRequest,
-    LspRequest, LspSessionPool, LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot,
-    SymbolIndex, SymbolInfo, SymbolKind,
+    find_referencing_symbols_via_text, find_scoped_references, get_blast_radius, get_callees,
+    get_callers, get_change_coupling, get_changed_files, get_diff_symbols, get_importance,
+    get_importers, get_lsp_recipe, insert_after_symbol, insert_at_line, insert_before_symbol,
+    list_dir, read_file, rename, replace_content, replace_lines, replace_symbol_body,
+    search_for_pattern, search_for_pattern_smart, search_symbols_hybrid, LspDiagnosticRequest,
+    LspRenamePlanRequest, LspRequest, LspSessionPool, LspTypeHierarchyRequest,
+    LspWorkspaceSymbolRequest, ProjectRoot, SymbolIndex, SymbolInfo, SymbolKind,
 };
 use protocol::{JsonRpcRequest, JsonRpcResponse, Tool, ToolCallResponse, ToolResponseMeta};
 use serde_json::json;
@@ -1184,6 +1184,25 @@ fn dispatch_tool(
                 )
             })
         }
+        "find_scoped_references" => {
+            let symbol_name = required_string(&arguments, "symbol_name")?;
+            let file_path = arguments.get("file_path").and_then(|v| v.as_str());
+            let max_results = arguments
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(50) as usize;
+            if let Some(fp) = file_path {
+                find_scoped_references(&state.project, symbol_name, Some(fp), max_results)
+            } else {
+                find_scoped_references(&state.project, symbol_name, None, max_results)
+            }
+            .map(|refs| {
+                (
+                    json!({ "references": refs, "count": refs.len() }),
+                    success_meta("tree-sitter-scope", 0.95),
+                )
+            })
+        }
         "get_callers" => {
             let function_name = required_string(&arguments, "function_name")?;
             let max_results = arguments
@@ -2127,6 +2146,19 @@ fn tools() -> Vec<Tool> {
             }),
         ),
         Tool::new(
+            "find_scoped_references",
+            "Scope-aware reference search using tree-sitter AST. Classifies each reference as definition/read/write/import with enclosing scope context.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "symbol_name":{"type":"string","description":"Symbol name to find references for"},
+                    "file_path":{"type":"string","description":"Declaration file (for sorting, optional)"},
+                    "max_results":{"type":"integer","description":"Max results (default 50)"}
+                },
+                "required":["symbol_name"]
+            }),
+        ),
+        Tool::new(
             "get_callers",
             "Find all functions that call a given function across the project using tree-sitter call graph analysis.",
             json!({
@@ -2337,7 +2369,7 @@ mod tests {
                 params: None,
             },
         );
-        assert_eq!(tools().len(), 59);
+        assert_eq!(tools().len(), 60);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("read_file"));
     }
