@@ -7,6 +7,7 @@ pub mod git;
 pub mod import_graph;
 pub mod lsp;
 pub mod project;
+pub mod search;
 pub mod symbols;
 
 pub use call_graph::{CallEdge, CalleeEntry, CallerEntry, extract_calls, get_callees, get_callers};
@@ -21,17 +22,19 @@ pub use file_ops::{
 };
 pub use git::{ChangedFile, DiffSymbol, DiffSymbolEntry, get_changed_files, get_diff_symbols};
 pub use import_graph::{
-    BlastRadiusEntry, DeadCodeEntry, ImportanceEntry, ImporterEntry, extract_imports_for_file,
-    find_dead_code, get_blast_radius, get_importance, get_importers, resolve_module_for_file,
-    supports_import_graph,
+    BlastRadiusEntry, DeadCodeEntry, DeadCodeEntryV2, ImportanceEntry, ImporterEntry,
+    extract_imports_for_file, find_dead_code, find_dead_code_v2, get_blast_radius, get_importance,
+    get_importers, resolve_module_for_file, supports_import_graph,
 };
 pub use lsp::{
-    LspDiagnostic, LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest,
-    LspRequest, LspSessionPool, LspTypeHierarchyRequest, LspWorkspaceSymbol,
-    LspWorkspaceSymbolRequest, find_referencing_symbols_via_lsp, get_diagnostics_via_lsp,
+    LspDiagnostic, LspDiagnosticRequest, LspRecipe, LspReference, LspRenamePlan,
+    LspRenamePlanRequest, LspRequest, LspSessionPool, LspStatus, LspTypeHierarchyRequest,
+    LspWorkspaceSymbol, LspWorkspaceSymbolRequest, LSP_RECIPES, check_lsp_status,
+    find_referencing_symbols_via_lsp, get_diagnostics_via_lsp, get_lsp_recipe,
     get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
 };
 pub use project::ProjectRoot;
+pub use search::{SearchResult, search_symbols_hybrid};
 pub use symbols::{
     IndexStats, RankedContextEntry, RankedContextResult, SymbolIndex, SymbolInfo, SymbolKind,
     find_symbol, find_symbol_range, get_symbols_overview,

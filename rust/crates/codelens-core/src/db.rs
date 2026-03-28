@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -367,6 +367,29 @@ impl IndexDb {
                 name_path: row.get(9)?,
                 parent_id: row.get(10)?,
             })
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    /// Return all symbols as (name, kind, file_path, line, signature, name_path).
+    pub fn all_symbol_names(&self) -> Result<Vec<(String, String, String, i64, String, String)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT s.name, s.kind, f.relative_path, s.line, s.signature, s.name_path
+             FROM symbols s JOIN files f ON s.file_id = f.id",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, i64>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
         })?;
         let mut results = Vec::new();
         for row in rows {

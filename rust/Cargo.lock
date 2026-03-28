@@ -84,6 +84,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "streaming-iterator",
+ "strsim",
  "tree-sitter",
  "tree-sitter-c",
  "tree-sitter-cpp",
@@ -627,6 +628,12 @@ name = "streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2b2231b7c3057d5e4ad0156fb3dc807d900806020c5ffa3ee6ff2c8c76fb8520"
+
+[[package]]
+name = "strsim"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "syn"

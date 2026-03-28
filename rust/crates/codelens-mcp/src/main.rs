@@ -2,11 +2,12 @@ mod protocol;
 
 use anyhow::Result;
 use codelens_core::{
-    create_text_file, delete_lines, find_circular_dependencies, find_dead_code, find_files,
-    get_blast_radius, get_callees, get_callers, get_change_coupling, get_changed_files,
-    get_diff_symbols, get_importance, get_importers, insert_after_symbol, insert_at_line,
-    insert_before_symbol, list_dir, read_file, replace_content, replace_lines, replace_symbol_body,
-    search_for_pattern, search_for_pattern_smart, LspDiagnosticRequest, LspRenamePlanRequest,
+    check_lsp_status, create_text_file, delete_lines, find_circular_dependencies, find_dead_code,
+    find_dead_code_v2, find_files, get_blast_radius, get_callees, get_callers, get_change_coupling,
+    get_changed_files, get_diff_symbols, get_importance, get_importers, get_lsp_recipe,
+    insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file,
+    replace_content, replace_lines, replace_symbol_body, search_for_pattern,
+    search_for_pattern_smart, search_symbols_hybrid, LspDiagnosticRequest, LspRenamePlanRequest,
     LspRequest, LspSessionPool, LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, ProjectRoot,
     SymbolIndex, SymbolInfo, SymbolKind,
 };
@@ -549,6 +550,21 @@ fn dispatch_tool(
                         "count": value.len()
                     }),
                     success_meta("import-graph", 0.83),
+                )
+            })
+        }
+        "find_dead_code_v2" => {
+            let max_results = arguments
+                .get("max_results")
+                .and_then(|value| value.as_u64())
+                .unwrap_or(50) as usize;
+            find_dead_code_v2(&state.project, max_results).map(|value| {
+                (
+                    json!({
+                        "dead_code": value,
+                        "count": value.len()
+                    }),
+                    success_meta("call-graph+import-graph", 0.82),
                 )
             })
         }
@@ -1121,6 +1137,41 @@ fn dispatch_tool(
                 )
             })
         }
+        "check_lsp_status" => {
+            let statuses = check_lsp_status();
+            Ok((
+                json!({ "servers": statuses, "count": statuses.len() }),
+                success_meta("lsp", 1.0),
+            ))
+        }
+        "get_lsp_recipe" => {
+            let extension = required_string(&arguments, "extension")?;
+            match get_lsp_recipe(extension) {
+                Some(recipe) => Ok((json!(recipe), success_meta("lsp", 1.0))),
+                None => Err(anyhow::anyhow!(
+                    "No LSP recipe found for extension: {extension}"
+                )),
+            }
+        }
+        "search_symbols_fuzzy" => {
+            let query = required_string(&arguments, "query")?;
+            let max_results = arguments
+                .get("max_results")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(30) as usize;
+            let fuzzy_threshold = arguments
+                .get("fuzzy_threshold")
+                .and_then(|v| v.as_f64())
+                .unwrap_or(0.6);
+            search_symbols_hybrid(&state.project, query, max_results, fuzzy_threshold).map(
+                |value| {
+                    (
+                        json!({ "results": value, "count": value.len() }),
+                        success_meta("sqlite+fuzzy", 0.9),
+                    )
+                },
+            )
+        }
         other => Err(anyhow::anyhow!("Unknown tool: {other}")),
     })();
 
@@ -1463,6 +1514,16 @@ fn tools() -> Vec<Tool> {
             }),
         ),
         Tool::new(
+            "find_dead_code_v2",
+            "Multi-pass dead code detection: unreferenced files (pass 1) and unreferenced symbols via call-graph analysis (pass 2), with entry-point and decorator exception filters.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "max_results":{"type":"integer"}
+                }
+            }),
+        ),
+        Tool::new(
             "get_symbols_overview",
             "Get an overview of code symbols in a file or directory.",
             json!({
@@ -1759,6 +1820,35 @@ fn tools() -> Vec<Tool> {
                 }
             }),
         ),
+        Tool::new(
+            "check_lsp_status",
+            "Check which LSP servers are installed on this machine and which are missing, with install commands.",
+            json!({"type":"object","properties":{}}),
+        ),
+        Tool::new(
+            "get_lsp_recipe",
+            "Get the LSP server recipe (binary name, install command, args) for a given file extension.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "extension":{"type":"string","description":"File extension without dot, e.g. 'py', 'ts', 'rs'"}
+                },
+                "required":["extension"]
+            }),
+        ),
+        Tool::new(
+            "search_symbols_fuzzy",
+            "Hybrid symbol search: exact match (score 100), substring match (score 60), and fuzzy jaro_winkler match (score by similarity). Results deduplicated and sorted by score descending.",
+            json!({
+                "type":"object",
+                "properties":{
+                    "query":{"type":"string","description":"Symbol name to search for"},
+                    "max_results":{"type":"integer","description":"Maximum number of results to return (default 30)"},
+                    "fuzzy_threshold":{"type":"number","description":"Minimum jaro_winkler similarity 0.0-1.0 for fuzzy matches (default 0.6)"}
+                },
+                "required":["query"]
+            }),
+        ),
     ]
 }
 
@@ -1814,7 +1904,7 @@ mod tests {
                 params: None,
             },
         );
-        assert_eq!(tools().len(), 37);
+        assert_eq!(tools().len(), 41);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("read_file"));
     }

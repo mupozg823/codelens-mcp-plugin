@@ -1,3 +1,4 @@
+use crate::call_graph::extract_calls;
 use crate::db::{index_db_path, IndexDb};
 use crate::project::ProjectRoot;
 use anyhow::{bail, Result};
@@ -194,6 +195,194 @@ pub fn find_dead_code(project: &ProjectRoot, max_results: usize) -> Result<Vec<D
         dead.truncate(max_results);
     }
     Ok(dead)
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct DeadCodeEntryV2 {
+    pub file: String,
+    pub symbol: Option<String>,
+    pub kind: Option<String>,
+    pub line: Option<usize>,
+    pub reason: String,
+    pub pass: u8,
+}
+
+/// Exception file names that should not be flagged as dead (entry points / init files).
+fn is_entry_point_file(file: &str) -> bool {
+    let name = Path::new(file)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(file);
+    matches!(
+        name,
+        "__init__.py" | "mod.rs" | "index.ts" | "index.js" | "index.tsx" | "index.jsx"
+    )
+}
+
+/// Exception symbol names that should not be flagged as dead.
+fn is_entry_point_symbol(name: &str) -> bool {
+    name == "main"
+        || name == "__init__"
+        || name == "setUp"
+        || name == "tearDown"
+        || name.starts_with("test_")
+        || name.starts_with("Test")
+}
+
+/// Check whether the line immediately before a symbol definition starts with `@`
+/// (decorator pattern). `lines` is the 0-indexed source lines; `symbol_line` is
+/// 1-indexed (as returned by tree-sitter / SymbolInfo).
+fn has_decorator(lines: &[&str], symbol_line: usize) -> bool {
+    if symbol_line < 2 {
+        return false;
+    }
+    let prev_idx = symbol_line - 2; // convert to 0-indexed, then go one line back
+    lines
+        .get(prev_idx)
+        .map(|l| l.trim_start().starts_with('@'))
+        .unwrap_or(false)
+}
+
+pub fn find_dead_code_v2(
+    project: &ProjectRoot,
+    max_results: usize,
+) -> Result<Vec<DeadCodeEntryV2>> {
+    let mut results: Vec<DeadCodeEntryV2> = Vec::new();
+
+    // ── Pass 1: unreferenced files ────────────────────────────────────────────
+    let graph = build_graph(project)?;
+    for (file, node) in &graph {
+        if node.imported_by.is_empty() && !is_entry_point_file(file) {
+            results.push(DeadCodeEntryV2 {
+                file: file.clone(),
+                symbol: None,
+                kind: None,
+                line: None,
+                reason: "no importers".to_owned(),
+                pass: 1,
+            });
+        }
+    }
+
+    // ── Pass 2: unreferenced symbols ─────────────────────────────────────────
+    // Build a set of all callee names across the entire project using call_graph.
+    let candidate_files = collect_candidate_files(project.as_path())?;
+    let mut all_callees: HashSet<String> = HashSet::new();
+    for path in &candidate_files {
+        for edge in extract_calls(path) {
+            all_callees.insert(edge.callee_name);
+        }
+    }
+
+    // For each file, parse its symbols (via tree-sitter call graph func detection)
+    // and check whether the symbol name appears as a callee anywhere.
+    for path in &candidate_files {
+        let relative = project.to_relative(path);
+
+        // Skip files that are already flagged in pass 1 (no importers)
+        if results.iter().any(|e| e.file == relative && e.pass == 1) {
+            continue;
+        }
+        // Skip entry-point files
+        if is_entry_point_file(&relative) {
+            continue;
+        }
+
+        // Read source for decorator detection
+        let source = fs::read_to_string(path).unwrap_or_default();
+        let lines: Vec<&str> = source.lines().collect();
+
+        // Use call_graph's func extraction: we derive defined functions from call edges
+        // by collecting all unique caller_name values within this file.
+        let edges = extract_calls(path);
+        let mut defined_funcs: HashMap<String, usize> = HashMap::new();
+        for edge in &edges {
+            // Use the first seen line for the function definition as a proxy.
+            // We only have call-site lines here; use 0 as sentinel.
+            defined_funcs.entry(edge.caller_name.clone()).or_insert(0);
+        }
+        // Also handle files that define functions but make no calls — we need a
+        // separate pass with the func query. Re-use extract_calls which already
+        // collects func_ranges internally; approximate by reading all unique callers.
+        // For symbols with no outgoing calls we won't see them in edges; however
+        // the call graph doesn't expose func_ranges directly. We use a lightweight
+        // regex fallback to also catch top-level defs not in edges.
+        collect_top_level_funcs(path, &source, &mut defined_funcs);
+
+        for (func_name, func_line) in defined_funcs {
+            if func_name == "<module>" {
+                continue;
+            }
+            // Pass 3 exception filter
+            if is_entry_point_symbol(&func_name) {
+                continue;
+            }
+            if func_line > 0 && has_decorator(&lines, func_line) {
+                continue;
+            }
+            if !all_callees.contains(&func_name) {
+                results.push(DeadCodeEntryV2 {
+                    file: relative.clone(),
+                    symbol: Some(func_name),
+                    kind: Some("function".to_owned()),
+                    line: if func_line > 0 { Some(func_line) } else { None },
+                    reason: "unreferenced symbol".to_owned(),
+                    pass: 2,
+                });
+            }
+        }
+    }
+
+    results.sort_by(|a, b| {
+        a.pass
+            .cmp(&b.pass)
+            .then(a.file.cmp(&b.file))
+            .then(a.symbol.cmp(&b.symbol))
+    });
+    if max_results > 0 && results.len() > max_results {
+        results.truncate(max_results);
+    }
+    Ok(results)
+}
+
+/// Lightweight regex-based top-level function name extractor.
+/// Fills `funcs` map with (name -> line_number). Does not overwrite existing entries.
+fn collect_top_level_funcs(path: &Path, source: &str, funcs: &mut HashMap<String, usize>) {
+    let ext = path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_ascii_lowercase())
+        .unwrap_or_default();
+
+    let patterns: &[&str] = match ext.as_str() {
+        "py" => &[r"(?m)^def ([A-Za-z_][A-Za-z0-9_]*)"],
+        "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" => &[
+            r"(?m)^function ([A-Za-z_][A-Za-z0-9_]*)",
+            r"(?m)^(?:export\s+)?(?:async\s+)?function ([A-Za-z_][A-Za-z0-9_]*)",
+        ],
+        "go" => &[r"(?m)^func ([A-Za-z_][A-Za-z0-9_]*)"],
+        "java" | "kt" => {
+            &[r"(?m)(?:public|private|protected|static|\s)+\s+\w+\s+([A-Za-z_][A-Za-z0-9_]*)\s*\("]
+        }
+        "rs" => &[r"(?m)^(?:pub(?:\([^)]*\))?\s+)?fn ([A-Za-z_][A-Za-z0-9_]*)"],
+        _ => return,
+    };
+
+    for pattern in patterns {
+        let Ok(re) = Regex::new(pattern) else {
+            continue;
+        };
+        for cap in re.captures_iter(source) {
+            let Some(m) = cap.get(1) else { continue };
+            let name = m.as_str().to_owned();
+            if !name.is_empty() {
+                // Derive approximate line number from byte offset
+                let offset = m.start();
+                let line = source[..offset].bytes().filter(|&b| b == b'\n').count() + 1;
+                funcs.entry(name).or_insert(line);
+            }
+        }
+    }
 }
 
 /// Public accessor for the import graph, used by sibling modules (e.g. circular).
