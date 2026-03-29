@@ -4,12 +4,15 @@
 
 ```bash
 cargo test -p codelens-core && cargo test -p codelens-mcp
+cargo test -p codelens-mcp --features http
 cargo build --release
 ```
 
 ## Presets
 
-FULL=54 | BALANCED=37 (default) | MINIMAL=21
+FULL=55 | BALANCED=37 (default) | MINIMAL=21
+
+(53 base + 2 semantic feature-gated)
 
 ## CLI
 
