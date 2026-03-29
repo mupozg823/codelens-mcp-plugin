@@ -42,6 +42,7 @@ pub(crate) fn parse_symbols(
     let source_bytes = source.as_bytes();
     let mut cursor = QueryCursor::new();
     let mut symbols = Vec::new();
+    let file_path_owned = file_path.to_owned();
 
     let mut matches = cursor.matches(&query, tree.root_node(), source_bytes);
     while let Some(matched) = matches.next() {
@@ -76,7 +77,7 @@ pub(crate) fn parse_symbols(
         symbols.push(ParsedSymbol {
             name: name.clone(),
             kind: capture_name_to_kind(capture_name),
-            file_path: file_path.to_owned(),
+            file_path: file_path_owned.clone(),
             line: def_node.start_position().row + 1,
             column: name_node.start_position().column + 1,
             start_byte: def_node.start_byte() as u32,

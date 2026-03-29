@@ -33,7 +33,6 @@ pub enum CodeLensError {
 
     /// LSP server not attached or not configured for this project.
     #[error("LSP not attached: {0}")]
-    #[allow(dead_code)]
     LspNotAttached(String),
 
     /// Symbol index not ready (initial indexing still in progress).
@@ -48,7 +47,6 @@ pub enum CodeLensError {
 
     /// Operation timed out.
     #[error("Timeout: {operation} after {elapsed_ms}ms")]
-    #[allow(dead_code)]
     Timeout { operation: String, elapsed_ms: u64 },
 
     /// Session expired or invalid.

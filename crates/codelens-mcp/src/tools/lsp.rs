@@ -31,19 +31,20 @@ fn lsp_install_hint(command: &str) -> &'static str {
     }
 }
 
-fn enhance_lsp_error(err: anyhow::Error, command: &str) -> anyhow::Error {
+fn enhance_lsp_error(err: anyhow::Error, command: &str) -> CodeLensError {
     let msg = err.to_string();
     if msg.contains("No such file") || msg.contains("not found") || msg.contains("spawn") {
-        anyhow::anyhow!(
-            "{msg}\n\nHint: LSP server '{command}' not found. Install it:\n{}",
+        CodeLensError::LspNotAttached(format!(
+            "LSP server '{command}' not found. Install it:\n{}",
             lsp_install_hint(command)
-        )
+        ))
     } else if msg.contains("timed out") || msg.contains("timeout") {
-        anyhow::anyhow!(
-            "{msg}\n\nHint: LSP server '{command}' timed out. It may still be initializing on first run. Try again."
-        )
+        CodeLensError::Timeout {
+            operation: format!("LSP {command}"),
+            elapsed_ms: 30_000,
+        }
     } else {
-        err
+        CodeLensError::LspError(msg)
     }
 }
 

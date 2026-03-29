@@ -8,7 +8,7 @@ mod ops;
 #[cfg(test)]
 mod tests;
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 /// SQLite-backed symbol and import index for a single project.
 pub struct IndexDb {
@@ -146,6 +146,80 @@ impl IndexDb {
         Ok(db)
     }
 
+    /// Sequential migrations. Each entry is (version, SQL).
+    /// Applied in order; only migrations newer than the current version run.
+    const MIGRATIONS: &'static [(i64, &'static str)] = &[
+        (
+            1,
+            "CREATE TABLE IF NOT EXISTS files (
+                id INTEGER PRIMARY KEY,
+                relative_path TEXT UNIQUE NOT NULL,
+                mtime_ms INTEGER NOT NULL,
+                content_hash TEXT NOT NULL,
+                size_bytes INTEGER NOT NULL,
+                language TEXT,
+                indexed_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS symbols (
+                id INTEGER PRIMARY KEY,
+                file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                name TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                line INTEGER NOT NULL,
+                column_num INTEGER NOT NULL,
+                start_byte INTEGER NOT NULL,
+                end_byte INTEGER NOT NULL,
+                signature TEXT NOT NULL,
+                name_path TEXT NOT NULL,
+                parent_id INTEGER REFERENCES symbols(id)
+            );
+            CREATE TABLE IF NOT EXISTS imports (
+                source_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                target_path TEXT NOT NULL,
+                raw_import TEXT NOT NULL,
+                PRIMARY KEY (source_file_id, target_path)
+            );
+            CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
+            CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_id);
+            CREATE INDEX IF NOT EXISTS idx_symbols_name_path ON symbols(name_path);
+            CREATE INDEX IF NOT EXISTS idx_imports_target ON imports(target_path);",
+        ),
+        (
+            2,
+            "CREATE TABLE IF NOT EXISTS calls (
+                id INTEGER PRIMARY KEY,
+                caller_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+                caller_name TEXT NOT NULL,
+                callee_name TEXT NOT NULL,
+                line INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_calls_callee ON calls(callee_name);
+            CREATE INDEX IF NOT EXISTS idx_calls_caller ON calls(caller_name);
+            CREATE INDEX IF NOT EXISTS idx_calls_file ON calls(caller_file_id);",
+        ),
+        (
+            3,
+            "CREATE TABLE IF NOT EXISTS index_failures (
+                id INTEGER PRIMARY KEY,
+                file_path TEXT NOT NULL,
+                error_type TEXT NOT NULL,
+                error_message TEXT NOT NULL,
+                failed_at INTEGER NOT NULL,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(file_path)
+            );
+            CREATE INDEX IF NOT EXISTS idx_failures_path ON index_failures(file_path);",
+        ),
+        (
+            4,
+            "CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
+                name, name_path, signature,
+                content=symbols, content_rowid=id,
+                tokenize='unicode61 remove_diacritics 2'
+            );",
+        ),
+    ];
+
     fn migrate(&mut self) -> Result<()> {
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS meta (
@@ -162,108 +236,22 @@ impl IndexDb {
                 |row| row.get(0),
             )
             .optional()?;
+        let current = version.unwrap_or(0);
 
-        if version.unwrap_or(0) >= SCHEMA_VERSION {
+        if current >= SCHEMA_VERSION {
             return Ok(());
         }
 
-        // Wrap all DDL in a single RAII transaction — auto-rollback on error/panic.
         let tx = self.conn.transaction()?;
-
-        tx.execute_batch(
-            "CREATE TABLE IF NOT EXISTS files (
-                id INTEGER PRIMARY KEY,
-                relative_path TEXT UNIQUE NOT NULL,
-                mtime_ms INTEGER NOT NULL,
-                content_hash TEXT NOT NULL,
-                size_bytes INTEGER NOT NULL,
-                language TEXT,
-                indexed_at INTEGER NOT NULL
-            );
-
-            CREATE TABLE IF NOT EXISTS symbols (
-                id INTEGER PRIMARY KEY,
-                file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-                name TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                line INTEGER NOT NULL,
-                column_num INTEGER NOT NULL,
-                start_byte INTEGER NOT NULL,
-                end_byte INTEGER NOT NULL,
-                signature TEXT NOT NULL,
-                name_path TEXT NOT NULL,
-                parent_id INTEGER REFERENCES symbols(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS imports (
-                source_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-                target_path TEXT NOT NULL,
-                raw_import TEXT NOT NULL,
-                PRIMARY KEY (source_file_id, target_path)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
-            CREATE INDEX IF NOT EXISTS idx_symbols_file ON symbols(file_id);
-            CREATE INDEX IF NOT EXISTS idx_symbols_name_path ON symbols(name_path);
-            CREATE INDEX IF NOT EXISTS idx_imports_target ON imports(target_path);
-
-            INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '1');",
-        )?;
-
-        // Schema v2: calls table for call graph caching
-        let v2_check: Option<i64> = tx
-            .query_row(
-                "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()?;
-
-        if v2_check.unwrap_or(0) < 2 {
-            tx.execute_batch(
-                "CREATE TABLE IF NOT EXISTS calls (
-                    id INTEGER PRIMARY KEY,
-                    caller_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
-                    caller_name TEXT NOT NULL,
-                    callee_name TEXT NOT NULL,
-                    line INTEGER NOT NULL
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_calls_callee ON calls(callee_name);
-                CREATE INDEX IF NOT EXISTS idx_calls_caller ON calls(caller_name);
-                CREATE INDEX IF NOT EXISTS idx_calls_file ON calls(caller_file_id);
-
-                INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2');",
-            )?;
+        for &(ver, sql) in Self::MIGRATIONS {
+            if current < ver {
+                tx.execute_batch(sql)?;
+                tx.execute(
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?1)",
+                    rusqlite::params![ver.to_string()],
+                )?;
+            }
         }
-
-        // Schema v3: index_failures table for tracking parse/index errors
-        let v3_check: Option<i64> = tx
-            .query_row(
-                "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()?;
-
-        if v3_check.unwrap_or(0) < 3 {
-            tx.execute_batch(
-                "CREATE TABLE IF NOT EXISTS index_failures (
-                    id INTEGER PRIMARY KEY,
-                    file_path TEXT NOT NULL,
-                    error_type TEXT NOT NULL,
-                    error_message TEXT NOT NULL,
-                    failed_at INTEGER NOT NULL,
-                    retry_count INTEGER NOT NULL DEFAULT 0,
-                    UNIQUE(file_path)
-                );
-
-                CREATE INDEX IF NOT EXISTS idx_failures_path ON index_failures(file_path);
-
-                INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '3');",
-            )?;
-        }
-
         tx.commit()?;
         Ok(())
     }

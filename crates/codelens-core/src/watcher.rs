@@ -134,8 +134,10 @@ impl FileWatcher {
 
                 if reindexed > 0 {
                     graph_cache.invalidate();
+                    // Invalidate FTS index so next search triggers lazy rebuild
+                    let _ = symbol_index.db().invalidate_fts();
                     files_clone.fetch_add(reindexed, Ordering::Relaxed);
-                    debug!(reindexed, "graph cache invalidated");
+                    debug!(reindexed, "graph cache + FTS invalidated");
                 }
             },
         )?;

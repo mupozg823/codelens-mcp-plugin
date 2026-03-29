@@ -20,6 +20,12 @@ impl SymbolIndex {
         query: &str,
         depth: usize,
     ) -> Result<Vec<SymbolInfo>> {
+        let query_lower = query.to_ascii_lowercase();
+        let query_tokens: Vec<&str> = query_lower
+            .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+            .filter(|t| t.len() >= 3)
+            .collect();
+
         // Compute file scores and import-graph proximity inside a block so the
         // ReadDb guard is dropped before calling find_symbol_cached /
         // get_symbols_overview_cached, which also acquire the reader lock.
@@ -27,12 +33,6 @@ impl SymbolIndex {
         let (top_files, importer_files) = {
             let db = self.reader()?;
             let all_paths = db.all_file_paths()?;
-
-            let query_lower = query.to_ascii_lowercase();
-            let query_tokens: Vec<&str> = query_lower
-                .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
-                .filter(|t| t.len() >= 3)
-                .collect();
 
             let mut file_scores: Vec<(String, usize)> = all_paths
                 .iter()
@@ -105,13 +105,8 @@ impl SymbolIndex {
         }
 
         // Path 4: for multi-word queries, search individual tokens as symbol names
-        let query_lower_tok = query.to_ascii_lowercase();
-        let tokens: Vec<&str> = query_lower_tok
-            .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
-            .filter(|t| t.len() >= 3)
-            .collect();
-        if tokens.len() >= 2 {
-            for token in &tokens {
+        if query_tokens.len() >= 2 {
+            for token in &query_tokens {
                 if let Ok(hits) = self.find_symbol_cached(token, None, false, false, 10) {
                     for sym in hits {
                         if seen_ids.insert(sym.id.clone()) {
@@ -161,61 +156,55 @@ impl SymbolIndex {
         let resolved = self.project.resolve(path)?;
         if resolved.is_dir() {
             let prefix = self.project.to_relative(&resolved);
-            let all_paths = db.all_file_paths()?;
+            // Single JOIN query instead of N+1 (all_file_paths + get_file + get_file_symbols per file)
+            let file_groups = db.get_symbols_for_directory(&prefix)?;
             let mut symbols = Vec::new();
-            for rel in all_paths {
-                if !rel.starts_with(&prefix) && prefix != "." && prefix != "" {
+            for (rel, file_symbols) in file_groups {
+                if file_symbols.is_empty() {
                     continue;
                 }
-                let file_row = match db.get_file(&rel)? {
-                    Some(row) => row,
-                    None => continue,
-                };
-                let file_symbols = db.get_file_symbols(file_row.id)?;
-                if !file_symbols.is_empty() {
-                    let id = make_symbol_id(&rel, &SymbolKind::File, &rel);
-                    symbols.push(SymbolInfo {
-                        name: rel.clone(),
-                        kind: SymbolKind::File,
-                        file_path: rel.clone(),
-                        line: 0,
-                        column: 0,
-                        signature: format!(
-                            "{} ({} symbols)",
-                            std::path::Path::new(&rel)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or(&rel),
-                            file_symbols.len()
-                        ),
-                        name_path: rel,
-                        id,
-                        body: None,
-                        children: file_symbols
-                            .into_iter()
-                            .map(|row| {
-                                let kind = SymbolKind::from_str_label(&row.kind);
-                                let sid = make_symbol_id("", &kind, &row.name_path);
-                                SymbolInfo {
-                                    name: row.name,
-                                    kind,
-                                    file_path: String::new(),
-                                    line: row.line as usize,
-                                    column: row.column_num as usize,
-                                    signature: row.signature,
-                                    name_path: row.name_path,
-                                    id: sid,
-                                    body: None,
-                                    children: Vec::new(),
-                                    start_byte: row.start_byte as u32,
-                                    end_byte: row.end_byte as u32,
-                                }
-                            })
-                            .collect(),
-                        start_byte: 0,
-                        end_byte: 0,
-                    });
-                }
+                let id = make_symbol_id(&rel, &SymbolKind::File, &rel);
+                symbols.push(SymbolInfo {
+                    name: rel.clone(),
+                    kind: SymbolKind::File,
+                    file_path: rel.clone(),
+                    line: 0,
+                    column: 0,
+                    signature: format!(
+                        "{} ({} symbols)",
+                        std::path::Path::new(&rel)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or(&rel),
+                        file_symbols.len()
+                    ),
+                    name_path: rel,
+                    id,
+                    body: None,
+                    children: file_symbols
+                        .into_iter()
+                        .map(|row| {
+                            let kind = SymbolKind::from_str_label(&row.kind);
+                            let sid = make_symbol_id("", &kind, &row.name_path);
+                            SymbolInfo {
+                                name: row.name,
+                                kind,
+                                file_path: String::new(),
+                                line: row.line as usize,
+                                column: row.column_num as usize,
+                                signature: row.signature,
+                                name_path: row.name_path,
+                                id: sid,
+                                body: None,
+                                children: Vec::new(),
+                                start_byte: row.start_byte as u32,
+                                end_byte: row.end_byte as u32,
+                            }
+                        })
+                        .collect(),
+                    start_byte: 0,
+                    end_byte: 0,
+                });
             }
             return Ok(symbols);
         }
@@ -275,7 +264,7 @@ impl SymbolIndex {
                 if semantic_scores.is_empty() {
                     RankingContext::with_pagerank(pagerank)
                 } else {
-                    RankingContext::with_pagerank_and_semantic(pagerank, semantic_scores)
+                    RankingContext::with_pagerank_and_semantic(query, pagerank, semantic_scores)
                 }
             }
             None => {
@@ -283,6 +272,7 @@ impl SymbolIndex {
                     RankingContext::text_only()
                 } else {
                     RankingContext::with_pagerank_and_semantic(
+                        query,
                         std::collections::HashMap::new(),
                         semantic_scores,
                     )
@@ -310,6 +300,7 @@ impl SymbolIndex {
     }
 
     /// Helper: convert DB rows to SymbolInfo with optional body.
+    /// Uses a file_id→path cache to avoid N+1 `get_file_path` queries.
     pub(super) fn rows_to_symbol_infos(
         project: &ProjectRoot,
         db: &IndexDb,
@@ -317,8 +308,17 @@ impl SymbolIndex {
         include_body: bool,
     ) -> Result<Vec<SymbolInfo>> {
         let mut results = Vec::new();
+        let mut path_cache: std::collections::HashMap<i64, String> =
+            std::collections::HashMap::new();
         for row in rows {
-            let rel_path = db.get_file_path(row.file_id)?.unwrap_or_default();
+            let rel_path = match path_cache.get(&row.file_id) {
+                Some(p) => p.clone(),
+                None => {
+                    let p = db.get_file_path(row.file_id)?.unwrap_or_default();
+                    path_cache.insert(row.file_id, p.clone());
+                    p
+                }
+            };
             let body = if include_body {
                 let abs = project.as_path().join(&rel_path);
                 fs::read_to_string(&abs)

@@ -205,18 +205,30 @@ impl SymbolIndex {
     }
 
     /// Ensure a file is indexed; returns parsed symbols for immediate use.
+    /// Fast path: if mtime unchanged, reads symbols from DB (no re-parse).
     pub(super) fn ensure_indexed(&self, file: &Path, relative: &str) -> Result<Vec<ParsedSymbol>> {
         let mtime = file_modified_ms(file)? as i64;
         let db = self.writer();
 
-        // Fast path: mtime unchanged → symbols already in DB, re-parse from source
-        if db.get_fresh_file_by_mtime(relative, mtime)?.is_some() {
-            let source = fs::read_to_string(file)
-                .with_context(|| format!("failed to read {}", file.display()))?;
-            if let Some(config) = language_for_path(file) {
-                return parse_symbols(&config, relative, &source, false);
-            }
-            return Ok(Vec::new());
+        // Fast path: mtime unchanged → read symbols from DB instead of re-parsing
+        if let Some(file_row) = db.get_fresh_file_by_mtime(relative, mtime)? {
+            let db_symbols = db.get_file_symbols(file_row.id)?;
+            return Ok(db_symbols
+                .into_iter()
+                .map(|row| ParsedSymbol {
+                    name: row.name,
+                    kind: super::types::SymbolKind::from_str_label(&row.kind),
+                    file_path: relative.to_owned(),
+                    line: row.line as usize,
+                    column: row.column_num as usize,
+                    start_byte: row.start_byte as u32,
+                    end_byte: row.end_byte as u32,
+                    signature: row.signature,
+                    body: None,
+                    name_path: row.name_path,
+                    children: Vec::new(),
+                })
+                .collect());
         }
 
         // Slow path: analyze and commit

@@ -298,91 +298,72 @@ impl EmbeddingEngine {
     }
 
     /// Index all symbols from the project's symbol database into the embedding index.
+    ///
+    /// Uses streaming batches: prepare text → embed → upsert → drop per batch,
+    /// so only one batch worth of data is in memory at a time.
     pub fn index_from_project(&self, project: &ProjectRoot) -> Result<usize> {
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
-        let all_symbols = symbol_db.all_symbols_with_bytes()?;
 
-        if all_symbols.is_empty() {
-            return Ok(0);
-        }
-
-        let mut file_groups: Vec<(String, Vec<&crate::db::SymbolWithFile>)> = Vec::new();
-        {
-            let mut current_file = String::new();
-            for sym in &all_symbols {
-                if sym.file_path != current_file {
-                    current_file = sym.file_path.clone();
-                    file_groups.push((current_file.clone(), Vec::new()));
-                }
-                file_groups.last_mut().unwrap().1.push(sym);
-            }
-        }
-
-        let mut texts: Vec<String> = Vec::with_capacity(all_symbols.len());
-        let mut meta: Vec<&crate::db::SymbolWithFile> = Vec::with_capacity(all_symbols.len());
-
-        for (file_path, symbols) in &file_groups {
-            let source = std::fs::read_to_string(project.as_path().join(file_path)).ok();
-
-            for sym in symbols {
-                let body_text = source.as_deref().and_then(|src| {
-                    let start = sym.start_byte as usize;
-                    let end = sym.end_byte as usize;
-                    if end > start && end <= src.len() {
-                        src.get(start..end)
-                            .map(|b| truncate_body(b, MAX_BODY_CHARS))
-                    } else {
-                        None
-                    }
-                });
-
-                let file_ctx = if file_path.is_empty() {
-                    String::new()
-                } else {
-                    format!(" in {file_path}")
-                };
-
-                let text = match body_text {
-                    Some(body) if !body.is_empty() => {
-                        format!(
-                            "passage: {} {}{}\n{}\n{}",
-                            sym.kind, sym.name, file_ctx, sym.signature, body
-                        )
-                    }
-                    _ => {
-                        if sym.signature.is_empty() {
-                            format!("passage: {} {}{}", sym.kind, sym.name, file_ctx)
-                        } else {
-                            format!(
-                                "passage: {} {}{}: {}",
-                                sym.kind, sym.name, file_ctx, sym.signature
-                            )
-                        }
-                    }
-                };
-
-                texts.push(text);
-                meta.push(sym);
-            }
-        }
+        // Full reindex: clear existing data first
+        self.store.clear()?;
 
         let mut model = self
             .model
             .lock()
             .map_err(|_| anyhow::anyhow!("model lock"))?;
 
-        let mut all_embeddings: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
-        for batch in texts.chunks(EMBED_BATCH_SIZE) {
-            let batch_refs: Vec<&str> = batch.iter().map(|s| s.as_str()).collect();
-            let batch_embeddings = model.embed(batch_refs, None).context("embedding failed")?;
-            all_embeddings.extend(batch_embeddings);
+        let mut total_indexed = 0usize;
+        let mut batch_texts: Vec<String> = Vec::with_capacity(EMBED_BATCH_SIZE);
+        let mut batch_meta: Vec<crate::db::SymbolWithFile> = Vec::with_capacity(EMBED_BATCH_SIZE);
+
+        // File source cache: read once per file, shared across symbols in that file
+        let mut current_file = String::new();
+        let mut current_source: Option<String> = None;
+
+        // Stream symbols from DB via callback — no Vec<SymbolWithFile> allocation
+        symbol_db.for_each_symbol_with_bytes(|sym| {
+            // Cache file source per-file group
+            if sym.file_path != current_file {
+                current_file = sym.file_path.clone();
+                current_source =
+                    std::fs::read_to_string(project.as_path().join(&current_file)).ok();
+            }
+
+            batch_texts.push(build_embedding_text(&sym, current_source.as_deref()));
+            batch_meta.push(sym);
+
+            if batch_texts.len() >= EMBED_BATCH_SIZE {
+                total_indexed +=
+                    Self::flush_batch(&mut model, &self.store, &batch_texts, &batch_meta)?;
+                batch_texts.clear();
+                batch_meta.clear();
+            }
+            Ok(())
+        })?;
+
+        // Flush remaining
+        if !batch_texts.is_empty() {
+            total_indexed += Self::flush_batch(&mut model, &self.store, &batch_texts, &batch_meta)?;
         }
+
         drop(model);
+        Ok(total_indexed)
+    }
+
+    /// Embed one batch of texts and upsert immediately, then the caller drops the batch.
+    fn flush_batch(
+        model: &mut TextEmbedding,
+        store: &Box<dyn EmbeddingStore>,
+        texts: &[String],
+        meta: &[crate::db::SymbolWithFile],
+    ) -> Result<usize> {
+        let batch_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+        let embeddings = model.embed(batch_refs, None).context("embedding failed")?;
 
         let chunks: Vec<EmbeddingChunk> = meta
             .iter()
-            .zip(all_embeddings.into_iter())
+            .zip(embeddings.into_iter())
             .zip(texts.iter())
             .map(|((sym, emb), text)| EmbeddingChunk {
                 file_path: sym.file_path.clone(),
@@ -396,7 +377,7 @@ impl EmbeddingEngine {
             })
             .collect();
 
-        self.store.upsert(&chunks)
+        store.insert(&chunks)
     }
 
     /// Search for symbols semantically similar to the query.
@@ -439,7 +420,7 @@ impl EmbeddingEngine {
 
         let file_set: std::collections::HashSet<&str> = changed_files.iter().copied().collect();
         let relevant: Vec<_> = all_symbols
-            .iter()
+            .into_iter()
             .filter(|s| file_set.contains(s.file_path.as_str()))
             .collect();
 
@@ -447,68 +428,82 @@ impl EmbeddingEngine {
             return Ok(0);
         }
 
-        let mut texts: Vec<String> = Vec::with_capacity(relevant.len());
-        let mut meta: Vec<&&crate::db::SymbolWithFile> = Vec::with_capacity(relevant.len());
-
-        for sym in &relevant {
-            let source = std::fs::read_to_string(project.as_path().join(&sym.file_path)).ok();
-            let body_text = source.as_deref().and_then(|src| {
-                let start = sym.start_byte as usize;
-                let end = sym.end_byte as usize;
-                if end > start && end <= src.len() {
-                    src.get(start..end)
-                        .map(|b| truncate_body(b, MAX_BODY_CHARS))
-                } else {
-                    None
-                }
-            });
-            let text = match body_text {
-                Some(body) if !body.is_empty() => {
-                    format!(
-                        "passage: {} {} in {}\n{}\n{}",
-                        sym.kind, sym.name, sym.file_path, sym.signature, body
-                    )
-                }
-                _ => format!("passage: {} {} in {}", sym.kind, sym.name, sym.file_path),
-            };
-            texts.push(text);
-            meta.push(sym);
-        }
-
         let mut model = self
             .model
             .lock()
             .map_err(|_| anyhow::anyhow!("model lock"))?;
-        let mut all_embeddings: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
-        for batch in texts.chunks(EMBED_BATCH_SIZE) {
-            let batch_refs: Vec<&str> = batch.iter().map(|s| s.as_str()).collect();
-            let batch_embeddings = model.embed(batch_refs, None).context("embedding failed")?;
-            all_embeddings.extend(batch_embeddings);
+
+        let mut total_indexed = 0usize;
+        let mut batch_texts: Vec<String> = Vec::with_capacity(EMBED_BATCH_SIZE);
+        let mut batch_meta: Vec<crate::db::SymbolWithFile> = Vec::with_capacity(EMBED_BATCH_SIZE);
+        let mut file_cache: std::collections::HashMap<String, Option<String>> =
+            std::collections::HashMap::new();
+
+        for sym in relevant {
+            let source = file_cache.entry(sym.file_path.clone()).or_insert_with(|| {
+                std::fs::read_to_string(project.as_path().join(&sym.file_path)).ok()
+            });
+            batch_texts.push(build_embedding_text(&sym, source.as_deref()));
+            batch_meta.push(sym);
+
+            if batch_texts.len() >= EMBED_BATCH_SIZE {
+                total_indexed +=
+                    Self::flush_batch(&mut model, &self.store, &batch_texts, &batch_meta)?;
+                batch_texts.clear();
+                batch_meta.clear();
+            }
         }
+
+        if !batch_texts.is_empty() {
+            total_indexed += Self::flush_batch(&mut model, &self.store, &batch_texts, &batch_meta)?;
+        }
+
         drop(model);
-
-        let chunks: Vec<EmbeddingChunk> = meta
-            .iter()
-            .zip(all_embeddings.into_iter())
-            .zip(texts.iter())
-            .map(|((sym, emb), text)| EmbeddingChunk {
-                file_path: sym.file_path.clone(),
-                symbol_name: sym.name.clone(),
-                kind: sym.kind.clone(),
-                line: sym.line as usize,
-                signature: sym.signature.clone(),
-                name_path: sym.name_path.clone(),
-                text: text.clone(),
-                embedding: emb,
-            })
-            .collect();
-
-        self.store.upsert(&chunks)
+        Ok(total_indexed)
     }
 
     /// Whether the embedding index has been populated.
     pub fn is_indexed(&self) -> bool {
         self.store.count().unwrap_or(0) > 0
+    }
+}
+
+/// Build the embedding text for a symbol, optionally including its body from source.
+fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> String {
+    let body_text = source.and_then(|src| {
+        let start = sym.start_byte as usize;
+        let end = sym.end_byte as usize;
+        if end > start && end <= src.len() {
+            src.get(start..end)
+                .map(|b| truncate_body(b, MAX_BODY_CHARS))
+        } else {
+            None
+        }
+    });
+
+    let file_ctx = if sym.file_path.is_empty() {
+        String::new()
+    } else {
+        format!(" in {}", sym.file_path)
+    };
+
+    match body_text {
+        Some(body) if !body.is_empty() => {
+            format!(
+                "passage: {} {}{}\n{}\n{}",
+                sym.kind, sym.name, file_ctx, sym.signature, body
+            )
+        }
+        _ => {
+            if sym.signature.is_empty() {
+                format!("passage: {} {}{}", sym.kind, sym.name, file_ctx)
+            } else {
+                format!(
+                    "passage: {} {}{}: {}",
+                    sym.kind, sym.name, file_ctx, sym.signature
+                )
+            }
+        }
     }
 }
 

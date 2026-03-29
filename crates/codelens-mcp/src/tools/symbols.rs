@@ -90,14 +90,14 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
-    // Build semantic scores for hybrid ranking if embeddings are available
+    // Build semantic scores for hybrid ranking if embeddings are available.
+    // Only use already-initialized engine (get(), not get_or_init()) to avoid
+    // loading the ~240MB ONNX model on first get_ranked_context call.
+    // The model is loaded only when the user explicitly calls index_embeddings.
     #[cfg(feature = "semantic")]
     let semantic_scores = {
         let mut scores = std::collections::HashMap::new();
-        let engine = state
-            .embedding
-            .get_or_init(|| codelens_core::EmbeddingEngine::new(&state.project).ok());
-        if let Some(engine) = engine.as_ref() {
+        if let Some(Some(engine)) = state.embedding.get() {
             if engine.is_indexed() {
                 if let Ok(sem_results) = engine.search(query, 50) {
                     for r in sem_results {

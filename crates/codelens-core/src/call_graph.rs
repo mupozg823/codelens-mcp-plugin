@@ -56,54 +56,26 @@ struct CallLanguageConfig {
     call_query: &'static str,
 }
 
+/// Resolve call graph config via the unified language registry.
+/// Only a subset of languages have call graph queries defined.
 fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())?;
-    match ext.as_str() {
-        "py" => Some(CallLanguageConfig {
-            language: tree_sitter_python::LANGUAGE.into(),
-            func_query: PYTHON_FUNC_QUERY,
-            call_query: PYTHON_CALL_QUERY,
-        }),
-        "js" | "mjs" | "cjs" => Some(CallLanguageConfig {
-            language: tree_sitter_javascript::LANGUAGE.into(),
-            func_query: JS_FUNC_QUERY,
-            call_query: JS_CALL_QUERY,
-        }),
-        "ts" => Some(CallLanguageConfig {
-            language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-            func_query: JS_FUNC_QUERY,
-            call_query: JS_CALL_QUERY,
-        }),
-        "tsx" | "jsx" => Some(CallLanguageConfig {
-            language: tree_sitter_typescript::LANGUAGE_TSX.into(),
-            func_query: JS_FUNC_QUERY,
-            call_query: JS_CALL_QUERY,
-        }),
-        "go" => Some(CallLanguageConfig {
-            language: tree_sitter_go::LANGUAGE.into(),
-            func_query: GO_FUNC_QUERY,
-            call_query: GO_CALL_QUERY,
-        }),
-        "java" => Some(CallLanguageConfig {
-            language: tree_sitter_java::LANGUAGE.into(),
-            func_query: JAVA_FUNC_QUERY,
-            call_query: JAVA_CALL_QUERY,
-        }),
-        "kt" | "kts" => Some(CallLanguageConfig {
-            language: tree_sitter_kotlin::LANGUAGE.into(),
-            func_query: KOTLIN_FUNC_QUERY,
-            call_query: JAVA_CALL_QUERY,
-        }),
-        "rs" => Some(CallLanguageConfig {
-            language: tree_sitter_rust::LANGUAGE.into(),
-            func_query: RUST_FUNC_QUERY,
-            call_query: RUST_CALL_QUERY,
-        }),
-        _ => None,
-    }
+    let lang_config = crate::lang_config::language_for_path(path)?;
+    // Map canonical extension to call graph queries (not all languages support this)
+    let (func_query, call_query) = match lang_config.extension {
+        "py" => (PYTHON_FUNC_QUERY, PYTHON_CALL_QUERY),
+        "js" => (JS_FUNC_QUERY, JS_CALL_QUERY),
+        "ts" | "tsx" => (JS_FUNC_QUERY, JS_CALL_QUERY),
+        "go" => (GO_FUNC_QUERY, GO_CALL_QUERY),
+        "java" => (JAVA_FUNC_QUERY, JAVA_CALL_QUERY),
+        "kt" => (KOTLIN_FUNC_QUERY, JAVA_CALL_QUERY),
+        "rs" => (RUST_FUNC_QUERY, RUST_CALL_QUERY),
+        _ => return None,
+    };
+    Some(CallLanguageConfig {
+        language: lang_config.language,
+        func_query,
+        call_query,
+    })
 }
 
 fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {

@@ -1,6 +1,7 @@
 //! Tree-sitter language configuration: parser + query per language.
 //! Extracted from symbols.rs to reduce its size.
 
+use crate::lang_registry;
 use std::path::Path;
 use tree_sitter::Language;
 
@@ -10,91 +11,52 @@ pub(crate) struct LanguageConfig {
     pub query: &'static str,
 }
 
+/// Resolve tree-sitter config for a file path via the unified language registry.
 pub(crate) fn language_for_path(path: &Path) -> Option<LanguageConfig> {
-    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
-    match extension.as_str() {
-        "py" => Some(LanguageConfig {
-            extension: "py",
-            language: tree_sitter_python::LANGUAGE.into(),
-            query: PYTHON_QUERY,
-        }),
-        "js" | "mjs" | "cjs" => Some(LanguageConfig {
-            extension: "js",
-            language: tree_sitter_javascript::LANGUAGE.into(),
-            query: JAVASCRIPT_QUERY,
-        }),
-        "ts" => Some(LanguageConfig {
-            extension: "ts",
-            language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-            query: TYPESCRIPT_QUERY,
-        }),
-        "tsx" | "jsx" => Some(LanguageConfig {
-            extension: "tsx",
-            language: tree_sitter_typescript::LANGUAGE_TSX.into(),
-            query: TYPESCRIPT_QUERY,
-        }),
-        "go" => Some(LanguageConfig {
-            extension: "go",
-            language: tree_sitter_go::LANGUAGE.into(),
-            query: GO_QUERY,
-        }),
-        "java" => Some(LanguageConfig {
-            extension: "java",
-            language: tree_sitter_java::LANGUAGE.into(),
-            query: JAVA_QUERY,
-        }),
-        "kt" | "kts" => Some(LanguageConfig {
-            extension: "kt",
-            language: tree_sitter_kotlin::LANGUAGE.into(),
-            query: KOTLIN_QUERY,
-        }),
-        "rs" => Some(LanguageConfig {
-            extension: "rs",
-            language: tree_sitter_rust::LANGUAGE.into(),
-            query: RUST_QUERY,
-        }),
-        "c" | "h" => Some(LanguageConfig {
-            extension: "c",
-            language: tree_sitter_c::LANGUAGE.into(),
-            query: C_QUERY,
-        }),
-        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some(LanguageConfig {
-            extension: "cpp",
-            language: tree_sitter_cpp::LANGUAGE.into(),
-            query: CPP_QUERY,
-        }),
-        "php" => Some(LanguageConfig {
-            extension: "php",
-            language: tree_sitter_php::LANGUAGE_PHP.into(),
-            query: PHP_QUERY,
-        }),
-        "swift" => Some(LanguageConfig {
-            extension: "swift",
-            language: tree_sitter_swift::LANGUAGE.into(),
-            query: SWIFT_QUERY,
-        }),
-        "scala" | "sc" => Some(LanguageConfig {
-            extension: "scala",
-            language: tree_sitter_scala::LANGUAGE.into(),
-            query: SCALA_QUERY,
-        }),
-        "rb" => Some(LanguageConfig {
-            extension: "rb",
-            language: tree_sitter_ruby::LANGUAGE.into(),
-            query: RUBY_QUERY,
-        }),
-        "cs" => Some(LanguageConfig {
-            extension: "cs",
-            language: tree_sitter_c_sharp::LANGUAGE.into(),
-            query: CSHARP_QUERY,
-        }),
-        "dart" => Some(LanguageConfig {
-            extension: "dart",
-            language: tree_sitter_dart::LANGUAGE.into(),
-            query: DART_QUERY,
-        }),
-        _ => None,
-    }
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    let entry = lang_registry::for_extension(&ext)?;
+    config_for_canonical(entry.canonical)
+}
+
+/// Map canonical extension to tree-sitter Language + Query.
+/// This is the single place to add new language support.
+fn config_for_canonical(canonical: &str) -> Option<LanguageConfig> {
+    let (ext, lang, query) = match canonical {
+        "py" => ("py", tree_sitter_python::LANGUAGE.into(), PYTHON_QUERY),
+        "js" => (
+            "js",
+            tree_sitter_javascript::LANGUAGE.into(),
+            JAVASCRIPT_QUERY,
+        ),
+        "ts" => (
+            "ts",
+            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            TYPESCRIPT_QUERY,
+        ),
+        "tsx" => (
+            "tsx",
+            tree_sitter_typescript::LANGUAGE_TSX.into(),
+            TYPESCRIPT_QUERY,
+        ),
+        "go" => ("go", tree_sitter_go::LANGUAGE.into(), GO_QUERY),
+        "java" => ("java", tree_sitter_java::LANGUAGE.into(), JAVA_QUERY),
+        "kt" => ("kt", tree_sitter_kotlin::LANGUAGE.into(), KOTLIN_QUERY),
+        "rs" => ("rs", tree_sitter_rust::LANGUAGE.into(), RUST_QUERY),
+        "c" => ("c", tree_sitter_c::LANGUAGE.into(), C_QUERY),
+        "cpp" => ("cpp", tree_sitter_cpp::LANGUAGE.into(), CPP_QUERY),
+        "php" => ("php", tree_sitter_php::LANGUAGE_PHP.into(), PHP_QUERY),
+        "swift" => ("swift", tree_sitter_swift::LANGUAGE.into(), SWIFT_QUERY),
+        "scala" => ("scala", tree_sitter_scala::LANGUAGE.into(), SCALA_QUERY),
+        "rb" => ("rb", tree_sitter_ruby::LANGUAGE.into(), RUBY_QUERY),
+        "cs" => ("cs", tree_sitter_c_sharp::LANGUAGE.into(), CSHARP_QUERY),
+        "dart" => ("dart", tree_sitter_dart::LANGUAGE.into(), DART_QUERY),
+        _ => return None,
+    };
+    Some(LanguageConfig {
+        extension: ext,
+        language: lang,
+        query,
+    })
 }
 
 const PYTHON_QUERY: &str = r#"

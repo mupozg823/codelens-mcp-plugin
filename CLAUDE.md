@@ -12,7 +12,7 @@ cargo build --release
 
 FULL=56 | BALANCED=38 (default) | MINIMAL=21
 
-(54 base + 2 semantic feature-gated)
+(54 base + 2 semantic feature-gated) | DB schema v4 (FTS5) | 222 tests
 
 ## CLI
 

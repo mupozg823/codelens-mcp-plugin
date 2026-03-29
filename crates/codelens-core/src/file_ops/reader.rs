@@ -2,6 +2,7 @@ use crate::project::{is_excluded, ProjectRoot};
 use anyhow::{bail, Context, Result};
 use regex::Regex;
 use std::fs;
+use std::path::PathBuf;
 use walkdir::WalkDir;
 
 use super::{
@@ -82,16 +83,21 @@ pub fn find_files(
         .filter_entry(|entry| !is_excluded(entry.path()))
     {
         let entry = entry?;
-        if entry.file_type().is_file() && matcher.is_match(entry.file_name()) {
-            matches.push(FileMatch {
-                path: project.to_relative(entry.path()),
-            });
+        if entry.file_type().is_file() {
+            let rel = project.to_relative(entry.path());
+            if !matcher.is_match(entry.file_name()) && !matcher.is_match(rel.as_str()) {
+                continue;
+            }
+            matches.push(FileMatch { path: rel });
         }
     }
 
     matches.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(matches)
 }
+
+/// Minimum file count to justify rayon thread-pool overhead.
+const PARALLEL_FILE_THRESHOLD: usize = 200;
 
 pub fn search_for_pattern(
     project: &ProjectRoot,
@@ -107,7 +113,8 @@ pub fn search_for_pattern(
         None => None,
     };
 
-    let mut results = Vec::new();
+    // Collect candidate file paths first (WalkDir is not Send)
+    let mut files: Vec<PathBuf> = Vec::new();
     for entry in WalkDir::new(project.as_path())
         .into_iter()
         .filter_entry(|entry| !is_excluded(entry.path()))
@@ -117,47 +124,64 @@ pub fn search_for_pattern(
             continue;
         }
         if let Some(matcher) = &matcher {
-            if !matcher.is_match(entry.file_name()) {
+            let rel = project.to_relative(entry.path());
+            if !matcher.is_match(entry.file_name()) && !matcher.is_match(rel.as_str()) {
                 continue;
             }
         }
+        files.push(entry.into_path());
+    }
 
-        let content = match fs::read_to_string(entry.path()) {
-            Ok(content) => content,
-            Err(_) => continue,
+    // Search each file for pattern matches
+    let search_file = |path: &PathBuf| -> Vec<PatternMatch> {
+        let content = match fs::read_to_string(path) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
         };
-
+        let rel = project.to_relative(path);
         let lines: Vec<&str> = content.lines().collect();
+        let mut file_matches = Vec::new();
         for (index, line) in lines.iter().enumerate() {
-            if results.len() >= max_results {
-                return Ok(results);
-            }
             if let Some(found) = regex.find(line) {
                 let before_start = index.saturating_sub(context_lines_before);
                 let after_end = (index + 1 + context_lines_after).min(lines.len());
-
-                let context_before: Vec<String> = lines[before_start..index]
-                    .iter()
-                    .map(|l| l.to_string())
-                    .collect();
-                let context_after: Vec<String> = lines[(index + 1)..after_end]
-                    .iter()
-                    .map(|l| l.to_string())
-                    .collect();
-
-                results.push(PatternMatch {
-                    file_path: project.to_relative(entry.path()),
+                file_matches.push(PatternMatch {
+                    file_path: rel.clone(),
                     line: index + 1,
                     column: found.start() + 1,
                     matched_text: found.as_str().to_owned(),
                     line_content: line.trim().to_owned(),
-                    context_before,
-                    context_after,
+                    context_before: lines[before_start..index]
+                        .iter()
+                        .map(|l| l.to_string())
+                        .collect(),
+                    context_after: lines[(index + 1)..after_end]
+                        .iter()
+                        .map(|l| l.to_string())
+                        .collect(),
                 });
             }
         }
-    }
+        file_matches
+    };
 
+    let mut results: Vec<PatternMatch> = if files.len() >= PARALLEL_FILE_THRESHOLD {
+        use rayon::prelude::*;
+        files.par_iter().flat_map(search_file).collect()
+    } else {
+        // Sequential for small projects — avoids rayon thread-pool overhead
+        let mut seq_results = Vec::new();
+        for path in &files {
+            seq_results.extend(search_file(path));
+            if seq_results.len() >= max_results {
+                break;
+            }
+        }
+        seq_results
+    };
+
+    results.sort_by(|a, b| a.file_path.cmp(&b.file_path).then(a.line.cmp(&b.line)));
+    results.truncate(max_results);
     Ok(results)
 }
 

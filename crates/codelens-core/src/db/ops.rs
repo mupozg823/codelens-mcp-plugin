@@ -3,6 +3,26 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::{DirStats, FileRow, IndexDb, NewCall, NewImport, NewSymbol, SymbolRow, SymbolWithFile};
 
+/// Build FTS5 query: split into tokens, add prefix matching (*), join with OR.
+/// e.g. "run_service" → "run" * OR "service" *
+/// e.g. "ServiceManager" → "ServiceManager" *
+fn fts5_escape(query: &str) -> String {
+    let tokens: Vec<String> = query
+        .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+        .filter(|t| !t.is_empty())
+        .map(|token| {
+            let escaped = token.replace('"', "\"\"");
+            // FTS5 prefix query: token* matches any token starting with this string
+            format!("{escaped}*")
+        })
+        .collect();
+    if tokens.is_empty() {
+        let escaped = query.replace('"', "\"\"");
+        return format!("{escaped}*");
+    }
+    tokens.join(" OR ")
+}
+
 // ---- Transaction-compatible free functions ----
 // These accept &Connection so they work with both Connection and Transaction (via Deref).
 
@@ -365,6 +385,54 @@ impl IndexDb {
         Ok(results)
     }
 
+    /// Query symbols by name with file path resolved via JOIN (no N+1).
+    /// Returns (SymbolRow, file_path) tuples.
+    pub fn find_symbols_with_path(
+        &self,
+        name: &str,
+        exact: bool,
+        max_results: usize,
+    ) -> Result<Vec<(SymbolRow, String)>> {
+        let sql = if exact {
+            "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num,
+                    s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id,
+                    f.relative_path
+             FROM symbols s JOIN files f ON s.file_id = f.id
+             WHERE s.name = ?1
+             LIMIT ?2"
+        } else {
+            "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num,
+                    s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id,
+                    f.relative_path
+             FROM symbols s JOIN files f ON s.file_id = f.id
+             WHERE s.name LIKE '%' || ?1 || '%'
+             LIMIT ?2"
+        };
+
+        let mut stmt = self.conn.prepare_cached(sql)?;
+        let mut rows = stmt.query(params![name, max_results as i64])?;
+        let mut results = Vec::new();
+        while let Some(row) = rows.next()? {
+            results.push((
+                SymbolRow {
+                    id: row.get(0)?,
+                    file_id: row.get(1)?,
+                    name: row.get(2)?,
+                    kind: row.get(3)?,
+                    line: row.get(4)?,
+                    column_num: row.get(5)?,
+                    start_byte: row.get(6)?,
+                    end_byte: row.get(7)?,
+                    signature: row.get(8)?,
+                    name_path: row.get(9)?,
+                    parent_id: row.get(10)?,
+                },
+                row.get::<_, String>(11)?,
+            ));
+        }
+        Ok(results)
+    }
+
     /// Get all symbols for a file, ordered by start_byte.
     pub fn get_file_symbols(&self, file_id: i64) -> Result<Vec<SymbolRow>> {
         let mut stmt = self.conn.prepare_cached(
@@ -391,6 +459,154 @@ impl IndexDb {
             results.push(row?);
         }
         Ok(results)
+    }
+
+    /// Full-text search symbols via FTS5 index. Returns (SymbolRow, file_path, rank).
+    /// Falls back to LIKE search if FTS5 table doesn't exist (pre-v4 DB).
+    pub fn search_symbols_fts(
+        &self,
+        query: &str,
+        max_results: usize,
+    ) -> Result<Vec<(SymbolRow, String, f64)>> {
+        // Check if FTS5 table exists
+        let fts_exists: bool = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='symbols_fts'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .map(|c| c > 0)
+            .unwrap_or(false);
+
+        if !fts_exists {
+            // Fallback: LIKE search with JOIN
+            return self
+                .find_symbols_with_path(query, false, max_results)
+                .map(|rows| rows.into_iter().map(|(r, p)| (r, p, 0.0)).collect());
+        }
+
+        // Lazy rebuild: rebuild FTS index if stale (symbols changed since last rebuild).
+        // Uses a meta key to track FTS freshness, avoiding per-insert trigger overhead.
+        let fts_fresh: bool = self
+            .conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'fts_symbol_count'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|v| v.parse::<i64>().ok())
+            .map(|cached_count| {
+                let current: i64 = self
+                    .conn
+                    .query_row("SELECT COUNT(*) FROM symbols", [], |row| row.get(0))
+                    .unwrap_or(0);
+                cached_count == current
+            })
+            .unwrap_or(false);
+
+        if !fts_fresh {
+            let sym_count: i64 = self
+                .conn
+                .query_row("SELECT COUNT(*) FROM symbols", [], |row| row.get(0))
+                .unwrap_or(0);
+            if sym_count > 0 {
+                let _ = self
+                    .conn
+                    .execute_batch("INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')");
+                let _ = self.conn.execute(
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES ('fts_symbol_count', ?1)",
+                    params![sym_count.to_string()],
+                );
+            }
+        }
+
+        // Escape FTS5 special chars and build query
+        let fts_query = fts5_escape(query);
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num,
+                    s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id,
+                    f.relative_path, rank
+             FROM symbols_fts
+             JOIN symbols s ON symbols_fts.rowid = s.id
+             JOIN files f ON s.file_id = f.id
+             WHERE symbols_fts MATCH ?1
+             ORDER BY rank
+             LIMIT ?2",
+        )?;
+
+        let mut rows = stmt.query(params![fts_query, max_results as i64])?;
+        let mut results = Vec::new();
+        while let Some(row) = rows.next()? {
+            results.push((
+                SymbolRow {
+                    id: row.get(0)?,
+                    file_id: row.get(1)?,
+                    name: row.get(2)?,
+                    kind: row.get(3)?,
+                    line: row.get(4)?,
+                    column_num: row.get(5)?,
+                    start_byte: row.get(6)?,
+                    end_byte: row.get(7)?,
+                    signature: row.get(8)?,
+                    name_path: row.get(9)?,
+                    parent_id: row.get(10)?,
+                },
+                row.get::<_, String>(11)?,
+                row.get::<_, f64>(12)?,
+            ));
+        }
+        Ok(results)
+    }
+
+    /// Get all symbols for files under a directory prefix in a single JOIN query.
+    /// Returns (file_path, Vec<SymbolRow>) grouped by file. Eliminates N+1 queries.
+    pub fn get_symbols_for_directory(&self, prefix: &str) -> Result<Vec<(String, Vec<SymbolRow>)>> {
+        let pattern = if prefix.is_empty() || prefix == "." {
+            "%".to_owned()
+        } else {
+            format!("{prefix}%")
+        };
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num,
+                    s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id,
+                    f.relative_path
+             FROM symbols s
+             JOIN files f ON s.file_id = f.id
+             WHERE f.relative_path LIKE ?1
+             ORDER BY f.relative_path, s.start_byte",
+        )?;
+        let rows = stmt.query_map(params![pattern], |row| {
+            Ok((
+                SymbolRow {
+                    id: row.get(0)?,
+                    file_id: row.get(1)?,
+                    name: row.get(2)?,
+                    kind: row.get(3)?,
+                    line: row.get(4)?,
+                    column_num: row.get(5)?,
+                    start_byte: row.get(6)?,
+                    end_byte: row.get(7)?,
+                    signature: row.get(8)?,
+                    name_path: row.get(9)?,
+                    parent_id: row.get(10)?,
+                },
+                row.get::<_, String>(11)?,
+            ))
+        })?;
+
+        let mut groups: Vec<(String, Vec<SymbolRow>)> = Vec::new();
+        let mut current_path = String::new();
+        for row in rows {
+            let (sym, path) = row?;
+            if path != current_path {
+                current_path = path.clone();
+                groups.push((path, Vec::new()));
+            }
+            groups.last_mut().unwrap().1.push(sym);
+        }
+        Ok(groups)
     }
 
     /// Return all symbols as (name, kind, file_path, line, signature, name_path).
@@ -441,6 +657,36 @@ impl IndexDb {
             results.push(row?);
         }
         Ok(results)
+    }
+
+    /// Stream all symbols with bytes via callback — avoids loading entire Vec into memory.
+    /// Symbols are ordered by file_path then start_byte (same as all_symbols_with_bytes).
+    pub fn for_each_symbol_with_bytes<F>(&self, mut callback: F) -> Result<usize>
+    where
+        F: FnMut(SymbolWithFile) -> Result<()>,
+    {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT s.name, s.kind, f.relative_path, s.line, s.signature, s.name_path,
+                    s.start_byte, s.end_byte
+             FROM symbols s JOIN files f ON s.file_id = f.id
+             ORDER BY f.relative_path, s.start_byte",
+        )?;
+        let mut rows = stmt.query([])?;
+        let mut count = 0usize;
+        while let Some(row) = rows.next()? {
+            callback(SymbolWithFile {
+                name: row.get(0)?,
+                kind: row.get(1)?,
+                file_path: row.get(2)?,
+                line: row.get(3)?,
+                signature: row.get(4)?,
+                name_path: row.get(5)?,
+                start_byte: row.get(6)?,
+                end_byte: row.get(7)?,
+            })?;
+            count += 1;
+        }
+        Ok(count)
     }
 
     /// Get symbols with bytes for specific files only (for incremental embedding).
@@ -669,6 +915,13 @@ impl IndexDb {
             "DELETE FROM index_failures WHERE file_path = ?1",
             params![file_path],
         )?;
+        Ok(())
+    }
+
+    /// Invalidate FTS index cache so next search triggers a lazy rebuild.
+    pub fn invalidate_fts(&self) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM meta WHERE key = 'fts_symbol_count'", [])?;
         Ok(())
     }
 

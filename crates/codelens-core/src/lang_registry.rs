@@ -13,161 +13,175 @@ pub struct ExtEntry {
     pub language_id: &'static str,
     /// Whether import graph analysis is supported for this extension.
     pub supports_imports: bool,
+    /// Canonical extension used as key for tree-sitter config lookup.
+    /// Multiple extensions (e.g. "cc", "cxx") map to the same canonical ("cpp").
+    pub canonical: &'static str,
 }
 
 /// Canonical table of all supported extensions.
 /// Every extension that tree-sitter can parse should appear here.
 static EXTENSIONS: &[ExtEntry] = &[
-    // Python
     ExtEntry {
         ext: "py",
         language_id: "python",
         supports_imports: true,
+        canonical: "py",
     },
-    // JavaScript
     ExtEntry {
         ext: "js",
         language_id: "javascript",
         supports_imports: true,
+        canonical: "js",
     },
     ExtEntry {
         ext: "mjs",
         language_id: "javascript",
         supports_imports: true,
+        canonical: "js",
     },
     ExtEntry {
         ext: "cjs",
         language_id: "javascript",
         supports_imports: true,
+        canonical: "js",
     },
-    // TypeScript
     ExtEntry {
         ext: "ts",
         language_id: "typescript",
         supports_imports: true,
+        canonical: "ts",
     },
-    // TSX / JSX
     ExtEntry {
         ext: "tsx",
         language_id: "typescriptreact",
         supports_imports: true,
+        canonical: "tsx",
     },
     ExtEntry {
         ext: "jsx",
         language_id: "javascriptreact",
         supports_imports: true,
+        canonical: "tsx",
     },
-    // Go
     ExtEntry {
         ext: "go",
         language_id: "go",
         supports_imports: true,
+        canonical: "go",
     },
-    // Java
     ExtEntry {
         ext: "java",
         language_id: "java",
         supports_imports: true,
+        canonical: "java",
     },
-    // Kotlin (including .kts scripts)
     ExtEntry {
         ext: "kt",
         language_id: "kotlin",
         supports_imports: true,
+        canonical: "kt",
     },
     ExtEntry {
         ext: "kts",
         language_id: "kotlin",
         supports_imports: true,
+        canonical: "kt",
     },
-    // Rust
     ExtEntry {
         ext: "rs",
         language_id: "rust",
         supports_imports: true,
+        canonical: "rs",
     },
-    // C
     ExtEntry {
         ext: "c",
         language_id: "c",
         supports_imports: true,
+        canonical: "c",
     },
     ExtEntry {
         ext: "h",
         language_id: "c",
         supports_imports: true,
+        canonical: "c",
     },
-    // C++
     ExtEntry {
         ext: "cpp",
         language_id: "cpp",
         supports_imports: true,
+        canonical: "cpp",
     },
     ExtEntry {
         ext: "cc",
         language_id: "cpp",
         supports_imports: true,
+        canonical: "cpp",
     },
     ExtEntry {
         ext: "cxx",
         language_id: "cpp",
         supports_imports: true,
+        canonical: "cpp",
     },
     ExtEntry {
         ext: "hpp",
         language_id: "cpp",
         supports_imports: true,
+        canonical: "cpp",
     },
     ExtEntry {
         ext: "hh",
         language_id: "cpp",
         supports_imports: true,
+        canonical: "cpp",
     },
     ExtEntry {
         ext: "hxx",
         language_id: "cpp",
         supports_imports: true,
+        canonical: "cpp",
     },
-    // PHP
     ExtEntry {
         ext: "php",
         language_id: "php",
         supports_imports: true,
+        canonical: "php",
     },
-    // Swift — no import extraction yet
     ExtEntry {
         ext: "swift",
         language_id: "swift",
         supports_imports: false,
+        canonical: "swift",
     },
-    // Scala — no import extraction yet
     ExtEntry {
         ext: "scala",
         language_id: "scala",
         supports_imports: false,
+        canonical: "scala",
     },
     ExtEntry {
         ext: "sc",
         language_id: "scala",
         supports_imports: false,
+        canonical: "scala",
     },
-    // Ruby
     ExtEntry {
         ext: "rb",
         language_id: "ruby",
         supports_imports: true,
+        canonical: "rb",
     },
-    // C#
     ExtEntry {
         ext: "cs",
         language_id: "csharp",
         supports_imports: true,
+        canonical: "cs",
     },
-    // Dart
     ExtEntry {
         ext: "dart",
         language_id: "dart",
         supports_imports: true,
+        canonical: "dart",
     },
 ];
 

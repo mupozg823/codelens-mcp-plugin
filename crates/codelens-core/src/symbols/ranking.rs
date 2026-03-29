@@ -1,5 +1,5 @@
 use super::parser::slice_source;
-use super::scoring::score_symbol;
+use super::scoring::score_symbol_with_lower;
 use super::types::{RankedContextEntry, SymbolInfo};
 use std::collections::HashMap;
 use std::path::Path;
@@ -52,15 +52,18 @@ impl RankingContext {
     }
 
     /// Create a ranking context with PageRank + semantic scores.
+    /// Weights are auto-tuned based on query characteristics.
     pub fn with_pagerank_and_semantic(
+        query: &str,
         pagerank: HashMap<String, f64>,
         semantic_scores: HashMap<String, f64>,
     ) -> Self {
+        let weights = auto_weights(query);
         Self {
             pagerank,
             recent_files: HashMap::new(),
             semantic_scores,
-            weights: RankWeights::default(),
+            weights,
         }
     }
 
@@ -80,47 +83,119 @@ impl RankingContext {
     }
 }
 
+/// Determine weights based on query characteristics.
+/// - Symbol-like queries (snake_case, CamelCase, short): text-heavy
+/// - Natural language queries (spaces, long): semantic-heavy
+fn auto_weights(query: &str) -> RankWeights {
+    let words: Vec<&str> = query.split_whitespace().collect();
+    let has_spaces = words.len() > 1;
+    let has_underscore = query.contains('_');
+    let is_camel = query.chars().any(|c| c.is_uppercase()) && !has_spaces;
+    let is_short = query.len() <= 30;
+
+    // Single identifier (prune_to_budget, BackendKind, dispatch_tool)
+    if !has_spaces && (has_underscore || is_camel) && is_short {
+        return RankWeights {
+            text: 0.70,
+            pagerank: 0.15,
+            recency: 0.05,
+            semantic: 0.10,
+        };
+    }
+
+    // Natural language (how does file watcher invalidate graph cache)
+    if has_spaces && words.len() >= 4 {
+        return RankWeights {
+            text: 0.35,
+            pagerank: 0.10,
+            recency: 0.05,
+            semantic: 0.50,
+        };
+    }
+
+    // Short phrase (dispatch tool, rename symbol)
+    RankWeights {
+        text: 0.45,
+        pagerank: 0.10,
+        recency: 0.05,
+        semantic: 0.40,
+    }
+}
+
 /// Score and rank a list of symbols against a query, using multiple signals.
 /// Returns (symbol, blended_score) pairs sorted by score descending.
+///
+/// Symbols qualify if they have EITHER a text match OR a semantic match above
+/// threshold. This ensures semantic-only discoveries aren't dropped.
 pub(crate) fn rank_symbols(
     query: &str,
     symbols: Vec<SymbolInfo>,
     ctx: &RankingContext,
 ) -> Vec<(SymbolInfo, i32)> {
     let pr_count = ctx.pagerank.len().max(1) as f64;
+    let has_semantic = !ctx.semantic_scores.is_empty();
+    let query_lower = query.to_lowercase();
+
+    // Reusable key buffer to avoid per-symbol format! allocation
+    let mut sem_key_buf = String::with_capacity(128);
 
     let mut scored: Vec<(SymbolInfo, i32)> = symbols
         .into_iter()
         .filter_map(|symbol| {
-            score_symbol(query, &symbol).map(|text_score| {
-                let text_component = text_score as f64 * ctx.weights.text;
+            let text_score = score_symbol_with_lower(query, &query_lower, &symbol).unwrap_or(0);
 
-                // PageRank: scale raw score to 0-100 range
-                let pr = ctx.pagerank.get(&symbol.file_path).copied().unwrap_or(0.0);
-                let pr_scaled = (pr * 100.0 * pr_count).min(100.0);
-                let pr_component = pr_scaled * ctx.weights.pagerank;
-
-                // Recency: boost for recently changed files
-                let recency = ctx
-                    .recent_files
-                    .get(&symbol.file_path)
+            // Semantic: cosine similarity via reusable buffer (no format! alloc)
+            let sem_score = if has_semantic {
+                sem_key_buf.clear();
+                sem_key_buf.push_str(&symbol.file_path);
+                sem_key_buf.push(':');
+                sem_key_buf.push_str(&symbol.name);
+                ctx.semantic_scores
+                    .get(sem_key_buf.as_str())
                     .copied()
-                    .unwrap_or(0.0);
-                let recency_component = (recency * 100.0).min(100.0) * ctx.weights.recency;
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
 
-                // Semantic: cosine similarity from vector search (0.0..1.0)
-                let sem_key = format!("{}:{}", symbol.file_path, symbol.name);
-                let sem_score = ctx.semantic_scores.get(&sem_key).copied().unwrap_or(0.0);
-                let semantic_component = (sem_score * 100.0) * ctx.weights.semantic;
+            // Gate: include if text matched OR semantic score is significant
+            if text_score == 0 && (!has_semantic || sem_score < 0.3) {
+                return None;
+            }
 
-                let blended =
-                    (text_component + pr_component + recency_component + semantic_component) as i32;
-                (symbol, blended.max(1))
-            })
+            let text_component = text_score as f64 * ctx.weights.text;
+
+            // PageRank: scale raw score to 0-100 range
+            let pr = ctx.pagerank.get(&symbol.file_path).copied().unwrap_or(0.0);
+            let pr_scaled = (pr * 100.0 * pr_count).min(100.0);
+            let pr_component = pr_scaled * ctx.weights.pagerank;
+
+            // Recency: boost for recently changed files
+            let recency = ctx
+                .recent_files
+                .get(&symbol.file_path)
+                .copied()
+                .unwrap_or(0.0);
+            let recency_component = (recency * 100.0).min(100.0) * ctx.weights.recency;
+
+            let semantic_component = (sem_score * 100.0) * ctx.weights.semantic;
+
+            let blended =
+                (text_component + pr_component + recency_component + semantic_component) as i32;
+            Some((symbol, blended.max(1)))
         })
         .collect();
 
-    scored.sort_by(|a, b| b.1.cmp(&a.1));
+    // Partial sort: only guarantee top-K ordering when result set is large.
+    // prune_to_budget typically selects 20-50 entries, so K=100 is safe margin.
+    const PARTIAL_SORT_K: usize = 100;
+    if scored.len() > PARTIAL_SORT_K * 2 {
+        scored.select_nth_unstable_by(PARTIAL_SORT_K, |a, b| b.1.cmp(&a.1));
+        scored.truncate(PARTIAL_SORT_K);
+        scored.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+    } else {
+        scored.sort_unstable_by(|a, b| b.1.cmp(&a.1));
+    }
     scored
 }
 
@@ -132,7 +207,8 @@ pub(crate) fn prune_to_budget(
     include_body: bool,
     project_root: &Path,
 ) -> (Vec<RankedContextEntry>, usize) {
-    const FILE_CACHE_LIMIT: usize = 32;
+    // Dynamic file cache limit: scale with token budget, cap at 128
+    let file_cache_limit = (max_tokens / 200).clamp(32, 128);
     let char_budget = max_tokens.saturating_mul(4);
     let mut remaining = char_budget;
     let mut file_cache: HashMap<String, Option<String>> = HashMap::new();
@@ -140,7 +216,7 @@ pub(crate) fn prune_to_budget(
 
     for (symbol, score) in scored {
         let body = if include_body && symbol.end_byte > symbol.start_byte {
-            let cache_full = file_cache.len() >= FILE_CACHE_LIMIT;
+            let cache_full = file_cache.len() >= file_cache_limit;
             let source = file_cache
                 .entry(symbol.file_path.clone())
                 .or_insert_with(|| {

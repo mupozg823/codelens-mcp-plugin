@@ -34,9 +34,7 @@ pub fn search_symbols_hybrid(
     let mut results: Vec<SearchResult> = Vec::new();
 
     // ── 1. Exact match (score 100) ──────────────────────────────────────────
-    let exact_rows = db.find_symbols_by_name(query, None, true, max_results)?;
-    for row in exact_rows {
-        let file = db.get_file_path(row.file_id)?.unwrap_or_default();
+    for (row, file) in db.find_symbols_with_path(query, true, max_results)? {
         let key = (row.name.clone(), file.clone(), row.line);
         if seen.insert(key) {
             results.push(SearchResult {
@@ -52,12 +50,13 @@ pub fn search_symbols_hybrid(
         }
     }
 
-    // ── 2. Substring match (score 60) ─────────────────────────────────────
-    let sub_rows = db.find_symbols_by_name(query, None, false, max_results)?;
-    for row in sub_rows {
-        let file = db.get_file_path(row.file_id)?.unwrap_or_default();
+    // ── 2. FTS5 full-text search (score 40-80 from rank) ────────────────────
+    // Falls back to LIKE search on pre-v4 databases automatically.
+    for (row, file, rank) in db.search_symbols_fts(query, max_results)? {
         let key = (row.name.clone(), file.clone(), row.line);
         if seen.insert(key) {
+            // FTS5 rank is negative (lower = better), normalize to 40-80 range
+            let fts_score = (80.0 + rank.min(0.0).max(-40.0)).max(40.0);
             results.push(SearchResult {
                 name: row.name,
                 kind: row.kind,
@@ -65,40 +64,35 @@ pub fn search_symbols_hybrid(
                 line: row.line as usize,
                 signature: row.signature,
                 name_path: row.name_path,
-                score: 60.0,
-                match_type: "substring".to_owned(),
+                score: fts_score,
+                match_type: "fts".to_owned(),
             });
         }
     }
 
-    // ── 3. Fuzzy match (score = similarity * 100) ─────────────────────────
-    // Pre-filter: only load symbols whose name shares a 2-char prefix with query.
-    // This avoids loading all symbols for jaro_winkler comparison.
+    // ── 3. Fuzzy match (score = similarity * 100) ───────────────────────────
     let query_lower = query.to_ascii_lowercase();
     let prefix: String = query_lower.chars().take(2).collect();
     let fuzzy_candidates = if prefix.len() >= 2 {
-        db.find_symbols_by_name(&prefix, None, false, 500)?
+        db.find_symbols_with_path(&prefix, false, 500)?
     } else {
-        db.find_symbols_by_name(&query_lower, None, false, 500)?
+        db.find_symbols_with_path(&query_lower, false, 500)?
     };
-    for row in fuzzy_candidates {
-        let file = db.get_file_path(row.file_id)?.unwrap_or_default();
-        let (name, kind, line, signature, name_path) =
-            (row.name, row.kind, row.line, row.signature, row.name_path);
-        let key = (name.clone(), file.clone(), line);
+    for (row, file) in fuzzy_candidates {
+        let key = (row.name.clone(), file.clone(), row.line);
         if seen.contains(&key) {
             continue;
         }
-        let sim = jaro_winkler(&query_lower, &name.to_ascii_lowercase());
+        let sim = jaro_winkler(&query_lower, &row.name.to_ascii_lowercase());
         if sim >= fuzzy_threshold {
             seen.insert(key);
             results.push(SearchResult {
-                name,
-                kind,
+                name: row.name,
+                kind: row.kind,
                 file,
-                line: line as usize,
-                signature,
-                name_path,
+                line: row.line as usize,
+                signature: row.signature,
+                name_path: row.name_path,
                 score: sim * 100.0,
                 match_type: "fuzzy".to_owned(),
             });
@@ -197,13 +191,13 @@ mod tests {
     fn substring_match_returns_bm25_type() {
         let (_root, project) = make_project_with_symbols();
         // "service" is a substring of "ServiceManager" and "run_service"
-        // threshold 0.99 ensures fuzzy won't fire, so only exact/bm25 contribute
+        // threshold 0.99 ensures fuzzy won't fire, so only exact/fts/substring contribute
         let results = search_symbols_hybrid(&project, "service", 10, 0.99).unwrap();
-        let bm25: Vec<_> = results
+        let text_matches: Vec<_> = results
             .iter()
-            .filter(|r| r.match_type == "substring")
+            .filter(|r| r.match_type == "substring" || r.match_type == "fts")
             .collect();
-        assert!(!bm25.is_empty());
+        assert!(!text_matches.is_empty());
     }
 
     #[test]

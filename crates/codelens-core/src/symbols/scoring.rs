@@ -2,23 +2,36 @@ use super::types::SymbolInfo;
 
 /// Score a symbol's relevance to a query string.
 /// Returns None if no match, Some(1..=100) for match strength.
+///
+/// Accepts pre-computed `query_lower` to avoid repeated allocation
+/// when scoring many symbols against the same query.
 pub(crate) fn score_symbol(query: &str, symbol: &SymbolInfo) -> Option<i32> {
-    let query_lower = query.to_lowercase();
+    score_symbol_with_lower(query, &query.to_lowercase(), symbol)
+}
 
-    // Exact full-query match on symbol name
+/// Inner scoring with pre-lowercased query — call this from hot loops.
+pub(crate) fn score_symbol_with_lower(
+    query: &str,
+    query_lower: &str,
+    symbol: &SymbolInfo,
+) -> Option<i32> {
+    // Exact full-query match (no allocation needed)
     if symbol.name.eq_ignore_ascii_case(query) {
         return Some(100);
     }
-    // Full query substring in symbol name
-    if symbol.name.to_lowercase().contains(&query_lower) {
+
+    // Compute name_lower once, reuse for substring + token checks
+    let name_lower = symbol.name.to_lowercase();
+    if name_lower.contains(query_lower) {
         return Some(60);
     }
     // Full query substring in signature
-    if symbol.signature.to_lowercase().contains(&query_lower) {
+    let sig_lower = symbol.signature.to_lowercase();
+    if sig_lower.contains(query_lower) {
         return Some(30);
     }
     // Full query substring in name_path
-    if symbol.name_path.to_lowercase().contains(&query_lower) {
+    if symbol.name_path.to_lowercase().contains(query_lower) {
         return Some(20);
     }
 
@@ -31,8 +44,6 @@ pub(crate) fn score_symbol(query: &str, symbol: &SymbolInfo) -> Option<i32> {
         return None;
     }
 
-    let name_lower = symbol.name.to_lowercase();
-    let sig_lower = symbol.signature.to_lowercase();
     let path_lower = symbol.file_path.to_lowercase();
 
     let mut name_hits = 0i32;
