@@ -8,7 +8,6 @@ pub struct ProjectRoot {
 
 const ROOT_MARKERS: &[&str] = &[
     ".git",
-    ".serena/project.yml",
     ".codelens",
     "build.gradle.kts",
     "build.gradle",

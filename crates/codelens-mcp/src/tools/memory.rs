@@ -9,7 +9,7 @@ pub fn list_memories(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         json!({
             "topic": topic,
             "count": names.len(),
-            "memories": names.iter().map(|n| json!({"name": n, "path": format!(".serena/memories/{n}.md")})).collect::<Vec<_>>()
+            "memories": names.iter().map(|n| json!({"name": n, "path": format!(".codelens/memories/{n}.md")})).collect::<Vec<_>>()
         }),
         success_meta("filesystem", 1.0),
     ))

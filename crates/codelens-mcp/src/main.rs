@@ -70,7 +70,7 @@ impl AppState {
         let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
         let lsp_pool = LspSessionPool::new(project.clone());
         let graph_cache = Arc::new(GraphCache::new(30));
-        let memories_dir = project.as_path().join(".serena").join("memories");
+        let memories_dir = project.as_path().join(".codelens").join("memories");
 
         let watcher = FileWatcher::start(
             project.as_path(),
