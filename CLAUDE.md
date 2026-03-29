@@ -10,9 +10,9 @@ cargo build --release
 
 ## Presets
 
-FULL=55 | BALANCED=37 (default) | MINIMAL=21
+FULL=56 | BALANCED=38 (default) | MINIMAL=21
 
-(53 base + 2 semantic feature-gated)
+(54 base + 2 semantic feature-gated)
 
 ## CLI
 
