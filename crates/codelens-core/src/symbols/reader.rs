@@ -252,6 +252,7 @@ impl SymbolIndex {
 
     /// Ranked context from DB without lazy indexing.
     /// If `graph_cache` is provided, PageRank scores boost symbols in highly-imported files.
+    /// If `semantic_scores` is non-empty, vector similarity is blended into ranking.
     pub fn get_ranked_context_cached(
         &self,
         query: &str,
@@ -260,6 +261,7 @@ impl SymbolIndex {
         include_body: bool,
         depth: usize,
         graph_cache: Option<&crate::import_graph::GraphCache>,
+        semantic_scores: std::collections::HashMap<String, f64>,
     ) -> Result<RankedContextResult> {
         let all_symbols = if let Some(path) = path {
             self.get_symbols_overview_cached(path, depth)?
@@ -268,8 +270,24 @@ impl SymbolIndex {
         };
 
         let ranking_ctx = match graph_cache {
-            Some(gc) => RankingContext::with_pagerank(gc.file_pagerank_scores(&self.project)),
-            None => RankingContext::text_only(),
+            Some(gc) => {
+                let pagerank = gc.file_pagerank_scores(&self.project);
+                if semantic_scores.is_empty() {
+                    RankingContext::with_pagerank(pagerank)
+                } else {
+                    RankingContext::with_pagerank_and_semantic(pagerank, semantic_scores)
+                }
+            }
+            None => {
+                if semantic_scores.is_empty() {
+                    RankingContext::text_only()
+                } else {
+                    RankingContext::with_pagerank_and_semantic(
+                        std::collections::HashMap::new(),
+                        semantic_scores,
+                    )
+                }
+            }
         };
 
         let flat_symbols: Vec<SymbolInfo> = all_symbols

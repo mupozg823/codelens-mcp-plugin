@@ -90,6 +90,30 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+    // Build semantic scores for hybrid ranking if embeddings are available
+    #[cfg(feature = "semantic")]
+    let semantic_scores = {
+        let mut scores = std::collections::HashMap::new();
+        let engine = state
+            .embedding
+            .get_or_init(|| codelens_core::EmbeddingEngine::new(&state.project).ok());
+        if let Some(engine) = engine.as_ref() {
+            if engine.is_indexed() {
+                if let Ok(sem_results) = engine.search(query, 50) {
+                    for r in sem_results {
+                        if r.score > 0.2 {
+                            let key = format!("{}:{}", r.file_path, r.symbol_name);
+                            scores.insert(key, r.score as f64);
+                        }
+                    }
+                }
+            }
+        }
+        scores
+    };
+    #[cfg(not(feature = "semantic"))]
+    let semantic_scores = std::collections::HashMap::new();
+
     let result = state.symbol_index().get_ranked_context_cached(
         query,
         path,
@@ -97,51 +121,15 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         include_body,
         depth,
         Some(&state.graph_cache),
+        semantic_scores,
     )?;
 
-    // Semantic fallback: if text matching returned 0 symbols, try embedding search.
-    // OnceLock ensures the model is loaded at most once per process lifetime.
-    #[cfg(feature = "semantic")]
-    if result.count == 0 {
-        let engine = state
-            .embedding
-            .get_or_init(|| codelens_core::EmbeddingEngine::new(&state.project).ok());
-        if let Some(engine) = engine.as_ref() {
-            if engine.is_indexed() {
-                if let Ok(sem_results) = engine.search(query, 5) {
-                    let fallback: Vec<_> = sem_results
-                        .into_iter()
-                        .filter(|r| r.score > 0.3)
-                        .map(|r| {
-                            json!({
-                                "name": r.symbol_name,
-                                "kind": r.kind,
-                                "file": r.file_path,
-                                "line": r.line,
-                                "signature": r.signature,
-                                "relevance_score": (r.score * 100.0) as i32,
-                            })
-                        })
-                        .collect();
-                    if !fallback.is_empty() {
-                        return Ok((
-                            json!({
-                                "query": query,
-                                "count": fallback.len(),
-                                "symbols": fallback,
-                                "token_budget": max_tokens,
-                                "chars_used": 0,
-                                "backend": "semantic-fallback",
-                            }),
-                            success_meta(BackendKind::Semantic, 0.75),
-                        ));
-                    }
-                }
-            }
-        }
-    }
-
-    Ok((json!(result), success_meta(BackendKind::TreeSitter, 0.91)))
+    let backend = if result.symbols.iter().any(|s| s.relevance_score > 0) {
+        BackendKind::TreeSitter
+    } else {
+        BackendKind::Semantic
+    };
+    Ok((json!(result), success_meta(backend, 0.91)))
 }
 
 pub fn refresh_symbol_index(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {

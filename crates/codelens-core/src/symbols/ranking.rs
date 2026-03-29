@@ -52,7 +52,6 @@ impl RankingContext {
     }
 
     /// Create a ranking context with PageRank + semantic scores.
-    #[allow(dead_code)]
     pub fn with_pagerank_and_semantic(
         pagerank: HashMap<String, f64>,
         semantic_scores: HashMap<String, f64>,
