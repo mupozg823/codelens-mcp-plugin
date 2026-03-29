@@ -1,0 +1,1080 @@
+mod dispatch;
+mod error;
+mod prompts;
+mod protocol;
+mod resources;
+mod tool_defs;
+mod tools;
+
+use anyhow::Result;
+use codelens_core::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
+#[cfg(feature = "semantic")]
+use codelens_core::EmbeddingEngine;
+use dispatch::dispatch_tool;
+use prompts::{get_prompt, prompts};
+use protocol::{JsonRpcRequest, JsonRpcResponse};
+use resources::{read_resource, resources};
+use serde_json::json;
+use std::io::{self, BufRead, Write};
+use std::sync::{Arc, Mutex};
+use tool_defs::{ToolPreset, BALANCED_EXCLUDES, MINIMAL_TOOLS, tools};
+
+// ── Application state ──────────────────────────────────────────────────
+
+struct AppState {
+    project: ProjectRoot,
+    symbol_index: Arc<SymbolIndex>,
+    lsp_pool: LspSessionPool,
+    pub(crate) graph_cache: Arc<GraphCache>,
+    preset: Mutex<ToolPreset>,
+    /// Global token budget for response size control.
+    /// Tools that produce variable-length output respect this limit.
+    token_budget: std::sync::atomic::AtomicUsize,
+    memories_dir: std::path::PathBuf,
+    watcher: Option<FileWatcher>,
+    #[cfg(feature = "semantic")]
+    embedding: std::sync::OnceLock<Option<EmbeddingEngine>>,
+}
+
+impl AppState {
+    /// Access the symbol index. SymbolIndex is internally synchronized
+    /// (reader/writer split), so no external lock is needed.
+    pub(crate) fn symbol_index(&self) -> &SymbolIndex {
+        &self.symbol_index
+    }
+
+    /// Access the LSP session pool. Pool uses internal per-session locking.
+    pub(crate) fn lsp_pool(&self) -> &LspSessionPool {
+        &self.lsp_pool
+    }
+
+    /// Acquire preset lock with poison recovery.
+    pub(crate) fn preset(&self) -> std::sync::MutexGuard<'_, ToolPreset> {
+        self.preset
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Current global token budget.
+    pub(crate) fn token_budget(&self) -> usize {
+        self.token_budget.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Set global token budget.
+    pub(crate) fn set_token_budget(&self, budget: usize) {
+        self.token_budget
+            .store(budget, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
+        let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
+        let lsp_pool = LspSessionPool::new(project.clone());
+        let graph_cache = Arc::new(GraphCache::new(30));
+        let memories_dir = project.as_path().join(".codelens").join("memories");
+
+        let watcher = FileWatcher::start(
+            project.as_path(),
+            Arc::clone(&symbol_index),
+            Arc::clone(&graph_cache),
+        )
+        .ok();
+
+        Self {
+            project,
+            symbol_index,
+            lsp_pool,
+            graph_cache,
+            preset: Mutex::new(preset),
+            token_budget: std::sync::atomic::AtomicUsize::new(4000),
+            memories_dir,
+            watcher,
+            #[cfg(feature = "semantic")]
+            embedding: std::sync::OnceLock::new(),
+        }
+    }
+}
+
+// ── Entry point ────────────────────────────────────────────────────────
+
+fn main() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    let project_arg = args.get(1).map(|s| s.as_str()).unwrap_or(".");
+    let preset = args
+        .iter()
+        .position(|a| a == "--preset")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| ToolPreset::from_str(s))
+        .or_else(|| {
+            std::env::var("CODELENS_PRESET")
+                .ok()
+                .map(|s| ToolPreset::from_str(&s))
+        })
+        .unwrap_or(ToolPreset::Balanced);
+
+    // Project root resolution priority:
+    // 1. Explicit path argument (if not ".")
+    // 2. CLAUDE_PROJECT_DIR environment variable (set by Claude Code)
+    // 3. MCP_PROJECT_DIR environment variable (generic)
+    // 4. Current working directory with .git/.cargo marker detection
+    let effective_path = if project_arg != "." {
+        project_arg.to_string()
+    } else if let Ok(dir) = std::env::var("CLAUDE_PROJECT_DIR") {
+        dir
+    } else if let Ok(dir) = std::env::var("MCP_PROJECT_DIR") {
+        dir
+    } else {
+        ".".to_string()
+    };
+
+    // One-shot CLI mode: --cmd <tool_name> [--args '<json>']
+    let cmd_tool = args
+        .iter()
+        .position(|a| a == "--cmd")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+
+    let cmd_args = args
+        .iter()
+        .position(|a| a == "--args")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+
+    let transport = args
+        .iter()
+        .position(|a| a == "--transport")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| s.as_str())
+        .unwrap_or("stdio");
+
+    #[cfg(feature = "http")]
+    let port: u16 = args
+        .iter()
+        .position(|a| a == "--port")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(7837);
+
+    let project = ProjectRoot::new(&effective_path)?;
+    let state = Arc::new(AppState::new(project, preset));
+
+    // One-shot mode: run a single tool and exit
+    if let Some(tool_name) = cmd_tool {
+        return run_oneshot(&state, &tool_name, cmd_args.as_deref());
+    }
+
+    match transport {
+        #[cfg(feature = "http")]
+        "http" => run_http(state, port),
+        #[cfg(not(feature = "http"))]
+        "http" => {
+            anyhow::bail!("HTTP transport requires the `http` feature. Rebuild with: cargo build --features http");
+        }
+        _ => run_stdio(state),
+    }
+}
+
+// ── Transport: stdio ───────────────────────────────────────────────────
+
+fn run_stdio(state: Arc<AppState>) -> Result<()> {
+    let stdin = io::stdin();
+    let mut stdout = io::stdout().lock();
+
+    for line in stdin.lock().lines() {
+        let line = line?;
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        // JSON-RPC 2.0 batch support: detect array vs object
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') {
+            // Batch request
+            match serde_json::from_str::<Vec<JsonRpcRequest>>(trimmed) {
+                Ok(requests) => {
+                    let responses: Vec<_> = requests
+                        .into_iter()
+                        .filter_map(|req| handle_request(&state, req))
+                        .collect();
+                    if !responses.is_empty() {
+                        serde_json::to_writer(&mut stdout, &responses)?;
+                        stdout.write_all(b"\n")?;
+                        stdout.flush()?;
+                    }
+                }
+                Err(error) => {
+                    let resp = JsonRpcResponse::error(
+                        None,
+                        -32700,
+                        format!("Batch parse error: {error}"),
+                    );
+                    serde_json::to_writer(&mut stdout, &resp)?;
+                    stdout.write_all(b"\n")?;
+                    stdout.flush()?;
+                }
+            }
+        } else {
+            // Single request
+            let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
+                Ok(request) => handle_request(&state, request),
+                Err(error) => Some(JsonRpcResponse::error(
+                    None,
+                    -32700,
+                    format!("Parse error: {error}"),
+                )),
+            };
+            if let Some(response) = response {
+                serde_json::to_writer(&mut stdout, &response)?;
+                stdout.write_all(b"\n")?;
+                stdout.flush()?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ── Transport: one-shot CLI ────────────────────────────────────────────
+
+fn run_oneshot(state: &AppState, tool_name: &str, args_json: Option<&str>) -> Result<()> {
+    let arguments: serde_json::Value = match args_json {
+        Some(s) => serde_json::from_str(s)
+            .map_err(|e| anyhow::anyhow!("Invalid --args JSON: {e}"))?,
+        None => json!({}),
+    };
+    let params = json!({ "name": tool_name, "arguments": arguments });
+    let response = dispatch_tool(state, Some(json!(1)), params);
+
+    // Extract the tool result text content
+    if let Some(result) = &response.result {
+        if let Some(content) = result.get("content").and_then(|c| c.get(0)).and_then(|c| c.get("text")) {
+            println!("{}", content.as_str().unwrap_or(""));
+        }
+    } else if let Some(error) = &response.error {
+        eprintln!("Error: {}", error.message);
+        std::process::exit(1);
+    }
+    Ok(())
+}
+
+// ── Transport: HTTP (feature-gated) ────────────────────────────────────
+
+#[cfg(feature = "http")]
+#[tokio::main]
+async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
+    use axum::{Router, routing::post};
+
+    let app = Router::new()
+        .route("/mcp", post(mcp_handler))
+        .with_state(state);
+
+    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
+    eprintln!("CodeLens MCP HTTP server listening on http://{addr}/mcp");
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+#[cfg(feature = "http")]
+async fn mcp_handler(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    body: String,
+) -> (axum::http::StatusCode, String) {
+    let response = match serde_json::from_str::<JsonRpcRequest>(&body) {
+        Ok(request) => handle_request(&state, request),
+        Err(error) => Some(JsonRpcResponse::error(None, -32700, format!("Parse error: {error}"))),
+    };
+    match response {
+        Some(resp) => match serde_json::to_string(&resp) {
+            Ok(json) => (axum::http::StatusCode::OK, json),
+            Err(e) => (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                serde_json::to_string(&json!({"error": e.to_string()}))
+                    .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_owned()),
+            ),
+        },
+        // Notification — HTTP 204 No Content
+        None => (axum::http::StatusCode::NO_CONTENT, String::new()),
+    }
+}
+
+// ── JSON-RPC request handler ───────────────────────────────────────────
+
+fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcResponse> {
+    if request.jsonrpc != "2.0" {
+        return Some(JsonRpcResponse::error(request.id, -32600, "Unsupported jsonrpc version"));
+    }
+
+    // JSON-RPC 2.0: notifications (no id) MUST NOT receive a response
+    let is_notification = request.id.is_none();
+
+    match request.method.as_str() {
+        // Notifications — silently accept, never respond
+        "notifications/initialized" | "notifications/cancelled" | "notifications/progress"
+        | "notifications/roots/list_changed" => None,
+
+        "initialize" => Some(JsonRpcResponse::result(
+            request.id,
+            json!({
+                "protocolVersion": "2025-03-26",
+                "capabilities": {
+                    "tools": {},
+                    "resources": { "listChanged": false },
+                    "prompts": { "listChanged": false }
+                },
+                "serverInfo": {
+                    "name": "codelens-mcp",
+                    "version": env!("CARGO_PKG_VERSION")
+                }
+            }),
+        )),
+        "resources/list" => {
+            Some(JsonRpcResponse::result(request.id, json!({ "resources": resources(state) })))
+        }
+        "resources/read" => {
+            let uri = request
+                .params
+                .as_ref()
+                .and_then(|p| p.get("uri"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            Some(JsonRpcResponse::result(request.id, read_resource(state, uri)))
+        }
+        "prompts/list" => Some(JsonRpcResponse::result(request.id, json!({ "prompts": prompts() }))),
+        "prompts/get" => {
+            let name = request
+                .params
+                .as_ref()
+                .and_then(|p| p.get("name"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            let args = request
+                .params
+                .as_ref()
+                .and_then(|p| p.get("arguments"))
+                .cloned()
+                .unwrap_or(json!({}));
+            Some(JsonRpcResponse::result(request.id, get_prompt(state, name, &args)))
+        }
+        "tools/list" => {
+            let current_preset = *state.preset();
+            let filtered: Vec<_> = tools()
+                .iter()
+                .filter(|t| match current_preset {
+                    ToolPreset::Full => true,
+                    ToolPreset::Minimal => MINIMAL_TOOLS.contains(&t.name),
+                    ToolPreset::Balanced => !BALANCED_EXCLUDES.contains(&t.name),
+                })
+                .collect();
+            Some(JsonRpcResponse::result(request.id, json!({ "tools": filtered })))
+        }
+        "tools/call" => match request.params {
+            Some(params) => Some(dispatch_tool(state, request.id, params)),
+            None => Some(JsonRpcResponse::error(request.id, -32602, "Missing params")),
+        },
+        // Unknown notification — silently ignore per JSON-RPC 2.0
+        _ if is_notification => None,
+        method => Some(JsonRpcResponse::error(request.id, -32601, format!("Method not found: {method}"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{handle_request, tools};
+    use codelens_core::ProjectRoot;
+    use serde_json::json;
+    use std::fs;
+
+    #[test]
+    fn lists_tools() {
+        let project = project_root();
+        let state = super::AppState::new(project, super::tool_defs::ToolPreset::Full);
+        let response = handle_request(
+            &state,
+            super::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".to_owned(),
+                id: Some(json!(1)),
+                method: "tools/list".to_owned(),
+                params: None,
+            },
+        )
+        .expect("tools/list should return a response");
+        // 51 base + 2 semantic (feature-gated)
+        #[cfg(feature = "semantic")]
+        assert_eq!(tools().len(), 54);
+        #[cfg(not(feature = "semantic"))]
+        assert_eq!(tools().len(), 52);
+        let encoded = serde_json::to_string(&response).expect("serialize");
+        assert!(encoded.contains("get_symbols_overview"));
+    }
+
+    #[test]
+    fn notifications_return_none() {
+        let project = project_root();
+        let state = super::AppState::new(project, super::tool_defs::ToolPreset::Full);
+        for method in &[
+            "notifications/initialized",
+            "notifications/cancelled",
+            "notifications/progress",
+        ] {
+            let result = handle_request(
+                &state,
+                super::protocol::JsonRpcRequest {
+                    jsonrpc: "2.0".to_owned(),
+                    id: None,
+                    method: method.to_string(),
+                    params: None,
+                },
+            );
+            assert!(result.is_none(), "notification {method} should return None");
+        }
+    }
+
+    #[test]
+    fn set_preset_changes_tools_list() {
+        let project = project_root();
+        let state = super::AppState::new(project, super::tool_defs::ToolPreset::Full);
+
+        // Full preset — should have all tools including find_dead_code
+        let full_resp = handle_request(
+            &state,
+            super::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".to_owned(),
+                id: Some(json!(1)),
+                method: "tools/list".to_owned(),
+                params: None,
+            },
+        )
+        .unwrap();
+        let full_json = serde_json::to_string(&full_resp).unwrap();
+        assert!(full_json.contains("find_dead_code"), "Full preset should include find_dead_code");
+        assert!(full_json.contains("set_preset"), "Full preset should include set_preset");
+
+        // Switch to minimal via set_preset tool
+        let set_resp = call_tool(&state, "set_preset", json!({"preset": "minimal"}));
+        assert_eq!(set_resp["data"]["current_preset"], "Minimal");
+
+        // Minimal preset — should NOT have find_dead_code
+        let min_resp = handle_request(
+            &state,
+            super::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".to_owned(),
+                id: Some(json!(2)),
+                method: "tools/list".to_owned(),
+                params: None,
+            },
+        )
+        .unwrap();
+        let min_json = serde_json::to_string(&min_resp).unwrap();
+        assert!(!min_json.contains("find_dead_code"), "Minimal preset should NOT include find_dead_code");
+        assert!(min_json.contains("find_symbol"), "Minimal preset should include find_symbol");
+
+        // Switch back to balanced
+        let bal_resp = call_tool(&state, "set_preset", json!({"preset": "balanced"}));
+        assert_eq!(bal_resp["data"]["current_preset"], "Balanced");
+    }
+
+    #[test]
+    fn reads_file_via_tool_call() {
+        let project = project_root();
+        let state = make_state(&project);
+        let payload = call_tool(&state, "read_file", json!({ "relative_path": "hello.txt" }));
+        assert_eq!(payload["success"], json!(true));
+        assert_eq!(payload["backend_used"], json!("filesystem"));
+    }
+
+    #[test]
+    fn returns_symbols_via_tool_call() {
+        let project = project_root();
+        fs::write(
+            project.as_path().join("sample.py"),
+            "class Foo:\n    def bar(self):\n        pass\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "get_symbols_overview",
+            json!({ "path": "sample.py" }),
+        );
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn reports_symbol_index_stats() {
+        let project = project_root();
+        fs::write(
+            project.as_path().join("stats_test.py"),
+            "def alpha():\n    pass\ndef beta():\n    pass\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        call_tool(&state, "refresh_symbol_index", json!({}));
+        let payload = call_tool(&state, "get_current_config", json!({}));
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_ranked_context_via_tool_call() {
+        let project = project_root();
+        fs::write(
+            project.as_path().join("rank.py"),
+            "def search_users(query):\n    pass\ndef delete_user(uid):\n    pass\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "get_ranked_context",
+            json!({ "query": "search users" }),
+        );
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_blast_radius_via_tool_call() {
+        let project = project_root();
+        fs::create_dir_all(project.as_path().join("pkg")).unwrap();
+        fs::write(project.as_path().join("pkg/core.py"), "X = 1\n").unwrap();
+        fs::write(
+            project.as_path().join("pkg/util.py"),
+            "from pkg.core import X\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "get_blast_radius",
+            json!({ "file_path": "pkg/core.py" }),
+        );
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_importers_via_tool_call() {
+        let project = project_root();
+        fs::create_dir_all(project.as_path().join("lib")).unwrap();
+        fs::write(project.as_path().join("lib/base.py"), "BASE = 42\n").unwrap();
+        fs::write(
+            project.as_path().join("lib/derived.py"),
+            "from lib.base import BASE\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "find_importers",
+            json!({ "file_path": "lib/base.py" }),
+        );
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_symbol_importance_via_tool_call() {
+        let project = project_root();
+        fs::create_dir_all(project.as_path().join("importance_pkg")).unwrap();
+        fs::write(
+            project.as_path().join("importance_pkg/hub.py"),
+            "HUB = True\n",
+        )
+        .unwrap();
+        fs::write(
+            project.as_path().join("importance_pkg/spoke_a.py"),
+            "from importance_pkg.hub import HUB\n",
+        )
+        .unwrap();
+        fs::write(
+            project.as_path().join("importance_pkg/spoke_b.py"),
+            "from importance_pkg.hub import HUB\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(&state, "get_symbol_importance", json!({ "top_n": 5 }));
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_dead_code_via_tool_call() {
+        let project = project_root();
+        fs::create_dir_all(project.as_path().join("dc_pkg")).unwrap();
+        fs::write(project.as_path().join("dc_pkg/used.py"), "X = 1\n").unwrap();
+        fs::write(project.as_path().join("dc_pkg/orphan.py"), "Y = 2\n").unwrap();
+        fs::write(
+            project.as_path().join("dc_pkg/consumer.py"),
+            "from dc_pkg.used import X\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(&state, "find_dead_code", json!({ "max_results": 10 }));
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_annotations_via_tool_call() {
+        let project = project_root();
+        fs::write(
+            project.as_path().join("annotated.py"),
+            "# TODO: fix this\n# FIXME: broken\ndef ok():\n    pass\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(&state, "find_annotations", json!({}));
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_tests_via_tool_call() {
+        let project = project_root();
+        fs::write(
+            project.as_path().join("test_sample.py"),
+            "def test_one():\n    assert True\ndef test_two():\n    assert True\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(&state, "find_tests", json!({}));
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_complexity_via_tool_call() {
+        let project = project_root();
+        fs::write(project.as_path().join("complex.py"), "def decide(x):\n    if x > 0:\n        if x > 10:\n            return 'big'\n        return 'small'\n    return 'neg'\n").unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(&state, "get_complexity", json!({ "path": "complex.py" }));
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_changed_files_via_tool_call() {
+        let project = project_root();
+        run_git(&project, &["init"]);
+        run_git(&project, &["add", "."]);
+        run_git(
+            &project,
+            &[
+                "-c",
+                "user.email=test@test.com",
+                "-c",
+                "user.name=Test",
+                "commit",
+                "-m",
+                "init",
+            ],
+        );
+        fs::write(project.as_path().join("new_file.py"), "X = 1\n").unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(&state, "get_changed_files", json!({}));
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_lsp_references_via_tool_call() {
+        let project = project_root();
+        fs::write(
+            project.as_path().join("ref_target.py"),
+            "class MyClass:\n    pass\n\nobj = MyClass()\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "find_referencing_symbols",
+            json!({ "file_path": "ref_target.py", "symbol_name": "MyClass" }),
+        );
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_lsp_diagnostics_via_tool_call() {
+        let project = project_root();
+        let mock_lsp = concat!(
+            "#!/usr/bin/env python3\n",
+            "import sys, json\n",
+            "def read_msg():\n",
+            "    h = ''\n",
+            "    while True:\n",
+            "        c = sys.stdin.buffer.read(1)\n",
+            "        if not c: return None\n",
+            "        h += c.decode('ascii')\n",
+            "        if h.endswith('\\r\\n\\r\\n'): break\n",
+            "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+            "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+            "def send(r):\n",
+            "    out = json.dumps(r)\n",
+            "    b = out.encode('utf-8')\n",
+            "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+            "    sys.stdout.buffer.write(b)\n",
+            "    sys.stdout.buffer.flush()\n",
+            "while True:\n",
+            "    msg = read_msg()\n",
+            "    if msg is None: break\n",
+            "    rid = msg.get('id')\n",
+            "    m = msg.get('method', '')\n",
+            "    if m == 'initialized': continue\n",
+            "    if rid is None: continue\n",
+            "    if m == 'initialize':\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'textDocumentSync':1,'diagnosticProvider':{}}}})\n",
+            "    elif m == 'textDocument/diagnostic':\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':{'kind':'full','items':[{'range':{'start':{'line':0,'character':0},'end':{'line':0,'character':5}},'severity':2,'message':'test warning'}]}})\n",
+            "    elif m == 'shutdown':\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+            "    else:\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        );
+        let mock_path = project.as_path().join("mock_lsp.py");
+        fs::write(&mock_path, mock_lsp).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        fs::write(project.as_path().join("diag_target.py"), "x = 1\n").unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "get_file_diagnostics",
+            json!({ "file_path": "diag_target.py", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+        );
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_workspace_symbols_via_tool_call() {
+        let project = project_root();
+        let mock_lsp = concat!(
+            "#!/usr/bin/env python3\n",
+            "import sys, json\n",
+            "def read_msg():\n",
+            "    h = ''\n",
+            "    while True:\n",
+            "        c = sys.stdin.buffer.read(1)\n",
+            "        if not c: return None\n",
+            "        h += c.decode('ascii')\n",
+            "        if h.endswith('\\r\\n\\r\\n'): break\n",
+            "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+            "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+            "def send(r):\n",
+            "    out = json.dumps(r)\n",
+            "    b = out.encode('utf-8')\n",
+            "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+            "    sys.stdout.buffer.write(b)\n",
+            "    sys.stdout.buffer.flush()\n",
+            "while True:\n",
+            "    msg = read_msg()\n",
+            "    if msg is None: break\n",
+            "    rid = msg.get('id')\n",
+            "    m = msg.get('method', '')\n",
+            "    if m == 'initialized': continue\n",
+            "    if rid is None: continue\n",
+            "    if m == 'initialize':\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'workspaceSymbolProvider':True}}})\n",
+            "    elif m == 'workspace/symbol':\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':[{'name':'TestSymbol','kind':5,'location':{'uri':'file:///test.py','range':{'start':{'line':0,'character':0},'end':{'line':0,'character':10}}}}]})\n",
+            "    elif m == 'shutdown':\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+            "    else:\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        );
+        let mock_path = project.as_path().join("mock_ws_lsp.py");
+        fs::write(&mock_path, mock_lsp).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "search_workspace_symbols",
+            json!({ "query": "Test", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+        );
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_type_hierarchy_via_tool_call() {
+        let project = project_root();
+        fs::write(
+            project.as_path().join("hierarchy.py"),
+            "class Animal:\n    pass\nclass Dog(Animal):\n    pass\nclass Cat(Animal):\n    pass\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "get_type_hierarchy",
+            json!({ "name_path": "Animal", "relative_path": "hierarchy.py" }),
+        );
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    #[test]
+    fn returns_rename_plan_via_tool_call() {
+        let project = project_root();
+        fs::write(
+            project.as_path().join("rename_target.py"),
+            "def old_name():\n    pass\n\nold_name()\n",
+        )
+        .unwrap();
+        let mock_lsp = concat!(
+            "#!/usr/bin/env python3\n",
+            "import sys, json\n",
+            "def read_msg():\n",
+            "    h = ''\n",
+            "    while True:\n",
+            "        c = sys.stdin.buffer.read(1)\n",
+            "        if not c: return None\n",
+            "        h += c.decode('ascii')\n",
+            "        if h.endswith('\\r\\n\\r\\n'): break\n",
+            "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+            "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+            "def send(r):\n",
+            "    out = json.dumps(r)\n",
+            "    b = out.encode('utf-8')\n",
+            "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+            "    sys.stdout.buffer.write(b)\n",
+            "    sys.stdout.buffer.flush()\n",
+            "while True:\n",
+            "    msg = read_msg()\n",
+            "    if msg is None: break\n",
+            "    rid = msg.get('id')\n",
+            "    m = msg.get('method', '')\n",
+            "    if m == 'initialized': continue\n",
+            "    if rid is None: continue\n",
+            "    if m == 'initialize':\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'renameProvider':{'prepareProvider':True}}}})\n",
+            "    elif m == 'textDocument/prepareRename':\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':{'range':{'start':{'line':0,'character':4},'end':{'line':0,'character':12}},'placeholder':'old_name'}})\n",
+            "    elif m == 'shutdown':\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+            "    else:\n",
+            "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        );
+        let mock_path = project.as_path().join("mock_rename_lsp.py");
+        fs::write(&mock_path, mock_lsp).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&mock_path, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "plan_symbol_rename",
+            json!({ "file_path": "rename_target.py", "line": 1, "column": 5, "new_name": "new_name", "command": "python3", "args": [mock_path.to_string_lossy()] }),
+        );
+        assert_eq!(payload["success"], json!(true));
+    }
+
+    // ── Test helpers ─────────────────────────────────────────────────────
+
+    fn make_state(project: &ProjectRoot) -> super::AppState {
+        super::AppState::new(project.clone(), super::tool_defs::ToolPreset::Full)
+    }
+
+    fn call_tool(
+        state: &super::AppState,
+        name: &str,
+        arguments: serde_json::Value,
+    ) -> serde_json::Value {
+        let response = handle_request(
+            state,
+            super::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".to_owned(),
+                id: Some(json!(1)),
+                method: "tools/call".to_owned(),
+                params: Some(json!({ "name": name, "arguments": arguments })),
+            },
+        )
+        .expect("tools/call should return a response");
+        let text = extract_tool_text(&response);
+        parse_tool_payload(&text)
+    }
+
+    fn extract_tool_text(response: &super::protocol::JsonRpcResponse) -> String {
+        let v = serde_json::to_value(response).expect("serialize");
+        v["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or("")
+            .to_string()
+    }
+
+    fn parse_tool_payload(text: &str) -> serde_json::Value {
+        serde_json::from_str(text).unwrap_or(json!({}))
+    }
+
+    fn project_root() -> ProjectRoot {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join("hello.txt"), "hello world\n").unwrap();
+        ProjectRoot::new(dir.to_str().unwrap()).unwrap()
+    }
+
+    fn run_git(project: &ProjectRoot, args: &[&str]) {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(project.as_path())
+            .output()
+            .expect("git command failed");
+    }
+
+    // ---- Memory tool tests ----
+
+    #[test]
+    fn write_and_read_memory() {
+        let project = project_root();
+        let state = make_state(&project);
+        call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "test_note", "content": "hello from test"}),
+        );
+        let result = call_tool(
+            &state,
+            "read_memory",
+            json!({"memory_name": "test_note"}),
+        );
+        assert_eq!(
+            result["data"]["content"].as_str().unwrap(),
+            "hello from test"
+        );
+    }
+
+    #[test]
+    fn delete_memory_removes_file() {
+        let project = project_root();
+        let state = make_state(&project);
+        call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "to_delete", "content": "temp"}),
+        );
+        let result = call_tool(
+            &state,
+            "delete_memory",
+            json!({"memory_name": "to_delete"}),
+        );
+        assert_eq!(result["data"]["status"].as_str().unwrap(), "ok");
+    }
+
+    #[test]
+    fn list_memories_returns_written() {
+        let project = project_root();
+        let state = make_state(&project);
+        call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "alpha", "content": "a"}),
+        );
+        call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "beta", "content": "b"}),
+        );
+        let result = call_tool(&state, "list_memories", json!({}));
+        let count = result["data"]["count"].as_u64().unwrap_or(0);
+        assert!(count >= 2, "expected at least 2 memories, got {count}");
+    }
+
+    #[test]
+    fn rename_memory_moves_file() {
+        let project = project_root();
+        let state = make_state(&project);
+        call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "old_name", "content": "data"}),
+        );
+        call_tool(
+            &state,
+            "rename_memory",
+            json!({"old_name": "old_name", "new_name": "new_name"}),
+        );
+        let result = call_tool(
+            &state,
+            "read_memory",
+            json!({"memory_name": "new_name"}),
+        );
+        assert_eq!(result["data"]["content"].as_str().unwrap(), "data");
+    }
+
+    #[test]
+    fn memory_path_traversal_rejected() {
+        let project = project_root();
+        let state = make_state(&project);
+        let result = call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "../escape", "content": "bad"}),
+        );
+        assert!(
+            result["success"].as_bool() == Some(false),
+            "path traversal should be rejected"
+        );
+    }
+
+    // ---- Mutation tool tests ----
+
+    #[test]
+    fn create_text_file_creates_file() {
+        let project = project_root();
+        let state = make_state(&project);
+        let result = call_tool(
+            &state,
+            "create_text_file",
+            json!({"relative_path": "new_file.txt", "content": "line1\nline2\n"}),
+        );
+        assert!(result["success"].as_bool().unwrap_or(false));
+        let content = fs::read_to_string(project.as_path().join("new_file.txt")).unwrap();
+        assert_eq!(content, "line1\nline2\n");
+    }
+
+    #[test]
+    fn delete_lines_removes_range() {
+        let project = project_root();
+        let state = make_state(&project);
+        fs::write(
+            project.as_path().join("lines.txt"),
+            "line1\nline2\nline3\nline4\nline5\n",
+        )
+        .unwrap();
+        let result = call_tool(
+            &state,
+            "delete_lines",
+            json!({"relative_path": "lines.txt", "start_line": 2, "end_line": 4}),
+        );
+        assert!(result["success"].as_bool().unwrap_or(false));
+        let content = fs::read_to_string(project.as_path().join("lines.txt")).unwrap();
+        assert!(content.contains("line1"));
+        assert!(content.contains("line5"));
+        assert!(!content.contains("line2"));
+        assert!(!content.contains("line3"));
+    }
+
+    #[test]
+    fn replace_lines_substitutes_range() {
+        let project = project_root();
+        let state = make_state(&project);
+        fs::write(
+            project.as_path().join("replace.txt"),
+            "aaa\nbbb\nccc\nddd\n",
+        )
+        .unwrap();
+        let result = call_tool(
+            &state,
+            "replace_lines",
+            json!({"relative_path": "replace.txt", "start_line": 2, "end_line": 3, "new_content": "XXX\nYYY\n"}),
+        );
+        assert!(result["success"].as_bool().unwrap_or(false));
+        let content = fs::read_to_string(project.as_path().join("replace.txt")).unwrap();
+        assert!(content.contains("aaa"));
+        assert!(content.contains("XXX"));
+        assert!(!content.contains("bbb"));
+    }
+}

@@ -1,0 +1,59 @@
+[package]
+name = "codelens-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+globset.workspace = true
+petgraph.workspace = true
+rayon.workspace = true
+strsim.workspace = true
+regex.workspace = true
+rusqlite.workspace = true
+sha2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+streaming-iterator.workspace = true
+tree-sitter.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-python.workspace = true
+tree-sitter-typescript.workspace = true
+tree-sitter-go.workspace = true
+tree-sitter-java.workspace = true
+tree-sitter-kotlin.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-c.workspace = true
+tree-sitter-cpp.workspace = true
+tree-sitter-php.workspace = true
+tree-sitter-swift.workspace = true
+tree-sitter-scala.workspace = true
+tree-sitter-ruby.workspace = true
+tree-sitter-c-sharp.workspace = true
+tree-sitter-dart.workspace = true
+notify.workspace = true
+notify-debouncer-mini.workspace = true
+url.workspace = true
+walkdir.workspace = true
+libc.workspace = true
+fastembed = { workspace = true, optional = true }
+sqlite-vec = { workspace = true, optional = true }
+
+[features]
+default = ["semantic"]
+semantic = ["dep:fastembed", "dep:sqlite-vec"]
+
+[dev-dependencies]
+criterion.workspace = true
+tempfile = "3.15"
+
+[[bench]]
+name = "indexing"
+harness = false

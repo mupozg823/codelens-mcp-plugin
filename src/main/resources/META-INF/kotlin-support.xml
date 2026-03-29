@@ -1,4 +1,0 @@
-<idea-plugin>
-    <!-- Kotlin language support is loaded when org.jetbrains.kotlin is present -->
-    <!-- KotlinLanguageAdapter is instantiated directly by SymbolServiceImpl via tryLoadAdapter -->
-</idea-plugin>

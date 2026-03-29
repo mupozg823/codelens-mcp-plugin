@@ -1,251 +1,264 @@
-# CodeLens MCP — Open Source Symbol-Level Code Intelligence
+# CodeLens MCP
 
-**64 tools (IntelliJ plugin) / 46 tools (standalone). Three backends: PSI, Tree-sitter AST, Workspace regex.**
+Pure Rust MCP server for code intelligence — 53 tools, 15 languages, 12ms startup.
 
-A drop-in open-source replacement for Serena JetBrains backend. Exposes symbol-level code intelligence to AI coding assistants (Claude Code, Codex, Cline, Cursor, etc.) via MCP (Model Context Protocol).
+![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)
+![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 
----
+<!-- Demo GIF can be placed here -->
 
-## Features
+## Why CodeLens?
 
-### Symbol Analysis (8)
+- **Free and open-source.** No subscriptions, no seat licenses. Comparable commercial tools (e.g. jCodeMunch) start at $79+/month.
+- **Single binary, instant startup.** Pure Rust, 32MB, ~12ms cold start. No Node runtime, no JVM, no Python interpreter.
+- **53 tools in one binary.** Tree-sitter symbol indexing, LSP integration, import graph with PageRank, dead code detection, and semantic vector search (BGE-small quantized) — all without external services.
+- **15 languages, runtime preset switching.** Switch from 21-tool minimal mode to 53-tool full mode at runtime with `set_preset` — no server restart.
 
-| Tool                                  | Description                                                 |
-| ------------------------------------- | ----------------------------------------------------------- |
-| `get_symbols_overview`                | File/directory symbol structure overview                    |
-| `find_symbol`                         | Search symbols by name or stable `symbol_id`; optional body |
-| `find_referencing_symbols`            | Trace all references to a symbol                            |
-| `get_type_hierarchy`                  | Class inheritance/implementation tree and member structure  |
-| `get_call_hierarchy`                  | Caller/callee graph for a function (IntelliJ PSI only)      |
-| `get_ranked_context`                  | Token-budget-aware symbol ranking for context window        |
-| `jet_brains_find_symbol`              | JetBrains-native variant with PSI extras                    |
-| `jet_brains_find_referencing_symbols` | JetBrains-native reference search variant                   |
+## Quick Comparison
 
-### Symbol Editing (4)
+| Feature              | CodeLens          | jCodeMunch        | mcp-language-server |
+| -------------------- | ----------------- | ----------------- | ------------------- |
+| Price                | Free / OSS        | $79+/month        | Free / OSS          |
+| Languages            | 15                | 10                | varies by LSP       |
+| MCP tools            | 53                | ~20               | ~10                 |
+| LSP integration      | yes               | yes               | yes (only)          |
+| Import graph         | yes               | no                | no                  |
+| Circular dep. detect | yes               | no                | no                  |
+| Semantic search      | yes (BGE-Q local) | yes (cloud)       | no                  |
+| Runtime preset       | yes               | no                | no                  |
+| Binary size          | ~32MB             | N/A (SaaS)        | ~5MB                |
+| Cold start           | ~12ms             | network dependent | ~200ms              |
 
-| Tool                   | Description                                        |
-| ---------------------- | -------------------------------------------------- |
-| `replace_symbol_body`  | Replace symbol body with new code                  |
-| `insert_after_symbol`  | Insert code after a symbol                         |
-| `insert_before_symbol` | Insert code before a symbol                        |
-| `rename_symbol`        | IDE refactoring-based rename across all references |
+## 5-Minute Quickstart
 
-### Import Graph (4)
+### Install
 
-| Tool                    | Description                                        |
-| ----------------------- | -------------------------------------------------- |
-| `find_importers`        | Find files that import a given module/symbol       |
-| `get_blast_radius`      | Estimate change impact via transitive import graph |
-| `get_symbol_importance` | PageRank-based symbol importance score             |
-| `find_dead_code`        | Detect unreferenced symbols across the project     |
-
-### Git Integration (2)
-
-| Tool                | Description                                   |
-| ------------------- | --------------------------------------------- |
-| `get_diff_symbols`  | Symbols changed in a git diff                 |
-| `get_changed_files` | Files changed between commits or working tree |
-
-### Code Analysis (3)
-
-| Tool               | Description                                         |
-| ------------------ | --------------------------------------------------- |
-| `get_complexity`   | Cyclomatic complexity for functions/classes         |
-| `find_tests`       | Locate test files and test symbols                  |
-| `find_annotations` | Find TODO/FIXME/HACK annotations across the project |
-
-### File Operations (10+)
-
-| Tool                  | Description                                  |
-| --------------------- | -------------------------------------------- |
-| `read_file`           | Read file contents (partial or full)         |
-| `list_dir`            | Directory listing                            |
-| `list_directory_tree` | Recursive directory tree                     |
-| `find_file`           | Find files by name pattern                   |
-| `create_text_file`    | Create a new text file                       |
-| `delete_lines`        | Delete specific lines from a file            |
-| `insert_at_line`      | Insert text at a specific line               |
-| `replace_lines`       | Replace a line range                         |
-| `replace_content`     | Pattern-based content replacement            |
-| `search_for_pattern`  | Regex-based code search across the workspace |
-
-### IDE-Specific (8+)
-
-| Tool                        | Description                              |
-| --------------------------- | ---------------------------------------- |
-| `get_file_problems`         | IntelliJ highlighting-based diagnostics  |
-| `get_open_files`            | Currently open/selected files in the IDE |
-| `reformat_file`             | Reformat file using IDE code style       |
-| `execute_terminal_command`  | Run a command in the IDE terminal        |
-| `get_project_dependencies`  | Project dependency graph                 |
-| `get_project_modules`       | IntelliJ module structure and roots      |
-| `get_run_configurations`    | List available run/debug configurations  |
-| `execute_run_configuration` | Execute a run/debug configuration        |
-
-### Memory (6)
-
-| Tool            | Description                                       |
-| --------------- | ------------------------------------------------- |
-| `list_memories` | List `.serena/memories` files with topic prefixes |
-| `read_memory`   | Read a memory file                                |
-| `write_memory`  | Write a memory file                               |
-| `edit_memory`   | Edit an existing memory file                      |
-| `delete_memory` | Delete a memory file                              |
-| `rename_memory` | Rename a memory file                              |
-
-### Meta (6+)
-
-| Tool                                | Description                                           |
-| ----------------------------------- | ----------------------------------------------------- |
-| `activate_project`                  | Activate project context and validate paths           |
-| `get_current_config`                | Current project/IDE/tool registration status          |
-| `onboarding`                        | Run project onboarding sequence                       |
-| `check_onboarding_performed`        | Check if onboarding memory exists                     |
-| `initial_instructions`              | Return initial task instructions and recommended flow |
-| `think_about_collected_information` | Structured reasoning over gathered context            |
-| `think_about_task_adherence`        | Verify implementation stays on-task                   |
-| `think_about_whether_you_are_done`  | Self-check before declaring completion                |
-| `prepare_for_new_conversation`      | Summarize state for context handoff                   |
-
----
-
-## Supported Languages
-
-| Backend         | Languages                                                                    | Count |
-| --------------- | ---------------------------------------------------------------------------- | ----- |
-| PSI (IntelliJ)  | Java, Kotlin, JS/TS, Groovy, Shell, Python                                   | 6     |
-| Tree-sitter AST | Python, JS, TS, TSX, Go, Rust, Ruby, Java, Kotlin, C, C++, PHP, Swift, Scala | 14    |
-| Workspace regex | Same 14 + fallback                                                           | 14    |
-
----
-
-## Architecture
-
-```
-Claude Code / Codex / Cline
-  │
-  ├─ IntelliJ Plugin (64 tools)
-  │   └─ ACP + MCP → ToolRegistry → PSI Backend
-  │
-  └─ Standalone Server (46 tools)
-      └─ HTTP/Stdio → StandaloneToolDispatcher
-          ├─ Tree-sitter AST Backend (14 languages)
-          └─ Workspace Regex Backend (fallback)
-```
-
----
-
-## Installation
-
-### IntelliJ Plugin
-
-1. Download the latest zip from [Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases), or build from source:
-   ```bash
-   ./gradlew buildPlugin
-   ```
-2. In IntelliJ: **Settings → Plugins → ⚙ → Install Plugin from Disk**, select the zip.
-3. The plugin auto-registers an MCP server on port **24226** (HTTP) / **24227** (MCP endpoint). No additional setup required.
-
-### Standalone (no IDE required)
+**Cargo:**
 
 ```bash
-# HTTP mode
-java -jar codelens-mcp-plugin-1.0.0-standalone.jar /path/to/project --port 24226
-
-# Stdio mode (for Claude Code, Codex)
-java -jar codelens-mcp-plugin-1.0.0-standalone.jar /path/to/project --stdio
+cargo install codelens-mcp
 ```
 
----
+**Homebrew (macOS / Linux):**
 
-## Configuration
+```bash
+brew tap mupozg823/codelens
+brew install codelens-mcp
+```
 
-### Claude Code (`~/.claude.json`)
+**GitHub Releases:** Download the pre-built binary for your platform from the [Releases page](https://github.com/mupozg823/codelens-mcp-plugin/releases), extract, and place it on your `$PATH`.
+
+### Configure
+
+Add to your `.mcp.json` (or `~/.claude.json` for Claude Code):
 
 ```json
 {
   "mcpServers": {
     "codelens": {
-      "type": "http",
-      "url": "http://127.0.0.1:24227/mcp"
-    },
-    "codelens-standalone": {
-      "type": "stdio",
-      "command": "java",
-      "args": [
-        "-jar",
-        "/path/to/codelens-mcp-plugin-1.0.0-standalone.jar",
-        ".",
-        "--stdio"
-      ]
+      "command": "codelens-mcp",
+      "args": ["."]
     }
   }
 }
 ```
 
-### Codex (`~/.codex/config.toml`)
+### First command
 
-```toml
-[mcp_servers.codelens-standalone]
-command = "java"
-args = ["-jar", "/path/to/codelens-mcp-plugin-1.0.0-standalone.jar", ".", "--stdio"]
+Start the server and ask your AI client:
+
+```
+What symbols are defined in src/main.rs?
 ```
 
----
+The server indexes your project automatically on first activation.
 
-## Building
+## MCP Client Configurations
+
+All clients use **stdio transport**. Ensure `codelens-mcp` is on your `$PATH` (via `cargo install`, Homebrew, or manual install).
+
+### Claude Code
+
+```json
+// .mcp.json (project-level) or ~/.claude.json (global)
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"],
+      "type": "stdio"
+    }
+  }
+}
+```
+
+### Cursor
+
+```json
+// .cursor/mcp.json (project-level) or ~/.cursor/mcp.json (global)
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"]
+    }
+  }
+}
+```
+
+### OpenAI Codex
+
+```json
+// .codex/mcp.json
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"]
+    }
+  }
+}
+```
+
+### Windsurf (Codeium)
+
+```json
+// ~/.codeium/windsurf/mcp_config.json
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"]
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+```json
+// macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
+// Windows: %APPDATA%/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"]
+    }
+  }
+}
+```
+
+### Cline (VS Code)
+
+```json
+// VS Code Settings → Cline → MCP Servers → Edit JSON
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"]
+    }
+  }
+}
+```
+
+### Continue (VS Code / JetBrains)
+
+```json
+// ~/.continue/config.json → mcpServers section (array format)
+{
+  "mcpServers": [
+    {
+      "name": "codelens",
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"]
+    }
+  ]
+}
+```
+
+### Zed
+
+```json
+// ~/.config/zed/settings.json → context_servers section
+{
+  "context_servers": {
+    "codelens": {
+      "command": {
+        "path": "codelens-mcp",
+        "args": [".", "--preset", "balanced"]
+      }
+    }
+  }
+}
+```
+
+> Tip: Use `--preset minimal` (21 tools) for token-constrained environments or subagents.
+
+## Tool Categories
+
+| Category   | Count | Highlights                                                  |
+| ---------- | ----- | ----------------------------------------------------------- |
+| Filesystem | 7     | read_file, list_dir, find_file, search_for_pattern          |
+| Symbols    | 6     | get_symbols_overview, find_symbol, get_ranked_context       |
+| LSP        | 6     | find_referencing_symbols, get_file_diagnostics, type hier.  |
+| Graph      | 7     | get_impact_analysis, find_dead_code, callers, circular deps |
+| Mutation   | 11    | rename_symbol, replace_symbol_body, add_import              |
+| Memory     | 6     | list/read/write/delete/edit/rename_memory                   |
+| Session    | 6     | activate_project, get_watch_status, set_preset              |
+| Composite  | 1     | refactor_extract_function                                   |
+
+2 tools migrated to Skills: `onboarding` → `/onboard-project`, `get_lsp_recipe` → `/lsp-setup`.
+
+## Presets
+
+| Preset   | Tools | Tokens | Use case                                       |
+| -------- | ----- | ------ | ---------------------------------------------- |
+| FULL     | 53    | ~5K    | All tools, maximum capability                  |
+| BALANCED | 37    | ~3K    | Default — no built-in overlaps, no niche tools |
+| MINIMAL  | 21    | ~2K    | Subagents, token-constrained tasks             |
+
+Switch via CLI flag, environment variable, or at runtime:
 
 ```bash
-./gradlew buildPlugin          # IntelliJ plugin zip
-./gradlew standaloneFatJar     # Standalone fat-jar (~20MB)
-./gradlew test                 # Run tests
+codelens-mcp . --preset full
+CODELENS_PRESET=minimal codelens-mcp .
+# or at runtime (no restart needed):
+# call set_preset tool with "minimal" | "balanced" | "full"
 ```
 
-### Prerequisites
+## Feature Flags
 
-| Tool          | Version                  |
-| ------------- | ------------------------ |
-| JDK           | 21+                      |
-| IntelliJ IDEA | 2026.1+ (plugin only)    |
-| Gradle        | 8.13+ (wrapper included) |
+| Feature    | Build flag                      | Binary delta | Notes                               |
+| ---------- | ------------------------------- | ------------ | ----------------------------------- |
+| `semantic` | `--features semantic` (default) | +18MB        | fastembed + sqlite-vec embeddings   |
+| `http`     | `--features http`               | +18MB        | axum HTTP transport for agent teams |
 
----
+## Languages
 
-## Serena Compatibility
+Python, JavaScript, TypeScript, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, C#, Dart
 
-CodeLens is a drop-in replacement for Serena MCP. Tool names, parameters, and `.serena/memories/` structure are identical — existing `CLAUDE.md` Serena-First rules work without modification.
+> All 15 languages use native tree-sitter bindings for fast, accurate symbol parsing.
 
----
+## Building from Source
 
-## Comparison
+```bash
+# Standard build (semantic search included by default)
+cargo build --release
 
-| Feature                       | Serena MCP (Free)      | Serena JetBrains (Paid) | CodeLens MCP         |
-| ----------------------------- | ---------------------- | ----------------------- | -------------------- |
-| Code Analysis Engine          | LSP                    | JetBrains PSI           | JetBrains PSI        |
-| License                       | Open Source            | Paid                    | **Open Source**      |
-| Language Support (plugin)     | 40+ (via LSP)          | All JetBrains           | 6 PSI adapters       |
-| Language Support (standalone) | —                      | —                       | **14 (Tree-sitter)** |
-| Import Graph / PageRank       | —                      | —                       | **Yes**              |
-| Git Integration               | —                      | —                       | **Yes**              |
-| Extra Setup                   | Language Server needed | Plugin only             | **Plugin only**      |
+# Minimal build — no semantic search, no HTTP
+cargo build --release --no-default-features
 
----
+# All features
+cargo build --release --features semantic,http
 
-## Contributing
+# Run tests
+cargo test -p codelens-core && cargo test -p codelens-mcp
+```
 
-Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
-
----
+The binary is written to `target/release/codelens-mcp`.
 
 ## License
 
-[Apache License 2.0](LICENSE)
-
----
-
-## Acknowledgments
-
-- [Serena](https://github.com/oraios/serena) — inspiration
-- [JetBrains](https://www.jetbrains.com/) — IntelliJ Platform SDK
-- [MCP](https://modelcontextprotocol.io/) — Model Context Protocol specification
-- [tree-sitter](https://tree-sitter.github.io/) — incremental parsing library
+Apache-2.0 — see [LICENSE](LICENSE).

@@ -1,37 +1,33 @@
-# IntelliJ IDEA
-.idea/
-*.iml
-*.iws
-*.ipr
-out/
-
-# Gradle
-.gradle/
-.intellijPlatform/
-build/
-!gradle/wrapper/gradle-wrapper.jar
-
-# Compiled classes
-*.class
-
-# Logs
-*.log
-hs_err_pid*.log
+# Rust
+target/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
 
-# Plugin sandbox
-system-test/
-config-test/
+# IDE
+.idea/
+.vscode/
+*.iml
 
-# Local run configs
-.run/
+# CodeLens runtime (recursive — catches crates/*/.codelens/ too)
+**/.codelens/
+.codelens-port
+
+# Serena runtime
+**/.serena/
+
+# ML model cache
+**/.fastembed_cache/
+
+# Gradle (orphaned legacy)
+.gradle/
 
 # Environment
 .env
 .env.local
 
-# CodeLens port file (auto-generated at runtime)
-.codelens-port
+# Claude Code local settings (per-developer)
+.claude/settings.local.json

@@ -1,0 +1,29 @@
+[package]
+name = "codelens-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+
+[[bin]]
+name = "codelens-mcp"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+axum = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+serde.workspace = true
+serde_json.workspace = true
+codelens-core = { path = "../codelens-core", version = "1.0.0" }
+thiserror.workspace = true
+
+[features]
+default = ["semantic"]
+semantic = ["codelens-core/semantic"]
+http = ["dep:axum", "dep:tokio"]

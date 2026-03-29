@@ -1,43 +1,32 @@
-# CodeLens MCP Plugin
+# CodeLens MCP
 
-## Architecture
-
-- **JetBrains Plugin** (Kotlin/Gradle): `src/main/kotlin/com/codelens/` — 64 tools via ACP + MCP
-- **Standalone Server** (Kotlin fat-jar): `src/main/kotlin/com/codelens/standalone/` — 46 tools, tree-sitter AST
-- **Backends**: PSI (IntelliJ) > Tree-sitter (standalone) > Workspace regex (fallback)
-
-## Verification
+## Verify
 
 ```bash
-./gradlew test                    # IntelliJ platform tests
-./gradlew compileKotlin           # compile check
-./gradlew standaloneFatJar        # build standalone jar (~20MB)
+cargo test -p codelens-core && cargo test -p codelens-mcp
+cargo build --release
 ```
 
-## Key Files
+## Presets
 
-| File                                           | Role                                                     |
-| ---------------------------------------------- | -------------------------------------------------------- |
-| `build.gradle.kts`                             | Dependencies, version, fat-jar task                      |
-| `standalone/StandaloneToolDispatcher.kt`       | All 46 standalone tool definitions + dispatch            |
-| `standalone/StandaloneMcpServer.kt`            | HTTP + stdio entry point                                 |
-| `backend/treesitter/TreeSitterSymbolParser.kt` | AST parsing, 14 languages                                |
-| `backend/treesitter/TreeSitterBackend.kt`      | CodeLensBackend impl                                     |
-| `backend/treesitter/SymbolIndex.kt`            | Byte-offset cache + stable IDs                           |
-| `backend/treesitter/ImportGraphBuilder.kt`     | Import graph + PageRank                                  |
-| `backend/workspace/WorkspaceSymbolScanner.kt`  | Regex fallback, 14 languages                             |
-| `tools/ToolRegistry.kt`                        | Plugin tool registration (64 tools)                      |
-| `plugin/CompanionSkillInstaller.kt`            | Auto-installs Claude skill                               |
-| `standalone/ProjectRootDetector.kt`            | Auto-detects project root from .git markers              |
-| `standalone/JetBrainsProxy.kt`                 | HTTP proxy to running JetBrains IDE                      |
-| `standalone/ProjectRegistry.kt`                | ~/.codelens/projects.yml management                      |
-| `standalone/handlers/`                         | 6 handler files (symbol/file/git/analysis/memory/config) |
+FULL=54 | BALANCED=37 (default) | MINIMAL=21
 
-## Conventions
+## CLI
 
-- Tool names are Serena-compatible (snake_case)
-- tree-sitter objects have NO `close()` method — do not add try/finally
-- `requiresPsiSync = false` for non-PSI tools (file I/O, memory, thinking)
-- Standalone dispatch uses handler chain pattern (SymbolToolHandler, FileToolHandler, etc.)
-- Backend selection: JetBrains proxy → tree-sitter → workspace regex (automatic)
-- Project switching via activate_project updates backend + memories atomically
+`codelens-mcp . --cmd <tool> --args '<json>'`
+
+## Skills (Claude Code)
+
+| Skill               | Trigger     | Description                                      |
+| ------------------- | ----------- | ------------------------------------------------ |
+| `/codelens-review`  | code-review | Change impact + diagnostics analysis             |
+| `/codelens-onboard` | onboard     | Project structure + key symbols discovery        |
+| `/codelens-analyze` | analyze     | Architecture health: dead code, cycles, coupling |
+
+## Agent
+
+`codelens-explorer` — Read-only code exploration (haiku, fast, safe)
+
+## Hook
+
+`hooks/post-edit-diagnostics.sh` — Auto-diagnose after file edits
