@@ -16,7 +16,7 @@ struct AppState {
     symbol_index: Arc<Mutex<SymbolIndex>>,
     lsp_pool: Mutex<LspSessionPool>,
     graph_cache: Arc<GraphCache>,
-    preset: ToolPreset,
+    preset: Mutex<ToolPreset>,
     memories_dir: std::path::PathBuf,
     watcher: Option<FileWatcher>,
     #[cfg(feature = "semantic")]
@@ -25,9 +25,9 @@ struct AppState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolPreset {
-    Minimal,  // 20 core tools — symbol/file/search only
-    Balanced, // 30 tools — + analysis, git, editing
-    Full,     // all tools
+    Minimal,  // 21 core tools — symbol/file/search only
+    Balanced, // 42 tools — excludes 8 niche analysis tools
+    Full,     // all 50 tools (52 with semantic feature)
 }
 
 impl ToolPreset {
@@ -97,7 +97,7 @@ impl AppState {
             symbol_index,
             lsp_pool: Mutex::new(lsp_pool),
             graph_cache,
-            preset,
+            preset: Mutex::new(preset),
             memories_dir,
             watcher,
             #[cfg(feature = "semantic")]
@@ -136,6 +136,19 @@ fn main() -> Result<()> {
         ".".to_string()
     };
 
+    // One-shot CLI mode: --cmd <tool_name> [--args '<json>']
+    let cmd_tool = args
+        .iter()
+        .position(|a| a == "--cmd")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+
+    let cmd_args = args
+        .iter()
+        .position(|a| a == "--args")
+        .and_then(|i| args.get(i + 1))
+        .cloned();
+
     let transport = args
         .iter()
         .position(|a| a == "--transport")
@@ -153,8 +166,18 @@ fn main() -> Result<()> {
     let project = ProjectRoot::new(&effective_path)?;
     let state = Arc::new(AppState::new(project, preset));
 
+    // One-shot mode: run a single tool and exit
+    if let Some(tool_name) = cmd_tool {
+        return run_oneshot(&state, &tool_name, cmd_args.as_deref());
+    }
+
     match transport {
+        #[cfg(feature = "http")]
         "http" => run_http(state, port),
+        #[cfg(not(feature = "http"))]
+        "http" => {
+            anyhow::bail!("HTTP transport requires the `http` feature. Rebuild with: cargo build --features http");
+        }
         _ => run_stdio(state),
     }
 }
@@ -171,13 +194,36 @@ fn run_stdio(state: Arc<AppState>) -> Result<()> {
 
         let response = match serde_json::from_str::<JsonRpcRequest>(&line) {
             Ok(request) => handle_request(&state, request),
-            Err(error) => JsonRpcResponse::error(None, -32700, format!("Parse error: {error}")),
+            Err(error) => Some(JsonRpcResponse::error(None, -32700, format!("Parse error: {error}"))),
         };
-        serde_json::to_writer(&mut stdout, &response)?;
-        stdout.write_all(b"\n")?;
-        stdout.flush()?;
+        if let Some(response) = response {
+            serde_json::to_writer(&mut stdout, &response)?;
+            stdout.write_all(b"\n")?;
+            stdout.flush()?;
+        }
     }
 
+    Ok(())
+}
+
+fn run_oneshot(state: &AppState, tool_name: &str, args_json: Option<&str>) -> Result<()> {
+    let arguments: serde_json::Value = match args_json {
+        Some(s) => serde_json::from_str(s)
+            .map_err(|e| anyhow::anyhow!("Invalid --args JSON: {e}"))?,
+        None => json!({}),
+    };
+    let params = json!({ "name": tool_name, "arguments": arguments });
+    let response = dispatch_tool(state, Some(json!(1)), params);
+
+    // Extract the tool result text content
+    if let Some(result) = &response.result {
+        if let Some(content) = result.get("content").and_then(|c| c.get(0)).and_then(|c| c.get("text")) {
+            println!("{}", content.as_str().unwrap_or(""));
+        }
+    } else if let Some(error) = &response.error {
+        eprintln!("Error: {}", error.message);
+        std::process::exit(1);
+    }
     Ok(())
 }
 
@@ -221,6 +267,7 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
     ))
 }
 
+#[cfg(feature = "http")]
 #[tokio::main]
 async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
     use axum::{Router, extract::State, http::StatusCode, routing::post};
@@ -237,30 +284,42 @@ async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
     Ok(())
 }
 
+#[cfg(feature = "http")]
 async fn mcp_handler(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
     body: String,
 ) -> (axum::http::StatusCode, String) {
     let response = match serde_json::from_str::<JsonRpcRequest>(&body) {
         Ok(request) => handle_request(&state, request),
-        Err(error) => JsonRpcResponse::error(None, -32700, format!("Parse error: {error}")),
+        Err(error) => Some(JsonRpcResponse::error(None, -32700, format!("Parse error: {error}"))),
     };
-    match serde_json::to_string(&response) {
-        Ok(json) => (axum::http::StatusCode::OK, json),
-        Err(e) => (
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            format!("{{\"error\":\"{e}\"}}"),
-        ),
+    match response {
+        Some(resp) => match serde_json::to_string(&resp) {
+            Ok(json) => (axum::http::StatusCode::OK, json),
+            Err(e) => (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                format!("{{\"error\":\"{e}\"}}"),
+            ),
+        },
+        // Notification — HTTP 204 No Content
+        None => (axum::http::StatusCode::NO_CONTENT, String::new()),
     }
 }
 
-fn handle_request(state: &AppState, request: JsonRpcRequest) -> JsonRpcResponse {
+fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcResponse> {
     if request.jsonrpc != "2.0" {
-        return JsonRpcResponse::error(request.id, -32600, "Unsupported jsonrpc version");
+        return Some(JsonRpcResponse::error(request.id, -32600, "Unsupported jsonrpc version"));
     }
 
+    // JSON-RPC 2.0: notifications (no id) MUST NOT receive a response
+    let is_notification = request.id.is_none();
+
     match request.method.as_str() {
-        "initialize" => JsonRpcResponse::result(
+        // Notifications — silently accept, never respond
+        "notifications/initialized" | "notifications/cancelled" | "notifications/progress"
+        | "notifications/roots/list_changed" => None,
+
+        "initialize" => Some(JsonRpcResponse::result(
             request.id,
             json!({
                 "protocolVersion": "2025-03-26",
@@ -274,9 +333,9 @@ fn handle_request(state: &AppState, request: JsonRpcRequest) -> JsonRpcResponse 
                     "version": env!("CARGO_PKG_VERSION")
                 }
             }),
-        ),
+        )),
         "resources/list" => {
-            JsonRpcResponse::result(request.id, json!({ "resources": resources(state) }))
+            Some(JsonRpcResponse::result(request.id, json!({ "resources": resources(state) })))
         }
         "resources/read" => {
             let uri = request
@@ -285,9 +344,9 @@ fn handle_request(state: &AppState, request: JsonRpcRequest) -> JsonRpcResponse 
                 .and_then(|p| p.get("uri"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            JsonRpcResponse::result(request.id, read_resource(state, uri))
+            Some(JsonRpcResponse::result(request.id, read_resource(state, uri)))
         }
-        "prompts/list" => JsonRpcResponse::result(request.id, json!({ "prompts": prompts() })),
+        "prompts/list" => Some(JsonRpcResponse::result(request.id, json!({ "prompts": prompts() }))),
         "prompts/get" => {
             let name = request
                 .params
@@ -301,24 +360,27 @@ fn handle_request(state: &AppState, request: JsonRpcRequest) -> JsonRpcResponse 
                 .and_then(|p| p.get("arguments"))
                 .cloned()
                 .unwrap_or(json!({}));
-            JsonRpcResponse::result(request.id, get_prompt(state, name, &args))
+            Some(JsonRpcResponse::result(request.id, get_prompt(state, name, &args)))
         }
         "tools/list" => {
+            let current_preset = *state.preset.lock().unwrap();
             let filtered: Vec<_> = tools()
                 .into_iter()
-                .filter(|t| match state.preset {
+                .filter(|t| match current_preset {
                     ToolPreset::Full => true,
                     ToolPreset::Minimal => MINIMAL_TOOLS.contains(&t.name),
                     ToolPreset::Balanced => !BALANCED_EXCLUDES.contains(&t.name),
                 })
                 .collect();
-            JsonRpcResponse::result(request.id, json!({ "tools": filtered }))
+            Some(JsonRpcResponse::result(request.id, json!({ "tools": filtered })))
         }
         "tools/call" => match request.params {
-            Some(params) => dispatch_tool(state, request.id, params),
-            None => JsonRpcResponse::error(request.id, -32602, "Missing params"),
+            Some(params) => Some(dispatch_tool(state, request.id, params)),
+            None => Some(JsonRpcResponse::error(request.id, -32602, "Missing params")),
         },
-        method => JsonRpcResponse::error(request.id, -32601, format!("Method not found: {method}")),
+        // Unknown notification — silently ignore per JSON-RPC 2.0
+        _ if is_notification => None,
+        method => Some(JsonRpcResponse::error(request.id, -32601, format!("Method not found: {method}"))),
     }
 }
 
@@ -427,6 +489,7 @@ fn dispatch_tool(
         | "think_about_task_adherence"
         | "think_about_whether_you_are_done" => tools::session::think_noop(state, &arguments),
         "switch_modes" => tools::session::switch_modes(state, &arguments),
+        "set_preset" => tools::session::set_preset(state, &arguments),
 
         // Composite / agent
         "summarize_file" => tools::composite::summarize_file(state, &arguments),
@@ -474,7 +537,7 @@ fn dispatch_tool(
 
 // ── Tool definitions ────────────────────────────────────────────────────
 
-fn tools() -> Vec<Tool> {
+pub(crate) fn tools() -> Vec<Tool> {
     let ro = ToolAnnotations::read_only();
     let destructive = ToolAnnotations::destructive();
     let mutating = ToolAnnotations::mutating();
@@ -550,6 +613,7 @@ fn tools() -> Vec<Tool> {
         // onboarding: migrated to Skill, kept in dispatch for compat
         Tool::new("prepare_for_new_conversation", "Returns project context for a new conversation.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("get_watch_status", "Returns file watcher status: running, events processed, files reindexed.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
+        Tool::new("set_preset", "Switch tool preset at runtime. Changes which tools appear in tools/list.", json!({"type":"object","properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset: minimal (21 tools), balanced (42), full (50+)"}},"required":["preset"]})).with_annotations(mutating.clone()),
         // summarize_changes, list_queryable_projects: kept in dispatch for compat, not listed
     ];
 
@@ -589,7 +653,7 @@ fn resources(state: &AppState) -> Vec<serde_json::Value> {
         json!({
             "uri": "codelens://tools/list",
             "name": "Available Tools",
-            "description": "List of all 62 MCP tools with descriptions",
+            "description": format!("List of all {} MCP tools with descriptions", tools().len()),
             "mimeType": "application/json"
         }),
     ]
@@ -611,7 +675,7 @@ fn read_resource(state: &AppState, uri: &str) -> serde_json::Value {
                         "project_root": state.project.as_path().to_string_lossy(),
                         "symbol_index": stats,
                         "memories_dir": state.memories_dir.to_string_lossy(),
-                        "tool_count": 62
+                        "tool_count": tools().len()
                     })).unwrap_or_default()
                 }]
             })
@@ -732,10 +796,9 @@ fn get_prompt(state: &AppState, name: &str, args: &serde_json::Value) -> serde_j
                         "text": format!(
                             "Analyze the impact of modifying `{file_path}` in `{project_root}`.\n\n\
                             Use these tools:\n\
-                            1. `get_blast_radius` to find affected files\n\
-                            2. `find_importers` to find direct dependents\n\
-                            3. `get_symbols_overview` to understand what's in the file\n\
-                            4. `find_scoped_references` for each exported symbol\n\n\
+                            1. `get_impact_analysis` for symbols + importers + blast radius\n\
+                            2. `get_symbols_overview` to understand what's in the file\n\
+                            3. `find_scoped_references` for each exported symbol\n\n\
                             Assess: risk level, affected modules, required test coverage."
                         )
                     }
@@ -773,14 +836,81 @@ mod tests {
                 method: "tools/list".to_owned(),
                 params: None,
             },
-        );
-        // 49 base + 2 semantic (feature-gated)
+        )
+        .expect("tools/list should return a response");
+        // 50 base + 2 semantic (feature-gated)
         #[cfg(feature = "semantic")]
-        assert_eq!(tools().len(), 51);
+        assert_eq!(tools().len(), 52);
         #[cfg(not(feature = "semantic"))]
-        assert_eq!(tools().len(), 49);
+        assert_eq!(tools().len(), 50);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("get_symbols_overview"));
+    }
+
+    #[test]
+    fn notifications_return_none() {
+        let project = project_root();
+        let state = super::AppState::new(project, super::ToolPreset::Full);
+        for method in &[
+            "notifications/initialized",
+            "notifications/cancelled",
+            "notifications/progress",
+        ] {
+            let result = handle_request(
+                &state,
+                super::protocol::JsonRpcRequest {
+                    jsonrpc: "2.0".to_owned(),
+                    id: None,
+                    method: method.to_string(),
+                    params: None,
+                },
+            );
+            assert!(result.is_none(), "notification {method} should return None");
+        }
+    }
+
+    #[test]
+    fn set_preset_changes_tools_list() {
+        let project = project_root();
+        let state = super::AppState::new(project, super::ToolPreset::Full);
+
+        // Full preset — should have all tools including find_dead_code
+        let full_resp = handle_request(
+            &state,
+            super::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".to_owned(),
+                id: Some(json!(1)),
+                method: "tools/list".to_owned(),
+                params: None,
+            },
+        )
+        .unwrap();
+        let full_json = serde_json::to_string(&full_resp).unwrap();
+        assert!(full_json.contains("find_dead_code"), "Full preset should include find_dead_code");
+        assert!(full_json.contains("set_preset"), "Full preset should include set_preset");
+
+        // Switch to minimal via set_preset tool
+        let set_resp = call_tool(&state, "set_preset", json!({"preset": "minimal"}));
+        assert_eq!(set_resp["data"]["current_preset"], "Minimal");
+
+        // Minimal preset — should NOT have find_dead_code
+        let min_resp = handle_request(
+            &state,
+            super::protocol::JsonRpcRequest {
+                jsonrpc: "2.0".to_owned(),
+                id: Some(json!(2)),
+                method: "tools/list".to_owned(),
+                params: None,
+            },
+        )
+        .unwrap();
+        let min_json = serde_json::to_string(&min_resp).unwrap();
+        assert!(!min_json.contains("find_dead_code"), "Minimal preset should NOT include find_dead_code");
+        assert!(min_json.contains("find_symbol"), "Minimal preset should include find_symbol");
+
+        // Switch back to balanced
+        let bal_resp = call_tool(&state, "set_preset", json!({"preset": "balanced"}));
+        assert_eq!(bal_resp["data"]["current_preset"], "Balanced");
     }
 
     #[test]
@@ -1095,7 +1225,8 @@ mod tests {
                 method: "tools/call".to_owned(),
                 params: Some(json!({ "name": name, "arguments": arguments })),
             },
-        );
+        )
+        .expect("tools/call should return a response");
         let text = extract_tool_text(&response);
         parse_tool_payload(&text)
     }

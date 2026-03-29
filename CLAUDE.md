@@ -1,6 +1,6 @@
 # CodeLens MCP
 
-Pure Rust MCP server — 49 tools, 32MB binary, 16 languages, file watcher.
+Pure Rust MCP server — 50 tools, 16 languages, file watcher.
 
 ## Verification
 
@@ -28,14 +28,31 @@ crates/
         └── tools/            # 8 handler modules
 ```
 
+## Tool Routing — CodeLens vs Built-in
+
+| Task                       | Use                                                     | Why                                 |
+| -------------------------- | ------------------------------------------------------- | ----------------------------------- |
+| Read/write files           | **Built-in Read/Write/Edit**                            | Zero MCP overhead, always loaded    |
+| Text grep                  | **Built-in Grep**                                       | ripgrep, no deferred loading needed |
+| File name search           | **Built-in Glob**                                       | Instant, no MCP roundtrip           |
+| Symbol find/read/edit      | **CodeLens** find_symbol, replace_symbol_body           | Structural understanding, not text  |
+| Impact/dependency analysis | **CodeLens** get_impact_analysis                        | Import graph + blast radius         |
+| Multi-file rename          | **CodeLens** plan_symbol_rename → rename_symbol         | Cross-file reference tracking       |
+| Type errors/diagnostics    | **CodeLens** get_file_diagnostics                       | LSP-based, catches real errors      |
+| Dead code / cycles         | **CodeLens** find_dead_code, find_circular_dependencies | Graph analysis                      |
+| Type hierarchy             | **CodeLens** get_type_hierarchy                         | Super/sub type resolution           |
+| Preset switch              | **CodeLens** set_preset                                 | Runtime tool visibility control     |
+
 ## Conventions
 
 - Presets: `--preset minimal|balanced|full` or `CODELENS_PRESET` env (default: **balanced**)
+- Runtime preset switch: `set_preset` tool (no server restart needed)
+- Transport: stdio (default). HTTP available with `--features http`
 - SQLite index: `.codelens/index/symbols.db`
 - Memory dir: `.serena/memories/`
 - 500-line max per file
 
-## Tool Categories (49 listed, legacy aliases in dispatch)
+## Tool Categories (50 listed, legacy aliases in dispatch)
 
 | Category   | Tools | Notes                                                    |
 | ---------- | ----- | -------------------------------------------------------- |
@@ -45,29 +62,25 @@ crates/
 | Graph      | 7     | get_impact_analysis, find_dead_code, callers/callees...  |
 | Mutation   | 11    | rename_symbol, replace_symbol_body, add_import...        |
 | Memory     | 6     | list/read/write/delete/edit/rename_memory                |
-| Session    | 5     | activate_project, get_watch_status...                    |
+| Session    | 6     | activate_project, get_watch_status, set_preset...        |
 | Composite  | 1     | refactor_extract_function                                |
-
-4 tools migrated to Skills: onboarding, summarize_file, explain_code_flow, get_lsp_recipe
-
-## Quick Reference
-
-| Task            | Tool                                   |
-| --------------- | -------------------------------------- |
-| Find refs       | find_referencing_symbols               |
-| Impact analysis | get_blast_radius → get_impact_analysis |
-| Dead code       | find_dead_code                         |
-| Safe rename     | plan_symbol_rename → rename_symbol     |
-| Watcher status  | get_watch_status                       |
-| LSP recipes     | /lsp-setup (Skill)                     |
 
 ## Presets
 
-| Preset   | Tools | Tokens | Use case                  |
-| -------- | ----- | ------ | ------------------------- |
-| FULL     | 49    | ~16K   | All tools                 |
-| BALANCED | 41    | ~13K   | Default, excludes 8 niche |
-| MINIMAL  | 18    | ~6K    | Subagents, low-context    |
+| Preset   | Tools | Use case                  |
+| -------- | ----- | ------------------------- |
+| FULL     | 50    | All tools                 |
+| BALANCED | 42    | Default, excludes 8 niche |
+| MINIMAL  | 21    | Subagents, low-context    |
+
+Switch at runtime: `set_preset` tool or restart with `--preset`
+
+## Features
+
+| Feature  | Flag                            | Binary delta | Notes                     |
+| -------- | ------------------------------- | ------------ | ------------------------- |
+| semantic | `--features semantic` (default) | +18MB        | fastembed + sqlite-vec    |
+| http     | `--features http`               | +18MB        | axum + tokio, agent teams |
 
 ## Languages (16)
 

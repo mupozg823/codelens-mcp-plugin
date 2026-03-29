@@ -219,3 +219,26 @@ pub fn switch_modes(_state: &AppState, arguments: &serde_json::Value) -> ToolRes
         success_meta("noop", 1.0),
     ))
 }
+
+pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let preset_str = arguments
+        .get("preset")
+        .and_then(|v| v.as_str())
+        .unwrap_or("balanced");
+    let new_preset = crate::ToolPreset::from_str(preset_str);
+    let old_preset = {
+        let mut guard = state.preset.lock().unwrap();
+        let old = *guard;
+        *guard = new_preset;
+        old
+    };
+    Ok((
+        json!({
+            "status": "ok",
+            "previous_preset": format!("{old_preset:?}"),
+            "current_preset": format!("{new_preset:?}"),
+            "note": "Preset changed. Next tools/list call will reflect the new tool set."
+        }),
+        success_meta("session", 1.0),
+    ))
+}

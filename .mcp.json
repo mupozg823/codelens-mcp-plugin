@@ -2,7 +2,7 @@
   "mcpServers": {
     "codelens": {
       "command": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
-      "args": ["/Users/bagjaeseog/codelens-mcp-plugin"]
+      "args": ["/Users/bagjaeseog/codelens-mcp-plugin", "--preset", "balanced"]
     }
   }
 }

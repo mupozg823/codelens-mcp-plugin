@@ -16,8 +16,8 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow.workspace = true
-axum.workspace = true
-tokio.workspace = true
+axum = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 codelens-core = { path = "../codelens-core" }
@@ -25,3 +25,4 @@ codelens-core = { path = "../codelens-core" }
 [features]
 default = ["semantic"]
 semantic = ["codelens-core/semantic"]
+http = ["dep:axum", "dep:tokio"]

@@ -10,13 +10,19 @@ pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> T
         .lock()
         .map_err(|_| anyhow::anyhow!("symbol index lock poisoned"))?
         .stats()?;
+    let preset = *state
+        .preset
+        .lock()
+        .map_err(|_| anyhow::anyhow!("preset lock poisoned"))?;
     Ok((
         json!({
             "runtime": "rust-core",
             "project_root": state.project.as_path().display().to_string(),
             "editor_integration": false,
             "available_backends": ["filesystem", "tree-sitter-cached", "lsp_pooled"],
-            "symbol_index": stats
+            "symbol_index": stats,
+            "preset": format!("{preset:?}"),
+            "tool_count": crate::tools().len()
         }),
         success_meta("rust-core", 1.0),
     ))
