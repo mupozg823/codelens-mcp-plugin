@@ -636,7 +636,8 @@ impl LspSession {
         const MAX_DISCARDED: u32 = 500;
 
         loop {
-            if Instant::now() > deadline {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if remaining.is_zero() {
                 bail!(
                     "LSP response timeout: no response for request id {expected_id} within 30s \
                      ({discarded} unrelated messages discarded)"
@@ -646,6 +647,11 @@ impl LspSession {
                 bail!(
                     "LSP response loop: discarded {MAX_DISCARDED} messages without finding id {expected_id}"
                 );
+            }
+
+            // Poll the pipe before blocking read — prevents infinite hang
+            if !poll_readable(self.reader.get_ref(), remaining.min(Duration::from_secs(5))) {
+                continue; // no data yet, re-check deadline
             }
 
             let message = read_message(&mut self.reader)?;
@@ -1201,6 +1207,27 @@ fn read_message(reader: &mut BufReader<impl Read>) -> Result<Value> {
     let mut body = vec![0_u8; length];
     reader.read_exact(&mut body)?;
     serde_json::from_slice(&body).context("failed to decode LSP body")
+}
+
+/// Wait for data on a pipe fd using poll(2). Returns true if readable, false on timeout.
+#[cfg(unix)]
+fn poll_readable(stdout: &ChildStdout, timeout: Duration) -> bool {
+    use std::os::unix::io::AsRawFd;
+    let fd = stdout.as_raw_fd();
+    let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+    let mut pfd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    // SAFETY: single pollfd, valid fd, bounded timeout
+    let ret = unsafe { libc::poll(&mut pfd, 1, timeout_ms) };
+    ret > 0
+}
+
+#[cfg(not(unix))]
+fn poll_readable(_stdout: &ChildStdout, _timeout: Duration) -> bool {
+    true // fallback: always attempt read on non-Unix
 }
 
 #[derive(Debug, Clone, Serialize)]

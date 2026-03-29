@@ -168,6 +168,15 @@ impl GraphCache {
         Ok(graph)
     }
 
+    /// Return per-file PageRank scores from the cached graph.
+    pub fn file_pagerank_scores(&self, project: &ProjectRoot) -> HashMap<String, f64> {
+        let graph = match self.get_or_build(project) {
+            Ok(g) => g,
+            Err(_) => return HashMap::new(),
+        };
+        compute_pagerank(&graph)
+    }
+
     pub fn invalidate(&self) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.graph = None;
@@ -252,38 +261,45 @@ pub fn get_importers(
     Ok(importers)
 }
 
-pub fn get_importance(
-    project: &ProjectRoot,
-    top_n: usize,
-    cache: &GraphCache,
-) -> Result<Vec<ImportanceEntry>> {
-    let graph = cache.get_or_build(project)?;
+/// PageRank over the import graph (damping=0.85, 20 iterations).
+fn compute_pagerank(graph: &HashMap<String, FileNode>) -> HashMap<String, f64> {
     if graph.is_empty() {
-        return Ok(Vec::new());
+        return HashMap::new();
     }
-
     let damping = 0.85;
     let n = graph.len() as f64;
-    let mut scores: HashMap<String, f64> =
-        graph.keys().cloned().map(|key| (key, 1.0 / n)).collect();
-    let out_degree: HashMap<String, usize> = graph
+    let mut scores: HashMap<String, f64> = graph.keys().cloned().map(|k| (k, 1.0 / n)).collect();
+    let out_degree: HashMap<&str, usize> = graph
         .iter()
-        .map(|(key, node)| (key.clone(), node.imports.len()))
+        .map(|(k, node)| (k.as_str(), node.imports.len()))
         .collect();
-
     for _ in 0..20 {
         let mut next: HashMap<String, f64> = HashMap::new();
         for (key, node) in graph.iter() {
             let mut incoming = 0.0;
             for importer in &node.imported_by {
                 let importer_score = scores.get(importer).copied().unwrap_or(0.0);
-                let degree = out_degree.get(importer).copied().unwrap_or(1).max(1) as f64;
+                let degree = out_degree
+                    .get(importer.as_str())
+                    .copied()
+                    .unwrap_or(1)
+                    .max(1) as f64;
                 incoming += importer_score / degree;
             }
             next.insert(key.clone(), (1.0 - damping) / n + damping * incoming);
         }
         scores = next;
     }
+    scores
+}
+
+pub fn get_importance(
+    project: &ProjectRoot,
+    top_n: usize,
+    cache: &GraphCache,
+) -> Result<Vec<ImportanceEntry>> {
+    let graph = cache.get_or_build(project)?;
+    let scores = compute_pagerank(&graph);
 
     let mut ranked: Vec<_> = scores.into_iter().collect();
     ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));

@@ -11,6 +11,9 @@ use std::sync::LazyLock;
 // ── Semantic handlers (feature-gated) ──────────────────────────────────
 
 #[cfg(feature = "semantic")]
+use codelens_core::EmbeddingEngine;
+
+#[cfg(feature = "semantic")]
 fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = tools::required_string(arguments, "query")?;
     let max_results = arguments
@@ -18,9 +21,13 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         .and_then(|v| v.as_u64())
         .unwrap_or(20) as usize;
 
-    let engine = state.embedding.as_ref().ok_or_else(|| {
-        anyhow::anyhow!("Embedding engine not available. Build with --features semantic")
-    })?;
+    let engine = state
+        .embedding
+        .get_or_init(|| EmbeddingEngine::new(&state.project).ok())
+        .as_ref()
+        .ok_or_else(|| {
+            anyhow::anyhow!("Embedding engine not available. Build with --features semantic")
+        })?;
 
     if !engine.is_indexed() {
         return Err(CodeLensError::FeatureUnavailable(
@@ -40,6 +47,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
 fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let engine = state
         .embedding
+        .get_or_init(|| EmbeddingEngine::new(&state.project).ok())
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
@@ -48,6 +56,33 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
         json!({"indexed_symbols": count, "status": "ok"}),
         tools::success_meta("semantic-embedding", 0.95),
     ))
+}
+
+// ── Budget hint (TALE-inspired) ────────────────────────────────────────
+
+fn budget_hint(tool_name: &str, tokens: usize) -> String {
+    // Overview/structure tools → always suggest drilling deeper
+    if matches!(
+        tool_name,
+        "get_project_structure" | "get_symbols_overview" | "get_current_config"
+    ) {
+        return "overview complete — drill into specific files or symbols".to_owned();
+    }
+    // Large responses → suggest narrowing scope
+    if tokens > 3000 {
+        return format!(
+            "large response ({tokens} tokens) — consider narrowing with path filter or max_tokens"
+        );
+    }
+    // Medium responses → sufficient context
+    if tokens > 500 {
+        return "context sufficient — proceed to edit or analysis".to_owned();
+    }
+    // Small/empty → suggest broadening
+    if tokens < 50 {
+        return "minimal results — try broader query or different tool".to_owned();
+    }
+    "focused result — ready for next step".to_owned()
 }
 
 // ── Static dispatch table ──────────────────────────────────────────────
@@ -90,6 +125,7 @@ pub(crate) fn dispatch_tool(
                 .map(|s| tools::estimate_tokens(&s))
                 .unwrap_or(0);
             resp.token_estimate = Some(payload_estimate);
+            resp.budget_hint = Some(budget_hint(name, payload_estimate));
             let text = serde_json::to_string(&resp).unwrap_or_else(|_| {
                 "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
             });

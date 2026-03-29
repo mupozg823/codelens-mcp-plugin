@@ -101,6 +101,7 @@ pub const EXCLUDED_DIRS: &[&str] = &[
     "dist",
     "out",
     "node_modules",
+    "vendor",
     "__pycache__",
     "target",
     ".next",

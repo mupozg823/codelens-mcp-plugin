@@ -25,12 +25,12 @@ struct AppState {
     project: ProjectRoot,
     symbol_index: Arc<SymbolIndex>,
     lsp_pool: LspSessionPool,
-    graph_cache: Arc<GraphCache>,
+    pub(crate) graph_cache: Arc<GraphCache>,
     preset: Mutex<ToolPreset>,
     memories_dir: std::path::PathBuf,
     watcher: Option<FileWatcher>,
     #[cfg(feature = "semantic")]
-    embedding: Option<EmbeddingEngine>,
+    embedding: std::sync::OnceLock<Option<EmbeddingEngine>>,
 }
 
 impl AppState {
@@ -65,9 +65,6 @@ impl AppState {
         )
         .ok();
 
-        #[cfg(feature = "semantic")]
-        let embedding = EmbeddingEngine::new(&project).ok();
-
         Self {
             project,
             symbol_index,
@@ -77,7 +74,7 @@ impl AppState {
             memories_dir,
             watcher,
             #[cfg(feature = "semantic")]
-            embedding,
+            embedding: std::sync::OnceLock::new(),
         }
     }
 }
@@ -387,11 +384,11 @@ mod tests {
             },
         )
         .expect("tools/list should return a response");
-        // 50 base + 2 semantic (feature-gated)
+        // 51 base + 2 semantic (feature-gated)
         #[cfg(feature = "semantic")]
-        assert_eq!(tools().len(), 52);
+        assert_eq!(tools().len(), 53);
         #[cfg(not(feature = "semantic"))]
-        assert_eq!(tools().len(), 50);
+        assert_eq!(tools().len(), 51);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("get_symbols_overview"));
     }

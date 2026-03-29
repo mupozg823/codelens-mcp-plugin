@@ -120,6 +120,52 @@ pub(crate) fn delete_file(conn: &Connection, relative_path: &str) -> Result<()> 
 }
 
 /// Return all indexed file paths.
+/// Per-directory aggregate: file count, symbol count, import count.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DirStats {
+    pub dir: String,
+    pub files: usize,
+    pub symbols: usize,
+    pub imports_from_others: usize,
+}
+
+pub(crate) fn dir_stats(conn: &Connection) -> Result<Vec<DirStats>> {
+    // Fetch per-file symbol counts, then aggregate in Rust for accurate dir extraction
+    let mut stmt = conn.prepare_cached(
+        "SELECT f.relative_path, COUNT(s.id) AS sym_count
+         FROM files f LEFT JOIN symbols s ON s.file_id = f.id
+         GROUP BY f.id",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+    })?;
+
+    let mut dir_map: std::collections::HashMap<String, (usize, usize)> =
+        std::collections::HashMap::new();
+    for row in rows {
+        let (path, sym_count) = row?;
+        let dir = match path.rfind('/') {
+            Some(pos) => &path[..=pos],
+            None => ".",
+        };
+        let entry = dir_map.entry(dir.to_owned()).or_insert((0, 0));
+        entry.0 += 1; // file count
+        entry.1 += sym_count; // symbol count
+    }
+
+    let mut result: Vec<DirStats> = dir_map
+        .into_iter()
+        .map(|(dir, (files, symbols))| DirStats {
+            dir,
+            files,
+            symbols,
+            imports_from_others: 0,
+        })
+        .collect();
+    result.sort_by(|a, b| b.symbols.cmp(&a.symbols));
+    Ok(result)
+}
+
 pub(crate) fn all_file_paths(conn: &Connection) -> Result<Vec<String>> {
     let mut stmt = conn.prepare_cached("SELECT relative_path FROM files")?;
     let rows = stmt.query_map([], |row| row.get(0))?;
@@ -134,7 +180,7 @@ pub(crate) fn all_file_paths(conn: &Connection) -> Result<Vec<String>> {
 pub(crate) fn insert_symbols(
     conn: &Connection,
     file_id: i64,
-    symbols: &[NewSymbol],
+    symbols: &[NewSymbol<'_>],
 ) -> Result<Vec<i64>> {
     let mut ids = Vec::with_capacity(symbols.len());
     let mut stmt = conn.prepare_cached(
@@ -439,10 +485,14 @@ impl IndexDb {
         all_file_paths(&self.conn)
     }
 
+    pub fn dir_stats(&self) -> Result<Vec<DirStats>> {
+        dir_stats(&self.conn)
+    }
+
     // ---- Symbol operations ----
 
     /// Bulk insert symbols for a file. Returns the inserted symbol ids.
-    pub fn insert_symbols(&self, file_id: i64, symbols: &[NewSymbol]) -> Result<Vec<i64>> {
+    pub fn insert_symbols(&self, file_id: i64, symbols: &[NewSymbol<'_>]) -> Result<Vec<i64>> {
         insert_symbols(&self.conn, file_id, symbols)
     }
 
@@ -718,16 +768,17 @@ impl IndexDb {
 }
 
 /// Symbol data for insertion (no id yet).
+/// Uses borrowed references to avoid String clones during bulk insert.
 #[derive(Debug, Clone)]
-pub struct NewSymbol {
-    pub name: String,
-    pub kind: String,
+pub struct NewSymbol<'a> {
+    pub name: &'a str,
+    pub kind: &'a str,
     pub line: i64,
     pub column_num: i64,
     pub start_byte: i64,
     pub end_byte: i64,
-    pub signature: String,
-    pub name_path: String,
+    pub signature: &'a str,
+    pub name_path: &'a str,
     pub parent_id: Option<i64>,
 }
 
@@ -801,25 +852,25 @@ mod tests {
 
         let syms = vec![
             NewSymbol {
-                name: "Service".into(),
-                kind: "class".into(),
+                name: "Service",
+                kind: "class",
                 line: 1,
                 column_num: 1,
                 start_byte: 0,
                 end_byte: 50,
-                signature: "class Service:".into(),
-                name_path: "Service".into(),
+                signature: "class Service:",
+                name_path: "Service",
                 parent_id: None,
             },
             NewSymbol {
-                name: "run".into(),
-                kind: "method".into(),
+                name: "run",
+                kind: "method",
                 line: 2,
                 column_num: 5,
                 start_byte: 20,
                 end_byte: 48,
-                signature: "def run(self):".into(),
-                name_path: "Service/run".into(),
+                signature: "def run(self):",
+                name_path: "Service/run",
                 parent_id: None,
             },
         ];
@@ -847,14 +898,14 @@ mod tests {
         db.insert_symbols(
             file_id,
             &[NewSymbol {
-                name: "Old".into(),
-                kind: "class".into(),
+                name: "Old",
+                kind: "class",
                 line: 1,
                 column_num: 1,
                 start_byte: 0,
                 end_byte: 10,
-                signature: "class Old:".into(),
-                name_path: "Old".into(),
+                signature: "class Old:",
+                name_path: "Old",
                 parent_id: None,
             }],
         )

@@ -60,7 +60,14 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
     Ok(state
         .symbol_index()
-        .get_ranked_context_cached(query, path, max_tokens, include_body, depth)
+        .get_ranked_context_cached(
+            query,
+            path,
+            max_tokens,
+            include_body,
+            depth,
+            Some(&state.graph_cache),
+        )
         .map(|value| (json!(value), success_meta("tree-sitter-cached", 0.91)))?)
 }
 
@@ -75,9 +82,7 @@ pub fn get_complexity(state: &AppState, arguments: &serde_json::Value) -> ToolRe
     let symbol_name = arguments.get("symbol_name").and_then(|v| v.as_str());
     let file_result = read_file(&state.project, path, None, None)?;
     let lines = file_result.content.lines().collect::<Vec<_>>();
-    let symbols = state
-        .symbol_index()
-        .get_symbols_overview_cached(path, 2)?;
+    let symbols = state.symbol_index().get_symbols_overview_cached(path, 2)?;
 
     let functions = flatten_symbols(&symbols)
         .into_iter()
@@ -128,6 +133,21 @@ pub fn get_complexity(state: &AppState, arguments: &serde_json::Value) -> ToolRe
             "avg_complexity": avg_complexity
         }),
         success_meta("tree-sitter-cached", 0.89),
+    ))
+}
+
+pub fn get_project_structure(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let dirs = state.symbol_index().get_project_structure()?;
+    let total_files: usize = dirs.iter().map(|d| d.files).sum();
+    let total_symbols: usize = dirs.iter().map(|d| d.symbols).sum();
+    Ok((
+        json!({
+            "directories": dirs,
+            "total_files": total_files,
+            "total_symbols": total_symbols,
+            "dir_count": dirs.len()
+        }),
+        success_meta("sqlite-aggregate", 0.95),
     ))
 }
 

@@ -39,6 +39,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
     m.insert("refresh_symbol_index", symbols::refresh_symbol_index);
     m.insert("get_complexity", symbols::get_complexity);
     m.insert("search_symbols_fuzzy", symbols::search_symbols_fuzzy);
+    m.insert("get_project_structure", symbols::get_project_structure);
 
     // LSP
     m.insert("find_referencing_symbols", lsp::find_referencing_symbols);
@@ -219,7 +220,8 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "find_dead_code" => &["get_symbols_overview", "delete_lines"],
         "find_circular_dependencies" => &["get_impact_analysis", "get_symbols_overview"],
         "get_ranked_context" => &["find_symbol", "replace_symbol_body"],
-        "activate_project" => &["get_symbols_overview", "get_current_config"],
+        "get_project_structure" => &["get_symbols_overview", "get_ranked_context", "find_symbol"],
+        "activate_project" => &["get_project_structure", "get_current_config"],
         _ => return None,
     };
     Some(suggestions.iter().map(|s| s.to_string()).collect())

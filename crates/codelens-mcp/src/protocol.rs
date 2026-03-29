@@ -76,6 +76,8 @@ pub struct ToolCallResponse {
     pub token_estimate: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_next_tools: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_hint: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -165,6 +167,7 @@ impl ToolCallResponse {
             error: None,
             token_estimate: None,
             suggested_next_tools: None,
+            budget_hint: None,
         }
     }
 
@@ -178,6 +181,7 @@ impl ToolCallResponse {
             error: Some(message.into()),
             token_estimate: None,
             suggested_next_tools: None,
+            budget_hint: None,
         }
     }
 }

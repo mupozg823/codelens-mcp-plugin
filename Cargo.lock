@@ -405,6 +405,7 @@ dependencies = [
  "criterion",
  "fastembed",
  "globset",
+ "libc",
  "notify",
  "notify-debouncer-mini",
  "petgraph",

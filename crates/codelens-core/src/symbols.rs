@@ -81,10 +81,11 @@ pub struct SymbolInfo {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<SymbolInfo>,
     /// Byte offsets for batch body extraction (not serialized to API output).
+    /// u32 saves 8 bytes per symbol vs usize; sufficient for files up to 4GB.
     #[serde(skip)]
-    pub start_byte: usize,
+    pub start_byte: u32,
     #[serde(skip)]
-    pub end_byte: usize,
+    pub end_byte: u32,
 }
 
 /// Construct a stable symbol ID: `{file_path}#{kind}:{name_path}`
@@ -141,8 +142,8 @@ struct ParsedSymbol {
     file_path: String,
     line: usize,
     column: usize,
-    start_byte: usize,
-    end_byte: usize,
+    start_byte: u32,
+    end_byte: u32,
     signature: String,
     body: Option<String>,
     name_path: String,
@@ -288,10 +289,135 @@ impl SymbolIndex {
         })
     }
 
+    /// SelectSolve (cached/DB version): file pre-filtering from indexed DB paths.
+    fn select_solve_symbols_cached(&self, query: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
+        let db = self.reader()?;
+        let all_paths = db.all_file_paths()?;
+
+        let query_lower = query.to_ascii_lowercase();
+        let query_tokens: Vec<&str> = query_lower
+            .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+            .filter(|t| t.len() >= 2)
+            .collect();
+
+        let mut file_scores: Vec<(String, usize)> = all_paths
+            .into_iter()
+            .map(|path| {
+                let path_lower = path.to_ascii_lowercase();
+                let score = query_tokens
+                    .iter()
+                    .filter(|t| path_lower.contains(**t))
+                    .count();
+                (path, score)
+            })
+            .collect();
+
+        file_scores.sort_by(|a, b| b.1.cmp(&a.1));
+        let top_files: Vec<&str> = file_scores
+            .iter()
+            .filter(|(_, score)| *score > 0)
+            .take(10)
+            .map(|(path, _)| path.as_str())
+            .collect();
+
+        if top_files.is_empty() {
+            return self.find_symbol_cached(query, None, false, false, 500);
+        }
+
+        let mut all_symbols = Vec::new();
+        for file_path in &top_files {
+            if let Ok(symbols) = self.get_symbols_overview_cached(file_path, depth) {
+                all_symbols.extend(symbols);
+            }
+        }
+        // Also include direct symbol name matches
+        if let Ok(direct) = self.find_symbol_cached(query, None, false, false, 50) {
+            for sym in direct {
+                if !all_symbols.iter().any(|s: &SymbolInfo| s.id == sym.id) {
+                    all_symbols.push(sym);
+                }
+            }
+        }
+        Ok(all_symbols)
+    }
+
+    /// SelectSolve file pre-filtering: score files by name relevance to query,
+    /// then extract symbols only from top-scoring files.
+    fn select_solve_symbols(&self, query: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
+        let db = self.reader()?;
+        let all_paths = db.all_file_paths()?;
+
+        // Tokenize query into words (split on whitespace, underscores, camelCase boundaries)
+        let query_lower = query.to_ascii_lowercase();
+        let query_tokens: Vec<&str> = query_lower
+            .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+            .filter(|t| t.len() >= 2)
+            .collect();
+
+        // Score each file path
+        let mut file_scores: Vec<(String, usize)> = all_paths
+            .into_iter()
+            .map(|path| {
+                let path_lower = path.to_ascii_lowercase();
+                let score = query_tokens
+                    .iter()
+                    .filter(|token| path_lower.contains(**token))
+                    .count();
+                (path, score)
+            })
+            .collect();
+
+        // Sort by score desc, take top 10 files (or all with score > 0)
+        file_scores.sort_by(|a, b| b.1.cmp(&a.1));
+        let top_files: Vec<&str> = file_scores
+            .iter()
+            .filter(|(_, score)| *score > 0)
+            .take(10)
+            .map(|(path, _)| path.as_str())
+            .collect();
+
+        // If no file matches, fall back to direct symbol name search
+        if top_files.is_empty() {
+            return self.find_symbol(query, None, false, false, 500);
+        }
+
+        // Collect symbols from top files
+        let mut all_symbols = Vec::new();
+        for file_path in &top_files {
+            if let Ok(symbols) = self.get_symbols_overview_cached(file_path, depth) {
+                all_symbols.extend(symbols);
+            }
+        }
+
+        // Also include direct symbol name matches (for exact/substring hits)
+        if let Ok(direct) = self.find_symbol(query, None, false, false, 50) {
+            for sym in direct {
+                if !all_symbols.iter().any(|s: &SymbolInfo| s.id == sym.id) {
+                    all_symbols.push(sym);
+                }
+            }
+        }
+
+        Ok(all_symbols)
+    }
+
+    /// Hierarchical project structure: per-directory file count + symbol count.
+    /// Used as Level 1 pruning — lets LLM decide which directories to drill into.
+    pub fn get_project_structure(&self) -> Result<Vec<db::DirStats>> {
+        let db = self.reader()?;
+        db.dir_stats()
+    }
+
     pub fn refresh_all(&self) -> Result<IndexStats> {
         use rayon::prelude::*;
 
-        let files = collect_candidate_files(self.project.as_path())?;
+        let mut files = collect_candidate_files(self.project.as_path())?;
+        // Sort by size descending so Rayon processes large files first, avoiding stragglers
+        files.sort_by(|a, b| {
+            let sa = a.metadata().map(|m| m.len()).unwrap_or(0);
+            let sb = b.metadata().map(|m| m.len()).unwrap_or(0);
+            sb.cmp(&sa)
+        });
 
         // Phase 1: parallel parse (CPU-bound, no DB access)
         let parsed: Vec<_> = files
@@ -348,17 +474,17 @@ impl SymbolIndex {
                 }
                 let file_id = db::upsert_file(conn, &relative, mtime, &hash, size, Some(&ext))?;
                 let flat = flatten_symbols(symbols);
-                let new_syms: Vec<NewSymbol> = flat
+                let new_syms: Vec<NewSymbol<'_>> = flat
                     .iter()
                     .map(|s| NewSymbol {
-                        name: s.name.clone(),
-                        kind: s.kind.as_label().to_owned(),
+                        name: &s.name,
+                        kind: s.kind.as_label(),
                         line: s.line as i64,
                         column_num: s.column as i64,
                         start_byte: s.start_byte as i64,
                         end_byte: s.end_byte as i64,
-                        signature: s.signature.clone(),
-                        name_path: s.name_path.clone(),
+                        signature: &s.signature,
+                        name_path: &s.name_path,
                         parent_id: None,
                     })
                     .collect();
@@ -447,17 +573,17 @@ impl SymbolIndex {
                 }
                 let file_id = db::upsert_file(conn, &relative, mtime, &hash, size, Some(&ext))?;
                 let flat = flatten_symbols(symbols);
-                let new_syms: Vec<NewSymbol> = flat
+                let new_syms: Vec<NewSymbol<'_>> = flat
                     .iter()
                     .map(|s| NewSymbol {
-                        name: s.name.clone(),
-                        kind: s.kind.as_label().to_owned(),
+                        name: &s.name,
+                        kind: s.kind.as_label(),
                         line: s.line as i64,
                         column_num: s.column as i64,
                         start_byte: s.start_byte as i64,
                         end_byte: s.end_byte as i64,
-                        signature: s.signature.clone(),
-                        name_path: s.name_path.clone(),
+                        signature: &s.signature,
+                        name_path: &s.name_path,
                         parent_id: None,
                     })
                     .collect();
@@ -563,7 +689,7 @@ impl SymbolIndex {
                 let body = if include_body {
                     let abs = self.project.as_path().join(&rel_path);
                     fs::read_to_string(&abs).ok().map(|source| {
-                        slice_source(&source, row.start_byte as usize, row.end_byte as usize)
+                        slice_source(&source, row.start_byte as u32, row.end_byte as u32)
                     })
                 } else {
                     None
@@ -581,8 +707,8 @@ impl SymbolIndex {
                     id,
                     body,
                     children: Vec::new(),
-                    start_byte: row.start_byte as usize,
-                    end_byte: row.end_byte as usize,
+                    start_byte: row.start_byte as u32,
+                    end_byte: row.end_byte as u32,
                 });
             }
             return Ok(results);
@@ -610,9 +736,9 @@ impl SymbolIndex {
             let rel_path = db.get_file_path(row.file_id)?.unwrap_or_default();
             let body = if include_body {
                 let abs = self.project.as_path().join(&rel_path);
-                fs::read_to_string(&abs).ok().map(|source| {
-                    slice_source(&source, row.start_byte as usize, row.end_byte as usize)
-                })
+                fs::read_to_string(&abs)
+                    .ok()
+                    .map(|source| slice_source(&source, row.start_byte as u32, row.end_byte as u32))
             } else {
                 None
             };
@@ -629,8 +755,8 @@ impl SymbolIndex {
                 id,
                 body,
                 children: Vec::new(),
-                start_byte: row.start_byte as usize,
-                end_byte: row.end_byte as usize,
+                start_byte: row.start_byte as u32,
+                end_byte: row.end_byte as u32,
             });
         }
         Ok(results)
@@ -648,7 +774,8 @@ impl SymbolIndex {
         let all_symbols = if let Some(path) = path {
             self.get_symbols_overview(path, depth)?
         } else {
-            self.find_symbol(query, None, false, false, 500)?
+            // SelectSolve: file pre-filtering → top files → symbol extraction
+            self.select_solve_symbols(query, depth)?
         };
 
         let mut scored = all_symbols
@@ -785,8 +912,8 @@ impl SymbolIndex {
                                     id: sid,
                                     body: None,
                                     children: Vec::new(),
-                                    start_byte: row.start_byte as usize,
-                                    end_byte: row.end_byte as usize,
+                                    start_byte: row.start_byte as u32,
+                                    end_byte: row.end_byte as u32,
                                 }
                             })
                             .collect(),
@@ -821,14 +948,15 @@ impl SymbolIndex {
                     id,
                     body: None,
                     children: Vec::new(),
-                    start_byte: row.start_byte as usize,
-                    end_byte: row.end_byte as usize,
+                    start_byte: row.start_byte as u32,
+                    end_byte: row.end_byte as u32,
                 }
             })
             .collect())
     }
 
     /// Ranked context from DB without lazy indexing.
+    /// If `graph_cache` is provided, PageRank scores boost symbols in highly-imported files.
     pub fn get_ranked_context_cached(
         &self,
         query: &str,
@@ -836,18 +964,33 @@ impl SymbolIndex {
         max_tokens: usize,
         include_body: bool,
         depth: usize,
+        graph_cache: Option<&crate::import_graph::GraphCache>,
     ) -> Result<RankedContextResult> {
         let max_chars = max_tokens.saturating_mul(4);
         let all_symbols = if let Some(path) = path {
             self.get_symbols_overview_cached(path, depth)?
         } else {
-            self.find_symbol_cached(query, None, false, false, 500)?
+            // SelectSolve: file pre-filtering using cached DB paths
+            self.select_solve_symbols_cached(query, depth)?
         };
+
+        // Build PageRank lookup if graph cache is available
+        let pagerank = graph_cache
+            .map(|gc| gc.file_pagerank_scores(&self.project))
+            .unwrap_or_default();
 
         let mut scored = all_symbols
             .into_iter()
             .flat_map(flatten_symbol_infos)
-            .filter_map(|symbol| score_symbol(query, &symbol).map(|score| (symbol, score)))
+            .filter_map(|symbol| {
+                score_symbol(query, &symbol).map(|text_score| {
+                    // Blend: 70% text relevance + 30% PageRank (scaled to 0-100)
+                    let pr = pagerank.get(&symbol.file_path).copied().unwrap_or(0.0);
+                    let pr_score = (pr * 100.0 * pagerank.len() as f64).min(100.0) as i32;
+                    let blended = (text_score as f64 * 0.7 + pr_score as f64 * 0.3) as i32;
+                    (symbol, blended.max(1))
+                })
+            })
             .collect::<Vec<_>>();
         scored.sort_by(|left, right| right.1.cmp(&left.1));
 
@@ -908,9 +1051,9 @@ impl SymbolIndex {
             let rel_path = db.get_file_path(row.file_id)?.unwrap_or_default();
             let body = if include_body {
                 let abs = project.as_path().join(&rel_path);
-                fs::read_to_string(&abs).ok().map(|source| {
-                    slice_source(&source, row.start_byte as usize, row.end_byte as usize)
-                })
+                fs::read_to_string(&abs)
+                    .ok()
+                    .map(|source| slice_source(&source, row.start_byte as u32, row.end_byte as u32))
             } else {
                 None
             };
@@ -927,8 +1070,8 @@ impl SymbolIndex {
                 id,
                 body,
                 children: Vec::new(),
-                start_byte: row.start_byte as usize,
-                end_byte: row.end_byte as usize,
+                start_byte: row.start_byte as u32,
+                end_byte: row.end_byte as u32,
             });
         }
         Ok(results)
@@ -975,17 +1118,17 @@ impl SymbolIndex {
 
         // Flatten and insert symbols
         let flat = flatten_symbols(symbols.clone());
-        let new_syms: Vec<NewSymbol> = flat
+        let new_syms: Vec<NewSymbol<'_>> = flat
             .iter()
             .map(|s| NewSymbol {
-                name: s.name.clone(),
-                kind: s.kind.as_label().to_owned(),
+                name: &s.name,
+                kind: s.kind.as_label(),
                 line: s.line as i64,
                 column_num: s.column as i64,
                 start_byte: s.start_byte as i64,
                 end_byte: s.end_byte as i64,
-                signature: s.signature.clone(),
-                name_path: s.name_path.clone(),
+                signature: &s.signature,
+                name_path: &s.name_path,
                 parent_id: None,
             })
             .collect();
@@ -1062,7 +1205,7 @@ pub fn find_symbol_range(
     };
 
     match candidate {
-        Some(sym) => Ok((sym.start_byte, sym.end_byte)),
+        Some(sym) => Ok((sym.start_byte as usize, sym.end_byte as usize)),
         None => bail!(
             "symbol '{}' not found in {}",
             name_path.unwrap_or(symbol_name),
@@ -1254,8 +1397,8 @@ fn parse_symbols(
             file_path: file_path.to_owned(),
             line: def_node.start_position().row + 1,
             column: name_node.start_position().column + 1,
-            start_byte: def_node.start_byte(),
-            end_byte: def_node.end_byte(),
+            start_byte: def_node.start_byte() as u32,
+            end_byte: def_node.end_byte() as u32,
             signature: build_signature(def_node, source_bytes, &name),
             body,
             name_path: name,
@@ -1290,14 +1433,53 @@ fn flatten_symbol_infos(mut symbol: SymbolInfo) -> Vec<SymbolInfo> {
 
 fn score_symbol(query: &str, symbol: &SymbolInfo) -> Option<i32> {
     let query_lower = query.to_lowercase();
+
+    // Exact full-query match on symbol name
     if symbol.name.eq_ignore_ascii_case(query) {
-        Some(100)
-    } else if symbol.name.to_lowercase().contains(&query_lower) {
-        Some(60)
-    } else if symbol.signature.to_lowercase().contains(&query_lower) {
-        Some(30)
-    } else if symbol.name_path.to_lowercase().contains(&query_lower) {
-        Some(20)
+        return Some(100);
+    }
+    // Full query substring in symbol name
+    if symbol.name.to_lowercase().contains(&query_lower) {
+        return Some(60);
+    }
+    // Full query substring in signature
+    if symbol.signature.to_lowercase().contains(&query_lower) {
+        return Some(30);
+    }
+    // Full query substring in name_path
+    if symbol.name_path.to_lowercase().contains(&query_lower) {
+        return Some(20);
+    }
+
+    // Token-level matching: split query into words, score by hit ratio
+    let tokens: Vec<&str> = query_lower
+        .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+        .filter(|t| t.len() >= 2)
+        .collect();
+    if tokens.is_empty() {
+        return None;
+    }
+
+    let name_lower = symbol.name.to_lowercase();
+    let sig_lower = symbol.signature.to_lowercase();
+    let path_lower = symbol.file_path.to_lowercase();
+
+    let mut hits = 0i32;
+    for token in &tokens {
+        if name_lower.contains(token) {
+            hits += 3; // name hit = strong signal
+        } else if sig_lower.contains(token) {
+            hits += 2; // signature hit
+        } else if path_lower.contains(token) {
+            hits += 1; // file path hit = weak signal
+        }
+    }
+
+    if hits > 0 {
+        // Scale to 1-50 range based on hit ratio
+        let max_possible = tokens.len() as i32 * 3;
+        let score = (hits * 50 / max_possible).max(1);
+        Some(score)
     } else {
         None
     }
@@ -1378,7 +1560,9 @@ fn to_symbol_info_with_source(
     }
 }
 
-fn slice_source(source: &str, start_byte: usize, end_byte: usize) -> String {
+fn slice_source(source: &str, start_byte: u32, end_byte: u32) -> String {
+    let start_byte = start_byte as usize;
+    let end_byte = end_byte as usize;
     source
         .as_bytes()
         .get(start_byte..end_byte)

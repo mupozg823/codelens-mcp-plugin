@@ -3,13 +3,13 @@
 ## Verify
 
 ```bash
-cargo test
+cargo test -p codelens-core && cargo test -p codelens-mcp
 cargo build --release
 ```
 
 ## Presets
 
-FULL=50 | BALANCED=36 (default) | MINIMAL=21
+FULL=53 | BALANCED=37 (default) | MINIMAL=21
 
 ## CLI
 

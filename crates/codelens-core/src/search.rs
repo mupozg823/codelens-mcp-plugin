@@ -13,7 +13,7 @@ pub struct SearchResult {
     pub signature: String,
     pub name_path: String,
     pub score: f64,
-    pub match_type: String, // "exact", "bm25", "fuzzy"
+    pub match_type: String, // "exact", "substring", "fuzzy"
 }
 
 /// Hybrid symbol search: exact → substring → fuzzy (jaro_winkler).
@@ -66,7 +66,7 @@ pub fn search_symbols_hybrid(
                 signature: row.signature,
                 name_path: row.name_path,
                 score: 60.0,
-                match_type: "bm25".to_owned(),
+                match_type: "substring".to_owned(),
             });
         }
     }
@@ -133,36 +133,36 @@ mod tests {
             fid,
             &[
                 NewSymbol {
-                    name: "ServiceManager".into(),
-                    kind: "class".into(),
+                    name: "ServiceManager",
+                    kind: "class",
                     line: 1,
                     column_num: 0,
                     start_byte: 0,
                     end_byte: 100,
-                    signature: "class ServiceManager:".into(),
-                    name_path: "ServiceManager".into(),
+                    signature: "class ServiceManager:",
+                    name_path: "ServiceManager",
                     parent_id: None,
                 },
                 NewSymbol {
-                    name: "run_service".into(),
-                    kind: "function".into(),
+                    name: "run_service",
+                    kind: "function",
                     line: 10,
                     column_num: 0,
                     start_byte: 101,
                     end_byte: 200,
-                    signature: "def run_service():".into(),
-                    name_path: "run_service".into(),
+                    signature: "def run_service():",
+                    name_path: "run_service",
                     parent_id: None,
                 },
                 NewSymbol {
-                    name: "helper".into(),
-                    kind: "function".into(),
+                    name: "helper",
+                    kind: "function",
                     line: 20,
                     column_num: 0,
                     start_byte: 201,
                     end_byte: 300,
-                    signature: "def helper():".into(),
-                    name_path: "helper".into(),
+                    signature: "def helper():",
+                    name_path: "helper",
                     parent_id: None,
                 },
             ],
@@ -189,7 +189,10 @@ mod tests {
         // "service" is a substring of "ServiceManager" and "run_service"
         // threshold 0.99 ensures fuzzy won't fire, so only exact/bm25 contribute
         let results = search_symbols_hybrid(&project, "service", 10, 0.99).unwrap();
-        let bm25: Vec<_> = results.iter().filter(|r| r.match_type == "bm25").collect();
+        let bm25: Vec<_> = results
+            .iter()
+            .filter(|r| r.match_type == "substring")
+            .collect();
         assert!(!bm25.is_empty());
     }
 

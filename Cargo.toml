@@ -54,6 +54,7 @@ notify = "7.0"
 notify-debouncer-mini = "0.5"
 url = "2.5"
 walkdir = "2.5"
+libc = "0.2"
 
 [profile.release]
 lto = true
