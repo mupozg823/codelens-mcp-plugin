@@ -9,7 +9,7 @@ cargo build --release
 
 ## Presets
 
-FULL=53 | BALANCED=37 (default) | MINIMAL=21
+FULL=54 | BALANCED=37 (default) | MINIMAL=21
 
 ## CLI
 
