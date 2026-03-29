@@ -8,7 +8,7 @@ fn real_world_rename_validation() {
     // Test 1: rename 'PatternMatch' (구조체, 여러 파일에서 참조)
     let result = rename_symbol(
         &project,
-        "src/file_ops.rs",
+        "src/file_ops/mod.rs",
         "PatternMatch",
         "TextPatternMatch",
         None,
@@ -35,7 +35,7 @@ fn real_world_rename_validation() {
         result.total_replacements
     );
     // 실제 파일 미수정 확인
-    let content = std::fs::read_to_string(project.as_path().join("src/file_ops.rs")).unwrap();
+    let content = std::fs::read_to_string(project.as_path().join("src/file_ops/mod.rs")).unwrap();
     assert!(
         content.contains("PatternMatch"),
         "dry_run should not modify files"
@@ -44,7 +44,7 @@ fn real_world_rename_validation() {
     // Test 2: rename 'search_for_pattern' (함수, 여러 파일에서 호출)
     let result2 = rename_symbol(
         &project,
-        "src/file_ops.rs",
+        "src/file_ops/mod.rs",
         "search_for_pattern",
         "search_text_pattern",
         None,
@@ -74,7 +74,7 @@ fn real_world_rename_validation() {
     // Test 3: rename 'SymbolKind' (enum, 광범위 참조)
     let result3 = rename_symbol(
         &project,
-        "src/symbols.rs",
+        "src/symbols/types.rs",
         "SymbolKind",
         "SymbolCategory",
         None,
@@ -110,7 +110,7 @@ fn real_world_rename_validation() {
     // Test 4: FILE scope — rename 내부 함수만
     let result4 = rename_symbol(
         &project,
-        "src/file_ops.rs",
+        "src/file_ops/mod.rs",
         "find_enclosing_symbol",
         "find_nearest_enclosing",
         None,
@@ -133,15 +133,15 @@ fn real_world_rename_validation() {
         result4
             .edits
             .iter()
-            .all(|e| e.file_path == "src/file_ops.rs"),
+            .all(|e| e.file_path == "src/file_ops/mod.rs"),
         "FILE scope should stay in one file"
     );
 
     // Test 5: column 정확성 검증 — 실제 소스에서 column이 맞는지
-    let source = std::fs::read_to_string(project.as_path().join("src/file_ops.rs")).unwrap();
+    let source = std::fs::read_to_string(project.as_path().join("src/file_ops/mod.rs")).unwrap();
     let lines: Vec<&str> = source.lines().collect();
     for edit in &result.edits {
-        if edit.file_path != "src/file_ops.rs" {
+        if edit.file_path != "src/file_ops/mod.rs" {
             continue;
         }
         let line = lines[edit.line - 1];
