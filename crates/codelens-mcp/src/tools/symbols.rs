@@ -52,7 +52,8 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     let max_tokens = arguments
         .get("max_tokens")
         .and_then(|v| v.as_u64())
-        .unwrap_or(4000) as usize;
+        .map(|v| v as usize)
+        .unwrap_or_else(|| state.token_budget());
     let include_body = arguments
         .get("include_body")
         .and_then(|v| v.as_bool())

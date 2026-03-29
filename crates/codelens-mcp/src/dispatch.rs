@@ -60,22 +60,26 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
 
 // ── Budget hint (TALE-inspired) ────────────────────────────────────────
 
-fn budget_hint(tool_name: &str, tokens: usize) -> String {
+fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> String {
     // Overview/structure tools → always suggest drilling deeper
     if matches!(
         tool_name,
-        "get_project_structure" | "get_symbols_overview" | "get_current_config"
+        "get_project_structure" | "get_symbols_overview" | "get_current_config" | "onboard_project"
     ) {
         return "overview complete — drill into specific files or symbols".to_owned();
     }
-    // Large responses → suggest narrowing scope
-    if tokens > 3000 {
+    // Over budget → strongly suggest narrowing
+    if tokens > budget {
         return format!(
-            "large response ({tokens} tokens) — consider narrowing with path filter or max_tokens"
+            "response ({tokens} tokens) exceeds budget ({budget}) — narrow with path filter or max_tokens"
         );
     }
-    // Medium responses → sufficient context
-    if tokens > 500 {
+    // Large relative to budget → suggest narrowing
+    if tokens > budget * 3 / 4 {
+        return format!("near budget ({tokens}/{budget} tokens) — consider narrowing scope");
+    }
+    // Medium → sufficient
+    if tokens > 100 {
         return "context sufficient — proceed to edit or analysis".to_owned();
     }
     // Small/empty → suggest broadening
@@ -125,7 +129,7 @@ pub(crate) fn dispatch_tool(
                 .map(|s| tools::estimate_tokens(&s))
                 .unwrap_or(0);
             resp.token_estimate = Some(payload_estimate);
-            resp.budget_hint = Some(budget_hint(name, payload_estimate));
+            resp.budget_hint = Some(budget_hint(name, payload_estimate, state.token_budget()));
             let text = serde_json::to_string(&resp).unwrap_or_else(|_| {
                 "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
             });

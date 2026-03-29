@@ -145,7 +145,7 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("initial_instructions", "Returns initial instructions for starting work.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("prepare_for_new_conversation", "Returns project context for a new conversation.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("get_watch_status", "Returns file watcher status: running, events processed, files reindexed.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
-        Tool::new("set_preset", "Switch tool preset at runtime. Changes which tools appear in tools/list.", json!({"type":"object","properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset: minimal (21 tools), balanced (34), full (50+)"}},"required":["preset"]})).with_annotations(mutating.clone()),
+        Tool::new("set_preset", "Switch tool preset at runtime. Changes which tools appear in tools/list. Auto-sets token budget (minimal=2K, balanced=4K, full=8K) or override with token_budget.", json!({"type":"object","properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset"},"token_budget":{"type":"integer","description":"Override token budget (default: auto per preset)"}},"required":["preset"]})).with_annotations(mutating.clone()),
     ];
 
     // ── Semantic (feature-gated) ────────────────────────────────────

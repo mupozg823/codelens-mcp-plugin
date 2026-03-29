@@ -235,11 +235,25 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         *guard = new_preset;
         old
     };
+
+    // Auto-set token budget per preset, or accept explicit override
+    let budget = arguments
+        .get("token_budget")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(match new_preset {
+            crate::ToolPreset::Full => 8000,
+            crate::ToolPreset::Balanced => 4000,
+            crate::ToolPreset::Minimal => 2000,
+        });
+    state.set_token_budget(budget);
+
     Ok((
         json!({
             "status": "ok",
             "previous_preset": format!("{old_preset:?}"),
             "current_preset": format!("{new_preset:?}"),
+            "token_budget": budget,
             "note": "Preset changed. Next tools/list call will reflect the new tool set."
         }),
         success_meta("session", 1.0),

@@ -27,6 +27,9 @@ struct AppState {
     lsp_pool: LspSessionPool,
     pub(crate) graph_cache: Arc<GraphCache>,
     preset: Mutex<ToolPreset>,
+    /// Global token budget for response size control.
+    /// Tools that produce variable-length output respect this limit.
+    token_budget: std::sync::atomic::AtomicUsize,
     memories_dir: std::path::PathBuf,
     watcher: Option<FileWatcher>,
     #[cfg(feature = "semantic")]
@@ -52,6 +55,17 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    /// Current global token budget.
+    pub(crate) fn token_budget(&self) -> usize {
+        self.token_budget.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Set global token budget.
+    pub(crate) fn set_token_budget(&self, budget: usize) {
+        self.token_budget
+            .store(budget, std::sync::atomic::Ordering::Relaxed);
+    }
+
     fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
         let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
         let lsp_pool = LspSessionPool::new(project.clone());
@@ -71,6 +85,7 @@ impl AppState {
             lsp_pool,
             graph_cache,
             preset: Mutex::new(preset),
+            token_budget: std::sync::atomic::AtomicUsize::new(4000),
             memories_dir,
             watcher,
             #[cfg(feature = "semantic")]
