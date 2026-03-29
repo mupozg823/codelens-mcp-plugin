@@ -53,7 +53,7 @@ impl EmbeddingEngine {
     /// Create a new embedding engine. Downloads model on first use (~23MB).
     pub fn new(project: &ProjectRoot) -> Result<Self> {
         let model = TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::AllMiniLML6V2).with_show_download_progress(false),
+            InitOptions::new(EmbeddingModel::BGESmallENV15Q).with_show_download_progress(false),
         )
         .context("failed to load embedding model")?;
 
@@ -100,14 +100,20 @@ impl EmbeddingEngine {
             return Ok(0);
         }
 
-        // Prepare texts for embedding: "kind: name — signature"
+        // BGE models use "passage:" prefix for documents and "query:" for search queries.
+        // Format: "passage: kind name in file_path: signature"
         let texts: Vec<String> = all_symbols
             .iter()
-            .map(|(name, kind, _file, _line, sig, _name_path)| {
-                if sig.is_empty() {
-                    format!("{kind}: {name}")
+            .map(|(name, kind, file, _line, sig, _name_path)| {
+                let file_ctx = if file.is_empty() {
+                    String::new()
                 } else {
-                    format!("{kind}: {name} — {sig}")
+                    format!(" in {file}")
+                };
+                if sig.is_empty() {
+                    format!("passage: {kind} {name}{file_ctx}")
+                } else {
+                    format!("passage: {kind} {name}{file_ctx}: {sig}")
                 }
             })
             .collect();
@@ -158,7 +164,7 @@ impl EmbeddingEngine {
             .model
             .lock()
             .map_err(|_| anyhow::anyhow!("model lock"))?
-            .embed(vec![query], None)
+            .embed(vec![&format!("query: {query}")], None)
             .context("query embedding failed")?;
 
         if query_embedding.is_empty() {
@@ -173,9 +179,8 @@ impl EmbeddingEngine {
             "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, v.distance
              FROM vec_symbols v
              JOIN symbols s ON s.id = v.rowid
-             WHERE v.embedding MATCH ?1
-             ORDER BY v.distance
-             LIMIT ?2",
+             WHERE v.embedding MATCH ?1 AND k = ?2
+             ORDER BY v.distance",
         )?;
 
         let results = stmt
