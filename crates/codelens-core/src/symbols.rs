@@ -3,13 +3,30 @@ use crate::import_graph::{extract_imports_for_file, resolve_module_for_file};
 use crate::project::ProjectRoot;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::UNIX_EPOCH;
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Node, Parser, Query, QueryCapture, QueryCursor};
 use walkdir::WalkDir;
+
+/// Cached compiled tree-sitter Query per language extension.
+static QUERY_CACHE: LazyLock<Mutex<HashMap<&'static str, Arc<Query>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn cached_query(config: &LanguageConfig) -> Result<Arc<Query>> {
+    let mut cache = QUERY_CACHE.lock().unwrap();
+    if let Some(q) = cache.get(config.extension) {
+        return Ok(Arc::clone(q));
+    }
+    let q = Query::new(&config.language, config.query)
+        .with_context(|| format!("invalid query for {}", config.extension))?;
+    let q = Arc::new(q);
+    cache.insert(config.extension, Arc::clone(&q));
+    Ok(q)
+}
 
 use crate::project::{collect_files, is_excluded};
 
@@ -872,8 +889,7 @@ fn parse_symbols(
     let tree = parser
         .parse(source, None)
         .ok_or_else(|| anyhow::anyhow!("failed to parse source"))?;
-    let query = Query::new(&config.language, config.query)
-        .with_context(|| format!("invalid query for {}", config.extension))?;
+    let query = cached_query(config)?;
     let source_bytes = source.as_bytes();
     let mut cursor = QueryCursor::new();
     let mut symbols = Vec::new();

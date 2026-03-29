@@ -47,6 +47,14 @@ pub struct ToolAnnotations {
 }
 
 #[derive(Debug, Serialize)]
+pub struct JsonRpcNotification {
+    pub jsonrpc: &'static str,
+    pub method: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ToolCallResponse {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -59,6 +67,10 @@ pub struct ToolCallResponse {
     pub data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_estimate: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_next_tools: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -142,6 +154,8 @@ impl ToolCallResponse {
             degraded_reason: meta.degraded_reason,
             data: Some(data),
             error: None,
+            token_estimate: None,
+            suggested_next_tools: None,
         }
     }
 
@@ -153,6 +167,8 @@ impl ToolCallResponse {
             degraded_reason: None,
             data: None,
             error: Some(message.into()),
+            token_estimate: None,
+            suggested_next_tools: None,
         }
     }
 }

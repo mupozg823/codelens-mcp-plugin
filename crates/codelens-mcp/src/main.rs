@@ -508,30 +508,32 @@ fn dispatch_tool(
     };
 
     match result {
-        Ok((payload, meta)) => JsonRpcResponse::result(
-            id,
-            json!({
-                "content": [
-                    {
-                        "type": "text",
-                        "text": serde_json::to_string(&ToolCallResponse::success(payload, meta))
-                            .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())
-                    }
-                ]
-            }),
-        ),
-        Err(error) => JsonRpcResponse::result(
-            id,
-            json!({
-                "content": [
-                    {
-                        "type": "text",
-                        "text": serde_json::to_string(&ToolCallResponse::error(error.to_string()))
-                            .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())
-                    }
-                ]
-            }),
-        ),
+        Ok((payload, meta)) => {
+            let mut resp = ToolCallResponse::success(payload, meta);
+            resp.suggested_next_tools = tools::suggest_next(name);
+            let text = serde_json::to_string(&resp)
+                .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned());
+            resp.token_estimate = Some(tools::estimate_tokens(&text));
+            let text = serde_json::to_string(&resp)
+                .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned());
+            JsonRpcResponse::result(
+                id,
+                json!({
+                    "content": [{ "type": "text", "text": text }]
+                }),
+            )
+        }
+        Err(error) => {
+            let resp = ToolCallResponse::error(error.to_string());
+            let text = serde_json::to_string(&resp)
+                .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned());
+            JsonRpcResponse::result(
+                id,
+                json!({
+                    "content": [{ "type": "text", "text": text }]
+                }),
+            )
+        }
     }
 }
 

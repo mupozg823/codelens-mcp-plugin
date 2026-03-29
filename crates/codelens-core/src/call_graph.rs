@@ -4,8 +4,26 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, LazyLock, Mutex};
 use streaming_iterator::StreamingIterator;
 use tree_sitter::{Language, Parser, Query, QueryCursor};
+
+/// Cached compiled tree-sitter Query for call graph extraction.
+/// Key: (language pointer as usize, query string pointer as usize)
+static CALL_QUERY_CACHE: LazyLock<Mutex<HashMap<usize, Arc<Query>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn cached_call_query(language: &Language, query_str: &'static str) -> Option<Arc<Query>> {
+    let key = query_str.as_ptr() as usize;
+    let mut cache = CALL_QUERY_CACHE.lock().unwrap();
+    if let Some(q) = cache.get(&key) {
+        return Some(Arc::clone(q));
+    }
+    let q = Query::new(language, query_str).ok()?;
+    let q = Arc::new(q);
+    cache.insert(key, Arc::clone(&q));
+    Some(q)
+}
 
 use crate::project::collect_files;
 
@@ -112,7 +130,7 @@ pub fn extract_calls(path: &Path) -> Vec<CallEdge> {
 
     // Build a map: byte_range_start -> caller_name for each function definition.
     // We'll use this to find which function contains each call site.
-    let Ok(func_query) = Query::new(&config.language, config.func_query) else {
+    let Some(func_query) = cached_call_query(&config.language, config.func_query) else {
         return Vec::new();
     };
     let mut func_ranges: Vec<(usize, usize, String)> = Vec::new(); // (start, end, name)
@@ -141,7 +159,7 @@ pub fn extract_calls(path: &Path) -> Vec<CallEdge> {
     }
 
     // Parse call sites
-    let Ok(call_query) = Query::new(&config.language, config.call_query) else {
+    let Some(call_query) = cached_call_query(&config.language, config.call_query) else {
         return Vec::new();
     };
     let mut call_cursor = QueryCursor::new();

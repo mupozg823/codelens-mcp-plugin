@@ -1,6 +1,6 @@
 use codelens_core::{
-    content_hash, find_circular_dependencies, find_symbol, get_blast_radius, get_callers,
-    get_symbols_overview, search_for_pattern, search_symbols_hybrid, ProjectRoot, SymbolIndex,
+    content_hash, find_circular_dependencies, get_blast_radius, get_callers, get_symbols_overview,
+    search_for_pattern, search_symbols_hybrid, GraphCache, ProjectRoot, SymbolIndex,
 };
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::fs;
@@ -291,10 +291,11 @@ fn bench_search_symbols_hybrid(c: &mut Criterion) {
 
 fn bench_blast_radius(c: &mut Criterion) {
     let (_dir, project) = create_fixture();
+    let cache = GraphCache::new(0);
 
     c.bench_function("get_blast_radius (models.py)", |b| {
         b.iter(|| {
-            let _ = get_blast_radius(black_box(&project), "src/models.py", 3);
+            let _ = get_blast_radius(black_box(&project), "src/models.py", 3, &cache);
         })
     });
 }
@@ -311,10 +312,11 @@ fn bench_get_callers(c: &mut Criterion) {
 
 fn bench_circular_deps(c: &mut Criterion) {
     let (_dir, project) = create_fixture();
+    let cache = GraphCache::new(0);
 
     c.bench_function("find_circular_dependencies", |b| {
         b.iter(|| {
-            find_circular_dependencies(black_box(&project), 50).unwrap();
+            find_circular_dependencies(black_box(&project), 50, &cache).unwrap();
         })
     });
 }

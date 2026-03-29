@@ -13,6 +13,11 @@ use crate::AppState;
 /// Tool handler result type — every handler returns this.
 pub type ToolResult = anyhow::Result<(serde_json::Value, ToolResponseMeta)>;
 
+/// Rough token count estimate: 1 token ≈ 4 bytes of UTF-8 text.
+pub fn estimate_tokens(text: &str) -> usize {
+    text.len() / 4
+}
+
 pub fn success_meta(backend_used: &str, confidence: f64) -> ToolResponseMeta {
     ToolResponseMeta {
         backend_used: backend_used.to_owned(),
@@ -79,4 +84,26 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
         "intelephense" => vec!["--stdio".to_owned()],
         _ => Vec::new(),
     }
+}
+
+pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
+    let suggestions: &[&str] = match tool_name {
+        "get_symbols_overview" => &["find_symbol", "get_impact_analysis", "get_ranked_context"],
+        "find_symbol" => &[
+            "find_referencing_symbols",
+            "get_impact_analysis",
+            "replace_symbol_body",
+        ],
+        "find_referencing_symbols" => &["get_impact_analysis", "rename_symbol"],
+        "get_impact_analysis" => &["find_referencing_symbols", "get_symbols_overview"],
+        "get_file_diagnostics" => &["find_symbol", "get_symbols_overview"],
+        "get_changed_files" => &["get_impact_analysis", "get_symbols_overview"],
+        "plan_symbol_rename" => &["rename_symbol"],
+        "find_dead_code" => &["get_symbols_overview", "delete_lines"],
+        "find_circular_dependencies" => &["get_impact_analysis", "get_symbols_overview"],
+        "get_ranked_context" => &["find_symbol", "replace_symbol_body"],
+        "activate_project" => &["get_symbols_overview", "get_current_config"],
+        _ => return None,
+    };
+    Some(suggestions.iter().map(|s| s.to_string()).collect())
 }

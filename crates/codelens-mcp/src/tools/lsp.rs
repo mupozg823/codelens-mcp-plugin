@@ -10,6 +10,40 @@ use codelens_core::{
 };
 use serde_json::json;
 
+fn lsp_install_hint(command: &str) -> &'static str {
+    match command {
+        "pyright" => "  pip install pyright",
+        "typescript-language-server" => "  npm i -g typescript-language-server typescript",
+        "rust-analyzer" => "  rustup component add rust-analyzer",
+        "gopls" => "  go install golang.org/x/tools/gopls@latest",
+        "clangd" => "  brew install llvm  (or apt install clangd)",
+        "jdtls" => "  See https://github.com/eclipse-jdtls/eclipse.jdt.ls",
+        "solargraph" => "  gem install solargraph",
+        "intelephense" => "  npm i -g intelephense",
+        "kotlin-language-server" => "  See https://github.com/fwcd/kotlin-language-server",
+        "metals" => "  cs install metals  (via Coursier)",
+        "sourcekit-lsp" => "  Included with Xcode / Swift toolchain",
+        "csharp-ls" => "  dotnet tool install -g csharp-ls",
+        _ => "  Check your package manager for the LSP server binary",
+    }
+}
+
+fn enhance_lsp_error(err: anyhow::Error, command: &str) -> anyhow::Error {
+    let msg = err.to_string();
+    if msg.contains("No such file") || msg.contains("not found") || msg.contains("spawn") {
+        anyhow::anyhow!(
+            "{msg}\n\nHint: LSP server '{command}' not found. Install it:\n{}",
+            lsp_install_hint(command)
+        )
+    } else if msg.contains("timed out") || msg.contains("timeout") {
+        anyhow::anyhow!(
+            "{msg}\n\nHint: LSP server '{command}' timed out. It may still be initializing on first run. Try again."
+        )
+    } else {
+        err
+    }
+}
+
 pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?.to_owned();
     let symbol_name_param = arguments.get("symbol_name").and_then(|v| v.as_str());
@@ -54,13 +88,14 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             .lock()
             .map_err(|_| anyhow::anyhow!("lsp pool lock poisoned"))?
             .find_referencing_symbols(&LspRequest {
-                command,
+                command: command.clone(),
                 args,
                 file_path: file_path.clone(),
                 line,
                 column,
                 max_results,
-            });
+            })
+            .map_err(|e| enhance_lsp_error(e, &command));
 
         match lsp_result {
             Ok(value) => Ok((
@@ -110,6 +145,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
         .and_then(|v| v.as_u64())
         .unwrap_or(200) as usize;
 
+    let command_ref = command.clone();
     state
         .lsp_pool
         .lock()
@@ -120,6 +156,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
             file_path,
             max_results,
         })
+        .map_err(|e| enhance_lsp_error(e, &command_ref))
         .map(|value| {
             (
                 json!({ "diagnostics": value, "count": value.len() }),
@@ -137,6 +174,7 @@ pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value)
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
 
+    let command_ref = command.clone();
     state
         .lsp_pool
         .lock()
@@ -147,6 +185,7 @@ pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value)
             query,
             max_results,
         })
+        .map_err(|e| enhance_lsp_error(e, &command_ref))
         .map(|value| {
             (
                 json!({ "symbols": value, "count": value.len() }),
@@ -242,6 +281,7 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
         .ok_or_else(|| anyhow::anyhow!("Missing command and no default LSP mapping for file"))?;
     let args = parse_lsp_args(arguments, &command);
 
+    let command_ref = command.clone();
     state
         .lsp_pool
         .lock()
@@ -254,6 +294,7 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
             column,
             new_name,
         })
+        .map_err(|e| enhance_lsp_error(e, &command_ref))
         .map(|value| (json!(value), success_meta("lsp_pooled", 0.86)))
 }
 
