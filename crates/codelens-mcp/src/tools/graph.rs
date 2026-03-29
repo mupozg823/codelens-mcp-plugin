@@ -1,4 +1,5 @@
 use super::{required_string, success_meta, AppState, ToolResult};
+use crate::protocol::BackendKind;
 use crate::tools::symbols::flatten_symbols;
 use codelens_core::{
     find_circular_dependencies, find_dead_code_v2, find_scoped_references, get_blast_radius,
@@ -17,7 +18,7 @@ pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -
     let ref_label = git_ref.unwrap_or("HEAD");
     Ok((
         json!({ "ref": ref_label, "files": changed, "count": changed.len() }),
-        success_meta("git", 0.95),
+        success_meta(BackendKind::Git, 0.95),
     ))
 }
 
@@ -32,7 +33,7 @@ pub fn get_blast_radius_tool(state: &AppState, arguments: &serde_json::Value) ->
             |value| {
                 (
                     json!({ "file": file_path, "affected_files": value, "count": value.len() }),
-                    success_meta("import-graph", 0.86),
+                    success_meta(BackendKind::Hybrid, 0.86),
                 )
             },
         )?,
@@ -79,7 +80,7 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
             "blast_radius": affected,
             "total_affected_files": affected.len(),
         }),
-        success_meta("import-graph+tree-sitter", 0.85),
+        success_meta(BackendKind::Hybrid, 0.85),
     ))
 }
 
@@ -93,7 +94,7 @@ pub fn find_importers_tool(state: &AppState, arguments: &serde_json::Value) -> T
         get_importers(&state.project, file_path, max_results, &state.graph_cache).map(|value| {
             (
                 json!({ "file": file_path, "importers": value, "count": value.len() }),
-                success_meta("import-graph", 0.87),
+                success_meta(BackendKind::Hybrid, 0.87),
             )
         })?,
     )
@@ -108,7 +109,7 @@ pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) ->
         get_importance(&state.project, top_n, &state.graph_cache).map(|value| {
             (
                 json!({ "ranking": value, "count": value.len() }),
-                success_meta("import-graph", 0.84),
+                success_meta(BackendKind::Hybrid, 0.84),
             )
         })?,
     )
@@ -123,7 +124,7 @@ pub fn find_dead_code_v2_tool(state: &AppState, arguments: &serde_json::Value) -
         find_dead_code_v2(&state.project, max_results, &state.graph_cache).map(|value| {
             (
                 json!({ "dead_code": value, "count": value.len() }),
-                success_meta("call-graph+import-graph", 0.82),
+                success_meta(BackendKind::Hybrid, 0.82),
             )
         })?,
     )
@@ -173,7 +174,7 @@ pub fn find_referencing_code_snippets(
             .collect::<Vec<_>>();
         (
             json!({ "snippets": snippets, "count": snippets.len() }),
-            success_meta("filesystem", 0.92),
+            success_meta(BackendKind::Filesystem, 0.92),
         )
     })?)
 }
@@ -190,7 +191,7 @@ pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Val
             |refs| {
                 (
                     json!({ "references": refs, "count": refs.len() }),
-                    success_meta("tree-sitter-scope", 0.95),
+                    success_meta(BackendKind::TreeSitter, 0.95),
                 )
             },
         )?,
@@ -207,7 +208,7 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         get_callers(&state.project, function_name, max_results).map(|value| {
             (
                 json!({ "function": function_name, "callers": value, "count": value.len() }),
-                success_meta("call-graph", 0.85),
+                success_meta(BackendKind::Hybrid, 0.85),
             )
         })?,
     )
@@ -224,7 +225,7 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         get_callees(&state.project, function_name, file_path, max_results).map(|value| {
             (
                 json!({ "function": function_name, "callees": value, "count": value.len() }),
-                success_meta("call-graph", 0.85),
+                success_meta(BackendKind::Hybrid, 0.85),
             )
         })?,
     )
@@ -243,7 +244,7 @@ pub fn find_circular_dependencies_tool(
             |value| {
                 (
                     json!({ "cycles": value, "count": value.len() }),
-                    success_meta("import-graph", 0.88),
+                    success_meta(BackendKind::Hybrid, 0.88),
                 )
             },
         )?,
@@ -277,7 +278,7 @@ pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value)
     .map(|value| {
         (
             json!({ "coupling": value, "count": value.len() }),
-            success_meta("git", 0.85),
+            success_meta(BackendKind::Git, 0.85),
         )
     })?)
 }

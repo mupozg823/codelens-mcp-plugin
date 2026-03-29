@@ -8,6 +8,7 @@ mod types;
 mod writer;
 
 use parser::{flatten_symbol_infos, flatten_symbols, parse_symbols, slice_source, to_symbol_info};
+use ranking::prune_to_budget;
 use scoring::score_symbol;
 pub(crate) use types::ReadDb;
 pub use types::{
@@ -20,7 +21,6 @@ use crate::db::{self, content_hash, index_db_path, IndexDb};
 pub(crate) use crate::lang_config::{language_for_path, LanguageConfig};
 use crate::project::ProjectRoot;
 use anyhow::{bail, Context, Result};
-use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -360,7 +360,6 @@ impl SymbolIndex {
         include_body: bool,
         depth: usize,
     ) -> Result<RankedContextResult> {
-        let max_chars = max_tokens.saturating_mul(4);
         let all_symbols = if let Some(path) = path {
             self.get_symbols_overview(path, depth)?
         } else {
@@ -375,55 +374,15 @@ impl SymbolIndex {
             .collect::<Vec<_>>();
         scored.sort_by(|left, right| right.1.cmp(&left.1));
 
-        // Batch body extraction: read each file once instead of N+1 DB queries.
-        // Cap at 32 files to bound memory usage on large projects.
-        const FILE_CACHE_LIMIT: usize = 32;
-        let mut file_cache: HashMap<String, Option<String>> = HashMap::new();
-        let mut selected = Vec::new();
-        let mut char_budget = max_chars;
-
-        for (symbol, score) in scored {
-            let body = if include_body && symbol.end_byte > symbol.start_byte {
-                let cache_full = file_cache.len() >= FILE_CACHE_LIMIT;
-                let source = file_cache
-                    .entry(symbol.file_path.clone())
-                    .or_insert_with(|| {
-                        if cache_full {
-                            return None;
-                        }
-                        let abs = self.project.as_path().join(&symbol.file_path);
-                        fs::read_to_string(&abs).ok()
-                    });
-                source
-                    .as_deref()
-                    .map(|s| slice_source(s, symbol.start_byte, symbol.end_byte))
-            } else {
-                None
-            };
-
-            let entry = RankedContextEntry {
-                name: symbol.name,
-                kind: symbol.kind.as_label().to_owned(),
-                file: symbol.file_path,
-                line: symbol.line,
-                signature: symbol.signature,
-                body,
-                relevance_score: score,
-            };
-            let entry_size = serde_json::to_string(&entry)?.len();
-            if char_budget < entry_size && !selected.is_empty() {
-                break;
-            }
-            char_budget = char_budget.saturating_sub(entry_size);
-            selected.push(entry);
-        }
+        let (selected, chars_used) =
+            prune_to_budget(scored, max_tokens, include_body, self.project.as_path());
 
         Ok(RankedContextResult {
             query: query.to_owned(),
             count: selected.len(),
             symbols: selected,
             token_budget: max_tokens,
-            chars_used: max_chars.saturating_sub(char_budget),
+            chars_used,
         })
     }
 

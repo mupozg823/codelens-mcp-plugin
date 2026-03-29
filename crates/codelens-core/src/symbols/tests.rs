@@ -368,6 +368,133 @@ fn extracts_dart_symbols() {
     );
 }
 
+#[test]
+fn prune_to_budget_respects_char_limit() {
+    use super::ranking::prune_to_budget;
+    use super::types::SymbolInfo;
+
+    let symbols: Vec<(SymbolInfo, i32)> = (0..20)
+        .map(|i| {
+            (
+                SymbolInfo {
+                    name: format!("sym_{i}"),
+                    kind: SymbolKind::Function,
+                    file_path: "test.rs".into(),
+                    line: i,
+                    column: 0,
+                    signature: format!("fn sym_{i}()"),
+                    name_path: format!("sym_{i}"),
+                    id: format!("test.rs#function:sym_{i}"),
+                    body: None,
+                    children: Vec::new(),
+                    start_byte: 0,
+                    end_byte: 0,
+                },
+                100 - i as i32,
+            )
+        })
+        .collect();
+
+    // Very small budget: should not fit all 20 symbols
+    let (selected, chars_used) =
+        prune_to_budget(symbols, 50, false, std::path::Path::new("/nonexistent"));
+    assert!(!selected.is_empty());
+    assert!(selected.len() < 20, "budget should limit entries");
+    assert!(chars_used <= 50 * 4);
+}
+
+#[test]
+fn prune_to_budget_includes_first_even_if_oversized() {
+    use super::ranking::prune_to_budget;
+    use super::types::SymbolInfo;
+
+    let symbols = vec![(
+        SymbolInfo {
+            name: "big_symbol".into(),
+            kind: SymbolKind::Function,
+            file_path: "test.rs".into(),
+            line: 1,
+            column: 0,
+            signature: "fn big_symbol()".into(),
+            name_path: "big_symbol".into(),
+            id: "test.rs#function:big_symbol".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        },
+        100,
+    )];
+
+    // Budget of 1 token = 4 chars, way too small for even the JSON entry
+    let (selected, chars_used) =
+        prune_to_budget(symbols, 1, false, std::path::Path::new("/nonexistent"));
+    assert_eq!(selected.len(), 1, "first entry must always be included");
+    // chars_used is capped at char_budget (max_tokens * 4 = 4), even though
+    // the serialized entry is larger. The key invariant: first entry always included.
+    assert!(chars_used > 0);
+}
+
+#[test]
+fn rank_symbols_returns_full_scored_list() {
+    use super::ranking::{rank_symbols, RankingContext};
+    use super::types::SymbolInfo;
+
+    let symbols: Vec<SymbolInfo> = ["alpha", "beta_alpha", "gamma"]
+        .iter()
+        .map(|name| SymbolInfo {
+            name: name.to_string(),
+            kind: SymbolKind::Function,
+            file_path: "test.rs".into(),
+            line: 1,
+            column: 0,
+            signature: format!("fn {name}()"),
+            name_path: name.to_string(),
+            id: format!("test.rs#function:{name}"),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        })
+        .collect();
+
+    let ctx = RankingContext::text_only();
+    let scored = rank_symbols("alpha", symbols, &ctx);
+    // "alpha" and "beta_alpha" match; "gamma" does not
+    assert_eq!(scored.len(), 2);
+    // Exact match should score higher
+    assert_eq!(scored[0].0.name, "alpha");
+    assert!(scored[0].1 >= scored[1].1);
+}
+
+#[test]
+fn score_and_rank_empty_query() {
+    use super::ranking::{rank_symbols, RankingContext};
+    use super::types::SymbolInfo;
+
+    let symbols = vec![SymbolInfo {
+        name: "anything".into(),
+        kind: SymbolKind::Function,
+        file_path: "test.rs".into(),
+        line: 1,
+        column: 0,
+        signature: "fn anything()".into(),
+        name_path: "anything".into(),
+        id: "test.rs#function:anything".into(),
+        body: None,
+        children: Vec::new(),
+        start_byte: 0,
+        end_byte: 0,
+    }];
+
+    let ctx = RankingContext::text_only();
+    let scored = rank_symbols("", symbols, &ctx);
+    // Empty string is a substring of any name, so score_symbol returns Some(60).
+    // rank_symbols passes all symbols that score_symbol accepts.
+    assert_eq!(scored.len(), 1);
+    assert!(scored[0].1 > 0);
+}
+
 fn fixture_root() -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "codelens-symbols-fixture-{}",

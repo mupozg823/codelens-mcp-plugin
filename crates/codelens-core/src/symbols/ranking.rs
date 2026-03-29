@@ -1,6 +1,8 @@
+use super::parser::slice_source;
 use super::scoring::score_symbol;
-use super::types::SymbolInfo;
+use super::types::{RankedContextEntry, SymbolInfo};
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Weights for blending multiple relevance signals.
 pub(crate) struct RankWeights {
@@ -121,4 +123,59 @@ pub(crate) fn rank_symbols(
 
     scored.sort_by(|a, b| b.1.cmp(&a.1));
     scored
+}
+
+/// Budget-aware pruning: take ranked symbols, extract bodies, stop when budget exhausted.
+/// Returns (selected_entries, chars_used).
+pub(crate) fn prune_to_budget(
+    scored: Vec<(SymbolInfo, i32)>,
+    max_tokens: usize,
+    include_body: bool,
+    project_root: &Path,
+) -> (Vec<RankedContextEntry>, usize) {
+    const FILE_CACHE_LIMIT: usize = 32;
+    let char_budget = max_tokens.saturating_mul(4);
+    let mut remaining = char_budget;
+    let mut file_cache: HashMap<String, Option<String>> = HashMap::new();
+    let mut selected = Vec::new();
+
+    for (symbol, score) in scored {
+        let body = if include_body && symbol.end_byte > symbol.start_byte {
+            let cache_full = file_cache.len() >= FILE_CACHE_LIMIT;
+            let source = file_cache
+                .entry(symbol.file_path.clone())
+                .or_insert_with(|| {
+                    if cache_full {
+                        return None;
+                    }
+                    let abs = project_root.join(&symbol.file_path);
+                    std::fs::read_to_string(&abs).ok()
+                });
+            source
+                .as_deref()
+                .map(|s| slice_source(s, symbol.start_byte, symbol.end_byte))
+        } else {
+            None
+        };
+
+        let entry = RankedContextEntry {
+            name: symbol.name,
+            kind: symbol.kind.as_label().to_owned(),
+            file: symbol.file_path,
+            line: symbol.line,
+            signature: symbol.signature,
+            body,
+            relevance_score: score,
+        };
+        // serde_json::to_string should not fail for this struct, but handle gracefully
+        let entry_size = serde_json::to_string(&entry).map(|s| s.len()).unwrap_or(0);
+        if remaining < entry_size && !selected.is_empty() {
+            break;
+        }
+        remaining = remaining.saturating_sub(entry_size);
+        selected.push(entry);
+    }
+
+    let chars_used = char_budget.saturating_sub(remaining);
+    (selected, chars_used)
 }

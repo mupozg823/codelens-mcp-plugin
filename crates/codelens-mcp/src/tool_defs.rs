@@ -154,6 +154,7 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("get_watch_status", "[CodeLens] File watcher status: running state, events processed, files reindexed.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
         Tool::new("set_preset", "[CodeLens] Switch tool preset (minimal/balanced/full) at runtime. Auto-adjusts token budget.", json!({"type":"object","properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset"},"token_budget":{"type":"integer","description":"Override token budget (default: auto per preset)"}},"required":["preset"]})).with_annotations(mutating.clone()),
         Tool::new("get_capabilities", "[CodeLens] Check project features: LSP status, embeddings, index freshness. Call before using advanced tools.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"Optional file path to check language-specific capabilities"}}})).with_annotations(ro_a.clone()),
+        Tool::new("get_tool_metrics", "[CodeLens] Per-tool usage metrics: call counts, latency, errors. Use for self-diagnosis.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
     ];
 
     // ── Semantic (feature-gated) ────────────────────────────────────

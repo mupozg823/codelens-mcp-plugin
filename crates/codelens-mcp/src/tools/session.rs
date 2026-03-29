@@ -1,4 +1,5 @@
 use super::{success_meta, AppState, ToolResult};
+use crate::protocol::BackendKind;
 use crate::tools::memory::list_memory_names;
 use codelens_core::detect_frameworks;
 use serde_json::json;
@@ -28,7 +29,7 @@ pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> Too
             "file_watcher": watcher_running,
             "frameworks": frameworks
         }),
-        success_meta("session", 1.0),
+        success_meta(BackendKind::Session, 1.0),
     ))
 }
 
@@ -54,7 +55,7 @@ pub fn check_onboarding_performed(state: &AppState, _arguments: &serde_json::Val
             "serena_memories_dir": state.memories_dir.to_string_lossy(),
             "backend_id": "rust-core"
         }),
-        success_meta("session", 1.0),
+        success_meta(BackendKind::Session, 1.0),
     ))
 }
 
@@ -80,7 +81,7 @@ pub fn initial_instructions(state: &AppState, _arguments: &serde_json::Value) ->
                 "search_for_pattern","get_type_hierarchy"
             ]
         }),
-        success_meta("session", 1.0),
+        success_meta(BackendKind::Session, 1.0),
     ))
 }
 
@@ -100,7 +101,7 @@ pub fn onboarding(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         if required.iter().all(|r| existing.contains(&r.to_string())) {
             return Ok((
                 json!({"status":"already_onboarded","existing_memories": existing}),
-                success_meta("session", 1.0),
+                success_meta(BackendKind::Session, 1.0),
             ));
         }
     }
@@ -142,7 +143,7 @@ pub fn onboarding(state: &AppState, arguments: &serde_json::Value) -> ToolResult
     let created = list_memory_names(&state.memories_dir, None);
     Ok((
         json!({"status":"onboarded","project_name": project_name,"memories_created": created}),
-        success_meta("session", 1.0),
+        success_meta(BackendKind::Session, 1.0),
     ))
 }
 
@@ -164,7 +165,7 @@ pub fn prepare_for_new_conversation(
             "backend_id": "rust-core",
             "memory_count": list_memory_names(&state.memories_dir, None).len()
         }),
-        success_meta("session", 1.0),
+        success_meta(BackendKind::Session, 1.0),
     ))
 }
 
@@ -174,7 +175,7 @@ pub fn summarize_changes(state: &AppState, _arguments: &serde_json::Value) -> To
             "instructions": "To summarize your changes:\n1. Use search_for_pattern to identify modified symbols\n2. Use get_symbols_overview to understand file structure\n3. Write a summary to memory using write_memory with name 'session_summary'",
             "project_name": state.project.as_path().file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
         }),
-        success_meta("session", 1.0),
+        success_meta(BackendKind::Session, 1.0),
     ))
 }
 
@@ -191,7 +192,7 @@ pub fn list_queryable_projects(state: &AppState, _arguments: &serde_json::Value)
             "projects": [{"name": project_name, "path": state.project.as_path().to_string_lossy(), "is_active": true, "has_memories": has_memories}],
             "count": 1
         }),
-        success_meta("session", 1.0),
+        success_meta(BackendKind::Session, 1.0),
     ))
 }
 
@@ -201,17 +202,17 @@ pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> Too
         Some(watcher) => {
             let mut stats = watcher.stats();
             stats.index_failures = Some(failure_count);
-            Ok((json!(stats), success_meta("watcher", 1.0)))
+            Ok((json!(stats), success_meta(BackendKind::Config, 1.0)))
         }
         None => Ok((
             json!({"running": false, "events_processed": 0, "files_reindexed": 0, "index_failures": failure_count, "note": "File watcher not started"}),
-            success_meta("watcher", 1.0),
+            success_meta(BackendKind::Config, 1.0),
         )),
     }
 }
 
 pub fn think_noop(_state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    Ok((json!(""), success_meta("noop", 1.0)))
+    Ok((json!(""), success_meta(BackendKind::Noop, 1.0)))
 }
 
 pub fn switch_modes(_state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -221,7 +222,7 @@ pub fn switch_modes(_state: &AppState, arguments: &serde_json::Value) -> ToolRes
         .unwrap_or("default");
     Ok((
         json!({"status":"ok","mode":mode,"note":"Mode switching is a no-op in standalone mode"}),
-        success_meta("noop", 1.0),
+        success_meta(BackendKind::Noop, 1.0),
     ))
 }
 
@@ -309,7 +310,29 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "available": available,
             "unavailable": unavailable,
         }),
-        success_meta("capability-check", 0.95),
+        success_meta(BackendKind::Config, 0.95),
+    ))
+}
+
+pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let snapshot = state.metrics().snapshot();
+    let data: Vec<serde_json::Value> = snapshot
+        .into_iter()
+        .map(|(name, m)| {
+            json!({
+                "tool": name,
+                "calls": m.call_count,
+                "total_ms": m.total_ms,
+                "max_ms": m.max_ms,
+                "errors": m.error_count,
+                "last_called": m.last_called_at,
+            })
+        })
+        .collect();
+    let count = data.len();
+    Ok((
+        json!({"tools": data, "count": count}),
+        success_meta(BackendKind::Telemetry, 1.0),
     ))
 }
 
@@ -346,6 +369,6 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
             "token_budget": budget,
             "note": "Preset changed. Next tools/list call will reflect the new tool set."
         }),
-        success_meta("session", 1.0),
+        success_meta(BackendKind::Session, 1.0),
     ))
 }

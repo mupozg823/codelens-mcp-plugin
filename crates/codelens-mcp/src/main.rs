@@ -6,6 +6,7 @@ mod protocol;
 mod resources;
 mod server;
 mod state;
+mod telemetry;
 mod tool_defs;
 mod tools;
 

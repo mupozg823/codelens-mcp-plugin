@@ -1,5 +1,6 @@
 use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
+use crate::protocol::BackendKind;
 use serde_json::json;
 
 pub fn list_memories(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -11,7 +12,7 @@ pub fn list_memories(state: &AppState, arguments: &serde_json::Value) -> ToolRes
             "count": names.len(),
             "memories": names.iter().map(|n| json!({"name": n, "path": format!(".codelens/memories/{n}.md")})).collect::<Vec<_>>()
         }),
-        success_meta("filesystem", 1.0),
+        success_meta(BackendKind::Memory, 1.0),
     ))
 }
 
@@ -22,7 +23,7 @@ pub fn read_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         .map_err(|_| CodeLensError::NotFound(format!("Memory: {name}")))?;
     Ok((
         json!({"memory_name": name, "content": content}),
-        success_meta("filesystem", 1.0),
+        success_meta(BackendKind::Memory, 1.0),
     ))
 }
 
@@ -36,7 +37,7 @@ pub fn write_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResu
     std::fs::write(&path, content)?;
     Ok((
         json!({"status":"ok","memory_name": name}),
-        success_meta("filesystem", 1.0),
+        success_meta(BackendKind::Memory, 1.0),
     ))
 }
 
@@ -49,7 +50,7 @@ pub fn delete_memory(state: &AppState, arguments: &serde_json::Value) -> ToolRes
     std::fs::remove_file(&path)?;
     Ok((
         json!({"status":"ok","memory_name": name}),
-        success_meta("filesystem", 1.0),
+        success_meta(BackendKind::Memory, 1.0),
     ))
 }
 
@@ -63,7 +64,7 @@ pub fn edit_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResul
     std::fs::write(&path, content)?;
     Ok((
         json!({"status":"ok","memory_name": name}),
-        success_meta("filesystem", 1.0),
+        success_meta(BackendKind::Memory, 1.0),
     ))
 }
 
@@ -86,7 +87,7 @@ pub fn rename_memory(state: &AppState, arguments: &serde_json::Value) -> ToolRes
     std::fs::rename(&old_path, &new_path)?;
     Ok((
         json!({"status":"ok","old_name": old_name,"new_name": new_name}),
-        success_meta("filesystem", 1.0),
+        success_meta(BackendKind::Memory, 1.0),
     ))
 }
 

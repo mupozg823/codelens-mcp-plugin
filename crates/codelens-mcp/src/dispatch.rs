@@ -40,7 +40,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
     let results = engine.search(query, max_results)?;
     Ok((
         json!({"query": query, "results": results, "count": results.len()}),
-        tools::success_meta("semantic-embedding", 0.85),
+        tools::success_meta(crate::protocol::BackendKind::Semantic, 0.85),
     ))
 }
 
@@ -55,7 +55,7 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
     let count = engine.index_from_project(&state.project)?;
     Ok((
         json!({"indexed_symbols": count, "status": "ok"}),
-        tools::success_meta("semantic-embedding", 0.95),
+        tools::success_meta(crate::protocol::BackendKind::Semantic, 0.95),
     ))
 }
 
@@ -148,6 +148,9 @@ pub(crate) fn dispatch_tool(
     }
 
     let elapsed_ms = start.elapsed().as_millis();
+    state
+        .metrics()
+        .record_call(name, elapsed_ms as u64, result.is_ok());
     if elapsed_ms > 5000 {
         warn!(
             tool = name,
@@ -165,6 +168,7 @@ pub(crate) fn dispatch_tool(
                 .unwrap_or(0);
             resp.token_estimate = Some(payload_estimate);
             resp.budget_hint = Some(budget_hint(name, payload_estimate, state.token_budget()));
+            resp.elapsed_ms = Some(elapsed_ms as u64);
             let mut text = serde_json::to_string(&resp).unwrap_or_else(|_| {
                 "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
             });

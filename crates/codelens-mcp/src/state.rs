@@ -3,6 +3,7 @@ use codelens_core::EmbeddingEngine;
 use codelens_core::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
 use std::sync::{Arc, Mutex};
 
+use crate::telemetry::ToolMetricsRegistry;
 use crate::tool_defs::ToolPreset;
 
 // ── Application state ──────────────────────────────────────────────────
@@ -17,6 +18,7 @@ pub(crate) struct AppState {
     /// Tools that produce variable-length output respect this limit.
     pub(crate) token_budget: std::sync::atomic::AtomicUsize,
     pub(crate) memories_dir: std::path::PathBuf,
+    pub(crate) metrics: ToolMetricsRegistry,
     pub(crate) watcher: Option<FileWatcher>,
     #[cfg(feature = "semantic")]
     pub(crate) embedding: std::sync::OnceLock<Option<EmbeddingEngine>>,
@@ -41,6 +43,11 @@ impl AppState {
         self.preset
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Access the tool metrics registry.
+    pub(crate) fn metrics(&self) -> &ToolMetricsRegistry {
+        &self.metrics
     }
 
     /// Current global token budget.
@@ -75,6 +82,7 @@ impl AppState {
             preset: Mutex::new(preset),
             token_budget: std::sync::atomic::AtomicUsize::new(4000),
             memories_dir,
+            metrics: ToolMetricsRegistry::new(),
             watcher,
             #[cfg(feature = "semantic")]
             embedding: std::sync::OnceLock::new(),

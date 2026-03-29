@@ -1,5 +1,6 @@
 use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
+use crate::protocol::BackendKind;
 use codelens_core::{
     detect_frameworks, detect_workspace_packages, find_files, list_dir, read_file,
     search_for_pattern, search_for_pattern_smart,
@@ -23,7 +24,7 @@ pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> T
             "frameworks": frameworks,
             "workspace_packages": workspace_packages
         }),
-        success_meta("rust-core", 1.0),
+        success_meta(BackendKind::Config, 1.0),
     ))
 }
 
@@ -38,7 +39,7 @@ pub fn read_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRe
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
     Ok(read_file(&state.project, path, start_line, end_line)
-        .map(|value| (json!(value), success_meta("filesystem", 1.0)))?)
+        .map(|value| (json!(value), success_meta(BackendKind::Filesystem, 1.0)))?)
 }
 
 pub fn list_dir_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -50,7 +51,7 @@ pub fn list_dir_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRes
     Ok(list_dir(&state.project, path, recursive).map(|value| {
         (
             json!({ "entries": value, "count": value.len() }),
-            success_meta("filesystem", 1.0),
+            success_meta(BackendKind::Filesystem, 1.0),
         )
     })?)
 }
@@ -61,7 +62,7 @@ pub fn find_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRe
     Ok(find_files(&state.project, pattern, dir).map(|value| {
         (
             json!({ "files": value, "count": value.len() }),
-            success_meta("filesystem", 1.0),
+            success_meta(BackendKind::Filesystem, 1.0),
         )
     })?)
 }
@@ -108,7 +109,7 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
         .map(|value| {
             (
                 json!({ "matches": value, "count": value.len() }),
-                success_meta("tree-sitter+filesystem", 0.96),
+                success_meta(BackendKind::TreeSitter, 0.96),
             )
         })?)
     } else {
@@ -123,7 +124,7 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
         .map(|value| {
             (
                 json!({ "matches": value, "count": value.len() }),
-                success_meta("filesystem", 0.98),
+                success_meta(BackendKind::Filesystem, 0.98),
             )
         })?)
     }
@@ -172,7 +173,7 @@ pub fn find_annotations(state: &AppState, arguments: &serde_json::Value) -> Tool
                 .collect::<serde_json::Map<String, serde_json::Value>>();
             (
                 json!({ "tags": grouped, "total": value.len() }),
-                success_meta("filesystem", 0.97),
+                success_meta(BackendKind::Filesystem, 0.97),
             )
         })?,
     )
@@ -188,7 +189,7 @@ pub fn find_tests(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         search_for_pattern(&state.project, pattern, None, max_results, 0, 0).map(|value| {
             (
                 json!({ "tests": value, "count": value.len() }),
-                success_meta("filesystem", 0.97),
+                success_meta(BackendKind::Filesystem, 0.97),
             )
         })?,
     )

@@ -4,6 +4,7 @@ use super::{
 };
 use crate::authority::{meta_degraded, meta_for_backend};
 use crate::error::CodeLensError;
+use crate::protocol::BackendKind;
 use codelens_core::{
     check_lsp_status as core_check_lsp_status, extract_word_at_position,
     find_referencing_symbols_via_text, get_lsp_recipe as core_get_lsp_recipe,
@@ -165,7 +166,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
         .map(|value| {
             (
                 json!({ "diagnostics": value, "count": value.len() }),
-                success_meta("lsp_pooled", 0.9),
+                success_meta(BackendKind::Lsp, 0.9),
             )
         })?)
 }
@@ -192,7 +193,7 @@ pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value)
         .map(|value| {
             (
                 json!({ "symbols": value, "count": value.len() }),
-                success_meta("lsp_pooled", 0.88),
+                success_meta(BackendKind::Lsp, 0.88),
             )
         })?)
 }
@@ -308,21 +309,21 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
             new_name,
         })
         .map_err(|e| enhance_lsp_error(e, &command_ref))
-        .map(|value| (json!(value), success_meta("lsp_pooled", 0.86)))?)
+        .map(|value| (json!(value), success_meta(BackendKind::Lsp, 0.86)))?)
 }
 
 pub fn check_lsp_status(_state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let statuses = core_check_lsp_status();
     Ok((
         json!({ "servers": statuses, "count": statuses.len() }),
-        success_meta("lsp", 1.0),
+        success_meta(BackendKind::Lsp, 1.0),
     ))
 }
 
 pub fn get_lsp_recipe(_state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let extension = required_string(arguments, "extension")?;
     match core_get_lsp_recipe(extension) {
-        Some(recipe) => Ok((json!(recipe), success_meta("lsp", 1.0))),
+        Some(recipe) => Ok((json!(recipe), success_meta(BackendKind::Lsp, 1.0))),
         None => Err(CodeLensError::NotFound(format!(
             "LSP recipe for extension: {extension}"
         ))),

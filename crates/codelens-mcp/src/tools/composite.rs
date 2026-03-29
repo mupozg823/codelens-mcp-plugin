@@ -1,5 +1,6 @@
 use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
+use crate::protocol::BackendKind;
 use codelens_core::{
     find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
     get_symbols_overview, SymbolKind,
@@ -43,7 +44,7 @@ pub fn summarize_file(state: &AppState, arguments: &serde_json::Value) -> ToolRe
             "importers": importers.iter().map(|i| &i.file).collect::<Vec<_>>(),
             "importer_count": importers.len(),
         }),
-        success_meta("composite", 0.95),
+        success_meta(BackendKind::Hybrid, 0.95),
     ))
 }
 
@@ -77,7 +78,7 @@ pub fn explain_code_flow(state: &AppState, arguments: &serde_json::Value) -> Too
                 function_name, callers.len(), callees.len()
             )
         }),
-        success_meta("call-graph", 0.90),
+        success_meta(BackendKind::Hybrid, 0.90),
     ))
 }
 
@@ -180,7 +181,7 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
             "call_replacement": func_call,
             "dry_run": dry_run
         }),
-        success_meta("refactor", 0.90),
+        success_meta(BackendKind::Hybrid, 0.90),
     ))
 }
 
@@ -219,6 +220,6 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
             }),
             "suggested_next_tools": ["get_symbols_overview", "get_ranked_context", "semantic_search"]
         }),
-        success_meta("composite-onboard", 0.95),
+        success_meta(BackendKind::Hybrid, 0.95),
     ))
 }

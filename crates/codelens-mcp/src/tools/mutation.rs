@@ -1,5 +1,6 @@
 use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
+use crate::protocol::BackendKind;
 use codelens_core::{
     add_import, analyze_missing_imports, create_text_file, delete_lines, insert_after_symbol,
     insert_at_line, insert_before_symbol, rename, replace_content, replace_lines,
@@ -33,7 +34,7 @@ pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         scope,
         dry_run,
     )
-    .map(|value| (json!(value), success_meta("tree-sitter+filesystem", 0.90)))?)
+    .map(|value| (json!(value), success_meta(BackendKind::TreeSitter, 0.90)))?)
 }
 
 pub fn create_text_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -47,7 +48,7 @@ pub fn create_text_file_tool(state: &AppState, arguments: &serde_json::Value) ->
         create_text_file(&state.project, relative_path, content, overwrite).map(|_| {
             (
                 json!({ "created": relative_path }),
-                success_meta("filesystem", 1.0),
+                success_meta(BackendKind::Filesystem, 1.0),
             )
         })?,
     )
@@ -68,7 +69,7 @@ pub fn delete_lines_tool(state: &AppState, arguments: &serde_json::Value) -> Too
         delete_lines(&state.project, relative_path, start_line, end_line).map(|content| {
             (
                 json!({ "content": content }),
-                success_meta("filesystem", 1.0),
+                success_meta(BackendKind::Filesystem, 1.0),
             )
         })?,
     )
@@ -85,7 +86,7 @@ pub fn insert_at_line_tool(state: &AppState, arguments: &serde_json::Value) -> T
         insert_at_line(&state.project, relative_path, line, content).map(|modified| {
             (
                 json!({ "content": modified }),
-                success_meta("filesystem", 1.0),
+                success_meta(BackendKind::Filesystem, 1.0),
             )
         })?,
     )
@@ -113,7 +114,7 @@ pub fn replace_lines_tool(state: &AppState, arguments: &serde_json::Value) -> To
     .map(|content| {
         (
             json!({ "content": content }),
-            success_meta("filesystem", 1.0),
+            success_meta(BackendKind::Filesystem, 1.0),
         )
     })?)
 }
@@ -136,7 +137,7 @@ pub fn replace_content_tool(state: &AppState, arguments: &serde_json::Value) -> 
     .map(|(content, count)| {
         (
             json!({ "content": content, "replacements": count }),
-            success_meta("filesystem", 1.0),
+            success_meta(BackendKind::Filesystem, 1.0),
         )
     })?)
 }
@@ -156,7 +157,7 @@ pub fn replace_symbol_body_tool(state: &AppState, arguments: &serde_json::Value)
     .map(|content| {
         (
             json!({ "content": content }),
-            success_meta("tree-sitter+filesystem", 0.95),
+            success_meta(BackendKind::TreeSitter, 0.95),
         )
     })?)
 }
@@ -176,7 +177,7 @@ pub fn insert_before_symbol_tool(state: &AppState, arguments: &serde_json::Value
     .map(|modified| {
         (
             json!({ "content": modified }),
-            success_meta("tree-sitter+filesystem", 0.95),
+            success_meta(BackendKind::TreeSitter, 0.95),
         )
     })?)
 }
@@ -196,7 +197,7 @@ pub fn insert_after_symbol_tool(state: &AppState, arguments: &serde_json::Value)
     .map(|modified| {
         (
             json!({ "content": modified }),
-            success_meta("tree-sitter+filesystem", 0.95),
+            success_meta(BackendKind::TreeSitter, 0.95),
         )
     })?)
 }
@@ -204,7 +205,7 @@ pub fn insert_after_symbol_tool(state: &AppState, arguments: &serde_json::Value)
 pub fn analyze_missing_imports_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     Ok(analyze_missing_imports(&state.project, file_path)
-        .map(|value| (json!(value), success_meta("tree-sitter+index", 0.85)))?)
+        .map(|value| (json!(value), success_meta(BackendKind::TreeSitter, 0.85)))?)
 }
 
 pub fn add_import_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -214,7 +215,7 @@ pub fn add_import_tool(state: &AppState, arguments: &serde_json::Value) -> ToolR
         add_import(&state.project, file_path, import_statement).map(|content| {
             (
                 json!({"success": true, "file_path": file_path, "content_length": content.len()}),
-                success_meta("filesystem", 1.0),
+                success_meta(BackendKind::Filesystem, 1.0),
             )
         })?,
     )

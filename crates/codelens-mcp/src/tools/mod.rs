@@ -8,7 +8,7 @@ pub mod session;
 pub mod symbols;
 
 use crate::error::CodeLensError;
-use crate::protocol::{AnalysisSource, Freshness, ToolResponseMeta};
+use crate::protocol::{AnalysisSource, BackendKind, Freshness, ToolResponseMeta};
 use crate::AppState;
 use std::collections::HashMap;
 
@@ -117,6 +117,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
     m.insert("switch_modes", session::switch_modes);
     m.insert("set_preset", session::set_preset);
     m.insert("get_capabilities", session::get_capabilities);
+    m.insert("get_tool_metrics", session::get_tool_metrics);
 
     // Composite / agent
     m.insert("summarize_file", composite::summarize_file);
@@ -135,9 +136,9 @@ pub fn estimate_tokens(text: &str) -> usize {
     text.len() / 4
 }
 
-pub fn success_meta(backend_used: &str, confidence: f64) -> ToolResponseMeta {
+pub fn success_meta(backend: BackendKind, confidence: f64) -> ToolResponseMeta {
     ToolResponseMeta {
-        backend_used: backend_used.to_owned(),
+        backend_used: backend.to_string(),
         confidence,
         degraded_reason: None,
         source: AnalysisSource::Native,
@@ -286,6 +287,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "get_ranked_context",
             "check_lsp_status",
         ],
+        "get_tool_metrics" => &["set_preset", "get_capabilities"],
 
         // ── Semantic ─────────────────────────────────────────────────
         "semantic_search" => &["find_symbol", "get_symbols_overview", "get_ranked_context"],

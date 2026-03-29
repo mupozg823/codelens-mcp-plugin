@@ -1,5 +1,6 @@
 use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
+use crate::protocol::BackendKind;
 use codelens_core::{read_file, search_symbols_hybrid, SymbolInfo, SymbolKind};
 use serde_json::json;
 
@@ -43,7 +44,7 @@ pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> 
             "truncated": truncated,
             "auto_summarized": stripped,
         }),
-        success_meta("tree-sitter-cached", 0.93),
+        success_meta(BackendKind::TreeSitter, 0.93),
     ))
 }
 
@@ -71,7 +72,7 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         .map(|value| {
             (
                 json!({ "symbols": value, "count": value.len() }),
-                success_meta("tree-sitter-cached", 0.93),
+                success_meta(BackendKind::TreeSitter, 0.93),
             )
         })?)
 }
@@ -132,7 +133,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
                                 "chars_used": 0,
                                 "backend": "semantic-fallback",
                             }),
-                            success_meta("semantic-fallback", 0.75),
+                            success_meta(BackendKind::Semantic, 0.75),
                         ));
                     }
                 }
@@ -140,13 +141,13 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         }
     }
 
-    Ok((json!(result), success_meta("tree-sitter-cached", 0.91)))
+    Ok((json!(result), success_meta(BackendKind::TreeSitter, 0.91)))
 }
 
 pub fn refresh_symbol_index(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let stats = state.symbol_index().refresh_all()?;
     state.graph_cache.invalidate();
-    Ok((json!(stats), success_meta("tree-sitter-cached", 0.95)))
+    Ok((json!(stats), success_meta(BackendKind::TreeSitter, 0.95)))
 }
 
 pub fn get_complexity(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -204,7 +205,7 @@ pub fn get_complexity(state: &AppState, arguments: &serde_json::Value) -> ToolRe
             "count": results.len(),
             "avg_complexity": avg_complexity
         }),
-        success_meta("tree-sitter-cached", 0.89),
+        success_meta(BackendKind::TreeSitter, 0.89),
     ))
 }
 
@@ -219,7 +220,7 @@ pub fn get_project_structure(state: &AppState, _arguments: &serde_json::Value) -
             "total_symbols": total_symbols,
             "dir_count": dirs.len()
         }),
-        success_meta("sqlite-aggregate", 0.95),
+        success_meta(BackendKind::Sqlite, 0.95),
     ))
 }
 
@@ -238,7 +239,7 @@ pub fn search_symbols_fuzzy(state: &AppState, arguments: &serde_json::Value) -> 
             |value| {
                 (
                     json!({ "results": value, "count": value.len() }),
-                    success_meta("sqlite+fuzzy", 0.9),
+                    success_meta(BackendKind::Sqlite, 0.9),
                 )
             },
         )?,

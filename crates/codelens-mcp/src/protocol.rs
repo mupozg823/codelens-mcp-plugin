@@ -101,6 +101,45 @@ pub struct ToolCallResponse {
     pub suggested_next_tools: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub budget_hint: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u64>,
+}
+
+/// Type-safe backend identifier for consistent tool responses.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum BackendKind {
+    TreeSitter,
+    Sqlite,
+    Lsp,
+    Git,
+    Filesystem,
+    Hybrid,
+    Semantic,
+    Telemetry,
+    Memory,
+    Config,
+    Session,
+    Noop,
+}
+
+impl std::fmt::Display for BackendKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TreeSitter => write!(f, "tree-sitter"),
+            Self::Sqlite => write!(f, "sqlite"),
+            Self::Lsp => write!(f, "lsp"),
+            Self::Git => write!(f, "git"),
+            Self::Filesystem => write!(f, "filesystem"),
+            Self::Hybrid => write!(f, "hybrid"),
+            Self::Semantic => write!(f, "semantic"),
+            Self::Telemetry => write!(f, "telemetry"),
+            Self::Memory => write!(f, "memory"),
+            Self::Config => write!(f, "config"),
+            Self::Session => write!(f, "session"),
+            Self::Noop => write!(f, "noop"),
+        }
+    }
 }
 
 /// Source of analysis for provenance tracking.
@@ -232,6 +271,7 @@ impl ToolCallResponse {
             token_estimate: None,
             suggested_next_tools: None,
             budget_hint: None,
+            elapsed_ms: None,
         }
     }
 
@@ -250,6 +290,66 @@ impl ToolCallResponse {
             token_estimate: None,
             suggested_next_tools: None,
             budget_hint: None,
+            elapsed_ms: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn backend_kind_display_stable() {
+        assert_eq!(BackendKind::TreeSitter.to_string(), "tree-sitter");
+        assert_eq!(BackendKind::Sqlite.to_string(), "sqlite");
+        assert_eq!(BackendKind::Lsp.to_string(), "lsp");
+        assert_eq!(BackendKind::Git.to_string(), "git");
+        assert_eq!(BackendKind::Filesystem.to_string(), "filesystem");
+        assert_eq!(BackendKind::Hybrid.to_string(), "hybrid");
+        assert_eq!(BackendKind::Semantic.to_string(), "semantic");
+        assert_eq!(BackendKind::Telemetry.to_string(), "telemetry");
+        assert_eq!(BackendKind::Memory.to_string(), "memory");
+        assert_eq!(BackendKind::Config.to_string(), "config");
+        assert_eq!(BackendKind::Session.to_string(), "session");
+        assert_eq!(BackendKind::Noop.to_string(), "noop");
+    }
+
+    #[test]
+    fn tool_response_meta_new_sets_defaults() {
+        let meta = ToolResponseMeta {
+            backend_used: BackendKind::TreeSitter.to_string(),
+            confidence: 0.9,
+            degraded_reason: None,
+            source: AnalysisSource::Native,
+            partial: false,
+            freshness: Freshness::Live,
+            staleness_ms: None,
+        };
+        assert_eq!(meta.backend_used, "tree-sitter");
+        assert!((meta.confidence - 0.9).abs() < f64::EPSILON);
+        assert!(meta.degraded_reason.is_none());
+        assert!(!meta.partial);
+        assert!(meta.staleness_ms.is_none());
+    }
+
+    #[test]
+    fn envelope_includes_elapsed_ms() {
+        let meta = ToolResponseMeta {
+            backend_used: BackendKind::Filesystem.to_string(),
+            confidence: 1.0,
+            degraded_reason: None,
+            source: AnalysisSource::Native,
+            partial: false,
+            freshness: Freshness::Live,
+            staleness_ms: None,
+        };
+        let mut resp = ToolCallResponse::success(json!({"ok": true}), meta);
+        assert!(resp.elapsed_ms.is_none());
+
+        resp.elapsed_ms = Some(42);
+        let serialized = serde_json::to_string(&resp).unwrap();
+        assert!(serialized.contains("\"elapsed_ms\":42"));
     }
 }
