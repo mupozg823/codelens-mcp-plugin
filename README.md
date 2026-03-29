@@ -75,10 +75,27 @@ The server indexes your project automatically on first activation.
 
 ## MCP Client Configurations
 
+All clients use **stdio transport**. Ensure `codelens-mcp` is on your `$PATH` (via `cargo install`, Homebrew, or manual install).
+
 ### Claude Code
 
 ```json
-// .mcp.json (project-level) or ~/.claude/.mcp.json (global)
+// .mcp.json (project-level) or ~/.claude.json (global)
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"],
+      "type": "stdio"
+    }
+  }
+}
+```
+
+### Cursor
+
+```json
+// .cursor/mcp.json (project-level) or ~/.cursor/mcp.json (global)
 {
   "mcpServers": {
     "codelens": {
@@ -89,21 +106,21 @@ The server indexes your project automatically on first activation.
 }
 ```
 
-### Cursor
+### OpenAI Codex
 
 ```json
-// .cursor/mcp.json
+// .codex/mcp.json
 {
   "mcpServers": {
     "codelens": {
       "command": "codelens-mcp",
-      "args": ["."]
+      "args": [".", "--preset", "balanced"]
     }
   }
 }
 ```
 
-### Windsurf
+### Windsurf (Codeium)
 
 ```json
 // ~/.codeium/windsurf/mcp_config.json
@@ -111,7 +128,22 @@ The server indexes your project automatically on first activation.
   "mcpServers": {
     "codelens": {
       "command": "codelens-mcp",
-      "args": ["."]
+      "args": [".", "--preset", "balanced"]
+    }
+  }
+}
+```
+
+### Claude Desktop
+
+```json
+// macOS: ~/Library/Application Support/Claude/claude_desktop_config.json
+// Windows: %APPDATA%/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"]
     }
   }
 }
@@ -120,33 +152,49 @@ The server indexes your project automatically on first activation.
 ### Cline (VS Code)
 
 ```json
-// VS Code Settings → Cline MCP Servers
+// VS Code Settings → Cline → MCP Servers → Edit JSON
 {
   "mcpServers": {
     "codelens": {
       "command": "codelens-mcp",
-      "args": ["."]
+      "args": [".", "--preset", "balanced"]
     }
   }
 }
 ```
 
-### Continue (VS Code/JetBrains)
+### Continue (VS Code / JetBrains)
 
 ```json
-// ~/.continue/config.json → mcpServers section
+// ~/.continue/config.json → mcpServers section (array format)
 {
   "mcpServers": [
     {
       "name": "codelens",
       "command": "codelens-mcp",
-      "args": ["."]
+      "args": [".", "--preset", "balanced"]
     }
   ]
 }
 ```
 
-All clients use stdio transport. Set `--preset minimal` for lower token usage.
+### Zed
+
+```json
+// ~/.config/zed/settings.json → context_servers section
+{
+  "context_servers": {
+    "codelens": {
+      "command": {
+        "path": "codelens-mcp",
+        "args": [".", "--preset", "balanced"]
+      }
+    }
+  }
+}
+```
+
+> Tip: Use `--preset minimal` (21 tools) for token-constrained environments or subagents.
 
 ## Tool Categories
 

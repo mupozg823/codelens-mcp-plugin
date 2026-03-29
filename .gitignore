@@ -12,14 +12,22 @@ Thumbs.db
 .vscode/
 *.iml
 
-# CodeLens runtime
-.codelens/
+# CodeLens runtime (recursive — catches crates/*/.codelens/ too)
+**/.codelens/
 .codelens-port
-.serena/
+
+# Serena runtime
+**/.serena/
 
 # ML model cache
-.fastembed_cache/
+**/.fastembed_cache/
+
+# Gradle (orphaned legacy)
+.gradle/
 
 # Environment
 .env
 .env.local
+
+# Claude Code local settings (per-developer)
+.claude/settings.local.json
