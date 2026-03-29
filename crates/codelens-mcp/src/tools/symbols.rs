@@ -89,17 +89,58 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
-    Ok(state
-        .symbol_index()
-        .get_ranked_context_cached(
-            query,
-            path,
-            max_tokens,
-            include_body,
-            depth,
-            Some(&state.graph_cache),
-        )
-        .map(|value| (json!(value), success_meta("tree-sitter-cached", 0.91)))?)
+    let result = state.symbol_index().get_ranked_context_cached(
+        query,
+        path,
+        max_tokens,
+        include_body,
+        depth,
+        Some(&state.graph_cache),
+    )?;
+
+    // Semantic fallback: if text matching returned 0 symbols, try embedding search.
+    // OnceLock ensures the model is loaded at most once per process lifetime.
+    #[cfg(feature = "semantic")]
+    if result.count == 0 {
+        let engine = state
+            .embedding
+            .get_or_init(|| codelens_core::EmbeddingEngine::new(&state.project).ok());
+        if let Some(engine) = engine.as_ref() {
+            if engine.is_indexed() {
+                if let Ok(sem_results) = engine.search(query, 5) {
+                    let fallback: Vec<_> = sem_results
+                        .into_iter()
+                        .filter(|r| r.score > 0.3)
+                        .map(|r| {
+                            json!({
+                                "name": r.symbol_name,
+                                "kind": r.kind,
+                                "file": r.file_path,
+                                "line": r.line,
+                                "signature": r.signature,
+                                "relevance_score": (r.score * 100.0) as i32,
+                            })
+                        })
+                        .collect();
+                    if !fallback.is_empty() {
+                        return Ok((
+                            json!({
+                                "query": query,
+                                "count": fallback.len(),
+                                "symbols": fallback,
+                                "token_budget": max_tokens,
+                                "chars_used": 0,
+                                "backend": "semantic-fallback",
+                            }),
+                            success_meta("semantic-fallback", 0.75),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok((json!(result), success_meta("tree-sitter-cached", 0.91)))
 }
 
 pub fn refresh_symbol_index(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
