@@ -79,11 +79,11 @@ Output is plain JSON to stdout. Exit code 0 on success.
 
 ## Presets
 
-| Preset   | Tools | Use case                  |
-| -------- | ----- | ------------------------- |
-| FULL     | 50    | All tools                 |
-| BALANCED | 42    | Default, excludes 8 niche |
-| MINIMAL  | 21    | Subagents, low-context    |
+| Preset   | Tools | Use case                                          |
+| -------- | ----- | ------------------------------------------------- |
+| FULL     | 50    | All tools                                         |
+| BALANCED | 34    | Default — no built-in overlaps, no niche analysis |
+| MINIMAL  | 21    | Subagents, low-context                            |
 
 Switch at runtime: `set_preset` tool or restart with `--preset`
 

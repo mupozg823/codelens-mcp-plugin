@@ -165,11 +165,11 @@ All clients use stdio transport. Set `--preset minimal` for lower token usage.
 
 ## Presets
 
-| Preset   | Tools | Tokens | Use case                           |
-| -------- | ----- | ------ | ---------------------------------- |
-| FULL     | 50    | ~5K    | All tools, maximum capability      |
-| BALANCED | 42    | ~4K    | Default — excludes 8 niche tools   |
-| MINIMAL  | 21    | ~2K    | Subagents, token-constrained tasks |
+| Preset   | Tools | Tokens | Use case                                       |
+| -------- | ----- | ------ | ---------------------------------------------- |
+| FULL     | 50    | ~5K    | All tools, maximum capability                  |
+| BALANCED | 34    | ~3K    | Default — no built-in overlaps, no niche tools |
+| MINIMAL  | 21    | ~2K    | Subagents, token-constrained tasks             |
 
 Switch via CLI flag, environment variable, or at runtime:
 

@@ -26,7 +26,7 @@ struct AppState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolPreset {
     Minimal,  // 21 core tools — symbol/file/search only
-    Balanced, // 42 tools — excludes 8 niche analysis tools
+    Balanced, // 33 tools — excludes niche + built-in overlaps
     Full,     // all 50 tools (52 with semantic feature)
 }
 
@@ -65,6 +65,7 @@ const MINIMAL_TOOLS: &[&str] = &[
 ];
 
 const BALANCED_EXCLUDES: &[&str] = &[
+    // Niche analysis tools
     "find_circular_dependencies",
     "get_change_coupling",
     "get_symbol_importance",
@@ -73,6 +74,16 @@ const BALANCED_EXCLUDES: &[&str] = &[
     "get_complexity",
     "search_symbols_fuzzy",
     "check_lsp_status",
+    // Overlap with Claude Code built-in tools (Read, Glob, Grep)
+    "read_file",
+    "list_dir",
+    "find_file",
+    "search_for_pattern",
+    // Redundant session/memory tools
+    "edit_memory",             // identical to write_memory
+    "prepare_for_new_conversation",
+    "initial_instructions",
+    "check_onboarding_performed",
 ];
 
 impl AppState {
@@ -555,15 +566,15 @@ pub(crate) fn tools() -> Vec<Tool> {
 
         // ── Symbols / index ──────────────────────────────────────────────
         Tool::new("get_complexity", "Calculate approximate cyclomatic complexity for functions or methods in a file.", json!({"type":"object","properties":{"path":{"type":"string"},"symbol_name":{"type":"string"}},"required":["path"]})).with_annotations(ro.clone()),
-        Tool::new("get_symbols_overview", "Get an overview of code symbols in a file or directory.", json!({"type":"object","properties":{"path":{"type":"string"},"depth":{"type":"integer"}},"required":["path"]})).with_annotations(ro.clone()),
-        Tool::new("find_symbol", "Find a symbol by name or stable ID. Use symbol_id (e.g. 'src/main.py#function:Service/greet') for fastest exact lookup.", json!({"type":"object","properties":{"name":{"type":"string","description":"Symbol name to search for"},"symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},"file_path":{"type":"string"},"include_body":{"type":"boolean"},"exact_match":{"type":"boolean"},"max_matches":{"type":"integer"}}})).with_annotations(ro.clone()),
-        Tool::new("get_ranked_context", "Return the most relevant symbols for a query within a token budget.", json!({"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"}},"required":["query"]})).with_annotations(ro.clone()),
+        Tool::new("get_symbols_overview", "[CodeLens] List all functions, classes, methods in a file — structural code map without reading the full file.", json!({"type":"object","properties":{"path":{"type":"string"},"depth":{"type":"integer"}},"required":["path"]})).with_annotations(ro.clone()),
+        Tool::new("find_symbol", "[CodeLens] Find a function/class/method by name or stable ID. Returns signature, location, and optionally the body — no need to read the whole file.", json!({"type":"object","properties":{"name":{"type":"string","description":"Symbol name to search for"},"symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},"file_path":{"type":"string"},"include_body":{"type":"boolean"},"exact_match":{"type":"boolean"},"max_matches":{"type":"integer"}}})).with_annotations(ro.clone()),
+        Tool::new("get_ranked_context", "[CodeLens] Get the most relevant code symbols for a query, auto-ranked within a token budget — smart context selection.", json!({"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"}},"required":["query"]})).with_annotations(ro.clone()),
         Tool::new("search_symbols_fuzzy", "Hybrid symbol search: exact match (score 100), substring match (score 60), and fuzzy jaro_winkler match (score by similarity).", json!({"type":"object","properties":{"query":{"type":"string","description":"Symbol name to search for"},"max_results":{"type":"integer","description":"Maximum number of results to return (default 30)"},"fuzzy_threshold":{"type":"number","description":"Minimum jaro_winkler similarity 0.0-1.0 for fuzzy matches (default 0.6)"}},"required":["query"]})).with_annotations(ro.clone()),
         Tool::new("refresh_symbol_index", "Rebuild the cached symbol index for the current project.", json!({"type":"object","properties":{}})).with_annotations(mutating.clone()),
 
         // ── LSP ──────────────────────────────────────────────────────────
-        Tool::new("find_referencing_symbols", "Find references via LSP or text-based fallback. Provide symbol_name for direct text search without LSP, or line/column for LSP (with automatic text fallback on failure).", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File containing or declaring the symbol"},"symbol_name":{"type":"string","description":"Symbol name for text-based search (skips LSP)"},"line":{"type":"integer","description":"Line number for LSP lookup"},"column":{"type":"integer","description":"Column number for LSP lookup"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}},"required":["file_path"]})).with_annotations(ro.clone()),
-        Tool::new("get_file_diagnostics", "Get file diagnostics through a pooled stdio LSP server. command/args may be provided explicitly.", json!({"type":"object","properties":{"file_path":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}},"required":["file_path"]})).with_annotations(ro.clone()),
+        Tool::new("find_referencing_symbols", "[CodeLens] Find all usages of a symbol across the project — uses LSP when available, falls back to scope-aware text search.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File containing or declaring the symbol"},"symbol_name":{"type":"string","description":"Symbol name for text-based search (skips LSP)"},"line":{"type":"integer","description":"Line number for LSP lookup"},"column":{"type":"integer","description":"Column number for LSP lookup"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}},"required":["file_path"]})).with_annotations(ro.clone()),
+        Tool::new("get_file_diagnostics", "[CodeLens] Get type errors, warnings, and lint issues for a file via LSP — catches bugs before running the code.", json!({"type":"object","properties":{"file_path":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}},"required":["file_path"]})).with_annotations(ro.clone()),
         Tool::new("search_workspace_symbols", "Search workspace symbols through a pooled stdio LSP server. command is required because no file path is available for inference.", json!({"type":"object","properties":{"query":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}},"required":["query","command"]})).with_annotations(ro.clone()),
         Tool::new("get_type_hierarchy", "Get the type hierarchy through a pooled stdio LSP server.", json!({"type":"object","properties":{"name_path":{"type":"string"},"fully_qualified_name":{"type":"string"},"relative_path":{"type":"string"},"hierarchy_type":{"type":"string","enum":["super","sub","both"]},"depth":{"type":"integer"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}})).with_annotations(ro.clone()),
         Tool::new("plan_symbol_rename", "Plan a safe symbol rename through pooled LSP prepareRename without applying edits.", json!({"type":"object","properties":{"file_path":{"type":"string"},"line":{"type":"integer"},"column":{"type":"integer"},"new_name":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}},"required":["file_path","line","column"]})).with_annotations(ro.clone()),
@@ -572,7 +583,7 @@ pub(crate) fn tools() -> Vec<Tool> {
 
         // ── Graph / analysis (read-only) ─────────────────────────────────
         Tool::new("get_changed_files", "Return files changed compared to a git ref, with symbol counts. Also accepts legacy name 'get_diff_symbols'.", json!({"type":"object","properties":{"ref":{"type":"string"},"include_untracked":{"type":"boolean"}}})).with_annotations(ro.clone()),
-        Tool::new("get_impact_analysis", "One-shot impact analysis: symbols + importers + blast radius. Replaces find_importers and get_blast_radius.", json!({"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}},"required":["file_path"]})).with_annotations(ro.clone()),
+        Tool::new("get_impact_analysis", "[CodeLens] Analyze what breaks if you change a file — shows affected files (blast radius), reverse dependencies, and symbol count.", json!({"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}},"required":["file_path"]})).with_annotations(ro.clone()),
         Tool::new("get_symbol_importance", "Return file importance ranking based on import-graph PageRank for supported Python/JS/TS projects.", json!({"type":"object","properties":{"top_n":{"type":"integer"}}})).with_annotations(ro.clone()),
         Tool::new("find_dead_code", "Multi-pass dead code detection: unreferenced files + unreferenced symbols via call-graph. Also accepts legacy name 'find_dead_code_v2'.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})).with_annotations(ro.clone()),
         // find_referencing_code_snippets: kept in dispatch for compat, use search_for_pattern instead
@@ -582,13 +593,13 @@ pub(crate) fn tools() -> Vec<Tool> {
         Tool::new("get_change_coupling", "Analyze git history to find files that frequently change together (temporal coupling).", json!({"type":"object","properties":{"months":{"type":"integer"},"min_strength":{"type":"number"},"min_commits":{"type":"integer"},"max_results":{"type":"integer"}}})).with_annotations(ro.clone()),
 
         // ── Mutation / editing ───────────────────────────────────────────
-        Tool::new("rename_symbol", "Rename a symbol across one file (file scope) or the entire project. Supports dry_run for preview.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File containing the symbol declaration"},"symbol_name":{"type":"string","description":"Current symbol name"},"name":{"type":"string","description":"Alias for symbol_name"},"new_name":{"type":"string","description":"Desired new name"},"name_path":{"type":"string","description":"Qualified name path (e.g. 'Class/method')"},"scope":{"type":"string","enum":["file","project"],"description":"Rename scope (default: project)"},"dry_run":{"type":"boolean","description":"Preview changes without modifying files"}},"required":["file_path","new_name"]})).with_annotations(destructive.clone()),
+        Tool::new("rename_symbol", "[CodeLens] Rename a function/class/variable across the entire project — safe multi-file refactoring with dry_run preview.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File containing the symbol declaration"},"symbol_name":{"type":"string","description":"Current symbol name"},"name":{"type":"string","description":"Alias for symbol_name"},"new_name":{"type":"string","description":"Desired new name"},"name_path":{"type":"string","description":"Qualified name path (e.g. 'Class/method')"},"scope":{"type":"string","enum":["file","project"],"description":"Rename scope (default: project)"},"dry_run":{"type":"boolean","description":"Preview changes without modifying files"}},"required":["file_path","new_name"]})).with_annotations(destructive.clone()),
         Tool::new("delete_lines", "Delete lines [start_line, end_line) from a file (1-indexed, end exclusive). Returns the modified content.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"}},"required":["relative_path","start_line","end_line"]})).with_annotations(destructive.clone()),
         Tool::new("create_text_file", "Create a new file with the given content. If overwrite is false and the file already exists, returns an error.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"content":{"type":"string"},"overwrite":{"type":"boolean"}},"required":["relative_path","content"]})).with_annotations(mutating.clone()),
         Tool::new("insert_at_line", "Insert content at a given line number (1-indexed) in a file. Returns the modified content.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"line":{"type":"integer"},"content":{"type":"string"}},"required":["relative_path","line","content"]})).with_annotations(mutating.clone()),
         Tool::new("replace_lines", "Replace lines [start_line, end_line) in a file with new_content (1-indexed, end exclusive). Returns the modified content.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"new_content":{"type":"string"}},"required":["relative_path","start_line","end_line","new_content"]})).with_annotations(mutating.clone()),
         Tool::new("replace_content", "Replace old_text with new_text in a file, either literal or regex. Returns modified content and replacement count.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"old_text":{"type":"string"},"new_text":{"type":"string"},"regex_mode":{"type":"boolean"}},"required":["relative_path","old_text","new_text"]})).with_annotations(mutating.clone()),
-        Tool::new("replace_symbol_body", "Replace the entire body of a named symbol (function, class, etc.) in a file using tree-sitter byte offsets. Optionally disambiguate with name_path (e.g. 'ClassName/method').", json!({"type":"object","properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"new_body":{"type":"string"}},"required":["relative_path","symbol_name","new_body"]})).with_annotations(mutating.clone()),
+        Tool::new("replace_symbol_body", "[CodeLens] Replace a function/class body by name — no line counting needed. Tree-sitter finds the exact symbol boundaries.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"new_body":{"type":"string"}},"required":["relative_path","symbol_name","new_body"]})).with_annotations(mutating.clone()),
         Tool::new("insert_before_symbol", "Insert content immediately before a named symbol in a file using tree-sitter byte offsets. Optionally disambiguate with name_path.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"content":{"type":"string"}},"required":["relative_path","symbol_name","content"]})).with_annotations(mutating.clone()),
         Tool::new("insert_after_symbol", "Insert content immediately after a named symbol in a file using tree-sitter byte offsets. Optionally disambiguate with name_path.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"symbol_name":{"type":"string"},"name_path":{"type":"string"},"content":{"type":"string"}},"required":["relative_path","symbol_name","content"]})).with_annotations(mutating.clone()),
         // Auto-import
@@ -615,7 +626,7 @@ pub(crate) fn tools() -> Vec<Tool> {
         // onboarding: migrated to Skill, kept in dispatch for compat
         Tool::new("prepare_for_new_conversation", "Returns project context for a new conversation.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("get_watch_status", "Returns file watcher status: running, events processed, files reindexed.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
-        Tool::new("set_preset", "Switch tool preset at runtime. Changes which tools appear in tools/list.", json!({"type":"object","properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset: minimal (21 tools), balanced (42), full (50+)"}},"required":["preset"]})).with_annotations(mutating.clone()),
+        Tool::new("set_preset", "Switch tool preset at runtime. Changes which tools appear in tools/list.", json!({"type":"object","properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset: minimal (21 tools), balanced (33), full (50+)"}},"required":["preset"]})).with_annotations(mutating.clone()),
         // summarize_changes, list_queryable_projects: kept in dispatch for compat, not listed
     ];
 
