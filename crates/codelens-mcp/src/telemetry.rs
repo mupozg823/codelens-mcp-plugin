@@ -55,6 +55,7 @@ impl ToolMetricsRegistry {
     }
 
     /// Record a single tool invocation (per-tool + session).
+    #[allow(dead_code)] // used in tests and as convenience wrapper
     pub fn record_call(&self, name: &str, elapsed_ms: u64, success: bool) {
         self.record_call_with_tokens(name, elapsed_ms, success, 0);
     }
@@ -138,6 +139,7 @@ impl ToolMetricsRegistry {
     }
 
     /// Clear all recorded metrics.
+    #[allow(dead_code)] // used in tests
     pub fn reset(&self) {
         let mut map = self
             .inner

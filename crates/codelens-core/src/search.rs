@@ -71,7 +71,7 @@ pub fn search_symbols_hybrid_with_semantic(
         let key = (row.name.clone(), file.clone(), row.line);
         if seen.insert(key) {
             // FTS5 rank is negative (lower = better), normalize to 40-80 range
-            let fts_score = (80.0 + rank.min(0.0).max(-40.0)).max(40.0);
+            let fts_score = (80.0 + rank.clamp(-40.0, 0.0)).max(40.0);
             results.push(SearchResult {
                 name: row.name,
                 kind: row.kind,
@@ -131,7 +131,6 @@ pub fn search_symbols_hybrid_with_semantic(
                                 && r.file == sym.file_path
                                 && r.line == sym.line as usize
                         }) {
-                            // Add semantic bonus (up to +15 points)
                             existing.score += sem_score * 15.0;
                         }
                     }
@@ -139,20 +138,18 @@ pub fn search_symbols_hybrid_with_semantic(
                 continue;
             }
             let sem_key = format!("{}:{}", sym.file_path, sym.name);
-            if let Some(&sem_score) = scores.get(&sem_key) {
-                if sem_score > 0.5 {
-                    seen.insert(key);
-                    results.push(SearchResult {
-                        name: sym.name,
-                        kind: sym.kind,
-                        file: sym.file_path,
-                        line: sym.line as usize,
-                        signature: sym.signature,
-                        name_path: sym.name_path,
-                        score: sem_score * 90.0, // cap below exact (100)
-                        match_type: "semantic".to_owned(),
-                    });
-                }
+            if let Some(&sem_score) = scores.get(&sem_key).filter(|&&s| s > 0.5) {
+                seen.insert(key);
+                results.push(SearchResult {
+                    name: sym.name,
+                    kind: sym.kind,
+                    file: sym.file_path,
+                    line: sym.line as usize,
+                    signature: sym.signature,
+                    name_path: sym.name_path,
+                    score: sem_score * 90.0, // cap below exact (100)
+                    match_type: "semantic".to_owned(),
+                });
             }
         }
     }

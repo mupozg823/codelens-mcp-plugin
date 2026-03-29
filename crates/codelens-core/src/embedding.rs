@@ -335,7 +335,7 @@ impl EmbeddingEngine {
 
             if batch_texts.len() >= EMBED_BATCH_SIZE {
                 total_indexed +=
-                    Self::flush_batch(&mut model, &self.store, &batch_texts, &batch_meta)?;
+                    Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
                 batch_texts.clear();
                 batch_meta.clear();
             }
@@ -344,7 +344,8 @@ impl EmbeddingEngine {
 
         // Flush remaining
         if !batch_texts.is_empty() {
-            total_indexed += Self::flush_batch(&mut model, &self.store, &batch_texts, &batch_meta)?;
+            total_indexed +=
+                Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
         }
 
         drop(model);
@@ -354,7 +355,7 @@ impl EmbeddingEngine {
     /// Embed one batch of texts and upsert immediately, then the caller drops the batch.
     fn flush_batch(
         model: &mut TextEmbedding,
-        store: &Box<dyn EmbeddingStore>,
+        store: &dyn EmbeddingStore,
         texts: &[String],
         meta: &[crate::db::SymbolWithFile],
     ) -> Result<usize> {
@@ -363,7 +364,7 @@ impl EmbeddingEngine {
 
         let chunks: Vec<EmbeddingChunk> = meta
             .iter()
-            .zip(embeddings.into_iter())
+            .zip(embeddings)
             .zip(texts.iter())
             .map(|((sym, emb), text)| EmbeddingChunk {
                 file_path: sym.file_path.clone(),
@@ -448,14 +449,15 @@ impl EmbeddingEngine {
 
             if batch_texts.len() >= EMBED_BATCH_SIZE {
                 total_indexed +=
-                    Self::flush_batch(&mut model, &self.store, &batch_texts, &batch_meta)?;
+                    Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
                 batch_texts.clear();
                 batch_meta.clear();
             }
         }
 
         if !batch_texts.is_empty() {
-            total_indexed += Self::flush_batch(&mut model, &self.store, &batch_texts, &batch_meta)?;
+            total_indexed +=
+                Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
         }
 
         drop(model);
