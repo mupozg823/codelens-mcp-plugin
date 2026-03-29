@@ -72,6 +72,8 @@ pub fn get_change_coupling(
             }
             let total_a = *total_changes.get(&file_a).unwrap_or(&1);
             let total_b = *total_changes.get(&file_b).unwrap_or(&1);
+            // Jaccard-like: co_changes / max(total_a, total_b).
+            // max() avoids inflating scores for rarely-changed files.
             let strength = count as f64 / total_a.max(total_b) as f64;
             if strength < min_strength {
                 return None;

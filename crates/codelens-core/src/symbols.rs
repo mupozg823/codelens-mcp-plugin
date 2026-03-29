@@ -786,15 +786,21 @@ impl SymbolIndex {
         scored.sort_by(|left, right| right.1.cmp(&left.1));
 
         // Batch body extraction: read each file once instead of N+1 DB queries.
+        // Cap at 32 files to bound memory usage on large projects.
+        const FILE_CACHE_LIMIT: usize = 32;
         let mut file_cache: HashMap<String, Option<String>> = HashMap::new();
         let mut selected = Vec::new();
         let mut char_budget = max_chars;
 
         for (symbol, score) in scored {
             let body = if include_body && symbol.end_byte > symbol.start_byte {
+                let cache_full = file_cache.len() >= FILE_CACHE_LIMIT;
                 let source = file_cache
                     .entry(symbol.file_path.clone())
                     .or_insert_with(|| {
+                        if cache_full {
+                            return None;
+                        }
                         let abs = self.project.as_path().join(&symbol.file_path);
                         fs::read_to_string(&abs).ok()
                     });
@@ -994,15 +1000,20 @@ impl SymbolIndex {
             .collect::<Vec<_>>();
         scored.sort_by(|left, right| right.1.cmp(&left.1));
 
+        const FILE_CACHE_LIMIT: usize = 32;
         let mut file_cache: HashMap<String, Option<String>> = HashMap::new();
         let mut selected = Vec::new();
         let mut char_budget = max_chars;
 
         for (symbol, score) in scored {
             let body = if include_body && symbol.end_byte > symbol.start_byte {
+                let cache_full = file_cache.len() >= FILE_CACHE_LIMIT;
                 let source = file_cache
                     .entry(symbol.file_path.clone())
                     .or_insert_with(|| {
+                        if cache_full {
+                            return None;
+                        }
                         let abs = self.project.as_path().join(&symbol.file_path);
                         fs::read_to_string(&abs).ok()
                     });

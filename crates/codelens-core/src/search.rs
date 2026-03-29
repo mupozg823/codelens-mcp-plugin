@@ -72,9 +72,19 @@ pub fn search_symbols_hybrid(
     }
 
     // ── 3. Fuzzy match (score = similarity * 100) ─────────────────────────
-    let all_syms = db.all_symbol_names()?;
+    // Pre-filter: only load symbols whose name shares a 2-char prefix with query.
+    // This avoids loading all symbols for jaro_winkler comparison.
     let query_lower = query.to_ascii_lowercase();
-    for (name, kind, file, line, signature, name_path) in all_syms {
+    let prefix: String = query_lower.chars().take(2).collect();
+    let fuzzy_candidates = if prefix.len() >= 2 {
+        db.find_symbols_by_name(&prefix, None, false, 500)?
+    } else {
+        db.find_symbols_by_name(&query_lower, None, false, 500)?
+    };
+    for row in fuzzy_candidates {
+        let file = db.get_file_path(row.file_id)?.unwrap_or_default();
+        let (name, kind, line, signature, name_path) =
+            (row.name, row.kind, row.line, row.signature, row.name_path);
         let key = (name.clone(), file.clone(), line);
         if seen.contains(&key) {
             continue;
