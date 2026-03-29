@@ -12,6 +12,7 @@ pub struct EmbeddingChunk {
     pub kind: String,
     pub line: usize,
     pub signature: String,
+    pub name_path: String,
     pub text: String,
     pub embedding: Vec<f32>,
 }
@@ -24,14 +25,18 @@ pub struct ScoredChunk {
     pub kind: String,
     pub line: usize,
     pub signature: String,
+    pub name_path: String,
     pub score: f64,
 }
 
 /// Trait for vector embedding storage backends.
 /// Implementations handle persistence, indexing, and similarity search.
 pub trait EmbeddingStore: Send + Sync {
-    /// Insert or update embedding chunks. Replaces existing entries for the same symbols.
+    /// Insert or update embedding chunks. Replaces ALL existing entries.
     fn upsert(&self, chunks: &[EmbeddingChunk]) -> Result<usize>;
+
+    /// Append embedding chunks without clearing existing data.
+    fn insert(&self, chunks: &[EmbeddingChunk]) -> Result<usize>;
 
     /// Search for chunks similar to the query embedding vector.
     fn search(&self, query_vec: &[f32], top_k: usize) -> Result<Vec<ScoredChunk>>;

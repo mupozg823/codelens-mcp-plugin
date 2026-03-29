@@ -35,6 +35,19 @@ pub struct SymbolRow {
     pub parent_id: Option<i64>,
 }
 
+/// Symbol with resolved file path — for embedding pipeline batch processing.
+#[derive(Debug, Clone)]
+pub struct SymbolWithFile {
+    pub name: String,
+    pub kind: String,
+    pub file_path: String,
+    pub line: i64,
+    pub signature: String,
+    pub name_path: String,
+    pub start_byte: i64,
+    pub end_byte: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct ImportRow {
     pub source_file_id: i64,
@@ -629,6 +642,33 @@ impl IndexDb {
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
             ))
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
+    /// Get all symbols with byte offsets and file paths, ordered by file for batch processing.
+    pub fn all_symbols_with_bytes(&self) -> Result<Vec<SymbolWithFile>> {
+        let mut stmt = self.conn.prepare_cached(
+            "SELECT s.name, s.kind, f.relative_path, s.line, s.signature, s.name_path,
+                    s.start_byte, s.end_byte
+             FROM symbols s JOIN files f ON s.file_id = f.id
+             ORDER BY f.relative_path, s.start_byte",
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(SymbolWithFile {
+                name: row.get(0)?,
+                kind: row.get(1)?,
+                file_path: row.get(2)?,
+                line: row.get(3)?,
+                signature: row.get(4)?,
+                name_path: row.get(5)?,
+                start_byte: row.get(6)?,
+                end_byte: row.get(7)?,
+            })
         })?;
         let mut results = Vec::new();
         for row in rows {

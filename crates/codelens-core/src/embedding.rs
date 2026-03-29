@@ -14,11 +14,6 @@ use std::sync::Mutex;
 mod ffi {
     use anyhow::Result;
 
-    /// Register the sqlite-vec extension globally.
-    ///
-    /// # Safety
-    /// `sqlite3_vec_init` has the `(db, err_msg, api)` signature required by
-    /// `sqlite3_auto_extension`. We verify the return code to catch registration failure.
     pub fn register_sqlite_vec() -> Result<()> {
         let rc = unsafe {
             rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
@@ -32,7 +27,7 @@ mod ffi {
     }
 }
 
-/// Result of a semantic search query (legacy compat — maps to ScoredChunk).
+/// Result of a semantic search query.
 #[derive(Debug, Clone, Serialize)]
 pub struct SemanticMatch {
     pub file_path: String,
@@ -40,6 +35,7 @@ pub struct SemanticMatch {
     pub kind: String,
     pub line: usize,
     pub signature: String,
+    pub name_path: String,
     pub score: f64,
 }
 
@@ -51,6 +47,7 @@ impl From<ScoredChunk> for SemanticMatch {
             kind: c.kind,
             line: c.line,
             signature: c.signature,
+            name_path: c.name_path,
             score: c.score,
         }
     }
@@ -58,7 +55,6 @@ impl From<ScoredChunk> for SemanticMatch {
 
 // ── SqliteVecStore ────────────────────────────────────────────────────
 
-/// EmbeddingStore backed by sqlite-vec virtual table.
 struct SqliteVecStore {
     db: Mutex<Connection>,
 }
@@ -78,6 +74,7 @@ impl SqliteVecStore {
                 kind TEXT NOT NULL,
                 line INTEGER NOT NULL,
                 signature TEXT NOT NULL,
+                name_path TEXT NOT NULL DEFAULT '',
                 text TEXT NOT NULL
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(
@@ -90,22 +87,13 @@ impl SqliteVecStore {
             db: Mutex::new(conn),
         })
     }
-}
 
-impl EmbeddingStore for SqliteVecStore {
-    fn upsert(&self, chunks: &[EmbeddingChunk]) -> Result<usize> {
-        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
-
-        // Clear and re-insert (full rebuild approach)
-        db.execute("DELETE FROM symbols", [])?;
-        db.execute("DELETE FROM vec_symbols", [])?;
-
-        db.execute_batch("BEGIN")?;
+    fn insert_batch(db: &Connection, chunks: &[EmbeddingChunk], start_id: i64) -> Result<usize> {
         for (i, chunk) in chunks.iter().enumerate() {
-            let id = i as i64 + 1;
+            let id = start_id + i as i64;
             db.execute(
-                "INSERT INTO symbols (id, file_path, symbol_name, kind, line, signature, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                rusqlite::params![id, chunk.file_path, chunk.symbol_name, chunk.kind, chunk.line as i64, chunk.signature, chunk.text],
+                "INSERT INTO symbols (id, file_path, symbol_name, kind, line, signature, name_path, text) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                rusqlite::params![id, chunk.file_path, chunk.symbol_name, chunk.kind, chunk.line as i64, chunk.signature, chunk.name_path, chunk.text],
             )?;
             let vec_bytes = embedding_to_bytes(&chunk.embedding);
             db.execute(
@@ -113,9 +101,29 @@ impl EmbeddingStore for SqliteVecStore {
                 rusqlite::params![id, vec_bytes],
             )?;
         }
-        db.execute_batch("COMMIT")?;
-
         Ok(chunks.len())
+    }
+}
+
+impl EmbeddingStore for SqliteVecStore {
+    fn upsert(&self, chunks: &[EmbeddingChunk]) -> Result<usize> {
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        db.execute("DELETE FROM symbols", [])?;
+        db.execute("DELETE FROM vec_symbols", [])?;
+        db.execute_batch("BEGIN")?;
+        let count = Self::insert_batch(&db, chunks, 1)?;
+        db.execute_batch("COMMIT")?;
+        Ok(count)
+    }
+
+    fn insert(&self, chunks: &[EmbeddingChunk]) -> Result<usize> {
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let max_id: i64 =
+            db.query_row("SELECT COALESCE(MAX(id), 0) FROM symbols", [], |r| r.get(0))?;
+        db.execute_batch("BEGIN")?;
+        let count = Self::insert_batch(&db, chunks, max_id + 1)?;
+        db.execute_batch("COMMIT")?;
+        Ok(count)
     }
 
     fn search(&self, query_vec: &[f32], top_k: usize) -> Result<Vec<ScoredChunk>> {
@@ -123,7 +131,7 @@ impl EmbeddingStore for SqliteVecStore {
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
 
         let mut stmt = db.prepare(
-            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, v.distance
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, v.distance
              FROM vec_symbols v
              JOIN symbols s ON s.id = v.rowid
              WHERE v.embedding MATCH ?1 AND k = ?2
@@ -138,7 +146,8 @@ impl EmbeddingStore for SqliteVecStore {
                     kind: row.get(2)?,
                     line: row.get::<_, i64>(3)? as usize,
                     signature: row.get(4)?,
-                    score: 1.0 - row.get::<_, f64>(5)?,
+                    name_path: row.get(5)?,
+                    score: 1.0 - row.get::<_, f64>(6)?,
                 })
             })?
             .filter_map(|r| r.ok())
@@ -151,7 +160,6 @@ impl EmbeddingStore for SqliteVecStore {
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
         let mut total = 0usize;
         for path in file_paths {
-            // Get IDs to delete from vec table
             let mut stmt = db.prepare("SELECT id FROM symbols WHERE file_path = ?1")?;
             let ids: Vec<i64> = stmt
                 .query_map(rusqlite::params![path], |row| row.get(0))?
@@ -188,13 +196,17 @@ impl EmbeddingStore for SqliteVecStore {
 
 // ── EmbeddingEngine (facade) ──────────────────────────────────────────
 
+/// Maximum body text length in characters for embedding.
+/// BGE-Small has ~512 token limit; 1600 chars ≈ 400 tokens, leaving room for prefix+signature.
+const MAX_BODY_CHARS: usize = 1600;
+const EMBED_BATCH_SIZE: usize = 256;
+
 pub struct EmbeddingEngine {
     model: Mutex<TextEmbedding>,
     store: Box<dyn EmbeddingStore>,
 }
 
 impl EmbeddingEngine {
-    /// Create a new embedding engine. Downloads model on first use (~23MB).
     pub fn new(project: &ProjectRoot) -> Result<Self> {
         let model = TextEmbedding::try_new(
             InitOptions::new(EmbeddingModel::BGESmallENV15Q).with_show_download_progress(false),
@@ -214,56 +226,107 @@ impl EmbeddingEngine {
     }
 
     /// Index all symbols from the project's symbol database into the embedding index.
+    /// Includes function/class body text for higher quality semantic search.
     pub fn index_from_project(&self, project: &ProjectRoot) -> Result<usize> {
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
-        let all_symbols = symbol_db.all_symbol_names()?;
+        let all_symbols = symbol_db.all_symbols_with_bytes()?;
 
         if all_symbols.is_empty() {
             return Ok(0);
         }
 
-        // BGE models use "passage:" prefix for documents and "query:" for search queries.
-        let texts: Vec<String> = all_symbols
-            .iter()
-            .map(|(name, kind, file, _line, sig, _name_path)| {
-                let file_ctx = if file.is_empty() {
+        // Group symbols by file for efficient body extraction (read each file once)
+        let mut file_groups: Vec<(String, Vec<&crate::db::SymbolWithFile>)> = Vec::new();
+        {
+            let mut current_file = String::new();
+            for sym in &all_symbols {
+                if sym.file_path != current_file {
+                    current_file = sym.file_path.clone();
+                    file_groups.push((current_file.clone(), Vec::new()));
+                }
+                file_groups.last_mut().unwrap().1.push(sym);
+            }
+        }
+
+        // Build texts with body extraction
+        let mut texts: Vec<String> = Vec::with_capacity(all_symbols.len());
+        let mut meta: Vec<&crate::db::SymbolWithFile> = Vec::with_capacity(all_symbols.len());
+
+        for (file_path, symbols) in &file_groups {
+            let source = std::fs::read_to_string(project.as_path().join(file_path)).ok();
+
+            for sym in symbols {
+                let body_text = source.as_deref().and_then(|src| {
+                    let start = sym.start_byte as usize;
+                    let end = sym.end_byte as usize;
+                    if end > start && end <= src.len() {
+                        src.get(start..end)
+                            .map(|b| truncate_body(b, MAX_BODY_CHARS))
+                    } else {
+                        None
+                    }
+                });
+
+                let file_ctx = if file_path.is_empty() {
                     String::new()
                 } else {
-                    format!(" in {file}")
+                    format!(" in {file_path}")
                 };
-                if sig.is_empty() {
-                    format!("passage: {kind} {name}{file_ctx}")
-                } else {
-                    format!("passage: {kind} {name}{file_ctx}: {sig}")
-                }
-            })
-            .collect();
 
-        // Batch embed
-        let embeddings = self
+                let text = match body_text {
+                    Some(body) if !body.is_empty() => {
+                        format!(
+                            "passage: {} {}{}\n{}\n{}",
+                            sym.kind, sym.name, file_ctx, sym.signature, body
+                        )
+                    }
+                    _ => {
+                        if sym.signature.is_empty() {
+                            format!("passage: {} {}{}", sym.kind, sym.name, file_ctx)
+                        } else {
+                            format!(
+                                "passage: {} {}{}: {}",
+                                sym.kind, sym.name, file_ctx, sym.signature
+                            )
+                        }
+                    }
+                };
+
+                texts.push(text);
+                meta.push(sym);
+            }
+        }
+
+        // Batch embed (256 at a time to bound memory)
+        let mut model = self
             .model
             .lock()
-            .map_err(|_| anyhow::anyhow!("model lock"))?
-            .embed(texts.iter().map(|s| s.as_str()).collect::<Vec<_>>(), None)
-            .context("embedding failed")?;
+            .map_err(|_| anyhow::anyhow!("model lock"))?;
+
+        let mut all_embeddings: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
+        for batch in texts.chunks(EMBED_BATCH_SIZE) {
+            let batch_refs: Vec<&str> = batch.iter().map(|s| s.as_str()).collect();
+            let batch_embeddings = model.embed(batch_refs, None).context("embedding failed")?;
+            all_embeddings.extend(batch_embeddings);
+        }
+        drop(model); // release lock before store write
 
         // Build chunks
-        let chunks: Vec<EmbeddingChunk> = all_symbols
+        let chunks: Vec<EmbeddingChunk> = meta
             .iter()
-            .zip(embeddings.iter())
+            .zip(all_embeddings.into_iter())
             .zip(texts.iter())
-            .map(
-                |(((name, kind, file, line, sig, _np), emb), text)| EmbeddingChunk {
-                    file_path: file.clone(),
-                    symbol_name: name.clone(),
-                    kind: kind.clone(),
-                    line: *line as usize,
-                    signature: sig.clone(),
-                    text: text.clone(),
-                    embedding: emb.clone(),
-                },
-            )
+            .map(|((sym, emb), text)| EmbeddingChunk {
+                file_path: sym.file_path.clone(),
+                symbol_name: sym.name.clone(),
+                kind: sym.kind.clone(),
+                line: sym.line as usize,
+                signature: sym.signature.clone(),
+                name_path: sym.name_path.clone(),
+                text: text.clone(),
+                embedding: emb,
+            })
             .collect();
 
         self.store.upsert(&chunks)
@@ -271,18 +334,7 @@ impl EmbeddingEngine {
 
     /// Search for symbols semantically similar to the query.
     pub fn search(&self, query: &str, max_results: usize) -> Result<Vec<SemanticMatch>> {
-        let query_embedding = self
-            .model
-            .lock()
-            .map_err(|_| anyhow::anyhow!("model lock"))?
-            .embed(vec![&format!("query: {query}")], None)
-            .context("query embedding failed")?;
-
-        if query_embedding.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let results = self.store.search(&query_embedding[0], max_results)?;
+        let results = self.search_scored(query, max_results)?;
         Ok(results.into_iter().map(SemanticMatch::from).collect())
     }
 
@@ -306,6 +358,18 @@ impl EmbeddingEngine {
     pub fn is_indexed(&self) -> bool {
         self.store.count().unwrap_or(0) > 0
     }
+}
+
+/// Truncate body text to max_chars at a char boundary.
+fn truncate_body(body: &str, max_chars: usize) -> &str {
+    if body.len() <= max_chars {
+        return body;
+    }
+    let mut end = max_chars;
+    while !body.is_char_boundary(end) && end > 0 {
+        end -= 1;
+    }
+    &body[..end]
 }
 
 fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
