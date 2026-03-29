@@ -58,4 +58,4 @@ walkdir = "2.5"
 lto = true
 strip = true
 codegen-units = 1
-opt-level = "z"
+opt-level = 3

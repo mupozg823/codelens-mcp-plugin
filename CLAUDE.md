@@ -1,6 +1,6 @@
 # CodeLens MCP
 
-Pure Rust MCP server — 50 tools, 16 languages, file watcher.
+Pure Rust MCP server — 50 tools (52 with semantic), 16 languages, file watcher.
 
 ## Verification
 
@@ -47,10 +47,22 @@ crates/
 
 - Presets: `--preset minimal|balanced|full` or `CODELENS_PRESET` env (default: **balanced**)
 - Runtime preset switch: `set_preset` tool (no server restart needed)
-- Transport: stdio (default). HTTP available with `--features http`
+- Transport: stdio (default). HTTP: `--features http`. One-shot CLI: `codelens-mcp . --cmd <tool> --args '<json>'`
 - SQLite index: `.codelens/index/symbols.db`
 - Memory dir: `.serena/memories/`
 - 500-line max per file
+
+## One-Shot CLI Mode
+
+Run any tool without an MCP client (scripts, git hooks, CI):
+
+```bash
+codelens-mcp . --cmd get_symbols_overview --args '{"path":"src/main.rs"}'
+codelens-mcp . --cmd find_symbol --args '{"name":"MyStruct"}'
+codelens-mcp . --cmd get_file_diagnostics --args '{"path":"src/lib.rs"}'
+```
+
+Output is plain JSON to stdout. Exit code 0 on success.
 
 ## Tool Categories (50 listed, legacy aliases in dispatch)
 
@@ -85,3 +97,13 @@ Switch at runtime: `set_preset` tool or restart with `--preset`
 ## Languages (16)
 
 Python, JavaScript, TypeScript, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, C#, Dart
+
+## New in This Version
+
+- **token_estimate** — every response includes token count for context budgeting
+- **suggested_next_tools** — workflow guidance hints returned with each result
+- **LSP error hints** — `get_file_diagnostics` includes install commands when language server is missing
+- **Framework auto-detection** — 13 frameworks detected (React, Django, Spring, etc.) for smarter context
+- **Workspace package detection** — Cargo workspaces, npm workspaces, Go modules auto-scoped
+- **Cross-crate import resolution** — resolves symbols across crates in Cargo workspaces
+- **One-shot CLI mode** — `--cmd <tool> --args '<json>'` for scripting, git hooks, and CI pipelines

@@ -73,6 +73,81 @@ What symbols are defined in src/main.rs?
 
 The server indexes your project automatically on first activation.
 
+## MCP Client Configurations
+
+### Claude Code
+
+```json
+// .mcp.json (project-level) or ~/.claude/.mcp.json (global)
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"]
+    }
+  }
+}
+```
+
+### Cursor
+
+```json
+// .cursor/mcp.json
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": ["."]
+    }
+  }
+}
+```
+
+### Windsurf
+
+```json
+// ~/.codeium/windsurf/mcp_config.json
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": ["."]
+    }
+  }
+}
+```
+
+### Cline (VS Code)
+
+```json
+// VS Code Settings → Cline MCP Servers
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": ["."]
+    }
+  }
+}
+```
+
+### Continue (VS Code/JetBrains)
+
+```json
+// ~/.continue/config.json → mcpServers section
+{
+  "mcpServers": [
+    {
+      "name": "codelens",
+      "command": "codelens-mcp",
+      "args": ["."]
+    }
+  ]
+}
+```
+
+All clients use stdio transport. Set `--preset minimal` for lower token usage.
+
 ## Tool Categories
 
 | Category   | Count | Highlights                                                  |
