@@ -252,36 +252,35 @@ impl IndexDb {
             .unwrap_or_default()
             .as_millis() as i64;
 
-        // Check if file exists
-        let existing_id: Option<i64> = self
-            .conn
-            .query_row(
-                "SELECT id FROM files WHERE relative_path = ?1",
-                params![relative_path],
-                |row| row.get(0),
-            )
-            .optional()?;
+        // Single INSERT ... ON CONFLICT DO UPDATE — avoids separate SELECT + UPDATE
+        self.conn.execute(
+            "INSERT INTO files (relative_path, mtime_ms, content_hash, size_bytes, language, indexed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(relative_path) DO UPDATE SET
+                mtime_ms = excluded.mtime_ms,
+                content_hash = excluded.content_hash,
+                size_bytes = excluded.size_bytes,
+                language = excluded.language,
+                indexed_at = excluded.indexed_at",
+            params![relative_path, mtime_ms, content_hash, size_bytes, language, now],
+        )?;
 
-        if let Some(id) = existing_id {
-            // Update and cascade-delete old symbols/imports
-            self.conn
-                .execute("DELETE FROM symbols WHERE file_id = ?1", params![id])?;
-            self.conn
-                .execute("DELETE FROM imports WHERE source_file_id = ?1", params![id])?;
-            self.conn.execute(
-                "UPDATE files SET mtime_ms = ?1, content_hash = ?2, size_bytes = ?3, language = ?4, indexed_at = ?5
-                 WHERE id = ?6",
-                params![mtime_ms, content_hash, size_bytes, language, now, id],
-            )?;
-            Ok(id)
-        } else {
-            self.conn.execute(
-                "INSERT INTO files (relative_path, mtime_ms, content_hash, size_bytes, language, indexed_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![relative_path, mtime_ms, content_hash, size_bytes, language, now],
-            )?;
-            Ok(self.conn.last_insert_rowid())
-        }
+        // Get the id (works for both insert and update via last_insert_rowid on upsert)
+        let id: i64 = self.conn.query_row(
+            "SELECT id FROM files WHERE relative_path = ?1",
+            params![relative_path],
+            |row| row.get(0),
+        )?;
+
+        // Clear old symbols/imports/calls for re-indexing
+        self.conn
+            .execute("DELETE FROM symbols WHERE file_id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM imports WHERE source_file_id = ?1", params![id])?;
+        self.conn
+            .execute("DELETE FROM calls WHERE caller_file_id = ?1", params![id])?;
+
+        Ok(id)
     }
 
     /// Delete a file and its associated symbols/imports.

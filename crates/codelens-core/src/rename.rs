@@ -5,7 +5,11 @@ use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
+use std::sync::LazyLock;
 use walkdir::WalkDir;
+
+static IDENTIFIER_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -96,8 +100,7 @@ pub fn rename_symbol(
 }
 
 fn validate_identifier(name: &str) -> Result<()> {
-    let re = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap();
-    if !re.is_match(name) {
+    if !IDENTIFIER_RE.is_match(name) {
         bail!("invalid identifier: '{name}' — must match [a-zA-Z_][a-zA-Z0-9_]*");
     }
     Ok(())
@@ -276,8 +279,8 @@ fn find_symbol_line_range(
 
 fn flatten_symbol_infos(symbols: Vec<SymbolInfo>) -> Vec<SymbolInfo> {
     let mut flat = Vec::new();
-    for s in symbols {
-        let children = s.children.clone();
+    for mut s in symbols {
+        let children = std::mem::take(&mut s.children);
         flat.push(s);
         flat.extend(flatten_symbol_infos(children));
     }

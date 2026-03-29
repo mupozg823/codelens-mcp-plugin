@@ -946,17 +946,19 @@ fn flatten_symbols(symbols: Vec<ParsedSymbol>) -> Vec<ParsedSymbol> {
     let mut queue: VecDeque<ParsedSymbol> = symbols.into();
     let mut flat = Vec::new();
 
-    while let Some(symbol) = queue.pop_front() {
-        queue.extend(symbol.children.iter().cloned());
+    while let Some(mut symbol) = queue.pop_front() {
+        let children = std::mem::take(&mut symbol.children);
+        queue.extend(children);
         flat.push(symbol);
     }
 
     flat
 }
 
-fn flatten_symbol_infos(symbol: SymbolInfo) -> Vec<SymbolInfo> {
-    let mut flattened = vec![symbol.clone()];
-    for child in symbol.children {
+fn flatten_symbol_infos(mut symbol: SymbolInfo) -> Vec<SymbolInfo> {
+    let children = std::mem::take(&mut symbol.children);
+    let mut flattened = vec![symbol];
+    for child in children {
         flattened.extend(flatten_symbol_infos(child));
     }
     flattened
@@ -993,13 +995,8 @@ fn dedup_symbols(symbols: Vec<ParsedSymbol>) -> Vec<ParsedSymbol> {
     let mut deduped = Vec::new();
 
     for symbol in symbols {
-        let key = (
-            symbol.file_path.clone(),
-            symbol.name.clone(),
-            symbol.kind.clone(),
-            symbol.start_byte,
-            symbol.end_byte,
-        );
+        // (start_byte, end_byte) is unique per symbol within a file
+        let key = (symbol.start_byte, symbol.end_byte);
         if seen.insert(key) {
             deduped.push(symbol);
         }

@@ -7,11 +7,16 @@ use crate::import_graph::extract_imports_for_file;
 use crate::project::ProjectRoot;
 use crate::symbols::{get_symbols_overview, language_for_path, SymbolIndex, SymbolInfo};
 use anyhow::Result;
+use regex::Regex;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::fs;
 use std::path::Path;
+use std::sync::LazyLock;
 use tree_sitter::{Node, Parser};
+
+static TYPE_CANDIDATE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b([A-Z][a-zA-Z0-9_]*)\b").unwrap());
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportSuggestion {
@@ -196,7 +201,7 @@ fn collect_type_nodes(
 
 /// Regex fallback for unsupported languages.
 fn collect_type_candidates_regex(source: &str) -> Vec<String> {
-    let re = regex::Regex::new(r"\b([A-Z][a-zA-Z0-9_]*)\b").unwrap();
+    let re = &*TYPE_CANDIDATE_RE;
     let mut seen = HashSet::new();
     let mut result = Vec::new();
     for line in source.lines() {
