@@ -97,7 +97,7 @@ static TLF_RS_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Use lang_registry as the single source of truth for supported extensions.
-fn is_import_supported(ext: &str) -> bool {
+pub fn is_import_supported(ext: &str) -> bool {
     crate::lang_registry::supports_imports(ext)
 }
 

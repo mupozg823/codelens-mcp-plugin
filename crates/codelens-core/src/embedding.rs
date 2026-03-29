@@ -45,6 +45,7 @@ pub struct SemanticMatch {
 pub struct EmbeddingEngine {
     model: Mutex<TextEmbedding>,
     db: Mutex<Connection>,
+    #[allow(dead_code)] // used for validation in future batch operations
     dimension: usize,
 }
 

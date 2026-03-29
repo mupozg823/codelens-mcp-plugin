@@ -19,7 +19,7 @@ static QUERY_CACHE: LazyLock<Mutex<HashMap<&'static str, Arc<Query>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn cached_query(config: &LanguageConfig) -> Result<Arc<Query>> {
-    let mut cache = QUERY_CACHE.lock().unwrap();
+    let mut cache = QUERY_CACHE.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(q) = cache.get(config.extension) {
         return Ok(Arc::clone(q));
     }
@@ -729,7 +729,11 @@ impl SymbolIndex {
     }
 
     /// Get symbols overview from DB without lazy indexing.
-    pub fn get_symbols_overview_cached(&self, path: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
+    pub fn get_symbols_overview_cached(
+        &self,
+        path: &str,
+        _depth: usize,
+    ) -> Result<Vec<SymbolInfo>> {
         let db = self.reader()?;
         let resolved = self.project.resolve(path)?;
         if resolved.is_dir() {
@@ -1497,7 +1501,7 @@ mod tests {
     fn index_refreshes_after_file_change() {
         let root = fixture_root();
         let project = ProjectRoot::new(&root).expect("project");
-        let mut index = SymbolIndex::new_memory(project.clone());
+        let index = SymbolIndex::new_memory(project.clone());
 
         let initial = index
             .find_symbol("fetchUser", None, false, true, 10)
@@ -1525,7 +1529,7 @@ mod tests {
     fn refresh_all_populates_stats() {
         let root = fixture_root();
         let project = ProjectRoot::new(&root).expect("project");
-        let mut index = SymbolIndex::new_memory(project);
+        let index = SymbolIndex::new_memory(project);
         let stats = index.refresh_all().expect("refresh all");
         assert_eq!(stats.supported_files, 2);
         assert_eq!(stats.indexed_files, 2);
@@ -1537,7 +1541,7 @@ mod tests {
         let root = fixture_root();
         let project = ProjectRoot::new(&root).expect("project");
         // Use real disk-backed SymbolIndex for persistence test
-        let mut index = SymbolIndex::new(project.clone());
+        let index = SymbolIndex::new(project.clone());
         index.refresh_all().expect("refresh all");
 
         let reloaded = SymbolIndex::new(project);
@@ -1549,7 +1553,7 @@ mod tests {
     fn ranked_context_prefers_exact_matches_and_respects_budget() {
         let root = fixture_root();
         let project = ProjectRoot::new(&root).expect("project");
-        let mut index = SymbolIndex::new_memory(project);
+        let index = SymbolIndex::new_memory(project);
 
         let ranked = index
             .get_ranked_context("fetchUser", None, 40, true, 2)

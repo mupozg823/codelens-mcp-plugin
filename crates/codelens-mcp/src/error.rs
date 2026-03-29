@@ -37,7 +37,7 @@ pub enum CodeLensError {
 }
 
 impl CodeLensError {
-    /// Map to a JSON-RPC error code.
+    /// Map to a JSON-RPC error code. Used by dispatch_tool for protocol-level errors.
     pub fn jsonrpc_code(&self) -> i64 {
         match self {
             Self::MissingParam(_) => -32602,

@@ -347,7 +347,7 @@ fn classify_reference(node: Node) -> ReferenceKind {
         }
         // Also check grandparent for typed_parameter → identifier patterns
         if let Some(grandparent) = parent.parent() {
-            let gp_type = grandparent.kind();
+            let _gp_type = grandparent.kind();
             if is_parameter_context(grandparent) && is_identifier_node(node.kind()) {
                 // identifier inside a typed_parameter/default_parameter = definition
                 if parent.kind().contains("parameter") || parent.kind().contains("pattern") {

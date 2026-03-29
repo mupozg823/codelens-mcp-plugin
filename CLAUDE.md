@@ -3,13 +3,13 @@
 ## Verify
 
 ```bash
-cargo test -- --skip returns_lsp_diagnostics --skip returns_workspace_symbols --skip returns_rename_plan
+cargo test
 cargo build --release
 ```
 
 ## Presets
 
-FULL=50 | BALANCED=34 (default) | MINIMAL=21
+FULL=50 | BALANCED=36 (default) | MINIMAL=21
 
 ## CLI
 

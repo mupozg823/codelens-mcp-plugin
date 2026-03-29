@@ -131,7 +131,7 @@ struct OpenDocumentState {
 
 pub struct LspSessionPool {
     project: ProjectRoot,
-    sessions: HashMap<SessionKey, LspSession>,
+    sessions: std::sync::Mutex<HashMap<SessionKey, LspSession>>,
 }
 
 struct LspSession {
@@ -141,6 +141,7 @@ struct LspSession {
     reader: BufReader<ChildStdout>,
     next_request_id: u64,
     documents: HashMap<String, OpenDocumentState>,
+    #[allow(dead_code)] // retained for future stderr diagnostics
     stderr_buffer: std::sync::Arc<std::sync::Mutex<String>>,
 }
 
@@ -148,7 +149,7 @@ pub fn find_referencing_symbols_via_lsp(
     project: &ProjectRoot,
     request: &LspRequest,
 ) -> Result<Vec<LspReference>> {
-    let mut pool = LspSessionPool::new(project.clone());
+    let pool = LspSessionPool::new(project.clone());
     pool.find_referencing_symbols(request)
 }
 
@@ -156,7 +157,7 @@ pub fn get_diagnostics_via_lsp(
     project: &ProjectRoot,
     request: &LspDiagnosticRequest,
 ) -> Result<Vec<LspDiagnostic>> {
-    let mut pool = LspSessionPool::new(project.clone());
+    let pool = LspSessionPool::new(project.clone());
     pool.get_diagnostics(request)
 }
 
@@ -164,7 +165,7 @@ pub fn search_workspace_symbols_via_lsp(
     project: &ProjectRoot,
     request: &LspWorkspaceSymbolRequest,
 ) -> Result<Vec<LspWorkspaceSymbol>> {
-    let mut pool = LspSessionPool::new(project.clone());
+    let pool = LspSessionPool::new(project.clone());
     pool.search_workspace_symbols(request)
 }
 
@@ -172,7 +173,7 @@ pub fn get_type_hierarchy_via_lsp(
     project: &ProjectRoot,
     request: &LspTypeHierarchyRequest,
 ) -> Result<HashMap<String, Value>> {
-    let mut pool = LspSessionPool::new(project.clone());
+    let pool = LspSessionPool::new(project.clone());
     pool.get_type_hierarchy(request)
 }
 
@@ -180,8 +181,29 @@ pub fn get_rename_plan_via_lsp(
     project: &ProjectRoot,
     request: &LspRenamePlanRequest,
 ) -> Result<LspRenamePlan> {
-    let mut pool = LspSessionPool::new(project.clone());
+    let pool = LspSessionPool::new(project.clone());
     pool.get_rename_plan(request)
+}
+
+/// Known-safe LSP server binaries. Commands not in this list are rejected.
+fn is_allowed_lsp_command(command: &str) -> bool {
+    // Extract the binary name from the command path (e.g., "/usr/bin/pyright-langserver" → "pyright-langserver")
+    let binary = std::path::Path::new(command)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(command);
+
+    let allowed: &[&str] = &[
+        // From LSP_RECIPES
+        "pyright-langserver", "typescript-language-server", "rust-analyzer",
+        "gopls", "jdtls", "kotlin-language-server", "clangd",
+        "solargraph", "intelephense", "sourcekit-lsp", "csharp-ls", "dart",
+        // Additional well-known LSP servers
+        "metals", "lua-language-server", "terraform-ls", "yaml-language-server",
+        // Test support: allow python3/python for mock LSP in tests
+        "python3", "python",
+    ];
+    allowed.iter().any(|&a| a == binary)
 }
 
 fn ensure_session<'a>(
@@ -190,6 +212,10 @@ fn ensure_session<'a>(
     command: &str,
     args: &[String],
 ) -> Result<&'a mut LspSession> {
+    if !is_allowed_lsp_command(command) {
+        bail!("Blocked: '{command}' is not a known LSP server. Only whitelisted LSP binaries are allowed.");
+    }
+
     let key = SessionKey {
         command: command.to_owned(),
         args: args.to_owned(),
@@ -222,50 +248,58 @@ impl LspSessionPool {
     pub fn new(project: ProjectRoot) -> Self {
         Self {
             project,
-            sessions: HashMap::new(),
+            sessions: std::sync::Mutex::new(HashMap::new()),
         }
     }
 
     pub fn session_count(&self) -> usize {
-        self.sessions.len()
+        self.sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .len()
     }
 
-    pub fn find_referencing_symbols(&mut self, request: &LspRequest) -> Result<Vec<LspReference>> {
+    pub fn find_referencing_symbols(&self, request: &LspRequest) -> Result<Vec<LspReference>> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let session =
-            ensure_session(&mut self.sessions, &self.project, &request.command, &request.args)?;
+            ensure_session(&mut sessions, &self.project, &request.command, &request.args)?;
         session.find_references(request)
     }
 
     pub fn get_diagnostics(
-        &mut self,
+        &self,
         request: &LspDiagnosticRequest,
     ) -> Result<Vec<LspDiagnostic>> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let session =
-            ensure_session(&mut self.sessions, &self.project, &request.command, &request.args)?;
+            ensure_session(&mut sessions, &self.project, &request.command, &request.args)?;
         session.get_diagnostics(request)
     }
 
     pub fn search_workspace_symbols(
-        &mut self,
+        &self,
         request: &LspWorkspaceSymbolRequest,
     ) -> Result<Vec<LspWorkspaceSymbol>> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let session =
-            ensure_session(&mut self.sessions, &self.project, &request.command, &request.args)?;
+            ensure_session(&mut sessions, &self.project, &request.command, &request.args)?;
         session.search_workspace_symbols(request)
     }
 
     pub fn get_type_hierarchy(
-        &mut self,
+        &self,
         request: &LspTypeHierarchyRequest,
     ) -> Result<HashMap<String, Value>> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let session =
-            ensure_session(&mut self.sessions, &self.project, &request.command, &request.args)?;
+            ensure_session(&mut sessions, &self.project, &request.command, &request.args)?;
         session.get_type_hierarchy(request)
     }
 
-    pub fn get_rename_plan(&mut self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
+    pub fn get_rename_plan(&self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
         let session =
-            ensure_session(&mut self.sessions, &self.project, &request.command, &request.args)?;
+            ensure_session(&mut sessions, &self.project, &request.command, &request.args)?;
         session.get_rename_plan(request)
     }
 }
@@ -1381,7 +1415,7 @@ mod tests {
         fs::write(&server_path, mock_server_script()).expect("write mock server");
         chmod_exec(&server_path);
 
-        let mut pool = LspSessionPool::new(project.clone());
+        let pool = LspSessionPool::new(project.clone());
         let request = LspRequest {
             command: "python3".to_owned(),
             args: vec![

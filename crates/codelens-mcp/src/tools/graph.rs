@@ -1,9 +1,9 @@
 use super::{required_string, success_meta, AppState, ToolResult};
 use crate::tools::symbols::flatten_symbols;
 use codelens_core::{
-    find_circular_dependencies, find_dead_code, find_dead_code_v2, find_scoped_references,
-    get_blast_radius, get_callees, get_callers, get_change_coupling, get_changed_files,
-    get_diff_symbols, get_importance, get_importers, search_for_pattern,
+    find_circular_dependencies, find_dead_code_v2, find_scoped_references, get_blast_radius,
+    get_callees, get_callers, get_change_coupling, get_changed_files, get_importance,
+    get_importers, search_for_pattern,
 };
 use serde_json::json;
 
@@ -18,27 +18,6 @@ pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -
     Ok((
         json!({ "ref": ref_label, "files": changed, "count": changed.len() }),
         success_meta("git", 0.95),
-    ))
-}
-
-pub fn get_diff_symbols_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let git_ref = arguments.get("ref").and_then(|v| v.as_str());
-    let diff_symbols = get_diff_symbols(&state.project, git_ref)?;
-    let ref_label = git_ref.unwrap_or("HEAD");
-    let enriched = diff_symbols
-        .into_iter()
-        .map(|entry| {
-            let symbol_count = state
-                .symbol_index()
-                .get_symbols_overview_cached(&entry.file, 1)
-                .map(|s| s.len())
-                .unwrap_or(0);
-            json!({ "file": entry.file, "status": entry.status, "symbol_count": symbol_count })
-        })
-        .collect::<Vec<_>>();
-    Ok((
-        json!({ "ref": ref_label, "files": enriched, "count": enriched.len() }),
-        success_meta("git+tree-sitter", 0.9),
     ))
 }
 
@@ -130,21 +109,6 @@ pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) ->
             (
                 json!({ "ranking": value, "count": value.len() }),
                 success_meta("import-graph", 0.84),
-            )
-        })?,
-    )
-}
-
-pub fn find_dead_code_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
-    Ok(
-        find_dead_code(&state.project, max_results, &state.graph_cache).map(|value| {
-            (
-                json!({ "dead_code": value, "count": value.len() }),
-                success_meta("import-graph", 0.83),
             )
         })?,
     )

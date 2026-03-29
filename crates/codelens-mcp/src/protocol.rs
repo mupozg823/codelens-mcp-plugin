@@ -50,6 +50,7 @@ pub struct ToolAnnotations {
     pub open_world_hint: Option<bool>,
 }
 
+#[allow(dead_code)] // reserved for future SSE/streaming notification support
 #[derive(Debug, Serialize)]
 pub struct JsonRpcNotification {
     pub jsonrpc: &'static str,

@@ -64,6 +64,19 @@ impl ProjectRoot {
                 self.root.display()
             );
         }
+        // If the path exists, verify the real (symlink-resolved) path also stays within root
+        if normalized.exists() {
+            if let Ok(real) = normalized.canonicalize() {
+                if !real.starts_with(&self.root) {
+                    bail!(
+                        "symlink escapes project root: {} → {} (root: {})",
+                        normalized.display(),
+                        real.display(),
+                        self.root.display()
+                    );
+                }
+            }
+        }
         Ok(normalized)
     }
 

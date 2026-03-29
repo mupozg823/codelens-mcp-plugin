@@ -5,7 +5,7 @@
 use crate::project::is_excluded;
 use crate::project::ProjectRoot;
 use crate::symbols::language_for_path;
-use anyhow::{bail, Result};
+use anyhow::Result;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs;

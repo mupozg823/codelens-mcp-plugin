@@ -69,7 +69,7 @@ pub fn analyze_missing_imports(
     // Step 5: Batch lookup via SymbolIndex (SQLite) — much faster than per-name find_symbol
     let insert_line = find_import_insert_line(&source, &ext);
     let mut suggestions = Vec::new();
-    let mut index = SymbolIndex::new(project.clone());
+    let index = SymbolIndex::new(project.clone());
 
     for name in &unresolved {
         if let Ok(matches) = index.find_symbol(name, None, false, true, 3) {
