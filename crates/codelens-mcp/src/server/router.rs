@@ -37,7 +37,8 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 "serverInfo": {
                     "name": "codelens-mcp",
                     "version": env!("CARGO_PKG_VERSION")
-                }
+                },
+                "instructions": "CodeLens is a code intelligence engine. Use its tools instead of Read/Grep/Edit for code tasks: find_symbol to locate functions/classes, get_ranked_context for smart context retrieval, get_symbols_overview for file structure, find_referencing_symbols to trace usages, get_impact_analysis for change blast radius, get_file_diagnostics for type errors, replace_symbol_body/rename_symbol for refactoring. These tools understand code structure via tree-sitter and provide ranked, token-budgeted results."
             }),
         )),
         "resources/list" => Some(JsonRpcResponse::result(
