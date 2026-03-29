@@ -52,7 +52,7 @@ impl IndexDb {
         let conn = Connection::open(db_path)
             .with_context(|| format!("failed to open db at {}", db_path.display()))?;
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;",
+            "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
         )?;
         let db = Self { conn };
         db.migrate()?;

@@ -43,10 +43,13 @@ static KT_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 // ── Rust ──────────────────────────────────────────────────────────────────────
-static RS_USE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^\s*use\s+([A-Za-z0-9_:]+)").unwrap());
-static RS_MOD_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?m)^\s*mod\s+([A-Za-z0-9_]+)\s*;").unwrap());
+static RS_USE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?use\s+([A-Za-z0-9_]+(?:::[A-Za-z0-9_]+)*)(?:::\{([^}]+)\})?")
+        .unwrap()
+});
+static RS_MOD_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?m)^\s*(?:pub(?:\([^)]*\))?\s+)?mod\s+([A-Za-z0-9_]+)\s*;").unwrap()
+});
 
 // ── Ruby ──────────────────────────────────────────────────────────────────────
 static RB_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
@@ -341,7 +344,14 @@ fn is_entry_point_file(file: &str) -> bool {
         .unwrap_or(file);
     matches!(
         name,
-        "__init__.py" | "mod.rs" | "index.ts" | "index.js" | "index.tsx" | "index.jsx"
+        "__init__.py"
+            | "mod.rs"
+            | "lib.rs"
+            | "main.rs"
+            | "index.ts"
+            | "index.js"
+            | "index.tsx"
+            | "index.jsx"
     )
 }
 
@@ -711,13 +721,30 @@ fn extract_kotlin_imports(content: &str) -> Vec<String> {
 }
 
 fn extract_rust_imports(content: &str) -> Vec<String> {
-    // use crate::module;  use super::module;  mod module;
+    // use crate::module;  pub use super::module;  pub mod module;
+    // use crate::{A, B};  use crate::foo::{Bar, Baz};
     let mut imports = Vec::new();
-    for re in [&*RS_USE_RE, &*RS_MOD_RE] {
-        for cap in re.captures_iter(content) {
-            if let Some(m) = cap.get(1) {
-                imports.push(m.as_str().to_owned());
+
+    // mod declarations
+    for cap in RS_MOD_RE.captures_iter(content) {
+        if let Some(m) = cap.get(1) {
+            imports.push(m.as_str().to_owned());
+        }
+    }
+
+    // use statements (with optional brace group)
+    for cap in RS_USE_RE.captures_iter(content) {
+        let base = cap.get(1).map(|m| m.as_str()).unwrap_or("");
+        if let Some(brace) = cap.get(2) {
+            // use crate::foo::{A, B} → emit crate::foo::A, crate::foo::B
+            for item in brace.as_str().split(',') {
+                let item = item.trim();
+                if !item.is_empty() {
+                    imports.push(format!("{base}::{item}"));
+                }
             }
+        } else if !base.is_empty() {
+            imports.push(base.to_owned());
         }
     }
     imports
@@ -923,26 +950,48 @@ fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) 
         .trim_start_matches("self::");
     let path_part = stripped.replace("::", "/");
 
-    // Relative to source file directory (for mod declarations)
-    if let Some(parent) = source_file.parent() {
+    // Try full path first, then progressively strip trailing segments
+    // (last segment may be a type/function name, not a module)
+    let mut parts: Vec<&str> = path_part.split('/').collect();
+    while !parts.is_empty() {
+        let candidate_path = parts.join("/");
+        // Relative to source file directory (for mod declarations)
+        if let Some(parent) = source_file.parent() {
+            for candidate in [
+                parent.join(format!("{candidate_path}.rs")),
+                parent.join(&candidate_path).join("mod.rs"),
+            ] {
+                if candidate.is_file() {
+                    return Some(project.to_relative(candidate));
+                }
+            }
+        }
+        // Relative to src/ at project root
+        let src = project.as_path().join("src");
         for candidate in [
-            parent.join(format!("{path_part}.rs")),
-            parent.join(&path_part).join("mod.rs"),
+            src.join(format!("{candidate_path}.rs")),
+            src.join(&candidate_path).join("mod.rs"),
         ] {
             if candidate.is_file() {
                 return Some(project.to_relative(candidate));
             }
         }
-    }
-    // Relative to src/ at project root
-    let src = project.as_path().join("src");
-    for candidate in [
-        src.join(format!("{path_part}.rs")),
-        src.join(&path_part).join("mod.rs"),
-    ] {
-        if candidate.is_file() {
-            return Some(project.to_relative(candidate));
+        // Search within workspace crate directories (crates/*/src/)
+        if let Ok(entries) = std::fs::read_dir(project.as_path().join("crates")) {
+            for entry in entries.flatten() {
+                let crate_src = entry.path().join("src");
+                for candidate in [
+                    crate_src.join(format!("{candidate_path}.rs")),
+                    crate_src.join(&candidate_path).join("mod.rs"),
+                ] {
+                    if candidate.is_file() {
+                        return Some(project.to_relative(candidate));
+                    }
+                }
+            }
         }
+        // Strip last segment (may be a type name, not a module)
+        parts.pop();
     }
     None
 }
@@ -1186,6 +1235,47 @@ import (
         assert!(imports.contains(&"crate::utils".to_owned()));
         assert!(imports.contains(&"super::models".to_owned()));
         assert!(imports.contains(&"config".to_owned()));
+    }
+
+    #[test]
+    fn extracts_rust_pub_mod_and_pub_use() {
+        let content =
+            "pub mod symbols;\npub(crate) mod db;\npub use crate::project::ProjectRoot;\n";
+        let imports = super::extract_rust_imports(content);
+        assert!(
+            imports.contains(&"symbols".to_owned()),
+            "pub mod should be captured"
+        );
+        assert!(
+            imports.contains(&"db".to_owned()),
+            "pub(crate) mod should be captured"
+        );
+        assert!(
+            imports.contains(&"crate::project::ProjectRoot".to_owned()),
+            "pub use should be captured"
+        );
+    }
+
+    #[test]
+    fn extracts_rust_brace_group_imports() {
+        let content = "use crate::{symbols, db};\nuse crate::foo::{Bar, Baz};\n";
+        let imports = super::extract_rust_imports(content);
+        assert!(
+            imports.contains(&"crate::symbols".to_owned()),
+            "brace group item 1"
+        );
+        assert!(
+            imports.contains(&"crate::db".to_owned()),
+            "brace group item 2"
+        );
+        assert!(
+            imports.contains(&"crate::foo::Bar".to_owned()),
+            "nested brace 1"
+        );
+        assert!(
+            imports.contains(&"crate::foo::Baz".to_owned()),
+            "nested brace 2"
+        );
     }
 
     #[test]
