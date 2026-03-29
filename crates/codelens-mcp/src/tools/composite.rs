@@ -1,6 +1,9 @@
 use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
-use codelens_core::{get_callees, get_callers, get_importers, get_symbols_overview, SymbolKind};
+use codelens_core::{
+    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
+    get_symbols_overview, SymbolKind,
+};
 use serde_json::json;
 
 pub fn summarize_file(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -178,5 +181,44 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
             "dry_run": dry_run
         }),
         success_meta("refactor", 0.90),
+    ))
+}
+
+/// One-shot project onboarding: structure + key symbols + health signals.
+pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    // 1. Project structure (directory stats)
+    let structure = state
+        .symbol_index()
+        .get_project_structure()
+        .unwrap_or_default();
+
+    // 2. Top 10 most important files (PageRank)
+    let importance = get_importance(&state.project, 10, &state.graph_cache).unwrap_or_default();
+
+    // 3. Circular dependencies
+    let cycles =
+        find_circular_dependencies(&state.project, 10, &state.graph_cache).unwrap_or_default();
+
+    Ok((
+        json!({
+            "project_root": state.project.as_path(),
+            "directory_structure": structure.iter().take(20).map(|d| json!({
+                "directory": d.dir,
+                "files": d.files,
+                "symbols": d.symbols
+            })).collect::<Vec<_>>(),
+            "key_files": importance.iter().map(|e| json!({
+                "file": e.file, "importance": e.score
+            })).collect::<Vec<_>>(),
+            "circular_dependencies": cycles.iter().map(|c| json!({
+                "cycle": c.cycle, "length": c.length
+            })).collect::<Vec<_>>(),
+            "health": json!({
+                "has_cycles": !cycles.is_empty(),
+                "total_dirs": structure.len(),
+            }),
+            "suggested_next_tools": ["get_symbols_overview", "get_ranked_context", "semantic_search"]
+        }),
+        success_meta("composite-onboard", 0.95),
     ))
 }

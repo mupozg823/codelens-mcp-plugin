@@ -124,6 +124,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "refactor_extract_function",
         composite::refactor_extract_function,
     );
+    m.insert("onboard_project", composite::onboard_project);
 
     m
 }

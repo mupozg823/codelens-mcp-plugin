@@ -386,9 +386,9 @@ mod tests {
         .expect("tools/list should return a response");
         // 51 base + 2 semantic (feature-gated)
         #[cfg(feature = "semantic")]
-        assert_eq!(tools().len(), 53);
+        assert_eq!(tools().len(), 54);
         #[cfg(not(feature = "semantic"))]
-        assert_eq!(tools().len(), 51);
+        assert_eq!(tools().len(), 52);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("get_symbols_overview"));
     }

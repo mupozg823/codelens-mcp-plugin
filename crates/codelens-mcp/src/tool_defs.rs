@@ -128,6 +128,7 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("add_import", "Insert an import statement at the correct position in a file.", json!({"type":"object","properties":{"file_path":{"type":"string"},"import_statement":{"type":"string","description":"Import statement to add"}},"required":["file_path","import_statement"]})).with_annotations(mutating.clone()),
 
         // ── Composite ────────────────────────────────────────────────────
+        Tool::new("onboard_project", "One-shot project onboarding: returns directory structure, top-10 important files (PageRank), circular dependencies, and index stats. Call this first when exploring a new codebase.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("refactor_extract_function", "Extract a line range into a new function. Replaces the original lines with a function call. Use dry_run=true to preview.", json!({"type":"object","properties":{"file_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"new_name":{"type":"string","description":"Name for the new function"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}},"required":["file_path","start_line","end_line","new_name"]})).with_annotations(mutating.clone()),
 
         // ── Memory ───────────────────────────────────────────────────────
