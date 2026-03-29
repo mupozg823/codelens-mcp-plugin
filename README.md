@@ -1,6 +1,6 @@
 # CodeLens MCP
 
-Pure Rust MCP server for code intelligence — 53 tools, 15 languages, 12ms startup.
+Pure Rust MCP server for code intelligence — 56 tools, 15 languages, 12ms startup, 251 tests.
 
 ![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
@@ -11,8 +11,10 @@ Pure Rust MCP server for code intelligence — 53 tools, 15 languages, 12ms star
 
 - **Free and open-source.** No subscriptions, no seat licenses. Comparable commercial tools (e.g. jCodeMunch) start at $79+/month.
 - **Single binary, instant startup.** Pure Rust, 32MB, ~12ms cold start. No Node runtime, no JVM, no Python interpreter.
-- **53 tools in one binary.** Tree-sitter symbol indexing, LSP integration, import graph with PageRank, dead code detection, and semantic vector search (BGE-small quantized) — all without external services.
-- **15 languages, runtime preset switching.** Switch from 21-tool minimal mode to 53-tool full mode at runtime with `set_preset` — no server restart.
+- **56 tools in one binary.** Tree-sitter symbol indexing, LSP integration, import graph with PageRank, dead code detection, and semantic vector search (BGE-small quantized) — all without external services.
+- **15 languages, runtime preset switching.** Switch from 21-tool minimal mode to 56-tool full mode at runtime with `set_preset` — no server restart.
+- **53-83x faster than grep** for symbol lookup and reference tracing. SQLite FTS5 index eliminates full-project scanning.
+- **Context-aware workflow guidance.** Dynamic tool suggestions adapt to your task — mutation chains auto-suggest diagnostics, exploration chains suggest deeper context tools.
 
 ## Quick Comparison
 
@@ -20,7 +22,7 @@ Pure Rust MCP server for code intelligence — 53 tools, 15 languages, 12ms star
 | -------------------- | ----------------- | ----------------- | ------------------- |
 | Price                | Free / OSS        | $79+/month        | Free / OSS          |
 | Languages            | 15                | 10                | varies by LSP       |
-| MCP tools            | 53                | ~20               | ~10                 |
+| MCP tools            | 56                | ~20               | ~10                 |
 | LSP integration      | yes               | yes               | yes (only)          |
 | Import graph         | yes               | no                | no                  |
 | Circular dep. detect | yes               | no                | no                  |
@@ -196,6 +198,50 @@ All clients use **stdio transport**. Ensure `codelens-mcp` is on your `$PATH` (v
 
 > Tip: Use `--preset minimal` (21 tools) for token-constrained environments or subagents.
 
+## Performance
+
+Benchmarked on a 27K LOC Rust project (this repository):
+
+| Operation               | CodeLens | grep    | Speedup                             |
+| ----------------------- | -------- | ------- | ----------------------------------- |
+| Find function by name   | 24ms     | 2,002ms | **83x**                             |
+| Trace all references    | 23ms     | 1,225ms | **53x**                             |
+| File structure overview | 24ms     | 17ms    | ~1x (grep wins on trivial patterns) |
+| Impact analysis         | 24ms     | N/A     | (no grep equivalent)                |
+| Cold start + config     | 28ms     | —       | —                                   |
+
+CodeLens uses SQLite FTS5 indexing, so lookups are O(log n) regardless of project size.
+
+Run benchmarks yourself:
+
+```bash
+cargo build --release
+./benchmarks/bench.sh . ./target/release/codelens-mcp
+```
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  MCP Protocol (stdio / HTTP+SSE)                         │
+├──────────────────────────────────────────────────────────┤
+│  Dispatch — static table + context-aware suggestions     │
+│  Session telemetry — per-tool + session-level metrics    │
+│  Token budget — auto-preset by project size              │
+├──────────────────────────────────────────────────────────┤
+│  codelens-core                                           │
+│  ├─ tree-sitter (15 langs)  ├─ SQLite FTS5 index        │
+│  ├─ import graph + PageRank ├─ call graph                │
+│  ├─ LSP session pool        ├─ file watcher              │
+│  └─ fastembed (BGE-small)   └─ sqlite-vec (vectors)     │
+└──────────────────────────────────────────────────────────┘
+```
+
+- **2-crate workspace**: `codelens-core` (pure logic) + `codelens-mcp` (protocol layer)
+- **Reader/Writer split**: `Mutex<IndexDb>` for writes, per-query read-only connections
+- **4-signal ranking**: text relevance + PageRank + recency + semantic similarity
+- **Auto-weight tuning**: identifier queries → text-heavy, natural language → semantic-heavy
+
 ## Tool Categories
 
 | Category   | Count | Highlights                                                  |
@@ -213,11 +259,13 @@ All clients use **stdio transport**. Ensure `codelens-mcp` is on your `$PATH` (v
 
 ## Presets
 
-| Preset   | Tools | Tokens | Use case                                       |
+| Preset   | Tools | Budget | Use case                                       |
 | -------- | ----- | ------ | ---------------------------------------------- |
-| FULL     | 53    | ~5K    | All tools, maximum capability                  |
-| BALANCED | 37    | ~3K    | Default — no built-in overlaps, no niche tools |
-| MINIMAL  | 21    | ~2K    | Subagents, token-constrained tasks             |
+| FULL     | 56    | 8K     | All tools, maximum capability                  |
+| BALANCED | 38    | 4K     | Default — no built-in overlaps, no niche tools |
+| MINIMAL  | 21    | 2K     | Subagents, token-constrained tasks             |
+
+Auto-preset: `activate_project` automatically selects the preset based on project size (<50 files → Minimal, 50-500 → Balanced, >500 → Full).
 
 Switch via CLI flag, environment variable, or at runtime:
 
@@ -253,11 +301,23 @@ cargo build --release --no-default-features
 # All features
 cargo build --release --features semantic,http
 
-# Run tests
+# Run tests (251 total)
 cargo test -p codelens-core && cargo test -p codelens-mcp
+cargo test -p codelens-mcp --features http  # HTTP/SSE transport tests
+
+# Run benchmarks
+./benchmarks/bench.sh . ./target/release/codelens-mcp
 ```
 
 The binary is written to `target/release/codelens-mcp`.
+
+## Contributing
+
+Contributions welcome! Please run the full test suite before submitting:
+
+```bash
+cargo test -p codelens-core && cargo test -p codelens-mcp && cargo test -p codelens-mcp --features http
+```
 
 ## License
 
