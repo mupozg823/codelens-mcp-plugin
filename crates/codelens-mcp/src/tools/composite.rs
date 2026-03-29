@@ -186,6 +186,7 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
 }
 
 /// One-shot project onboarding: structure + key symbols + health signals.
+/// When built with `--features semantic`, automatically indexes embeddings if empty.
 pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     // 1. Project structure (directory stats)
     let structure = state
@@ -199,6 +200,29 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
     // 3. Circular dependencies
     let cycles =
         find_circular_dependencies(&state.project, 10, &state.graph_cache).unwrap_or_default();
+
+    // 4. Auto-index embeddings if semantic feature enabled and index empty
+    #[cfg(feature = "semantic")]
+    let semantic_status = {
+        let engine = state
+            .embedding
+            .get_or_init(|| codelens_core::EmbeddingEngine::new(&state.project).ok());
+        match engine {
+            Some(engine) if !engine.is_indexed() => {
+                match engine.index_from_project(&state.project) {
+                    Ok(count) => json!({"status": "indexed", "symbols": count}),
+                    Err(e) => json!({"status": "failed", "error": e.to_string()}),
+                }
+            }
+            Some(engine) => {
+                let count = engine.is_indexed();
+                json!({"status": "ready", "already_indexed": count})
+            }
+            None => json!({"status": "unavailable"}),
+        }
+    };
+    #[cfg(not(feature = "semantic"))]
+    let semantic_status = json!({"status": "not_compiled"});
 
     Ok((
         json!({
@@ -218,6 +242,7 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
                 "has_cycles": !cycles.is_empty(),
                 "total_dirs": structure.len(),
             }),
+            "semantic": semantic_status,
             "suggested_next_tools": ["get_symbols_overview", "get_ranked_context", "semantic_search"]
         }),
         success_meta(BackendKind::Hybrid, 0.95),

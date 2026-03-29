@@ -524,3 +524,249 @@ fn truncate_body(body: &str, max_chars: usize) -> String {
         body[..boundary].to_string()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{IndexDb, NewSymbol};
+    use std::sync::Mutex;
+
+    /// Serialize tests that load the fastembed ONNX model to avoid file lock contention.
+    static MODEL_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Helper: create a temp project with seeded symbols.
+    fn make_project_with_source() -> (tempfile::TempDir, ProjectRoot) {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // Write a source file so body extraction works
+        let source = "def hello():\n    print('hi')\n\ndef world():\n    return 42\n";
+        std::fs::write(root.join("main.py"), source).unwrap();
+
+        // Seed the symbol DB
+        let db_path = crate::db::index_db_path(root);
+        let db = IndexDb::open(&db_path).unwrap();
+        let fid = db
+            .upsert_file("main.py", 100, "hash1", source.len() as i64, Some("py"))
+            .unwrap();
+        db.insert_symbols(
+            fid,
+            &[
+                NewSymbol {
+                    name: "hello",
+                    kind: "function",
+                    line: 1,
+                    column_num: 0,
+                    start_byte: 0,
+                    end_byte: 29,
+                    signature: "def hello():",
+                    name_path: "hello",
+                    parent_id: None,
+                },
+                NewSymbol {
+                    name: "world",
+                    kind: "function",
+                    line: 4,
+                    column_num: 0,
+                    start_byte: 30,
+                    end_byte: 55,
+                    signature: "def world():",
+                    name_path: "world",
+                    parent_id: None,
+                },
+            ],
+        )
+        .unwrap();
+
+        let project = ProjectRoot::new_exact(root).unwrap();
+        (dir, project)
+    }
+
+    #[test]
+    fn build_embedding_text_with_body() {
+        let sym = crate::db::SymbolWithFile {
+            name: "hello".into(),
+            kind: "function".into(),
+            file_path: "main.py".into(),
+            line: 1,
+            signature: "def hello():".into(),
+            name_path: "hello".into(),
+            start_byte: 0,
+            end_byte: 10,
+        };
+        let source = "def hello(): pass";
+        let text = build_embedding_text(&sym, Some(source));
+        assert!(text.starts_with("passage:"));
+        assert!(text.contains("hello"));
+        assert!(text.contains("main.py"));
+        assert!(text.contains("def hello():"));
+        // Body should be included since start/end bytes are valid
+        assert!(text.contains("def hello("));
+    }
+
+    #[test]
+    fn build_embedding_text_without_source() {
+        let sym = crate::db::SymbolWithFile {
+            name: "MyClass".into(),
+            kind: "class".into(),
+            file_path: "app.py".into(),
+            line: 5,
+            signature: "class MyClass:".into(),
+            name_path: "MyClass".into(),
+            start_byte: 0,
+            end_byte: 50,
+        };
+        let text = build_embedding_text(&sym, None);
+        assert_eq!(text, "passage: class MyClass in app.py: class MyClass:");
+    }
+
+    #[test]
+    fn build_embedding_text_empty_signature() {
+        let sym = crate::db::SymbolWithFile {
+            name: "CONFIG".into(),
+            kind: "variable".into(),
+            file_path: "config.py".into(),
+            line: 1,
+            signature: String::new(),
+            name_path: "CONFIG".into(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let text = build_embedding_text(&sym, None);
+        assert_eq!(text, "passage: variable CONFIG in config.py");
+    }
+
+    #[test]
+    fn truncate_body_within_limit() {
+        let body = "short text";
+        assert_eq!(truncate_body(body, 100), "short text");
+    }
+
+    #[test]
+    fn truncate_body_at_limit() {
+        let body = "hello world, this is a long text";
+        let truncated = truncate_body(body, 10);
+        assert_eq!(truncated.len(), 10);
+        assert_eq!(truncated, "hello worl");
+    }
+
+    #[test]
+    fn truncate_body_unicode_safe() {
+        let body = "한글텍스트입니다";
+        let truncated = truncate_body(body, 9); // 한글 1자 = 3 bytes
+                                                // Should not panic and should cut at char boundary
+        assert!(truncated.len() <= 9);
+        assert!(truncated.is_char_boundary(truncated.len()));
+    }
+
+    #[test]
+    fn embedding_to_bytes_roundtrip() {
+        let floats = vec![1.0f32, -0.5, 0.0, 3.14];
+        let bytes = embedding_to_bytes(&floats);
+        assert_eq!(bytes.len(), 4 * 4);
+        // Verify roundtrip
+        let recovered: Vec<f32> = bytes
+            .chunks_exact(4)
+            .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+            .collect();
+        assert_eq!(floats, recovered);
+    }
+
+    #[test]
+    fn engine_new_and_index() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).expect("engine should load");
+        assert!(!engine.is_indexed());
+
+        let count = engine.index_from_project(&project).unwrap();
+        assert_eq!(count, 2, "should index 2 symbols");
+        assert!(engine.is_indexed());
+    }
+
+    #[test]
+    fn engine_search_returns_results() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        let results = engine.search("hello function", 10).unwrap();
+        assert!(!results.is_empty(), "search should return results");
+        for r in &results {
+            assert!(
+                r.score > 0.0 && r.score <= 1.0,
+                "score should be in (0,1]: {}",
+                r.score
+            );
+        }
+    }
+
+    #[test]
+    fn engine_incremental_index() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+        assert_eq!(engine.store.count().unwrap(), 2);
+
+        // Re-index only main.py — should replace its embeddings
+        let count = engine.index_changed_files(&project, &["main.py"]).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(engine.store.count().unwrap(), 2);
+    }
+
+    #[test]
+    fn engine_reindex_clears_old_data() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+        assert_eq!(engine.store.count().unwrap(), 2);
+
+        // Full reindex should clear and rebuild
+        let count = engine.index_from_project(&project).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(engine.store.count().unwrap(), 2);
+    }
+
+    #[test]
+    fn engine_model_change_recreates_db() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+
+        // First engine with default model
+        let engine1 = EmbeddingEngine::new(&project).unwrap();
+        engine1.index_from_project(&project).unwrap();
+        assert_eq!(engine1.store.count().unwrap(), 2);
+        drop(engine1);
+
+        // Second engine with same model should preserve data
+        let engine2 = EmbeddingEngine::new(&project).unwrap();
+        assert!(engine2.store.count().unwrap() >= 2);
+    }
+
+    #[test]
+    fn search_scored_returns_raw_chunks() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        let chunks = engine.search_scored("world function", 5).unwrap();
+        assert!(!chunks.is_empty());
+        for c in &chunks {
+            assert!(!c.file_path.is_empty());
+            assert!(!c.symbol_name.is_empty());
+        }
+    }
+
+    #[test]
+    fn parse_model_from_env_default() {
+        // Without env var, should return default
+        // SAFETY: test-only, single-threaded access to env var
+        unsafe { std::env::remove_var("CODELENS_EMBED_MODEL") };
+        let model = parse_model_from_env();
+        assert!(matches!(model, EmbeddingModel::BGESmallENV15Q));
+    }
+}

@@ -18,6 +18,26 @@ pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> Too
         .map(|w| w.stats().running)
         .unwrap_or(false);
     let frameworks = detect_frameworks(state.project.as_path());
+
+    // Auto-set preset based on project size
+    let file_count = state
+        .symbol_index()
+        .stats()
+        .map(|s| s.indexed_files)
+        .unwrap_or(0);
+    let (auto_preset, auto_budget) = if file_count < 50 {
+        ("Minimal", 2000usize)
+    } else if file_count > 500 {
+        ("Full", 8000)
+    } else {
+        ("Balanced", 4000)
+    };
+    {
+        let mut guard = state.preset();
+        *guard = crate::tool_defs::ToolPreset::from_str(auto_preset);
+    }
+    state.set_token_budget(auto_budget);
+
     Ok((
         json!({
             "activated": true,
@@ -27,7 +47,10 @@ pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> Too
             "memory_count": memory_count,
             "serena_memories_dir": state.memories_dir.to_string_lossy(),
             "file_watcher": watcher_running,
-            "frameworks": frameworks
+            "frameworks": frameworks,
+            "auto_preset": auto_preset,
+            "auto_budget": auto_budget,
+            "indexed_files": file_count
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
@@ -316,6 +339,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
 
 pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let snapshot = state.metrics().snapshot();
+    let session = state.metrics().session_snapshot();
     let data: Vec<serde_json::Value> = snapshot
         .into_iter()
         .map(|(name, m)| {
@@ -331,7 +355,20 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         .collect();
     let count = data.len();
     Ok((
-        json!({"tools": data, "count": count}),
+        json!({
+            "tools": data,
+            "count": count,
+            "session": {
+                "total_calls": session.total_calls,
+                "total_ms": session.total_ms,
+                "total_tokens": session.total_tokens,
+                "error_count": session.error_count,
+                "avg_ms_per_call": if session.total_calls > 0 {
+                    session.total_ms / session.total_calls
+                } else { 0 },
+                "timeline_length": session.timeline.len(),
+            }
+        }),
         success_meta(BackendKind::Telemetry, 1.0),
     ))
 }

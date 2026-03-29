@@ -136,6 +136,7 @@ pub(crate) fn dispatch_tool(
     let span = info_span!("tool_call", tool = name);
     let _guard = span.enter();
     let start = std::time::Instant::now();
+    state.push_recent_tool(name);
 
     let result: ToolResult = match DISPATCH_TABLE.get(name) {
         Some(handler) => handler(state, &arguments),
@@ -148,9 +149,6 @@ pub(crate) fn dispatch_tool(
     }
 
     let elapsed_ms = start.elapsed().as_millis();
-    state
-        .metrics()
-        .record_call(name, elapsed_ms as u64, result.is_ok());
     if elapsed_ms > 5000 {
         warn!(
             tool = name,
@@ -162,11 +160,19 @@ pub(crate) fn dispatch_tool(
     match result {
         Ok((payload, meta)) => {
             let mut resp = ToolCallResponse::success(payload, meta);
-            resp.suggested_next_tools = tools::suggest_next(name);
+            resp.suggested_next_tools = tools::suggest_next_contextual(name, &state.recent_tools());
             let payload_estimate = serde_json::to_string(&resp.data)
                 .map(|s| tools::estimate_tokens(&s))
                 .unwrap_or(0);
             resp.token_estimate = Some(payload_estimate);
+
+            // Record with token estimate for session telemetry
+            state.metrics().record_call_with_tokens(
+                name,
+                elapsed_ms as u64,
+                true,
+                payload_estimate,
+            );
             resp.budget_hint = Some(budget_hint(name, payload_estimate, state.token_budget()));
             resp.elapsed_ms = Some(elapsed_ms as u64);
             let mut text = serde_json::to_string(&resp).unwrap_or_else(|_| {
@@ -196,6 +202,9 @@ pub(crate) fn dispatch_tool(
             )
         }
         Err(error) => {
+            state
+                .metrics()
+                .record_call_with_tokens(name, elapsed_ms as u64, false, 0);
             // Protocol-level errors: return as JSON-RPC error response
             if error.is_protocol_error() {
                 return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());

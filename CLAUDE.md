@@ -1,5 +1,23 @@
 # CodeLens MCP
 
+## Tool Routing — PREFER CodeLens over Read/Grep for code tasks
+
+| Task                      | Use This                                         | Not This            |
+| ------------------------- | ------------------------------------------------ | ------------------- |
+| Find function/class/type  | `mcp__codelens__find_symbol` (include_body=true) | Grep                |
+| File/directory structure  | `mcp__codelens__get_symbols_overview`            | Read entire file    |
+| Who calls/references X    | `mcp__codelens__find_referencing_symbols`        | Grep for name       |
+| Smart context for a query | `mcp__codelens__get_ranked_context`              | Multiple Read calls |
+| What breaks if I change X | `mcp__codelens__get_impact_analysis`             | Manual tracing      |
+| Type errors after edit    | `mcp__codelens__get_file_diagnostics`            | Manual check        |
+| First look at codebase    | `mcp__codelens__onboard_project`                 | ls + Read           |
+
+**Use Read/Grep ONLY for:** non-code files (JSON, YAML, .md), exact string literal search, files < 30 lines, or when CodeLens returns no results.
+
+**After ANY code mutation** (Edit, Write, rename*symbol, replace*\*): follow `suggested_next_tools` — it always includes `get_file_diagnostics`.
+
+**Follow `suggested_next_tools`** in every CodeLens response to chain tools efficiently.
+
 ## Verify
 
 ```bash
@@ -12,13 +30,13 @@ cargo build --release
 
 FULL=56 | BALANCED=38 (default) | MINIMAL=21
 
-(54 base + 2 semantic feature-gated) | DB schema v4 (FTS5) | 222 tests
+(54 base + 2 semantic feature-gated) | DB schema v4 (FTS5) | 247 tests
 
 ## CLI
 
 `codelens-mcp . --cmd <tool> --args '<json>'`
 
-## Skills (Claude Code)
+## Skills
 
 | Skill               | Trigger     | Description                                      |
 | ------------------- | ----------- | ------------------------------------------------ |
@@ -32,4 +50,4 @@ FULL=56 | BALANCED=38 (default) | MINIMAL=21
 
 ## Hook
 
-`hooks/post-edit-diagnostics.sh` — Auto-diagnose after file edits
+`hooks/post-edit-diagnostics.sh` — Auto-diagnose after file edits (activated in settings)

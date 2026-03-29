@@ -136,6 +136,19 @@ pub(crate) fn rank_symbols(
     let has_semantic = !ctx.semantic_scores.is_empty();
     let query_lower = query.to_lowercase();
 
+    // Normalize semantic scores to use the full 0-100 range.
+    // Raw cosine similarity typically clusters in 0.3-0.85 — rescale so the
+    // best match maps to ~100 and the threshold (0.2) maps to ~0.
+    let sem_max = if has_semantic {
+        ctx.semantic_scores
+            .values()
+            .copied()
+            .fold(0.0f64, f64::max)
+            .max(0.01) // avoid division by zero
+    } else {
+        1.0
+    };
+
     // Reusable key buffer to avoid per-symbol format! allocation
     let mut sem_key_buf = String::with_capacity(128);
 
@@ -178,7 +191,11 @@ pub(crate) fn rank_symbols(
                 .unwrap_or(0.0);
             let recency_component = (recency * 100.0).min(100.0) * ctx.weights.recency;
 
-            let semantic_component = (sem_score * 100.0) * ctx.weights.semantic;
+            // Semantic: normalize to 0-100 using max-relative scaling.
+            // This stretches the typical 0.3-0.85 range to use the full 0-100 scale,
+            // making semantic scores comparable to text scores (0-100).
+            let sem_normalized = (sem_score / sem_max * 100.0).min(100.0);
+            let semantic_component = sem_normalized * ctx.weights.semantic;
 
             let blended =
                 (text_component + pr_component + recency_component + semantic_component) as i32;

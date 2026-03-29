@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::telemetry::ToolMetricsRegistry;
 use crate::tool_defs::ToolPreset;
+use std::collections::VecDeque;
 
 // ── Application state ──────────────────────────────────────────────────
 
@@ -19,6 +20,8 @@ pub(crate) struct AppState {
     pub(crate) token_budget: std::sync::atomic::AtomicUsize,
     pub(crate) memories_dir: std::path::PathBuf,
     pub(crate) metrics: ToolMetricsRegistry,
+    /// Recent tool call names for context-aware suggestions (max 5).
+    recent_tools: Mutex<VecDeque<String>>,
     pub(crate) watcher: Option<FileWatcher>,
     #[cfg(feature = "semantic")]
     pub(crate) embedding: std::sync::OnceLock<Option<EmbeddingEngine>>,
@@ -48,6 +51,25 @@ impl AppState {
     /// Access the tool metrics registry.
     pub(crate) fn metrics(&self) -> &ToolMetricsRegistry {
         &self.metrics
+    }
+
+    /// Record a tool call in the recent tools ring buffer.
+    pub(crate) fn push_recent_tool(&self, name: &str) {
+        let mut q = self.recent_tools.lock().unwrap_or_else(|p| p.into_inner());
+        if q.len() >= 5 {
+            q.pop_front();
+        }
+        q.push_back(name.to_owned());
+    }
+
+    /// Get the recent tool call names (up to 5).
+    pub(crate) fn recent_tools(&self) -> Vec<String> {
+        self.recent_tools
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .cloned()
+            .collect()
     }
 
     /// Current global token budget.
@@ -83,6 +105,7 @@ impl AppState {
             token_budget: std::sync::atomic::AtomicUsize::new(4000),
             memories_dir,
             metrics: ToolMetricsRegistry::new(),
+            recent_tools: Mutex::new(VecDeque::with_capacity(5)),
             watcher,
             #[cfg(feature = "semantic")]
             embedding: std::sync::OnceLock::new(),

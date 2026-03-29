@@ -16,15 +16,30 @@ pub struct SearchResult {
     pub match_type: String, // "exact", "substring", "fuzzy"
 }
 
-/// Hybrid symbol search: exact → substring → fuzzy (jaro_winkler).
+/// Hybrid symbol search: exact → FTS5 → fuzzy → semantic.
 ///
 /// `fuzzy_threshold` — minimum jaro_winkler similarity (0.0–1.0).
+/// `semantic_scores` — optional pre-computed semantic similarity scores keyed by
+/// "file_path:symbol_name". When provided, semantic-only matches (score > 0.5)
+/// are merged as a 4th retrieval path.
+///
 /// Deduplicated by (name, file, line), sorted by score descending.
 pub fn search_symbols_hybrid(
     project: &ProjectRoot,
     query: &str,
     max_results: usize,
     fuzzy_threshold: f64,
+) -> Result<Vec<SearchResult>> {
+    search_symbols_hybrid_with_semantic(project, query, max_results, fuzzy_threshold, None)
+}
+
+/// Full hybrid search with optional semantic scores.
+pub fn search_symbols_hybrid_with_semantic(
+    project: &ProjectRoot,
+    query: &str,
+    max_results: usize,
+    fuzzy_threshold: f64,
+    semantic_scores: Option<&std::collections::HashMap<String, f64>>,
 ) -> Result<Vec<SearchResult>> {
     let db_path = index_db_path(project.as_path());
     let db = IndexDb::open(&db_path)?;
@@ -96,6 +111,49 @@ pub fn search_symbols_hybrid(
                 score: sim * 100.0,
                 match_type: "fuzzy".to_owned(),
             });
+        }
+    }
+
+    // ── 4. Semantic matches (score = cosine_similarity * 90, capped below exact) ─
+    if let Some(scores) = semantic_scores {
+        // Collect semantic-only discoveries not found by text/fts/fuzzy paths.
+        // Only include high-confidence matches (> 0.5 cosine similarity).
+        let all_symbols = db.all_symbols_with_bytes()?;
+        for sym in all_symbols {
+            let key = (sym.name.clone(), sym.file_path.clone(), sym.line);
+            if seen.contains(&key) {
+                // Boost existing result if semantic score is significant
+                let sem_key = format!("{}:{}", sym.file_path, sym.name);
+                if let Some(&sem_score) = scores.get(&sem_key) {
+                    if sem_score > 0.3 {
+                        if let Some(existing) = results.iter_mut().find(|r| {
+                            r.name == sym.name
+                                && r.file == sym.file_path
+                                && r.line == sym.line as usize
+                        }) {
+                            // Add semantic bonus (up to +15 points)
+                            existing.score += sem_score * 15.0;
+                        }
+                    }
+                }
+                continue;
+            }
+            let sem_key = format!("{}:{}", sym.file_path, sym.name);
+            if let Some(&sem_score) = scores.get(&sem_key) {
+                if sem_score > 0.5 {
+                    seen.insert(key);
+                    results.push(SearchResult {
+                        name: sym.name,
+                        kind: sym.kind,
+                        file: sym.file_path,
+                        line: sym.line as usize,
+                        signature: sym.signature,
+                        name_path: sym.name_path,
+                        score: sem_score * 90.0, // cap below exact (100)
+                        match_type: "semantic".to_owned(),
+                    });
+                }
+            }
         }
     }
 
@@ -227,6 +285,101 @@ mod tests {
         for r in &results {
             let key = (r.name.clone(), r.file.clone(), r.line);
             assert!(keys.insert(key), "duplicate entry found");
+        }
+    }
+
+    #[test]
+    fn semantic_scores_add_new_results() {
+        let (_root, project) = make_project_with_symbols();
+        let mut scores = std::collections::HashMap::new();
+        // "helper" wouldn't match "authentication" textually, but semantic says it's relevant
+        scores.insert("main.py:helper".to_owned(), 0.8);
+
+        let results = search_symbols_hybrid_with_semantic(
+            &project,
+            "authentication",
+            10,
+            0.99, // high fuzzy threshold to disable fuzzy path
+            Some(&scores),
+        )
+        .unwrap();
+
+        let semantic_matches: Vec<_> = results
+            .iter()
+            .filter(|r| r.match_type == "semantic")
+            .collect();
+        assert!(
+            !semantic_matches.is_empty(),
+            "semantic path should surface 'helper' for 'authentication' query"
+        );
+        assert_eq!(semantic_matches[0].name, "helper");
+        assert!(semantic_matches[0].score > 0.0);
+    }
+
+    #[test]
+    fn semantic_scores_boost_existing_results() {
+        let (_root, project) = make_project_with_symbols();
+        // Get baseline score for exact match
+        let baseline = search_symbols_hybrid(&project, "ServiceManager", 10, 0.5).unwrap();
+        let baseline_score = baseline[0].score;
+
+        // Now add semantic boost
+        let mut scores = std::collections::HashMap::new();
+        scores.insert("main.py:ServiceManager".to_owned(), 0.9);
+
+        let boosted =
+            search_symbols_hybrid_with_semantic(&project, "ServiceManager", 10, 0.5, Some(&scores))
+                .unwrap();
+
+        assert!(
+            boosted[0].score > baseline_score,
+            "semantic boost should increase score: {} > {}",
+            boosted[0].score,
+            baseline_score
+        );
+    }
+
+    #[test]
+    fn semantic_low_scores_filtered_out() {
+        let (_root, project) = make_project_with_symbols();
+        let mut scores = std::collections::HashMap::new();
+        // Score below 0.5 threshold should not produce semantic match
+        scores.insert("main.py:helper".to_owned(), 0.3);
+
+        let results = search_symbols_hybrid_with_semantic(
+            &project,
+            "unrelated_query_xyz",
+            10,
+            0.99,
+            Some(&scores),
+        )
+        .unwrap();
+
+        let semantic_matches: Vec<_> = results
+            .iter()
+            .filter(|r| r.match_type == "semantic")
+            .collect();
+        assert!(
+            semantic_matches.is_empty(),
+            "low semantic scores should not surface results"
+        );
+    }
+
+    #[test]
+    fn no_duplicates_with_semantic() {
+        let (_root, project) = make_project_with_symbols();
+        let mut scores = std::collections::HashMap::new();
+        scores.insert("main.py:ServiceManager".to_owned(), 0.9);
+        scores.insert("main.py:helper".to_owned(), 0.7);
+
+        let results =
+            search_symbols_hybrid_with_semantic(&project, "ServiceManager", 20, 0.5, Some(&scores))
+                .unwrap();
+
+        let mut keys = std::collections::HashSet::new();
+        for r in &results {
+            let key = (r.name.clone(), r.file.clone(), r.line);
+            assert!(keys.insert(key.clone()), "duplicate entry found: {:?}", key);
         }
     }
 }

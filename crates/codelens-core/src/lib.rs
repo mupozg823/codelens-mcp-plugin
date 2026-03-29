@@ -50,7 +50,7 @@ pub use project::{ProjectRoot, WorkspacePackage, detect_frameworks, detect_works
 pub use rename::{RenameResult, RenameScope, rename_symbol};
 pub use scope_analysis::{ScopedReference, ReferenceKind, find_scoped_references, find_scoped_references_in_file};
 pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};
-pub use search::{SearchResult, search_symbols_hybrid};
+pub use search::{SearchResult, search_symbols_hybrid, search_symbols_hybrid_with_semantic};
 pub use watcher::{FileWatcher, WatcherStats};
 #[cfg(feature = "semantic")]
 pub use embedding::{EmbeddingEngine, SemanticMatch};

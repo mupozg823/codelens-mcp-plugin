@@ -211,6 +211,74 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
     }
 }
 
+const MUTATION_TOOLS: &[&str] = &[
+    "rename_symbol",
+    "replace_symbol_body",
+    "replace_content",
+    "replace_lines",
+    "delete_lines",
+    "insert_at_line",
+    "insert_before_symbol",
+    "insert_after_symbol",
+    "create_text_file",
+    "add_import",
+];
+
+const REVIEW_TOOLS: &[&str] = &[
+    "get_changed_files",
+    "get_blast_radius",
+    "get_impact_analysis",
+];
+
+const EXPLORATION_TOOLS: &[&str] = &[
+    "get_symbols_overview",
+    "get_project_structure",
+    "onboard_project",
+    "get_current_config",
+];
+
+/// Context-aware tool suggestions: overrides static suggestions based on recent workflow.
+pub fn suggest_next_contextual(tool_name: &str, recent_tools: &[String]) -> Option<Vec<String>> {
+    let mut suggestions = suggest_next(tool_name)?;
+
+    // After any mutation tool: always put get_file_diagnostics first
+    let recent_has_mutation = recent_tools
+        .iter()
+        .any(|t| MUTATION_TOOLS.contains(&t.as_str()));
+    if recent_has_mutation || MUTATION_TOOLS.contains(&tool_name) {
+        suggestions.retain(|s| s != "get_file_diagnostics");
+        suggestions.insert(0, "get_file_diagnostics".to_owned());
+        suggestions.truncate(3);
+    }
+
+    // During review workflow: boost review-oriented tools
+    let recent_has_review = recent_tools
+        .iter()
+        .any(|t| REVIEW_TOOLS.contains(&t.as_str()));
+    if recent_has_review && !MUTATION_TOOLS.contains(&tool_name) {
+        if !suggestions.contains(&"get_impact_analysis".to_owned()) {
+            suggestions.push("get_impact_analysis".to_owned());
+            suggestions.truncate(3);
+        }
+    }
+
+    // During exploration: boost deeper exploration tools
+    let recent_has_exploration = recent_tools
+        .iter()
+        .any(|t| EXPLORATION_TOOLS.contains(&t.as_str()));
+    if recent_has_exploration
+        && !MUTATION_TOOLS.contains(&tool_name)
+        && !REVIEW_TOOLS.contains(&tool_name)
+    {
+        if !suggestions.contains(&"get_ranked_context".to_owned()) {
+            suggestions.push("get_ranked_context".to_owned());
+            suggestions.truncate(3);
+        }
+    }
+
+    Some(suggestions)
+}
+
 pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
     let suggestions: &[&str] = match tool_name {
         // ── Symbols / index ──────────────────────────────────────────

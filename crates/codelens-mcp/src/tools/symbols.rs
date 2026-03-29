@@ -1,7 +1,7 @@
 use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_core::{read_file, search_symbols_hybrid, SymbolInfo, SymbolKind};
+use codelens_core::{read_file, search_symbols_hybrid_with_semantic, SymbolInfo, SymbolKind};
 use serde_json::json;
 
 pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -114,7 +114,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     #[cfg(not(feature = "semantic"))]
     let semantic_scores = std::collections::HashMap::new();
 
-    let result = state.symbol_index().get_ranked_context_cached(
+    let mut result = state.symbol_index().get_ranked_context_cached(
         query,
         path,
         max_tokens,
@@ -123,6 +123,39 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         Some(&state.graph_cache),
         semantic_scores,
     )?;
+
+    // Semantic fallback: if tree-sitter ranking returned few results and semantic
+    // search is available, supplement with semantic-only results.
+    #[cfg(feature = "semantic")]
+    if result.symbols.len() < 3 {
+        if let Some(Some(engine)) = state.embedding.get() {
+            if engine.is_indexed() {
+                if let Ok(sem_results) = engine.search(query, 10) {
+                    let existing_keys: std::collections::HashSet<String> = result
+                        .symbols
+                        .iter()
+                        .map(|s| format!("{}:{}", s.file, s.name))
+                        .collect();
+                    for r in sem_results {
+                        if r.score > 0.4
+                            && !existing_keys
+                                .contains(&format!("{}:{}", r.file_path, r.symbol_name))
+                        {
+                            result.symbols.push(codelens_core::RankedContextEntry {
+                                name: r.symbol_name,
+                                kind: r.kind,
+                                file: r.file_path,
+                                line: r.line,
+                                signature: r.signature,
+                                body: None,
+                                relevance_score: (r.score * 80.0) as i32,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     let backend = if result.symbols.iter().any(|s| s.relevance_score > 0) {
         BackendKind::TreeSitter
@@ -222,16 +255,53 @@ pub fn search_symbols_fuzzy(state: &AppState, arguments: &serde_json::Value) -> 
         .get("fuzzy_threshold")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.6);
-    Ok(
-        search_symbols_hybrid(&state.project, query, max_results, fuzzy_threshold).map(
-            |value| {
-                (
-                    json!({ "results": value, "count": value.len() }),
-                    success_meta(BackendKind::Sqlite, 0.9),
-                )
-            },
-        )?,
+
+    // Build semantic scores if embeddings are available (same pattern as get_ranked_context)
+    #[cfg(feature = "semantic")]
+    let semantic_scores = {
+        let mut scores = std::collections::HashMap::new();
+        if let Some(Some(engine)) = state.embedding.get() {
+            if engine.is_indexed() {
+                if let Ok(sem_results) = engine.search(query, 50) {
+                    for r in sem_results {
+                        if r.score > 0.2 {
+                            let key = format!("{}:{}", r.file_path, r.symbol_name);
+                            scores.insert(key, r.score as f64);
+                        }
+                    }
+                }
+            }
+        }
+        scores
+    };
+    #[cfg(not(feature = "semantic"))]
+    let semantic_scores = std::collections::HashMap::new();
+
+    let sem_ref = if semantic_scores.is_empty() {
+        None
+    } else {
+        Some(&semantic_scores)
+    };
+
+    let backend = if sem_ref.is_some() {
+        BackendKind::Hybrid
+    } else {
+        BackendKind::Sqlite
+    };
+
+    Ok(search_symbols_hybrid_with_semantic(
+        &state.project,
+        query,
+        max_results,
+        fuzzy_threshold,
+        sem_ref,
     )
+    .map(|value| {
+        (
+            json!({ "results": value, "count": value.len() }),
+            success_meta(backend, 0.9),
+        )
+    })?)
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────

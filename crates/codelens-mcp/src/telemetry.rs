@@ -14,45 +14,108 @@ pub struct ToolMetrics {
     pub error_count: u64,
     /// Last invocation timestamp (unix epoch milliseconds).
     pub last_called_at: u64,
+    /// Average latency in milliseconds (total_ms / call_count).
+    pub avg_ms: f64,
 }
 
-/// Thread-safe registry that accumulates per-tool metrics.
+/// A single tool invocation in the session timeline.
+#[derive(Debug, Clone, Serialize)]
+pub struct ToolInvocation {
+    pub tool: String,
+    pub elapsed_ms: u64,
+    pub tokens: usize,
+    pub success: bool,
+}
+
+/// Session-level aggregate metrics across all tool calls.
+#[derive(Debug, Default, Serialize, Clone)]
+pub struct SessionMetrics {
+    pub total_calls: u64,
+    pub total_ms: u64,
+    pub total_tokens: usize,
+    pub error_count: u64,
+    /// Ordered tool invocation timeline (capped at 200 entries).
+    pub timeline: Vec<ToolInvocation>,
+}
+
+const MAX_TIMELINE: usize = 200;
+
+/// Thread-safe registry that accumulates per-tool and session-level metrics.
 pub struct ToolMetricsRegistry {
     inner: Mutex<HashMap<String, ToolMetrics>>,
+    session: Mutex<SessionMetrics>,
 }
 
 impl ToolMetricsRegistry {
     pub fn new() -> Self {
         Self {
             inner: Mutex::new(HashMap::new()),
+            session: Mutex::new(SessionMetrics::default()),
         }
     }
 
-    /// Record a single tool invocation.
+    /// Record a single tool invocation (per-tool + session).
     pub fn record_call(&self, name: &str, elapsed_ms: u64, success: bool) {
+        self.record_call_with_tokens(name, elapsed_ms, success, 0);
+    }
+
+    /// Record a tool invocation with token estimate.
+    pub fn record_call_with_tokens(
+        &self,
+        name: &str,
+        elapsed_ms: u64,
+        success: bool,
+        tokens: usize,
+    ) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
 
-        let mut map = self
-            .inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Per-tool metrics
+        {
+            let mut map = self
+                .inner
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
 
-        let entry = map.entry(name.to_owned()).or_default();
-        entry.call_count += 1;
-        entry.total_ms += elapsed_ms;
-        if elapsed_ms > entry.max_ms {
-            entry.max_ms = elapsed_ms;
+            let entry = map.entry(name.to_owned()).or_default();
+            entry.call_count += 1;
+            entry.total_ms += elapsed_ms;
+            if elapsed_ms > entry.max_ms {
+                entry.max_ms = elapsed_ms;
+            }
+            if !success {
+                entry.error_count += 1;
+            }
+            entry.last_called_at = now;
         }
-        if !success {
-            entry.error_count += 1;
+
+        // Session-level metrics
+        {
+            let mut session = self
+                .session
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+
+            session.total_calls += 1;
+            session.total_ms += elapsed_ms;
+            session.total_tokens += tokens;
+            if !success {
+                session.error_count += 1;
+            }
+            if session.timeline.len() < MAX_TIMELINE {
+                session.timeline.push(ToolInvocation {
+                    tool: name.to_owned(),
+                    elapsed_ms,
+                    tokens,
+                    success,
+                });
+            }
         }
-        entry.last_called_at = now;
     }
 
-    /// Return a snapshot of all metrics, sorted by call_count descending.
+    /// Return a snapshot of all per-tool metrics, sorted by call_count descending.
     pub fn snapshot(&self) -> Vec<(String, ToolMetrics)> {
         let map = self
             .inner
@@ -66,6 +129,14 @@ impl ToolMetricsRegistry {
         entries
     }
 
+    /// Return a snapshot of session-level metrics.
+    pub fn session_snapshot(&self) -> SessionMetrics {
+        self.session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
     /// Clear all recorded metrics.
     pub fn reset(&self) {
         let mut map = self
@@ -73,6 +144,12 @@ impl ToolMetricsRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         map.clear();
+
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *session = SessionMetrics::default();
     }
 }
 
@@ -134,6 +211,37 @@ mod tests {
 
         reg.reset();
         assert!(reg.snapshot().is_empty());
+    }
+
+    #[test]
+    fn session_metrics_accumulate() {
+        let reg = ToolMetricsRegistry::new();
+        reg.record_call_with_tokens("find_symbol", 15, true, 500);
+        reg.record_call_with_tokens("get_ranked_context", 42, true, 2000);
+        reg.record_call_with_tokens("rename_symbol", 8, false, 0);
+
+        let session = reg.session_snapshot();
+        assert_eq!(session.total_calls, 3);
+        assert_eq!(session.total_ms, 65);
+        assert_eq!(session.total_tokens, 2500);
+        assert_eq!(session.error_count, 1);
+        assert_eq!(session.timeline.len(), 3);
+        assert_eq!(session.timeline[0].tool, "find_symbol");
+        assert_eq!(session.timeline[1].tokens, 2000);
+        assert!(!session.timeline[2].success);
+    }
+
+    #[test]
+    fn session_reset_clears() {
+        let reg = ToolMetricsRegistry::new();
+        reg.record_call_with_tokens("a", 10, true, 100);
+        assert_eq!(reg.session_snapshot().total_calls, 1);
+
+        reg.reset();
+        let session = reg.session_snapshot();
+        assert_eq!(session.total_calls, 0);
+        assert_eq!(session.total_tokens, 0);
+        assert!(session.timeline.is_empty());
     }
 
     #[test]

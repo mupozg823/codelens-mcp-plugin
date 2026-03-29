@@ -128,6 +128,72 @@ printf "  %-42s  %8s  %8s  %8s\n" \
 	"------------------------------------------" "--------" "--------" "--------"
 echo
 
+# ─── CodeLens vs grep comparison ─────────────────────────────────────────────
+
+echo -e "${BOLD}[3/3] CodeLens vs grep comparison (${RUNS} runs each)...${RESET}"
+echo
+printf "  %-42s  %8s  %8s  %8s\n" "Comparison" "Min" "Avg" "Max"
+printf "  %-42s  %8s  %8s  %8s\n" \
+	"------------------------------------------" "--------" "--------" "--------"
+
+# Pick a function name that exists in the project
+SEARCH_NAME="dispatch_tool"
+SEARCH_FILE="src/main.rs"
+
+# 1. Find function: CodeLens vs grep
+bench "CodeLens: find_symbol \"$SEARCH_NAME\"" \
+	run_cmd find_symbol --args "{\"name\":\"$SEARCH_NAME\"}"
+
+grep_find() {
+	grep -rn "fn $SEARCH_NAME\|def $SEARCH_NAME\|function $SEARCH_NAME" \
+		"$PROJECT_PATH" --include="*.rs" --include="*.py" --include="*.ts" --include="*.js"
+}
+bench "grep: fn $SEARCH_NAME" grep_find
+
+# 2. File structure: CodeLens vs wc+grep
+bench "CodeLens: get_symbols_overview" \
+	run_cmd get_symbols_overview --args '{"path":"crates/codelens-mcp/src/dispatch.rs"}'
+
+grep_structure() {
+	grep -n "^pub\|^fn\|^struct\|^enum\|^impl\|^trait\|^mod" \
+		"$PROJECT_PATH/crates/codelens-mcp/src/dispatch.rs"
+}
+bench "grep: pub/fn/struct patterns" grep_structure
+
+# 3. Callers/references: CodeLens vs grep
+bench "CodeLens: find_referencing_symbols" \
+	run_cmd find_referencing_symbols --args "{\"symbol_name\":\"$SEARCH_NAME\"}"
+
+grep_refs() {
+	grep -rn "$SEARCH_NAME" "$PROJECT_PATH" \
+		--include="*.rs" --include="*.py" --include="*.ts"
+}
+bench "grep: references to $SEARCH_NAME" grep_refs
+
+# 4. Output size comparison (single run)
+echo
+echo -e "${BOLD}Output size comparison (tokens ≈ bytes/4):${RESET}"
+CL_OUT=$("$BINARY" "$PROJECT_PATH" --cmd find_symbol --args "{\"name\":\"$SEARCH_NAME\",\"include_body\":true}" 2>/dev/null)
+CL_BYTES=$(echo -n "$CL_OUT" | wc -c | tr -d ' ')
+CL_TOKENS=$((CL_BYTES / 4))
+
+GREP_OUT=$(grep -rn "fn $SEARCH_NAME" "$PROJECT_PATH" --include="*.rs" -A 20 2>/dev/null || true)
+GREP_BYTES=$(echo -n "$GREP_OUT" | wc -c | tr -d ' ')
+GREP_TOKENS=$((GREP_BYTES / 4))
+
+printf "  %-30s  %6d bytes  (~%5d tokens)\n" "CodeLens find_symbol" "$CL_BYTES" "$CL_TOKENS"
+printf "  %-30s  %6d bytes  (~%5d tokens)\n" "grep -A 20" "$GREP_BYTES" "$GREP_TOKENS"
+
+if ((GREP_TOKENS > 0 && CL_TOKENS > 0)); then
+	RATIO=$(awk "BEGIN{printf \"%.1fx\", $GREP_TOKENS/$CL_TOKENS}")
+	echo -e "  ${GREEN}CodeLens is ${RATIO} more token-efficient${RESET}"
+fi
+
+echo
+printf "  %-42s  %8s  %8s  %8s\n" \
+	"------------------------------------------" "--------" "--------" "--------"
+echo
+
 # ─── metadata ────────────────────────────────────────────────────────────────
 
 BINARY_BYTES=$(wc -c <"$BINARY" | tr -d ' ')
