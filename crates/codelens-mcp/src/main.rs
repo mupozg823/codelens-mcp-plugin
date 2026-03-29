@@ -90,21 +90,25 @@ fn main() -> Result<()> {
         .unwrap_or(7837);
 
     let project = ProjectRoot::new(&effective_path)?;
-    let state = Arc::new(AppState::new(project, preset));
+    let app_state = AppState::new(project, preset);
 
     // One-shot mode: run a single tool and exit
     if let Some(tool_name) = cmd_tool {
+        let state = Arc::new(app_state);
         return run_oneshot(&state, &tool_name, cmd_args.as_deref());
     }
 
     match transport {
         #[cfg(feature = "http")]
-        "http" => server::transport_http::run_http(state, port),
+        "http" => {
+            let state = Arc::new(app_state.with_session_store());
+            server::transport_http::run_http(state, port)
+        }
         #[cfg(not(feature = "http"))]
         "http" => {
             anyhow::bail!("HTTP transport requires the `http` feature. Rebuild with: cargo build --features http");
         }
-        _ => run_stdio(state),
+        _ => run_stdio(Arc::new(app_state)),
     }
 }
 

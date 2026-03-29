@@ -65,7 +65,7 @@ pub struct ToolAnnotations {
     pub tier: Option<ToolTier>,
 }
 
-#[allow(dead_code)] // reserved for future SSE/streaming notification support
+#[allow(dead_code)] // used by SSE transport for server→client push
 #[derive(Debug, Serialize)]
 pub struct JsonRpcNotification {
     pub jsonrpc: &'static str,

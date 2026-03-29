@@ -2,6 +2,7 @@
 //! Each client gets a unique session ID on `initialize`.
 
 #![cfg(feature = "http")]
+#![allow(dead_code)] // fields/methods used by transport_http handlers
 
 use crate::tool_defs::ToolPreset;
 use std::collections::HashMap;
