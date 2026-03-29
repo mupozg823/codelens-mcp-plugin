@@ -7,7 +7,7 @@ pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> 
     let path = required_string(arguments, "path")?;
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
     Ok(state
-        .symbol_index_read()
+        .symbol_index()
         .get_symbols_overview_cached(path, depth)
         .map(|value| {
             (
@@ -36,7 +36,7 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
     Ok(state
-        .symbol_index_read()
+        .symbol_index()
         .find_symbol_cached(name, file_path, include_body, exact_match, max_matches)
         .map(|value| {
             (
@@ -59,13 +59,13 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         .unwrap_or(false);
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
     Ok(state
-        .symbol_index_read()
+        .symbol_index()
         .get_ranked_context_cached(query, path, max_tokens, include_body, depth)
         .map(|value| (json!(value), success_meta("tree-sitter-cached", 0.91)))?)
 }
 
 pub fn refresh_symbol_index(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let stats = state.symbol_index_write().refresh_all()?;
+    let stats = state.symbol_index().refresh_all()?;
     state.graph_cache.invalidate();
     Ok((json!(stats), success_meta("tree-sitter-cached", 0.95)))
 }
@@ -76,7 +76,7 @@ pub fn get_complexity(state: &AppState, arguments: &serde_json::Value) -> ToolRe
     let file_result = read_file(&state.project, path, None, None)?;
     let lines = file_result.content.lines().collect::<Vec<_>>();
     let symbols = state
-        .symbol_index_read()
+        .symbol_index()
         .get_symbols_overview_cached(path, 2)?;
 
     let functions = flatten_symbols(&symbols)

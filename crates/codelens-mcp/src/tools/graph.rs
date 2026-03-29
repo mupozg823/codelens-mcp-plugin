@@ -29,7 +29,7 @@ pub fn get_diff_symbols_tool(state: &AppState, arguments: &serde_json::Value) ->
         .into_iter()
         .map(|entry| {
             let symbol_count = state
-                .symbol_index_read()
+                .symbol_index()
                 .get_symbols_overview_cached(&entry.file, 1)
                 .map(|s| s.len())
                 .unwrap_or(0);
@@ -70,7 +70,7 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
     let blast = get_blast_radius(&state.project, file_path, max_depth, &state.graph_cache)
         .unwrap_or_default();
     let symbols = state
-        .symbol_index_read()
+        .symbol_index()
         .get_symbols_overview_cached(file_path, 1)
         .unwrap_or_default();
     let symbol_names: Vec<_> = flatten_symbols(&symbols)
@@ -83,7 +83,7 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
         .iter()
         .map(|b| {
             let sym_count = state
-                .symbol_index_read()
+                .symbol_index()
                 .get_symbols_overview_cached(&b.file, 1)
                 .map(|s| s.len())
                 .unwrap_or(0);

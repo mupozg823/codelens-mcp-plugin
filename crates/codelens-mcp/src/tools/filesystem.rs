@@ -7,7 +7,7 @@ use codelens_core::{
 use serde_json::json;
 
 pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let stats = state.symbol_index_read().stats()?;
+    let stats = state.symbol_index().stats()?;
     let preset = *state.preset();
     let frameworks = detect_frameworks(state.project.as_path());
     let workspace_packages = detect_workspace_packages(state.project.as_path());

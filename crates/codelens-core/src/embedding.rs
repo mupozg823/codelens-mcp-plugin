@@ -9,6 +9,28 @@ use rusqlite::Connection;
 use serde::Serialize;
 use std::sync::Mutex;
 
+/// Isolated unsafe FFI — the only module allowed to use `unsafe`.
+mod ffi {
+    use anyhow::Result;
+
+    /// Register the sqlite-vec extension globally.
+    ///
+    /// # Safety
+    /// `sqlite3_vec_init` has the `(db, err_msg, api)` signature required by
+    /// `sqlite3_auto_extension`. We verify the return code to catch registration failure.
+    pub fn register_sqlite_vec() -> Result<()> {
+        let rc = unsafe {
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
+                sqlite_vec::sqlite3_vec_init as *const (),
+            )))
+        };
+        if rc != rusqlite::ffi::SQLITE_OK {
+            anyhow::bail!("failed to register sqlite-vec extension (SQLite error code: {rc})");
+        }
+        Ok(())
+    }
+}
+
 /// Result of a semantic search query.
 #[derive(Debug, Clone, Serialize)]
 pub struct SemanticMatch {
@@ -38,17 +60,7 @@ impl EmbeddingEngine {
         std::fs::create_dir_all(&db_dir)?;
         let db_path = db_dir.join("embeddings.db");
 
-        // Load sqlite-vec extension — SAFETY: sqlite3_vec_init has the
-        // correct (db, err_msg, api) signature required by sqlite3_auto_extension.
-        // We verify the registration succeeded by checking the return code.
-        let rc = unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-                sqlite_vec::sqlite3_vec_init as *const (),
-            )))
-        };
-        if rc != rusqlite::ffi::SQLITE_OK {
-            anyhow::bail!("failed to register sqlite-vec extension (SQLite error code: {rc})");
-        }
+        ffi::register_sqlite_vec()?;
 
         let conn = Connection::open(&db_path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL;")?;

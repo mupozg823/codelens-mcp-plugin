@@ -28,7 +28,7 @@ struct AppState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ToolPreset {
     Minimal,  // 21 core tools — symbol/file/search only
-    Balanced, // 33 tools — excludes niche + built-in overlaps
+    Balanced, // 34 tools — excludes niche + built-in overlaps
     Full,     // all 50 tools (52 with semantic feature)
 }
 
@@ -89,15 +89,9 @@ const BALANCED_EXCLUDES: &[&str] = &[
 ];
 
 impl AppState {
-    /// Access symbol index for read-only queries (_cached methods).
-    /// No lock needed — SymbolIndex is now internally synchronized.
-    pub(crate) fn symbol_index_read(&self) -> &SymbolIndex {
-        &self.symbol_index
-    }
-
-    /// Access symbol index for write operations (refresh_all, index_files).
-    /// No external lock needed — writer Mutex is internal to SymbolIndex.
-    pub(crate) fn symbol_index_write(&self) -> &SymbolIndex {
+    /// Access the symbol index. SymbolIndex is internally synchronized
+    /// (reader/writer split), so no external lock is needed.
+    pub(crate) fn symbol_index(&self) -> &SymbolIndex {
         &self.symbol_index
     }
 
@@ -524,7 +518,13 @@ fn dispatch_tool(
 
 // ── Tool definitions ────────────────────────────────────────────────────
 
-pub(crate) fn tools() -> Vec<Tool> {
+static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_tools);
+
+pub(crate) fn tools() -> &'static [Tool] {
+    &TOOLS
+}
+
+fn build_tools() -> Vec<Tool> {
     let ro = ToolAnnotations::read_only();
     let destructive = ToolAnnotations::destructive();
     let mutating = ToolAnnotations::mutating();
@@ -600,7 +600,7 @@ pub(crate) fn tools() -> Vec<Tool> {
         // onboarding: migrated to Skill, kept in dispatch for compat
         Tool::new("prepare_for_new_conversation", "Returns project context for a new conversation.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
         Tool::new("get_watch_status", "Returns file watcher status: running, events processed, files reindexed.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()),
-        Tool::new("set_preset", "Switch tool preset at runtime. Changes which tools appear in tools/list.", json!({"type":"object","properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset: minimal (21 tools), balanced (33), full (50+)"}},"required":["preset"]})).with_annotations(mutating.clone()),
+        Tool::new("set_preset", "Switch tool preset at runtime. Changes which tools appear in tools/list.", json!({"type":"object","properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset: minimal (21 tools), balanced (34), full (50+)"}},"required":["preset"]})).with_annotations(mutating.clone()),
         // summarize_changes, list_queryable_projects: kept in dispatch for compat, not listed
     ];
 
@@ -649,7 +649,7 @@ fn resources(state: &AppState) -> Vec<serde_json::Value> {
 fn read_resource(state: &AppState, uri: &str) -> serde_json::Value {
     match uri {
         "codelens://project/overview" => {
-            let stats = state.symbol_index_read().stats().ok();
+            let stats = state.symbol_index().stats().ok();
             json!({
                 "contents": [{
                     "uri": uri,
@@ -664,7 +664,7 @@ fn read_resource(state: &AppState, uri: &str) -> serde_json::Value {
             })
         }
         "codelens://symbols/index" => {
-            let stats = state.symbol_index_read().stats().ok();
+            let stats = state.symbol_index().stats().ok();
             json!({
                 "contents": [{
                     "uri": uri,
