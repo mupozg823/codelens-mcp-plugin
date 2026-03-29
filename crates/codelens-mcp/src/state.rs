@@ -20,6 +20,8 @@ pub(crate) struct AppState {
     pub(crate) watcher: Option<FileWatcher>,
     #[cfg(feature = "semantic")]
     pub(crate) embedding: std::sync::OnceLock<Option<EmbeddingEngine>>,
+    #[cfg(feature = "http")]
+    pub(crate) session_store: Option<crate::server::session::SessionStore>,
 }
 
 impl AppState {
@@ -76,6 +78,17 @@ impl AppState {
             watcher,
             #[cfg(feature = "semantic")]
             embedding: std::sync::OnceLock::new(),
+            #[cfg(feature = "http")]
+            session_store: None,
         }
+    }
+
+    /// Initialize the session store for HTTP mode.
+    #[cfg(feature = "http")]
+    pub(crate) fn with_session_store(mut self) -> Self {
+        self.session_store = Some(crate::server::session::SessionStore::new(
+            std::time::Duration::from_secs(30 * 60), // 30 minutes
+        ));
+        self
     }
 }

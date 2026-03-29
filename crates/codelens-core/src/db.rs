@@ -677,6 +677,44 @@ impl IndexDb {
         Ok(results)
     }
 
+    /// Get symbols with bytes for specific files only (for incremental embedding).
+    pub fn symbols_for_files(&self, file_paths: &[&str]) -> Result<Vec<SymbolWithFile>> {
+        if file_paths.is_empty() {
+            return Ok(Vec::new());
+        }
+        let placeholders: Vec<String> = (1..=file_paths.len()).map(|i| format!("?{i}")).collect();
+        let sql = format!(
+            "SELECT s.name, s.kind, f.relative_path, s.line, s.signature, s.name_path,
+                    s.start_byte, s.end_byte
+             FROM symbols s JOIN files f ON s.file_id = f.id
+             WHERE f.relative_path IN ({})
+             ORDER BY f.relative_path, s.start_byte",
+            placeholders.join(", ")
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let params: Vec<&dyn rusqlite::types::ToSql> = file_paths
+            .iter()
+            .map(|p| p as &dyn rusqlite::types::ToSql)
+            .collect();
+        let rows = stmt.query_map(params.as_slice(), |row| {
+            Ok(SymbolWithFile {
+                name: row.get(0)?,
+                kind: row.get(1)?,
+                file_path: row.get(2)?,
+                line: row.get(3)?,
+                signature: row.get(4)?,
+                name_path: row.get(5)?,
+                start_byte: row.get(6)?,
+                end_byte: row.get(7)?,
+            })
+        })?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row?);
+        }
+        Ok(results)
+    }
+
     /// Get file path for a file_id.
     pub fn get_file_path(&self, file_id: i64) -> Result<Option<String>> {
         self.conn

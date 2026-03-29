@@ -19,7 +19,7 @@ categories = ["development-tools", "command-line-utilities"]
 [workspace.dependencies]
 anyhow = "1.0"
 axum = "0.8"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time"] }
 globset = "0.4"
 petgraph = "0.7"
 rayon = "1.10"
@@ -58,6 +58,8 @@ walkdir = "2.5"
 libc = "0.2"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4"] }
+tokio-stream = "0.1"
 
 [profile.release]
 lto = true

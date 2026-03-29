@@ -354,6 +354,116 @@ impl EmbeddingEngine {
         self.store.search(&query_embedding[0], max_results)
     }
 
+    /// Incrementally re-index only the given files.
+    /// Deletes old embeddings for these files, then re-embeds their symbols.
+    pub fn index_changed_files(
+        &self,
+        project: &ProjectRoot,
+        changed_files: &[&str],
+    ) -> Result<usize> {
+        if changed_files.is_empty() {
+            return Ok(0);
+        }
+
+        // Remove old embeddings for these files
+        self.store.delete_by_file(changed_files)?;
+
+        // Get symbols for only the changed files
+        let db_path = crate::db::index_db_path(project.as_path());
+        let symbol_db = IndexDb::open(&db_path)?;
+        let symbols = symbol_db.symbols_for_files(changed_files)?;
+
+        if symbols.is_empty() {
+            return Ok(0);
+        }
+
+        // Build texts with body extraction (same logic as index_from_project)
+        let mut texts: Vec<String> = Vec::new();
+        let mut meta: Vec<&crate::db::SymbolWithFile> = Vec::new();
+
+        // Group by file
+        let mut current_file = String::new();
+        let mut current_source: Option<String> = None;
+
+        for sym in &symbols {
+            if sym.file_path != current_file {
+                current_file = sym.file_path.clone();
+                current_source =
+                    std::fs::read_to_string(project.as_path().join(&current_file)).ok();
+            }
+
+            let body_text = current_source.as_deref().and_then(|src| {
+                let start = sym.start_byte as usize;
+                let end = sym.end_byte as usize;
+                if end > start && end <= src.len() {
+                    src.get(start..end)
+                        .map(|b| truncate_body(b, MAX_BODY_CHARS))
+                } else {
+                    None
+                }
+            });
+
+            let file_ctx = if sym.file_path.is_empty() {
+                String::new()
+            } else {
+                format!(" in {}", sym.file_path)
+            };
+
+            let text = match body_text {
+                Some(body) if !body.is_empty() => {
+                    format!(
+                        "passage: {} {}{}\n{}\n{}",
+                        sym.kind, sym.name, file_ctx, sym.signature, body
+                    )
+                }
+                _ => {
+                    if sym.signature.is_empty() {
+                        format!("passage: {} {}{}", sym.kind, sym.name, file_ctx)
+                    } else {
+                        format!(
+                            "passage: {} {}{}: {}",
+                            sym.kind, sym.name, file_ctx, sym.signature
+                        )
+                    }
+                }
+            };
+
+            texts.push(text);
+            meta.push(sym);
+        }
+
+        // Batch embed
+        let mut model = self
+            .model
+            .lock()
+            .map_err(|_| anyhow::anyhow!("model lock"))?;
+        let mut all_embeddings: Vec<Vec<f32>> = Vec::with_capacity(texts.len());
+        for batch in texts.chunks(EMBED_BATCH_SIZE) {
+            let batch_refs: Vec<&str> = batch.iter().map(|s| s.as_str()).collect();
+            let batch_embeddings = model.embed(batch_refs, None).context("embedding failed")?;
+            all_embeddings.extend(batch_embeddings);
+        }
+        drop(model);
+
+        let chunks: Vec<EmbeddingChunk> = meta
+            .iter()
+            .zip(all_embeddings.into_iter())
+            .zip(texts.iter())
+            .map(|((sym, emb), text)| EmbeddingChunk {
+                file_path: sym.file_path.clone(),
+                symbol_name: sym.name.clone(),
+                kind: sym.kind.clone(),
+                line: sym.line as usize,
+                signature: sym.signature.clone(),
+                name_path: sym.name_path.clone(),
+                text: text.clone(),
+                embedding: emb,
+            })
+            .collect();
+
+        self.store.insert(&chunks)
+    }
+
     /// Check if the embedding index exists and has data.
     pub fn is_indexed(&self) -> bool {
         self.store.count().unwrap_or(0) > 0
