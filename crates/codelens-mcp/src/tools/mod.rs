@@ -57,6 +57,14 @@ pub fn default_lsp_command_for_path(file_path: &str) -> Option<String> {
         "rs" => Some("rust-analyzer".to_owned()),
         "cs" => Some("csharp-ls".to_owned()),
         "dart" => Some("dart".to_owned()),
+        "go" => Some("gopls".to_owned()),
+        "java" => Some("jdtls".to_owned()),
+        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" => Some("clangd".to_owned()),
+        "rb" => Some("solargraph".to_owned()),
+        "php" => Some("intelephense".to_owned()),
+        "kt" | "kts" => Some("kotlin-language-server".to_owned()),
+        "scala" | "sc" => Some("metals".to_owned()),
+        "swift" => Some("sourcekit-lsp".to_owned()),
         _ => None,
     }
 }
@@ -66,6 +74,9 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
         "pyright-langserver" => vec!["--stdio".to_owned()],
         "typescript-language-server" => vec!["--stdio".to_owned()],
         "dart" => vec!["language-server".to_owned(), "--protocol=lsp".to_owned()],
+        "clangd" => vec!["--background-index".to_owned()],
+        "solargraph" => vec!["stdio".to_owned()],
+        "intelephense" => vec!["--stdio".to_owned()],
         _ => Vec::new(),
     }
 }

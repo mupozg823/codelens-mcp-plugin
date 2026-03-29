@@ -717,7 +717,7 @@ pub fn find_symbol_range(
 
     let candidate = if let Some(np) = name_path {
         flat.into_iter()
-            .find(|sym| sym.name_path == np || sym.name == symbol_name && sym.name_path == np)
+            .find(|sym| sym.name_path == np || sym.name == symbol_name)
     } else {
         flat.into_iter().find(|sym| sym.name == symbol_name)
     };

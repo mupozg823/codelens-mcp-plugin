@@ -1085,6 +1085,17 @@ fn language_id_for_path(path: &Path) -> Result<&'static str> {
         "tsx" => Ok("typescriptreact"),
         "jsx" => Ok("javascriptreact"),
         "rs" => Ok("rust"),
+        "go" => Ok("go"),
+        "java" => Ok("java"),
+        "c" | "h" => Ok("c"),
+        "cpp" | "cc" | "cxx" | "hpp" => Ok("cpp"),
+        "rb" => Ok("ruby"),
+        "php" => Ok("php"),
+        "kt" | "kts" => Ok("kotlin"),
+        "scala" | "sc" => Ok("scala"),
+        "swift" => Ok("swift"),
+        "cs" => Ok("csharp"),
+        "dart" => Ok("dart"),
         other => bail!("unsupported LSP language for extension: {other}"),
     }
 }
