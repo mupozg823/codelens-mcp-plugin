@@ -1,6 +1,6 @@
 # CodeLens MCP
 
-Pure Rust MCP server for code intelligence — 50 tools, 16 languages, 12ms startup.
+Pure Rust MCP server for code intelligence — 53 tools, 15 languages, 12ms startup.
 
 ![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
@@ -11,23 +11,23 @@ Pure Rust MCP server for code intelligence — 50 tools, 16 languages, 12ms star
 
 - **Free and open-source.** No subscriptions, no seat licenses. Comparable commercial tools (e.g. jCodeMunch) start at $79+/month.
 - **Single binary, instant startup.** Pure Rust, 32MB, ~12ms cold start. No Node runtime, no JVM, no Python interpreter.
-- **50 tools in one binary.** Tree-sitter symbol indexing, LSP integration, import graph with PageRank, dead code detection, and semantic vector search — all without external services.
-- **16 languages, runtime preset switching.** Switch from 21-tool minimal mode to 50-tool full mode at runtime with `set_preset` — no server restart.
+- **53 tools in one binary.** Tree-sitter symbol indexing, LSP integration, import graph with PageRank, dead code detection, and semantic vector search (BGE-small quantized) — all without external services.
+- **15 languages, runtime preset switching.** Switch from 21-tool minimal mode to 53-tool full mode at runtime with `set_preset` — no server restart.
 
 ## Quick Comparison
 
-| Feature              | CodeLens        | jCodeMunch        | mcp-language-server |
-| -------------------- | --------------- | ----------------- | ------------------- |
-| Price                | Free / OSS      | $79+/month        | Free / OSS          |
-| Languages            | 16              | 10                | varies by LSP       |
-| MCP tools            | 50              | ~20               | ~10                 |
-| LSP integration      | yes             | yes               | yes (only)          |
-| Import graph         | yes             | no                | no                  |
-| Circular dep. detect | yes             | no                | no                  |
-| Semantic search      | yes (fastembed) | yes (cloud)       | no                  |
-| Runtime preset       | yes             | no                | no                  |
-| Binary size          | ~32MB           | N/A (SaaS)        | ~5MB                |
-| Cold start           | ~12ms           | network dependent | ~200ms              |
+| Feature              | CodeLens          | jCodeMunch        | mcp-language-server |
+| -------------------- | ----------------- | ----------------- | ------------------- |
+| Price                | Free / OSS        | $79+/month        | Free / OSS          |
+| Languages            | 15                | 10                | varies by LSP       |
+| MCP tools            | 53                | ~20               | ~10                 |
+| LSP integration      | yes               | yes               | yes (only)          |
+| Import graph         | yes               | no                | no                  |
+| Circular dep. detect | yes               | no                | no                  |
+| Semantic search      | yes (BGE-Q local) | yes (cloud)       | no                  |
+| Runtime preset       | yes               | no                | no                  |
+| Binary size          | ~32MB             | N/A (SaaS)        | ~5MB                |
+| Cold start           | ~12ms             | network dependent | ~200ms              |
 
 ## 5-Minute Quickstart
 
@@ -215,8 +215,8 @@ All clients use **stdio transport**. Ensure `codelens-mcp` is on your `$PATH` (v
 
 | Preset   | Tools | Tokens | Use case                                       |
 | -------- | ----- | ------ | ---------------------------------------------- |
-| FULL     | 50    | ~5K    | All tools, maximum capability                  |
-| BALANCED | 34    | ~3K    | Default — no built-in overlaps, no niche tools |
+| FULL     | 53    | ~5K    | All tools, maximum capability                  |
+| BALANCED | 37    | ~3K    | Default — no built-in overlaps, no niche tools |
 | MINIMAL  | 21    | ~2K    | Subagents, token-constrained tasks             |
 
 Switch via CLI flag, environment variable, or at runtime:
@@ -237,9 +237,9 @@ CODELENS_PRESET=minimal codelens-mcp .
 
 ## Languages
 
-Python, JavaScript, TypeScript, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, C#, Dart (16 languages)
+Python, JavaScript, TypeScript, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, C#, Dart
 
-> All 16 languages use native tree-sitter bindings for fast, accurate symbol parsing.
+> All 15 languages use native tree-sitter bindings for fast, accurate symbol parsing.
 
 ## Building from Source
 
@@ -254,7 +254,7 @@ cargo build --release --no-default-features
 cargo build --release --features semantic,http
 
 # Run tests
-cargo test -- --skip returns_lsp_diagnostics --skip returns_workspace_symbols --skip returns_rename_plan
+cargo test -p codelens-core && cargo test -p codelens-mcp
 ```
 
 The binary is written to `target/release/codelens-mcp`.

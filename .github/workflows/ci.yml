@@ -44,12 +44,11 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-target-
 
-      - name: cargo test
-        run: >
-          cargo test --
-          --skip returns_lsp_diagnostics
-          --skip returns_workspace_symbols
-          --skip returns_rename_plan
+      - name: cargo test (core)
+        run: cargo test -p codelens-core
+
+      - name: cargo test (mcp)
+        run: cargo test -p codelens-mcp
 
       - name: cargo clippy
         run: cargo clippy -- -W clippy::all

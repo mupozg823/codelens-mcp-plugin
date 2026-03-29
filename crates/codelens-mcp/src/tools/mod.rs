@@ -219,9 +219,16 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "plan_symbol_rename" => &["rename_symbol"],
         "find_dead_code" => &["get_symbols_overview", "delete_lines"],
         "find_circular_dependencies" => &["get_impact_analysis", "get_symbols_overview"],
-        "get_ranked_context" => &["find_symbol", "replace_symbol_body"],
+        "get_ranked_context" => &["find_symbol", "replace_symbol_body", "semantic_search"],
+        "semantic_search" => &["find_symbol", "get_symbols_overview", "get_ranked_context"],
+        "index_embeddings" => &["semantic_search"],
         "get_project_structure" => &["get_symbols_overview", "get_ranked_context", "find_symbol"],
         "activate_project" => &["get_project_structure", "get_current_config"],
+        "refresh_symbol_index" => &["index_embeddings", "get_symbols_overview"],
+        "get_callers" => &["get_callees", "find_symbol"],
+        "get_callees" => &["get_callers", "find_symbol"],
+        "get_blast_radius" => &["get_importers", "find_referencing_symbols"],
+        "get_importers" => &["get_blast_radius", "get_symbol_importance"],
         _ => return None,
     };
     Some(suggestions.iter().map(|s| s.to_string()).collect())
