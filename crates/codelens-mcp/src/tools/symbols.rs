@@ -5,18 +5,19 @@ use serde_json::json;
 
 pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
-    let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+    let explicit_depth = arguments.get("depth").and_then(|v| v.as_u64());
+    let depth = explicit_depth.unwrap_or(1) as usize;
     let budget = state.token_budget();
     let mut symbols = state
         .symbol_index()
         .get_symbols_overview_cached(path, depth)?;
 
-    // Token guard: strip children when response would exceed budget.
-    // Estimate ~200 chars per symbol with children, ~80 without.
+    // Token guard: auto-strip children when response would exceed budget.
+    // Skip if depth was explicitly requested (user intentionally wants full detail).
     let estimated_chars: usize = symbols.iter().map(|s| 80 + s.children.len() * 120).sum();
     let budget_chars = budget * 4;
-    if estimated_chars > budget_chars {
-        // Strip children — return file-level summaries only
+    let stripped = explicit_depth.is_none() && estimated_chars > budget_chars;
+    if stripped {
         for sym in &mut symbols {
             let child_count = sym.children.len();
             sym.children.clear();
@@ -24,8 +25,12 @@ pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> 
         }
     }
 
-    // Hard limit: if still too large, truncate the list
-    let max_symbols = budget_chars / 80;
+    // Hard limit: truncate if still too large (unless explicit depth)
+    let max_symbols = if explicit_depth.is_some() {
+        usize::MAX
+    } else {
+        budget_chars / 80
+    };
     let truncated = symbols.len() > max_symbols;
     if truncated {
         symbols.truncate(max_symbols);
@@ -36,6 +41,7 @@ pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> 
             "symbols": symbols,
             "count": symbols.len(),
             "truncated": truncated,
+            "auto_summarized": stripped,
         }),
         success_meta("tree-sitter-cached", 0.93),
     ))
