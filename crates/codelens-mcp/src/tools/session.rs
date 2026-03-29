@@ -1,5 +1,6 @@
 use super::{success_meta, AppState, ToolResult};
 use crate::tools::memory::list_memory_names;
+use codelens_core::detect_frameworks;
 use serde_json::json;
 
 pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
@@ -15,6 +16,7 @@ pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> Too
         .as_ref()
         .map(|w| w.stats().running)
         .unwrap_or(false);
+    let frameworks = detect_frameworks(state.project.as_path());
     Ok((
         json!({
             "activated": true,
@@ -23,7 +25,8 @@ pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> Too
             "backend_id": "rust-core",
             "memory_count": memory_count,
             "serena_memories_dir": state.memories_dir.to_string_lossy(),
-            "file_watcher": watcher_running
+            "file_watcher": watcher_running,
+            "frameworks": frameworks
         }),
         success_meta("session", 1.0),
     ))

@@ -941,13 +941,57 @@ fn resolve_jvm_module(project: &ProjectRoot, module: &str) -> Option<String> {
     None
 }
 
+/// Find the `src/` directory of a workspace crate given the crate name (using underscores).
+/// Scans `crates/*/Cargo.toml` and matches by normalizing `-` to `_` in the directory name.
+fn find_workspace_crate_dir(project: &ProjectRoot, crate_name: &str) -> Option<PathBuf> {
+    let crates_dir = project.as_path().join("crates");
+    if !crates_dir.is_dir() {
+        return None;
+    }
+    for entry in std::fs::read_dir(&crates_dir).ok()?.flatten() {
+        let cargo_toml = entry.path().join("Cargo.toml");
+        if cargo_toml.is_file() {
+            let dir_name = entry.file_name().to_string_lossy().replace('-', "_");
+            if dir_name == crate_name {
+                return Some(entry.path().join("src"));
+            }
+        }
+    }
+    None
+}
+
 /// Rust: `use crate::foo::bar` -> look for src/foo/bar.rs or src/foo/bar/mod.rs.
 ///       `mod foo;` -> look for foo.rs or foo/mod.rs relative to source dir.
+///       `use codelens_core::ProjectRoot` -> strip workspace crate prefix and look in that crate's src/.
 fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
     let stripped = module
         .trim_start_matches("crate::")
         .trim_start_matches("super::")
         .trim_start_matches("self::");
+
+    // Check if the first segment matches a known workspace crate name.
+    // e.g. `codelens_core::ProjectRoot` → crate_name="codelens_core", rest="ProjectRoot"
+    let segments: Vec<&str> = stripped.splitn(2, "::").collect();
+    if segments.len() == 2 {
+        let first_seg = segments[0];
+        if let Some(crate_src) = find_workspace_crate_dir(project, first_seg) {
+            let remaining = segments[1].replace("::", "/");
+            let mut parts: Vec<&str> = remaining.split('/').collect();
+            while !parts.is_empty() {
+                let candidate_path = parts.join("/");
+                for candidate in [
+                    crate_src.join(format!("{candidate_path}.rs")),
+                    crate_src.join(&candidate_path).join("mod.rs"),
+                ] {
+                    if candidate.is_file() {
+                        return Some(project.to_relative(candidate));
+                    }
+                }
+                parts.pop();
+            }
+        }
+    }
+
     let path_part = stripped.replace("::", "/");
 
     // Try full path first, then progressively strip trailing segments
@@ -1394,6 +1438,56 @@ import (
                     reason: "no importers".to_owned(),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn resolves_cross_crate_workspace_imports() {
+        // Simulate a workspace layout:
+        //   <root>/crates/codelens-core/src/project.rs
+        //   <root>/crates/codelens-mcp/src/main.rs  (imports codelens_core::project::ProjectRoot)
+        let dir = temp_project_dir("cross-crate");
+        let core_src = dir.join("crates").join("codelens-core").join("src");
+        let mcp_src = dir.join("crates").join("codelens-mcp").join("src");
+        fs::create_dir_all(&core_src).expect("mkdir core/src");
+        fs::create_dir_all(&mcp_src).expect("mkdir mcp/src");
+
+        // Write Cargo.toml stubs so find_workspace_crate_dir can identify each crate
+        fs::write(
+            dir.join("crates").join("codelens-core").join("Cargo.toml"),
+            "[package]\nname = \"codelens-core\"\n",
+        )
+        .expect("write core Cargo.toml");
+        fs::write(
+            dir.join("crates").join("codelens-mcp").join("Cargo.toml"),
+            "[package]\nname = \"codelens-mcp\"\n",
+        )
+        .expect("write mcp Cargo.toml");
+
+        // Create the target module file
+        fs::write(core_src.join("project.rs"), "pub struct ProjectRoot;\n")
+            .expect("write project.rs");
+
+        // Create main.rs that imports from codelens_core
+        let main_rs = mcp_src.join("main.rs");
+        fs::write(
+            &main_rs,
+            "use codelens_core::project::ProjectRoot;\nfn main() {}\n",
+        )
+        .expect("write main.rs");
+
+        let project = ProjectRoot::new(&dir).expect("project");
+
+        // Directly test the resolve function
+        let resolved = super::resolve_module_for_file(
+            &project,
+            &main_rs,
+            "codelens_core::project::ProjectRoot",
+        );
+        assert_eq!(
+            resolved,
+            Some("crates/codelens-core/src/project.rs".to_owned()),
+            "cross-crate import should resolve to crates/codelens-core/src/project.rs"
         );
     }
 

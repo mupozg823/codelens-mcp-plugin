@@ -42,7 +42,7 @@ pub use lsp::{
     get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
 };
 pub use auto_import::{ImportSuggestion, MissingImportAnalysis, add_import, analyze_missing_imports};
-pub use project::ProjectRoot;
+pub use project::{ProjectRoot, WorkspacePackage, detect_frameworks, detect_workspace_packages};
 pub use rename::{RenameResult, RenameScope, rename_symbol};
 pub use scope_analysis::{ScopedReference, ReferenceKind, find_scoped_references, find_scoped_references_in_file};
 pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};

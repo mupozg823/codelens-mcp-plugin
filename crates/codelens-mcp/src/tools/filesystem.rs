@@ -1,6 +1,7 @@
 use super::{required_string, success_meta, AppState, ToolResult};
 use codelens_core::{
-    find_files, list_dir, read_file, search_for_pattern, search_for_pattern_smart,
+    detect_frameworks, detect_workspace_packages, find_files, list_dir, read_file,
+    search_for_pattern, search_for_pattern_smart,
 };
 use serde_json::json;
 
@@ -14,6 +15,8 @@ pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> T
         .preset
         .lock()
         .map_err(|_| anyhow::anyhow!("preset lock poisoned"))?;
+    let frameworks = detect_frameworks(state.project.as_path());
+    let workspace_packages = detect_workspace_packages(state.project.as_path());
     Ok((
         json!({
             "runtime": "rust-core",
@@ -22,7 +25,9 @@ pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> T
             "available_backends": ["filesystem", "tree-sitter-cached", "lsp_pooled"],
             "symbol_index": stats,
             "preset": format!("{preset:?}"),
-            "tool_count": crate::tools().len()
+            "tool_count": crate::tools().len(),
+            "frameworks": frameworks,
+            "workspace_packages": workspace_packages
         }),
         success_meta("rust-core", 1.0),
     ))

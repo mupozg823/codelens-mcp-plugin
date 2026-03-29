@@ -303,7 +303,9 @@ impl IndexDb {
 
     /// Return all indexed file paths.
     pub fn all_file_paths(&self) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare("SELECT relative_path FROM files")?;
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT relative_path FROM files")?;
         let rows = stmt.query_map([], |row| row.get(0))?;
         let mut paths = Vec::new();
         for row in rows {
@@ -317,7 +319,7 @@ impl IndexDb {
     /// Bulk insert symbols for a file. Returns the inserted symbol ids.
     pub fn insert_symbols(&self, file_id: i64, symbols: &[NewSymbol]) -> Result<Vec<i64>> {
         let mut ids = Vec::with_capacity(symbols.len());
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "INSERT INTO symbols (file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
         )?;
@@ -376,7 +378,7 @@ impl IndexDb {
             ),
         };
 
-        let mut stmt = self.conn.prepare(sql)?;
+        let mut stmt = self.conn.prepare_cached(sql)?;
         let mut rows = if use_file_filter {
             stmt.query(params![name, file_path.unwrap_or(""), max_results as i64])?
         } else {
@@ -404,7 +406,7 @@ impl IndexDb {
 
     /// Get all symbols for a file, ordered by start_byte.
     pub fn get_file_symbols(&self, file_id: i64) -> Result<Vec<SymbolRow>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT id, file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id
              FROM symbols WHERE file_id = ?1 ORDER BY start_byte",
         )?;
@@ -432,7 +434,7 @@ impl IndexDb {
 
     /// Return all symbols as (name, kind, file_path, line, signature, name_path).
     pub fn all_symbol_names(&self) -> Result<Vec<(String, String, String, i64, String, String)>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT s.name, s.kind, f.relative_path, s.line, s.signature, s.name_path
              FROM symbols s JOIN files f ON s.file_id = f.id",
         )?;
@@ -469,7 +471,7 @@ impl IndexDb {
 
     /// Bulk insert imports for a file.
     pub fn insert_imports(&self, file_id: i64, imports: &[NewImport]) -> Result<()> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "INSERT OR REPLACE INTO imports (source_file_id, target_path, raw_import)
              VALUES (?1, ?2, ?3)",
         )?;
@@ -481,7 +483,7 @@ impl IndexDb {
 
     /// Get files that import the given file path (reverse dependencies).
     pub fn get_importers(&self, target_path: &str) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT f.relative_path FROM imports i
              JOIN files f ON i.source_file_id = f.id
              WHERE i.target_path = ?1
@@ -497,7 +499,7 @@ impl IndexDb {
 
     /// Get files that the given file imports (forward dependencies).
     pub fn get_imports_of(&self, relative_path: &str) -> Result<Vec<String>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT i.target_path FROM imports i
              JOIN files f ON i.source_file_id = f.id
              WHERE f.relative_path = ?1
@@ -524,7 +526,7 @@ impl IndexDb {
         }
 
         // Fill edges
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT f.relative_path, i.target_path FROM imports i
              JOIN files f ON i.source_file_id = f.id",
         )?;
@@ -552,7 +554,7 @@ impl IndexDb {
             "DELETE FROM calls WHERE caller_file_id = ?1",
             params![file_id],
         )?;
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "INSERT INTO calls (caller_file_id, caller_name, callee_name, line)
              VALUES (?1, ?2, ?3, ?4)",
         )?;
@@ -573,7 +575,7 @@ impl IndexDb {
         callee_name: &str,
         max_results: usize,
     ) -> Result<Vec<(String, String, i64)>> {
-        let mut stmt = self.conn.prepare(
+        let mut stmt = self.conn.prepare_cached(
             "SELECT f.relative_path, c.caller_name, c.line FROM calls c
              JOIN files f ON c.caller_file_id = f.id
              WHERE c.callee_name = ?1
@@ -610,7 +612,7 @@ impl IndexDb {
                 false,
             ),
         };
-        let mut stmt = self.conn.prepare(sql)?;
+        let mut stmt = self.conn.prepare_cached(sql)?;
         let mut rows = if use_file {
             stmt.query(params![
                 caller_name,
