@@ -1,0 +1,5 @@
+---
+source: crates/codelens-core/tests/snapshot_golden.rs
+expression: summary
+---
+[]

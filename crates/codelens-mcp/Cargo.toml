@@ -27,6 +27,11 @@ thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
+[dev-dependencies]
+tower = { workspace = true }
+tokio = { workspace = true }
+http-body-util = { workspace = true }
+
 [features]
 default = ["semantic"]
 semantic = ["codelens-core/semantic"]

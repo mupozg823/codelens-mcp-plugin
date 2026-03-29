@@ -23,17 +23,23 @@ use std::time::Duration;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
-/// Start the HTTP server with Streamable HTTP transport.
-#[tokio::main]
-pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
-    let app = Router::new()
+/// Build the axum Router for the MCP HTTP transport.
+/// Exposed for testing via `cargo test --features http`.
+pub(crate) fn build_router(state: Arc<AppState>) -> Router {
+    Router::new()
         .route(
             "/mcp",
             routing::post(mcp_post_handler)
                 .get(mcp_get_handler)
                 .delete(mcp_delete_handler),
         )
-        .with_state(state.clone());
+        .with_state(state)
+}
+
+/// Start the HTTP server with Streamable HTTP transport.
+#[tokio::main]
+pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
+    let app = build_router(state.clone());
 
     // Session cleanup background task
     let cleanup_state = Arc::clone(&state);

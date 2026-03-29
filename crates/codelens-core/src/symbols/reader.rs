@@ -24,40 +24,60 @@ impl SymbolIndex {
         query: &str,
         depth: usize,
     ) -> Result<Vec<SymbolInfo>> {
-        let db = self.reader()?;
-        let all_paths = db.all_file_paths()?;
+        // Compute file scores and import-graph proximity inside a block so the
+        // ReadDb guard is dropped before calling find_symbol_cached /
+        // get_symbols_overview_cached, which also acquire the reader lock.
+        // Holding both causes a deadlock when in_memory=true (same Mutex).
+        let (top_files, importer_files) = {
+            let db = self.reader()?;
+            let all_paths = db.all_file_paths()?;
 
-        let query_lower = query.to_ascii_lowercase();
-        let query_tokens: Vec<&str> = query_lower
-            .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
-            .filter(|t| t.len() >= 2)
-            .collect();
+            let query_lower = query.to_ascii_lowercase();
+            let query_tokens: Vec<&str> = query_lower
+                .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+                .filter(|t| t.len() >= 2)
+                .collect();
 
-        // Path 1: file name token matching → top 10 files
-        let mut file_scores: Vec<(String, usize)> = all_paths
-            .iter()
-            .map(|path| {
-                let path_lower = path.to_ascii_lowercase();
-                let score = query_tokens
-                    .iter()
-                    .filter(|t| path_lower.contains(**t))
-                    .count();
-                (path.clone(), score)
-            })
-            .collect();
+            let mut file_scores: Vec<(String, usize)> = all_paths
+                .iter()
+                .map(|path| {
+                    let path_lower = path.to_ascii_lowercase();
+                    let score = query_tokens
+                        .iter()
+                        .filter(|t| path_lower.contains(**t))
+                        .count();
+                    (path.clone(), score)
+                })
+                .collect();
 
-        file_scores.sort_by(|a, b| b.1.cmp(&a.1));
-        let top_files: Vec<&str> = file_scores
-            .iter()
-            .filter(|(_, score)| *score > 0)
-            .take(10)
-            .map(|(path, _)| path.as_str())
-            .collect();
+            file_scores.sort_by(|a, b| b.1.cmp(&a.1));
+            let top: Vec<String> = file_scores
+                .iter()
+                .filter(|(_, score)| *score > 0)
+                .take(10)
+                .map(|(path, _)| path.clone())
+                .collect();
+
+            // Path 3: import graph proximity
+            let mut importers = Vec::new();
+            if !top.is_empty() && top.len() <= 5 {
+                for file_path in top.iter().take(3) {
+                    if let Ok(imp) = db.get_importers(file_path) {
+                        for importer_path in imp.into_iter().take(3) {
+                            importers.push(importer_path);
+                        }
+                    }
+                }
+            }
+
+            (top, importers)
+            // db dropped here
+        };
 
         let mut seen_ids = std::collections::HashSet::new();
         let mut all_symbols = Vec::new();
 
-        // Collect symbols from path-matched files
+        // Path 1: collect symbols from path-matched files
         for file_path in &top_files {
             if let Ok(symbols) = self.get_symbols_overview_cached(file_path, depth) {
                 for sym in symbols {
@@ -68,7 +88,7 @@ impl SymbolIndex {
             }
         }
 
-        // Path 2: direct symbol name matching (catches symbols in non-path-matched files)
+        // Path 2: direct symbol name matching
         if let Ok(direct) = self.find_symbol_cached(query, None, false, false, 50) {
             for sym in direct {
                 if seen_ids.insert(sym.id.clone()) {
@@ -77,25 +97,18 @@ impl SymbolIndex {
             }
         }
 
-        // Path 3: import graph proximity — get importers of top files
-        // This catches related code that doesn't match by name but is structurally connected.
-        if !top_files.is_empty() && top_files.len() <= 5 {
-            for file_path in top_files.iter().take(3) {
-                if let Ok(importers) = db.get_importers(file_path) {
-                    for importer_path in importers.iter().take(3) {
-                        if let Ok(symbols) = self.get_symbols_overview_cached(importer_path, 1) {
-                            for sym in symbols {
-                                if seen_ids.insert(sym.id.clone()) {
-                                    all_symbols.push(sym);
-                                }
-                            }
-                        }
+        // Path 3: import graph proximity — related code via structural connection
+        for importer_path in &importer_files {
+            if let Ok(symbols) = self.get_symbols_overview_cached(importer_path, 1) {
+                for sym in symbols {
+                    if seen_ids.insert(sym.id.clone()) {
+                        all_symbols.push(sym);
                     }
                 }
             }
         }
 
-        // Fallback: if no candidates found at all, do a broad symbol search
+        // Fallback: if no candidates found, do a broad symbol search
         if all_symbols.is_empty() {
             return self.find_symbol_cached(query, None, false, false, 500);
         }

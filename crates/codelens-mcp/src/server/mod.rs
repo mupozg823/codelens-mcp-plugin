@@ -4,3 +4,6 @@ pub(crate) mod router;
 pub(crate) mod session;
 pub(crate) mod transport_http;
 pub(crate) mod transport_stdio;
+
+#[cfg(all(test, feature = "http"))]
+mod http_tests;

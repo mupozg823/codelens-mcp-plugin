@@ -53,9 +53,8 @@ fn snapshot_find_symbol_fuzzy() {
     insta::assert_json_snapshot!("find_symbol_fuzzy", summary);
 }
 
-/// Snapshot: SymbolIndex cached ranked context (slow — uses ensure_indexed)
+/// Snapshot: SymbolIndex cached ranked context
 #[test]
-#[ignore]
 fn snapshot_ranked_context() {
     let project = fixture_project();
     let index = SymbolIndex::new_memory(project);

@@ -133,37 +133,41 @@ impl SymbolIndex {
     /// SelectSolve file pre-filtering: score files by name relevance to query,
     /// then extract symbols only from top-scoring files.
     fn select_solve_symbols(&self, query: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
-        let db = self.reader()?;
-        let all_paths = db.all_file_paths()?;
+        // Collect file paths and compute top matches inside a block so the
+        // MutexGuard (ReadDb::Writer) is dropped before we call find_symbol /
+        // get_symbols_overview_cached, which also need the lock.  Holding the
+        // guard across those calls causes a deadlock with in-memory DBs.
+        let top_files: Vec<String> = {
+            let db = self.reader()?;
+            let all_paths = db.all_file_paths()?;
 
-        // Tokenize query into words (split on whitespace, underscores, camelCase boundaries)
-        let query_lower = query.to_ascii_lowercase();
-        let query_tokens: Vec<&str> = query_lower
-            .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
-            .filter(|t| t.len() >= 2)
-            .collect();
+            let query_lower = query.to_ascii_lowercase();
+            let query_tokens: Vec<&str> = query_lower
+                .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+                .filter(|t| t.len() >= 2)
+                .collect();
 
-        // Score each file path
-        let mut file_scores: Vec<(String, usize)> = all_paths
-            .into_iter()
-            .map(|path| {
-                let path_lower = path.to_ascii_lowercase();
-                let score = query_tokens
-                    .iter()
-                    .filter(|token| path_lower.contains(**token))
-                    .count();
-                (path, score)
-            })
-            .collect();
+            let mut file_scores: Vec<(String, usize)> = all_paths
+                .into_iter()
+                .map(|path| {
+                    let path_lower = path.to_ascii_lowercase();
+                    let score = query_tokens
+                        .iter()
+                        .filter(|token| path_lower.contains(**token))
+                        .count();
+                    (path, score)
+                })
+                .collect();
 
-        // Sort by score desc, take top 10 files (or all with score > 0)
-        file_scores.sort_by(|a, b| b.1.cmp(&a.1));
-        let top_files: Vec<&str> = file_scores
-            .iter()
-            .filter(|(_, score)| *score > 0)
-            .take(10)
-            .map(|(path, _)| path.as_str())
-            .collect();
+            file_scores.sort_by(|a, b| b.1.cmp(&a.1));
+            file_scores
+                .into_iter()
+                .filter(|(_, score)| *score > 0)
+                .take(10)
+                .map(|(path, _)| path)
+                .collect()
+            // db (MutexGuard) dropped here
+        };
 
         // If no file matches, fall back to direct symbol name search
         if top_files.is_empty() {
