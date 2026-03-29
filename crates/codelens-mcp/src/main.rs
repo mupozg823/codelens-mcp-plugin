@@ -1,3 +1,4 @@
+mod error;
 mod protocol;
 mod tools;
 
@@ -7,13 +8,14 @@ use codelens_core::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, Symbol
 use codelens_core::EmbeddingEngine;
 use protocol::{JsonRpcRequest, JsonRpcResponse, Tool, ToolAnnotations, ToolCallResponse};
 use serde_json::json;
+use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use tools::ToolResult;
 
 struct AppState {
     project: ProjectRoot,
-    symbol_index: Arc<Mutex<SymbolIndex>>,
+    symbol_index: Arc<SymbolIndex>,
     lsp_pool: Mutex<LspSessionPool>,
     graph_cache: Arc<GraphCache>,
     preset: Mutex<ToolPreset>,
@@ -87,8 +89,34 @@ const BALANCED_EXCLUDES: &[&str] = &[
 ];
 
 impl AppState {
+    /// Access symbol index for read-only queries (_cached methods).
+    /// No lock needed — SymbolIndex is now internally synchronized.
+    pub(crate) fn symbol_index_read(&self) -> &SymbolIndex {
+        &self.symbol_index
+    }
+
+    /// Access symbol index for write operations (refresh_all, index_files).
+    /// No external lock needed — writer Mutex is internal to SymbolIndex.
+    pub(crate) fn symbol_index_write(&self) -> &SymbolIndex {
+        &self.symbol_index
+    }
+
+    /// Acquire lsp_pool lock with poison recovery.
+    pub(crate) fn lsp_pool(&self) -> std::sync::MutexGuard<'_, LspSessionPool> {
+        self.lsp_pool
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Acquire preset lock with poison recovery.
+    pub(crate) fn preset(&self) -> std::sync::MutexGuard<'_, ToolPreset> {
+        self.preset
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
-        let symbol_index = Arc::new(Mutex::new(SymbolIndex::new(project.clone())));
+        let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
         let lsp_pool = LspSessionPool::new(project.clone());
         let graph_cache = Arc::new(GraphCache::new(30));
         let memories_dir = project.as_path().join(".serena").join("memories");
@@ -203,14 +231,48 @@ fn run_stdio(state: Arc<AppState>) -> Result<()> {
             continue;
         }
 
-        let response = match serde_json::from_str::<JsonRpcRequest>(&line) {
-            Ok(request) => handle_request(&state, request),
-            Err(error) => Some(JsonRpcResponse::error(None, -32700, format!("Parse error: {error}"))),
-        };
-        if let Some(response) = response {
-            serde_json::to_writer(&mut stdout, &response)?;
-            stdout.write_all(b"\n")?;
-            stdout.flush()?;
+        // JSON-RPC 2.0 batch support: detect array vs object
+        let trimmed = line.trim_start();
+        if trimmed.starts_with('[') {
+            // Batch request
+            match serde_json::from_str::<Vec<JsonRpcRequest>>(trimmed) {
+                Ok(requests) => {
+                    let responses: Vec<_> = requests
+                        .into_iter()
+                        .filter_map(|req| handle_request(&state, req))
+                        .collect();
+                    if !responses.is_empty() {
+                        serde_json::to_writer(&mut stdout, &responses)?;
+                        stdout.write_all(b"\n")?;
+                        stdout.flush()?;
+                    }
+                }
+                Err(error) => {
+                    let resp = JsonRpcResponse::error(
+                        None,
+                        -32700,
+                        format!("Batch parse error: {error}"),
+                    );
+                    serde_json::to_writer(&mut stdout, &resp)?;
+                    stdout.write_all(b"\n")?;
+                    stdout.flush()?;
+                }
+            }
+        } else {
+            // Single request
+            let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
+                Ok(request) => handle_request(&state, request),
+                Err(error) => Some(JsonRpcResponse::error(
+                    None,
+                    -32700,
+                    format!("Parse error: {error}"),
+                )),
+            };
+            if let Some(response) = response {
+                serde_json::to_writer(&mut stdout, &response)?;
+                stdout.write_all(b"\n")?;
+                stdout.flush()?;
+            }
         }
     }
 
@@ -252,8 +314,8 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available. Build with --features semantic"))?;
 
     if !engine.is_indexed() {
-        return Err(anyhow::anyhow!(
-            "Embedding index is empty. Call index_embeddings first to build the semantic index."
+        return Err(error::CodeLensError::FeatureUnavailable(
+            "Embedding index is empty. Call index_embeddings first to build the semantic index.".into()
         ));
     }
 
@@ -309,7 +371,8 @@ async fn mcp_handler(
             Ok(json) => (axum::http::StatusCode::OK, json),
             Err(e) => (
                 axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                format!("{{\"error\":\"{e}\"}}"),
+                serde_json::to_string(&json!({"error": e.to_string()}))
+                    .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_owned()),
             ),
         },
         // Notification — HTTP 204 No Content
@@ -374,7 +437,7 @@ fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcRe
             Some(JsonRpcResponse::result(request.id, get_prompt(state, name, &args)))
         }
         "tools/list" => {
-            let current_preset = *state.preset.lock().unwrap();
+            let current_preset = *state.preset();
             let filtered: Vec<_> = tools()
                 .into_iter()
                 .filter(|t| match current_preset {
@@ -397,6 +460,18 @@ fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcRe
 
 // ── Tool dispatch (thin router) ─────────────────────────────────────────
 
+/// Static dispatch table — built once, used for all tool calls.
+static DISPATCH_TABLE: LazyLock<HashMap<&'static str, tools::ToolHandler>> =
+    LazyLock::new(|| {
+        let mut m = tools::dispatch_table();
+        #[cfg(feature = "semantic")]
+        {
+            m.insert("semantic_search", |s, a| semantic_search_handler(s, a));
+            m.insert("index_embeddings", |s, a| index_embeddings_handler(s, a));
+        }
+        m
+    });
+
 fn dispatch_tool(
     state: &AppState,
     id: Option<serde_json::Value>,
@@ -410,121 +485,20 @@ fn dispatch_tool(
         .cloned()
         .unwrap_or_else(|| json!({}));
 
-    let result: ToolResult = match name {
-        // Filesystem / search
-        "get_current_config" => tools::filesystem::get_current_config(state, &arguments),
-        "read_file" => tools::filesystem::read_file_tool(state, &arguments),
-        "list_dir" => tools::filesystem::list_dir_tool(state, &arguments),
-        "find_file" => tools::filesystem::find_file_tool(state, &arguments),
-        "search_for_pattern" => tools::filesystem::search_for_pattern_tool(state, &arguments),
-        "find_annotations" => tools::filesystem::find_annotations(state, &arguments),
-        "find_tests" => tools::filesystem::find_tests(state, &arguments),
-
-        // Symbols / index
-        "get_symbols_overview" => tools::symbols::get_symbols_overview(state, &arguments),
-        "find_symbol" => tools::symbols::find_symbol(state, &arguments),
-        "get_ranked_context" => tools::symbols::get_ranked_context(state, &arguments),
-        "refresh_symbol_index" => tools::symbols::refresh_symbol_index(state, &arguments),
-        "get_complexity" => tools::symbols::get_complexity(state, &arguments),
-        "search_symbols_fuzzy" => tools::symbols::search_symbols_fuzzy(state, &arguments),
-
-        // LSP
-        "find_referencing_symbols" => tools::lsp::find_referencing_symbols(state, &arguments),
-        "get_file_diagnostics" => tools::lsp::get_file_diagnostics(state, &arguments),
-        "search_workspace_symbols" => tools::lsp::search_workspace_symbols(state, &arguments),
-        "get_type_hierarchy" => tools::lsp::get_type_hierarchy(state, &arguments),
-        "plan_symbol_rename" => tools::lsp::plan_symbol_rename(state, &arguments),
-        "check_lsp_status" => tools::lsp::check_lsp_status(state, &arguments),
-        "get_lsp_recipe" => tools::lsp::get_lsp_recipe(state, &arguments),
-
-        // Graph / analysis
-        "get_changed_files" | "get_diff_symbols" => {
-            tools::graph::get_changed_files_tool(state, &arguments)
-        }
-        "get_blast_radius" => tools::graph::get_blast_radius_tool(state, &arguments),
-        "get_impact_analysis" => tools::graph::get_impact_analysis(state, &arguments),
-        "find_importers" => tools::graph::find_importers_tool(state, &arguments),
-        "get_symbol_importance" => tools::graph::get_symbol_importance(state, &arguments),
-        "find_dead_code" | "find_dead_code_v2" => {
-            tools::graph::find_dead_code_v2_tool(state, &arguments)
-        }
-        // find_referencing_code_snippets: kept as alias for backward compat, delegates to search_for_pattern
-        "find_referencing_code_snippets" => {
-            tools::graph::find_referencing_code_snippets(state, &arguments)
-        }
-        "find_scoped_references" => tools::graph::find_scoped_references_tool(state, &arguments),
-        "get_callers" => tools::graph::get_callers_tool(state, &arguments),
-        "get_callees" => tools::graph::get_callees_tool(state, &arguments),
-        "find_circular_dependencies" => {
-            tools::graph::find_circular_dependencies_tool(state, &arguments)
-        }
-        "get_change_coupling" => tools::graph::get_change_coupling_tool(state, &arguments),
-
-        // Mutation / editing
-        "rename_symbol" => tools::mutation::rename_symbol(state, &arguments),
-        "create_text_file" => tools::mutation::create_text_file_tool(state, &arguments),
-        "delete_lines" => tools::mutation::delete_lines_tool(state, &arguments),
-        "insert_at_line" => tools::mutation::insert_at_line_tool(state, &arguments),
-        "replace_lines" => tools::mutation::replace_lines_tool(state, &arguments),
-        "replace_content" => tools::mutation::replace_content_tool(state, &arguments),
-        "replace_symbol_body" => tools::mutation::replace_symbol_body_tool(state, &arguments),
-        "insert_before_symbol" => tools::mutation::insert_before_symbol_tool(state, &arguments),
-        "insert_after_symbol" => tools::mutation::insert_after_symbol_tool(state, &arguments),
-        "analyze_missing_imports" => {
-            tools::mutation::analyze_missing_imports_tool(state, &arguments)
-        }
-        "add_import" => tools::mutation::add_import_tool(state, &arguments),
-
-        // Memory
-        "list_memories" => tools::memory::list_memories(state, &arguments),
-        "read_memory" => tools::memory::read_memory(state, &arguments),
-        "write_memory" => tools::memory::write_memory(state, &arguments),
-        "delete_memory" => tools::memory::delete_memory(state, &arguments),
-        "edit_memory" => tools::memory::edit_memory(state, &arguments),
-        "rename_memory" => tools::memory::rename_memory(state, &arguments),
-
-        // Session / config
-        "activate_project" => tools::session::activate_project(state, &arguments),
-        "check_onboarding_performed" => {
-            tools::session::check_onboarding_performed(state, &arguments)
-        }
-        "initial_instructions" => tools::session::initial_instructions(state, &arguments),
-        "onboarding" => tools::session::onboarding(state, &arguments),
-        "prepare_for_new_conversation" => {
-            tools::session::prepare_for_new_conversation(state, &arguments)
-        }
-        "summarize_changes" => tools::session::summarize_changes(state, &arguments),
-        "list_queryable_projects" => tools::session::list_queryable_projects(state, &arguments),
-        "get_watch_status" => tools::session::get_watch_status(state, &arguments),
-        "think_about_collected_information"
-        | "think_about_task_adherence"
-        | "think_about_whether_you_are_done" => tools::session::think_noop(state, &arguments),
-        "switch_modes" => tools::session::switch_modes(state, &arguments),
-        "set_preset" => tools::session::set_preset(state, &arguments),
-
-        // Composite / agent
-        "summarize_file" => tools::composite::summarize_file(state, &arguments),
-        "explain_code_flow" => tools::composite::explain_code_flow(state, &arguments),
-        "refactor_extract_function" => {
-            tools::composite::refactor_extract_function(state, &arguments)
-        }
-
-        // Semantic search (feature-gated)
-        #[cfg(feature = "semantic")]
-        "semantic_search" => semantic_search_handler(state, &arguments),
-        #[cfg(feature = "semantic")]
-        "index_embeddings" => index_embeddings_handler(state, &arguments),
-
-        other => Err(anyhow::anyhow!("Unknown tool: {other}")),
+    let result: ToolResult = match DISPATCH_TABLE.get(name) {
+        Some(handler) => handler(state, &arguments),
+        None => Err(error::CodeLensError::ToolNotFound(name.to_owned())),
     };
 
     match result {
         Ok((payload, meta)) => {
             let mut resp = ToolCallResponse::success(payload, meta);
             resp.suggested_next_tools = tools::suggest_next(name);
-            let text = serde_json::to_string(&resp)
-                .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned());
-            resp.token_estimate = Some(tools::estimate_tokens(&text));
+            // Estimate tokens from payload size before final serialization (avoids double serialize)
+            let payload_estimate = serde_json::to_string(&resp.data)
+                .map(|s| tools::estimate_tokens(&s))
+                .unwrap_or(0);
+            resp.token_estimate = Some(payload_estimate);
             let text = serde_json::to_string(&resp)
                 .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned());
             JsonRpcResponse::result(
@@ -675,11 +649,7 @@ fn resources(state: &AppState) -> Vec<serde_json::Value> {
 fn read_resource(state: &AppState, uri: &str) -> serde_json::Value {
     match uri {
         "codelens://project/overview" => {
-            let stats = state
-                .symbol_index
-                .lock()
-                .ok()
-                .and_then(|idx| idx.stats().ok());
+            let stats = state.symbol_index_read().stats().ok();
             json!({
                 "contents": [{
                     "uri": uri,
@@ -694,11 +664,7 @@ fn read_resource(state: &AppState, uri: &str) -> serde_json::Value {
             })
         }
         "codelens://symbols/index" => {
-            let stats = state
-                .symbol_index
-                .lock()
-                .ok()
-                .and_then(|idx| idx.stats().ok());
+            let stats = state.symbol_index_read().stats().ok();
             json!({
                 "contents": [{
                     "uri": uri,
@@ -1275,5 +1241,159 @@ mod tests {
             .current_dir(project.as_path())
             .output()
             .expect("git command failed");
+    }
+
+    // ---- Memory tool tests ----
+
+    #[test]
+    fn write_and_read_memory() {
+        let project = project_root();
+        let state = make_state(&project);
+        call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "test_note", "content": "hello from test"}),
+        );
+        let result = call_tool(
+            &state,
+            "read_memory",
+            json!({"memory_name": "test_note"}),
+        );
+        assert_eq!(
+            result["data"]["content"].as_str().unwrap(),
+            "hello from test"
+        );
+    }
+
+    #[test]
+    fn delete_memory_removes_file() {
+        let project = project_root();
+        let state = make_state(&project);
+        call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "to_delete", "content": "temp"}),
+        );
+        let result = call_tool(
+            &state,
+            "delete_memory",
+            json!({"memory_name": "to_delete"}),
+        );
+        assert_eq!(result["data"]["status"].as_str().unwrap(), "ok");
+    }
+
+    #[test]
+    fn list_memories_returns_written() {
+        let project = project_root();
+        let state = make_state(&project);
+        call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "alpha", "content": "a"}),
+        );
+        call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "beta", "content": "b"}),
+        );
+        let result = call_tool(&state, "list_memories", json!({}));
+        let count = result["data"]["count"].as_u64().unwrap_or(0);
+        assert!(count >= 2, "expected at least 2 memories, got {count}");
+    }
+
+    #[test]
+    fn rename_memory_moves_file() {
+        let project = project_root();
+        let state = make_state(&project);
+        call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "old_name", "content": "data"}),
+        );
+        call_tool(
+            &state,
+            "rename_memory",
+            json!({"old_name": "old_name", "new_name": "new_name"}),
+        );
+        let result = call_tool(
+            &state,
+            "read_memory",
+            json!({"memory_name": "new_name"}),
+        );
+        assert_eq!(result["data"]["content"].as_str().unwrap(), "data");
+    }
+
+    #[test]
+    fn memory_path_traversal_rejected() {
+        let project = project_root();
+        let state = make_state(&project);
+        let result = call_tool(
+            &state,
+            "write_memory",
+            json!({"memory_name": "../escape", "content": "bad"}),
+        );
+        assert!(
+            result["success"].as_bool() == Some(false),
+            "path traversal should be rejected"
+        );
+    }
+
+    // ---- Mutation tool tests ----
+
+    #[test]
+    fn create_text_file_creates_file() {
+        let project = project_root();
+        let state = make_state(&project);
+        let result = call_tool(
+            &state,
+            "create_text_file",
+            json!({"relative_path": "new_file.txt", "content": "line1\nline2\n"}),
+        );
+        assert!(result["success"].as_bool().unwrap_or(false));
+        let content = fs::read_to_string(project.as_path().join("new_file.txt")).unwrap();
+        assert_eq!(content, "line1\nline2\n");
+    }
+
+    #[test]
+    fn delete_lines_removes_range() {
+        let project = project_root();
+        let state = make_state(&project);
+        fs::write(
+            project.as_path().join("lines.txt"),
+            "line1\nline2\nline3\nline4\nline5\n",
+        )
+        .unwrap();
+        let result = call_tool(
+            &state,
+            "delete_lines",
+            json!({"relative_path": "lines.txt", "start_line": 2, "end_line": 4}),
+        );
+        assert!(result["success"].as_bool().unwrap_or(false));
+        let content = fs::read_to_string(project.as_path().join("lines.txt")).unwrap();
+        assert!(content.contains("line1"));
+        assert!(content.contains("line5"));
+        assert!(!content.contains("line2"));
+        assert!(!content.contains("line3"));
+    }
+
+    #[test]
+    fn replace_lines_substitutes_range() {
+        let project = project_root();
+        let state = make_state(&project);
+        fs::write(
+            project.as_path().join("replace.txt"),
+            "aaa\nbbb\nccc\nddd\n",
+        )
+        .unwrap();
+        let result = call_tool(
+            &state,
+            "replace_lines",
+            json!({"relative_path": "replace.txt", "start_line": 2, "end_line": 3, "new_content": "XXX\nYYY\n"}),
+        );
+        assert!(result["success"].as_bool().unwrap_or(false));
+        let content = fs::read_to_string(project.as_path().join("replace.txt")).unwrap();
+        assert!(content.contains("aaa"));
+        assert!(content.contains("XXX"));
+        assert!(!content.contains("bbb"));
     }
 }

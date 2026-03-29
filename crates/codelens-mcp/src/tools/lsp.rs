@@ -2,6 +2,7 @@ use super::{
     default_lsp_command_for_path, parse_lsp_args, required_string, success_meta, AppState,
     ToolResult,
 };
+use crate::error::CodeLensError;
 use codelens_core::{
     check_lsp_status as core_check_lsp_status, extract_word_at_position,
     find_referencing_symbols_via_text, get_lsp_recipe as core_get_lsp_recipe,
@@ -53,7 +54,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         .unwrap_or(50) as usize;
 
     if let Some(sym_name) = symbol_name_param {
-        return find_referencing_symbols_via_text(
+        return Ok(find_referencing_symbols_via_text(
             &state.project,
             sym_name,
             Some(&file_path),
@@ -64,17 +65,19 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 json!({ "references": value, "count": value.len() }),
                 success_meta("text_search", 0.80),
             )
-        });
+        })?);
     }
 
     let line = arguments
         .get("line")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing line or symbol_name"))? as usize;
+        .ok_or_else(|| CodeLensError::MissingParam("line or symbol_name".into()))?
+        as usize;
     let column = arguments
         .get("column")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing column or symbol_name"))? as usize;
+        .ok_or_else(|| CodeLensError::MissingParam("column or symbol_name".into()))?
+        as usize;
     let command = arguments
         .get("command")
         .and_then(|v| v.as_str())
@@ -84,9 +87,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
     if let Some(command) = command {
         let args = parse_lsp_args(arguments, &command);
         let lsp_result = state
-            .lsp_pool
-            .lock()
-            .map_err(|_| anyhow::anyhow!("lsp pool lock poisoned"))?
+            .lsp_pool()
             .find_referencing_symbols(&LspRequest {
                 command: command.clone(),
                 args,
@@ -104,7 +105,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             )),
             Err(_) => {
                 let word = extract_word_at_position(&state.project, &file_path, line, column)?;
-                find_referencing_symbols_via_text(
+                Ok(find_referencing_symbols_via_text(
                     &state.project,
                     &word,
                     Some(&file_path),
@@ -115,18 +116,19 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         json!({ "references": value, "count": value.len() }),
                         success_meta("text_fallback", 0.75),
                     )
-                })
+                })?)
             }
         }
     } else {
         let word = extract_word_at_position(&state.project, &file_path, line, column)?;
-        find_referencing_symbols_via_text(&state.project, &word, Some(&file_path), max_results).map(
-            |value| {
-                (
-                    json!({ "references": value, "count": value.len() }),
-                    success_meta("text_fallback", 0.75),
-                )
-            },
+        Ok(
+            find_referencing_symbols_via_text(&state.project, &word, Some(&file_path), max_results)
+                .map(|value| {
+                    (
+                        json!({ "references": value, "count": value.len() }),
+                        success_meta("text_fallback", 0.75),
+                    )
+                })?,
         )
     }
 }
@@ -138,7 +140,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
         .and_then(|v| v.as_str())
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_path(&file_path))
-        .ok_or_else(|| anyhow::anyhow!("Missing command and no default LSP mapping for file"))?;
+        .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
     let args = parse_lsp_args(arguments, &command);
     let max_results = arguments
         .get("max_results")
@@ -146,10 +148,8 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
         .unwrap_or(200) as usize;
 
     let command_ref = command.clone();
-    state
-        .lsp_pool
-        .lock()
-        .map_err(|_| anyhow::anyhow!("lsp pool lock poisoned"))?
+    Ok(state
+        .lsp_pool()
         .get_diagnostics(&LspDiagnosticRequest {
             command,
             args,
@@ -162,7 +162,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
                 json!({ "diagnostics": value, "count": value.len() }),
                 success_meta("lsp_pooled", 0.9),
             )
-        })
+        })?)
 }
 
 pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -175,10 +175,8 @@ pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value)
         .unwrap_or(50) as usize;
 
     let command_ref = command.clone();
-    state
-        .lsp_pool
-        .lock()
-        .map_err(|_| anyhow::anyhow!("lsp pool lock poisoned"))?
+    Ok(state
+        .lsp_pool()
         .search_workspace_symbols(&LspWorkspaceSymbolRequest {
             command,
             args,
@@ -191,7 +189,7 @@ pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value)
                 json!({ "symbols": value, "count": value.len() }),
                 success_meta("lsp_pooled", 0.88),
             )
-        })
+        })?)
 }
 
 pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -199,7 +197,7 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
         .get("name_path")
         .or_else(|| arguments.get("fully_qualified_name"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Either 'name_path' or 'fully_qualified_name' is required"))?
+        .ok_or_else(|| CodeLensError::MissingParam("name_path or fully_qualified_name".into()))?
         .to_owned();
     let relative_path = arguments
         .get("relative_path")
@@ -224,9 +222,7 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
     if let Some(command) = command {
         let args = parse_lsp_args(arguments, &command);
         let lsp_result = state
-            .lsp_pool
-            .lock()
-            .map_err(|_| anyhow::anyhow!("lsp pool lock poisoned"))?
+            .lsp_pool()
             .get_type_hierarchy(&LspTypeHierarchyRequest {
                 command,
                 args,
@@ -238,24 +234,24 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
 
         match lsp_result {
             Ok(value) => Ok((json!(value), success_meta("lsp_pooled", 0.82))),
-            Err(_) => get_type_hierarchy_native(
+            Err(_) => Ok(get_type_hierarchy_native(
                 &state.project,
                 &query,
                 relative_path.as_deref(),
                 &hierarchy_type,
                 depth,
             )
-            .map(|value| (json!(value), success_meta("tree-sitter-native", 0.80))),
+            .map(|value| (json!(value), success_meta("tree-sitter-native", 0.80)))?),
         }
     } else {
-        get_type_hierarchy_native(
+        Ok(get_type_hierarchy_native(
             &state.project,
             &query,
             relative_path.as_deref(),
             &hierarchy_type,
             depth,
         )
-        .map(|value| (json!(value), success_meta("tree-sitter-native", 0.80)))
+        .map(|value| (json!(value), success_meta("tree-sitter-native", 0.80)))?)
     }
 }
 
@@ -264,11 +260,11 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
     let line = arguments
         .get("line")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing line"))? as usize;
+        .ok_or_else(|| CodeLensError::MissingParam("line".into()))? as usize;
     let column = arguments
         .get("column")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing column"))? as usize;
+        .ok_or_else(|| CodeLensError::MissingParam("column".into()))? as usize;
     let new_name = arguments
         .get("new_name")
         .and_then(|v| v.as_str())
@@ -278,14 +274,12 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
         .and_then(|v| v.as_str())
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_path(&file_path))
-        .ok_or_else(|| anyhow::anyhow!("Missing command and no default LSP mapping for file"))?;
+        .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
     let args = parse_lsp_args(arguments, &command);
 
     let command_ref = command.clone();
-    state
-        .lsp_pool
-        .lock()
-        .map_err(|_| anyhow::anyhow!("lsp pool lock poisoned"))?
+    Ok(state
+        .lsp_pool()
         .get_rename_plan(&LspRenamePlanRequest {
             command,
             args,
@@ -295,7 +289,7 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
             new_name,
         })
         .map_err(|e| enhance_lsp_error(e, &command_ref))
-        .map(|value| (json!(value), success_meta("lsp_pooled", 0.86)))
+        .map(|value| (json!(value), success_meta("lsp_pooled", 0.86)))?)
 }
 
 pub fn check_lsp_status(_state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
@@ -310,8 +304,8 @@ pub fn get_lsp_recipe(_state: &AppState, arguments: &serde_json::Value) -> ToolR
     let extension = required_string(arguments, "extension")?;
     match core_get_lsp_recipe(extension) {
         Some(recipe) => Ok((json!(recipe), success_meta("lsp", 1.0))),
-        None => Err(anyhow::anyhow!(
-            "No LSP recipe found for extension: {extension}"
-        )),
+        None => Err(CodeLensError::NotFound(format!(
+            "LSP recipe for extension: {extension}"
+        ))),
     }
 }

@@ -38,11 +38,16 @@ impl EmbeddingEngine {
         std::fs::create_dir_all(&db_dir)?;
         let db_path = db_dir.join("embeddings.db");
 
-        // Load sqlite-vec extension
-        unsafe {
+        // Load sqlite-vec extension — SAFETY: sqlite3_vec_init has the
+        // correct (db, err_msg, api) signature required by sqlite3_auto_extension.
+        // We verify the registration succeeded by checking the return code.
+        let rc = unsafe {
             rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
                 sqlite_vec::sqlite3_vec_init as *const (),
-            )));
+            )))
+        };
+        if rc != rusqlite::ffi::SQLITE_OK {
+            anyhow::bail!("failed to register sqlite-vec extension (SQLite error code: {rc})");
         }
 
         let conn = Connection::open(&db_path)?;

@@ -1,4 +1,5 @@
 use super::{required_string, success_meta, AppState, ToolResult};
+use crate::error::CodeLensError;
 use codelens_core::{get_callees, get_callers, get_importers, get_symbols_overview, SymbolKind};
 use serde_json::json;
 
@@ -82,11 +83,12 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
     let start_line = arguments
         .get("start_line")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing start_line"))? as usize;
+        .ok_or_else(|| CodeLensError::MissingParam("start_line".into()))?
+        as usize;
     let end_line = arguments
         .get("end_line")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing end_line"))? as usize;
+        .ok_or_else(|| CodeLensError::MissingParam("end_line".into()))? as usize;
     let new_name = required_string(arguments, "new_name")?;
     let dry_run = arguments
         .get("dry_run")
@@ -98,10 +100,10 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
     let lines: Vec<&str> = source.lines().collect();
 
     if start_line < 1 || end_line < start_line || end_line > lines.len() {
-        return Err(anyhow::anyhow!(
-            "Invalid line range: {start_line}-{end_line} (file has {} lines)",
+        return Err(CodeLensError::Validation(format!(
+            "invalid line range: {start_line}-{end_line} (file has {} lines)",
             lines.len()
-        ));
+        )));
     }
 
     let ext = resolved.extension().and_then(|e| e.to_str()).unwrap_or("");

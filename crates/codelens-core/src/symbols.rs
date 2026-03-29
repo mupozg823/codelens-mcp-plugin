@@ -1,5 +1,7 @@
-use crate::db::{content_hash, index_db_path, IndexDb, NewCall, NewImport, NewSymbol};
+use crate::db::{self, content_hash, index_db_path, IndexDb, NewCall, NewImport, NewSymbol};
 use crate::import_graph::{extract_imports_for_file, resolve_module_for_file};
+// Re-export language_for_path so downstream crate modules keep working.
+pub(crate) use crate::lang_config::{language_for_path, LanguageConfig};
 use crate::project::ProjectRoot;
 use anyhow::{bail, Context, Result};
 use serde::{Deserialize, Serialize};
@@ -9,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::UNIX_EPOCH;
 use streaming_iterator::StreamingIterator;
-use tree_sitter::{Language, Node, Parser, Query, QueryCapture, QueryCursor};
+use tree_sitter::{Node, Parser, Query, QueryCapture, QueryCursor};
 use walkdir::WalkDir;
 
 /// Cached compiled tree-sitter Query per language extension.
@@ -78,6 +80,11 @@ pub struct SymbolInfo {
     pub body: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<SymbolInfo>,
+    /// Byte offsets for batch body extraction (not serialized to API output).
+    #[serde(skip)]
+    pub start_byte: usize,
+    #[serde(skip)]
+    pub end_byte: usize,
 }
 
 /// Construct a stable symbol ID: `{file_path}#{kind}:{name_path}`
@@ -142,22 +149,75 @@ struct ParsedSymbol {
     children: Vec<ParsedSymbol>,
 }
 
+/// Read-only DB access — either an owned read-only connection or a borrowed writer guard.
+enum ReadDb<'a> {
+    Owned(IndexDb),
+    Writer(std::sync::MutexGuard<'a, IndexDb>),
+}
+
+impl std::ops::Deref for ReadDb<'_> {
+    type Target = IndexDb;
+    fn deref(&self) -> &IndexDb {
+        match self {
+            ReadDb::Owned(db) => db,
+            ReadDb::Writer(guard) => guard,
+        }
+    }
+}
+
 /// SQLite-backed symbol index for a project.
+///
+/// Architecture: writer `Mutex<IndexDb>` for mutations + per-query read-only
+/// connections for `_cached` methods. This makes `SymbolIndex: Send + Sync`,
+/// enabling `Arc<SymbolIndex>` without an external Mutex.
 pub struct SymbolIndex {
     project: ProjectRoot,
-    db: IndexDb,
+    db_path: PathBuf,
+    writer: std::sync::Mutex<IndexDb>,
+    /// In-memory mode flag (tests) — when true, _cached reads use the writer.
+    in_memory: bool,
 }
 
 impl SymbolIndex {
     pub fn new(project: ProjectRoot) -> Self {
         let db_path = index_db_path(project.as_path());
-        let db = IndexDb::open(&db_path).unwrap_or_else(|_| IndexDb::open_memory().unwrap());
-        let mut idx = Self { project, db };
+        let db = IndexDb::open(&db_path).unwrap_or_else(|e| {
+            eprintln!(
+                "[codelens] WARNING: failed to open DB at {}, falling back to in-memory: {e}",
+                db_path.display()
+            );
+            IndexDb::open_memory().unwrap()
+        });
+        let in_memory = !db_path.is_file();
+        let mut idx = Self {
+            project,
+            db_path,
+            writer: std::sync::Mutex::new(db),
+            in_memory,
+        };
         // Auto-migrate from legacy JSON index if DB is empty
-        if idx.db.file_count().unwrap_or(0) == 0 {
+        if idx.writer().file_count().unwrap_or(0) == 0 {
             let _ = idx.migrate_from_json();
         }
         idx
+    }
+
+    /// Acquire the writer connection (poison-safe).
+    fn writer(&self) -> std::sync::MutexGuard<'_, IndexDb> {
+        self.writer
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Open a read-only DB connection for queries (or fall back to writer for in-memory).
+    fn reader(&self) -> Result<ReadDb<'_>> {
+        if self.in_memory {
+            return Ok(ReadDb::Writer(self.writer()));
+        }
+        match IndexDb::open_readonly(&self.db_path)? {
+            Some(db) => Ok(ReadDb::Owned(db)),
+            None => Ok(ReadDb::Writer(self.writer())),
+        }
     }
 
     /// One-time migration from legacy symbols-v1.json to SQLite.
@@ -169,22 +229,36 @@ impl SymbolIndex {
         if !json_path.is_file() {
             return Ok(());
         }
-        // Trigger a full refresh which populates the DB, then remove the old file
-        self.refresh_all()?;
-        let _ = fs::remove_file(&json_path);
+        // Trigger a full refresh which populates the DB
+        let stats = self.refresh_all()?;
+        // Only remove the old JSON file after DB is confirmed populated
+        if stats.indexed_files > 0 || stats.stale_files == 0 {
+            let _ = fs::remove_file(&json_path);
+        } else {
+            eprintln!(
+                "[codelens] WARNING: migration from JSON produced 0 indexed files, keeping {}",
+                json_path.display()
+            );
+        }
         Ok(())
     }
 
     /// Create an in-memory index (for tests and benchmarks — no disk persistence).
     pub fn new_memory(project: ProjectRoot) -> Self {
         let db = IndexDb::open_memory().unwrap();
-        Self { project, db }
+        Self {
+            db_path: PathBuf::new(),
+            project,
+            writer: std::sync::Mutex::new(db),
+            in_memory: true,
+        }
     }
 
     pub fn stats(&self) -> Result<IndexStats> {
+        let db = self.reader()?;
         let supported_files = collect_candidate_files(self.project.as_path())?;
-        let indexed_files = self.db.file_count()?;
-        let indexed_paths = self.db.all_file_paths()?;
+        let indexed_files = db.file_count()?;
+        let indexed_paths = db.all_file_paths()?;
 
         let mut stale = 0usize;
         for rel in &indexed_paths {
@@ -202,7 +276,7 @@ impl SymbolIndex {
             };
             let hash = content_hash(&content);
             let mtime = file_modified_ms(&path).unwrap_or(0) as i64;
-            if self.db.get_fresh_file(rel, mtime, &hash)?.is_none() {
+            if db.get_fresh_file(rel, mtime, &hash)?.is_none() {
                 stale += 1;
             }
         }
@@ -214,7 +288,7 @@ impl SymbolIndex {
         })
     }
 
-    pub fn refresh_all(&mut self) -> Result<IndexStats> {
+    pub fn refresh_all(&self) -> Result<IndexStats> {
         use rayon::prelude::*;
 
         let files = collect_candidate_files(self.project.as_path())?;
@@ -264,55 +338,54 @@ impl SymbolIndex {
             })
             .collect();
 
-        // Phase 2: sequential DB write (SQLite single-writer)
-        self.db.begin_transaction()?;
-        let mut on_disk = HashSet::new();
-        for (relative, mtime, hash, size, ext, symbols, new_imports, call_edges) in parsed {
-            on_disk.insert(relative.clone());
-            if self.db.get_fresh_file(&relative, mtime, &hash)?.is_some() {
-                continue;
+        // Phase 2: sequential DB write in RAII transaction (auto-rollback on error)
+        self.writer().with_transaction(|conn| {
+            let mut on_disk = HashSet::new();
+            for (relative, mtime, hash, size, ext, symbols, new_imports, call_edges) in parsed {
+                on_disk.insert(relative.clone());
+                if db::get_fresh_file(conn, &relative, mtime, &hash)?.is_some() {
+                    continue;
+                }
+                let file_id = db::upsert_file(conn, &relative, mtime, &hash, size, Some(&ext))?;
+                let flat = flatten_symbols(symbols);
+                let new_syms: Vec<NewSymbol> = flat
+                    .iter()
+                    .map(|s| NewSymbol {
+                        name: s.name.clone(),
+                        kind: s.kind.as_label().to_owned(),
+                        line: s.line as i64,
+                        column_num: s.column as i64,
+                        start_byte: s.start_byte as i64,
+                        end_byte: s.end_byte as i64,
+                        signature: s.signature.clone(),
+                        name_path: s.name_path.clone(),
+                        parent_id: None,
+                    })
+                    .collect();
+                db::insert_symbols(conn, file_id, &new_syms)?;
+                if !new_imports.is_empty() {
+                    db::insert_imports(conn, file_id, &new_imports)?;
+                }
+                if !call_edges.is_empty() {
+                    db::insert_calls(conn, file_id, &call_edges)?;
+                }
             }
-            let file_id = self
-                .db
-                .upsert_file(&relative, mtime, &hash, size, Some(&ext))?;
-            let flat = flatten_symbols(symbols);
-            let new_syms: Vec<NewSymbol> = flat
-                .iter()
-                .map(|s| NewSymbol {
-                    name: s.name.clone(),
-                    kind: s.kind.as_label().to_owned(),
-                    line: s.line as i64,
-                    column_num: s.column as i64,
-                    start_byte: s.start_byte as i64,
-                    end_byte: s.end_byte as i64,
-                    signature: s.signature.clone(),
-                    name_path: s.name_path.clone(),
-                    parent_id: None,
-                })
-                .collect();
-            self.db.insert_symbols(file_id, &new_syms)?;
-            if !new_imports.is_empty() {
-                self.db.insert_imports(file_id, &new_imports)?;
-            }
-            if !call_edges.is_empty() {
-                self.db.insert_calls(file_id, &call_edges)?;
-            }
-        }
 
-        // Remove files that no longer exist on disk
-        for indexed_path in self.db.all_file_paths()? {
-            if !on_disk.contains(&indexed_path) {
-                self.db.delete_file(&indexed_path)?;
+            // Remove files that no longer exist on disk
+            for indexed_path in db::all_file_paths(conn)? {
+                if !on_disk.contains(&indexed_path) {
+                    db::delete_file(conn, &indexed_path)?;
+                }
             }
-        }
 
-        self.db.commit()?;
+            Ok(())
+        })?;
         self.stats()
     }
 
     /// Incrementally re-index only the given files (changed/created).
     /// Deleted files should be passed separately via `remove_files`.
-    pub fn index_files(&mut self, paths: &[PathBuf]) -> Result<usize> {
+    pub fn index_files(&self, paths: &[PathBuf]) -> Result<usize> {
         use rayon::prelude::*;
 
         let parsed: Vec<_> = paths
@@ -321,15 +394,15 @@ impl SymbolIndex {
                 if !file.is_file() {
                     return None;
                 }
-                language_for_path(file)?;
+                let config = language_for_path(file)?;
                 let relative = self.project.to_relative(file);
                 let content = fs::read(file).ok()?;
                 let mtime = file_modified_ms(file).ok()? as i64;
                 let hash = content_hash(&content);
                 let source = String::from_utf8_lossy(&content);
                 let ext = file.extension()?.to_str()?.to_ascii_lowercase();
-                let symbols = language_for_path(file)
-                    .and_then(|config| parse_symbols(&config, &relative, &source, false).ok())
+                let symbols = parse_symbols(&config, &relative, &source, false)
+                    .ok()
                     .unwrap_or_default();
                 let raw_imports = extract_imports_for_file(file);
                 let new_imports: Vec<NewImport> = raw_imports
@@ -367,54 +440,54 @@ impl SymbolIndex {
             return Ok(0);
         }
 
-        self.db.begin_transaction()?;
-        for (relative, mtime, hash, size, ext, symbols, new_imports, call_edges) in parsed {
-            if self.db.get_fresh_file(&relative, mtime, &hash)?.is_some() {
-                continue;
+        self.writer().with_transaction(|conn| {
+            for (relative, mtime, hash, size, ext, symbols, new_imports, call_edges) in parsed {
+                if db::get_fresh_file(conn, &relative, mtime, &hash)?.is_some() {
+                    continue;
+                }
+                let file_id = db::upsert_file(conn, &relative, mtime, &hash, size, Some(&ext))?;
+                let flat = flatten_symbols(symbols);
+                let new_syms: Vec<NewSymbol> = flat
+                    .iter()
+                    .map(|s| NewSymbol {
+                        name: s.name.clone(),
+                        kind: s.kind.as_label().to_owned(),
+                        line: s.line as i64,
+                        column_num: s.column as i64,
+                        start_byte: s.start_byte as i64,
+                        end_byte: s.end_byte as i64,
+                        signature: s.signature.clone(),
+                        name_path: s.name_path.clone(),
+                        parent_id: None,
+                    })
+                    .collect();
+                db::insert_symbols(conn, file_id, &new_syms)?;
+                if !new_imports.is_empty() {
+                    db::insert_imports(conn, file_id, &new_imports)?;
+                }
+                if !call_edges.is_empty() {
+                    db::insert_calls(conn, file_id, &call_edges)?;
+                }
             }
-            let file_id = self
-                .db
-                .upsert_file(&relative, mtime, &hash, size, Some(&ext))?;
-            let flat = flatten_symbols(symbols);
-            let new_syms: Vec<NewSymbol> = flat
-                .iter()
-                .map(|s| NewSymbol {
-                    name: s.name.clone(),
-                    kind: s.kind.as_label().to_owned(),
-                    line: s.line as i64,
-                    column_num: s.column as i64,
-                    start_byte: s.start_byte as i64,
-                    end_byte: s.end_byte as i64,
-                    signature: s.signature.clone(),
-                    name_path: s.name_path.clone(),
-                    parent_id: None,
-                })
-                .collect();
-            self.db.insert_symbols(file_id, &new_syms)?;
-            if !new_imports.is_empty() {
-                self.db.insert_imports(file_id, &new_imports)?;
-            }
-            if !call_edges.is_empty() {
-                self.db.insert_calls(file_id, &call_edges)?;
-            }
-        }
-        self.db.commit()?;
+            Ok(())
+        })?;
         Ok(count)
     }
 
     /// Remove deleted files from the index.
-    pub fn remove_files(&mut self, paths: &[PathBuf]) -> Result<usize> {
+    pub fn remove_files(&self, paths: &[PathBuf]) -> Result<usize> {
         let count = paths.len();
-        self.db.begin_transaction()?;
-        for path in paths {
-            let relative = self.project.to_relative(path);
-            self.db.delete_file(&relative)?;
-        }
-        self.db.commit()?;
+        let relatives: Vec<String> = paths.iter().map(|p| self.project.to_relative(p)).collect();
+        self.writer().with_transaction(|conn| {
+            for relative in &relatives {
+                db::delete_file(conn, relative)?;
+            }
+            Ok(())
+        })?;
         Ok(count)
     }
 
-    pub fn get_symbols_overview(&mut self, path: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
+    pub fn get_symbols_overview(&self, path: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
         let resolved = self.project.resolve(path)?;
         if resolved.is_dir() {
             let mut symbols = Vec::new();
@@ -448,6 +521,8 @@ impl SymbolIndex {
                             .into_iter()
                             .map(|symbol| to_symbol_info(symbol, depth))
                             .collect(),
+                        start_byte: 0,
+                        end_byte: 0,
                     });
                 }
             }
@@ -463,7 +538,7 @@ impl SymbolIndex {
     }
 
     pub fn find_symbol(
-        &mut self,
+        &self,
         name: &str,
         file_path: Option<&str>,
         include_body: bool,
@@ -477,15 +552,14 @@ impl SymbolIndex {
             self.ensure_indexed(&resolved, &relative)?;
             // Extract the leaf name from name_path (after last '/')
             let leaf_name = id_name_path.rsplit('/').next().unwrap_or(id_name_path);
-            let db_rows =
-                self.db
-                    .find_symbols_by_name(leaf_name, Some(id_file), true, max_matches)?;
+            let db = self.writer();
+            let db_rows = db.find_symbols_by_name(leaf_name, Some(id_file), true, max_matches)?;
             let mut results = Vec::new();
             for row in db_rows {
                 if row.name_path != id_name_path {
                     continue;
                 }
-                let rel_path = self.db.get_file_path(row.file_id)?.unwrap_or_default();
+                let rel_path = db.get_file_path(row.file_id)?.unwrap_or_default();
                 let body = if include_body {
                     let abs = self.project.as_path().join(&rel_path);
                     fs::read_to_string(&abs).ok().map(|source| {
@@ -507,6 +581,8 @@ impl SymbolIndex {
                     id,
                     body,
                     children: Vec::new(),
+                    start_byte: row.start_byte as usize,
+                    end_byte: row.end_byte as usize,
                 });
             }
             return Ok(results);
@@ -526,13 +602,12 @@ impl SymbolIndex {
             }
         }
 
-        let db_rows = self
-            .db
-            .find_symbols_by_name(name, file_path, exact_match, max_matches)?;
+        let db = self.writer();
+        let db_rows = db.find_symbols_by_name(name, file_path, exact_match, max_matches)?;
 
         let mut results = Vec::new();
         for row in db_rows {
-            let rel_path = self.db.get_file_path(row.file_id)?.unwrap_or_default();
+            let rel_path = db.get_file_path(row.file_id)?.unwrap_or_default();
             let body = if include_body {
                 let abs = self.project.as_path().join(&rel_path);
                 fs::read_to_string(&abs).ok().map(|source| {
@@ -553,14 +628,16 @@ impl SymbolIndex {
                 name_path: row.name_path,
                 id,
                 body,
-                children: Vec::new(), // flat result from DB
+                children: Vec::new(),
+                start_byte: row.start_byte as usize,
+                end_byte: row.end_byte as usize,
             });
         }
         Ok(results)
     }
 
     pub fn get_ranked_context(
-        &mut self,
+        &self,
         query: &str,
         path: Option<&str>,
         max_tokens: usize,
@@ -581,20 +658,22 @@ impl SymbolIndex {
             .collect::<Vec<_>>();
         scored.sort_by(|left, right| right.1.cmp(&left.1));
 
+        // Batch body extraction: read each file once instead of N+1 DB queries.
+        let mut file_cache: HashMap<String, Option<String>> = HashMap::new();
         let mut selected = Vec::new();
         let mut char_budget = max_chars;
 
         for (symbol, score) in scored {
-            let body = if include_body {
-                self.find_symbol(&symbol.name, Some(&symbol.file_path), true, true, 20)?
-                    .into_iter()
-                    .find(|candidate| candidate.name_path == symbol.name_path)
-                    .or_else(|| {
-                        self.find_symbol(&symbol.name, Some(&symbol.file_path), true, true, 20)
-                            .ok()
-                            .and_then(|mut matches| matches.drain(..).next())
-                    })
-                    .and_then(|candidate| candidate.body)
+            let body = if include_body && symbol.end_byte > symbol.start_byte {
+                let source = file_cache
+                    .entry(symbol.file_path.clone())
+                    .or_insert_with(|| {
+                        let abs = self.project.as_path().join(&symbol.file_path);
+                        fs::read_to_string(&abs).ok()
+                    });
+                source
+                    .as_deref()
+                    .map(|s| slice_source(s, symbol.start_byte, symbol.end_byte))
             } else {
                 None
             };
@@ -625,17 +704,244 @@ impl SymbolIndex {
         })
     }
 
+    // ---- Read-only methods (no ensure_indexed, DB-only queries) ----
+    // These take &self and are safe to call under RwLock::read().
+
+    /// Query symbols from DB without lazy indexing. Returns empty if file not yet indexed.
+    pub fn find_symbol_cached(
+        &self,
+        name: &str,
+        file_path: Option<&str>,
+        include_body: bool,
+        exact_match: bool,
+        max_matches: usize,
+    ) -> Result<Vec<SymbolInfo>> {
+        let db = self.reader()?;
+        // Stable ID fast path
+        if let Some((id_file, _id_kind, id_name_path)) = parse_symbol_id(name) {
+            let leaf_name = id_name_path.rsplit('/').next().unwrap_or(id_name_path);
+            let db_rows = db.find_symbols_by_name(leaf_name, Some(id_file), true, max_matches)?;
+            return Self::rows_to_symbol_infos(&self.project, &db, db_rows, include_body);
+        }
+
+        let db_rows = db.find_symbols_by_name(name, file_path, exact_match, max_matches)?;
+        Self::rows_to_symbol_infos(&self.project, &db, db_rows, include_body)
+    }
+
+    /// Get symbols overview from DB without lazy indexing.
+    pub fn get_symbols_overview_cached(&self, path: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
+        let db = self.reader()?;
+        let resolved = self.project.resolve(path)?;
+        if resolved.is_dir() {
+            // For directories, collect all DB-indexed files under the path
+            let prefix = self.project.to_relative(&resolved);
+            let all_paths = db.all_file_paths()?;
+            let mut symbols = Vec::new();
+            for rel in all_paths {
+                if !rel.starts_with(&prefix) && prefix != "." && prefix != "" {
+                    continue;
+                }
+                let file_row = match db.get_file(&rel)? {
+                    Some(row) => row,
+                    None => continue,
+                };
+                let file_symbols = db.get_file_symbols(file_row.id)?;
+                if !file_symbols.is_empty() {
+                    let id = make_symbol_id(&rel, &SymbolKind::File, &rel);
+                    symbols.push(SymbolInfo {
+                        name: rel.clone(),
+                        kind: SymbolKind::File,
+                        file_path: rel.clone(),
+                        line: 0,
+                        column: 0,
+                        signature: format!(
+                            "{} ({} symbols)",
+                            std::path::Path::new(&rel)
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or(&rel),
+                            file_symbols.len()
+                        ),
+                        name_path: rel,
+                        id,
+                        body: None,
+                        children: file_symbols
+                            .into_iter()
+                            .map(|row| {
+                                let kind = str_to_kind(&row.kind);
+                                let sid = make_symbol_id("", &kind, &row.name_path);
+                                SymbolInfo {
+                                    name: row.name,
+                                    kind,
+                                    file_path: String::new(),
+                                    line: row.line as usize,
+                                    column: row.column_num as usize,
+                                    signature: row.signature,
+                                    name_path: row.name_path,
+                                    id: sid,
+                                    body: None,
+                                    children: Vec::new(),
+                                    start_byte: row.start_byte as usize,
+                                    end_byte: row.end_byte as usize,
+                                }
+                            })
+                            .collect(),
+                        start_byte: 0,
+                        end_byte: 0,
+                    });
+                }
+            }
+            return Ok(symbols);
+        }
+
+        // Single file
+        let relative = self.project.to_relative(&resolved);
+        let file_row = match db.get_file(&relative)? {
+            Some(row) => row,
+            None => return Ok(Vec::new()),
+        };
+        let db_symbols = db.get_file_symbols(file_row.id)?;
+        Ok(db_symbols
+            .into_iter()
+            .map(|row| {
+                let kind = str_to_kind(&row.kind);
+                let id = make_symbol_id(&relative, &kind, &row.name_path);
+                SymbolInfo {
+                    name: row.name,
+                    kind,
+                    file_path: relative.clone(),
+                    line: row.line as usize,
+                    column: row.column_num as usize,
+                    signature: row.signature,
+                    name_path: row.name_path,
+                    id,
+                    body: None,
+                    children: Vec::new(),
+                    start_byte: row.start_byte as usize,
+                    end_byte: row.end_byte as usize,
+                }
+            })
+            .collect())
+    }
+
+    /// Ranked context from DB without lazy indexing.
+    pub fn get_ranked_context_cached(
+        &self,
+        query: &str,
+        path: Option<&str>,
+        max_tokens: usize,
+        include_body: bool,
+        depth: usize,
+    ) -> Result<RankedContextResult> {
+        let max_chars = max_tokens.saturating_mul(4);
+        let all_symbols = if let Some(path) = path {
+            self.get_symbols_overview_cached(path, depth)?
+        } else {
+            self.find_symbol_cached(query, None, false, false, 500)?
+        };
+
+        let mut scored = all_symbols
+            .into_iter()
+            .flat_map(flatten_symbol_infos)
+            .filter_map(|symbol| score_symbol(query, &symbol).map(|score| (symbol, score)))
+            .collect::<Vec<_>>();
+        scored.sort_by(|left, right| right.1.cmp(&left.1));
+
+        let mut file_cache: HashMap<String, Option<String>> = HashMap::new();
+        let mut selected = Vec::new();
+        let mut char_budget = max_chars;
+
+        for (symbol, score) in scored {
+            let body = if include_body && symbol.end_byte > symbol.start_byte {
+                let source = file_cache
+                    .entry(symbol.file_path.clone())
+                    .or_insert_with(|| {
+                        let abs = self.project.as_path().join(&symbol.file_path);
+                        fs::read_to_string(&abs).ok()
+                    });
+                source
+                    .as_deref()
+                    .map(|s| slice_source(s, symbol.start_byte, symbol.end_byte))
+            } else {
+                None
+            };
+
+            let entry = RankedContextEntry {
+                name: symbol.name,
+                kind: symbol.kind.as_label().to_owned(),
+                file: symbol.file_path,
+                line: symbol.line,
+                signature: symbol.signature,
+                body,
+                relevance_score: score,
+            };
+            let entry_size = serde_json::to_string(&entry)?.len();
+            if char_budget < entry_size && !selected.is_empty() {
+                break;
+            }
+            char_budget = char_budget.saturating_sub(entry_size);
+            selected.push(entry);
+        }
+
+        Ok(RankedContextResult {
+            query: query.to_owned(),
+            count: selected.len(),
+            symbols: selected,
+            token_budget: max_tokens,
+            chars_used: max_chars.saturating_sub(char_budget),
+        })
+    }
+
+    /// Helper: convert DB rows to SymbolInfo with optional body.
+    fn rows_to_symbol_infos(
+        project: &ProjectRoot,
+        db: &IndexDb,
+        rows: Vec<crate::db::SymbolRow>,
+        include_body: bool,
+    ) -> Result<Vec<SymbolInfo>> {
+        let mut results = Vec::new();
+        for row in rows {
+            let rel_path = db.get_file_path(row.file_id)?.unwrap_or_default();
+            let body = if include_body {
+                let abs = project.as_path().join(&rel_path);
+                fs::read_to_string(&abs).ok().map(|source| {
+                    slice_source(&source, row.start_byte as usize, row.end_byte as usize)
+                })
+            } else {
+                None
+            };
+            let kind = str_to_kind(&row.kind);
+            let id = make_symbol_id(&rel_path, &kind, &row.name_path);
+            results.push(SymbolInfo {
+                name: row.name,
+                kind,
+                file_path: rel_path,
+                line: row.line as usize,
+                column: row.column_num as usize,
+                signature: row.signature,
+                name_path: row.name_path,
+                id,
+                body,
+                children: Vec::new(),
+                start_byte: row.start_byte as usize,
+                end_byte: row.end_byte as usize,
+            });
+        }
+        Ok(results)
+    }
+
     /// Access the underlying database (e.g. for import graph queries).
-    pub fn db(&self) -> &IndexDb {
-        &self.db
+    pub fn db(&self) -> std::sync::MutexGuard<'_, IndexDb> {
+        self.writer()
     }
 
     /// Ensure a file is indexed; returns parsed symbols for immediate use.
-    fn ensure_indexed(&mut self, file: &Path, relative: &str) -> Result<Vec<ParsedSymbol>> {
+    fn ensure_indexed(&self, file: &Path, relative: &str) -> Result<Vec<ParsedSymbol>> {
         let mtime = file_modified_ms(file)? as i64;
+        let db = self.writer();
 
         // Fast path: mtime unchanged → symbols already in DB, re-parse from source
-        if self.db.get_fresh_file_by_mtime(relative, mtime)?.is_some() {
+        if db.get_fresh_file_by_mtime(relative, mtime)?.is_some() {
             let source = fs::read_to_string(file)
                 .with_context(|| format!("failed to read {}", file.display()))?;
             if let Some(config) = language_for_path(file) {
@@ -661,8 +967,7 @@ impl SymbolIndex {
             .map(|e| e.to_ascii_lowercase());
 
         let file_id =
-            self.db
-                .upsert_file(relative, mtime, &hash, content.len() as i64, ext.as_deref())?;
+            db.upsert_file(relative, mtime, &hash, content.len() as i64, ext.as_deref())?;
 
         // Flatten and insert symbols
         let flat = flatten_symbols(symbols.clone());
@@ -680,7 +985,7 @@ impl SymbolIndex {
                 parent_id: None,
             })
             .collect();
-        self.db.insert_symbols(file_id, &new_syms)?;
+        db.insert_symbols(file_id, &new_syms)?;
 
         // Index imports
         let raw_imports = extract_imports_for_file(file);
@@ -694,7 +999,20 @@ impl SymbolIndex {
             })
             .collect();
         if !new_imports.is_empty() {
-            self.db.insert_imports(file_id, &new_imports)?;
+            db.insert_imports(file_id, &new_imports)?;
+        }
+
+        // Index call graph edges (consistent with refresh_all / index_files)
+        let call_edges: Vec<NewCall> = crate::call_graph::extract_calls(file)
+            .into_iter()
+            .map(|e| NewCall {
+                caller_name: e.caller_name,
+                callee_name: e.callee_name,
+                line: e.line as i64,
+            })
+            .collect();
+        if !call_edges.is_empty() {
+            db.insert_calls(file_id, &call_edges)?;
         }
 
         Ok(symbols)
@@ -853,6 +1171,8 @@ fn get_directory_symbols(
                 id,
                 body: None,
                 children: file_symbols,
+                start_byte: 0,
+                end_byte: 0,
             });
         }
     }
@@ -1049,6 +1369,8 @@ fn to_symbol_info_with_source(
             .map(|source| slice_source(source, symbol.start_byte, symbol.end_byte))
             .or(symbol.body),
         children,
+        start_byte: symbol.start_byte,
+        end_byte: symbol.end_byte,
     }
 }
 
@@ -1136,216 +1458,8 @@ fn node_text<'a>(node: Node<'_>, source_bytes: &'a [u8]) -> &'a str {
     std::str::from_utf8(&source_bytes[start..end]).unwrap_or_default()
 }
 
-pub(crate) struct LanguageConfig {
-    pub extension: &'static str,
-    pub language: Language,
-    pub query: &'static str,
-}
-
-pub(crate) fn language_for_path(path: &Path) -> Option<LanguageConfig> {
-    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
-    match extension.as_str() {
-        "py" => Some(LanguageConfig {
-            extension: "py",
-            language: tree_sitter_python::LANGUAGE.into(),
-            query: PYTHON_QUERY,
-        }),
-        "js" | "mjs" | "cjs" => Some(LanguageConfig {
-            extension: "js",
-            language: tree_sitter_javascript::LANGUAGE.into(),
-            query: JAVASCRIPT_QUERY,
-        }),
-        "ts" => Some(LanguageConfig {
-            extension: "ts",
-            language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-            query: TYPESCRIPT_QUERY,
-        }),
-        "tsx" | "jsx" => Some(LanguageConfig {
-            extension: "tsx",
-            language: tree_sitter_typescript::LANGUAGE_TSX.into(),
-            query: TYPESCRIPT_QUERY,
-        }),
-        "go" => Some(LanguageConfig {
-            extension: "go",
-            language: tree_sitter_go::LANGUAGE.into(),
-            query: GO_QUERY,
-        }),
-        "java" => Some(LanguageConfig {
-            extension: "java",
-            language: tree_sitter_java::LANGUAGE.into(),
-            query: JAVA_QUERY,
-        }),
-        "kt" | "kts" => Some(LanguageConfig {
-            extension: "kt",
-            language: tree_sitter_kotlin::LANGUAGE.into(),
-            query: KOTLIN_QUERY,
-        }),
-        "rs" => Some(LanguageConfig {
-            extension: "rs",
-            language: tree_sitter_rust::LANGUAGE.into(),
-            query: RUST_QUERY,
-        }),
-        "c" | "h" => Some(LanguageConfig {
-            extension: "c",
-            language: tree_sitter_c::LANGUAGE.into(),
-            query: C_QUERY,
-        }),
-        "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Some(LanguageConfig {
-            extension: "cpp",
-            language: tree_sitter_cpp::LANGUAGE.into(),
-            query: CPP_QUERY,
-        }),
-        "php" => Some(LanguageConfig {
-            extension: "php",
-            language: tree_sitter_php::LANGUAGE_PHP.into(),
-            query: PHP_QUERY,
-        }),
-        "swift" => Some(LanguageConfig {
-            extension: "swift",
-            language: tree_sitter_swift::LANGUAGE.into(),
-            query: SWIFT_QUERY,
-        }),
-        "scala" | "sc" => Some(LanguageConfig {
-            extension: "scala",
-            language: tree_sitter_scala::LANGUAGE.into(),
-            query: SCALA_QUERY,
-        }),
-        "rb" => Some(LanguageConfig {
-            extension: "rb",
-            language: tree_sitter_ruby::LANGUAGE.into(),
-            query: RUBY_QUERY,
-        }),
-        "cs" => Some(LanguageConfig {
-            extension: "cs",
-            language: tree_sitter_c_sharp::LANGUAGE.into(),
-            query: CSHARP_QUERY,
-        }),
-        "dart" => Some(LanguageConfig {
-            extension: "dart",
-            language: tree_sitter_dart::LANGUAGE.into(),
-            query: DART_QUERY,
-        }),
-        _ => None,
-    }
-}
-
-const PYTHON_QUERY: &str = r#"
-    (class_definition name: (identifier) @class.name) @class.def
-    (function_definition name: (identifier) @function.name) @function.def
-    (decorated_definition definition: (class_definition name: (identifier) @class.name)) @class.def
-    (decorated_definition definition: (function_definition name: (identifier) @function.name)) @function.def
-    (assignment left: (identifier) @variable.name) @variable.def
-"#;
-
-const JAVASCRIPT_QUERY: &str = r#"
-    (class_declaration name: (identifier) @class.name) @class.def
-    (function_declaration name: (identifier) @function.name) @function.def
-    (method_definition name: (property_identifier) @method.name) @method.def
-    (lexical_declaration (variable_declarator name: (identifier) @variable.name)) @variable.def
-    (variable_declaration (variable_declarator name: (identifier) @variable.name)) @variable.def
-"#;
-
-const TYPESCRIPT_QUERY: &str = r#"
-    (class_declaration name: (type_identifier) @class.name) @class.def
-    (function_declaration name: (identifier) @function.name) @function.def
-    (method_definition name: (property_identifier) @method.name) @method.def
-    (interface_declaration name: (type_identifier) @interface.name) @interface.def
-    (enum_declaration name: (identifier) @enum.name) @enum.def
-    (type_alias_declaration name: (type_identifier) @type_alias.name) @type_alias.def
-    (lexical_declaration (variable_declarator name: (identifier) @variable.name)) @variable.def
-"#;
-
-const GO_QUERY: &str = r#"
-    (function_declaration name: (identifier) @function.name) @function.def
-    (method_declaration name: (field_identifier) @method.name) @method.def
-    (type_declaration (type_spec name: (type_identifier) @class.name)) @class.def
-"#;
-
-const JAVA_QUERY: &str = r#"
-    (class_declaration name: (identifier) @class.name) @class.def
-    (interface_declaration name: (identifier) @interface.name) @interface.def
-    (enum_declaration name: (identifier) @enum.name) @enum.def
-    (method_declaration name: (identifier) @method.name) @method.def
-    (constructor_declaration name: (identifier) @method.name) @method.def
-"#;
-
-const KOTLIN_QUERY: &str = r#"
-    (class_declaration name: (identifier) @class.name) @class.def
-    (object_declaration name: (identifier) @class.name) @class.def
-    (function_declaration name: (identifier) @function.name) @function.def
-"#;
-
-const RUST_QUERY: &str = r#"
-    (struct_item name: (type_identifier) @class.name) @class.def
-    (enum_item name: (type_identifier) @enum.name) @enum.def
-    (trait_item name: (type_identifier) @interface.name) @interface.def
-    (function_item name: (identifier) @function.name) @function.def
-    (const_item name: (identifier) @variable.name) @variable.def
-    (static_item name: (identifier) @variable.name) @variable.def
-    (type_item name: (type_identifier) @typealias.name) @typealias.def
-"#;
-
-const C_QUERY: &str = r#"
-(function_definition declarator: (function_declarator declarator: (identifier) @function.name)) @function.def
-(struct_specifier name: (type_identifier) @class.name) @class.def
-(enum_specifier name: (type_identifier) @enum.name) @enum.def
-(type_definition declarator: (type_identifier) @typealias.name) @typealias.def
-"#;
-
-const CPP_QUERY: &str = r#"
-(function_definition declarator: (function_declarator declarator: (identifier) @function.name)) @function.def
-(class_specifier name: (type_identifier) @class.name) @class.def
-(struct_specifier name: (type_identifier) @class.name) @class.def
-(enum_specifier name: (type_identifier) @enum.name) @enum.def
-(namespace_definition name: (identifier) @module.name) @module.def
-"#;
-
-const PHP_QUERY: &str = r#"
-(class_declaration name: (name) @class.name) @class.def
-(interface_declaration name: (name) @interface.name) @interface.def
-(trait_declaration name: (name) @interface.name) @interface.def
-(enum_declaration name: (name) @enum.name) @enum.def
-(function_definition name: (name) @function.name) @function.def
-(method_declaration name: (name) @method.name) @method.def
-"#;
-
-const SWIFT_QUERY: &str = r#"
-(class_declaration name: (type_identifier) @class.name) @class.def
-(protocol_declaration name: (type_identifier) @interface.name) @interface.def
-(function_declaration name: (simple_identifier) @function.name) @function.def
-"#;
-
-const SCALA_QUERY: &str = r#"
-    (class_definition name: (identifier) @class.name) @class.def
-    (object_definition name: (identifier) @class.name) @class.def
-    (trait_definition name: (identifier) @interface.name) @interface.def
-    (function_definition name: (identifier) @function.name) @function.def
-"#;
-
-const RUBY_QUERY: &str = r#"
-    (class name: [(constant) (scope_resolution)] @class.name) @class.def
-    (module name: [(constant) (scope_resolution)] @module.name) @module.def
-    (method name: [(identifier) (constant) (simple_symbol) (delimited_symbol) (setter)] @method.name) @method.def
-    (singleton_method name: [(identifier) (constant) (simple_symbol) (delimited_symbol) (setter)] @method.name) @method.def
-"#;
-
-const CSHARP_QUERY: &str = r#"
-    (class_declaration name: (identifier) @class.name) @class.def
-    (struct_declaration name: (identifier) @class.name) @class.def
-    (interface_declaration name: (identifier) @interface.name) @interface.def
-    (enum_declaration name: (identifier) @enum.name) @enum.def
-    (method_declaration name: (identifier) @method.name) @method.def
-    (constructor_declaration name: (identifier) @method.name) @method.def
-    (namespace_declaration name: (identifier) @module.name) @module.def
-"#;
-
-const DART_QUERY: &str = r#"
-    (class_declaration name: (identifier) @class.name) @class.def
-    (mixin_declaration name: (identifier) @class.name) @class.def
-    (enum_declaration name: (identifier) @enum.name) @enum.def
-    (class_member (method_signature (function_signature name: (identifier) @method.name))) @method.def
-    (function_signature name: (identifier) @function.name) @function.def
-"#;
+// LanguageConfig, language_for_path, and tree-sitter query constants
+// are now in crate::lang_config.
 
 #[cfg(test)]
 mod tests {

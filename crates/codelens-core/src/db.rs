@@ -42,6 +42,156 @@ pub struct ImportRow {
     pub raw_import: String,
 }
 
+// ---- Transaction-compatible free functions ----
+// These accept &Connection so they work with both Connection and Transaction (via Deref).
+
+/// Returns the file row if it exists and is fresh (same mtime and hash).
+pub(crate) fn get_fresh_file(
+    conn: &Connection,
+    relative_path: &str,
+    mtime_ms: i64,
+    content_hash: &str,
+) -> Result<Option<FileRow>> {
+    conn.query_row(
+        "SELECT id, relative_path, mtime_ms, content_hash, size_bytes, language
+         FROM files WHERE relative_path = ?1 AND mtime_ms = ?2 AND content_hash = ?3",
+        params![relative_path, mtime_ms, content_hash],
+        |row| {
+            Ok(FileRow {
+                id: row.get(0)?,
+                relative_path: row.get(1)?,
+                mtime_ms: row.get(2)?,
+                content_hash: row.get(3)?,
+                size_bytes: row.get(4)?,
+                language: row.get(5)?,
+            })
+        },
+    )
+    .optional()
+    .context("get_fresh_file query failed")
+}
+
+/// Upsert a file record. Returns the file id. Deletes old symbols/imports on update.
+pub(crate) fn upsert_file(
+    conn: &Connection,
+    relative_path: &str,
+    mtime_ms: i64,
+    content_hash: &str,
+    size_bytes: i64,
+    language: Option<&str>,
+) -> Result<i64> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    conn.execute(
+        "INSERT INTO files (relative_path, mtime_ms, content_hash, size_bytes, language, indexed_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT(relative_path) DO UPDATE SET
+            mtime_ms = excluded.mtime_ms,
+            content_hash = excluded.content_hash,
+            size_bytes = excluded.size_bytes,
+            language = excluded.language,
+            indexed_at = excluded.indexed_at",
+        params![relative_path, mtime_ms, content_hash, size_bytes, language, now],
+    )?;
+
+    let id: i64 = conn.query_row(
+        "SELECT id FROM files WHERE relative_path = ?1",
+        params![relative_path],
+        |row| row.get(0),
+    )?;
+
+    conn.execute("DELETE FROM symbols WHERE file_id = ?1", params![id])?;
+    conn.execute("DELETE FROM imports WHERE source_file_id = ?1", params![id])?;
+    conn.execute("DELETE FROM calls WHERE caller_file_id = ?1", params![id])?;
+
+    Ok(id)
+}
+
+/// Delete a file and its associated symbols/imports.
+pub(crate) fn delete_file(conn: &Connection, relative_path: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM files WHERE relative_path = ?1",
+        params![relative_path],
+    )?;
+    Ok(())
+}
+
+/// Return all indexed file paths.
+pub(crate) fn all_file_paths(conn: &Connection) -> Result<Vec<String>> {
+    let mut stmt = conn.prepare_cached("SELECT relative_path FROM files")?;
+    let rows = stmt.query_map([], |row| row.get(0))?;
+    let mut paths = Vec::new();
+    for row in rows {
+        paths.push(row?);
+    }
+    Ok(paths)
+}
+
+/// Bulk insert symbols for a file. Returns the inserted symbol ids.
+pub(crate) fn insert_symbols(
+    conn: &Connection,
+    file_id: i64,
+    symbols: &[NewSymbol],
+) -> Result<Vec<i64>> {
+    let mut ids = Vec::with_capacity(symbols.len());
+    let mut stmt = conn.prepare_cached(
+        "INSERT INTO symbols (file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+    )?;
+    for sym in symbols {
+        stmt.execute(params![
+            file_id,
+            sym.name,
+            sym.kind,
+            sym.line,
+            sym.column_num,
+            sym.start_byte,
+            sym.end_byte,
+            sym.signature,
+            sym.name_path,
+            sym.parent_id,
+        ])?;
+        ids.push(conn.last_insert_rowid());
+    }
+    Ok(ids)
+}
+
+/// Bulk insert imports for a file.
+pub(crate) fn insert_imports(conn: &Connection, file_id: i64, imports: &[NewImport]) -> Result<()> {
+    let mut stmt = conn.prepare_cached(
+        "INSERT OR REPLACE INTO imports (source_file_id, target_path, raw_import)
+         VALUES (?1, ?2, ?3)",
+    )?;
+    for imp in imports {
+        stmt.execute(params![file_id, imp.target_path, imp.raw_import])?;
+    }
+    Ok(())
+}
+
+/// Bulk insert call edges for a file (clears old edges first).
+pub(crate) fn insert_calls(conn: &Connection, file_id: i64, calls: &[NewCall]) -> Result<()> {
+    conn.execute(
+        "DELETE FROM calls WHERE caller_file_id = ?1",
+        params![file_id],
+    )?;
+    let mut stmt = conn.prepare_cached(
+        "INSERT INTO calls (caller_file_id, caller_name, callee_name, line)
+         VALUES (?1, ?2, ?3, ?4)",
+    )?;
+    for call in calls {
+        stmt.execute(params![
+            file_id,
+            call.caller_name,
+            call.callee_name,
+            call.line
+        ])?;
+    }
+    Ok(())
+}
+
 impl IndexDb {
     /// Open or create the index database at the given path.
     pub fn open(db_path: &Path) -> Result<Self> {
@@ -54,21 +204,36 @@ impl IndexDb {
         conn.execute_batch(
             "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
         )?;
-        let db = Self { conn };
+        let mut db = Self { conn };
         db.migrate()?;
         Ok(db)
+    }
+
+    /// Open existing database in read-only mode (no migration, no WAL creation).
+    /// Returns None if the DB file does not exist.
+    pub fn open_readonly(db_path: &Path) -> Result<Option<Self>> {
+        if !db_path.is_file() {
+            return Ok(None);
+        }
+        let conn = Connection::open_with_flags(
+            db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .with_context(|| format!("failed to open db readonly at {}", db_path.display()))?;
+        conn.execute_batch("PRAGMA busy_timeout = 5000;")?;
+        Ok(Some(Self { conn }))
     }
 
     /// Open an in-memory database (for testing).
     pub fn open_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
         conn.execute_batch("PRAGMA foreign_keys = ON;")?;
-        let db = Self { conn };
+        let mut db = Self { conn };
         db.migrate()?;
         Ok(db)
     }
 
-    fn migrate(&self) -> Result<()> {
+    fn migrate(&mut self) -> Result<()> {
         self.conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS meta (
                 key TEXT PRIMARY KEY,
@@ -89,7 +254,10 @@ impl IndexDb {
             return Ok(());
         }
 
-        self.conn.execute_batch(
+        // Wrap all DDL in a single RAII transaction — auto-rollback on error/panic.
+        let tx = self.conn.transaction()?;
+
+        tx.execute_batch(
             "CREATE TABLE IF NOT EXISTS files (
                 id INTEGER PRIMARY KEY,
                 relative_path TEXT UNIQUE NOT NULL,
@@ -130,8 +298,7 @@ impl IndexDb {
         )?;
 
         // Schema v2: calls table for call graph caching
-        let v2_check: Option<i64> = self
-            .conn
+        let v2_check: Option<i64> = tx
             .query_row(
                 "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version'",
                 [],
@@ -140,7 +307,7 @@ impl IndexDb {
             .optional()?;
 
         if v2_check.unwrap_or(0) < 2 {
-            self.conn.execute_batch(
+            tx.execute_batch(
                 "CREATE TABLE IF NOT EXISTS calls (
                     id INTEGER PRIMARY KEY,
                     caller_file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
@@ -157,13 +324,27 @@ impl IndexDb {
             )?;
         }
 
+        tx.commit()?;
         Ok(())
     }
 
-    // ---- File operations ----
+    // ---- Transaction support ----
+
+    /// Execute a closure within an RAII transaction.
+    /// Automatically rolls back on error or panic; commits only on success.
+    pub fn with_transaction<F, T>(&mut self, f: F) -> Result<T>
+    where
+        F: FnOnce(&Connection) -> Result<T>,
+    {
+        let tx = self.conn.transaction()?;
+        let result = f(&tx)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
+    // ---- File operations (delegating to free functions) ----
 
     /// Fast mtime-only freshness check. Avoids content hashing entirely.
-    /// Returns the file row if mtime matches (good enough for incremental reads).
     pub fn get_fresh_file_by_mtime(
         &self,
         relative_path: &str,
@@ -196,24 +377,7 @@ impl IndexDb {
         mtime_ms: i64,
         content_hash: &str,
     ) -> Result<Option<FileRow>> {
-        self.conn
-            .query_row(
-                "SELECT id, relative_path, mtime_ms, content_hash, size_bytes, language
-                 FROM files WHERE relative_path = ?1 AND mtime_ms = ?2 AND content_hash = ?3",
-                params![relative_path, mtime_ms, content_hash],
-                |row| {
-                    Ok(FileRow {
-                        id: row.get(0)?,
-                        relative_path: row.get(1)?,
-                        mtime_ms: row.get(2)?,
-                        content_hash: row.get(3)?,
-                        size_bytes: row.get(4)?,
-                        language: row.get(5)?,
-                    })
-                },
-            )
-            .optional()
-            .context("get_fresh_file query failed")
+        get_fresh_file(&self.conn, relative_path, mtime_ms, content_hash)
     }
 
     /// Returns the file row by path (regardless of freshness).
@@ -247,49 +411,19 @@ impl IndexDb {
         size_bytes: i64,
         language: Option<&str>,
     ) -> Result<i64> {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as i64;
-
-        // Single INSERT ... ON CONFLICT DO UPDATE — avoids separate SELECT + UPDATE
-        self.conn.execute(
-            "INSERT INTO files (relative_path, mtime_ms, content_hash, size_bytes, language, indexed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
-             ON CONFLICT(relative_path) DO UPDATE SET
-                mtime_ms = excluded.mtime_ms,
-                content_hash = excluded.content_hash,
-                size_bytes = excluded.size_bytes,
-                language = excluded.language,
-                indexed_at = excluded.indexed_at",
-            params![relative_path, mtime_ms, content_hash, size_bytes, language, now],
-        )?;
-
-        // Get the id (works for both insert and update via last_insert_rowid on upsert)
-        let id: i64 = self.conn.query_row(
-            "SELECT id FROM files WHERE relative_path = ?1",
-            params![relative_path],
-            |row| row.get(0),
-        )?;
-
-        // Clear old symbols/imports/calls for re-indexing
-        self.conn
-            .execute("DELETE FROM symbols WHERE file_id = ?1", params![id])?;
-        self.conn
-            .execute("DELETE FROM imports WHERE source_file_id = ?1", params![id])?;
-        self.conn
-            .execute("DELETE FROM calls WHERE caller_file_id = ?1", params![id])?;
-
-        Ok(id)
+        upsert_file(
+            &self.conn,
+            relative_path,
+            mtime_ms,
+            content_hash,
+            size_bytes,
+            language,
+        )
     }
 
     /// Delete a file and its associated symbols/imports.
     pub fn delete_file(&self, relative_path: &str) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM files WHERE relative_path = ?1",
-            params![relative_path],
-        )?;
-        Ok(())
+        delete_file(&self.conn, relative_path)
     }
 
     /// Count indexed files.
@@ -302,42 +436,14 @@ impl IndexDb {
 
     /// Return all indexed file paths.
     pub fn all_file_paths(&self) -> Result<Vec<String>> {
-        let mut stmt = self
-            .conn
-            .prepare_cached("SELECT relative_path FROM files")?;
-        let rows = stmt.query_map([], |row| row.get(0))?;
-        let mut paths = Vec::new();
-        for row in rows {
-            paths.push(row?);
-        }
-        Ok(paths)
+        all_file_paths(&self.conn)
     }
 
     // ---- Symbol operations ----
 
     /// Bulk insert symbols for a file. Returns the inserted symbol ids.
     pub fn insert_symbols(&self, file_id: i64, symbols: &[NewSymbol]) -> Result<Vec<i64>> {
-        let mut ids = Vec::with_capacity(symbols.len());
-        let mut stmt = self.conn.prepare_cached(
-            "INSERT INTO symbols (file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-        )?;
-        for sym in symbols {
-            stmt.execute(params![
-                file_id,
-                sym.name,
-                sym.kind,
-                sym.line,
-                sym.column_num,
-                sym.start_byte,
-                sym.end_byte,
-                sym.signature,
-                sym.name_path,
-                sym.parent_id,
-            ])?;
-            ids.push(self.conn.last_insert_rowid());
-        }
-        Ok(ids)
+        insert_symbols(&self.conn, file_id, symbols)
     }
 
     /// Query symbols by name (exact or substring match).
@@ -470,14 +576,7 @@ impl IndexDb {
 
     /// Bulk insert imports for a file.
     pub fn insert_imports(&self, file_id: i64, imports: &[NewImport]) -> Result<()> {
-        let mut stmt = self.conn.prepare_cached(
-            "INSERT OR REPLACE INTO imports (source_file_id, target_path, raw_import)
-             VALUES (?1, ?2, ?3)",
-        )?;
-        for imp in imports {
-            stmt.execute(params![file_id, imp.target_path, imp.raw_import])?;
-        }
-        Ok(())
+        insert_imports(&self.conn, file_id, imports)
     }
 
     /// Get files that import the given file path (reverse dependencies).
@@ -513,18 +612,15 @@ impl IndexDb {
     }
 
     /// Build the full import graph from the database.
-    /// Returns (file_path -> (imports, imported_by)) for all indexed files.
     pub fn build_import_graph(
         &self,
     ) -> Result<std::collections::HashMap<String, (Vec<String>, Vec<String>)>> {
         let mut graph = std::collections::HashMap::new();
 
-        // Initialize all files
         for path in self.all_file_paths()? {
             graph.insert(path, (Vec::new(), Vec::new()));
         }
 
-        // Fill edges
         let mut stmt = self.conn.prepare_cached(
             "SELECT f.relative_path, i.target_path FROM imports i
              JOIN files f ON i.source_file_id = f.id",
@@ -549,23 +645,7 @@ impl IndexDb {
 
     /// Bulk insert call edges for a file (clears old edges first).
     pub fn insert_calls(&self, file_id: i64, calls: &[NewCall]) -> Result<()> {
-        self.conn.execute(
-            "DELETE FROM calls WHERE caller_file_id = ?1",
-            params![file_id],
-        )?;
-        let mut stmt = self.conn.prepare_cached(
-            "INSERT INTO calls (caller_file_id, caller_name, callee_name, line)
-             VALUES (?1, ?2, ?3, ?4)",
-        )?;
-        for call in calls {
-            stmt.execute(params![
-                file_id,
-                call.caller_name,
-                call.callee_name,
-                call.line
-            ])?;
-        }
-        Ok(())
+        insert_calls(&self.conn, file_id, calls)
     }
 
     /// Find all callers of a function name (from DB cache).
@@ -634,24 +714,6 @@ impl IndexDb {
             .conn
             .query_row("SELECT COUNT(*) FROM calls", [], |row| row.get(0))?;
         Ok(count > 0)
-    }
-
-    /// Begin a transaction for batch operations.
-    pub fn begin_transaction(&self) -> Result<()> {
-        self.conn.execute_batch("BEGIN TRANSACTION")?;
-        Ok(())
-    }
-
-    /// Commit the current transaction.
-    pub fn commit(&self) -> Result<()> {
-        self.conn.execute_batch("COMMIT")?;
-        Ok(())
-    }
-
-    /// Rollback the current transaction.
-    pub fn rollback(&self) -> Result<()> {
-        self.conn.execute_batch("ROLLBACK")?;
-        Ok(())
     }
 }
 
@@ -853,5 +915,17 @@ mod tests {
         let h3 = content_hash(b"hello world!");
         assert_eq!(h1, h2);
         assert_ne!(h1, h3);
+    }
+
+    #[test]
+    fn with_transaction_auto_rollback_on_error() {
+        let mut db = IndexDb::open_memory().unwrap();
+        let result: Result<()> = db.with_transaction(|conn| {
+            upsert_file(conn, "rollback_test.py", 100, "h1", 10, Some("py"))?;
+            anyhow::bail!("simulated error");
+        });
+        assert!(result.is_err());
+        // File should not exist — transaction was rolled back
+        assert!(db.get_file("rollback_test.py").unwrap().is_none());
     }
 }

@@ -1,28 +1,27 @@
 use super::{required_string, success_meta, AppState, ToolResult};
+use crate::error::CodeLensError;
 use codelens_core::{read_file, search_symbols_hybrid, SymbolInfo, SymbolKind};
 use serde_json::json;
 
 pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
-    state
-        .symbol_index
-        .lock()
-        .map_err(|_| anyhow::anyhow!("symbol index lock poisoned"))?
-        .get_symbols_overview(path, depth)
+    Ok(state
+        .symbol_index_read()
+        .get_symbols_overview_cached(path, depth)
         .map(|value| {
             (
                 json!({ "symbols": value, "count": value.len() }),
                 success_meta("tree-sitter-cached", 0.93),
             )
-        })
+        })?)
 }
 
 pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let symbol_id = arguments.get("symbol_id").and_then(|v| v.as_str());
     let name = symbol_id
         .or_else(|| arguments.get("name").and_then(|v| v.as_str()))
-        .ok_or_else(|| anyhow::anyhow!("either 'symbol_id' or 'name' is required"))?;
+        .ok_or_else(|| CodeLensError::MissingParam("symbol_id or name".into()))?;
     let file_path = arguments.get("file_path").and_then(|v| v.as_str());
     let include_body = arguments
         .get("include_body")
@@ -36,17 +35,15 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         .get("max_matches")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    state
-        .symbol_index
-        .lock()
-        .map_err(|_| anyhow::anyhow!("symbol index lock poisoned"))?
-        .find_symbol(name, file_path, include_body, exact_match, max_matches)
+    Ok(state
+        .symbol_index_read()
+        .find_symbol_cached(name, file_path, include_body, exact_match, max_matches)
         .map(|value| {
             (
                 json!({ "symbols": value, "count": value.len() }),
                 success_meta("tree-sitter-cached", 0.93),
             )
-        })
+        })?)
 }
 
 pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -61,20 +58,14 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
-    state
-        .symbol_index
-        .lock()
-        .map_err(|_| anyhow::anyhow!("symbol index lock poisoned"))?
-        .get_ranked_context(query, path, max_tokens, include_body, depth)
-        .map(|value| (json!(value), success_meta("tree-sitter-cached", 0.91)))
+    Ok(state
+        .symbol_index_read()
+        .get_ranked_context_cached(query, path, max_tokens, include_body, depth)
+        .map(|value| (json!(value), success_meta("tree-sitter-cached", 0.91)))?)
 }
 
 pub fn refresh_symbol_index(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let stats = state
-        .symbol_index
-        .lock()
-        .map_err(|_| anyhow::anyhow!("symbol index lock poisoned"))?
-        .refresh_all()?;
+    let stats = state.symbol_index_write().refresh_all()?;
     state.graph_cache.invalidate();
     Ok((json!(stats), success_meta("tree-sitter-cached", 0.95)))
 }
@@ -85,10 +76,8 @@ pub fn get_complexity(state: &AppState, arguments: &serde_json::Value) -> ToolRe
     let file_result = read_file(&state.project, path, None, None)?;
     let lines = file_result.content.lines().collect::<Vec<_>>();
     let symbols = state
-        .symbol_index
-        .lock()
-        .map_err(|_| anyhow::anyhow!("symbol index lock poisoned"))?
-        .get_symbols_overview(path, 2)?;
+        .symbol_index_read()
+        .get_symbols_overview_cached(path, 2)?;
 
     let functions = flatten_symbols(&symbols)
         .into_iter()
@@ -152,12 +141,16 @@ pub fn search_symbols_fuzzy(state: &AppState, arguments: &serde_json::Value) -> 
         .get("fuzzy_threshold")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.6);
-    search_symbols_hybrid(&state.project, query, max_results, fuzzy_threshold).map(|value| {
-        (
-            json!({ "results": value, "count": value.len() }),
-            success_meta("sqlite+fuzzy", 0.9),
-        )
-    })
+    Ok(
+        search_symbols_hybrid(&state.project, query, max_results, fuzzy_threshold).map(
+            |value| {
+                (
+                    json!({ "results": value, "count": value.len() }),
+                    success_meta("sqlite+fuzzy", 0.9),
+                )
+            },
+        )?,
+    )
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────

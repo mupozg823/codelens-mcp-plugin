@@ -24,6 +24,8 @@ pub struct JsonRpcResponse {
 pub struct JsonRpcError {
     pub code: i64,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub data: Option<Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -44,6 +46,8 @@ pub struct ToolAnnotations {
     pub destructive_hint: Option<bool>,
     #[serde(rename = "idempotentHint", skip_serializing_if = "Option::is_none")]
     pub idempotent_hint: Option<bool>,
+    #[serde(rename = "openWorldHint", skip_serializing_if = "Option::is_none")]
+    pub open_world_hint: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -98,6 +102,7 @@ impl JsonRpcResponse {
             error: Some(JsonRpcError {
                 code,
                 message: message.into(),
+                data: None,
             }),
         }
     }
@@ -125,6 +130,7 @@ impl ToolAnnotations {
             read_only_hint: Some(true),
             destructive_hint: Some(false),
             idempotent_hint: None,
+            open_world_hint: None,
         }
     }
 
@@ -133,6 +139,7 @@ impl ToolAnnotations {
             read_only_hint: Some(false),
             destructive_hint: Some(true),
             idempotent_hint: None,
+            open_world_hint: None,
         }
     }
 
@@ -141,6 +148,7 @@ impl ToolAnnotations {
             read_only_hint: Some(false),
             destructive_hint: Some(false),
             idempotent_hint: None,
+            open_world_hint: None,
         }
     }
 }

@@ -21,6 +21,7 @@ tokio = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 codelens-core = { path = "../codelens-core" }
+thiserror.workspace = true
 
 [features]
 default = ["semantic"]

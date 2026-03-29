@@ -7,7 +7,7 @@ use notify_debouncer_mini::{new_debouncer, DebouncedEventKind, Debouncer};
 use std::path::{Path, PathBuf};
 use std::sync::{
     atomic::{AtomicBool, AtomicU64, Ordering},
-    Arc, Mutex,
+    Arc,
 };
 use std::time::Duration;
 
@@ -32,7 +32,7 @@ impl FileWatcher {
     /// and the `GraphCache` is invalidated.
     pub fn start(
         root: &Path,
-        symbol_index: Arc<Mutex<SymbolIndex>>,
+        symbol_index: Arc<SymbolIndex>,
         graph_cache: Arc<GraphCache>,
     ) -> Result<Self> {
         let running = Arc::new(AtomicBool::new(true));
@@ -89,16 +89,14 @@ impl FileWatcher {
                 }
 
                 let mut reindexed = 0u64;
-                if let Ok(mut index) = symbol_index.lock() {
-                    if !changed.is_empty() {
-                        if let Ok(n) = index.index_files(&changed) {
-                            reindexed += n as u64;
-                        }
+                if !changed.is_empty() {
+                    if let Ok(n) = symbol_index.index_files(&changed) {
+                        reindexed += n as u64;
                     }
-                    if !removed.is_empty() {
-                        if let Ok(n) = index.remove_files(&removed) {
-                            reindexed += n as u64;
-                        }
+                }
+                if !removed.is_empty() {
+                    if let Ok(n) = symbol_index.remove_files(&removed) {
+                        reindexed += n as u64;
                     }
                 }
 

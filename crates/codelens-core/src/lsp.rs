@@ -141,6 +141,7 @@ struct LspSession {
     reader: BufReader<ChildStdout>,
     next_request_id: u64,
     documents: HashMap<String, OpenDocumentState>,
+    stderr_buffer: std::sync::Arc<std::sync::Mutex<String>>,
 }
 
 pub fn find_referencing_symbols_via_lsp(
@@ -193,6 +194,21 @@ fn ensure_session<'a>(
         command: command.to_owned(),
         args: args.to_owned(),
     };
+
+    // Check for dead sessions: if the child process has exited, remove the stale entry.
+    if let Some(session) = sessions.get_mut(&key) {
+        match session.child.try_wait() {
+            Ok(Some(_status)) => {
+                // Process exited — remove stale session so we start fresh below.
+                sessions.remove(&key);
+            }
+            Ok(None) => {} // Still running — will return it via Occupied below.
+            Err(_) => {
+                sessions.remove(&key);
+            }
+        }
+    }
+
     match sessions.entry(key) {
         std::collections::hash_map::Entry::Occupied(e) => Ok(e.into_mut()),
         std::collections::hash_map::Entry::Vacant(e) => {
@@ -260,12 +276,32 @@ impl LspSession {
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .with_context(|| format!("failed to spawn LSP server {}", command))?;
 
         let stdin = child.stdin.take().context("failed to open LSP stdin")?;
         let stdout = child.stdout.take().context("failed to open LSP stdout")?;
+
+        // Capture stderr in a background thread (bounded 4KB ring buffer).
+        let stderr_buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+        if let Some(stderr) = child.stderr.take() {
+            let buf = std::sync::Arc::clone(&stderr_buffer);
+            thread::spawn(move || {
+                let mut reader = BufReader::new(stderr);
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    if let Ok(mut b) = buf.lock() {
+                        if b.len() > 4096 {
+                            let drain_to = b.len() - 2048;
+                            b.drain(..drain_to);
+                        }
+                        b.push_str(&line);
+                    }
+                    line.clear();
+                }
+            });
+        }
 
         let mut session = Self {
             project: project.clone(),
@@ -274,6 +310,7 @@ impl LspSession {
             reader: BufReader::new(stdout),
             next_request_id: 1,
             documents: HashMap::new(),
+            stderr_buffer,
         };
         session.initialize()?;
         Ok(session)
@@ -560,7 +597,23 @@ impl LspSession {
     }
 
     fn read_response_for_id(&mut self, expected_id: u64) -> Result<Value> {
+        let deadline = Instant::now() + Duration::from_secs(30);
+        let mut discarded = 0u32;
+        const MAX_DISCARDED: u32 = 500;
+
         loop {
+            if Instant::now() > deadline {
+                bail!(
+                    "LSP response timeout: no response for request id {expected_id} within 30s \
+                     ({discarded} unrelated messages discarded)"
+                );
+            }
+            if discarded >= MAX_DISCARDED {
+                bail!(
+                    "LSP response loop: discarded {MAX_DISCARDED} messages without finding id {expected_id}"
+                );
+            }
+
             let message = read_message(&mut self.reader)?;
             let matches_id = message
                 .get("id")
@@ -578,6 +631,7 @@ impl LspSession {
                 }
                 return Ok(message);
             }
+            discarded += 1;
         }
     }
 
@@ -1078,26 +1132,8 @@ fn language_id_for_path(path: &Path) -> Result<&'static str> {
         .and_then(|ext| ext.to_str())
         .unwrap_or_default()
         .to_ascii_lowercase();
-    match extension.as_str() {
-        "py" => Ok("python"),
-        "js" | "mjs" | "cjs" => Ok("javascript"),
-        "ts" => Ok("typescript"),
-        "tsx" => Ok("typescriptreact"),
-        "jsx" => Ok("javascriptreact"),
-        "rs" => Ok("rust"),
-        "go" => Ok("go"),
-        "java" => Ok("java"),
-        "c" | "h" => Ok("c"),
-        "cpp" | "cc" | "cxx" | "hpp" => Ok("cpp"),
-        "rb" => Ok("ruby"),
-        "php" => Ok("php"),
-        "kt" | "kts" => Ok("kotlin"),
-        "scala" | "sc" => Ok("scala"),
-        "swift" => Ok("swift"),
-        "cs" => Ok("csharp"),
-        "dart" => Ok("dart"),
-        other => bail!("unsupported LSP language for extension: {other}"),
-    }
+    crate::lang_registry::language_id(&extension)
+        .ok_or_else(|| anyhow::anyhow!("unsupported LSP language for extension: {extension}"))
 }
 
 fn send_message(writer: &mut impl Write, payload: &Value) -> Result<()> {

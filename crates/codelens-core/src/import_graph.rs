@@ -96,10 +96,10 @@ static TLF_RS_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?m)^(?:pub(?:\([^)]*\))?\s+)?fn ([A-Za-z_][A-Za-z0-9_]*)").unwrap()
 });
 
-const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "go", "java", "kt", "rs", "rb", "c", "cc", "cpp",
-    "cxx", "h", "hh", "hpp", "hxx", "php", "cs", "dart",
-];
+/// Use lang_registry as the single source of truth for supported extensions.
+fn is_import_supported(ext: &str) -> bool {
+    crate::lang_registry::supports_imports(ext)
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct BlastRadiusEntry {
@@ -177,11 +177,7 @@ impl GraphCache {
 }
 
 pub fn supports_import_graph(file_path: &str) -> bool {
-    Path::new(file_path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
-        .unwrap_or(false)
+    crate::lang_registry::supports_imports_for_path(Path::new(file_path))
 }
 
 pub fn get_blast_radius(
@@ -594,9 +590,7 @@ fn build_graph_from_files(project: &ProjectRoot) -> Result<HashMap<String, FileN
 
 fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
     collect_files(root, |path| {
-        path.extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| SUPPORTED_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+        crate::lang_registry::supports_imports_for_path(path)
     })
 }
 
@@ -629,7 +623,7 @@ fn extract_imports(path: &Path) -> Vec<String> {
         "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => extract_js_imports(&content),
         "go" => extract_go_imports(&content),
         "java" => extract_java_imports(&content),
-        "kt" => extract_kotlin_imports(&content),
+        "kt" | "kts" => extract_kotlin_imports(&content),
         "rs" => extract_rust_imports(&content),
         "rb" => extract_ruby_imports(&content),
         "c" | "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" => extract_c_imports(&content),

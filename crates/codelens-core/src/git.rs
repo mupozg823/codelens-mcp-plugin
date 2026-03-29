@@ -159,3 +159,57 @@ pub fn get_diff_symbols(project: &ProjectRoot, git_ref: Option<&str>) -> Result<
 
     Ok(result)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_name_status_basic() {
+        let output = "M\tsrc/main.py\nA\tsrc/utils.py\nD\told.py\n";
+        let files = parse_name_status(output);
+        assert_eq!(files.len(), 3);
+        assert_eq!(files[0].file, "src/main.py");
+        assert_eq!(files[0].status, "M");
+        assert_eq!(files[1].status, "A");
+        assert_eq!(files[2].status, "D");
+    }
+
+    #[test]
+    fn parse_name_status_rename() {
+        let output = "R100\told_name.py\n";
+        let files = parse_name_status(output);
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].status, "R");
+        assert_eq!(files[0].file, "old_name.py");
+    }
+
+    #[test]
+    fn parse_name_status_empty() {
+        assert!(parse_name_status("").is_empty());
+        assert!(parse_name_status("\n\n").is_empty());
+    }
+
+    #[test]
+    fn dedup_files_removes_duplicates() {
+        let files = vec![
+            ChangedFile {
+                file: "a.py".into(),
+                status: "M".into(),
+            },
+            ChangedFile {
+                file: "b.py".into(),
+                status: "A".into(),
+            },
+            ChangedFile {
+                file: "a.py".into(),
+                status: "D".into(),
+            },
+        ];
+        let deduped = dedup_files(files);
+        assert_eq!(deduped.len(), 2);
+        assert_eq!(deduped[0].file, "a.py");
+        assert_eq!(deduped[0].status, "M"); // first occurrence kept
+        assert_eq!(deduped[1].file, "b.py");
+    }
+}

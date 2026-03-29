@@ -1,4 +1,5 @@
 use super::{required_string, success_meta, AppState, ToolResult};
+use crate::error::CodeLensError;
 use serde_json::json;
 
 pub fn list_memories(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -17,8 +18,8 @@ pub fn list_memories(state: &AppState, arguments: &serde_json::Value) -> ToolRes
 pub fn read_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let name = required_string(arguments, "memory_name")?;
     let path = resolve_memory_path(&state.memories_dir, name)?;
-    let content =
-        std::fs::read_to_string(&path).map_err(|_| anyhow::anyhow!("Memory not found: {name}"))?;
+    let content = std::fs::read_to_string(&path)
+        .map_err(|_| CodeLensError::NotFound(format!("Memory: {name}")))?;
     Ok((
         json!({"memory_name": name, "content": content}),
         success_meta("filesystem", 1.0),
@@ -43,7 +44,7 @@ pub fn delete_memory(state: &AppState, arguments: &serde_json::Value) -> ToolRes
     let name = required_string(arguments, "memory_name")?;
     let path = resolve_memory_path(&state.memories_dir, name)?;
     if !path.is_file() {
-        return Err(anyhow::anyhow!("Memory not found: {name}"));
+        return Err(CodeLensError::NotFound(format!("Memory: {name}")));
     }
     std::fs::remove_file(&path)?;
     Ok((
@@ -57,7 +58,7 @@ pub fn edit_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResul
     let content = required_string(arguments, "content")?;
     let path = resolve_memory_path(&state.memories_dir, name)?;
     if !path.is_file() {
-        return Err(anyhow::anyhow!("Memory not found: {name}"));
+        return Err(CodeLensError::NotFound(format!("Memory: {name}")));
     }
     std::fs::write(&path, content)?;
     Ok((
@@ -72,10 +73,12 @@ pub fn rename_memory(state: &AppState, arguments: &serde_json::Value) -> ToolRes
     let old_path = resolve_memory_path(&state.memories_dir, old_name)?;
     let new_path = resolve_memory_path(&state.memories_dir, new_name)?;
     if !old_path.is_file() {
-        return Err(anyhow::anyhow!("Memory not found: {old_name}"));
+        return Err(CodeLensError::NotFound(format!("Memory: {old_name}")));
     }
     if new_path.exists() {
-        return Err(anyhow::anyhow!("Target already exists: {new_name}"));
+        return Err(CodeLensError::Validation(format!(
+            "target already exists: {new_name}"
+        )));
     }
     if let Some(parent) = new_path.parent() {
         std::fs::create_dir_all(parent)?;
@@ -130,7 +133,7 @@ fn collect_memory_files(base: &std::path::Path, dir: &std::path::Path, names: &m
 pub fn resolve_memory_path(
     memories_dir: &std::path::Path,
     name: &str,
-) -> anyhow::Result<std::path::PathBuf> {
+) -> Result<std::path::PathBuf, CodeLensError> {
     let normalized = name
         .trim()
         .replace('\\', "/")
@@ -138,10 +141,14 @@ pub fn resolve_memory_path(
         .trim_end_matches(".md")
         .to_string();
     if normalized.is_empty() {
-        anyhow::bail!("Memory name must not be empty");
+        return Err(CodeLensError::Validation(
+            "memory name must not be empty".into(),
+        ));
     }
     if normalized.contains("..") {
-        anyhow::bail!("Memory path must not contain '..': {name}");
+        return Err(CodeLensError::Validation(format!(
+            "memory path must not contain '..': {name}"
+        )));
     }
     Ok(memories_dir.join(format!("{normalized}.md")))
 }

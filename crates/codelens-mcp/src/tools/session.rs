@@ -230,7 +230,7 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         .unwrap_or("balanced");
     let new_preset = crate::ToolPreset::from_str(preset_str);
     let old_preset = {
-        let mut guard = state.preset.lock().unwrap();
+        let mut guard = state.preset();
         let old = *guard;
         *guard = new_preset;
         old

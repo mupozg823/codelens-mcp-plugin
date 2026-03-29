@@ -1,4 +1,6 @@
 pub mod auto_import;
+pub(crate) mod lang_config;
+pub mod lang_registry;
 pub mod call_graph;
 pub mod circular;
 pub mod coupling;

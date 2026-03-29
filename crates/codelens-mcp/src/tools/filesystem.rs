@@ -1,4 +1,5 @@
 use super::{required_string, success_meta, AppState, ToolResult};
+use crate::error::CodeLensError;
 use codelens_core::{
     detect_frameworks, detect_workspace_packages, find_files, list_dir, read_file,
     search_for_pattern, search_for_pattern_smart,
@@ -6,15 +7,8 @@ use codelens_core::{
 use serde_json::json;
 
 pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let stats = state
-        .symbol_index
-        .lock()
-        .map_err(|_| anyhow::anyhow!("symbol index lock poisoned"))?
-        .stats()?;
-    let preset = *state
-        .preset
-        .lock()
-        .map_err(|_| anyhow::anyhow!("preset lock poisoned"))?;
+    let stats = state.symbol_index_read().stats()?;
+    let preset = *state.preset();
     let frameworks = detect_frameworks(state.project.as_path());
     let workspace_packages = detect_workspace_packages(state.project.as_path());
     Ok((
@@ -43,8 +37,8 @@ pub fn read_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRe
         .get("end_line")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
-    read_file(&state.project, path, start_line, end_line)
-        .map(|value| (json!(value), success_meta("filesystem", 1.0)))
+    Ok(read_file(&state.project, path, start_line, end_line)
+        .map(|value| (json!(value), success_meta("filesystem", 1.0)))?)
 }
 
 pub fn list_dir_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -53,23 +47,23 @@ pub fn list_dir_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         .get("recursive")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    list_dir(&state.project, path, recursive).map(|value| {
+    Ok(list_dir(&state.project, path, recursive).map(|value| {
         (
             json!({ "entries": value, "count": value.len() }),
             success_meta("filesystem", 1.0),
         )
-    })
+    })?)
 }
 
 pub fn find_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let pattern = required_string(arguments, "wildcard_pattern")?;
     let dir = arguments.get("relative_dir").and_then(|v| v.as_str());
-    find_files(&state.project, pattern, dir).map(|value| {
+    Ok(find_files(&state.project, pattern, dir).map(|value| {
         (
             json!({ "files": value, "count": value.len() }),
             success_meta("filesystem", 1.0),
         )
-    })
+    })?)
 }
 
 pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -77,7 +71,7 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
         .get("pattern")
         .or_else(|| arguments.get("substring_pattern"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing pattern"))?;
+        .ok_or_else(|| CodeLensError::MissingParam("pattern".into()))?;
     let file_glob = arguments.get("file_glob").and_then(|v| v.as_str());
     let max_results = arguments
         .get("max_results")
@@ -103,7 +97,7 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
         .unwrap_or(ctx_fallback);
 
     if smart {
-        search_for_pattern_smart(
+        Ok(search_for_pattern_smart(
             &state.project,
             pattern,
             file_glob,
@@ -116,9 +110,9 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
                 json!({ "matches": value, "count": value.len() }),
                 success_meta("tree-sitter+filesystem", 0.96),
             )
-        })
+        })?)
     } else {
-        search_for_pattern(
+        Ok(search_for_pattern(
             &state.project,
             pattern,
             file_glob,
@@ -131,7 +125,7 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
                 json!({ "matches": value, "count": value.len() }),
                 success_meta("filesystem", 0.98),
             )
-        })
+        })?)
     }
 }
 
@@ -150,36 +144,38 @@ pub fn find_annotations(state: &AppState, arguments: &serde_json::Value) -> Tool
         .filter(|tag| !tag.is_empty())
         .collect::<Vec<_>>();
     let pattern = format!(r"\b({})\b[:\s]*(.*)", tag_list.join("|"));
-    search_for_pattern(&state.project, &pattern, None, max_results, 0, 0).map(|value| {
-        let grouped = tag_list
-            .iter()
-            .filter_map(|tag| {
-                let matches = value
-                    .iter()
-                    .filter(|entry| {
-                        entry.matched_text.eq_ignore_ascii_case(tag)
-                            || entry.line_content.contains(tag)
-                    })
-                    .map(|entry| {
-                        json!({
-                            "file": entry.file_path,
-                            "line": entry.line,
-                            "text": entry.line_content
+    Ok(
+        search_for_pattern(&state.project, &pattern, None, max_results, 0, 0).map(|value| {
+            let grouped = tag_list
+                .iter()
+                .filter_map(|tag| {
+                    let matches = value
+                        .iter()
+                        .filter(|entry| {
+                            entry.matched_text.eq_ignore_ascii_case(tag)
+                                || entry.line_content.contains(tag)
                         })
-                    })
-                    .collect::<Vec<_>>();
-                if matches.is_empty() {
-                    None
-                } else {
-                    Some(((*tag).to_owned(), serde_json::Value::Array(matches)))
-                }
-            })
-            .collect::<serde_json::Map<String, serde_json::Value>>();
-        (
-            json!({ "tags": grouped, "total": value.len() }),
-            success_meta("filesystem", 0.97),
-        )
-    })
+                        .map(|entry| {
+                            json!({
+                                "file": entry.file_path,
+                                "line": entry.line,
+                                "text": entry.line_content
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    if matches.is_empty() {
+                        None
+                    } else {
+                        Some(((*tag).to_owned(), serde_json::Value::Array(matches)))
+                    }
+                })
+                .collect::<serde_json::Map<String, serde_json::Value>>();
+            (
+                json!({ "tags": grouped, "total": value.len() }),
+                success_meta("filesystem", 0.97),
+            )
+        })?,
+    )
 }
 
 pub fn find_tests(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -188,10 +184,12 @@ pub fn find_tests(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         .and_then(|v| v.as_u64())
         .unwrap_or(100) as usize;
     let pattern = r"\b(def test_|func Test|@Test\b|it\s*\(|describe\s*\(|test\s*\()";
-    search_for_pattern(&state.project, pattern, None, max_results, 0, 0).map(|value| {
-        (
-            json!({ "tests": value, "count": value.len() }),
-            success_meta("filesystem", 0.97),
-        )
-    })
+    Ok(
+        search_for_pattern(&state.project, pattern, None, max_results, 0, 0).map(|value| {
+            (
+                json!({ "tests": value, "count": value.len() }),
+                success_meta("filesystem", 0.97),
+            )
+        })?,
+    )
 }

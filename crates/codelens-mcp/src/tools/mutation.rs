@@ -1,4 +1,5 @@
 use super::{required_string, success_meta, AppState, ToolResult};
+use crate::error::CodeLensError;
 use codelens_core::{
     add_import, analyze_missing_imports, create_text_file, delete_lines, insert_after_symbol,
     insert_at_line, insert_before_symbol, rename, replace_content, replace_lines,
@@ -12,7 +13,7 @@ pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         .get("symbol_name")
         .or_else(|| arguments.get("name"))
         .and_then(|v| v.as_str())
-        .ok_or_else(|| anyhow::anyhow!("Missing symbol_name or name"))?;
+        .ok_or_else(|| CodeLensError::MissingParam("symbol_name or name".into()))?;
     let new_name = required_string(arguments, "new_name")?;
     let name_path = arguments.get("name_path").and_then(|v| v.as_str());
     let scope = match arguments.get("scope").and_then(|v| v.as_str()) {
@@ -23,7 +24,7 @@ pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         .get("dry_run")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    rename::rename_symbol(
+    Ok(rename::rename_symbol(
         &state.project,
         file_path,
         symbol_name,
@@ -32,7 +33,7 @@ pub fn rename_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         scope,
         dry_run,
     )
-    .map(|value| (json!(value), success_meta("tree-sitter+filesystem", 0.90)))
+    .map(|value| (json!(value), success_meta("tree-sitter+filesystem", 0.90)))?)
 }
 
 pub fn create_text_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -42,12 +43,14 @@ pub fn create_text_file_tool(state: &AppState, arguments: &serde_json::Value) ->
         .get("overwrite")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    create_text_file(&state.project, relative_path, content, overwrite).map(|_| {
-        (
-            json!({ "created": relative_path }),
-            success_meta("filesystem", 1.0),
-        )
-    })
+    Ok(
+        create_text_file(&state.project, relative_path, content, overwrite).map(|_| {
+            (
+                json!({ "created": relative_path }),
+                success_meta("filesystem", 1.0),
+            )
+        })?,
+    )
 }
 
 pub fn delete_lines_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -55,17 +58,20 @@ pub fn delete_lines_tool(state: &AppState, arguments: &serde_json::Value) -> Too
     let start_line = arguments
         .get("start_line")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing start_line"))? as usize;
+        .ok_or_else(|| CodeLensError::MissingParam("start_line".into()))?
+        as usize;
     let end_line = arguments
         .get("end_line")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing end_line"))? as usize;
-    delete_lines(&state.project, relative_path, start_line, end_line).map(|content| {
-        (
-            json!({ "content": content }),
-            success_meta("filesystem", 1.0),
-        )
-    })
+        .ok_or_else(|| CodeLensError::MissingParam("end_line".into()))? as usize;
+    Ok(
+        delete_lines(&state.project, relative_path, start_line, end_line).map(|content| {
+            (
+                json!({ "content": content }),
+                success_meta("filesystem", 1.0),
+            )
+        })?,
+    )
 }
 
 pub fn insert_at_line_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -73,14 +79,16 @@ pub fn insert_at_line_tool(state: &AppState, arguments: &serde_json::Value) -> T
     let line = arguments
         .get("line")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing line"))? as usize;
+        .ok_or_else(|| CodeLensError::MissingParam("line".into()))? as usize;
     let content = required_string(arguments, "content")?;
-    insert_at_line(&state.project, relative_path, line, content).map(|modified| {
-        (
-            json!({ "content": modified }),
-            success_meta("filesystem", 1.0),
-        )
-    })
+    Ok(
+        insert_at_line(&state.project, relative_path, line, content).map(|modified| {
+            (
+                json!({ "content": modified }),
+                success_meta("filesystem", 1.0),
+            )
+        })?,
+    )
 }
 
 pub fn replace_lines_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -88,13 +96,14 @@ pub fn replace_lines_tool(state: &AppState, arguments: &serde_json::Value) -> To
     let start_line = arguments
         .get("start_line")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing start_line"))? as usize;
+        .ok_or_else(|| CodeLensError::MissingParam("start_line".into()))?
+        as usize;
     let end_line = arguments
         .get("end_line")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("Missing end_line"))? as usize;
+        .ok_or_else(|| CodeLensError::MissingParam("end_line".into()))? as usize;
     let new_content = required_string(arguments, "new_content")?;
-    replace_lines(
+    Ok(replace_lines(
         &state.project,
         relative_path,
         start_line,
@@ -106,7 +115,7 @@ pub fn replace_lines_tool(state: &AppState, arguments: &serde_json::Value) -> To
             json!({ "content": content }),
             success_meta("filesystem", 1.0),
         )
-    })
+    })?)
 }
 
 pub fn replace_content_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -117,7 +126,7 @@ pub fn replace_content_tool(state: &AppState, arguments: &serde_json::Value) -> 
         .get("regex_mode")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    replace_content(
+    Ok(replace_content(
         &state.project,
         relative_path,
         old_text,
@@ -129,7 +138,7 @@ pub fn replace_content_tool(state: &AppState, arguments: &serde_json::Value) -> 
             json!({ "content": content, "replacements": count }),
             success_meta("filesystem", 1.0),
         )
-    })
+    })?)
 }
 
 pub fn replace_symbol_body_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -137,7 +146,7 @@ pub fn replace_symbol_body_tool(state: &AppState, arguments: &serde_json::Value)
     let symbol_name = required_string(arguments, "symbol_name")?;
     let name_path = arguments.get("name_path").and_then(|v| v.as_str());
     let new_body = required_string(arguments, "new_body")?;
-    replace_symbol_body(
+    Ok(replace_symbol_body(
         &state.project,
         relative_path,
         symbol_name,
@@ -149,7 +158,7 @@ pub fn replace_symbol_body_tool(state: &AppState, arguments: &serde_json::Value)
             json!({ "content": content }),
             success_meta("tree-sitter+filesystem", 0.95),
         )
-    })
+    })?)
 }
 
 pub fn insert_before_symbol_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -157,7 +166,7 @@ pub fn insert_before_symbol_tool(state: &AppState, arguments: &serde_json::Value
     let symbol_name = required_string(arguments, "symbol_name")?;
     let name_path = arguments.get("name_path").and_then(|v| v.as_str());
     let content = required_string(arguments, "content")?;
-    insert_before_symbol(
+    Ok(insert_before_symbol(
         &state.project,
         relative_path,
         symbol_name,
@@ -169,7 +178,7 @@ pub fn insert_before_symbol_tool(state: &AppState, arguments: &serde_json::Value
             json!({ "content": modified }),
             success_meta("tree-sitter+filesystem", 0.95),
         )
-    })
+    })?)
 }
 
 pub fn insert_after_symbol_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -177,7 +186,7 @@ pub fn insert_after_symbol_tool(state: &AppState, arguments: &serde_json::Value)
     let symbol_name = required_string(arguments, "symbol_name")?;
     let name_path = arguments.get("name_path").and_then(|v| v.as_str());
     let content = required_string(arguments, "content")?;
-    insert_after_symbol(
+    Ok(insert_after_symbol(
         &state.project,
         relative_path,
         symbol_name,
@@ -189,22 +198,24 @@ pub fn insert_after_symbol_tool(state: &AppState, arguments: &serde_json::Value)
             json!({ "content": modified }),
             success_meta("tree-sitter+filesystem", 0.95),
         )
-    })
+    })?)
 }
 
 pub fn analyze_missing_imports_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
-    analyze_missing_imports(&state.project, file_path)
-        .map(|value| (json!(value), success_meta("tree-sitter+index", 0.85)))
+    Ok(analyze_missing_imports(&state.project, file_path)
+        .map(|value| (json!(value), success_meta("tree-sitter+index", 0.85)))?)
 }
 
 pub fn add_import_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     let import_statement = required_string(arguments, "import_statement")?;
-    add_import(&state.project, file_path, import_statement).map(|content| {
-        (
-            json!({"success": true, "file_path": file_path, "content_length": content.len()}),
-            success_meta("filesystem", 1.0),
-        )
-    })
+    Ok(
+        add_import(&state.project, file_path, import_statement).map(|content| {
+            (
+                json!({"success": true, "file_path": file_path, "content_length": content.len()}),
+                success_meta("filesystem", 1.0),
+            )
+        })?,
+    )
 }

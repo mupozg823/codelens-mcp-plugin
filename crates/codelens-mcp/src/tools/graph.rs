@@ -29,14 +29,9 @@ pub fn get_diff_symbols_tool(state: &AppState, arguments: &serde_json::Value) ->
         .into_iter()
         .map(|entry| {
             let symbol_count = state
-                .symbol_index
-                .lock()
-                .map(|mut index| {
-                    index
-                        .get_symbols_overview(&entry.file, 1)
-                        .map(|s| s.len())
-                        .unwrap_or(0)
-                })
+                .symbol_index_read()
+                .get_symbols_overview_cached(&entry.file, 1)
+                .map(|s| s.len())
                 .unwrap_or(0);
             json!({ "file": entry.file, "status": entry.status, "symbol_count": symbol_count })
         })
@@ -53,12 +48,16 @@ pub fn get_blast_radius_tool(state: &AppState, arguments: &serde_json::Value) ->
         .get("max_depth")
         .and_then(|v| v.as_u64())
         .unwrap_or(3) as usize;
-    get_blast_radius(&state.project, file_path, max_depth, &state.graph_cache).map(|value| {
-        (
-            json!({ "file": file_path, "affected_files": value, "count": value.len() }),
-            success_meta("import-graph", 0.86),
-        )
-    })
+    Ok(
+        get_blast_radius(&state.project, file_path, max_depth, &state.graph_cache).map(
+            |value| {
+                (
+                    json!({ "file": file_path, "affected_files": value, "count": value.len() }),
+                    success_meta("import-graph", 0.86),
+                )
+            },
+        )?,
+    )
 }
 
 pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -71,10 +70,8 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
     let blast = get_blast_radius(&state.project, file_path, max_depth, &state.graph_cache)
         .unwrap_or_default();
     let symbols = state
-        .symbol_index
-        .lock()
-        .map_err(|_| anyhow::anyhow!("lock poisoned"))?
-        .get_symbols_overview(file_path, 1)
+        .symbol_index_read()
+        .get_symbols_overview_cached(file_path, 1)
         .unwrap_or_default();
     let symbol_names: Vec<_> = flatten_symbols(&symbols)
         .iter()
@@ -86,10 +83,8 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
         .iter()
         .map(|b| {
             let sym_count = state
-                .symbol_index
-                .lock()
-                .ok()
-                .and_then(|mut idx| idx.get_symbols_overview(&b.file, 1).ok())
+                .symbol_index_read()
+                .get_symbols_overview_cached(&b.file, 1)
                 .map(|s| s.len())
                 .unwrap_or(0);
             json!({"file": b.file, "depth": b.depth, "symbol_count": sym_count})
@@ -115,12 +110,14 @@ pub fn find_importers_tool(state: &AppState, arguments: &serde_json::Value) -> T
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    get_importers(&state.project, file_path, max_results, &state.graph_cache).map(|value| {
-        (
-            json!({ "file": file_path, "importers": value, "count": value.len() }),
-            success_meta("import-graph", 0.87),
-        )
-    })
+    Ok(
+        get_importers(&state.project, file_path, max_results, &state.graph_cache).map(|value| {
+            (
+                json!({ "file": file_path, "importers": value, "count": value.len() }),
+                success_meta("import-graph", 0.87),
+            )
+        })?,
+    )
 }
 
 pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -128,12 +125,14 @@ pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) ->
         .get("top_n")
         .and_then(|v| v.as_u64())
         .unwrap_or(20) as usize;
-    get_importance(&state.project, top_n, &state.graph_cache).map(|value| {
-        (
-            json!({ "ranking": value, "count": value.len() }),
-            success_meta("import-graph", 0.84),
-        )
-    })
+    Ok(
+        get_importance(&state.project, top_n, &state.graph_cache).map(|value| {
+            (
+                json!({ "ranking": value, "count": value.len() }),
+                success_meta("import-graph", 0.84),
+            )
+        })?,
+    )
 }
 
 pub fn find_dead_code_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -141,12 +140,14 @@ pub fn find_dead_code_tool(state: &AppState, arguments: &serde_json::Value) -> T
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    find_dead_code(&state.project, max_results, &state.graph_cache).map(|value| {
-        (
-            json!({ "dead_code": value, "count": value.len() }),
-            success_meta("import-graph", 0.83),
-        )
-    })
+    Ok(
+        find_dead_code(&state.project, max_results, &state.graph_cache).map(|value| {
+            (
+                json!({ "dead_code": value, "count": value.len() }),
+                success_meta("import-graph", 0.83),
+            )
+        })?,
+    )
 }
 
 pub fn find_dead_code_v2_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -154,12 +155,14 @@ pub fn find_dead_code_v2_tool(state: &AppState, arguments: &serde_json::Value) -
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    find_dead_code_v2(&state.project, max_results, &state.graph_cache).map(|value| {
-        (
-            json!({ "dead_code": value, "count": value.len() }),
-            success_meta("call-graph+import-graph", 0.82),
-        )
-    })
+    Ok(
+        find_dead_code_v2(&state.project, max_results, &state.graph_cache).map(|value| {
+            (
+                json!({ "dead_code": value, "count": value.len() }),
+                success_meta("call-graph+import-graph", 0.82),
+            )
+        })?,
+    )
 }
 
 pub fn find_referencing_code_snippets(
@@ -176,7 +179,7 @@ pub fn find_referencing_code_snippets(
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    search_for_pattern(
+    Ok(search_for_pattern(
         &state.project,
         symbol_name,
         file_glob,
@@ -208,7 +211,7 @@ pub fn find_referencing_code_snippets(
             json!({ "snippets": snippets, "count": snippets.len() }),
             success_meta("filesystem", 0.92),
         )
-    })
+    })?)
 }
 
 pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -218,12 +221,16 @@ pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Val
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    find_scoped_references(&state.project, symbol_name, file_path, max_results).map(|refs| {
-        (
-            json!({ "references": refs, "count": refs.len() }),
-            success_meta("tree-sitter-scope", 0.95),
-        )
-    })
+    Ok(
+        find_scoped_references(&state.project, symbol_name, file_path, max_results).map(
+            |refs| {
+                (
+                    json!({ "references": refs, "count": refs.len() }),
+                    success_meta("tree-sitter-scope", 0.95),
+                )
+            },
+        )?,
+    )
 }
 
 pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -232,12 +239,14 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    get_callers(&state.project, function_name, max_results).map(|value| {
-        (
-            json!({ "function": function_name, "callers": value, "count": value.len() }),
-            success_meta("call-graph", 0.85),
-        )
-    })
+    Ok(
+        get_callers(&state.project, function_name, max_results).map(|value| {
+            (
+                json!({ "function": function_name, "callers": value, "count": value.len() }),
+                success_meta("call-graph", 0.85),
+            )
+        })?,
+    )
 }
 
 pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -247,12 +256,14 @@ pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    get_callees(&state.project, function_name, file_path, max_results).map(|value| {
-        (
-            json!({ "function": function_name, "callees": value, "count": value.len() }),
-            success_meta("call-graph", 0.85),
-        )
-    })
+    Ok(
+        get_callees(&state.project, function_name, file_path, max_results).map(|value| {
+            (
+                json!({ "function": function_name, "callees": value, "count": value.len() }),
+                success_meta("call-graph", 0.85),
+            )
+        })?,
+    )
 }
 
 pub fn find_circular_dependencies_tool(
@@ -263,12 +274,16 @@ pub fn find_circular_dependencies_tool(
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
-    find_circular_dependencies(&state.project, max_results, &state.graph_cache).map(|value| {
-        (
-            json!({ "cycles": value, "count": value.len() }),
-            success_meta("import-graph", 0.88),
-        )
-    })
+    Ok(
+        find_circular_dependencies(&state.project, max_results, &state.graph_cache).map(
+            |value| {
+                (
+                    json!({ "cycles": value, "count": value.len() }),
+                    success_meta("import-graph", 0.88),
+                )
+            },
+        )?,
+    )
 }
 
 pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -288,7 +303,7 @@ pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value)
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(30) as usize;
-    get_change_coupling(
+    Ok(get_change_coupling(
         &state.project,
         months,
         min_strength,
@@ -300,5 +315,5 @@ pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value)
             json!({ "coupling": value, "count": value.len() }),
             success_meta("git", 0.85),
         )
-    })
+    })?)
 }
