@@ -134,12 +134,20 @@ pub(crate) fn dispatch_tool(
                 "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
             });
 
-            // Global safety net: truncate responses that exceed 2x token budget.
+            // Global safety net: replace oversized responses with a valid JSON summary.
             // This prevents any single tool from blowing up the context window.
             let max_chars = state.token_budget() * 8; // 2x budget in chars
             if text.len() > max_chars {
-                text.truncate(max_chars);
-                text.push_str("...\n[TRUNCATED: response exceeded token budget]");
+                text = serde_json::to_string(&json!({
+                    "success": true,
+                    "truncated": true,
+                    "error": format!(
+                        "Response too large ({} tokens, budget {}). Narrow with path, max_tokens, or depth.",
+                        payload_estimate, state.token_budget()
+                    ),
+                    "token_estimate": payload_estimate,
+                }))
+                .unwrap_or_else(|_| "{\"success\":false,\"truncated\":true}".to_owned());
             }
             JsonRpcResponse::result(
                 id,

@@ -166,7 +166,7 @@ pub fn get_complexity(state: &AppState, arguments: &serde_json::Value) -> ToolRe
             let branches = count_branches(&lines[start..end]);
             json!({
                 "name": s.name,
-                "kind": s.kind.kind_label(),
+                "kind": s.kind.as_label(),
                 "file": s.file_path,
                 "line": s.line,
                 "branches": branches,
@@ -264,6 +264,7 @@ fn count_branches(lines: &[&str]) -> i32 {
 
 fn count_branches_in_line(line: &str) -> i32 {
     let mut count = 0i32;
+    // "if" already counts the branch in "else if", so no separate else-if handling needed.
     for token in [
         "if", "elif", "for", "while", "catch", "except", "case", "and", "or",
     ] {
@@ -271,9 +272,6 @@ fn count_branches_in_line(line: &str) -> i32 {
     }
     count += line.match_indices("&&").count() as i32;
     count += line.match_indices("||").count() as i32;
-    if line.contains("else if") {
-        count += 1;
-    }
     count
 }
 
@@ -294,26 +292,4 @@ fn count_word_occurrences(line: &str, needle: &str) -> i32 {
             start_ok && end_ok
         })
         .count() as i32
-}
-
-trait SymbolKindLabel {
-    fn kind_label(&self) -> &'static str;
-}
-
-impl SymbolKindLabel for SymbolKind {
-    fn kind_label(&self) -> &'static str {
-        match self {
-            SymbolKind::File => "file",
-            SymbolKind::Class => "class",
-            SymbolKind::Interface => "interface",
-            SymbolKind::Enum => "enum",
-            SymbolKind::Module => "module",
-            SymbolKind::Method => "method",
-            SymbolKind::Function => "function",
-            SymbolKind::Property => "property",
-            SymbolKind::Variable => "variable",
-            SymbolKind::TypeAlias => "type_alias",
-            SymbolKind::Unknown => "unknown",
-        }
-    }
 }
