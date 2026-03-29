@@ -130,9 +130,17 @@ pub(crate) fn dispatch_tool(
                 .unwrap_or(0);
             resp.token_estimate = Some(payload_estimate);
             resp.budget_hint = Some(budget_hint(name, payload_estimate, state.token_budget()));
-            let text = serde_json::to_string(&resp).unwrap_or_else(|_| {
+            let mut text = serde_json::to_string(&resp).unwrap_or_else(|_| {
                 "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
             });
+
+            // Global safety net: truncate responses that exceed 2x token budget.
+            // This prevents any single tool from blowing up the context window.
+            let max_chars = state.token_budget() * 8; // 2x budget in chars
+            if text.len() > max_chars {
+                text.truncate(max_chars);
+                text.push_str("...\n[TRUNCATED: response exceeded token budget]");
+            }
             JsonRpcResponse::result(
                 id,
                 json!({

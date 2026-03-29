@@ -6,15 +6,39 @@ use serde_json::json;
 pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
-    Ok(state
+    let budget = state.token_budget();
+    let mut symbols = state
         .symbol_index()
-        .get_symbols_overview_cached(path, depth)
-        .map(|value| {
-            (
-                json!({ "symbols": value, "count": value.len() }),
-                success_meta("tree-sitter-cached", 0.93),
-            )
-        })?)
+        .get_symbols_overview_cached(path, depth)?;
+
+    // Token guard: strip children when response would exceed budget.
+    // Estimate ~200 chars per symbol with children, ~80 without.
+    let estimated_chars: usize = symbols.iter().map(|s| 80 + s.children.len() * 120).sum();
+    let budget_chars = budget * 4;
+    if estimated_chars > budget_chars {
+        // Strip children — return file-level summaries only
+        for sym in &mut symbols {
+            let child_count = sym.children.len();
+            sym.children.clear();
+            sym.signature = format!("{} ({child_count} symbols)", sym.signature);
+        }
+    }
+
+    // Hard limit: if still too large, truncate the list
+    let max_symbols = budget_chars / 80;
+    let truncated = symbols.len() > max_symbols;
+    if truncated {
+        symbols.truncate(max_symbols);
+    }
+
+    Ok((
+        json!({
+            "symbols": symbols,
+            "count": symbols.len(),
+            "truncated": truncated,
+        }),
+        success_meta("tree-sitter-cached", 0.93),
+    ))
 }
 
 pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
