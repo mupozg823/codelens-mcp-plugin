@@ -1,6 +1,6 @@
 use crate::import_graph::GraphCache;
-use crate::project::is_excluded;
-use crate::symbols::{language_for_path, SymbolIndex};
+use crate::symbols::SymbolIndex;
+use crate::vfs;
 use anyhow::Result;
 use notify::RecommendedWatcher;
 use notify_debouncer_mini::{new_debouncer, DebouncedEventKind, Debouncer};
@@ -10,6 +10,7 @@ use std::sync::{
     Arc,
 };
 use std::time::Duration;
+use tracing::{debug, warn};
 
 /// File watcher that automatically re-indexes changed files.
 pub struct FileWatcher {
@@ -24,6 +25,9 @@ pub struct WatcherStats {
     pub running: bool,
     pub events_processed: u64,
     pub files_reindexed: u64,
+    /// Number of files that failed to index (available when symbol index is queried).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_failures: Option<usize>,
 }
 
 impl FileWatcher {
@@ -51,38 +55,44 @@ impl FileWatcher {
                 }
                 let events = match res {
                     Ok(events) => events,
-                    Err(_) => return,
+                    Err(e) => {
+                        warn!(error = %e, "file watcher error");
+                        return;
+                    }
                 };
 
-                let mut changed: Vec<PathBuf> = Vec::new();
-                let mut removed: Vec<PathBuf> = Vec::new();
+                // Classify raw watcher events into changed/removed
+                let mut raw_changed: Vec<PathBuf> = Vec::new();
+                let mut raw_removed: Vec<PathBuf> = Vec::new();
 
                 for event in &events {
                     let path = &event.path;
-                    if is_excluded(path) {
-                        continue;
-                    }
-                    // Only watch files with supported language extensions
-                    if language_for_path(path).is_none() {
-                        continue;
-                    }
                     match event.kind {
                         DebouncedEventKind::Any => {
                             if path.is_file() {
-                                changed.push(path.clone());
+                                raw_changed.push(path.clone());
                             } else {
-                                // File no longer exists → treat as removal
-                                removed.push(path.clone());
+                                raw_removed.push(path.clone());
                             }
                         }
-                        DebouncedEventKind::AnyContinuous => {
-                            // Ongoing writes — skip until stabilized
-                        }
+                        DebouncedEventKind::AnyContinuous => {} // ongoing writes — skip
                         _ => {}
                     }
                 }
 
                 events_clone.fetch_add(events.len() as u64, Ordering::Relaxed);
+
+                // Normalize through VFS layer (filters, deduplicates, detects renames)
+                let file_events = vfs::normalize_events(&raw_changed, &raw_removed);
+                let (changed, removed, renamed) = vfs::partition_events(&file_events);
+
+                debug!(
+                    changed = changed.len(),
+                    removed = removed.len(),
+                    renamed = renamed.len(),
+                    total_events = events.len(),
+                    "watcher batch processed"
+                );
 
                 if changed.is_empty() && removed.is_empty() {
                     return;
@@ -90,19 +100,42 @@ impl FileWatcher {
 
                 let mut reindexed = 0u64;
                 if !changed.is_empty() {
-                    if let Ok(n) = symbol_index.index_files(&changed) {
-                        reindexed += n as u64;
+                    match symbol_index.index_files(&changed) {
+                        Ok(n) => {
+                            reindexed += n as u64;
+                            // Clear failures for successfully indexed files
+                            let db = symbol_index.db();
+                            for file in &changed {
+                                let rel = file.to_string_lossy();
+                                let _ = db.clear_index_failure(&rel);
+                            }
+                        }
+                        Err(e) => {
+                            warn!(error = %e, count = changed.len(), "index_files batch failed");
+                            // Record failure for each file in the batch
+                            let db = symbol_index.db();
+                            for file in &changed {
+                                let rel = file.to_string_lossy();
+                                let _ = db.record_index_failure(
+                                    &rel,
+                                    "index_batch_error",
+                                    &e.to_string(),
+                                );
+                            }
+                        }
                     }
                 }
                 if !removed.is_empty() {
-                    if let Ok(n) = symbol_index.remove_files(&removed) {
-                        reindexed += n as u64;
+                    match symbol_index.remove_files(&removed) {
+                        Ok(n) => reindexed += n as u64,
+                        Err(e) => warn!(error = %e, "remove_files failed"),
                     }
                 }
 
                 if reindexed > 0 {
                     graph_cache.invalidate();
                     files_clone.fetch_add(reindexed, Ordering::Relaxed);
+                    debug!(reindexed, "graph cache invalidated");
                 }
             },
         )?;
@@ -125,6 +158,7 @@ impl FileWatcher {
             running: self.running.load(Ordering::Relaxed),
             events_processed: self.events_processed.load(Ordering::Relaxed),
             files_reindexed: self.files_reindexed.load(Ordering::Relaxed),
+            index_failures: None,
         }
     }
 

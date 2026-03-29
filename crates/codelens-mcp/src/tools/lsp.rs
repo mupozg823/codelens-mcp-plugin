@@ -2,6 +2,7 @@ use super::{
     default_lsp_command_for_path, parse_lsp_args, required_string, success_meta, AppState,
     ToolResult,
 };
+use crate::authority::{meta_degraded, meta_for_backend};
 use crate::error::CodeLensError;
 use codelens_core::{
     check_lsp_status as core_check_lsp_status, extract_word_at_position,
@@ -63,7 +64,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         .map(|value| {
             (
                 json!({ "references": value, "count": value.len() }),
-                success_meta("text_search", 0.80),
+                meta_for_backend("text_search", 0.80),
             )
         })?);
     }
@@ -101,7 +102,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         match lsp_result {
             Ok(value) => Ok((
                 json!({ "references": value, "count": value.len() }),
-                success_meta("lsp_pooled", 0.9),
+                meta_for_backend("lsp_pooled", 0.9),
             )),
             Err(_) => {
                 let word = extract_word_at_position(&state.project, &file_path, line, column)?;
@@ -114,7 +115,11 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 .map(|value| {
                     (
                         json!({ "references": value, "count": value.len() }),
-                        success_meta("text_fallback", 0.75),
+                        meta_degraded(
+                            "text_fallback",
+                            0.75,
+                            "LSP failed, fell back to text search",
+                        ),
                     )
                 })?)
             }
@@ -126,7 +131,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 .map(|value| {
                     (
                         json!({ "references": value, "count": value.len() }),
-                        success_meta("text_fallback", 0.75),
+                        meta_degraded("text_fallback", 0.75, "no LSP command available"),
                     )
                 })?,
         )
@@ -233,7 +238,7 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
             });
 
         match lsp_result {
-            Ok(value) => Ok((json!(value), success_meta("lsp_pooled", 0.82))),
+            Ok(value) => Ok((json!(value), meta_for_backend("lsp_pooled", 0.82))),
             Err(_) => Ok(get_type_hierarchy_native(
                 &state.project,
                 &query,
@@ -241,7 +246,16 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
                 &hierarchy_type,
                 depth,
             )
-            .map(|value| (json!(value), success_meta("tree-sitter-native", 0.80)))?),
+            .map(|value| {
+                (
+                    json!(value),
+                    meta_degraded(
+                        "tree-sitter-native",
+                        0.80,
+                        "LSP failed, fell back to native",
+                    ),
+                )
+            })?),
         }
     } else {
         Ok(get_type_hierarchy_native(
@@ -251,7 +265,12 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
             &hierarchy_type,
             depth,
         )
-        .map(|value| (json!(value), success_meta("tree-sitter-native", 0.80)))?)
+        .map(|value| {
+            (
+                json!(value),
+                meta_degraded("tree-sitter-native", 0.80, "no LSP command available"),
+            )
+        })?)
     }
 }
 

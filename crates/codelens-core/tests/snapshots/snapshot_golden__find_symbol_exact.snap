@@ -1,0 +1,12 @@
+---
+source: crates/codelens-core/tests/snapshot_golden.rs
+assertion_line: 41
+expression: summary
+---
+[
+  [
+    "UserService",
+    "class",
+    "src/service.py"
+  ]
+]

@@ -1,0 +1,31 @@
+---
+source: crates/codelens-core/tests/snapshot_golden.rs
+assertion_line: 53
+expression: summary
+---
+[
+  [
+    "UserService",
+    "src/service.py"
+  ],
+  [
+    "get_user",
+    "src/service.py"
+  ],
+  [
+    "delete_user",
+    "src/service.py"
+  ],
+  [
+    "User",
+    "src/models.ts"
+  ],
+  [
+    "validateUser",
+    "src/models.ts"
+  ],
+  [
+    "UserRepository",
+    "src/models.ts"
+  ]
+]

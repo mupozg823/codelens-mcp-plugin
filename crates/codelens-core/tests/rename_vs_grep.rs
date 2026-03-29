@@ -143,7 +143,7 @@ fn rename_vs_grep_exhaustive() {
     let grep3 = grep_all_occurrences(root, "SymbolKind");
     let result3 = rename_symbol(
         &project,
-        "src/symbols.rs",
+        "src/symbols/types.rs",
         "SymbolKind",
         "X",
         None,
@@ -181,7 +181,7 @@ fn rename_vs_grep_exhaustive() {
     let grep5 = grep_all_occurrences(root, "make_symbol_id");
     let result5 = rename_symbol(
         &project,
-        "src/symbols.rs",
+        "src/symbols/types.rs",
         "make_symbol_id",
         "X",
         None,

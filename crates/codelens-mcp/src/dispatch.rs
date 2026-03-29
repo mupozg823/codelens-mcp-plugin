@@ -7,6 +7,7 @@ use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use tracing::{info_span, warn};
 
 // ── Semantic handlers (feature-gated) ──────────────────────────────────
 
@@ -116,10 +117,44 @@ pub(crate) fn dispatch_tool(
         .cloned()
         .unwrap_or_else(|| json!({}));
 
+    // Request-scoped profile: temporarily override token budget if _profile is set
+    let profile_budget = arguments
+        .get("_profile")
+        .and_then(|v| v.as_str())
+        .map(|profile| match profile {
+            "fast_local" => 2000usize,
+            "deep_semantic" => 16000,
+            "safe_mutation" => 4000,
+            _ => state.token_budget(), // "balanced" or unknown → use server default
+        });
+    let original_budget = profile_budget.map(|budget| {
+        let orig = state.token_budget();
+        state.set_token_budget(budget);
+        orig
+    });
+
+    let span = info_span!("tool_call", tool = name);
+    let _guard = span.enter();
+    let start = std::time::Instant::now();
+
     let result: ToolResult = match DISPATCH_TABLE.get(name) {
         Some(handler) => handler(state, &arguments),
         None => Err(CodeLensError::ToolNotFound(name.to_owned())),
     };
+
+    // Restore original budget if profile override was applied
+    if let Some(orig) = original_budget {
+        state.set_token_budget(orig);
+    }
+
+    let elapsed_ms = start.elapsed().as_millis();
+    if elapsed_ms > 5000 {
+        warn!(
+            tool = name,
+            elapsed_ms = elapsed_ms as u64,
+            "slow tool execution"
+        );
+    }
 
     match result {
         Ok((payload, meta)) => {
@@ -158,10 +193,7 @@ pub(crate) fn dispatch_tool(
         }
         Err(error) => {
             // Protocol-level errors: return as JSON-RPC error response
-            if matches!(
-                error,
-                CodeLensError::ToolNotFound(_) | CodeLensError::MissingParam(_)
-            ) {
+            if error.is_protocol_error() {
                 return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());
             }
             // Tool execution errors: return as MCP isError content

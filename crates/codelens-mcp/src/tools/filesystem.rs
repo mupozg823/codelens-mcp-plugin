@@ -19,7 +19,7 @@ pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> T
             "available_backends": ["filesystem", "tree-sitter-cached", "lsp_pooled"],
             "symbol_index": stats,
             "preset": format!("{preset:?}"),
-            "tool_count": crate::tools().len(),
+            "tool_count": crate::tool_defs::tools().len(),
             "frameworks": frameworks,
             "workspace_packages": workspace_packages
         }),

@@ -16,6 +16,8 @@ pub mod search;
 pub mod symbols;
 pub mod type_hierarchy;
 pub mod watcher;
+pub mod embedding_store;
+pub mod vfs;
 #[cfg(feature = "semantic")]
 pub mod embedding;
 

@@ -1,102 +1,37 @@
+mod authority;
 mod dispatch;
 mod error;
 mod prompts;
 mod protocol;
 mod resources;
+mod server;
+mod state;
 mod tool_defs;
 mod tools;
 
+pub(crate) use state::AppState;
+
 use anyhow::Result;
-use codelens_core::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
-#[cfg(feature = "semantic")]
-use codelens_core::EmbeddingEngine;
-use dispatch::dispatch_tool;
-use prompts::{get_prompt, prompts};
-use protocol::{JsonRpcRequest, JsonRpcResponse};
-use resources::{read_resource, resources};
-use serde_json::json;
-use std::io::{self, BufRead, Write};
-use std::sync::{Arc, Mutex};
-use tool_defs::{ToolPreset, BALANCED_EXCLUDES, MINIMAL_TOOLS, tools};
-
-// ── Application state ──────────────────────────────────────────────────
-
-struct AppState {
-    project: ProjectRoot,
-    symbol_index: Arc<SymbolIndex>,
-    lsp_pool: LspSessionPool,
-    pub(crate) graph_cache: Arc<GraphCache>,
-    preset: Mutex<ToolPreset>,
-    /// Global token budget for response size control.
-    /// Tools that produce variable-length output respect this limit.
-    token_budget: std::sync::atomic::AtomicUsize,
-    memories_dir: std::path::PathBuf,
-    watcher: Option<FileWatcher>,
-    #[cfg(feature = "semantic")]
-    embedding: std::sync::OnceLock<Option<EmbeddingEngine>>,
-}
-
-impl AppState {
-    /// Access the symbol index. SymbolIndex is internally synchronized
-    /// (reader/writer split), so no external lock is needed.
-    pub(crate) fn symbol_index(&self) -> &SymbolIndex {
-        &self.symbol_index
-    }
-
-    /// Access the LSP session pool. Pool uses internal per-session locking.
-    pub(crate) fn lsp_pool(&self) -> &LspSessionPool {
-        &self.lsp_pool
-    }
-
-    /// Acquire preset lock with poison recovery.
-    pub(crate) fn preset(&self) -> std::sync::MutexGuard<'_, ToolPreset> {
-        self.preset
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    /// Current global token budget.
-    pub(crate) fn token_budget(&self) -> usize {
-        self.token_budget.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    /// Set global token budget.
-    pub(crate) fn set_token_budget(&self, budget: usize) {
-        self.token_budget
-            .store(budget, std::sync::atomic::Ordering::Relaxed);
-    }
-
-    fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
-        let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
-        let lsp_pool = LspSessionPool::new(project.clone());
-        let graph_cache = Arc::new(GraphCache::new(30));
-        let memories_dir = project.as_path().join(".codelens").join("memories");
-
-        let watcher = FileWatcher::start(
-            project.as_path(),
-            Arc::clone(&symbol_index),
-            Arc::clone(&graph_cache),
-        )
-        .ok();
-
-        Self {
-            project,
-            symbol_index,
-            lsp_pool,
-            graph_cache,
-            preset: Mutex::new(preset),
-            token_budget: std::sync::atomic::AtomicUsize::new(4000),
-            memories_dir,
-            watcher,
-            #[cfg(feature = "semantic")]
-            embedding: std::sync::OnceLock::new(),
-        }
-    }
-}
+use codelens_core::ProjectRoot;
+use server::oneshot::run_oneshot;
+use server::transport_stdio::run_stdio;
+use std::sync::Arc;
+use tool_defs::ToolPreset;
 
 // ── Entry point ────────────────────────────────────────────────────────
 
 fn main() -> Result<()> {
+    // Initialize tracing subscriber — output to stderr to avoid interfering with
+    // stdio JSON-RPC transport on stdout. Controlled via CODELENS_LOG env var.
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_env("CODELENS_LOG")
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
+        )
+        .with_writer(std::io::stderr)
+        .with_target(false)
+        .init();
+
     let args: Vec<String> = std::env::args().collect();
     let project_arg = args.get(1).map(|s| s.as_str()).unwrap_or(".");
     let preset = args
@@ -164,7 +99,7 @@ fn main() -> Result<()> {
 
     match transport {
         #[cfg(feature = "http")]
-        "http" => run_http(state, port),
+        "http" => server::transport_http::run_http(state, port),
         #[cfg(not(feature = "http"))]
         "http" => {
             anyhow::bail!("HTTP transport requires the `http` feature. Rebuild with: cargo build --features http");
@@ -173,214 +108,10 @@ fn main() -> Result<()> {
     }
 }
 
-// ── Transport: stdio ───────────────────────────────────────────────────
-
-fn run_stdio(state: Arc<AppState>) -> Result<()> {
-    let stdin = io::stdin();
-    let mut stdout = io::stdout().lock();
-
-    for line in stdin.lock().lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-
-        // JSON-RPC 2.0 batch support: detect array vs object
-        let trimmed = line.trim_start();
-        if trimmed.starts_with('[') {
-            // Batch request
-            match serde_json::from_str::<Vec<JsonRpcRequest>>(trimmed) {
-                Ok(requests) => {
-                    let responses: Vec<_> = requests
-                        .into_iter()
-                        .filter_map(|req| handle_request(&state, req))
-                        .collect();
-                    if !responses.is_empty() {
-                        serde_json::to_writer(&mut stdout, &responses)?;
-                        stdout.write_all(b"\n")?;
-                        stdout.flush()?;
-                    }
-                }
-                Err(error) => {
-                    let resp = JsonRpcResponse::error(
-                        None,
-                        -32700,
-                        format!("Batch parse error: {error}"),
-                    );
-                    serde_json::to_writer(&mut stdout, &resp)?;
-                    stdout.write_all(b"\n")?;
-                    stdout.flush()?;
-                }
-            }
-        } else {
-            // Single request
-            let response = match serde_json::from_str::<JsonRpcRequest>(trimmed) {
-                Ok(request) => handle_request(&state, request),
-                Err(error) => Some(JsonRpcResponse::error(
-                    None,
-                    -32700,
-                    format!("Parse error: {error}"),
-                )),
-            };
-            if let Some(response) = response {
-                serde_json::to_writer(&mut stdout, &response)?;
-                stdout.write_all(b"\n")?;
-                stdout.flush()?;
-            }
-        }
-    }
-
-    Ok(())
-}
-
-// ── Transport: one-shot CLI ────────────────────────────────────────────
-
-fn run_oneshot(state: &AppState, tool_name: &str, args_json: Option<&str>) -> Result<()> {
-    let arguments: serde_json::Value = match args_json {
-        Some(s) => serde_json::from_str(s)
-            .map_err(|e| anyhow::anyhow!("Invalid --args JSON: {e}"))?,
-        None => json!({}),
-    };
-    let params = json!({ "name": tool_name, "arguments": arguments });
-    let response = dispatch_tool(state, Some(json!(1)), params);
-
-    // Extract the tool result text content
-    if let Some(result) = &response.result {
-        if let Some(content) = result.get("content").and_then(|c| c.get(0)).and_then(|c| c.get("text")) {
-            println!("{}", content.as_str().unwrap_or(""));
-        }
-    } else if let Some(error) = &response.error {
-        eprintln!("Error: {}", error.message);
-        std::process::exit(1);
-    }
-    Ok(())
-}
-
-// ── Transport: HTTP (feature-gated) ────────────────────────────────────
-
-#[cfg(feature = "http")]
-#[tokio::main]
-async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
-    use axum::{Router, routing::post};
-
-    let app = Router::new()
-        .route("/mcp", post(mcp_handler))
-        .with_state(state);
-
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    eprintln!("CodeLens MCP HTTP server listening on http://{addr}/mcp");
-
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
-    Ok(())
-}
-
-#[cfg(feature = "http")]
-async fn mcp_handler(
-    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
-    body: String,
-) -> (axum::http::StatusCode, String) {
-    let response = match serde_json::from_str::<JsonRpcRequest>(&body) {
-        Ok(request) => handle_request(&state, request),
-        Err(error) => Some(JsonRpcResponse::error(None, -32700, format!("Parse error: {error}"))),
-    };
-    match response {
-        Some(resp) => match serde_json::to_string(&resp) {
-            Ok(json) => (axum::http::StatusCode::OK, json),
-            Err(e) => (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                serde_json::to_string(&json!({"error": e.to_string()}))
-                    .unwrap_or_else(|_| r#"{"error":"serialization failed"}"#.to_owned()),
-            ),
-        },
-        // Notification — HTTP 204 No Content
-        None => (axum::http::StatusCode::NO_CONTENT, String::new()),
-    }
-}
-
-// ── JSON-RPC request handler ───────────────────────────────────────────
-
-fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcResponse> {
-    if request.jsonrpc != "2.0" {
-        return Some(JsonRpcResponse::error(request.id, -32600, "Unsupported jsonrpc version"));
-    }
-
-    // JSON-RPC 2.0: notifications (no id) MUST NOT receive a response
-    let is_notification = request.id.is_none();
-
-    match request.method.as_str() {
-        // Notifications — silently accept, never respond
-        "notifications/initialized" | "notifications/cancelled" | "notifications/progress"
-        | "notifications/roots/list_changed" => None,
-
-        "initialize" => Some(JsonRpcResponse::result(
-            request.id,
-            json!({
-                "protocolVersion": "2025-03-26",
-                "capabilities": {
-                    "tools": {},
-                    "resources": { "listChanged": false },
-                    "prompts": { "listChanged": false }
-                },
-                "serverInfo": {
-                    "name": "codelens-mcp",
-                    "version": env!("CARGO_PKG_VERSION")
-                }
-            }),
-        )),
-        "resources/list" => {
-            Some(JsonRpcResponse::result(request.id, json!({ "resources": resources(state) })))
-        }
-        "resources/read" => {
-            let uri = request
-                .params
-                .as_ref()
-                .and_then(|p| p.get("uri"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            Some(JsonRpcResponse::result(request.id, read_resource(state, uri)))
-        }
-        "prompts/list" => Some(JsonRpcResponse::result(request.id, json!({ "prompts": prompts() }))),
-        "prompts/get" => {
-            let name = request
-                .params
-                .as_ref()
-                .and_then(|p| p.get("name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let args = request
-                .params
-                .as_ref()
-                .and_then(|p| p.get("arguments"))
-                .cloned()
-                .unwrap_or(json!({}));
-            Some(JsonRpcResponse::result(request.id, get_prompt(state, name, &args)))
-        }
-        "tools/list" => {
-            let current_preset = *state.preset();
-            let filtered: Vec<_> = tools()
-                .iter()
-                .filter(|t| match current_preset {
-                    ToolPreset::Full => true,
-                    ToolPreset::Minimal => MINIMAL_TOOLS.contains(&t.name),
-                    ToolPreset::Balanced => !BALANCED_EXCLUDES.contains(&t.name),
-                })
-                .collect();
-            Some(JsonRpcResponse::result(request.id, json!({ "tools": filtered })))
-        }
-        "tools/call" => match request.params {
-            Some(params) => Some(dispatch_tool(state, request.id, params)),
-            None => Some(JsonRpcResponse::error(request.id, -32602, "Missing params")),
-        },
-        // Unknown notification — silently ignore per JSON-RPC 2.0
-        _ if is_notification => None,
-        method => Some(JsonRpcResponse::error(request.id, -32601, format!("Method not found: {method}"))),
-    }
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{handle_request, tools};
+    use super::server::router::handle_request;
+    use crate::tool_defs::tools;
     use codelens_core::ProjectRoot;
     use serde_json::json;
     use std::fs;
@@ -401,9 +132,9 @@ mod tests {
         .expect("tools/list should return a response");
         // 51 base + 2 semantic (feature-gated)
         #[cfg(feature = "semantic")]
-        assert_eq!(tools().len(), 54);
+        assert_eq!(tools().len(), 55);
         #[cfg(not(feature = "semantic"))]
-        assert_eq!(tools().len(), 52);
+        assert_eq!(tools().len(), 53);
         let encoded = serde_json::to_string(&response).expect("serialize");
         assert!(encoded.contains("get_symbols_overview"));
     }
@@ -1076,5 +807,44 @@ mod tests {
         assert!(content.contains("aaa"));
         assert!(content.contains("XXX"));
         assert!(!content.contains("bbb"));
+    }
+
+    // ---- Composite / workflow tool tests ----
+
+    #[test]
+    fn onboard_project_returns_structure() {
+        let project = project_root();
+        fs::create_dir_all(project.as_path().join("src")).unwrap();
+        fs::write(
+            project.as_path().join("src/main.py"),
+            "class App:\n    def run(self):\n        pass\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(&state, "onboard_project", json!({}));
+        assert_eq!(payload["success"], json!(true));
+        assert!(payload["data"]["directory_structure"].is_array());
+        assert!(payload["data"]["key_files"].is_array());
+    }
+
+    #[test]
+    fn get_capabilities_returns_features() {
+        let project = project_root();
+        fs::write(
+            project.as_path().join("check.py"),
+            "x = 1\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let payload = call_tool(
+            &state,
+            "get_capabilities",
+            json!({"file_path": "check.py"}),
+        );
+        assert_eq!(payload["success"], json!(true));
+        assert!(payload["data"]["available"].is_array());
+        assert!(payload["data"].get("lsp_attached").is_some());
+        assert!(payload["data"].get("embeddings_loaded").is_some());
+        assert!(payload["data"].get("index_fresh").is_some());
     }
 }

@@ -38,6 +38,18 @@ pub struct Tool {
     pub annotations: Option<ToolAnnotations>,
 }
 
+/// Tool complexity tier — guides agent tool selection strategy.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolTier {
+    /// Single-resource read/write. Fast, cheap, precise.
+    Primitive,
+    /// Multi-resource analysis or computation. Medium cost.
+    Analysis,
+    /// Multi-step workflow combining primitives and analysis. Higher cost, higher value.
+    Workflow,
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct ToolAnnotations {
     #[serde(rename = "readOnlyHint", skip_serializing_if = "Option::is_none")]
@@ -48,6 +60,9 @@ pub struct ToolAnnotations {
     pub idempotent_hint: Option<bool>,
     #[serde(rename = "openWorldHint", skip_serializing_if = "Option::is_none")]
     pub open_world_hint: Option<bool>,
+    /// Tool complexity tier for agent tool selection guidance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tier: Option<ToolTier>,
 }
 
 #[allow(dead_code)] // reserved for future SSE/streaming notification support
@@ -69,6 +84,14 @@ pub struct ToolCallResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub degraded_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<AnalysisSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub freshness: Option<Freshness>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub staleness_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -80,11 +103,38 @@ pub struct ToolCallResponse {
     pub budget_hint: Option<String>,
 }
 
+/// Source of analysis for provenance tracking.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
+pub enum AnalysisSource {
+    Native,
+    Lsp,
+    Hybrid,
+}
+
+/// Freshness of the result.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[allow(dead_code)]
+pub enum Freshness {
+    Live,
+    Indexed,
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolResponseMeta {
     pub backend_used: String,
     pub confidence: f64,
     pub degraded_reason: Option<String>,
+    /// Whether the analysis came from native, LSP, or hybrid sources.
+    pub source: AnalysisSource,
+    /// Whether this is a partial result (e.g. truncated, some files failed).
+    pub partial: bool,
+    /// Whether the result is live or from a cached/indexed state.
+    pub freshness: Freshness,
+    /// Milliseconds since the index was last updated (None for live results).
+    pub staleness_ms: Option<u64>,
 }
 
 impl JsonRpcResponse {
@@ -134,6 +184,7 @@ impl ToolAnnotations {
             destructive_hint: Some(false),
             idempotent_hint: None,
             open_world_hint: None,
+            tier: None,
         }
     }
 
@@ -143,6 +194,7 @@ impl ToolAnnotations {
             destructive_hint: Some(true),
             idempotent_hint: None,
             open_world_hint: None,
+            tier: None,
         }
     }
 
@@ -152,17 +204,29 @@ impl ToolAnnotations {
             destructive_hint: Some(false),
             idempotent_hint: None,
             open_world_hint: None,
+            tier: None,
         }
+    }
+
+    /// Set the tool tier.
+    pub fn with_tier(mut self, tier: ToolTier) -> Self {
+        self.tier = Some(tier);
+        self
     }
 }
 
 impl ToolCallResponse {
     pub fn success(data: Value, meta: ToolResponseMeta) -> Self {
+        let partial_flag = if meta.partial { Some(true) } else { None };
         Self {
             success: true,
             backend_used: Some(meta.backend_used),
             confidence: Some(meta.confidence),
             degraded_reason: meta.degraded_reason,
+            source: Some(meta.source),
+            partial: partial_flag,
+            freshness: Some(meta.freshness),
+            staleness_ms: meta.staleness_ms,
             data: Some(data),
             error: None,
             token_estimate: None,
@@ -177,6 +241,10 @@ impl ToolCallResponse {
             backend_used: None,
             confidence: None,
             degraded_reason: None,
+            source: None,
+            partial: None,
+            freshness: None,
+            staleness_ms: None,
             data: None,
             error: Some(message.into()),
             token_estimate: None,

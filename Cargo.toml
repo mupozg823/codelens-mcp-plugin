@@ -50,11 +50,14 @@ tree-sitter-dart = "0.1"
 fastembed = "5"
 sqlite-vec = "0.1.8-alpha.1"
 criterion = { version = "0.5", features = ["html_reports"] }
+insta = { version = "1", features = ["json", "redactions"] }
 notify = "7.0"
 notify-debouncer-mini = "0.5"
 url = "2.5"
 walkdir = "2.5"
 libc = "0.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [profile.release]
 lto = true

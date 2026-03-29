@@ -1,0 +1,10 @@
+---
+source: crates/codelens-core/tests/snapshot_golden.rs
+assertion_line: 20
+expression: names
+---
+[
+  "UserService",
+  "AuthService",
+  "create_app"
+]

@@ -8,7 +8,7 @@ pub mod session;
 pub mod symbols;
 
 use crate::error::CodeLensError;
-use crate::protocol::ToolResponseMeta;
+use crate::protocol::{AnalysisSource, Freshness, ToolResponseMeta};
 use crate::AppState;
 use std::collections::HashMap;
 
@@ -116,6 +116,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
     m.insert("think_about_whether_you_are_done", session::think_noop);
     m.insert("switch_modes", session::switch_modes);
     m.insert("set_preset", session::set_preset);
+    m.insert("get_capabilities", session::get_capabilities);
 
     // Composite / agent
     m.insert("summarize_file", composite::summarize_file);
@@ -139,6 +140,10 @@ pub fn success_meta(backend_used: &str, confidence: f64) -> ToolResponseMeta {
         backend_used: backend_used.to_owned(),
         confidence,
         degraded_reason: None,
+        source: AnalysisSource::Native,
+        partial: false,
+        freshness: Freshness::Live,
+        staleness_ms: None,
     }
 }
 
@@ -207,29 +212,90 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
 
 pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
     let suggestions: &[&str] = match tool_name {
+        // ── Symbols / index ──────────────────────────────────────────
         "get_symbols_overview" => &["find_symbol", "get_impact_analysis", "get_ranked_context"],
         "find_symbol" => &[
             "find_referencing_symbols",
             "get_impact_analysis",
             "replace_symbol_body",
         ],
+        "get_ranked_context" => &["find_symbol", "replace_symbol_body", "semantic_search"],
+        "refresh_symbol_index" => &["index_embeddings", "get_symbols_overview"],
+        "get_project_structure" => &["get_symbols_overview", "get_ranked_context", "find_symbol"],
+        "get_complexity" => &["find_symbol", "get_symbols_overview"],
+        "search_symbols_fuzzy" => &["find_symbol", "get_ranked_context"],
+
+        // ── LSP ──────────────────────────────────────────────────────
         "find_referencing_symbols" => &["get_impact_analysis", "rename_symbol"],
-        "get_impact_analysis" => &["find_referencing_symbols", "get_symbols_overview"],
         "get_file_diagnostics" => &["find_symbol", "get_symbols_overview"],
-        "get_changed_files" => &["get_impact_analysis", "get_symbols_overview"],
+        "search_workspace_symbols" => &["find_symbol", "get_symbols_overview"],
+        "get_type_hierarchy" => &["find_referencing_symbols", "get_symbols_overview"],
         "plan_symbol_rename" => &["rename_symbol"],
+        "check_lsp_status" => &["get_capabilities", "get_file_diagnostics"],
+        "get_lsp_recipe" => &["check_lsp_status"],
+
+        // ── Graph / analysis ─────────────────────────────────────────
+        "get_changed_files" => &["get_impact_analysis", "get_symbols_overview"],
+        "get_blast_radius" => &["get_importers", "find_referencing_symbols"],
+        "get_impact_analysis" => &["find_referencing_symbols", "get_symbols_overview"],
+        "get_importers" => &["get_blast_radius", "get_symbol_importance"],
+        "get_symbol_importance" => &["get_importers", "get_blast_radius"],
         "find_dead_code" => &["get_symbols_overview", "delete_lines"],
         "find_circular_dependencies" => &["get_impact_analysis", "get_symbols_overview"],
-        "get_ranked_context" => &["find_symbol", "replace_symbol_body", "semantic_search"],
-        "semantic_search" => &["find_symbol", "get_symbols_overview", "get_ranked_context"],
-        "index_embeddings" => &["semantic_search"],
-        "get_project_structure" => &["get_symbols_overview", "get_ranked_context", "find_symbol"],
-        "activate_project" => &["get_project_structure", "get_current_config"],
-        "refresh_symbol_index" => &["index_embeddings", "get_symbols_overview"],
+        "get_change_coupling" => &["get_impact_analysis", "get_blast_radius"],
         "get_callers" => &["get_callees", "find_symbol"],
         "get_callees" => &["get_callers", "find_symbol"],
-        "get_blast_radius" => &["get_importers", "find_referencing_symbols"],
-        "get_importers" => &["get_blast_radius", "get_symbol_importance"],
+        "find_scoped_references" => &["rename_symbol", "find_referencing_symbols"],
+
+        // ── Filesystem ───────────────────────────────────────────────
+        "get_current_config" => &["get_capabilities", "get_project_structure"],
+        "read_file" => &["get_symbols_overview", "find_symbol"],
+        "search_for_pattern" => &["find_referencing_symbols", "get_ranked_context"],
+        "find_annotations" => &["get_symbols_overview", "find_symbol"],
+        "find_tests" => &["get_symbols_overview"],
+
+        // ── Mutation ─────────────────────────────────────────────────
+        "rename_symbol" => &["find_referencing_symbols", "get_file_diagnostics"],
+        "replace_symbol_body" => &["find_symbol", "get_file_diagnostics"],
+        "replace_content" => &["get_file_diagnostics", "get_symbols_overview"],
+        "replace_lines" => &["get_file_diagnostics"],
+        "delete_lines" => &["get_file_diagnostics"],
+        "insert_at_line" => &["get_file_diagnostics"],
+        "insert_before_symbol" => &["get_file_diagnostics", "find_symbol"],
+        "insert_after_symbol" => &["get_file_diagnostics", "find_symbol"],
+        "create_text_file" => &["get_symbols_overview"],
+        "add_import" => &["get_file_diagnostics", "analyze_missing_imports"],
+        "analyze_missing_imports" => &["add_import"],
+
+        // ── Memory ───────────────────────────────────────────────────
+        "write_memory" => &["list_memories", "read_memory"],
+        "read_memory" => &["write_memory", "list_memories"],
+        "list_memories" => &["read_memory", "write_memory"],
+
+        // ── Session ──────────────────────────────────────────────────
+        "activate_project" => &[
+            "get_project_structure",
+            "get_current_config",
+            "get_capabilities",
+        ],
+        "onboard_project" => &["get_ranked_context", "find_symbol", "get_capabilities"],
+        "get_watch_status" => &["refresh_symbol_index"],
+        "set_preset" => &["get_capabilities"],
+        "get_capabilities" => &[
+            "get_project_structure",
+            "get_ranked_context",
+            "check_lsp_status",
+        ],
+
+        // ── Semantic ─────────────────────────────────────────────────
+        "semantic_search" => &["find_symbol", "get_symbols_overview", "get_ranked_context"],
+        "index_embeddings" => &["semantic_search"],
+
+        // ── Composite ────────────────────────────────────────────────
+        "summarize_file" => &["get_symbols_overview", "find_symbol"],
+        "explain_code_flow" => &["get_callers", "get_callees"],
+        "refactor_extract_function" => &["get_file_diagnostics", "find_symbol"],
+
         _ => return None,
     };
     Some(suggestions.iter().map(|s| s.to_string()).collect())

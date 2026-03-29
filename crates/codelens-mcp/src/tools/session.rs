@@ -196,13 +196,15 @@ pub fn list_queryable_projects(state: &AppState, _arguments: &serde_json::Value)
 }
 
 pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let failure_count = state.symbol_index().db().index_failure_count().unwrap_or(0);
     match &state.watcher {
         Some(watcher) => {
-            let stats = watcher.stats();
+            let mut stats = watcher.stats();
+            stats.index_failures = Some(failure_count);
             Ok((json!(stats), success_meta("watcher", 1.0)))
         }
         None => Ok((
-            json!({"running": false, "events_processed": 0, "files_reindexed": 0, "note": "File watcher not started"}),
+            json!({"running": false, "events_processed": 0, "files_reindexed": 0, "index_failures": failure_count, "note": "File watcher not started"}),
             success_meta("watcher", 1.0),
         )),
     }
@@ -220,6 +222,94 @@ pub fn switch_modes(_state: &AppState, arguments: &serde_json::Value) -> ToolRes
     Ok((
         json!({"status":"ok","mode":mode,"note":"Mode switching is a no-op in standalone mode"}),
         success_meta("noop", 1.0),
+    ))
+}
+
+pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let file_path = arguments.get("file_path").and_then(|v| v.as_str());
+
+    // Determine language from file path if provided
+    let language = file_path
+        .and_then(|fp| {
+            std::path::Path::new(fp)
+                .extension()
+                .and_then(|e| e.to_str())
+        })
+        .map(|ext| ext.to_ascii_lowercase());
+
+    // Check LSP availability
+    let lsp_attached = file_path
+        .and_then(|fp| crate::tools::default_lsp_command_for_path(fp))
+        .map(|cmd| {
+            std::process::Command::new("which")
+                .arg(&cmd)
+                .output()
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+        })
+        .unwrap_or(false);
+
+    // Check embeddings
+    #[cfg(feature = "semantic")]
+    let embeddings_loaded = state.embedding.get().map(|e| e.is_some()).unwrap_or(false);
+    #[cfg(not(feature = "semantic"))]
+    let embeddings_loaded = false;
+
+    // Check index freshness
+    let index_stats = state.symbol_index().stats().ok();
+    let index_fresh = index_stats
+        .as_ref()
+        .map(|s| s.stale_files == 0 && s.indexed_files > 0)
+        .unwrap_or(false);
+
+    // Build available/unavailable features
+    let mut available = vec![
+        "symbols",
+        "imports",
+        "calls",
+        "rename",
+        "search",
+        "blast_radius",
+        "dead_code",
+    ];
+    let mut unavailable: Vec<serde_json::Value> = Vec::new();
+
+    if lsp_attached {
+        available.extend_from_slice(&[
+            "type_hierarchy",
+            "diagnostics",
+            "workspace_symbols",
+            "rename_plan",
+        ]);
+    } else {
+        unavailable
+            .push(json!({"feature": "type_hierarchy_lsp", "reason": "no LSP server attached"}));
+        unavailable.push(json!({"feature": "diagnostics", "reason": "no LSP server attached"}));
+        // Native type hierarchy is still available
+        available.push("type_hierarchy_native");
+    }
+
+    if embeddings_loaded {
+        available.push("semantic_search");
+    } else {
+        unavailable.push(json!({"feature": "semantic_search", "reason": "embeddings not loaded — call index_embeddings first"}));
+    }
+
+    if !index_fresh {
+        unavailable.push(json!({"feature": "cached_queries", "reason": "index may be stale — call refresh_symbol_index"}));
+    }
+
+    Ok((
+        json!({
+            "language": language,
+            "lsp_attached": lsp_attached,
+            "embeddings_loaded": embeddings_loaded,
+            "index_fresh": index_fresh,
+            "indexed_files": index_stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),
+            "available": available,
+            "unavailable": unavailable,
+        }),
+        success_meta("capability-check", 0.95),
     ))
 }
 

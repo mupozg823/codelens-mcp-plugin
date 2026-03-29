@@ -43,6 +43,7 @@ notify-debouncer-mini.workspace = true
 url.workspace = true
 walkdir.workspace = true
 libc.workspace = true
+tracing.workspace = true
 fastembed = { workspace = true, optional = true }
 sqlite-vec = { workspace = true, optional = true }
 
@@ -52,6 +53,7 @@ semantic = ["dep:fastembed", "dep:sqlite-vec"]
 
 [dev-dependencies]
 criterion.workspace = true
+insta.workspace = true
 tempfile = "3.15"
 
 [[bench]]
