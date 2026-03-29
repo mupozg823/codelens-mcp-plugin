@@ -31,7 +31,7 @@ impl SymbolIndex {
             let query_lower = query.to_ascii_lowercase();
             let query_tokens: Vec<&str> = query_lower
                 .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
-                .filter(|t| t.len() >= 2)
+                .filter(|t| t.len() >= 3)
                 .collect();
 
             let mut file_scores: Vec<(String, usize)> = all_paths
@@ -99,6 +99,24 @@ impl SymbolIndex {
                 for sym in symbols {
                     if seen_ids.insert(sym.id.clone()) {
                         all_symbols.push(sym);
+                    }
+                }
+            }
+        }
+
+        // Path 4: for multi-word queries, search individual tokens as symbol names
+        let query_lower_tok = query.to_ascii_lowercase();
+        let tokens: Vec<&str> = query_lower_tok
+            .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+            .filter(|t| t.len() >= 3)
+            .collect();
+        if tokens.len() >= 2 {
+            for token in &tokens {
+                if let Ok(hits) = self.find_symbol_cached(token, None, false, false, 10) {
+                    for sym in hits {
+                        if seen_ids.insert(sym.id.clone()) {
+                            all_symbols.push(sym);
+                        }
                     }
                 }
             }

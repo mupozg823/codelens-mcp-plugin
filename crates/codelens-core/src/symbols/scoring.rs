@@ -35,23 +35,48 @@ pub(crate) fn score_symbol(query: &str, symbol: &SymbolInfo) -> Option<i32> {
     let sig_lower = symbol.signature.to_lowercase();
     let path_lower = symbol.file_path.to_lowercase();
 
-    let mut hits = 0i32;
+    let mut name_hits = 0i32;
+    let mut sig_hits = 0i32;
+    let mut path_hits = 0i32;
     for token in &tokens {
         if name_lower.contains(token) {
-            hits += 3; // name hit = strong signal
-        } else if sig_lower.contains(token) {
-            hits += 2; // signature hit
-        } else if path_lower.contains(token) {
-            hits += 1; // file path hit = weak signal
+            name_hits += 1;
+        }
+        // Non-exclusive: check sig and path independently
+        if sig_lower.contains(token) {
+            sig_hits += 1;
+        }
+        if path_lower.contains(token) {
+            path_hits += 1;
         }
     }
 
-    if hits > 0 {
-        // Scale to 1-50 range based on hit ratio
-        let max_possible = tokens.len() as i32 * 3;
-        let score = (hits * 50 / max_possible).max(1);
-        Some(score)
-    } else {
-        None
+    let total_tokens = tokens.len() as i32;
+    if name_hits == 0 && sig_hits == 0 && path_hits == 0 {
+        return None;
     }
+
+    // Score formula: name hits dominate, sig/path are secondary
+    // name_ratio: 0.0-1.0 portion of query tokens found in name
+    // Boost for high name coverage (most tokens match the symbol name)
+    let name_ratio = name_hits as f64 / total_tokens as f64;
+    let sig_ratio = sig_hits as f64 / total_tokens as f64;
+
+    let score = if name_hits > 0 {
+        // Base: 15-55 depending on how many query tokens hit the name
+        // name_ratio=1.0 → 55, name_ratio=0.25 → 21
+        let base = (15.0 + name_ratio * 40.0) as i32;
+        // Bonus for sig confirmation (tokens also in signature)
+        let sig_bonus = (sig_ratio * 5.0) as i32;
+        (base + sig_bonus).min(55)
+    } else if sig_hits > 0 {
+        // Signature-only matches: 5-25
+        (5.0 + sig_ratio * 20.0) as i32
+    } else {
+        // Path-only: very weak signal, 1-5
+        let path_ratio = path_hits as f64 / total_tokens as f64;
+        (1.0 + path_ratio * 4.0).max(1.0) as i32
+    };
+
+    Some(score)
 }

@@ -146,7 +146,7 @@ impl SymbolIndex {
             let query_lower = query.to_ascii_lowercase();
             let query_tokens: Vec<&str> = query_lower
                 .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
-                .filter(|t| t.len() >= 2)
+                .filter(|t| t.len() >= 3)
                 .collect();
 
             let mut file_scores: Vec<(String, usize)> = all_paths
@@ -185,10 +185,37 @@ impl SymbolIndex {
         }
 
         // Also include direct symbol name matches (for exact/substring hits)
+        let mut seen_ids: std::collections::HashSet<String> =
+            all_symbols.iter().map(|s| s.id.clone()).collect();
+
         if let Ok(direct) = self.find_symbol(query, None, false, false, 50) {
             for sym in direct {
-                if !all_symbols.iter().any(|s: &SymbolInfo| s.id == sym.id) {
+                if seen_ids.insert(sym.id.clone()) {
                     all_symbols.push(sym);
+                }
+            }
+        }
+
+        // For multi-word queries, also search individual tokens as symbol names
+        // (e.g., "dispatch tool call" → search for "dispatch", "tool", "call")
+        let query_lower = query.to_ascii_lowercase();
+        let tokens: Vec<&str> = query_lower
+            .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+            .filter(|t| t.len() >= 3)
+            .collect();
+        if tokens.len() >= 2 {
+            for token in &tokens {
+                match self.find_symbol(token, None, false, false, 10) {
+                    Ok(hits) => {
+                        for sym in hits {
+                            if seen_ids.insert(sym.id.clone()) {
+                                all_symbols.push(sym);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!(token, error = %e, "token find_symbol failed");
+                    }
                 }
             }
         }
