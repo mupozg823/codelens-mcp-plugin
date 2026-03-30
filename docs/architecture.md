@@ -248,7 +248,7 @@ codelens-mcp-plugin/
 ```
 FULL (63)        ████████████████████████████████████████████  100%
 BALANCED (39)    █████████████████████████                      62%
-MINIMAL (21)     ███████████████                                33%
+MINIMAL (20)     ███████████████                                33%
 ```
 
 ### Tool Categories
@@ -386,7 +386,7 @@ Each language has:
 | Total symbols (self)          | 1,007                                           |
 | Tools (Full/Balanced/Minimal) | 63 / 39 / 21                                    |
 | Languages                     | 25 (+ Perl deferred)                            |
-| Tests                         | 190 (core 149 + mcp 41)                         |
+| Tests                         | 197 (core 156 + mcp 41)                         |
 | DB schema version             | v4 (FTS5)                                       |
 | tree-sitter grammars          | 25 (statically linked)                          |
 | LSP recipes                   | 22 servers                                      |

@@ -55,7 +55,7 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 
 **Presets:**
 
-- `minimal` — 21 tools, fastest, read-only exploration + safe edits
+- `minimal` — 20 tools, fastest, read-only exploration + safe edits
 - `balanced` — 39 tools, default, excludes niche analysis + Claude built-in overlaps
 - `full` — 63 tools, everything including advanced analysis
 
@@ -154,7 +154,7 @@ codex --mcp-server "codelens-mcp . --preset balanced"
 }
 ```
 
-> **Note:** Windsurf has a 100-tool limit across all MCP servers. Use `balanced` (39 tools) or `minimal` (21) to leave room for other servers.
+> **Note:** Windsurf has a 100-tool limit across all MCP servers. Use `balanced` (39 tools) or `minimal` (20) to leave room for other servers.
 
 ### 6b. Cline
 
@@ -239,7 +239,7 @@ agent = client.agents.create(
 ## Preset Comparison
 
 ```
-Feature                    MINIMAL(21)  BALANCED(39)  FULL(63)
+Feature                    MINIMAL(20)  BALANCED(39)  FULL(63)
 ─────────────────────────  ──────────   ──────────    ────────
 Symbol lookup (find/get)   ✓            ✓             ✓
 Code editing (rename/etc)  ✓            ✓             ✓

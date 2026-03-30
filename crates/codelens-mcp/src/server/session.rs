@@ -104,7 +104,7 @@ impl SessionStore {
                 if let Some(oldest_id) = sessions
                     .iter()
                     .min_by_key(|(_, s)| {
-                        s.last_activity
+                        s.last_active
                             .read()
                             .map(|t| *t)
                             .unwrap_or(std::time::Instant::now())
