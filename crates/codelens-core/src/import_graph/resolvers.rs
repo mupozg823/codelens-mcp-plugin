@@ -1,5 +1,7 @@
 use crate::project::ProjectRoot;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex};
 
 // ── resolve_module dispatcher ────────────────────────────────────────────────
 
@@ -127,41 +129,105 @@ fn resolve_python_module(
     None
 }
 
-/// Common JS/TS source roots for alias resolution.
-const JS_SOURCE_ROOTS: &[&str] = &["src", "app", "lib"];
+/// Parse tsconfig.json/jsconfig.json paths aliases.
+/// Returns Vec<(prefix_without_wildcard, target_dirs)>.
+fn parse_tsconfig_paths(root: &Path) -> Vec<(String, Vec<PathBuf>)> {
+    for config_name in ["tsconfig.json", "jsconfig.json"] {
+        let config_path = root.join(config_name);
+        let Ok(content) = std::fs::read_to_string(&config_path) else {
+            continue;
+        };
+        let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&content) else {
+            continue;
+        };
+        let Some(paths) = parsed
+            .get("compilerOptions")
+            .and_then(|co| co.get("paths"))
+            .and_then(|p| p.as_object())
+        else {
+            continue;
+        };
+        // baseUrl defaults to "." if not set
+        let base_url = parsed
+            .get("compilerOptions")
+            .and_then(|co| co.get("baseUrl"))
+            .and_then(|b| b.as_str())
+            .unwrap_or(".");
+        let base_dir = root.join(base_url);
+
+        let mut result = Vec::new();
+        for (pattern, targets) in paths {
+            // "@/*" → prefix "@/", targets ["./src/*"] → base_dir/src/
+            let prefix = pattern.trim_end_matches('*');
+            let target_dirs: Vec<PathBuf> = targets
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|t| t.as_str())
+                .map(|t| base_dir.join(t.trim_start_matches("./").trim_end_matches('*')))
+                .collect();
+            if !target_dirs.is_empty() {
+                result.push((prefix.to_string(), target_dirs));
+            }
+        }
+        return result;
+    }
+    Vec::new()
+}
+
+/// Cached tsconfig paths per project root (parsed once).
+static TSCONFIG_CACHE: LazyLock<Mutex<HashMap<PathBuf, Vec<(String, Vec<PathBuf>)>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn get_tsconfig_paths(root: &Path) -> Vec<(String, Vec<PathBuf>)> {
+    let mut cache = TSCONFIG_CACHE.lock().unwrap_or_else(|p| p.into_inner());
+    cache
+        .entry(root.to_path_buf())
+        .or_insert_with(|| parse_tsconfig_paths(root))
+        .clone()
+}
 
 fn resolve_js_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
     let root = project.as_path();
 
-    // 1. Handle @/ alias → resolve against src/ (Next.js/Vite convention)
-    if let Some(stripped) = module.strip_prefix("@/") {
-        for src_root in JS_SOURCE_ROOTS {
-            let base = root.join(src_root).join(stripped);
+    // 1. Handle tsconfig.json paths aliases (covers @/, @components/, etc.)
+    let paths = get_tsconfig_paths(root);
+    for (prefix, target_dirs) in &paths {
+        if let Some(stripped) = module.strip_prefix(prefix.as_str()) {
+            for target_dir in target_dirs {
+                let base = target_dir.join(stripped);
+                for candidate in js_resolution_candidates(&base) {
+                    if candidate.is_file() {
+                        return Some(project.to_relative(candidate));
+                    }
+                }
+            }
+            return None;
+        }
+    }
+
+    // 2. Fallback: @/ and ~/ if no tsconfig found
+    if paths.is_empty() {
+        if let Some(stripped) = module.strip_prefix("@/") {
+            for src_root in &["src", "app", "lib"] {
+                let base = root.join(src_root).join(stripped);
+                for candidate in js_resolution_candidates(&base) {
+                    if candidate.is_file() {
+                        return Some(project.to_relative(candidate));
+                    }
+                }
+            }
+            return None;
+        }
+        if let Some(stripped) = module.strip_prefix("~/") {
+            let base = root.join("src").join(stripped);
             for candidate in js_resolution_candidates(&base) {
                 if candidate.is_file() {
                     return Some(project.to_relative(candidate));
                 }
             }
+            return None;
         }
-        // Also try project root directly
-        let base = root.join(stripped);
-        for candidate in js_resolution_candidates(&base) {
-            if candidate.is_file() {
-                return Some(project.to_relative(candidate));
-            }
-        }
-        return None;
-    }
-
-    // 2. Handle ~/ alias → resolve against src/
-    if let Some(stripped) = module.strip_prefix("~/") {
-        let base = root.join("src").join(stripped);
-        for candidate in js_resolution_candidates(&base) {
-            if candidate.is_file() {
-                return Some(project.to_relative(candidate));
-            }
-        }
-        return None;
     }
 
     // 3. Skip bare module specifiers (npm packages)
