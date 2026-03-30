@@ -142,7 +142,18 @@ impl SymbolIndex {
             return Self::rows_to_symbol_infos(&self.project, &db, db_rows, include_body);
         }
 
-        let db_rows = db.find_symbols_by_name(name, file_path, exact_match, max_matches)?;
+        // Resolve file_path (handles symlinks → canonical relative path)
+        let resolved_fp = file_path
+            .map(|fp| {
+                self.project
+                    .resolve(fp)
+                    .ok()
+                    .map(|abs| self.project.to_relative(&abs))
+            })
+            .flatten();
+        let fp_ref = resolved_fp.as_deref().or(file_path);
+
+        let db_rows = db.find_symbols_by_name(name, fp_ref, exact_match, max_matches)?;
         Self::rows_to_symbol_infos(&self.project, &db, db_rows, include_body)
     }
 

@@ -76,6 +76,14 @@ impl ProjectRoot {
                 }
             }
         }
+        // Resolve symlinks so the returned path matches what's stored in the index.
+        if normalized.exists() {
+            if let Ok(real) = normalized.canonicalize() {
+                if real.starts_with(&self.root) {
+                    return Ok(real);
+                }
+            }
+        }
         Ok(normalized)
     }
 

@@ -196,6 +196,7 @@ pub(crate) fn find_all_word_matches(
 }
 
 /// Fast path: scan only indexed files (from DB).
+/// Filters out matches inside comments and string literals using tree-sitter.
 fn find_word_matches_in_files(
     project: &ProjectRoot,
     symbol_name: &str,
@@ -209,13 +210,70 @@ fn find_word_matches_in_files(
             Ok(c) => c,
             Err(_) => continue,
         };
+        // Build non-code byte ranges (comments + strings) via tree-sitter
+        let non_code = build_non_code_ranges(&abs, content.as_bytes());
+
+        let mut byte_offset = 0usize;
         for (line_idx, line) in content.lines().enumerate() {
             for mat in word_re.find_iter(line) {
-                results.push((rel.clone(), line_idx + 1, mat.start() + 1));
+                let abs_start = byte_offset + mat.start();
+                if !is_in_ranges(&non_code, abs_start) {
+                    results.push((rel.clone(), line_idx + 1, mat.start() + 1));
+                }
             }
+            byte_offset += line.len() + 1; // +1 for newline
         }
     }
     Ok(results)
+}
+
+/// Node kinds that represent comments or string literals across languages.
+const NON_CODE_KINDS: &[&str] = &[
+    "comment",
+    "line_comment",
+    "block_comment",
+    "string",
+    "string_literal",
+    "raw_string_literal",
+    "template_string",
+    "string_content",
+    "interpreted_string_literal",
+    "heredoc_body",
+    "regex_literal",
+];
+
+/// Build byte ranges of non-code nodes (comments + strings) using tree-sitter.
+fn build_non_code_ranges(path: &std::path::Path, source: &[u8]) -> Vec<(usize, usize)> {
+    let Some(config) = crate::lang_config::language_for_path(path) else {
+        return Vec::new();
+    };
+    let mut parser = tree_sitter::Parser::new();
+    if parser.set_language(&config.language).is_err() {
+        return Vec::new();
+    }
+    let Some(tree) = parser.parse(source, None) else {
+        return Vec::new();
+    };
+    let mut ranges = Vec::new();
+    collect_non_code_ranges(&tree.root_node(), &mut ranges);
+    ranges
+}
+
+fn collect_non_code_ranges(node: &tree_sitter::Node, ranges: &mut Vec<(usize, usize)>) {
+    if NON_CODE_KINDS.contains(&node.kind()) {
+        ranges.push((node.start_byte(), node.end_byte()));
+        return; // don't recurse into children
+    }
+    let mut cursor = node.walk();
+    for child in node.children(&mut cursor) {
+        collect_non_code_ranges(&child, ranges);
+    }
+}
+
+fn is_in_ranges(ranges: &[(usize, usize)], offset: usize) -> bool {
+    ranges
+        .iter()
+        .any(|&(start, end)| offset >= start && offset < end)
 }
 
 /// Fallback: full WalkDir scan when no index exists.
