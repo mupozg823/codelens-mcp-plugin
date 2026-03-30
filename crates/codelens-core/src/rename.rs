@@ -182,9 +182,49 @@ pub(crate) fn find_all_word_matches(
     project: &ProjectRoot,
     symbol_name: &str,
 ) -> Result<Vec<(String, usize, usize)>> {
+    // Fast path: use indexed file list from DB to avoid scanning non-code files.
+    let db_path = crate::db::index_db_path(project.as_path());
+    if db_path.exists() {
+        if let Ok(db) = crate::db::IndexDb::open(&db_path) {
+            if let Ok(indexed_files) = db.all_file_paths() {
+                return find_word_matches_in_files(project, symbol_name, &indexed_files);
+            }
+        }
+    }
+    // Fallback: full WalkDir scan (cold start, no index yet)
+    find_word_matches_walkdir(project, symbol_name)
+}
+
+/// Fast path: scan only indexed files (from DB).
+fn find_word_matches_in_files(
+    project: &ProjectRoot,
+    symbol_name: &str,
+    files: &[String],
+) -> Result<Vec<(String, usize, usize)>> {
     let word_re = Regex::new(&format!(r"\b{}\b", regex::escape(symbol_name)))?;
     let mut results = Vec::new();
+    for rel in files {
+        let abs = project.as_path().join(rel);
+        let content = match fs::read_to_string(&abs) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+        for (line_idx, line) in content.lines().enumerate() {
+            for mat in word_re.find_iter(line) {
+                results.push((rel.clone(), line_idx + 1, mat.start() + 1));
+            }
+        }
+    }
+    Ok(results)
+}
 
+/// Fallback: full WalkDir scan when no index exists.
+fn find_word_matches_walkdir(
+    project: &ProjectRoot,
+    symbol_name: &str,
+) -> Result<Vec<(String, usize, usize)>> {
+    let word_re = Regex::new(&format!(r"\b{}\b", regex::escape(symbol_name)))?;
+    let mut results = Vec::new();
     for entry in WalkDir::new(project.as_path())
         .into_iter()
         .filter_entry(|e| !is_excluded(e.path()))
@@ -204,7 +244,6 @@ pub(crate) fn find_all_word_matches(
             }
         }
     }
-
     Ok(results)
 }
 

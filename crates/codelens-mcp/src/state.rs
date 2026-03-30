@@ -94,6 +94,14 @@ impl AppState {
 
     pub(crate) fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
         let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
+        // Auto-index on startup if DB is empty — ensures zero-config first use.
+        if symbol_index
+            .stats()
+            .map(|s| s.indexed_files == 0)
+            .unwrap_or(true)
+        {
+            let _ = symbol_index.refresh_all();
+        }
         let lsp_pool = LspSessionPool::new(project.clone());
         let graph_cache = Arc::new(GraphCache::new(30));
         let memories_dir = project.as_path().join(".codelens").join("memories");
