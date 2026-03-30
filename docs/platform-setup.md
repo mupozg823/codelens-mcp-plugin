@@ -57,7 +57,7 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 
 - `minimal` — 21 tools, fastest, read-only exploration + safe edits
 - `balanced` — 39 tools, default, excludes niche analysis + Claude built-in overlaps
-- `full` — 62 tools, everything including advanced analysis
+- `full` — 63 tools, everything including advanced analysis
 
 ---
 
@@ -93,18 +93,12 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 
 ### 3. Codex (OpenAI)
 
-**`codex.json` or CLI flag:**
+**`~/.codex/config.toml`:**
 
-```json
-{
-  "mcpServers": {
-    "codelens": {
-      "type": "stdio",
-      "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"]
-    }
-  }
-}
+```toml
+[mcp_servers.codelens]
+command = "codelens-mcp"
+args = [".", "--preset", "balanced"]
 ```
 
 **Or via CLI:**
@@ -144,9 +138,27 @@ codex --mcp-server "codelens-mcp . --preset balanced"
 
 ---
 
-### 6. Windsurf / Cline / Aider
+### 6. Windsurf (Codeium)
 
-**`mcp_servers.json` or equivalent:**
+**`~/.codeium/windsurf/mcp_config.json`:**
+
+```json
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"],
+      "transport": "stdio"
+    }
+  }
+}
+```
+
+> **Note:** Windsurf has a 100-tool limit across all MCP servers. Use `balanced` (39 tools) or `minimal` (21) to leave room for other servers.
+
+### 6b. Cline
+
+**`mcp_servers.json`:**
 
 ```json
 {
@@ -227,7 +239,7 @@ agent = client.agents.create(
 ## Preset Comparison
 
 ```
-Feature                    MINIMAL(21)  BALANCED(39)  FULL(62)
+Feature                    MINIMAL(21)  BALANCED(39)  FULL(63)
 ─────────────────────────  ──────────   ──────────    ────────
 Symbol lookup (find/get)   ✓            ✓             ✓
 Code editing (rename/etc)  ✓            ✓             ✓
