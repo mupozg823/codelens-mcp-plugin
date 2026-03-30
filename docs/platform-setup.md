@@ -170,6 +170,39 @@ codex --mcp-server "codelens-mcp . --preset balanced"
 }
 ```
 
+### 6c. Continue.dev
+
+**`.continue/config.yaml`** (agent mode only):
+
+```yaml
+mcpServers:
+  - name: codelens
+    command: codelens-mcp
+    args:
+      - "."
+      - "--preset"
+      - "balanced"
+```
+
+Or import existing Claude/Cursor JSON config automatically.
+
+---
+
+### 6d. JetBrains Junie
+
+**`.junie/mcp.json`** or **`~/.junie/mcp.json`**:
+
+```json
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": [".", "--preset", "balanced"]
+    }
+  }
+}
+```
+
 ---
 
 ### 7. HTTP Transport (Remote / Multi-client)
