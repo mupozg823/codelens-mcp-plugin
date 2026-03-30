@@ -118,18 +118,17 @@ pub fn search_symbols_hybrid_with_semantic(
     if let Some(scores) = semantic_scores {
         // Collect semantic-only discoveries not found by text/fts/fuzzy paths.
         // Only include high-confidence matches (> 0.5 cosine similarity).
-        let all_symbols = db.all_symbols_with_bytes()?;
-        for sym in all_symbols {
-            let key = (sym.name.clone(), sym.file_path.clone(), sym.line);
+        // Use lightweight all_symbol_names() instead of all_symbols_with_bytes()
+        // to avoid loading byte offsets into memory.
+        let all_symbols = db.all_symbol_names()?;
+        for (name, kind, file_path, line, signature, name_path) in all_symbols {
+            let key = (name.clone(), file_path.clone(), line);
             if seen.contains(&key) {
-                // Boost existing result if semantic score is significant
-                let sem_key = format!("{}:{}", sym.file_path, sym.name);
+                let sem_key = format!("{file_path}:{name}");
                 if let Some(&sem_score) = scores.get(&sem_key) {
                     if sem_score > 0.3 {
                         if let Some(existing) = results.iter_mut().find(|r| {
-                            r.name == sym.name
-                                && r.file == sym.file_path
-                                && r.line == sym.line as usize
+                            r.name == name && r.file == file_path && r.line == line as usize
                         }) {
                             existing.score += sem_score * 15.0;
                         }
@@ -137,17 +136,17 @@ pub fn search_symbols_hybrid_with_semantic(
                 }
                 continue;
             }
-            let sem_key = format!("{}:{}", sym.file_path, sym.name);
+            let sem_key = format!("{file_path}:{name}");
             if let Some(&sem_score) = scores.get(&sem_key).filter(|&&s| s > 0.5) {
                 seen.insert(key);
                 results.push(SearchResult {
-                    name: sym.name,
-                    kind: sym.kind,
-                    file: sym.file_path,
-                    line: sym.line as usize,
-                    signature: sym.signature,
-                    name_path: sym.name_path,
-                    score: sem_score * 90.0, // cap below exact (100)
+                    name,
+                    kind,
+                    file: file_path,
+                    line: line as usize,
+                    signature,
+                    name_path,
+                    score: sem_score * 90.0,
                     match_type: "semantic".to_owned(),
                 });
             }

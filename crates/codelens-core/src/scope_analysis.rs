@@ -2,6 +2,7 @@
 //!
 //! Replaces JetBrains PSI `find_references` with tree-sitter scope resolution.
 
+use crate::db::{index_db_path, IndexDb};
 use crate::project::is_excluded;
 use crate::project::ProjectRoot;
 use crate::symbols::language_for_path;
@@ -177,29 +178,56 @@ pub fn find_scoped_references(
 ) -> Result<Vec<ScopedReference>> {
     let mut all_results = Vec::new();
 
-    for entry in WalkDir::new(project.as_path())
-        .into_iter()
-        .filter_entry(|e| !is_excluded(e.path()))
-    {
-        let entry = entry?;
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        if language_for_path(entry.path()).is_none() {
-            continue;
-        }
+    // Try DB-accelerated path: iterate only indexed files
+    let db_path = index_db_path(project.as_path());
+    let indexed_files = IndexDb::open(&db_path)
+        .ok()
+        .and_then(|db| db.all_file_paths().ok())
+        .filter(|paths| !paths.is_empty());
 
-        let rel = project.to_relative(entry.path());
-        match find_scoped_references_in_file(project, &rel, symbol_name, None) {
-            Ok(refs) => {
-                for r in refs {
-                    all_results.push(r);
-                    if all_results.len() >= max_results {
-                        return Ok(all_results);
+    if let Some(rel_paths) = indexed_files {
+        for rel in &rel_paths {
+            let abs = project.as_path().join(rel);
+            if language_for_path(&abs).is_none() {
+                continue;
+            }
+            match find_scoped_references_in_file(project, rel, symbol_name, None) {
+                Ok(refs) => {
+                    for r in refs {
+                        all_results.push(r);
+                        if all_results.len() >= max_results {
+                            return Ok(all_results);
+                        }
                     }
                 }
+                Err(_) => continue,
             }
-            Err(_) => continue,
+        }
+    } else {
+        // Fallback: full walk
+        for entry in WalkDir::new(project.as_path())
+            .into_iter()
+            .filter_entry(|e| !is_excluded(e.path()))
+        {
+            let entry = entry?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            if language_for_path(entry.path()).is_none() {
+                continue;
+            }
+            let rel = project.to_relative(entry.path());
+            match find_scoped_references_in_file(project, &rel, symbol_name, None) {
+                Ok(refs) => {
+                    for r in refs {
+                        all_results.push(r);
+                        if all_results.len() >= max_results {
+                            return Ok(all_results);
+                        }
+                    }
+                }
+                Err(_) => continue,
+            }
         }
     }
 

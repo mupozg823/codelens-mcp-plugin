@@ -88,10 +88,32 @@ impl SessionStore {
     }
 
     /// Create a new session and return it.
+    /// Caps total sessions at 1000; evicts expired then oldest if over limit.
     pub fn create(&self) -> Arc<SessionState> {
+        const MAX_SESSIONS: usize = 1000;
         let id = uuid::Uuid::new_v4().to_string();
         let session = Arc::new(SessionState::new(id.clone()));
         if let Ok(mut sessions) = self.sessions.write() {
+            // Evict expired sessions first
+            if sessions.len() >= MAX_SESSIONS {
+                let timeout = self.timeout;
+                sessions.retain(|_, s| !s.is_expired(timeout));
+            }
+            // If still over limit, remove oldest
+            if sessions.len() >= MAX_SESSIONS {
+                if let Some(oldest_id) = sessions
+                    .iter()
+                    .min_by_key(|(_, s)| {
+                        s.last_activity
+                            .read()
+                            .map(|t| *t)
+                            .unwrap_or(std::time::Instant::now())
+                    })
+                    .map(|(id, _)| id.clone())
+                {
+                    sessions.remove(&oldest_id);
+                }
+            }
             sessions.insert(id, Arc::clone(&session));
         }
         session
