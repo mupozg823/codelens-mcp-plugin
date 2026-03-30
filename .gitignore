@@ -31,3 +31,8 @@ Thumbs.db
 
 # Claude Code local settings (per-developer)
 .claude/settings.local.json
+models/.venv/
+models/codelens-code-search/
+models/benchmark_results.json
+models/benchmark_hard_results.json
+models/benchmark_full_results.json

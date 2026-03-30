@@ -52,13 +52,14 @@ impl RankingContext {
     }
 
     /// Create a ranking context with PageRank + semantic scores.
-    /// Weights are auto-tuned based on query characteristics.
+    /// Weights are auto-tuned based on query characteristics and semantic signal richness.
     pub fn with_pagerank_and_semantic(
         query: &str,
         pagerank: HashMap<String, f64>,
         semantic_scores: HashMap<String, f64>,
     ) -> Self {
-        let weights = auto_weights(query);
+        let semantic_count = semantic_scores.len();
+        let weights = auto_weights_with_semantic_count(query, semantic_count);
         Self {
             pagerank,
             recent_files: HashMap::new(),
@@ -83,42 +84,64 @@ impl RankingContext {
     }
 }
 
-/// Determine weights based on query characteristics.
+/// Determine weights based on query characteristics and available signals.
 /// - Symbol-like queries (snake_case, CamelCase, short): text-heavy
 /// - Natural language queries (spaces, long): semantic-heavy
-fn auto_weights(query: &str) -> RankWeights {
+/// - When semantic scores are available and rich: boost semantic weight
+fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankWeights {
     let words: Vec<&str> = query.split_whitespace().collect();
     let has_spaces = words.len() > 1;
     let has_underscore = query.contains('_');
     let is_camel = query.chars().any(|c| c.is_uppercase()) && !has_spaces;
     let is_short = query.len() <= 30;
 
+    // Rich semantic signals available (embedding index active with matches)
+    let has_rich_semantic = semantic_count >= 5;
+
     // Single identifier (prune_to_budget, BackendKind, dispatch_tool)
     if !has_spaces && (has_underscore || is_camel) && is_short {
         return RankWeights {
-            text: 0.70,
-            pagerank: 0.15,
+            text: 0.65,
+            pagerank: 0.10,
             recency: 0.05,
-            semantic: 0.10,
+            semantic: if has_rich_semantic { 0.20 } else { 0.10 },
         };
     }
 
     // Natural language (how does file watcher invalidate graph cache)
     if has_spaces && words.len() >= 4 {
-        return RankWeights {
-            text: 0.35,
-            pagerank: 0.10,
-            recency: 0.05,
-            semantic: 0.50,
+        return if has_rich_semantic {
+            RankWeights {
+                text: 0.20,
+                pagerank: 0.05,
+                recency: 0.05,
+                semantic: 0.70,
+            }
+        } else {
+            RankWeights {
+                text: 0.60,
+                pagerank: 0.20,
+                recency: 0.10,
+                semantic: 0.10,
+            }
         };
     }
 
-    // Short phrase (dispatch tool, rename symbol)
-    RankWeights {
-        text: 0.45,
-        pagerank: 0.10,
-        recency: 0.05,
-        semantic: 0.40,
+    // Short phrase (dispatch tool, rename symbol, file watcher)
+    if has_rich_semantic {
+        RankWeights {
+            text: 0.30,
+            pagerank: 0.05,
+            recency: 0.05,
+            semantic: 0.60,
+        }
+    } else {
+        RankWeights {
+            text: 0.60,
+            pagerank: 0.15,
+            recency: 0.10,
+            semantic: 0.15,
+        }
     }
 }
 

@@ -1,6 +1,9 @@
 use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
+use codelens_core::change_signature::{change_signature, ParamSpec};
+use codelens_core::inline::inline_function;
+use codelens_core::move_symbol::move_symbol;
 use codelens_core::{
     find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
     get_symbols_overview, SymbolKind,
@@ -184,6 +187,113 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
             "dry_run": dry_run
         }),
         success_meta(BackendKind::Hybrid, 0.90),
+    ))
+}
+
+pub fn refactor_inline_function(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let file_path = required_string(arguments, "file_path")?;
+    let function_name = required_string(arguments, "function_name")?;
+    let name_path = arguments.get("name_path").and_then(|v| v.as_str());
+    let dry_run = arguments
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    let project = state.project();
+    let result = inline_function(&project, file_path, function_name, name_path, dry_run)?;
+
+    Ok((
+        json!({
+            "success": result.success,
+            "message": result.message,
+            "call_sites_inlined": result.call_sites_inlined,
+            "definition_removed": result.definition_removed,
+            "modified_files": result.modified_files,
+            "edits": result.edits.iter().map(|e| json!({
+                "file": e.file_path, "line": e.line, "old": e.old_text, "new": e.new_text
+            })).collect::<Vec<_>>(),
+            "dry_run": dry_run
+        }),
+        success_meta(BackendKind::Hybrid, 0.85),
+    ))
+}
+
+pub fn refactor_move_to_file(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let file_path = required_string(arguments, "file_path")?;
+    let symbol_name = required_string(arguments, "symbol_name")?;
+    let target_file = required_string(arguments, "target_file")?;
+    let name_path = arguments.get("name_path").and_then(|v| v.as_str());
+    let dry_run = arguments
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    let project = state.project();
+    let result = move_symbol(
+        &project,
+        file_path,
+        symbol_name,
+        name_path,
+        target_file,
+        dry_run,
+    )?;
+
+    Ok((
+        json!({
+            "success": result.success,
+            "message": result.message,
+            "source_file": result.source_file,
+            "target_file": result.target_file,
+            "symbol_name": result.symbol_name,
+            "import_updates": result.import_updates,
+            "edits": result.edits.iter().map(|e| json!({
+                "file": e.file_path, "action": e.action, "content": e.content
+            })).collect::<Vec<_>>(),
+            "dry_run": dry_run
+        }),
+        success_meta(BackendKind::Hybrid, 0.85),
+    ))
+}
+
+pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let file_path = required_string(arguments, "file_path")?;
+    let function_name = required_string(arguments, "function_name")?;
+    let name_path = arguments.get("name_path").and_then(|v| v.as_str());
+    let dry_run = arguments
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    let new_parameters = arguments
+        .get("new_parameters")
+        .ok_or_else(|| CodeLensError::MissingParam("new_parameters".into()))?;
+    let params: Vec<ParamSpec> = serde_json::from_value(new_parameters.clone())
+        .map_err(|e| CodeLensError::Validation(format!("invalid new_parameters: {}", e)))?;
+
+    let project = state.project();
+    let result = change_signature(
+        &project,
+        file_path,
+        function_name,
+        name_path,
+        &params,
+        dry_run,
+    )?;
+
+    Ok((
+        json!({
+            "success": result.success,
+            "message": result.message,
+            "old_params": result.old_params,
+            "new_params": result.new_params,
+            "call_sites_updated": result.call_sites_updated,
+            "modified_files": result.modified_files,
+            "edits": result.edits.iter().map(|e| json!({
+                "file": e.file_path, "line": e.line, "old": e.old_text, "new": e.new_text
+            })).collect::<Vec<_>>(),
+            "dry_run": dry_run
+        }),
+        success_meta(BackendKind::Hybrid, 0.85),
     ))
 }
 

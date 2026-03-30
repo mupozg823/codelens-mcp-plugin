@@ -54,6 +54,9 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "get_symbol_importance",
     "find_dead_code",
     "refactor_extract_function",
+    "refactor_inline_function",
+    "refactor_move_to_file",
+    "refactor_change_signature",
     "get_complexity",
     "search_symbols_fuzzy",
     "check_lsp_status",
@@ -263,7 +266,7 @@ fn build_tools() -> Vec<Tool> {
     let mut_p = mutating.clone().with_tier(ToolTier::Primitive);
     let dest_a = destructive.clone().with_tier(ToolTier::Analysis);
     let mut_w = mutating.clone().with_tier(ToolTier::Workflow);
-    let tools = vec![
+    let mut tools = vec![
         // ── File I/O ────────────────────────────────────────────────────
         Tool::new("get_current_config", "[CodeLens:Session] Project config and index stats. Use to verify project is active.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
         Tool::new("read_file", "[CodeLens:File] Read file contents with optional line range.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"}},"required":["relative_path"]})).with_output_schema(file_content_output_schema()).with_annotations(ro_p.clone()),
@@ -316,6 +319,9 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("analyze_missing_imports", "[CodeLens:Edit] Detect unresolved symbols and suggest imports.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File to analyze"}},"required":["file_path"]})).with_annotations(mutating.clone()),
         Tool::new("add_import", "[CodeLens:Edit] Insert an import statement at the correct position.", json!({"type":"object","properties":{"file_path":{"type":"string"},"import_statement":{"type":"string","description":"Import statement to add"}},"required":["file_path","import_statement"]})).with_annotations(mut_p.clone()),
         Tool::new("refactor_extract_function", "[CodeLens:Edit] Extract line range into new function with automatic call-site replacement.", json!({"type":"object","properties":{"file_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"},"new_name":{"type":"string","description":"Name for the new function"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}},"required":["file_path","start_line","end_line","new_name"]})).with_annotations(mut_w.clone()),
+        Tool::new("refactor_inline_function", "[CodeLens:Edit] Inline a function: replace all call sites with body, remove definition.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File containing the function definition"},"function_name":{"type":"string","description":"Function to inline"},"name_path":{"type":"string","description":"Qualified name path (e.g. Class/method)"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}},"required":["file_path","function_name"]})).with_annotations(mut_w.clone()),
+        Tool::new("refactor_move_to_file", "[CodeLens:Edit] Move a symbol to another file, updating imports across the project.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"Source file"},"symbol_name":{"type":"string","description":"Symbol to move"},"target_file":{"type":"string","description":"Destination file"},"name_path":{"type":"string","description":"Qualified name path"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}},"required":["file_path","symbol_name","target_file"]})).with_annotations(dest_a.clone()),
+        Tool::new("refactor_change_signature", "[CodeLens:Edit] Change function parameters and update all call sites.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File containing the function"},"function_name":{"type":"string","description":"Function to modify"},"name_path":{"type":"string","description":"Qualified name path"},"new_parameters":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"type":{"type":"string"},"default":{"type":"string"}},"required":["name"]},"description":"New parameter list"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}},"required":["file_path","function_name","new_parameters"]})).with_annotations(dest_a.clone()),
 
         // ── Composite (multi-step workflows) ────────────────────────────
         Tool::new("onboard_project", "[CodeLens:Session] One-shot onboarding: structure, key files (PageRank), cycles, stats. Call first on any codebase.", json!({"type":"object","properties":{}})).with_output_schema(onboard_output_schema()).with_annotations(ro_w.clone()),
@@ -348,7 +354,11 @@ fn build_tools() -> Vec<Tool> {
     {
         let ro = ro;
         tools.push(Tool::new("semantic_search", "[CodeLens:Symbol] Natural language code search via embeddings — find code by meaning.", json!({"type":"object","properties":{"query":{"type":"string","description":"Natural language search query"},"max_results":{"type":"integer","description":"Max results (default 20)"}},"required":["query"]})).with_annotations(ro_p.clone()));
-        tools.push(Tool::new("index_embeddings", "[CodeLens:Symbol] Build semantic embedding index. Required before semantic_search.", json!({"type":"object","properties":{}})).with_annotations(ro));
+        tools.push(Tool::new("index_embeddings", "[CodeLens:Symbol] Build semantic embedding index. Required before semantic_search.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()));
+        tools.push(Tool::new("find_similar_code", "[CodeLens:Analysis] Find semantically similar code to a given symbol — clone detection, reuse opportunities.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File containing the symbol"},"symbol_name":{"type":"string","description":"Symbol to find similar code for"},"max_results":{"type":"integer","description":"Max results (default 10)"}},"required":["file_path","symbol_name"]})).with_annotations(ro_a.clone()));
+        tools.push(Tool::new("find_code_duplicates", "[CodeLens:Analysis] Find near-duplicate code pairs across the codebase — DRY violations.", json!({"type":"object","properties":{"threshold":{"type":"number","description":"Cosine similarity threshold (default 0.85)"},"max_pairs":{"type":"integer","description":"Max pairs to return (default 20)"}}})).with_annotations(ro_a.clone()));
+        tools.push(Tool::new("classify_symbol", "[CodeLens:Analysis] Zero-shot classify a symbol into categories — e.g. error handling, auth, database.", json!({"type":"object","properties":{"file_path":{"type":"string"},"symbol_name":{"type":"string"},"categories":{"type":"array","items":{"type":"string"},"description":"Category labels to classify against"}},"required":["file_path","symbol_name","categories"]})).with_annotations(ro_a.clone()));
+        tools.push(Tool::new("find_misplaced_code", "[CodeLens:Analysis] Find symbols that are semantic outliers in their file — possible misplacement.", json!({"type":"object","properties":{"max_results":{"type":"integer","description":"Max outliers to return (default 10)"}}})).with_annotations(ro));
     }
 
     tools

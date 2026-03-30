@@ -178,7 +178,7 @@ use crate::project::is_excluded;
 
 /// Find ALL word-boundary matches of `symbol_name` across the project.
 /// Unlike search_for_pattern, this returns multiple matches per line via find_iter.
-pub(crate) fn find_all_word_matches(
+pub fn find_all_word_matches(
     project: &ProjectRoot,
     symbol_name: &str,
 ) -> Result<Vec<(String, usize, usize)>> {
@@ -386,7 +386,7 @@ fn flatten_symbol_infos(symbols: Vec<SymbolInfo>) -> Vec<SymbolInfo> {
 
 /// Apply edits to files on disk. Edits are sorted (line desc, col desc) per file
 /// and applied back-to-front to preserve offsets.
-fn apply_edits(project: &ProjectRoot, edits: &[RenameEdit]) -> Result<()> {
+pub fn apply_edits(project: &ProjectRoot, edits: &[RenameEdit]) -> Result<()> {
     // Group by file
     let mut by_file: HashMap<String, Vec<&RenameEdit>> = HashMap::new();
     for edit in edits {

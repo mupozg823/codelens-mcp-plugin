@@ -49,4 +49,9 @@ pub trait EmbeddingStore: Send + Sync {
 
     /// Number of stored chunks.
     fn count(&self) -> Result<usize>;
+
+    /// Retrieve all stored chunks with their embeddings for batch analysis.
+    fn all_with_embeddings(&self) -> Result<Vec<EmbeddingChunk>> {
+        Ok(Vec::new()) // Default: not supported
+    }
 }

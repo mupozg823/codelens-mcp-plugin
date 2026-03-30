@@ -5,7 +5,10 @@ use crate::db::IndexDb;
 use crate::embedding_store::{EmbeddingChunk, EmbeddingStore, ScoredChunk};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
-use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
+use fastembed::{
+    EmbeddingModel, InitOptions, InitOptionsUserDefined, TextEmbedding, TokenizerFiles,
+    UserDefinedEmbeddingModel,
+};
 use rusqlite::Connection;
 use serde::Serialize;
 use std::sync::Mutex;
@@ -232,65 +235,164 @@ impl EmbeddingStore for SqliteVecStore {
         let count: i64 = db.query_row("SELECT COUNT(*) FROM symbols", [], |row| row.get(0))?;
         Ok(count as usize)
     }
+
+    fn all_with_embeddings(&self) -> Result<Vec<EmbeddingChunk>> {
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let mut stmt = db.prepare(
+            "SELECT s.id, s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text
+             FROM symbols s ORDER BY s.id",
+        )?;
+        let rows: Vec<(i64, String, String, String, i64, String, String, String)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                ))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        let mut chunks = Vec::with_capacity(rows.len());
+        for (id, file_path, symbol_name, kind, line, signature, name_path, text) in rows {
+            // Read embedding vector from vec_symbols
+            let emb_bytes: Vec<u8> = match db.query_row(
+                "SELECT embedding FROM vec_symbols WHERE rowid = ?1",
+                rusqlite::params![id],
+                |row| row.get(0),
+            ) {
+                Ok(b) => b,
+                Err(_) => continue,
+            };
+            let embedding: Vec<f32> = emb_bytes
+                .chunks_exact(4)
+                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+                .collect();
+
+            chunks.push(EmbeddingChunk {
+                file_path,
+                symbol_name,
+                kind,
+                line: line as usize,
+                signature,
+                name_path,
+                text,
+                embedding,
+            });
+        }
+        Ok(chunks)
+    }
 }
 
 // ── EmbeddingEngine (facade) ──────────────────────────────────────────
 
-/// Maximum body text length in characters for embedding.
-const MAX_BODY_CHARS: usize = 1600;
 const EMBED_BATCH_SIZE: usize = 256;
 
-/// Default embedding model. Override via `CODELENS_EMBED_MODEL` env var.
-/// Supported values: BGESmallENV15Q, GTEBaseENV15Q, JinaEmbeddingsV2BaseCode,
-/// NomicEmbedTextV15Q, BGEBaseENV15Q, EmbeddingGemma300M
-const DEFAULT_MODEL: EmbeddingModel = EmbeddingModel::BGESmallENV15Q;
+/// Default: CodeSearchNet (MiniLM-L12 fine-tuned on code, bundled ONNX INT8).
+/// Override via `CODELENS_EMBED_MODEL` env var to use fastembed built-in models.
+const CODESEARCH_MODEL_NAME: &str = "MiniLM-L12-CodeSearchNet-INT8";
 
 pub struct EmbeddingEngine {
     model: Mutex<TextEmbedding>,
     store: Box<dyn EmbeddingStore>,
 }
 
-fn parse_model_from_env() -> EmbeddingModel {
+/// Load the bundled CodeSearchNet model (MiniLM-L12 fine-tuned, ONNX INT8).
+fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
+    let onnx_bytes = include_bytes!("../models/codesearch/model.onnx");
+    let tokenizer_bytes = include_bytes!("../models/codesearch/tokenizer.json");
+    let config_bytes = include_bytes!("../models/codesearch/config.json");
+    let special_tokens_bytes = include_bytes!("../models/codesearch/special_tokens_map.json");
+    let tokenizer_config_bytes = include_bytes!("../models/codesearch/tokenizer_config.json");
+
+    let user_model = UserDefinedEmbeddingModel::new(
+        onnx_bytes.to_vec(),
+        TokenizerFiles {
+            tokenizer_file: tokenizer_bytes.to_vec(),
+            config_file: config_bytes.to_vec(),
+            special_tokens_map_file: special_tokens_bytes.to_vec(),
+            tokenizer_config_file: tokenizer_config_bytes.to_vec(),
+        },
+    );
+
+    let mut model =
+        TextEmbedding::try_new_from_user_defined(user_model, InitOptionsUserDefined::new())
+            .context("failed to load CodeSearchNet embedding model")?;
+
+    let probe = model
+        .embed(vec!["dimension probe"], None)
+        .context("failed to detect embedding dimension")?;
+    let dimension = probe.first().map(|v| v.len()).unwrap_or(384);
+
+    Ok((model, dimension, CODESEARCH_MODEL_NAME.to_string()))
+}
+
+/// Load a fastembed built-in model (for backward compatibility).
+fn load_fastembed_model(embedding_model: EmbeddingModel) -> Result<(TextEmbedding, usize, String)> {
+    let mut model = TextEmbedding::try_new(
+        InitOptions::new(embedding_model.clone()).with_show_download_progress(false),
+    )
+    .context("failed to load embedding model")?;
+
+    let probe = model
+        .embed(vec!["dimension probe"], None)
+        .context("failed to detect embedding dimension")?;
+    let dimension = probe.first().map(|v| v.len()).unwrap_or(384);
+    let model_name = format!("{:?}", embedding_model);
+
+    Ok((model, dimension, model_name))
+}
+
+/// Parse CODELENS_EMBED_MODEL env var. Returns None for default (CodeSearchNet).
+fn parse_model_from_env() -> Option<EmbeddingModel> {
     match std::env::var("CODELENS_EMBED_MODEL").ok().as_deref() {
-        Some("GTEBaseENV15Q") => EmbeddingModel::GTEBaseENV15Q,
-        Some("GTELargeENV15Q") => EmbeddingModel::GTELargeENV15Q,
-        Some("JinaEmbeddingsV2BaseCode") => EmbeddingModel::JinaEmbeddingsV2BaseCode,
-        Some("NomicEmbedTextV15Q") => EmbeddingModel::NomicEmbedTextV15Q,
-        Some("BGEBaseENV15Q") => EmbeddingModel::BGEBaseENV15Q,
-        Some("BGELargeENV15Q") => EmbeddingModel::BGELargeENV15Q,
-        Some("EmbeddingGemma300M") => EmbeddingModel::EmbeddingGemma300M,
-        // Snowflake Arctic Embed — small quantized (33M, same size as BGE-Small)
-        Some("SnowflakeArcticEmbedSQ") => EmbeddingModel::SnowflakeArcticEmbedSQ,
-        Some("SnowflakeArcticEmbedMQ") => EmbeddingModel::SnowflakeArcticEmbedMQ,
-        Some("SnowflakeArcticEmbedXSQ") => EmbeddingModel::SnowflakeArcticEmbedXSQ,
-        // ModernBERT (2025, Nomic AI, 149M)
-        Some("ModernBertEmbedLarge") => EmbeddingModel::ModernBertEmbedLarge,
-        Some("BGESmallENV15Q") | None => DEFAULT_MODEL,
+        Some("CodeSearchNet") | None => None, // Use bundled CodeSearchNet
+        Some("BGESmallENV15Q") => Some(EmbeddingModel::BGESmallENV15Q),
+        Some("GTEBaseENV15Q") => Some(EmbeddingModel::GTEBaseENV15Q),
+        Some("GTELargeENV15Q") => Some(EmbeddingModel::GTELargeENV15Q),
+        Some("JinaEmbeddingsV2BaseCode") => Some(EmbeddingModel::JinaEmbeddingsV2BaseCode),
+        Some("NomicEmbedTextV15Q") => Some(EmbeddingModel::NomicEmbedTextV15Q),
+        Some("BGEBaseENV15Q") => Some(EmbeddingModel::BGEBaseENV15Q),
+        Some("BGELargeENV15Q") => Some(EmbeddingModel::BGELargeENV15Q),
+        Some("SnowflakeArcticEmbedSQ") => Some(EmbeddingModel::SnowflakeArcticEmbedSQ),
+        Some("SnowflakeArcticEmbedMQ") => Some(EmbeddingModel::SnowflakeArcticEmbedMQ),
+        Some("SnowflakeArcticEmbedXSQ") => Some(EmbeddingModel::SnowflakeArcticEmbedXSQ),
+        Some("ModernBertEmbedLarge") => Some(EmbeddingModel::ModernBertEmbedLarge),
         Some(other) => {
-            tracing::warn!(model = other, "unknown CODELENS_EMBED_MODEL, using default");
-            DEFAULT_MODEL
+            tracing::warn!(
+                model = other,
+                "unknown CODELENS_EMBED_MODEL, using CodeSearchNet"
+            );
+            None
         }
     }
 }
 
 impl EmbeddingEngine {
     pub fn new(project: &ProjectRoot) -> Result<Self> {
-        Self::new_with_model(project, parse_model_from_env())
+        let (model, dimension, model_name) = match parse_model_from_env() {
+            None => load_codesearch_model()?,
+            Some(fastembed_model) => load_fastembed_model(fastembed_model)?,
+        };
+
+        let db_dir = project.as_path().join(".codelens/index");
+        std::fs::create_dir_all(&db_dir)?;
+        let db_path = db_dir.join("embeddings.db");
+
+        let store = SqliteVecStore::new(&db_path, dimension, &model_name)?;
+
+        Ok(Self {
+            model: Mutex::new(model),
+            store: Box::new(store),
+        })
     }
 
     pub fn new_with_model(project: &ProjectRoot, embedding_model: EmbeddingModel) -> Result<Self> {
-        let mut model = TextEmbedding::try_new(
-            InitOptions::new(embedding_model.clone()).with_show_download_progress(false),
-        )
-        .context("failed to load embedding model")?;
-
-        // Detect dimension by embedding a probe string
-        let probe = model
-            .embed(vec!["dimension probe"], None)
-            .context("failed to detect embedding dimension")?;
-        let dimension = probe.first().map(|v| v.len()).unwrap_or(384);
-
-        let model_name = format!("{:?}", embedding_model);
+        let (model, dimension, model_name) = load_fastembed_model(embedding_model)?;
 
         let db_dir = project.as_path().join(".codelens/index");
         std::fs::create_dir_all(&db_dir)?;
@@ -410,7 +512,7 @@ impl EmbeddingEngine {
             .model
             .lock()
             .map_err(|_| anyhow::anyhow!("model lock"))?
-            .embed(vec![&format!("query: {query}")], None)
+            .embed(vec![query], None)
             .context("query embedding failed")?;
 
         if query_embedding.is_empty() {
@@ -485,63 +587,248 @@ impl EmbeddingEngine {
     pub fn is_indexed(&self) -> bool {
         self.store.count().unwrap_or(0) > 0
     }
+
+    // ── Embedding-powered analysis ─────────────────────────────────
+
+    /// Find code symbols most similar to the given symbol.
+    pub fn find_similar_code(
+        &self,
+        file_path: &str,
+        symbol_name: &str,
+        max_results: usize,
+    ) -> Result<Vec<SemanticMatch>> {
+        let all = self.store.all_with_embeddings()?;
+        let target = all
+            .iter()
+            .find(|c| c.file_path == file_path && c.symbol_name == symbol_name)
+            .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found in index", symbol_name))?;
+
+        let mut scored: Vec<ScoredChunk> = all
+            .iter()
+            .filter(|c| !(c.file_path == file_path && c.symbol_name == symbol_name))
+            .map(|c| ScoredChunk {
+                file_path: c.file_path.clone(),
+                symbol_name: c.symbol_name.clone(),
+                kind: c.kind.clone(),
+                line: c.line,
+                signature: c.signature.clone(),
+                name_path: c.name_path.clone(),
+                score: cosine_similarity(&target.embedding, &c.embedding),
+            })
+            .collect();
+
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        scored.truncate(max_results);
+        Ok(scored.into_iter().map(SemanticMatch::from).collect())
+    }
+
+    /// Find near-duplicate code pairs across the codebase.
+    /// Returns pairs with cosine similarity above the threshold (default 0.85).
+    pub fn find_duplicates(&self, threshold: f64, max_pairs: usize) -> Result<Vec<DuplicatePair>> {
+        let all = self.store.all_with_embeddings()?;
+        let n = all.len();
+        let mut pairs = Vec::new();
+
+        for i in 0..n {
+            if pairs.len() >= max_pairs {
+                break;
+            }
+            for j in (i + 1)..n {
+                // Skip same-file same-symbol
+                if all[i].file_path == all[j].file_path && all[i].symbol_name == all[j].symbol_name
+                {
+                    continue;
+                }
+                let sim = cosine_similarity(&all[i].embedding, &all[j].embedding);
+                if sim >= threshold {
+                    pairs.push(DuplicatePair {
+                        symbol_a: format!("{}:{}", all[i].file_path, all[i].symbol_name),
+                        symbol_b: format!("{}:{}", all[j].file_path, all[j].symbol_name),
+                        file_a: all[i].file_path.clone(),
+                        file_b: all[j].file_path.clone(),
+                        line_a: all[i].line,
+                        line_b: all[j].line,
+                        similarity: sim,
+                    });
+                    if pairs.len() >= max_pairs {
+                        break;
+                    }
+                }
+            }
+        }
+
+        pairs.sort_by(|a, b| {
+            b.similarity
+                .partial_cmp(&a.similarity)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        Ok(pairs)
+    }
+
+    /// Classify a code symbol into one of the given categories using zero-shot embedding similarity.
+    pub fn classify_symbol(
+        &self,
+        file_path: &str,
+        symbol_name: &str,
+        categories: &[&str],
+    ) -> Result<Vec<CategoryScore>> {
+        let all = self.store.all_with_embeddings()?;
+        let target = all
+            .iter()
+            .find(|c| c.file_path == file_path && c.symbol_name == symbol_name)
+            .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found in index", symbol_name))?;
+
+        let mut model = self
+            .model
+            .lock()
+            .map_err(|_| anyhow::anyhow!("model lock"))?;
+        let cat_refs: Vec<&str> = categories.iter().copied().collect();
+        let cat_embeddings = model
+            .embed(cat_refs, None)
+            .context("category embedding failed")?;
+
+        let mut scores: Vec<CategoryScore> = categories
+            .iter()
+            .zip(cat_embeddings.iter())
+            .map(|(cat, emb)| CategoryScore {
+                category: cat.to_string(),
+                score: cosine_similarity(&target.embedding, emb),
+            })
+            .collect();
+
+        scores.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        Ok(scores)
+    }
+
+    /// Find symbols that are outliers — semantically distant from their file's other symbols.
+    pub fn find_misplaced_code(&self, max_results: usize) -> Result<Vec<OutlierSymbol>> {
+        let all = self.store.all_with_embeddings()?;
+        if all.len() < 3 {
+            return Ok(Vec::new());
+        }
+
+        // Group by file
+        let mut by_file: std::collections::HashMap<&str, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, chunk) in all.iter().enumerate() {
+            by_file.entry(&chunk.file_path).or_default().push(i);
+        }
+
+        let mut outliers = Vec::new();
+
+        for (file, indices) in &by_file {
+            if indices.len() < 2 {
+                continue;
+            }
+            // For each symbol in the file, compute average similarity to other symbols in same file
+            for &idx in indices {
+                let mut sim_sum = 0.0;
+                let mut count = 0;
+                for &other in indices {
+                    if other == idx {
+                        continue;
+                    }
+                    sim_sum += cosine_similarity(&all[idx].embedding, &all[other].embedding);
+                    count += 1;
+                }
+                if count > 0 {
+                    let avg_sim = sim_sum / count as f64;
+                    // Low average similarity = potential outlier
+                    outliers.push(OutlierSymbol {
+                        file_path: file.to_string(),
+                        symbol_name: all[idx].symbol_name.clone(),
+                        kind: all[idx].kind.clone(),
+                        line: all[idx].line,
+                        avg_similarity_to_file: avg_sim,
+                    });
+                }
+            }
+        }
+
+        // Sort by lowest similarity (most misplaced)
+        outliers.sort_by(|a, b| {
+            a.avg_similarity_to_file
+                .partial_cmp(&b.avg_similarity_to_file)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        outliers.truncate(max_results);
+        Ok(outliers)
+    }
 }
 
-/// Build the embedding text for a symbol, optionally including its body from source.
-fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> String {
-    let body_text = source.and_then(|src| {
-        let start = sym.start_byte as usize;
-        let end = sym.end_byte as usize;
-        if end > start && end <= src.len() {
-            src.get(start..end)
-                .map(|b| truncate_body(b, MAX_BODY_CHARS))
-        } else {
-            None
-        }
-    });
+// ── Analysis result types ────────────────────────────────────────────
 
+#[derive(Debug, Clone, Serialize)]
+pub struct DuplicatePair {
+    pub symbol_a: String,
+    pub symbol_b: String,
+    pub file_a: String,
+    pub file_b: String,
+    pub line_a: usize,
+    pub line_b: usize,
+    pub similarity: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CategoryScore {
+    pub category: String,
+    pub score: f64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct OutlierSymbol {
+    pub file_path: String,
+    pub symbol_name: String,
+    pub kind: String,
+    pub line: usize,
+    pub avg_similarity_to_file: f64,
+}
+
+fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
+    let dot: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| *x as f64 * *y as f64)
+        .sum();
+    let norm_a: f64 = a.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
+    let norm_b: f64 = b.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
+    if norm_a == 0.0 || norm_b == 0.0 {
+        0.0
+    } else {
+        dot / (norm_a * norm_b)
+    }
+}
+
+/// Build the embedding text for a symbol.
+///
+/// Optimized for MiniLM-L12-CodeSearchNet:
+/// - No "passage:" prefix (model not trained with prefixes)
+/// - Include file context for disambiguation
+/// - Signature-focused (body inclusion hurts quality for this model)
+fn build_embedding_text(sym: &crate::db::SymbolWithFile, _source: Option<&str>) -> String {
     let file_ctx = if sym.file_path.is_empty() {
         String::new()
     } else {
         format!(" in {}", sym.file_path)
     };
 
-    match body_text {
-        Some(body) if !body.is_empty() => {
-            format!(
-                "passage: {} {}{}\n{}\n{}",
-                sym.kind, sym.name, file_ctx, sym.signature, body
-            )
-        }
-        _ => {
-            if sym.signature.is_empty() {
-                format!("passage: {} {}{}", sym.kind, sym.name, file_ctx)
-            } else {
-                format!(
-                    "passage: {} {}{}: {}",
-                    sym.kind, sym.name, file_ctx, sym.signature
-                )
-            }
-        }
+    if sym.signature.is_empty() {
+        format!("{} {}{}", sym.kind, sym.name, file_ctx)
+    } else {
+        format!("{} {}{}: {}", sym.kind, sym.name, file_ctx, sym.signature)
     }
 }
 
 fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
     embedding.iter().flat_map(|f| f.to_le_bytes()).collect()
-}
-
-fn truncate_body(body: &str, max_chars: usize) -> String {
-    if body.len() <= max_chars {
-        body.to_string()
-    } else {
-        let boundary = body
-            .char_indices()
-            .take_while(|(i, _)| *i < max_chars)
-            .last()
-            .map(|(i, c)| i + c.len_utf8())
-            .unwrap_or(max_chars);
-        body[..boundary].to_string()
-    }
 }
 
 #[cfg(test)]
@@ -602,7 +889,7 @@ mod tests {
     }
 
     #[test]
-    fn build_embedding_text_with_body() {
+    fn build_embedding_text_with_signature() {
         let sym = crate::db::SymbolWithFile {
             name: "hello".into(),
             kind: "function".into(),
@@ -613,14 +900,8 @@ mod tests {
             start_byte: 0,
             end_byte: 10,
         };
-        let source = "def hello(): pass";
-        let text = build_embedding_text(&sym, Some(source));
-        assert!(text.starts_with("passage:"));
-        assert!(text.contains("hello"));
-        assert!(text.contains("main.py"));
-        assert!(text.contains("def hello():"));
-        // Body should be included since start/end bytes are valid
-        assert!(text.contains("def hello("));
+        let text = build_embedding_text(&sym, Some("def hello(): pass"));
+        assert_eq!(text, "function hello in main.py: def hello():");
     }
 
     #[test]
@@ -636,7 +917,7 @@ mod tests {
             end_byte: 50,
         };
         let text = build_embedding_text(&sym, None);
-        assert_eq!(text, "passage: class MyClass in app.py: class MyClass:");
+        assert_eq!(text, "class MyClass in app.py: class MyClass:");
     }
 
     #[test]
@@ -652,30 +933,7 @@ mod tests {
             end_byte: 0,
         };
         let text = build_embedding_text(&sym, None);
-        assert_eq!(text, "passage: variable CONFIG in config.py");
-    }
-
-    #[test]
-    fn truncate_body_within_limit() {
-        let body = "short text";
-        assert_eq!(truncate_body(body, 100), "short text");
-    }
-
-    #[test]
-    fn truncate_body_at_limit() {
-        let body = "hello world, this is a long text";
-        let truncated = truncate_body(body, 10);
-        assert_eq!(truncated.len(), 10);
-        assert_eq!(truncated, "hello worl");
-    }
-
-    #[test]
-    fn truncate_body_unicode_safe() {
-        let body = "한글텍스트입니다";
-        let truncated = truncate_body(body, 9); // 한글 1자 = 3 bytes
-                                                // Should not panic and should cut at char boundary
-        assert!(truncated.len() <= 9);
-        assert!(truncated.is_char_boundary(truncated.len()));
+        assert_eq!(text, "variable CONFIG in config.py");
     }
 
     #[test]
@@ -714,8 +972,8 @@ mod tests {
         assert!(!results.is_empty(), "search should return results");
         for r in &results {
             assert!(
-                r.score > 0.0 && r.score <= 1.0,
-                "score should be in (0,1]: {}",
+                r.score >= -1.0 && r.score <= 1.0,
+                "score should be in [-1,1]: {}",
                 r.score
             );
         }
@@ -782,10 +1040,10 @@ mod tests {
 
     #[test]
     fn parse_model_from_env_default() {
-        // Without env var, should return default
+        // Without env var, should return None (CodeSearchNet)
         // SAFETY: test-only, single-threaded access to env var
         unsafe { std::env::remove_var("CODELENS_EMBED_MODEL") };
         let model = parse_model_from_env();
-        assert!(matches!(model, EmbeddingModel::BGESmallENV15Q));
+        assert!(model.is_none(), "default should be CodeSearchNet (None)");
     }
 }

@@ -47,7 +47,10 @@ pub use lsp::{
 };
 pub use auto_import::{ImportSuggestion, MissingImportAnalysis, add_import, analyze_missing_imports};
 pub use project::{ProjectRoot, WorkspacePackage, detect_frameworks, detect_workspace_packages};
-pub use rename::{RenameResult, RenameScope, rename_symbol};
+pub use rename::{RenameEdit, RenameResult, RenameScope, apply_edits, find_all_word_matches, rename_symbol};
+pub mod inline;
+pub mod move_symbol;
+pub mod change_signature;
 pub use scope_analysis::{ScopedReference, ReferenceKind, find_scoped_references, find_scoped_references_in_file};
 pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};
 pub use search::{SearchResult, search_symbols_hybrid, search_symbols_hybrid_with_semantic};

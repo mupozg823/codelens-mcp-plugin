@@ -91,13 +91,15 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         .unwrap_or(false);
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
     // Build semantic scores for hybrid ranking if embeddings are available.
-    // Only use already-initialized engine (get(), not get_or_init()) to avoid
-    // loading the ~240MB ONNX model on first get_ranked_context call.
-    // The model is loaded only when the user explicitly calls index_embeddings.
+    // Model is bundled in binary (~34MB ONNX), loads in ~200ms on first call.
     #[cfg(feature = "semantic")]
     let semantic_scores = {
         let mut scores = std::collections::HashMap::new();
-        if let Some(Some(engine)) = state.embedding.get() {
+        let project = state.project();
+        let engine_opt = state
+            .embedding
+            .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
+        if let Some(engine) = engine_opt {
             if engine.is_indexed() {
                 if let Ok(sem_results) = engine.search(query, 50) {
                     for r in sem_results {
@@ -114,7 +116,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     #[cfg(not(feature = "semantic"))]
     let semantic_scores = std::collections::HashMap::new();
 
-    let result = state.symbol_index().get_ranked_context_cached(
+    let mut result = state.symbol_index().get_ranked_context_cached(
         query,
         path,
         max_tokens,
@@ -260,7 +262,11 @@ pub fn search_symbols_fuzzy(state: &AppState, arguments: &serde_json::Value) -> 
     #[cfg(feature = "semantic")]
     let semantic_scores = {
         let mut scores = std::collections::HashMap::new();
-        if let Some(Some(engine)) = state.embedding.get() {
+        let project = state.project();
+        let engine_opt = state
+            .embedding
+            .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
+        if let Some(engine) = engine_opt {
             if engine.is_indexed() {
                 if let Ok(sem_results) = engine.search(query, 50) {
                     for r in sem_results {

@@ -111,6 +111,9 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "summarize_file"               => composite::summarize_file,
         "explain_code_flow"            => composite::explain_code_flow,
         "refactor_extract_function"    => composite::refactor_extract_function,
+        "refactor_inline_function"     => composite::refactor_inline_function,
+        "refactor_move_to_file"        => composite::refactor_move_to_file,
+        "refactor_change_signature"    => composite::refactor_change_signature,
         "onboard_project"              => composite::onboard_project,
     }
 }
@@ -223,6 +226,10 @@ const MUTATION_TOOLS: &[&str] = &[
     "replace",
     "create_text_file",
     "add_import",
+    "refactor_extract_function",
+    "refactor_inline_function",
+    "refactor_move_to_file",
+    "refactor_change_signature",
 ];
 
 const REVIEW_TOOLS: &[&str] = &[
@@ -363,13 +370,24 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "get_tool_metrics" => &["export_session_markdown", "set_preset", "get_capabilities"],
 
         // ── Semantic ─────────────────────────────────────────────────
-        "semantic_search" => &["find_symbol", "get_symbols_overview", "get_ranked_context"],
-        "index_embeddings" => &["semantic_search"],
+        "semantic_search" => &["find_symbol", "get_symbols_overview", "find_similar_code"],
+        "index_embeddings" => &[
+            "semantic_search",
+            "find_code_duplicates",
+            "find_misplaced_code",
+        ],
+        "find_similar_code" => &["get_symbols_overview", "semantic_search"],
+        "find_code_duplicates" => &["find_similar_code", "get_symbols_overview"],
+        "classify_symbol" => &["find_similar_code", "get_symbols_overview"],
+        "find_misplaced_code" => &["get_symbols_overview", "find_similar_code"],
 
         // ── Composite ────────────────────────────────────────────────
         "summarize_file" => &["get_symbols_overview", "find_symbol"],
         "explain_code_flow" => &["get_callers", "get_callees"],
         "refactor_extract_function" => &["get_file_diagnostics", "find_symbol"],
+        "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
+        "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],
+        "refactor_change_signature" => &["get_file_diagnostics", "find_referencing_symbols"],
 
         _ => return None,
     };

@@ -80,6 +80,99 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
     ))
 }
 
+#[cfg(feature = "semantic")]
+fn find_similar_code_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let file_path = tools::required_string(arguments, "file_path")?;
+    let symbol_name = tools::required_string(arguments, "symbol_name")?;
+    let max_results = arguments
+        .get("max_results")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(10) as usize;
+
+    let project = state.project();
+    let engine = state
+        .embedding
+        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
+
+    let results = engine.find_similar_code(file_path, symbol_name, max_results)?;
+    Ok((
+        json!({"query_symbol": symbol_name, "file": file_path, "similar": results, "count": results.len()}),
+        tools::success_meta(crate::protocol::BackendKind::Semantic, 0.80),
+    ))
+}
+
+#[cfg(feature = "semantic")]
+fn find_code_duplicates_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let threshold = arguments
+        .get("threshold")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.85);
+    let max_pairs = arguments
+        .get("max_pairs")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20) as usize;
+
+    let project = state.project();
+    let engine = state
+        .embedding
+        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
+
+    let pairs = engine.find_duplicates(threshold, max_pairs)?;
+    Ok((
+        json!({"threshold": threshold, "duplicates": pairs, "count": pairs.len()}),
+        tools::success_meta(crate::protocol::BackendKind::Semantic, 0.80),
+    ))
+}
+
+#[cfg(feature = "semantic")]
+fn classify_symbol_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let file_path = tools::required_string(arguments, "file_path")?;
+    let symbol_name = tools::required_string(arguments, "symbol_name")?;
+    let categories = arguments
+        .get("categories")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| CodeLensError::MissingParam("categories".into()))?;
+    let cat_strs: Vec<&str> = categories.iter().filter_map(|v| v.as_str()).collect();
+
+    let project = state.project();
+    let engine = state
+        .embedding
+        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
+
+    let scores = engine.classify_symbol(file_path, symbol_name, &cat_strs)?;
+    Ok((
+        json!({"symbol": symbol_name, "file": file_path, "classifications": scores}),
+        tools::success_meta(crate::protocol::BackendKind::Semantic, 0.75),
+    ))
+}
+
+#[cfg(feature = "semantic")]
+fn find_misplaced_code_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let max_results = arguments
+        .get("max_results")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(10) as usize;
+
+    let project = state.project();
+    let engine = state
+        .embedding
+        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
+
+    let outliers = engine.find_misplaced_code(max_results)?;
+    Ok((
+        json!({"outliers": outliers, "count": outliers.len()}),
+        tools::success_meta(crate::protocol::BackendKind::Semantic, 0.70),
+    ))
+}
+
 // ── Budget hint (TALE-inspired) ────────────────────────────────────────
 
 fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> String {
@@ -114,11 +207,19 @@ fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> String {
 // ── Static dispatch table ──────────────────────────────────────────────
 
 static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> = LazyLock::new(|| {
-    let m = tools::dispatch_table();
+    let mut m = tools::dispatch_table();
     #[cfg(feature = "semantic")]
     {
         m.insert("semantic_search", |s, a| semantic_search_handler(s, a));
         m.insert("index_embeddings", |s, a| index_embeddings_handler(s, a));
+        m.insert("find_similar_code", |s, a| find_similar_code_handler(s, a));
+        m.insert("find_code_duplicates", |s, a| {
+            find_code_duplicates_handler(s, a)
+        });
+        m.insert("classify_symbol", |s, a| classify_symbol_handler(s, a));
+        m.insert("find_misplaced_code", |s, a| {
+            find_misplaced_code_handler(s, a)
+        });
     }
     m
 });

@@ -26,9 +26,9 @@ fn lists_tools() {
     )
     .expect("tools/list should return a response");
     #[cfg(feature = "semantic")]
-    assert_eq!(tools().len(), 63);
+    assert_eq!(tools().len(), 70);
     #[cfg(not(feature = "semantic"))]
-    assert_eq!(tools().len(), 61);
+    assert_eq!(tools().len(), 64);
     let encoded = serde_json::to_string(&response).expect("serialize");
     assert!(encoded.contains("get_symbols_overview"));
 }

@@ -1,5 +1,5 @@
 class CodelensMcp < Formula
-  desc "Pure Rust MCP server for code intelligence — 49 tools, 16 languages"
+  desc "Pure Rust MCP server for code intelligence — 62 tools, 25 languages"
   homepage "https://github.com/mupozg823/codelens-mcp-plugin"
   version "1.0.0"
   license "Apache-2.0"
@@ -7,20 +7,20 @@ class CodelensMcp < Formula
   on_macos do
     if Hardware::CPU.arm?
       url "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/v#{version}/codelens-mcp-darwin-arm64.tar.gz"
-      # sha256 "PLACEHOLDER" # Updated on release
+      sha256 "RELEASE_SHA256_DARWIN_ARM64"
     else
       url "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/v#{version}/codelens-mcp-darwin-x86_64.tar.gz"
-      # sha256 "PLACEHOLDER"
+      sha256 "RELEASE_SHA256_DARWIN_X86_64"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
       url "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/v#{version}/codelens-mcp-linux-arm64.tar.gz"
-      # sha256 "PLACEHOLDER"
+      sha256 "RELEASE_SHA256_LINUX_ARM64"
     else
       url "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/v#{version}/codelens-mcp-linux-x86_64.tar.gz"
-      # sha256 "PLACEHOLDER"
+      sha256 "RELEASE_SHA256_LINUX_X86_64"
     end
   end
 
@@ -41,6 +41,7 @@ class CodelensMcp < Formula
   end
 
   test do
-    assert_match "codelens-mcp", shell_output("#{bin}/codelens-mcp --help 2>&1", 0)
+    output = shell_output("#{bin}/codelens-mcp . --cmd get_capabilities --args '{}' 2>&1")
+    assert_match "codelens", output
   end
 end
