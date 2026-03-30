@@ -191,8 +191,7 @@ impl EmbeddingStore for SqliteVecStore {
                     score: 1.0 - row.get::<_, f64>(6)?,
                 })
             })?
-            .filter_map(|r| r.ok())
-            .collect();
+            .collect::<std::result::Result<Vec<_>, _>>()?;
 
         Ok(results)
     }
@@ -204,8 +203,8 @@ impl EmbeddingStore for SqliteVecStore {
             let mut stmt = db.prepare("SELECT id FROM symbols WHERE file_path = ?1")?;
             let ids: Vec<i64> = stmt
                 .query_map(rusqlite::params![path], |row| row.get(0))?
-                .filter_map(|r| r.ok())
-                .collect();
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(|e| anyhow::anyhow!("delete_by_file query: {e}"))?;
             for id in &ids {
                 db.execute(
                     "DELETE FROM vec_symbols WHERE rowid = ?1",

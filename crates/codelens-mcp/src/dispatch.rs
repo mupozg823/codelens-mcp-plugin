@@ -154,6 +154,25 @@ pub(crate) fn dispatch_tool(
         None => Err(CodeLensError::ToolNotFound(name.to_owned())),
     };
 
+    // Auto-invalidate graph cache after mutation tools
+    const MUTATION_TOOLS: &[&str] = &[
+        "replace_symbol_body",
+        "delete_lines",
+        "insert_at_line",
+        "insert_before_symbol",
+        "insert_after_symbol",
+        "insert_content",
+        "replace_content",
+        "replace_lines",
+        "replace",
+        "rename_symbol",
+        "create_text_file",
+        "add_import",
+    ];
+    if result.is_ok() && MUTATION_TOOLS.contains(&name) {
+        state.graph_cache().invalidate();
+    }
+
     let elapsed_ms = start.elapsed().as_millis();
     if elapsed_ms > 5000 {
         warn!(
