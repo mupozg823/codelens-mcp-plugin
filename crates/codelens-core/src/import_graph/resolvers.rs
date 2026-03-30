@@ -42,6 +42,9 @@ pub fn resolve_module_for_file(
 
 // ── Language-specific resolvers ──────────────────────────────────────────────
 
+/// Common Python source roots beyond the project root itself.
+const PYTHON_SOURCE_ROOTS: &[&str] = &["src", "lib", "app"];
+
 fn resolve_python_module(
     project: &ProjectRoot,
     source_file: &Path,
@@ -53,9 +56,10 @@ fn resolve_python_module(
         return None;
     }
 
+    // 1. Relative to source file's directory
     let local_candidates = [
         source_dir.join(format!("{module_path}.py")),
-        source_dir.join(module_path.clone()).join("__init__.py"),
+        source_dir.join(&module_path).join("__init__.py"),
     ];
     for candidate in local_candidates {
         if candidate.is_file() {
@@ -63,30 +67,87 @@ fn resolve_python_module(
         }
     }
 
+    // 2. Relative to project root
+    let root = project.as_path();
     let root_candidates = [
-        project.as_path().join(format!("{module_path}.py")),
-        project.as_path().join(module_path).join("__init__.py"),
+        root.join(format!("{module_path}.py")),
+        root.join(&module_path).join("__init__.py"),
     ];
     for candidate in root_candidates {
         if candidate.is_file() {
             return Some(project.to_relative(candidate));
         }
     }
+
+    // 3. Relative to common Python source roots (src/, lib/, app/)
+    for src_root in PYTHON_SOURCE_ROOTS {
+        let base = root.join(src_root);
+        if !base.is_dir() {
+            continue;
+        }
+        let candidates = [
+            base.join(format!("{module_path}.py")),
+            base.join(&module_path).join("__init__.py"),
+        ];
+        for candidate in candidates {
+            if candidate.is_file() {
+                return Some(project.to_relative(candidate));
+            }
+        }
+    }
+
     None
 }
 
+/// Common JS/TS source roots for alias resolution.
+const JS_SOURCE_ROOTS: &[&str] = &["src", "app", "lib"];
+
 fn resolve_js_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
+    let root = project.as_path();
+
+    // 1. Handle @/ alias → resolve against src/ (Next.js/Vite convention)
+    if let Some(stripped) = module.strip_prefix("@/") {
+        for src_root in JS_SOURCE_ROOTS {
+            let base = root.join(src_root).join(stripped);
+            for candidate in js_resolution_candidates(&base) {
+                if candidate.is_file() {
+                    return Some(project.to_relative(candidate));
+                }
+            }
+        }
+        // Also try project root directly
+        let base = root.join(stripped);
+        for candidate in js_resolution_candidates(&base) {
+            if candidate.is_file() {
+                return Some(project.to_relative(candidate));
+            }
+        }
+        return None;
+    }
+
+    // 2. Handle ~/ alias → resolve against src/
+    if let Some(stripped) = module.strip_prefix("~/") {
+        let base = root.join("src").join(stripped);
+        for candidate in js_resolution_candidates(&base) {
+            if candidate.is_file() {
+                return Some(project.to_relative(candidate));
+            }
+        }
+        return None;
+    }
+
+    // 3. Skip bare module specifiers (npm packages)
     if !module.starts_with('.') && !module.starts_with('/') {
         return None;
     }
 
+    // 4. Relative or absolute paths
     let base = if module.starts_with('/') {
-        project.as_path().join(module.trim_start_matches('/'))
+        root.join(module.trim_start_matches('/'))
     } else {
         source_file.parent()?.join(module)
     };
-    let candidates = js_resolution_candidates(&base);
-    for candidate in candidates {
+    for candidate in js_resolution_candidates(&base) {
         if candidate.is_file() {
             return Some(project.to_relative(candidate));
         }
