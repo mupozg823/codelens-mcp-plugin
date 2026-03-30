@@ -96,6 +96,11 @@ pub(super) fn extract_imports(path: &Path) -> Vec<String> {
     let Ok(content) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
+    extract_imports_from_source(path, &content)
+}
+
+/// Extract imports from already-loaded source content (avoids re-reading disk).
+pub fn extract_imports_from_source(path: &Path, content: &str) -> Vec<String> {
     match path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -103,17 +108,17 @@ pub(super) fn extract_imports(path: &Path) -> Vec<String> {
         .to_ascii_lowercase()
         .as_str()
     {
-        "py" => extract_python_imports(&content),
-        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => extract_js_imports(&content),
-        "go" => extract_go_imports(&content),
-        "java" => extract_java_imports(&content),
-        "kt" | "kts" => extract_kotlin_imports(&content),
-        "rs" => extract_rust_imports(&content),
-        "rb" => extract_ruby_imports(&content),
-        "c" | "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" => extract_c_imports(&content),
-        "php" => extract_php_imports(&content),
-        "cs" => extract_csharp_imports(&content),
-        "dart" => extract_dart_imports(&content),
+        "py" => extract_python_imports(content),
+        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => extract_js_imports(content),
+        "go" => extract_go_imports(content),
+        "java" => extract_java_imports(content),
+        "kt" | "kts" => extract_kotlin_imports(content),
+        "rs" => extract_rust_imports(content),
+        "rb" => extract_ruby_imports(content),
+        "c" | "cc" | "cpp" | "cxx" | "h" | "hh" | "hpp" | "hxx" => extract_c_imports(content),
+        "php" => extract_php_imports(content),
+        "cs" => extract_csharp_imports(content),
+        "dart" => extract_dart_imports(content),
         _ => Vec::new(),
     }
 }

@@ -3,7 +3,7 @@ use super::types::{AnalyzedFile, IndexStats, ParsedSymbol};
 use super::SymbolIndex;
 use super::{collect_candidate_files, file_modified_ms, language_for_path};
 use crate::db::{self, content_hash, NewCall, NewImport, NewSymbol};
-use crate::import_graph::{extract_imports_for_file, resolve_module_for_file};
+use crate::import_graph::{extract_imports_from_source, resolve_module_for_file};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
 use std::collections::HashSet;
@@ -24,7 +24,7 @@ fn analyze_file(project: &ProjectRoot, file: &Path) -> Option<AnalyzedFile> {
         .and_then(|config| parse_symbols(&config, &relative, &source, false).ok())
         .unwrap_or_default();
 
-    let raw_imports = extract_imports_for_file(file);
+    let raw_imports = extract_imports_from_source(file, &source);
     let imports: Vec<NewImport> = raw_imports
         .iter()
         .filter_map(|raw| {
@@ -35,7 +35,7 @@ fn analyze_file(project: &ProjectRoot, file: &Path) -> Option<AnalyzedFile> {
         })
         .collect();
 
-    let calls: Vec<NewCall> = crate::call_graph::extract_calls(file)
+    let calls: Vec<NewCall> = crate::call_graph::extract_calls_from_source(file, &source)
         .into_iter()
         .map(|e| NewCall {
             caller_name: e.caller_name,
@@ -267,7 +267,7 @@ impl SymbolIndex {
             .collect();
         db.insert_symbols(file_id, &new_syms)?;
 
-        let raw_imports = extract_imports_for_file(file);
+        let raw_imports = extract_imports_from_source(file, &source);
         let new_imports: Vec<NewImport> = raw_imports
             .iter()
             .filter_map(|raw| {
@@ -281,7 +281,7 @@ impl SymbolIndex {
             db.insert_imports(file_id, &new_imports)?;
         }
 
-        let call_edges: Vec<NewCall> = crate::call_graph::extract_calls(file)
+        let call_edges: Vec<NewCall> = crate::call_graph::extract_calls_from_source(file, &source)
             .into_iter()
             .map(|e| NewCall {
                 caller_name: e.caller_name,

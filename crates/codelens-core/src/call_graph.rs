@@ -84,10 +84,15 @@ fn collect_candidate_files(root: &Path) -> Result<Vec<PathBuf>> {
 
 /// Parse a file and extract all call edges within each function.
 pub fn extract_calls(path: &Path) -> Vec<CallEdge> {
-    let Some(config) = call_language_for_path(path) else {
+    let Ok(source) = fs::read_to_string(path) else {
         return Vec::new();
     };
-    let Ok(source) = fs::read_to_string(path) else {
+    extract_calls_from_source(path, &source)
+}
+
+/// Extract call edges from already-loaded source content (avoids re-reading disk).
+pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
+    let Some(config) = call_language_for_path(path) else {
         return Vec::new();
     };
 

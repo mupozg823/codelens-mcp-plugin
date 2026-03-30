@@ -15,6 +15,7 @@ use std::sync::{Arc, Mutex};
 
 pub use dead_code::{find_dead_code, find_dead_code_v2, DeadCodeEntryV2};
 pub use parsers::extract_imports_for_file;
+pub use parsers::extract_imports_from_source;
 pub use resolvers::resolve_module_for_file;
 
 /// Use lang_registry as the single source of truth for supported extensions.
