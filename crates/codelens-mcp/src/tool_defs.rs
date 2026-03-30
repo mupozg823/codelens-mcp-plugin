@@ -67,6 +67,7 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "prepare_for_new_conversation",
     "get_watch_status",
     "get_tool_metrics",
+    "export_session_markdown",
     "summarize_changes",
     "summarize_file",
     // ── Superseded by unified tools (insert_content, replace) ──
@@ -338,6 +339,7 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("set_preset", "[CodeLens:Session] Switch tool preset at runtime. Auto-adjusts token budget.", json!({"type":"object","properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset"},"token_budget":{"type":"integer","description":"Override token budget (default: auto per preset)"}},"required":["preset"]})).with_annotations(mutating.clone()),
         Tool::new("get_capabilities", "[CodeLens:Session] Check LSP, embeddings, index freshness. Use before advanced tools.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"Optional file path to check language-specific capabilities"}}})).with_annotations(ro_a.clone()),
         Tool::new("get_tool_metrics", "[CodeLens:Session] Per-tool call counts, latency, errors. Use for self-diagnosis.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
+        Tool::new("export_session_markdown", "[CodeLens:Session] Export session telemetry as markdown report.", json!({"type":"object","properties":{"name":{"type":"string","description":"Session name for the report header"}}})).with_annotations(ro_p.clone()),
         Tool::new("summarize_file", "[CodeLens:Session] Get AI-generated summary of a file's purpose and structure.", json!({"type":"object","properties":{"path":{"type":"string","description":"File path to summarize"}},"required":["path"]})).with_annotations(ro_w.clone()),
     ];
 

@@ -380,6 +380,80 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
     ))
 }
 
+/// Export session telemetry as markdown — replaces collect-session.sh + Python.
+pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let session_name = arguments
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("session");
+    let snapshot = state.metrics().snapshot();
+    let session = state.metrics().session_snapshot();
+
+    let total_calls = session.total_calls.max(1);
+    let mut tools: Vec<_> = snapshot.into_iter().collect();
+    tools.sort_by(|a, b| b.1.call_count.cmp(&a.1.call_count));
+    let count = tools.len();
+
+    let mut md = String::with_capacity(2048);
+    md.push_str(&format!("# Session Telemetry: {session_name}\n\n"));
+    md.push_str("## Summary\n\n| Metric | Value |\n|---|---|\n");
+    md.push_str(&format!("| Total calls | {} |\n", total_calls));
+    md.push_str(&format!("| Total time | {}ms |\n", session.total_ms));
+    md.push_str(&format!(
+        "| Avg per call | {}ms |\n",
+        if total_calls > 0 {
+            session.total_ms / total_calls
+        } else {
+            0
+        }
+    ));
+    md.push_str(&format!("| Total tokens | {} |\n", session.total_tokens));
+    md.push_str(&format!("| Errors | {} |\n", session.error_count));
+    md.push_str(&format!("| Unique tools | {count} |\n\n"));
+
+    md.push_str("## Tool Usage\n\n| Tool | Calls | Total(ms) | Avg(ms) | Max(ms) | Err |\n|---|---|---|---|---|---|\n");
+    for (name, m) in &tools {
+        let avg = if m.call_count > 0 {
+            m.total_ms as f64 / m.call_count as f64
+        } else {
+            0.0
+        };
+        md.push_str(&format!(
+            "| {} | {} | {} | {:.1} | {} | {} |\n",
+            name, m.call_count, m.total_ms, avg, m.max_ms, m.error_count
+        ));
+    }
+
+    md.push_str("\n## Distribution\n\n```\n");
+    for (name, m) in tools.iter().take(5) {
+        let pct = m.call_count as f64 / total_calls as f64 * 100.0;
+        let bar = "#".repeat((pct / 2.0) as usize);
+        md.push_str(&format!(
+            "  {:<30} {:3} ({:5.1}%) {}\n",
+            name, m.call_count, pct, bar
+        ));
+    }
+    md.push_str("```\n\n");
+    md.push_str(&format!(
+        "Tokens/call: {}\n",
+        if total_calls > 0 {
+            session.total_tokens / total_calls as usize
+        } else {
+            0
+        }
+    ));
+
+    Ok((
+        json!({
+            "markdown": md,
+            "session_name": session_name,
+            "tool_count": count,
+            "total_calls": total_calls,
+        }),
+        success_meta(BackendKind::Telemetry, 1.0),
+    ))
+}
+
 pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let preset_str = arguments
         .get("preset")

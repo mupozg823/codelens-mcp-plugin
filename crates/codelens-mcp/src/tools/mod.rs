@@ -106,6 +106,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "set_preset"                   => session::set_preset,
         "get_capabilities"             => session::get_capabilities,
         "get_tool_metrics"             => session::get_tool_metrics,
+        "export_session_markdown"      => session::export_session_markdown,
         // ── Composite ──
         "summarize_file"               => composite::summarize_file,
         "explain_code_flow"            => composite::explain_code_flow,
@@ -359,7 +360,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "get_ranked_context",
             "check_lsp_status",
         ],
-        "get_tool_metrics" => &["set_preset", "get_capabilities"],
+        "get_tool_metrics" => &["export_session_markdown", "set_preset", "get_capabilities"],
 
         // ── Semantic ─────────────────────────────────────────────────
         "semantic_search" => &["find_symbol", "get_symbols_overview", "get_ranked_context"],
