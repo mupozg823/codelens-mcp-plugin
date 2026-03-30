@@ -23,10 +23,13 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-v2-${{ hashFiles('Cargo.lock') }}
 
-      - name: Test
-        run: cargo test -- --skip returns_lsp_diagnostics --skip returns_workspace_symbols --skip returns_rename_plan
+      - name: Test (core)
+        run: cargo test -p codelens-core
+
+      - name: Test (mcp)
+        run: cargo test -p codelens-mcp -- --skip returns_lsp_diagnostics --skip returns_workspace_symbols --skip returns_rename_plan
 
       - name: Benchmark
         run: cargo bench --bench indexing -- --output-format bencher | tee bench-output.txt
