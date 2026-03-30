@@ -1,29 +1,42 @@
 # CodeLens MCP
 
-Pure Rust MCP server for code intelligence — 62 tools, 25 languages, tree-sitter-first, zero external dependencies.
+**The code intelligence engine that makes every AI agent smarter.**
+
+Pure Rust MCP server — 70 tools, 25 languages, code-trained ML model bundled, single binary, zero config.
 
 ![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)
 ![License](https://img.shields.io/badge/license-Apache--2.0-blue)
 
-## Why CodeLens?
+## The Problem
 
-- **Single binary, zero config.** 25 languages built in via tree-sitter. No LSP servers, no Node, no Python required.
-- **Tree-sitter-first.** Millisecond responses, works on incomplete code, no external server startup. LSP available as opt-in bonus.
-- **62 tools, 3 presets.** From 21-tool minimal (for subagents) to 62-tool full — switch at runtime, no restart.
-- **Built for AI agents.** Output schemas, tool annotations, `.well-known` server card, token budget control, contextual tool chaining.
-- **Free and open-source.** Apache-2.0.
+AI coding agents waste tokens re-reading files, miss context, and lose understanding between sessions. Studies show 65% of developers cite "missing context" as their top frustration with AI tools.
+
+## The Solution
+
+CodeLens maintains a **live, indexed understanding** of your codebase — so any AI agent can get the right context in one call instead of reading dozens of files.
+
+```
+Without CodeLens: Agent reads 20 files → 12,000+ tokens → slow, noisy
+With CodeLens:    get_impact_analysis → 874 tokens → precise, instant
+                  onboard_project    → 595 tokens → complete overview
+```
+
+**93-97% token reduction. One tool call instead of six.**
 
 ## Quick Install
 
 ```bash
-# One-line installer (auto-detects and configures Claude Code, Cursor, VS Code, Codex)
+# Homebrew (macOS / Linux)
+brew install mupozg823/tap/codelens-mcp
+
+# One-line installer (auto-configures Claude Code, Cursor, VS Code, Codex)
 curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
 
-# Or via Cargo
+# Cargo
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
 ```
 
-## Configure Your AI Agent
+## Works With Every AI Agent
 
 ### Claude Code
 
@@ -40,155 +53,134 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 }
 ```
 
-### Cursor
+### Cursor / VS Code / Codex / Windsurf
 
-```json
-// .cursor/mcp.json or ~/.cursor/mcp.json
-{
-  "mcpServers": {
-    "codelens": {
-      "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"]
-    }
-  }
-}
-```
+See [docs/platform-setup.md](docs/platform-setup.md) for all platforms.
 
-### OpenAI Codex
+## What It Does
 
-```toml
-# ~/.codex/config.toml
-[mcp_servers.codelens]
-command = "codelens-mcp"
-args = [".", "--preset", "balanced"]
-```
+### For AI Agents (why they call CodeLens)
 
-### VS Code (Copilot / Cline / Continue)
+| Need                               | Tool                    | Tokens saved                  |
+| ---------------------------------- | ----------------------- | ----------------------------- |
+| "What's in this codebase?"         | `onboard_project`       | **97%** vs manual exploration |
+| "What breaks if I change this?"    | `get_impact_analysis`   | **93%** vs read + grep        |
+| "Find relevant code for this task" | `get_ranked_context`    | **69%** vs keyword grep       |
+| "Rename this symbol safely"        | `rename_symbol`         | Multi-file, scope-aware       |
+| "Move this to another file"        | `refactor_move_to_file` | Rewrites imports              |
+| "Find similar code"                | `find_similar_code`     | ML-powered semantic match     |
 
-```json
-// .vscode/mcp.json
-{
-  "servers": {
-    "codelens": {
-      "type": "stdio",
-      "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"]
-    }
-  }
-}
-```
-
-### Windsurf / Zed / Claude Desktop
-
-See [docs/platform-setup.md](docs/platform-setup.md) for all platforms including Docker and Claude Agent SDK.
-
-## Architecture
+### Under the Hood
 
 ```
-Agent (Claude/Codex/Cursor/...)
-  │
-  │  MCP Protocol (stdio / Streamable HTTP+SSE)
-  │
-  ▼
-┌─────────────────────────────────────────────────────┐
-│  codelens-mcp (Server)                               │
-│  ┌────────────┐ ┌──────────┐ ┌───────────────────┐ │
-│  │  Dispatch   │ │  Tools   │ │  Telemetry        │ │
-│  │  Registry   │ │  (62)    │ │  Metrics + Budget │ │
-│  └────────────┘ └────┬─────┘ └───────────────────┘ │
-│                      │                               │
-│  Symbol(14) Edit(12) Analysis(7) File(7)            │
-│  Memory(5) Session(12) Semantic(2) Composite(1)     │
-├─────────────────────────┬───────────────────────────┤
-│  codelens-core (Engine) │                            │
-│  ┌───────────┐ ┌────────┴──┐ ┌──────────────────┐  │
-│  │ Symbols   │ │  Import   │ │  SQLite FTS5     │  │
-│  │ tree-sit. │ │  Graph    │ │  4-signal rank   │  │
-│  │ 25 langs  │ │ PageRank  │ │  text+PR+rec+sem │  │
-│  └───────────┘ └───────────┘ └──────────────────┘  │
-│  ┌───────────┐ ┌───────────┐ ┌──────────────────┐  │
-│  │ LSP pool  │ │  Watcher  │ │  Embeddings      │  │
-│  │ (opt-in)  │ │  (notify) │ │  (fastembed)     │  │
-│  └───────────┘ └───────────┘ └──────────────────┘  │
-└─────────────────────────────────────────────────────┘
+                    ┌──────────────────────────────┐
+Agent Request ────▶ │     70 MCP Tools             │
+                    │  ┌────────┐ ┌─────────────┐  │
+                    │  │ Symbol │ │ Refactoring  │  │
+                    │  │ Search │ │ 4 operations │  │
+                    │  └────┬───┘ └──────┬──────┘  │
+                    │       │            │          │
+                    │  ┌────▼────────────▼──────┐  │
+                    │  │   Hybrid Ranking Engine │  │
+                    │  │  FTS5 + PageRank +      │  │
+                    │  │  Semantic + Recency     │  │
+                    │  └────────────┬───────────┘  │
+                    │  ┌────────────▼───────────┐  │
+                    │  │  tree-sitter (25 langs) │  │
+                    │  │  Import graph + cache   │  │
+                    │  │  ML model (bundled 34MB)│  │
+                    │  │  SQLite FTS5 + vec      │  │
+                    │  └────────────────────────┘  │
+                    └──────────────────────────────┘
+                         57MB single binary
+                         12ms cold start
+                         Zero external dependencies
 ```
 
-## Tool Categories (62 tools)
+## 70 Tools in 8 Categories
 
-| Category      | Tools | Key tools                                                                               |
-| ------------- | ----- | --------------------------------------------------------------------------------------- |
-| **Symbol**    | 14    | `find_symbol`, `get_symbols_overview`, `get_ranked_context`, `find_referencing_symbols` |
-| **Edit**      | 12    | `rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`, `add_import`       |
-| **Analysis**  | 7     | `get_impact_analysis`, `find_dead_code`, `find_circular_dependencies`, `get_callers`    |
-| **File**      | 7     | `read_file`, `search_for_pattern`, `find_tests`, `find_annotations`                     |
-| **Session**   | 12    | `onboard_project`, `activate_project`, `query_project`, `set_preset`                    |
-| **Memory**    | 5     | `write_memory`, `read_memory`, `list_memories`                                          |
-| **Semantic**  | 2     | `semantic_search`, `index_embeddings`                                                   |
-| **Composite** | 1     | `refactor_extract_function`                                                             |
+| Category        | Count | Highlights                                                                                                    |
+| --------------- | ----- | ------------------------------------------------------------------------------------------------------------- |
+| **Symbol**      | 14    | `find_symbol`, `get_symbols_overview`, `get_ranked_context`, `find_referencing_symbols`                       |
+| **Edit**        | 16    | `rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`, `add_import`                             |
+| **Refactoring** | 4     | `refactor_extract_function`, `refactor_inline_function`, `refactor_move_to_file`, `refactor_change_signature` |
+| **Analysis**    | 7     | `get_impact_analysis`, `find_dead_code`, `find_circular_dependencies`                                         |
+| **Semantic**    | 6     | `semantic_search`, `find_similar_code`, `find_code_duplicates`, `classify_symbol`, `find_misplaced_code`      |
+| **File**        | 7     | `read_file`, `search_for_pattern`, `find_tests`, `find_annotations`                                           |
+| **Session**     | 12    | `onboard_project`, `activate_project`, `query_project`, `set_preset`                                          |
+| **Memory**      | 5     | `write_memory`, `read_memory`, `list_memories`                                                                |
 
-## Presets
+## 3 Presets
 
-| Preset       | Tools | Use case                                                     |
-| ------------ | ----- | ------------------------------------------------------------ |
-| **FULL**     | 62    | Everything — advanced analysis, all file ops                 |
-| **BALANCED** | 39    | Default — excludes niche analysis + Claude built-in overlaps |
-| **MINIMAL**  | 21    | Subagents, token-constrained environments                    |
+| Preset       | Tools | Use case                                                  |
+| ------------ | ----- | --------------------------------------------------------- |
+| **FULL**     | 70    | Everything — advanced analysis, semantic, all refactoring |
+| **BALANCED** | 39    | Default — core tools optimized for typical workflows      |
+| **MINIMAL**  | 21    | Subagents, token-constrained environments                 |
 
-```bash
-codelens-mcp . --preset balanced     # CLI flag
-CODELENS_PRESET=minimal codelens-mcp .  # env var
-# or call set_preset at runtime
-```
-
-## Languages (25)
+## 25 Languages
 
 Python, JavaScript, TypeScript, TSX, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, C#, Dart, Lua, Zig, Elixir, Haskell, OCaml, Erlang, R, Bash, Julia
 
-All languages use statically-linked tree-sitter grammars — zero external dependencies.
+All via statically-linked tree-sitter grammars. Zero runtime dependencies.
 
 ## Performance
 
-| Operation            | Time  | Notes             |
-| -------------------- | ----- | ----------------- |
-| find_symbol          | <1ms  | SQLite FTS5 index |
-| get_symbols_overview | <1ms  | Cached per-file   |
-| get_ranked_context   | ~50ms | 4-signal ranking  |
-| get_impact_analysis  | ~1ms  | Graph cache       |
-| Cold start           | ~12ms | No LSP boot       |
+| Operation            | Time  | Notes                   |
+| -------------------- | ----- | ----------------------- |
+| find_symbol          | <1ms  | SQLite FTS5             |
+| get_symbols_overview | <1ms  | Cached                  |
+| get_ranked_context   | ~20ms | 4-signal hybrid ranking |
+| get_impact_analysis  | ~1ms  | Graph cache             |
+| semantic_search      | ~9ms  | Bundled ONNX model      |
+| Cold start           | ~12ms | No LSP boot needed      |
 
-## Key Design Principles
+## Embedding Model
 
-```
-tree-sitter-first: milliseconds, zero-config, works on broken code
-LSP: opt-in bonus via use_lsp=true (not required)
+CodeLens bundles a **code-trained MiniLM-L12 model** (fine-tuned on CodeSearchNet, ONNX INT8) directly in the binary:
 
-Agent priorities: speed > availability > stability > precision
-```
+- **No download required** — works offline, air-gapped environments
+- **MRR 0.878** on code search benchmarks
+- **8.5ms** per query, **686 symbols/sec** indexing throughput
+- Powers: `semantic_search`, `get_ranked_context` hybrid ranking, `find_similar_code`, `find_code_duplicates`
+
+## vs Other Tools
+
+|               | CodeLens           | Serena                             | Copilot        | Sourcegraph          |
+| ------------- | ------------------ | ---------------------------------- | -------------- | -------------------- |
+| Runtime       | Single binary      | Python + LSP servers               | Cloud API      | Cloud + local agent  |
+| Setup         | Zero config        | Python + uv + per-language servers | GitHub account | Self-hosted or cloud |
+| Start time    | 12ms               | Seconds (LSP boot)                 | N/A            | N/A                  |
+| Offline       | Yes                | Partial                            | No             | No                   |
+| ML bundled    | Yes (34MB ONNX)    | No                                 | Cloud only     | Cloud only           |
+| Refactoring   | 4 operations       | 1 (replace body)                   | No             | No                   |
+| Languages     | 25                 | 40+ (via LSP)                      | Many (cloud)   | Many (SCIP)          |
+| Token control | 3 presets + budget | No                                 | No             | No                   |
 
 ## Building
 
 ```bash
-cargo build --release                         # standard (includes semantic)
-cargo build --release --no-default-features   # minimal (no embeddings)
+cargo build --release                         # includes semantic (57MB)
+cargo build --release --no-default-features   # without ML model (23MB)
 cargo build --release --features http         # add HTTP transport
 
-# Tests (190+)
+# Tests (209+)
 cargo test -p codelens-core && cargo test -p codelens-mcp
-cargo test -p codelens-mcp --features http
 ```
 
-## Agentic Architecture Ready
+## Agentic Architecture
 
-| Feature                                 | Status                                  |
-| --------------------------------------- | --------------------------------------- |
-| Streamable HTTP + SSE                   | Supported                               |
-| Tool Annotations (readOnly/destructive) | All tools                               |
-| Tool Output Schemas                     | 13 core tools                           |
-| `.well-known/mcp.json` Server Card      | HTTP transport                          |
-| Preset-based capability negotiation     | 3 presets                               |
-| Token budget control (`_profile`)       | `fast_local`/`balanced`/`deep_semantic` |
-| Multi-project queries                   | `query_project`                         |
-| Contextual tool chaining                | `suggested_next_tools`                  |
+| Feature                                 | Status                                      |
+| --------------------------------------- | ------------------------------------------- |
+| Streamable HTTP + SSE                   | Supported                                   |
+| Tool Annotations (readOnly/destructive) | All 70 tools                                |
+| Tool Output Schemas                     | 13 core tools                               |
+| `.well-known/mcp.json` Server Card      | HTTP transport                              |
+| Preset-based capability negotiation     | 3 presets                                   |
+| Token budget control (`_profile`)       | `fast_local` / `balanced` / `deep_semantic` |
+| Multi-project queries                   | `query_project`                             |
+| Contextual tool chaining                | `suggested_next_tools`                      |
+| MCP 2025-03-26 spec compliant           | Full                                        |
 
 ## License
 

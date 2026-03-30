@@ -11,6 +11,9 @@
 | What breaks if I change X | `mcp__codelens__get_impact_analysis`             | Manual tracing      |
 | Type errors after edit    | `mcp__codelens__get_file_diagnostics`            | Manual check        |
 | First look at codebase    | `mcp__codelens__onboard_project`                 | ls + Read           |
+| Find similar code         | `mcp__codelens__find_similar_code`               | Manual comparison   |
+| Safe multi-file rename    | `mcp__codelens__rename_symbol`                   | Find & replace      |
+| Move code between files   | `mcp__codelens__refactor_move_to_file`           | Cut & paste         |
 
 **Use Read/Grep ONLY for:** non-code files (JSON, YAML, .md), exact string literal search, files < 30 lines, or when CodeLens returns no results.
 
@@ -28,9 +31,9 @@ cargo build --release
 
 ## Presets
 
-FULL=63 | BALANCED=39 (default) | MINIMAL=20
+FULL=70 | BALANCED=39 (default) | MINIMAL=21
 
-(61 base + 2 semantic feature-gated) | DB schema v4 (FTS5) | 25 languages | 13 output schemas
+(64 base + 6 semantic feature-gated) | DB schema v4 (FTS5) | 25 languages | 13 output schemas
 
 ## CLI
 
