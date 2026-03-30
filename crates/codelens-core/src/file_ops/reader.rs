@@ -10,6 +10,9 @@ use super::{
     FileMatch, FileReadResult, FlatSymbol, PatternMatch, SmartPatternMatch,
 };
 
+/// Maximum file size for read operations (10 MB). Prevents OOM on huge files.
+const MAX_READ_SIZE: u64 = 10 * 1024 * 1024;
+
 pub fn read_file(
     project: &ProjectRoot,
     path: &str,
@@ -19,6 +22,15 @@ pub fn read_file(
     let resolved = project.resolve(path)?;
     if !resolved.is_file() {
         bail!("not a file: {}", resolved.display());
+    }
+    let meta = fs::metadata(&resolved)?;
+    if meta.len() > MAX_READ_SIZE {
+        bail!(
+            "file too large ({:.1} MB > {} MB limit): {}",
+            meta.len() as f64 / 1_048_576.0,
+            MAX_READ_SIZE / 1_048_576,
+            resolved.display()
+        );
     }
 
     let content = fs::read_to_string(&resolved)

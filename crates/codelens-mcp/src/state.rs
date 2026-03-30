@@ -16,6 +16,8 @@ struct ProjectOverride {
     symbol_index: Arc<SymbolIndex>,
     graph_cache: Arc<GraphCache>,
     memories_dir: std::path::PathBuf,
+    #[allow(dead_code)]
+    watcher: Option<FileWatcher>,
 }
 
 pub(crate) struct AppState {
@@ -118,6 +120,12 @@ impl AppState {
         }
         let graph_cache = Arc::new(GraphCache::new(30));
         let memories_dir = project.as_path().join(".codelens").join("memories");
+        let watcher = FileWatcher::start(
+            project.as_path(),
+            Arc::clone(&symbol_index),
+            Arc::clone(&graph_cache),
+        )
+        .ok();
         *self
             .project_override
             .write()
@@ -126,6 +134,7 @@ impl AppState {
             symbol_index,
             graph_cache,
             memories_dir,
+            watcher,
         });
         Ok(name)
     }
