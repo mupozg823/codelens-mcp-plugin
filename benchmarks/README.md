@@ -1,68 +1,107 @@
-# CodeLens MCP Benchmarks
+# CodeLens MCP — Benchmark & Quality Tracking
 
-Measures end-to-end latency for the most performance-sensitive tool calls
-using the `--cmd` one-shot CLI mode.
+벤치마크 숫자가 아니라 **"실제로 동작하는가"**를 추적합니다.
 
-## What is measured
+## 디렉토리 구조
 
-| Metric                            | Description                                           |
-| --------------------------------- | ----------------------------------------------------- |
-| Cold start + `get_current_config` | Binary startup time with a clean index                |
-| `refresh_symbol_index`            | Full tree-sitter parse + SQLite write for the project |
-| `get_symbols_overview`            | Read symbols from index for a given path              |
-| `find_symbol`                     | Lookup a single symbol by name                        |
-| `get_impact_analysis`             | Import-graph traversal from a source file             |
+```
+benchmarks/
+├── README.md                  ← 이 파일
+├── run-benchmark.sh           ← 성능 벤치마크 (자동, 재현 가능)
+├── collect-session.sh         ← 세션 텔레메트리 수집 (실제 사용 기록)
+├── compare.sh                 ← 두 결과 파일 비교 (변화율)
+├── bench.sh                   ← 레거시 벤치마크 (간단)
+├── BUGS.md                    ← 실사용 시나리오 테스트 (15개 케이스)
+└── results/                   ← 모든 측정 결과 (날짜별)
+    ├── 2026-03-30-phase8-fixes.md       ← 수동 상세 분석
+    ├── 2026-03-30-baseline-v1.1.0.md    ← 자동 baseline
+    └── 2026-03-30-session-telemetry.md  ← 실제 Claude Code 세션
+```
 
-Each metric is run **3 times**; min / avg / max (ms) are reported.
+## 3가지 측정 축
 
-The index cache (`.codelens/index/`) is wiped before every cold-start run so
-that result reflects true startup + initialization time, not a warm cache.
-
-## How to run
+### 1. 성능 벤치마크 (run-benchmark.sh)
 
 ```bash
-# From repo root — uses the current directory as the project under test
-./benchmarks/bench.sh
+# 코드 변경 후 벤치마크
+cargo build --release
+./benchmarks/run-benchmark.sh . my-optimization
 
-# Against a different project
-./benchmarks/bench.sh /path/to/project
-
-# With a custom binary
-./benchmarks/bench.sh /path/to/project ./target/debug/codelens-mcp
+# 이전 결과와 비교
+./benchmarks/compare.sh results/old.md results/new.md
 ```
 
-## Requirements
+**측정 항목:**
 
-- Rust toolchain (for `cargo build --release`)
-- `python3` in PATH (used for millisecond-precision timing; falls back to
-  `gdate`/`date` if unavailable)
-- The binary must support `--cmd` one-shot mode
+- 핵심 도구 성능 (warm, 3회 평균 ms)
+- 제로 프로젝트 첫 호출 (auto-index 포함)
+- grep 대비 속도
 
-## Sample output
+### 2. 세션 텔레메트리 (collect-session.sh)
+
+```bash
+# Claude Code 세션 종료 전에 실행
+./benchmarks/collect-session.sh . session-name
+```
+
+**측정 항목:**
+
+- Claude Code가 어떤 도구를 몇 번 호출했는지
+- 서브에이전트가 CodeLens를 얼마나 활용했는지
+- 도구당 평균 응답 시간 + 토큰 사용량
+- 호출되지 않은 도구 (도구 표면 축소 근거)
+- 토큰 효율 (CodeLens vs Read/Grep 추정)
+
+### 3. 실사용 시나리오 테스트 (BUGS.md)
+
+```bash
+cat benchmarks/BUGS.md
+```
+
+**15개 엣지 케이스:**
+빈 디렉토리, 존재하지 않는 파일, 바이너리 공존, 경로 탈출,
+대형 파일, Unicode, 동명 심볼, git 없음, 심볼릭 링크,
+rename 주석/문자열 안전, 연속 호출, 비코드 파일 등
+
+## 결과 파일 양식 (frontmatter)
+
+모든 결과 파일은 동일한 YAML frontmatter:
+
+```yaml
+---
+date: 2026-03-30
+phase: phase-name
+project: /path/to/project
+binary: ./target/release/codelens-mcp
+commit: abc1234
+---
+```
+
+이 양식 덕분에 `compare.sh`로 자동 비교 가능.
+
+## 핵심 지표 해석 가이드
+
+| 지표                  | 좋음          | 주의        | 나쁨                       |
+| --------------------- | ------------- | ----------- | -------------------------- |
+| find_symbol (warm)    | <15ms         | 15-50ms     | >50ms                      |
+| find_refs (warm)      | <50ms         | 50-150ms    | >150ms                     |
+| 제로 프로젝트 첫 호출 | <100ms        | 100-500ms   | >500ms                     |
+| 세션 에러율           | 0%            | <5%         | >5%                        |
+| 도구 사용 집중도      | 상위 3개 >60% | —           | 분산 (도구 설명 개선 필요) |
+| 호출당 토큰           | <2,000        | 2,000-5,000 | >5,000                     |
+
+## 워크플로우
 
 ```
-=== CodeLens MCP Benchmark ===
-Project : /Users/you/my-project
-Binary  : ./target/release/codelens-mcp
+코드 변경
+  → cargo build --release
+  → ./benchmarks/run-benchmark.sh . change-name
+  → ./benchmarks/compare.sh results/baseline.md results/change-name.md
+  → 성능 회귀 확인
 
-[1/2] Building release binary...
-Build OK
-
-[2/2] Running benchmarks (3 runs each)...
-
-  Metric                                        Min       Avg       Max
-  ------------------------------------------  --------  --------  --------
-  Cold start + get_current_config                42 ms     45 ms     49 ms
-  Symbol indexing (refresh_symbol_index)        310 ms    318 ms    330 ms
-  get_symbols_overview path=src                  28 ms     30 ms     33 ms
-  find_symbol name=main                          15 ms     16 ms     17 ms
-  get_impact_analysis src/main.rs                22 ms     24 ms     27 ms
-
-  ------------------------------------------  --------  --------  --------
-
-Binary info
-  Size       : 32.1 MB
-  Tool count : 49
-
-Done.
+Claude Code 세션 종료
+  → ./benchmarks/collect-session.sh . session-name
+  → 도구 사용 패턴 분석
+  → 미사용 도구 → 도구 표면 축소 근거
+  → 높은 에러율 도구 → 버그 수정 대상
 ```
