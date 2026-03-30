@@ -1,14 +1,18 @@
 #!/usr/bin/env bash
 # CodeLens MCP — Session Telemetry Collector
-# Usage: ./benchmarks/collect-session.sh [project_path] [session_name]
 #
-# Captures the current session's tool usage from get_tool_metrics
-# and saves a structured report to benchmarks/results/
+# Usage (two modes):
+#   1. Pipe JSON from get_tool_metrics:
+#      echo '{"data":{...}}' | ./benchmarks/collect-session.sh session-name
+#
+#   2. Read from file:
+#      ./benchmarks/collect-session.sh session-name metrics.json
+#
+# The JSON is the raw output from the get_tool_metrics MCP tool.
 set -euo pipefail
 
-BIN="${CODELENS_BIN:-./target/release/codelens-mcp}"
-PROJECT="${1:-.}"
-NAME="${2:-session}"
+NAME="${1:-session}"
+JSON_FILE="${2:-}"
 DATE=$(date +%Y-%m-%d)
 COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 OUTDIR="$(dirname "$0")/results"
@@ -16,78 +20,75 @@ OUTFILE="${OUTDIR}/${DATE}-${NAME}.md"
 
 mkdir -p "$OUTDIR"
 
-RAW=$($BIN "$PROJECT" --cmd get_tool_metrics --args '{}' 2>/dev/null)
+# Read JSON from file or stdin
+if [ -n "$JSON_FILE" ] && [ -f "$JSON_FILE" ]; then
+	RAW=$(cat "$JSON_FILE")
+else
+	RAW=$(cat -)
+fi
 
-python3 << PYEOF > "$OUTFILE"
+python3 -c "
 import json, sys
 
-raw = json.loads('''$RAW''')
+raw = json.loads(sys.argv[1])
 data = raw.get('data', {})
 session = data.get('session', {})
-tools = data.get('tools', [])
+tools = sorted(data.get('tools', []), key=lambda t: t['calls'], reverse=True)
+total_calls = max(session.get('total_calls', 1), 1)
+total_tokens = session.get('total_tokens', 0)
+count = data.get('count', 0)
 
-print(f"""---
-date: $DATE
-phase: $NAME (session telemetry)
-project: $PROJECT
-binary: $BIN
-commit: $COMMIT
----
+lines = []
+a = lines.append
 
-# Session Telemetry: $DATE — $NAME
+a('---')
+a('date: $DATE')
+a('phase: $NAME (session telemetry)')
+a('commit: $COMMIT')
+a('---')
+a('')
+a('# Session Telemetry: $DATE — $NAME')
+a('')
+a('## Summary')
+a('')
+a('| Metric | Value |')
+a('|---|---|')
+a(f'| Total calls | {total_calls} |')
+a(f'| Total time | {session.get(\"total_ms\", 0):,}ms |')
+a(f'| Avg per call | {session.get(\"avg_ms_per_call\", 0)}ms |')
+a(f'| Total tokens | {total_tokens:,} |')
+a(f'| Errors | {session.get(\"error_count\", 0)} |')
+a(f'| Unique tools | {count} |')
+a('')
+a('## Tool Usage')
+a('')
+a('| Tool | Calls | Total(ms) | Avg(ms) | Max(ms) | Err |')
+a('|---|---|---|---|---|---|')
+for t in tools:
+    c = t['calls']
+    avg = round(t['total_ms'] / c, 1) if c > 0 else 0
+    a(f'| {t[\"tool\"]} | {c} | {t[\"total_ms\"]:,} | {avg} | {t[\"max_ms\"]:,} | {t[\"errors\"]} |')
 
-## 세션 요약
-
-| 항목 | 값 |
-|---|---|
-| 총 도구 호출 | {session.get('total_calls', 0)}회 |
-| 총 소요 시간 | {session.get('total_ms', 0):,}ms |
-| 평균 호출 시간 | {session.get('avg_ms_per_call', 0)}ms |
-| 총 토큰 사용 | {session.get('total_tokens', 0):,} |
-| 에러 | {session.get('error_count', 0)}회 |
-| 고유 도구 사용 | {data.get('count', 0)}종 |
-
-## 도구별 사용 빈도 + 성능
-
-| 도구 | 호출 | 총 시간(ms) | 평균(ms) | 최대(ms) | 에러 |
-|---|---|---|---|---|---|""")
-
-tools_sorted = sorted(tools, key=lambda t: t['calls'], reverse=True)
-total_calls = session.get('total_calls', 1)
-
-for t in tools_sorted:
-    calls = t['calls']
-    total_ms = t['total_ms']
-    avg = round(total_ms / calls, 1) if calls > 0 else 0
-    max_ms = t['max_ms']
-    errors = t['errors']
-    print(f"| {t['tool']} | {calls} | {total_ms:,} | {avg} | {max_ms:,} | {errors} |")
-
-print(f"""
-## 사용 분포
-
-```""")
-
-for t in tools_sorted[:5]:
+a('')
+a('## Distribution')
+a('')
+a('\`\`\`')
+for t in tools[:5]:
     pct = round(t['calls'] / total_calls * 100, 1)
-    bar = '█' * int(pct / 2)
-    print(f"  {t['tool']:30} {t['calls']:3}회 ({pct:5.1f}%) {bar}")
+    bar = '#' * int(pct / 2)
+    a(f'  {t[\"tool\"]:30} {t[\"calls\"]:3} ({pct:5.1f}%) {bar}')
+a('\`\`\`')
+a('')
+a(f'Unused: {39 - count}/39 BALANCED tools')
+a('')
+a('## Token Efficiency')
+a('')
+a(f'| Tokens/call | {total_tokens // total_calls:,} |')
+a(f'|---|---|')
 
-print(f"""```
-
-## 호출되지 않은 도구
-
-BALANCED 프리셋 39개 중 {39 - data.get('count', 0)}개 미사용.
-
-## 토큰 효율
-
-| 지표 | 값 |
-|---|---|
-| 총 토큰 | {session.get('total_tokens', 0):,} |
-| 호출당 평균 토큰 | {session.get('total_tokens', 0) // max(total_calls, 1):,} |
-| Read/Grep 대비 절약 추정 | 2-5x (랭킹된 심볼만 반환) |
-""")
-PYEOF
+print('\n'.join(lines))
+" "$RAW" >"$OUTFILE"
 
 echo "Saved: $OUTFILE"
+echo ""
 cat "$OUTFILE"
