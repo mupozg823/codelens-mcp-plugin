@@ -33,6 +33,6 @@ tokio = { workspace = true }
 http-body-util = { workspace = true }
 
 [features]
-default = ["semantic"]
+default = []
 semantic = ["codelens-core/semantic"]
 http = ["dep:axum", "dep:tokio", "dep:uuid", "dep:tokio-stream"]
