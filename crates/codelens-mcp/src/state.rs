@@ -10,16 +10,27 @@ use std::collections::VecDeque;
 
 // ── Application state ──────────────────────────────────────────────────
 
-pub(crate) struct AppState {
-    pub(crate) project: ProjectRoot,
+/// Holds project-specific resources that can be swapped at runtime.
+struct ProjectOverride {
+    project: ProjectRoot,
     symbol_index: Arc<SymbolIndex>,
+    graph_cache: Arc<GraphCache>,
+    memories_dir: std::path::PathBuf,
+}
+
+pub(crate) struct AppState {
+    // Default project (set at startup, immutable)
+    default_project: ProjectRoot,
+    default_symbol_index: Arc<SymbolIndex>,
+    default_graph_cache: Arc<GraphCache>,
+    default_memories_dir: std::path::PathBuf,
+    // Runtime project override (set by activate_project)
+    project_override: std::sync::RwLock<Option<ProjectOverride>>,
     lsp_pool: LspSessionPool,
-    pub(crate) graph_cache: Arc<GraphCache>,
     preset: Mutex<ToolPreset>,
     /// Global token budget for response size control.
     /// Tools that produce variable-length output respect this limit.
     pub(crate) token_budget: std::sync::atomic::AtomicUsize,
-    pub(crate) memories_dir: std::path::PathBuf,
     pub(crate) metrics: ToolMetricsRegistry,
     /// Recent tool call names for context-aware suggestions (max 5).
     recent_tools: Mutex<VecDeque<String>>,
@@ -39,10 +50,102 @@ pub(crate) struct SecondaryProject {
 }
 
 impl AppState {
-    /// Access the symbol index. SymbolIndex is internally synchronized
-    /// (reader/writer split), so no external lock is needed.
-    pub(crate) fn symbol_index(&self) -> &SymbolIndex {
-        &self.symbol_index
+    // ── Active project accessors (check override, fallback to default) ──
+
+    /// Get the active project root. Clones the ProjectRoot (just a PathBuf).
+    pub(crate) fn project(&self) -> ProjectRoot {
+        let guard = self
+            .project_override
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
+        match guard.as_ref() {
+            Some(o) => o.project.clone(),
+            None => self.default_project.clone(),
+        }
+    }
+
+    /// Get the active symbol index.
+    pub(crate) fn symbol_index(&self) -> Arc<SymbolIndex> {
+        let guard = self
+            .project_override
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
+        match guard.as_ref() {
+            Some(o) => Arc::clone(&o.symbol_index),
+            None => Arc::clone(&self.default_symbol_index),
+        }
+    }
+
+    /// Get the active graph cache.
+    pub(crate) fn graph_cache(&self) -> Arc<GraphCache> {
+        let guard = self
+            .project_override
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
+        match guard.as_ref() {
+            Some(o) => Arc::clone(&o.graph_cache),
+            None => Arc::clone(&self.default_graph_cache),
+        }
+    }
+
+    /// Get the active memories directory.
+    pub(crate) fn memories_dir(&self) -> std::path::PathBuf {
+        let guard = self
+            .project_override
+            .read()
+            .unwrap_or_else(|p| p.into_inner());
+        match guard.as_ref() {
+            Some(o) => o.memories_dir.clone(),
+            None => self.default_memories_dir.clone(),
+        }
+    }
+
+    /// Switch the active project at runtime. Creates a new index and graph cache.
+    pub(crate) fn switch_project(&self, path: &str) -> anyhow::Result<String> {
+        let project = ProjectRoot::new(path)?;
+        let name = project
+            .as_path()
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string());
+        let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
+        if symbol_index
+            .stats()
+            .map(|s| s.indexed_files == 0)
+            .unwrap_or(true)
+        {
+            let _ = symbol_index.refresh_all();
+        }
+        let graph_cache = Arc::new(GraphCache::new(30));
+        let memories_dir = project.as_path().join(".codelens").join("memories");
+        *self
+            .project_override
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = Some(ProjectOverride {
+            project,
+            symbol_index,
+            graph_cache,
+            memories_dir,
+        });
+        Ok(name)
+    }
+
+    /// Reset to the default project.
+    #[allow(dead_code)]
+    pub(crate) fn reset_project(&self) {
+        *self
+            .project_override
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = None;
+    }
+
+    /// Check if running on the default project.
+    #[allow(dead_code)]
+    pub(crate) fn is_default_project(&self) -> bool {
+        self.project_override
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .is_none()
     }
 
     /// Access the LSP session pool. Pool uses internal per-session locking.
@@ -114,13 +217,14 @@ impl AppState {
         .ok();
 
         Self {
-            project,
-            symbol_index,
+            default_project: project,
+            default_symbol_index: symbol_index,
             lsp_pool,
-            graph_cache,
+            default_graph_cache: graph_cache,
+            default_memories_dir: memories_dir,
+            project_override: std::sync::RwLock::new(None),
             preset: Mutex::new(preset),
             token_budget: std::sync::atomic::AtomicUsize::new(4000),
-            memories_dir,
             metrics: ToolMetricsRegistry::new(),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
             watcher,

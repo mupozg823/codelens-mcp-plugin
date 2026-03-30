@@ -4,20 +4,35 @@ use crate::tools::memory::list_memory_names;
 use codelens_core::detect_frameworks;
 use serde_json::json;
 
-pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let project_name = state
-        .project
+pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    // If a project path is provided, switch the active project
+    let switched = if let Some(path) = arguments.get("project").and_then(|v| v.as_str()) {
+        match state.switch_project(path) {
+            Ok(name) => Some(name),
+            Err(e) => {
+                return Err(crate::error::CodeLensError::NotFound(format!(
+                    "failed to switch project: {e}"
+                )));
+            }
+        }
+    } else {
+        None
+    };
+
+    let project = state.project();
+    let project_name = project
         .as_path()
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let memory_count = list_memory_names(&state.memories_dir, None).len();
+    let memories_dir = state.memories_dir();
+    let memory_count = list_memory_names(&memories_dir, None).len();
     let watcher_running = state
         .watcher
         .as_ref()
         .map(|w| w.stats().running)
         .unwrap_or(false);
-    let frameworks = detect_frameworks(state.project.as_path());
+    let frameworks = detect_frameworks(project.as_path());
 
     // Auto-set preset based on project size
     let file_count = state
@@ -41,11 +56,12 @@ pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> Too
     Ok((
         json!({
             "activated": true,
+            "switched": switched.is_some(),
             "project_name": project_name,
-            "project_base_path": state.project.as_path().to_string_lossy(),
+            "project_base_path": project.as_path().to_string_lossy(),
             "backend_id": "rust-core",
             "memory_count": memory_count,
-            "serena_memories_dir": state.memories_dir.to_string_lossy(),
+            "serena_memories_dir": memories_dir.to_string_lossy(),
             "file_watcher": watcher_running,
             "frameworks": frameworks,
             "auto_preset": auto_preset,
@@ -62,7 +78,7 @@ pub fn onboarding(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     if !force {
-        let existing = list_memory_names(&state.memories_dir, None);
+        let existing = list_memory_names(&state.memories_dir(), None);
         let required = [
             "project_overview",
             "style_and_conventions",
@@ -76,9 +92,10 @@ pub fn onboarding(state: &AppState, arguments: &serde_json::Value) -> ToolResult
             ));
         }
     }
-    std::fs::create_dir_all(&state.memories_dir)?;
-    let project_name = state
-        .project
+    let memories_dir = state.memories_dir();
+    std::fs::create_dir_all(&memories_dir)?;
+    let project = state.project();
+    let project_name = project
         .as_path()
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -88,7 +105,7 @@ pub fn onboarding(state: &AppState, arguments: &serde_json::Value) -> ToolResult
             "project_overview",
             format!(
                 "# Project: {project_name}\nBase path: {}\n",
-                state.project.as_path().display()
+                project.as_path().display()
             ),
         ),
         (
@@ -106,12 +123,12 @@ pub fn onboarding(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         ),
     ];
     for (name, content) in &defaults {
-        let path = state.memories_dir.join(format!("{name}.md"));
+        let path = memories_dir.join(format!("{name}.md"));
         if !path.exists() {
             std::fs::write(&path, content)?;
         }
     }
-    let created = list_memory_names(&state.memories_dir, None);
+    let created = list_memory_names(&state.memories_dir(), None);
     Ok((
         json!({"status":"onboarded","project_name": project_name,"memories_created": created}),
         success_meta(BackendKind::Session, 1.0),
@@ -122,8 +139,8 @@ pub fn prepare_for_new_conversation(
     state: &AppState,
     _arguments: &serde_json::Value,
 ) -> ToolResult {
-    let project_name = state
-        .project
+    let project = state.project();
+    let project_name = project
         .as_path()
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -132,9 +149,9 @@ pub fn prepare_for_new_conversation(
         json!({
             "status":"ready",
             "project_name": project_name,
-            "project_base_path": state.project.as_path().to_string_lossy(),
+            "project_base_path": project.as_path().to_string_lossy(),
             "backend_id": "rust-core",
-            "memory_count": list_memory_names(&state.memories_dir, None).len()
+            "memory_count": list_memory_names(&state.memories_dir(), None).len()
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
@@ -144,24 +161,24 @@ pub fn summarize_changes(state: &AppState, _arguments: &serde_json::Value) -> To
     Ok((
         json!({
             "instructions": "To summarize your changes:\n1. Use search_for_pattern to identify modified symbols\n2. Use get_symbols_overview to understand file structure\n3. Write a summary to memory using write_memory with name 'session_summary'",
-            "project_name": state.project.as_path().file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+            "project_name": state.project().as_path().file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
 }
 
 pub fn list_queryable_projects(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let project_name = state
-        .project
+    let project = state.project();
+    let project_name = project
         .as_path()
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
-    let has_memories = state.memories_dir.is_dir();
+    let has_memories = state.memories_dir().is_dir();
 
     let mut projects = vec![json!({
         "name": project_name,
-        "path": state.project.as_path().to_string_lossy(),
+        "path": project.as_path().to_string_lossy(),
         "is_active": true,
         "has_memories": has_memories
     })];

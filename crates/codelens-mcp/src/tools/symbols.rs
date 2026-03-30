@@ -120,7 +120,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         max_tokens,
         include_body,
         depth,
-        Some(&state.graph_cache),
+        Some(&state.graph_cache()),
         semantic_scores,
     )?;
 
@@ -167,14 +167,14 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
 
 pub fn refresh_symbol_index(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let stats = state.symbol_index().refresh_all()?;
-    state.graph_cache.invalidate();
+    state.graph_cache().invalidate();
     Ok((json!(stats), success_meta(BackendKind::TreeSitter, 0.95)))
 }
 
 pub fn get_complexity(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
     let symbol_name = arguments.get("symbol_name").and_then(|v| v.as_str());
-    let file_result = read_file(&state.project, path, None, None)?;
+    let file_result = read_file(&state.project(), path, None, None)?;
     let lines = file_result.content.lines().collect::<Vec<_>>();
     let symbols = state.symbol_index().get_symbols_overview_cached(path, 2)?;
 
@@ -290,7 +290,7 @@ pub fn search_symbols_fuzzy(state: &AppState, arguments: &serde_json::Value) -> 
     };
 
     Ok(search_symbols_hybrid_with_semantic(
-        &state.project,
+        &state.project(),
         query,
         max_results,
         fuzzy_threshold,

@@ -6,7 +6,7 @@ use serde_json::json;
 
 pub(crate) fn resources(state: &AppState) -> Vec<serde_json::Value> {
     let project_name = state
-        .project
+        .project()
         .as_path()
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -42,9 +42,9 @@ pub(crate) fn read_resource(state: &AppState, uri: &str) -> serde_json::Value {
                     "uri": uri,
                     "mimeType": "application/json",
                     "text": serde_json::to_string_pretty(&json!({
-                        "project_root": state.project.as_path().to_string_lossy(),
+                        "project_root": state.project().as_path().to_string_lossy(),
                         "symbol_index": stats,
-                        "memories_dir": state.memories_dir.to_string_lossy(),
+                        "memories_dir": state.memories_dir().to_string_lossy(),
                         "tool_count": tools().len()
                     })).unwrap_or_default()
                 }]

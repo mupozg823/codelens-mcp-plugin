@@ -232,7 +232,14 @@ fn build_signature(node: Node<'_>, source_bytes: &[u8], fallback: &str) -> Strin
         .unwrap_or(fallback);
 
     if first_line.len() > 200 {
-        format!("{}...", &first_line[..200])
+        // Find a char boundary at or before byte 200
+        let truncate_at = first_line
+            .char_indices()
+            .take_while(|(i, _)| *i <= 200)
+            .last()
+            .map(|(i, _)| i)
+            .unwrap_or(200);
+        format!("{}...", &first_line[..truncate_at])
     } else {
         first_line.to_owned()
     }

@@ -88,7 +88,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             CodeLensError::MissingParam("symbol_name (or line+column with use_lsp=true)".into())
         })?;
         return Ok(find_referencing_symbols_via_text(
-            &state.project,
+            &state.project(),
             sym_name,
             Some(&file_path),
             max_results,
@@ -154,16 +154,16 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
     // Fallback: tree-sitter text search
     let word = symbol_name_param
         .map(ToOwned::to_owned)
-        .or_else(|| extract_word_at_position(&state.project, &file_path, line, column).ok())
+        .or_else(|| extract_word_at_position(&state.project(), &file_path, line, column).ok())
         .ok_or_else(|| CodeLensError::MissingParam("could not determine symbol name".into()))?;
     Ok(
-        find_referencing_symbols_via_text(&state.project, &word, Some(&file_path), max_results)
+        find_referencing_symbols_via_text(&state.project(), &word, Some(&file_path), max_results)
             .map(|value| {
-                (
-                    json!({ "references": value, "count": value.len() }),
-                    meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"),
-                )
-            })?,
+            (
+                json!({ "references": value, "count": value.len() }),
+                meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"),
+            )
+        })?,
     )
 }
 
@@ -282,7 +282,7 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
         match lsp_result {
             Ok(value) => Ok((json!(value), meta_for_backend("lsp_pooled", 0.82))),
             Err(_) => Ok(get_type_hierarchy_native(
-                &state.project,
+                &state.project(),
                 &query,
                 relative_path.as_deref(),
                 &hierarchy_type,
@@ -301,7 +301,7 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
         }
     } else {
         Ok(get_type_hierarchy_native(
-            &state.project,
+            &state.project(),
             &query,
             relative_path.as_deref(),
             &hierarchy_type,

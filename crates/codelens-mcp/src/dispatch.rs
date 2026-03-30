@@ -22,9 +22,10 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         .and_then(|v| v.as_u64())
         .unwrap_or(20) as usize;
 
+    let project = state.project();
     let engine = state
         .embedding
-        .get_or_init(|| EmbeddingEngine::new(&state.project).ok())
+        .get_or_init(|| EmbeddingEngine::new(&project).ok())
         .as_ref()
         .ok_or_else(|| {
             anyhow::anyhow!("Embedding engine not available. Build with --features semantic")
@@ -46,13 +47,14 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
 
 #[cfg(feature = "semantic")]
 fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let project = state.project();
     let engine = state
         .embedding
-        .get_or_init(|| EmbeddingEngine::new(&state.project).ok())
+        .get_or_init(|| EmbeddingEngine::new(&project).ok())
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
-    let count = engine.index_from_project(&state.project)?;
+    let count = engine.index_from_project(&project)?;
     Ok((
         json!({"indexed_symbols": count, "status": "ok"}),
         tools::success_meta(crate::protocol::BackendKind::Semantic, 0.95),

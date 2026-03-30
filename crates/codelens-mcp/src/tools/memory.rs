@@ -5,7 +5,7 @@ use serde_json::json;
 
 pub fn list_memories(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let topic = arguments.get("topic").and_then(|v| v.as_str());
-    let names = list_memory_names(&state.memories_dir, topic);
+    let names = list_memory_names(&state.memories_dir(), topic);
     Ok((
         json!({
             "topic": topic,
@@ -18,7 +18,7 @@ pub fn list_memories(state: &AppState, arguments: &serde_json::Value) -> ToolRes
 
 pub fn read_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let name = required_string(arguments, "memory_name")?;
-    let path = resolve_memory_path(&state.memories_dir, name)?;
+    let path = resolve_memory_path(&state.memories_dir(), name)?;
     let content = std::fs::read_to_string(&path)
         .map_err(|_| CodeLensError::NotFound(format!("Memory: {name}")))?;
     Ok((
@@ -30,7 +30,7 @@ pub fn read_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResul
 pub fn write_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let name = required_string(arguments, "memory_name")?;
     let content = required_string(arguments, "content")?;
-    let path = resolve_memory_path(&state.memories_dir, name)?;
+    let path = resolve_memory_path(&state.memories_dir(), name)?;
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -43,7 +43,7 @@ pub fn write_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResu
 
 pub fn delete_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let name = required_string(arguments, "memory_name")?;
-    let path = resolve_memory_path(&state.memories_dir, name)?;
+    let path = resolve_memory_path(&state.memories_dir(), name)?;
     if !path.is_file() {
         return Err(CodeLensError::NotFound(format!("Memory: {name}")));
     }
@@ -57,8 +57,8 @@ pub fn delete_memory(state: &AppState, arguments: &serde_json::Value) -> ToolRes
 pub fn rename_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let old_name = required_string(arguments, "old_name")?;
     let new_name = required_string(arguments, "new_name")?;
-    let old_path = resolve_memory_path(&state.memories_dir, old_name)?;
-    let new_path = resolve_memory_path(&state.memories_dir, new_name)?;
+    let old_path = resolve_memory_path(&state.memories_dir(), old_name)?;
+    let new_path = resolve_memory_path(&state.memories_dir(), new_name)?;
     if !old_path.is_file() {
         return Err(CodeLensError::NotFound(format!("Memory: {old_name}")));
     }

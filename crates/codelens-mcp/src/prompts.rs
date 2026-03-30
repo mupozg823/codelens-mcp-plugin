@@ -28,7 +28,7 @@ pub(crate) fn get_prompt(
     name: &str,
     args: &serde_json::Value,
 ) -> serde_json::Value {
-    let project_root = state.project.as_path().to_string_lossy().to_string();
+    let project_root = state.project().as_path().to_string_lossy().to_string();
     match name {
         "review-file" => {
             let file_path = args

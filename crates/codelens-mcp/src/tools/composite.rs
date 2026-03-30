@@ -9,10 +9,11 @@ use serde_json::json;
 
 pub fn summarize_file(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
-    let symbols = get_symbols_overview(&state.project, file_path, 2)?;
+    let project = state.project();
+    let symbols = get_symbols_overview(&project, file_path, 2)?;
     let importers =
-        get_importers(&state.project, file_path, 20, &state.graph_cache).unwrap_or_default();
-    let source = std::fs::read_to_string(state.project.resolve(file_path)?).unwrap_or_default();
+        get_importers(&project, file_path, 20, &state.graph_cache()).unwrap_or_default();
+    let source = std::fs::read_to_string(project.resolve(file_path)?).unwrap_or_default();
     let line_count = source.lines().count();
 
     let mut functions = 0usize;
@@ -59,8 +60,9 @@ pub fn explain_code_flow(state: &AppState, arguments: &serde_json::Value) -> Too
         .and_then(|v| v.as_u64())
         .unwrap_or(20) as usize;
 
-    let callers = get_callers(&state.project, function_name, max_results)?;
-    let callees = get_callees(&state.project, function_name, None, max_results)?;
+    let project = state.project();
+    let callers = get_callers(&project, function_name, max_results)?;
+    let callees = get_callees(&project, function_name, None, max_results)?;
 
     Ok((
         json!({
@@ -99,7 +101,7 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
-    let resolved = state.project.resolve(file_path)?;
+    let resolved = state.project().resolve(file_path)?;
     let source = std::fs::read_to_string(&resolved)?;
     let lines: Vec<&str> = source.lines().collect();
 
@@ -188,6 +190,9 @@ pub fn refactor_extract_function(state: &AppState, arguments: &serde_json::Value
 /// One-shot project onboarding: structure + key symbols + health signals.
 /// When built with `--features semantic`, automatically indexes embeddings if empty.
 pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let project = state.project();
+    let graph_cache = state.graph_cache();
+
     // 1. Project structure (directory stats)
     let structure = state
         .symbol_index()
@@ -195,25 +200,22 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
         .unwrap_or_default();
 
     // 2. Top 10 most important files (PageRank)
-    let importance = get_importance(&state.project, 10, &state.graph_cache).unwrap_or_default();
+    let importance = get_importance(&project, 10, &graph_cache).unwrap_or_default();
 
     // 3. Circular dependencies
-    let cycles =
-        find_circular_dependencies(&state.project, 10, &state.graph_cache).unwrap_or_default();
+    let cycles = find_circular_dependencies(&project, 10, &graph_cache).unwrap_or_default();
 
     // 4. Auto-index embeddings if semantic feature enabled and index empty
     #[cfg(feature = "semantic")]
     let semantic_status = {
         let engine = state
             .embedding
-            .get_or_init(|| codelens_core::EmbeddingEngine::new(&state.project).ok());
+            .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
         match engine {
-            Some(engine) if !engine.is_indexed() => {
-                match engine.index_from_project(&state.project) {
-                    Ok(count) => json!({"status": "indexed", "symbols": count}),
-                    Err(e) => json!({"status": "failed", "error": e.to_string()}),
-                }
-            }
+            Some(engine) if !engine.is_indexed() => match engine.index_from_project(&project) {
+                Ok(count) => json!({"status": "indexed", "symbols": count}),
+                Err(e) => json!({"status": "failed", "error": e.to_string()}),
+            },
             Some(engine) => {
                 let count = engine.is_indexed();
                 json!({"status": "ready", "already_indexed": count})
@@ -226,7 +228,7 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
 
     Ok((
         json!({
-            "project_root": state.project.as_path(),
+            "project_root": project.as_path(),
             "directory_structure": structure.iter().take(20).map(|d| json!({
                 "directory": d.dir,
                 "files": d.files,

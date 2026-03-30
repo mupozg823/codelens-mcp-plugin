@@ -10,12 +10,12 @@ use serde_json::json;
 pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let stats = state.symbol_index().stats()?;
     let preset = *state.preset();
-    let frameworks = detect_frameworks(state.project.as_path());
-    let workspace_packages = detect_workspace_packages(state.project.as_path());
+    let frameworks = detect_frameworks(state.project().as_path());
+    let workspace_packages = detect_workspace_packages(state.project().as_path());
     Ok((
         json!({
             "runtime": "rust-core",
-            "project_root": state.project.as_path().display().to_string(),
+            "project_root": state.project().as_path().display().to_string(),
             "editor_integration": false,
             "available_backends": ["filesystem", "tree-sitter-cached", "lsp_pooled"],
             "symbol_index": stats,
@@ -38,7 +38,7 @@ pub fn read_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRe
         .get("end_line")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize);
-    Ok(read_file(&state.project, path, start_line, end_line)
+    Ok(read_file(&state.project(), path, start_line, end_line)
         .map(|value| (json!(value), success_meta(BackendKind::Filesystem, 1.0)))?)
 }
 
@@ -48,7 +48,7 @@ pub fn list_dir_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRes
         .get("recursive")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    Ok(list_dir(&state.project, path, recursive).map(|value| {
+    Ok(list_dir(&state.project(), path, recursive).map(|value| {
         (
             json!({ "entries": value, "count": value.len() }),
             success_meta(BackendKind::Filesystem, 1.0),
@@ -59,7 +59,7 @@ pub fn list_dir_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRes
 pub fn find_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let pattern = required_string(arguments, "wildcard_pattern")?;
     let dir = arguments.get("relative_dir").and_then(|v| v.as_str());
-    Ok(find_files(&state.project, pattern, dir).map(|value| {
+    Ok(find_files(&state.project(), pattern, dir).map(|value| {
         (
             json!({ "files": value, "count": value.len() }),
             success_meta(BackendKind::Filesystem, 1.0),
@@ -99,7 +99,7 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
 
     if smart {
         Ok(search_for_pattern_smart(
-            &state.project,
+            &state.project(),
             pattern,
             file_glob,
             max_results,
@@ -114,7 +114,7 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
         })?)
     } else {
         Ok(search_for_pattern(
-            &state.project,
+            &state.project(),
             pattern,
             file_glob,
             max_results,
@@ -146,7 +146,7 @@ pub fn find_annotations(state: &AppState, arguments: &serde_json::Value) -> Tool
         .collect::<Vec<_>>();
     let pattern = format!(r"\b({})\b[:\s]*(.*)", tag_list.join("|"));
     Ok(
-        search_for_pattern(&state.project, &pattern, None, max_results, 0, 0).map(|value| {
+        search_for_pattern(&state.project(), &pattern, None, max_results, 0, 0).map(|value| {
             let grouped = tag_list
                 .iter()
                 .filter_map(|tag| {
@@ -186,7 +186,7 @@ pub fn find_tests(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         .unwrap_or(100) as usize;
     let pattern = r"\b(def test_|func Test|@Test\b|it\s*\(|describe\s*\(|test\s*\()";
     Ok(
-        search_for_pattern(&state.project, pattern, None, max_results, 0, 0).map(|value| {
+        search_for_pattern(&state.project(), pattern, None, max_results, 0, 0).map(|value| {
             (
                 json!({ "tests": value, "count": value.len() }),
                 success_meta(BackendKind::Filesystem, 0.97),
