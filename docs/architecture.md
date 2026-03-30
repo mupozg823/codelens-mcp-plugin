@@ -1,7 +1,7 @@
 # CodeLens MCP — Architecture & Project Overview
 
 > Pure Rust MCP Server for Code Intelligence
-> 60 tools | 25 languages | tree-sitter-first | ~29K LOC
+> 63 tools | 25 languages | tree-sitter-first | ~22K LOC
 
 ---
 
@@ -21,7 +21,7 @@
 │  │                                                               │  │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐ │  │
 │  │  │ Dispatch │→ │  Tools   │→ │  State   │→ │  Telemetry   │ │  │
-│  │  │  Table   │  │ (60개)   │  │ AppState │  │  Metrics     │ │  │
+│  │  │  Table   │  │ (63개)   │  │ AppState │  │  Metrics     │ │  │
 │  │  └──────────┘  └────┬─────┘  └──────────┘  └──────────────┘ │  │
 │  │                     │                                         │  │
 │  │  ┌─────────────────────────────────────────────────────────┐ │  │
@@ -66,7 +66,7 @@ codelens-mcp-plugin/
 ├── install.sh                          # Installation script
 │
 ├── crates/
-│   ├── codelens-core/                  # Engine (17K LOC, 958 symbols)
+│   ├── codelens-core/                  # Engine (~15K LOC)
 │   │   ├── Cargo.toml                  # deps: tree-sitter x25, rusqlite, rayon
 │   │   ├── benches/indexing.rs         # Performance benchmarks
 │   │   ├── tests/
@@ -130,20 +130,20 @@ codelens-mcp-plugin/
 │   │       ├── vfs.rs                 # Virtual filesystem normalization
 │   │       └── watcher.rs             # File watcher (notify + debounce)
 │   │
-│   └── codelens-mcp/                  # MCP Server (12K LOC)
+│   └── codelens-mcp/                  # MCP Server (~7K LOC)
 │       ├── Cargo.toml                 # deps: axum, tokio, serde_json
 │       └── src/
 │           ├── main.rs                # Entry: CLI args, transport selection
-│           ├── state.rs               # AppState + SecondaryProject
-│           ├── dispatch.rs            # Central dispatcher: _profile, telemetry
+│           ├── state.rs               # AppState + ProjectOverride (runtime switching)
+│           ├── dispatch.rs            # Dispatcher: _profile, telemetry, auto-invalidate
 │           ├── protocol.rs            # Tool, ToolAnnotations, OutputSchema
-│           ├── tool_defs.rs           # 60 tool definitions + presets
+│           ├── tool_defs.rs           # 63 tool definitions + presets
 │           ├── error.rs               # CodeLensError enum
 │           ├── authority.rs           # Backend metadata helpers
 │           ├── telemetry.rs           # ToolMetricsRegistry
 │           ├── prompts.rs             # MCP prompt templates
 │           ├── resources.rs           # MCP resource endpoints
-│           ├── integration_tests.rs   # 40 integration tests
+│           ├── integration_tests.rs   # 41 integration tests
 │           │
 │           ├── server/                # Transport layer
 │           │   ├── mod.rs             # Server module exports
@@ -241,23 +241,23 @@ codelens-mcp-plugin/
 
 ---
 
-## 4. Tool Ecosystem (60 tools)
+## 4. Tool Ecosystem (63 tools)
 
 ### Preset Distribution
 
 ```
-FULL (60)        ████████████████████████████████████████████  100%
-BALANCED (42)    ██████████████████████████████                 70%
-MINIMAL (21)     ███████████████                                35%
+FULL (63)        ████████████████████████████████████████████  100%
+BALANCED (39)    █████████████████████████                      62%
+MINIMAL (21)     ███████████████                                33%
 ```
 
 ### Tool Categories
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        60 Tools                                  │
+│                        63 Tools                                  │
 ├──────────────┬──────────────┬──────────────┬────────────────────┤
-│ [Symbol] 14  │ [Edit] 12    │ [Analysis] 7 │ [Session] 12       │
+│ [Symbol] 14  │ [Edit] 12    │ [Analysis] 7 │ [Session] 13       │
 │              │              │              │                    │
 │ find_symbol  │ rename_symbol│ get_impact   │ activate_project   │
 │ get_symbols  │ replace_body │ find_dead    │ onboard_project    │
@@ -379,17 +379,18 @@ Each language has:
 
 ## 8. Key Metrics
 
-| Metric                        | Value                                            |
-| ----------------------------- | ------------------------------------------------ |
-| Total LOC                     | ~29,430                                          |
-| Rust source files             | 76                                               |
-| Total symbols                 | 958                                              |
-| Tools (Full/Balanced/Minimal) | 60 / 42 / 21                                     |
-| Languages                     | 25 (+ Perl deferred)                             |
-| Tests                         | ~260 (core 148 + mcp 40 + http 18 + integration) |
-| DB schema version             | v4 (FTS5)                                        |
-| tree-sitter grammars          | 25 (statically linked)                           |
-| LSP recipes                   | 22 servers                                       |
-| Ranking signals               | 4 (text + pagerank + recency + semantic)         |
-| Transport                     | stdio, Streamable HTTP + SSE, CLI oneshot        |
-| Binary size (release)         | Single binary, zero runtime deps                 |
+| Metric                        | Value                                           |
+| ----------------------------- | ----------------------------------------------- |
+| Total LOC                     | ~22,500                                         |
+| Rust source files             | 73                                              |
+| Total symbols (self)          | 1,007                                           |
+| Tools (Full/Balanced/Minimal) | 63 / 39 / 21                                    |
+| Languages                     | 25 (+ Perl deferred)                            |
+| Tests                         | 190 (core 149 + mcp 41)                         |
+| DB schema version             | v4 (FTS5)                                       |
+| tree-sitter grammars          | 25 (statically linked)                          |
+| LSP recipes                   | 22 servers                                      |
+| Ranking signals               | 4 (text + pagerank + recency + semantic)        |
+| Import resolvers              | 11 languages (with tsconfig.json, go.mod, src/) |
+| Transport                     | stdio, Streamable HTTP + SSE, CLI oneshot       |
+| Binary size (release)         | Single binary, zero runtime deps                |

@@ -28,9 +28,9 @@ cargo build --release
 
 ## Presets
 
-FULL=62 | BALANCED=39 (default) | MINIMAL=21
+FULL=63 | BALANCED=39 (default) | MINIMAL=21
 
-(60 base + 2 semantic feature-gated) | DB schema v4 (FTS5) | 25 languages | 13 output schemas
+(61 base + 2 semantic feature-gated) | DB schema v4 (FTS5) | 25 languages | 13 output schemas
 
 ## CLI
 
