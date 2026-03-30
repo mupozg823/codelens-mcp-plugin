@@ -51,10 +51,38 @@ fn resolve_python_module(
     module: &str,
 ) -> Option<String> {
     let source_dir = source_file.parent()?;
-    let module_path = module.replace('.', "/");
+
+    // Handle relative imports: from . import foo, from ..models import User
     if module.starts_with('.') {
+        let dots = module.chars().take_while(|&c| c == '.').count();
+        let remainder = &module[dots..];
+        let mut base = source_dir.to_path_buf();
+        // Each dot beyond the first goes up one directory
+        for _ in 1..dots {
+            base = base.parent()?.to_path_buf();
+        }
+        if remainder.is_empty() {
+            // `from . import foo` — resolve to __init__.py of current package
+            let init = base.join("__init__.py");
+            if init.is_file() {
+                return Some(project.to_relative(init));
+            }
+            return None;
+        }
+        let rel_path = remainder.replace('.', "/");
+        let candidates = [
+            base.join(format!("{rel_path}.py")),
+            base.join(&rel_path).join("__init__.py"),
+        ];
+        for candidate in candidates {
+            if candidate.is_file() {
+                return Some(project.to_relative(candidate));
+            }
+        }
         return None;
     }
+
+    let module_path = module.replace('.', "/");
 
     // 1. Relative to source file's directory
     let local_candidates = [
@@ -169,23 +197,59 @@ pub(super) fn js_resolution_candidates(base: &Path) -> Vec<PathBuf> {
     candidates
 }
 
-/// Go: import paths are module-relative (e.g. "github.com/user/repo/pkg").
-/// We try to locate a directory named after the last path component under the project root.
+/// Go: resolve import path by stripping go.mod module prefix, then searching project dirs.
 fn resolve_go_module(project: &ProjectRoot, module: &str) -> Option<String> {
-    let last = module.split('/').last().unwrap_or(module);
-    let dir_candidate = project.as_path().join(last);
-    if dir_candidate.is_dir() {
-        if let Ok(mut rd) = std::fs::read_dir(&dir_candidate) {
-            while let Some(Ok(entry)) = rd.next() {
-                if entry.path().extension().and_then(|e| e.to_str()) == Some("go") {
-                    return Some(project.to_relative(entry.path()));
+    // Skip stdlib (no dots in first segment = stdlib)
+    if !module.contains('.') {
+        return None;
+    }
+
+    let root = project.as_path();
+
+    // Try to read go.mod module path and strip it
+    let module_prefix = std::fs::read_to_string(root.join("go.mod"))
+        .ok()
+        .and_then(|content| {
+            content
+                .lines()
+                .find(|l| l.starts_with("module "))
+                .map(|l| l.trim_start_matches("module ").trim().to_string())
+        });
+
+    // If import starts with module prefix, strip it to get relative path
+    let relative = if let Some(ref prefix) = module_prefix {
+        module
+            .strip_prefix(prefix)
+            .map(|s| s.trim_start_matches('/'))
+    } else {
+        None
+    };
+
+    // Search candidates: stripped path first, then last segment fallback
+    let candidates: Vec<&str> = if let Some(rel) = relative {
+        vec![rel]
+    } else {
+        // Fallback: try full path and last segment
+        let last = module.split('/').last().unwrap_or(module);
+        vec![module, last]
+    };
+
+    for candidate in candidates {
+        let dir = root.join(candidate);
+        if dir.is_dir() {
+            // Return first .go file in the directory
+            if let Ok(rd) = std::fs::read_dir(&dir) {
+                for entry in rd.flatten() {
+                    if entry.path().extension().and_then(|e| e.to_str()) == Some("go") {
+                        return Some(project.to_relative(entry.path()));
+                    }
                 }
             }
         }
-    }
-    let file_candidate = project.as_path().join(format!("{last}.go"));
-    if file_candidate.is_file() {
-        return Some(project.to_relative(file_candidate));
+        let file = root.join(format!("{candidate}.go"));
+        if file.is_file() {
+            return Some(project.to_relative(file));
+        }
     }
     None
 }
@@ -303,31 +367,30 @@ fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) 
 }
 
 /// Ruby: resolve require/require_relative paths to .rb files.
+/// Searches source dir, project root, lib/, and app/ (Rails convention).
 fn resolve_ruby_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
     let source_dir = source_file.parent().unwrap_or(project.as_path());
-    let base = if module.starts_with('.') {
-        source_dir.join(module)
-    } else {
-        project.as_path().join(module)
-    };
-    let with_ext = if base.extension().is_some() {
-        base.clone()
-    } else {
-        base.with_extension("rb")
-    };
-    if with_ext.is_file() {
-        return Some(project.to_relative(with_ext));
-    }
-    if base.is_file() {
-        return Some(project.to_relative(base));
-    }
-    None
-}
+    let root = project.as_path();
 
-/// C/C++: resolve #include "file.h" (relative includes) and <file.h> (system includes).
-fn resolve_c_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
-    let source_dir = source_file.parent().unwrap_or(project.as_path());
-    for base in [source_dir.join(module), project.as_path().join(module)] {
+    let search_dirs: Vec<PathBuf> = if module.starts_with('.') {
+        vec![source_dir.to_path_buf()]
+    } else {
+        vec![root.to_path_buf(), root.join("lib"), root.join("app")]
+    };
+
+    for base_dir in &search_dirs {
+        if !base_dir.is_dir() {
+            continue;
+        }
+        let base = base_dir.join(module);
+        let with_ext = if base.extension().is_some() {
+            base.clone()
+        } else {
+            base.with_extension("rb")
+        };
+        if with_ext.is_file() {
+            return Some(project.to_relative(with_ext));
+        }
         if base.is_file() {
             return Some(project.to_relative(base));
         }
@@ -335,12 +398,42 @@ fn resolve_c_module(project: &ProjectRoot, source_file: &Path, module: &str) -> 
     None
 }
 
+/// C/C++: resolve #include "file.h" and <file.h>.
+/// Searches source dir, project root, include/, inc/, and src/.
+fn resolve_c_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
+    let source_dir = source_file.parent().unwrap_or(project.as_path());
+    let root = project.as_path();
+    let search_dirs = [
+        source_dir.to_path_buf(),
+        root.to_path_buf(),
+        root.join("include"),
+        root.join("inc"),
+        root.join("src"),
+    ];
+    for base_dir in &search_dirs {
+        let candidate = base_dir.join(module);
+        if candidate.is_file() {
+            return Some(project.to_relative(candidate));
+        }
+    }
+    None
+}
+
 /// PHP: use Namespace\Class -> Namespace/Class.php; require/include "file"
+/// Searches source dir, project root, src/, app/, and lib/.
 fn resolve_php_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
     let by_namespace = module.replace('\\', "/");
     let source_dir = source_file.parent().unwrap_or(project.as_path());
+    let root = project.as_path();
 
-    for base_dir in [source_dir, project.as_path()] {
+    let search_dirs = [
+        source_dir.to_path_buf(),
+        root.to_path_buf(),
+        root.join("src"),
+        root.join("app"),
+        root.join("lib"),
+    ];
+    for base_dir in &search_dirs {
         let with_php = if by_namespace.ends_with(".php") {
             base_dir.join(&by_namespace)
         } else {
