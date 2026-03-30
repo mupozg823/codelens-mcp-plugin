@@ -149,6 +149,30 @@ pub(crate) fn all_file_paths(conn: &Connection) -> Result<Vec<String>> {
     Ok(paths)
 }
 
+/// Return file paths that contain symbols of the given kinds (e.g. "class", "interface").
+pub(crate) fn files_with_symbol_kinds(conn: &Connection, kinds: &[&str]) -> Result<Vec<String>> {
+    if kinds.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders: String = kinds.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!(
+        "SELECT DISTINCT f.relative_path FROM files f \
+         JOIN symbols s ON s.file_id = f.id \
+         WHERE s.kind IN ({placeholders})"
+    );
+    let mut stmt = conn.prepare_cached(&sql)?;
+    let params: Vec<&dyn rusqlite::types::ToSql> = kinds
+        .iter()
+        .map(|k| k as &dyn rusqlite::types::ToSql)
+        .collect();
+    let rows = stmt.query_map(params.as_slice(), |row| row.get(0))?;
+    let mut paths = Vec::new();
+    for row in rows {
+        paths.push(row?);
+    }
+    Ok(paths)
+}
+
 /// Bulk insert symbols for a file. Returns the inserted symbol ids.
 pub(crate) fn insert_symbols(
     conn: &Connection,
@@ -309,6 +333,11 @@ impl IndexDb {
     /// Return all indexed file paths.
     pub fn all_file_paths(&self) -> Result<Vec<String>> {
         all_file_paths(&self.conn)
+    }
+
+    /// Return file paths containing symbols of given kinds.
+    pub fn files_with_symbol_kinds(&self, kinds: &[&str]) -> Result<Vec<String>> {
+        files_with_symbol_kinds(&self.conn, kinds)
     }
 
     pub fn dir_stats(&self) -> Result<Vec<DirStats>> {

@@ -2,6 +2,7 @@
 //!
 //! Replaces JetBrains PSI `getTypeHierarchy` with direct AST node traversal.
 
+use crate::db::{index_db_path, IndexDb};
 use crate::project::is_excluded;
 use crate::project::ProjectRoot;
 use crate::symbols::language_for_path;
@@ -83,38 +84,73 @@ pub fn get_type_hierarchy_native(
 fn build_type_map(project: &ProjectRoot) -> Result<HashMap<String, TypeNode>> {
     let mut map = HashMap::new();
 
-    for entry in WalkDir::new(project.as_path())
-        .into_iter()
-        .filter_entry(|e| !is_excluded(e.path()))
-    {
-        let entry = entry?;
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let Some(config) = language_for_path(entry.path()) else {
-            continue;
-        };
-        let source = match fs::read_to_string(entry.path()) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        let rel = project.to_relative(entry.path());
+    // Try DB-accelerated path: only parse files that contain type declarations
+    let db_path = index_db_path(project.as_path());
+    let type_file_paths = IndexDb::open(&db_path).ok().and_then(|db| {
+        db.files_with_symbol_kinds(&["class", "interface", "enum", "module"])
+            .ok()
+            .filter(|paths| !paths.is_empty()) // empty DB → fallback to walk
+    });
 
-        let mut parser = Parser::new();
-        if parser.set_language(&config.language).is_err() {
-            continue;
+    if let Some(rel_paths) = type_file_paths {
+        // Fast path: only parse files known to have type declarations
+        for rel_path in &rel_paths {
+            let abs_path = project.as_path().join(rel_path);
+            let Some(config) = language_for_path(&abs_path) else {
+                continue;
+            };
+            let source = match fs::read_to_string(&abs_path) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let mut parser = Parser::new();
+            if parser.set_language(&config.language).is_err() {
+                continue;
+            }
+            let Some(tree) = parser.parse(&source, None) else {
+                continue;
+            };
+            extract_types_from_node(
+                tree.root_node(),
+                source.as_bytes(),
+                rel_path,
+                config.extension,
+                &mut map,
+            );
         }
-        let Some(tree) = parser.parse(&source, None) else {
-            continue;
-        };
-
-        extract_types_from_node(
-            tree.root_node(),
-            source.as_bytes(),
-            &rel,
-            config.extension,
-            &mut map,
-        );
+    } else {
+        // Fallback: full walk (no index available)
+        for entry in WalkDir::new(project.as_path())
+            .into_iter()
+            .filter_entry(|e| !is_excluded(e.path()))
+        {
+            let entry = entry?;
+            if !entry.file_type().is_file() {
+                continue;
+            }
+            let Some(config) = language_for_path(entry.path()) else {
+                continue;
+            };
+            let source = match fs::read_to_string(entry.path()) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            let rel = project.to_relative(entry.path());
+            let mut parser = Parser::new();
+            if parser.set_language(&config.language).is_err() {
+                continue;
+            }
+            let Some(tree) = parser.parse(&source, None) else {
+                continue;
+            };
+            extract_types_from_node(
+                tree.root_node(),
+                source.as_bytes(),
+                &rel,
+                config.extension,
+                &mut map,
+            );
+        }
     }
 
     Ok(map)
