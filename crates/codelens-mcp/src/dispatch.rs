@@ -36,7 +36,11 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
     let project = state.project();
     let engine = state
         .embedding
-        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+        .get_or_init(|| {
+            EmbeddingEngine::new(&project)
+                .map_err(|e| tracing::error!("EmbeddingEngine init failed: {e}"))
+                .ok()
+        })
         .as_ref()
         .ok_or_else(|| {
             anyhow::anyhow!("Embedding engine not available. Build with --features semantic")
@@ -61,7 +65,11 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
     let project = state.project();
     let engine = state
         .embedding
-        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+        .get_or_init(|| {
+            EmbeddingEngine::new(&project)
+                .map_err(|e| tracing::error!("EmbeddingEngine init failed: {e}"))
+                .ok()
+        })
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 

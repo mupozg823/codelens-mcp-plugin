@@ -259,6 +259,12 @@ fn parse_model_from_env() -> EmbeddingModel {
         Some("BGEBaseENV15Q") => EmbeddingModel::BGEBaseENV15Q,
         Some("BGELargeENV15Q") => EmbeddingModel::BGELargeENV15Q,
         Some("EmbeddingGemma300M") => EmbeddingModel::EmbeddingGemma300M,
+        // Snowflake Arctic Embed — small quantized (33M, same size as BGE-Small)
+        Some("SnowflakeArcticEmbedSQ") => EmbeddingModel::SnowflakeArcticEmbedSQ,
+        Some("SnowflakeArcticEmbedMQ") => EmbeddingModel::SnowflakeArcticEmbedMQ,
+        Some("SnowflakeArcticEmbedXSQ") => EmbeddingModel::SnowflakeArcticEmbedXSQ,
+        // ModernBERT (2025, Nomic AI, 149M)
+        Some("ModernBertEmbedLarge") => EmbeddingModel::ModernBertEmbedLarge,
         Some("BGESmallENV15Q") | None => DEFAULT_MODEL,
         Some(other) => {
             tracing::warn!(model = other, "unknown CODELENS_EMBED_MODEL, using default");
