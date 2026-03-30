@@ -183,6 +183,92 @@ static EXTENSIONS: &[ExtEntry] = &[
         supports_imports: true,
         canonical: "dart",
     },
+    // --- Phase 6a: new languages ---
+    ExtEntry {
+        ext: "lua",
+        language_id: "lua",
+        supports_imports: false,
+        canonical: "lua",
+    },
+    ExtEntry {
+        ext: "zig",
+        language_id: "zig",
+        supports_imports: false,
+        canonical: "zig",
+    },
+    ExtEntry {
+        ext: "ex",
+        language_id: "elixir",
+        supports_imports: false,
+        canonical: "ex",
+    },
+    ExtEntry {
+        ext: "exs",
+        language_id: "elixir",
+        supports_imports: false,
+        canonical: "ex",
+    },
+    ExtEntry {
+        ext: "hs",
+        language_id: "haskell",
+        supports_imports: false,
+        canonical: "hs",
+    },
+    ExtEntry {
+        ext: "ml",
+        language_id: "ocaml",
+        supports_imports: false,
+        canonical: "ml",
+    },
+    ExtEntry {
+        ext: "mli",
+        language_id: "ocaml",
+        supports_imports: false,
+        canonical: "ml",
+    },
+    ExtEntry {
+        ext: "erl",
+        language_id: "erlang",
+        supports_imports: false,
+        canonical: "erl",
+    },
+    ExtEntry {
+        ext: "hrl",
+        language_id: "erlang",
+        supports_imports: false,
+        canonical: "erl",
+    },
+    ExtEntry {
+        ext: "r",
+        language_id: "r",
+        supports_imports: false,
+        canonical: "r",
+    },
+    ExtEntry {
+        ext: "R",
+        language_id: "r",
+        supports_imports: false,
+        canonical: "r",
+    },
+    ExtEntry {
+        ext: "sh",
+        language_id: "shellscript",
+        supports_imports: false,
+        canonical: "sh",
+    },
+    ExtEntry {
+        ext: "bash",
+        language_id: "shellscript",
+        supports_imports: false,
+        canonical: "sh",
+    },
+    ExtEntry {
+        ext: "jl",
+        language_id: "julia",
+        supports_imports: false,
+        canonical: "jl",
+    },
+    // Perl deferred until tree-sitter 0.26 upgrade
 ];
 
 /// Look up an extension entry by lowercase extension string.

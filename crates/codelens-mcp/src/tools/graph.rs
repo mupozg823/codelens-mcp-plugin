@@ -22,24 +22,6 @@ pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -
     ))
 }
 
-pub fn get_blast_radius_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let file_path = required_string(arguments, "file_path")?;
-    let max_depth = arguments
-        .get("max_depth")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(3) as usize;
-    Ok(
-        get_blast_radius(&state.project, file_path, max_depth, &state.graph_cache).map(
-            |value| {
-                (
-                    json!({ "file": file_path, "affected_files": value, "count": value.len() }),
-                    success_meta(BackendKind::Hybrid, 0.86),
-                )
-            },
-        )?,
-    )
-}
-
 pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     let max_depth = arguments

@@ -1,6 +1,7 @@
 #[cfg(feature = "semantic")]
 use codelens_core::EmbeddingEngine;
 use codelens_core::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use crate::telemetry::ToolMetricsRegistry;
@@ -25,8 +26,16 @@ pub(crate) struct AppState {
     pub(crate) watcher: Option<FileWatcher>,
     #[cfg(feature = "semantic")]
     pub(crate) embedding: std::sync::OnceLock<Option<EmbeddingEngine>>,
+    /// Secondary (read-only) project indexes for cross-project queries.
+    pub(crate) secondary_projects: Mutex<HashMap<String, SecondaryProject>>,
     #[cfg(feature = "http")]
     pub(crate) session_store: Option<crate::server::session::SessionStore>,
+}
+
+/// A read-only project registered for cross-project queries.
+pub(crate) struct SecondaryProject {
+    pub project: ProjectRoot,
+    pub index: Arc<SymbolIndex>,
 }
 
 impl AppState {
@@ -107,11 +116,74 @@ impl AppState {
             metrics: ToolMetricsRegistry::new(),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
             watcher,
+            secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::OnceLock::new(),
             #[cfg(feature = "http")]
             session_store: None,
         }
+    }
+
+    /// Register a secondary project for cross-project queries.
+    pub(crate) fn add_secondary_project(&self, path: &str) -> anyhow::Result<String> {
+        let project = ProjectRoot::new(path)?;
+        let name = project
+            .as_path()
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| path.to_string());
+        let index = Arc::new(SymbolIndex::new(project.clone()));
+        // Ensure it's indexed
+        index.refresh_all()?;
+        let mut map = self
+            .secondary_projects
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        map.insert(name.clone(), SecondaryProject { project, index });
+        Ok(name)
+    }
+
+    /// Remove a secondary project.
+    pub(crate) fn remove_secondary_project(&self, name: &str) -> bool {
+        let mut map = self
+            .secondary_projects
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        map.remove(name).is_some()
+    }
+
+    /// Get a snapshot of secondary project names and paths.
+    pub(crate) fn list_secondary_projects(&self) -> Vec<(String, String)> {
+        let map = self
+            .secondary_projects
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        map.iter()
+            .map(|(name, sp)| {
+                (
+                    name.clone(),
+                    sp.project.as_path().to_string_lossy().to_string(),
+                )
+            })
+            .collect()
+    }
+
+    /// Query symbols in a secondary project by name.
+    pub(crate) fn query_secondary_project(
+        &self,
+        project_name: &str,
+        symbol_name: &str,
+        max_results: usize,
+    ) -> anyhow::Result<Vec<codelens_core::SymbolInfo>> {
+        let map = self
+            .secondary_projects
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        let sp = map
+            .get(project_name)
+            .ok_or_else(|| anyhow::anyhow!("project '{}' not registered", project_name))?;
+        sp.index
+            .find_symbol(symbol_name, None, false, false, max_results)
     }
 
     /// Initialize the session store for HTTP mode.

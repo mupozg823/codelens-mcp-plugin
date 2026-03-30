@@ -33,7 +33,52 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
                 .get(mcp_get_handler)
                 .delete(mcp_delete_handler),
         )
+        .route("/.well-known/mcp.json", routing::get(server_card_handler))
         .with_state(state)
+}
+
+/// MCP Server Card — static metadata for agent discovery without a live session.
+async fn server_card_handler(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let preset = *state.preset();
+    let tool_count = crate::tool_defs::tools()
+        .iter()
+        .filter(|t| crate::tool_defs::is_tool_in_preset(t.name, preset))
+        .count();
+
+    let card = serde_json::json!({
+        "name": "codelens-mcp",
+        "version": env!("CARGO_PKG_VERSION"),
+        "description": "Pure Rust MCP server for code intelligence — 25 languages, tree-sitter-first",
+        "transport": ["stdio", "streamable-http"],
+        "capabilities": {
+            "tools": true,
+            "resources": false,
+            "prompts": true,
+            "sampling": false
+        },
+        "tool_count": tool_count,
+        "preset": format!("{preset:?}"),
+        "languages": 25,
+        "features": [
+            "tree-sitter-symbol-parsing",
+            "fts5-search",
+            "import-graph-analysis",
+            "semantic-search",
+            "lsp-integration",
+            "file-watcher",
+            "tool-annotations",
+            "output-schemas",
+            "token-budget-control"
+        ]
+    });
+
+    (
+        StatusCode::OK,
+        [("content-type", "application/json")],
+        serde_json::to_string_pretty(&card).unwrap_or_default(),
+    )
 }
 
 /// Start the HTTP server with Streamable HTTP transport.

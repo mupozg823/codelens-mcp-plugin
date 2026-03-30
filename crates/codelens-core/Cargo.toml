@@ -38,6 +38,16 @@ tree-sitter-scala.workspace = true
 tree-sitter-ruby.workspace = true
 tree-sitter-c-sharp.workspace = true
 tree-sitter-dart.workspace = true
+tree-sitter-lua.workspace = true
+tree-sitter-zig.workspace = true
+tree-sitter-elixir.workspace = true
+tree-sitter-haskell.workspace = true
+tree-sitter-ocaml.workspace = true
+tree-sitter-erlang.workspace = true
+tree-sitter-r.workspace = true
+tree-sitter-bash.workspace = true
+tree-sitter-julia.workspace = true
+# tree-sitter-perl deferred until tree-sitter 0.26 upgrade
 notify.workspace = true
 notify-debouncer-mini.workspace = true
 url.workspace = true

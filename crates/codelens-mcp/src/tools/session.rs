@@ -56,58 +56,6 @@ pub fn activate_project(state: &AppState, _arguments: &serde_json::Value) -> Too
     ))
 }
 
-pub fn check_onboarding_performed(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let required = [
-        "project_overview",
-        "style_and_conventions",
-        "suggested_commands",
-        "task_completion",
-    ];
-    let present = list_memory_names(&state.memories_dir, None);
-    let missing: Vec<_> = required
-        .iter()
-        .filter(|r| !present.contains(&r.to_string()))
-        .copied()
-        .collect();
-    Ok((
-        json!({
-            "onboarding_performed": missing.is_empty(),
-            "required_memories": required,
-            "present_memories": present,
-            "missing_memories": missing,
-            "serena_memories_dir": state.memories_dir.to_string_lossy(),
-            "backend_id": "rust-core"
-        }),
-        success_meta(BackendKind::Session, 1.0),
-    ))
-}
-
-pub fn initial_instructions(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let project_name = state
-        .project
-        .as_path()
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    let memories = list_memory_names(&state.memories_dir, None);
-    Ok((
-        json!({
-            "project_name": project_name,
-            "project_base_path": state.project.as_path().to_string_lossy(),
-            "compatible_context": "standalone",
-            "backend_id": "rust-core",
-            "known_memories": memories,
-            "recommended_tools": [
-                "activate_project","get_current_config","check_onboarding_performed",
-                "list_memories","read_memory","write_memory",
-                "get_symbols_overview","find_symbol","find_referencing_symbols",
-                "search_for_pattern","get_type_hierarchy"
-            ]
-        }),
-        success_meta(BackendKind::Session, 1.0),
-    ))
-}
-
 pub fn onboarding(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let force = arguments
         .get("force")
@@ -210,12 +158,69 @@ pub fn list_queryable_projects(state: &AppState, _arguments: &serde_json::Value)
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     let has_memories = state.memories_dir.is_dir();
+
+    let mut projects = vec![json!({
+        "name": project_name,
+        "path": state.project.as_path().to_string_lossy(),
+        "is_active": true,
+        "has_memories": has_memories
+    })];
+
+    for (name, path) in state.list_secondary_projects() {
+        projects.push(json!({
+            "name": name,
+            "path": path,
+            "is_active": false,
+            "has_memories": false
+        }));
+    }
+
+    let count = projects.len();
+    Ok((
+        json!({ "projects": projects, "count": count }),
+        success_meta(BackendKind::Session, 1.0),
+    ))
+}
+
+pub fn add_queryable_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let path = super::required_string(arguments, "path")?;
+    match state.add_secondary_project(path) {
+        Ok(name) => Ok((
+            json!({ "added": true, "name": name, "path": path }),
+            success_meta(BackendKind::Session, 1.0),
+        )),
+        Err(e) => Err(crate::error::CodeLensError::NotFound(e.to_string())),
+    }
+}
+
+pub fn remove_queryable_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let name = super::required_string(arguments, "name")?;
+    let removed = state.remove_secondary_project(name);
+    Ok((
+        json!({ "removed": removed, "name": name }),
+        success_meta(BackendKind::Session, 1.0),
+    ))
+}
+
+pub fn query_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let project_name = super::required_string(arguments, "project_name")?;
+    let symbol_name = super::required_string(arguments, "symbol_name")?;
+    let max_results = arguments
+        .get("max_results")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(20) as usize;
+
+    let symbols = state
+        .query_secondary_project(project_name, symbol_name, max_results)
+        .map_err(|e| crate::error::CodeLensError::NotFound(e.to_string()))?;
+
     Ok((
         json!({
-            "projects": [{"name": project_name, "path": state.project.as_path().to_string_lossy(), "is_active": true, "has_memories": has_memories}],
-            "count": 1
+            "project": project_name,
+            "symbols": symbols,
+            "count": symbols.len()
         }),
-        success_meta(BackendKind::Session, 1.0),
+        success_meta(BackendKind::TreeSitter, 0.90),
     ))
 }
 
@@ -232,21 +237,6 @@ pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> Too
             success_meta(BackendKind::Config, 1.0),
         )),
     }
-}
-
-pub fn think_noop(_state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    Ok((json!(""), success_meta(BackendKind::Noop, 1.0)))
-}
-
-pub fn switch_modes(_state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let mode = arguments
-        .get("mode")
-        .and_then(|v| v.as_str())
-        .unwrap_or("default");
-    Ok((
-        json!({"status":"ok","mode":mode,"note":"Mode switching is a no-op in standalone mode"}),
-        success_meta(BackendKind::Noop, 1.0),
-    ))
 }
 
 pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> ToolResult {

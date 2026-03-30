@@ -26,9 +26,9 @@ fn lists_tools() {
     )
     .expect("tools/list should return a response");
     #[cfg(feature = "semantic")]
-    assert_eq!(tools().len(), 56);
+    assert_eq!(tools().len(), 62);
     #[cfg(not(feature = "semantic"))]
-    assert_eq!(tools().len(), 54);
+    assert_eq!(tools().len(), 60);
     let encoded = serde_json::to_string(&response).expect("serialize");
     assert!(encoded.contains("get_symbols_overview"));
 }
@@ -179,7 +179,7 @@ fn returns_blast_radius_via_tool_call() {
     let state = make_state(&project);
     let payload = call_tool(
         &state,
-        "get_blast_radius",
+        "get_impact_analysis",
         json!({ "file_path": "pkg/core.py" }),
     );
     assert_eq!(payload["success"], json!(true));
@@ -724,6 +724,29 @@ fn project_root() -> ProjectRoot {
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("hello.txt"), "hello world\n").unwrap();
     ProjectRoot::new(dir.to_str().unwrap()).unwrap()
+}
+
+/// Verify every tool in tool_defs has a corresponding dispatch handler.
+/// Catches drift between definitions and implementations.
+#[test]
+fn tool_defs_and_dispatch_are_consistent() {
+    let dispatch = crate::tools::dispatch_table();
+    let defs = crate::tool_defs::tools();
+    // semantic tools are feature-gated, skip if not compiled in
+    let semantic_tools = &["semantic_search", "index_embeddings"];
+    let mut missing_handlers = Vec::new();
+    for tool in defs {
+        if semantic_tools.contains(&tool.name) {
+            continue;
+        }
+        if !dispatch.contains_key(tool.name) {
+            missing_handlers.push(tool.name);
+        }
+    }
+    assert!(
+        missing_handlers.is_empty(),
+        "Tools defined but missing dispatch handlers: {missing_handlers:?}"
+    );
 }
 
 fn run_git(project: &ProjectRoot, args: &[&str]) {

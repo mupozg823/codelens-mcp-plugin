@@ -27,6 +27,15 @@ fn lsp_install_hint(command: &str) -> &'static str {
         "metals" => "  cs install metals  (via Coursier)",
         "sourcekit-lsp" => "  Included with Xcode / Swift toolchain",
         "csharp-ls" => "  dotnet tool install -g csharp-ls",
+        "dart" => "  dart pub global activate dart_language_server",
+        // Phase 6a languages
+        "lua-language-server" => "  brew install lua-language-server",
+        "zls" => "  brew install zls",
+        "nextls" => "  mix escript.install hex next_ls",
+        "haskell-language-server-wrapper" => "  ghcup install hls",
+        "ocamllsp" => "  opam install ocaml-lsp-server",
+        "erlang_ls" => "  brew install erlang_ls",
+        "bash-language-server" => "  npm i -g bash-language-server",
         _ => "  Check your package manager for the LSP server binary",
     }
 }
@@ -48,6 +57,17 @@ fn enhance_lsp_error(err: anyhow::Error, command: &str) -> CodeLensError {
     }
 }
 
+/// tree-sitter-first strategy:
+///
+/// Default (symbol_name only):
+///   tree-sitter scope analysis → fast, zero-config, works on broken code
+///
+/// LSP path (use_lsp=true or line+column):
+///   LSP references → tree-sitter fallback on failure
+///
+/// Rationale: MCP tools serve AI agents that value speed and availability
+/// over IDE-grade type precision. LSP adds latency (cold start 2-30s),
+/// requires external server installation, and fails on incomplete code.
 pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?.to_owned();
     let symbol_name_param = arguments.get("symbol_name").and_then(|v| v.as_str());
@@ -55,8 +75,18 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
+    let use_lsp = arguments
+        .get("use_lsp")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
 
-    if let Some(sym_name) = symbol_name_param {
+    let has_position = arguments.get("line").is_some() && arguments.get("column").is_some();
+
+    // Default: tree-sitter scope analysis (fast, zero-config, works on broken code)
+    if !use_lsp && !has_position {
+        let sym_name = symbol_name_param.ok_or_else(|| {
+            CodeLensError::MissingParam("symbol_name (or line+column with use_lsp=true)".into())
+        })?;
         return Ok(find_referencing_symbols_via_text(
             &state.project,
             sym_name,
@@ -66,21 +96,28 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         .map(|value| {
             (
                 json!({ "references": value, "count": value.len() }),
-                meta_for_backend("text_search", 0.80),
+                meta_for_backend("tree_sitter", 0.85),
             )
         })?);
     }
 
-    let line = arguments
-        .get("line")
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| CodeLensError::MissingParam("line or symbol_name".into()))?
-        as usize;
-    let column = arguments
-        .get("column")
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| CodeLensError::MissingParam("column or symbol_name".into()))?
-        as usize;
+    // LSP path: explicit use_lsp=true or position-based lookup
+    let (line, column) = match (
+        arguments.get("line").and_then(|v| v.as_u64()),
+        arguments.get("column").and_then(|v| v.as_u64()),
+    ) {
+        (Some(l), Some(c)) => (l as usize, c as usize),
+        _ => {
+            if let Some(sym_name) = symbol_name_param {
+                resolve_symbol_position(state, sym_name, &file_path).unwrap_or((0, 0))
+            } else {
+                return Err(CodeLensError::MissingParam(
+                    "line+column or symbol_name".into(),
+                ));
+            }
+        }
+    };
+
     let command = arguments
         .get("command")
         .and_then(|v| v.as_str())
@@ -102,42 +139,45 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             .map_err(|e| enhance_lsp_error(e, &command));
 
         match lsp_result {
-            Ok(value) => Ok((
-                json!({ "references": value, "count": value.len() }),
-                meta_for_backend("lsp_pooled", 0.9),
-            )),
+            Ok(value) => {
+                return Ok((
+                    json!({ "references": value, "count": value.len() }),
+                    meta_for_backend("lsp", 0.95),
+                ));
+            }
             Err(_) => {
-                let word = extract_word_at_position(&state.project, &file_path, line, column)?;
-                Ok(find_referencing_symbols_via_text(
-                    &state.project,
-                    &word,
-                    Some(&file_path),
-                    max_results,
-                )
-                .map(|value| {
-                    (
-                        json!({ "references": value, "count": value.len() }),
-                        meta_degraded(
-                            "text_fallback",
-                            0.75,
-                            "LSP failed, fell back to text search",
-                        ),
-                    )
-                })?)
+                // LSP failed — fall through to tree-sitter
             }
         }
-    } else {
-        let word = extract_word_at_position(&state.project, &file_path, line, column)?;
-        Ok(
-            find_referencing_symbols_via_text(&state.project, &word, Some(&file_path), max_results)
-                .map(|value| {
-                    (
-                        json!({ "references": value, "count": value.len() }),
-                        meta_degraded("text_fallback", 0.75, "no LSP command available"),
-                    )
-                })?,
-        )
     }
+
+    // Fallback: tree-sitter text search
+    let word = symbol_name_param
+        .map(ToOwned::to_owned)
+        .or_else(|| extract_word_at_position(&state.project, &file_path, line, column).ok())
+        .ok_or_else(|| CodeLensError::MissingParam("could not determine symbol name".into()))?;
+    Ok(
+        find_referencing_symbols_via_text(&state.project, &word, Some(&file_path), max_results)
+            .map(|value| {
+                (
+                    json!({ "references": value, "count": value.len() }),
+                    meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"),
+                )
+            })?,
+    )
+}
+
+/// Resolve a symbol name to its (line, column) position in a file via the symbol index.
+fn resolve_symbol_position(
+    state: &AppState,
+    symbol_name: &str,
+    file_path: &str,
+) -> Option<(usize, usize)> {
+    let symbols = state
+        .symbol_index()
+        .find_symbol(symbol_name, Some(file_path), false, true, 1)
+        .ok()?;
+    symbols.first().map(|s| (s.line, s.column))
 }
 
 pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> ToolResult {

@@ -202,6 +202,31 @@ pub fn insert_after_symbol_tool(state: &AppState, arguments: &serde_json::Value)
     })?)
 }
 
+/// Unified insert tool — dispatches to line-based or symbol-based insertion.
+pub fn insert_content_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let position = arguments
+        .get("position")
+        .and_then(|v| v.as_str())
+        .unwrap_or("line");
+    match position {
+        "before_symbol" => insert_before_symbol_tool(state, arguments),
+        "after_symbol" => insert_after_symbol_tool(state, arguments),
+        _ => insert_at_line_tool(state, arguments), // "line" or default
+    }
+}
+
+/// Unified replace tool — dispatches to text-based or line-based replacement.
+pub fn replace_content_unified(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let mode = arguments
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("text");
+    match mode {
+        "lines" => replace_lines_tool(state, arguments),
+        _ => replace_content_tool(state, arguments), // "text" or default
+    }
+}
+
 pub fn analyze_missing_imports_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     Ok(analyze_missing_imports(&state.project, file_path)

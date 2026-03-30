@@ -18,117 +18,100 @@ pub type ToolResult = Result<(serde_json::Value, ToolResponseMeta), CodeLensErro
 /// Function pointer type for tool handlers.
 pub type ToolHandler = fn(&AppState, &serde_json::Value) -> ToolResult;
 
-/// Build the static dispatch table mapping tool names to handler functions.
-/// Includes backward-compat aliases (e.g., "get_diff_symbols" → get_changed_files_tool).
+/// Declarative tool registry macro — reduces boilerplate and prevents drift.
+/// Each entry is `"tool_name" => module::handler_fn`.
+macro_rules! tool_registry {
+    ($($name:expr => $handler:expr),* $(,)?) => {{
+        let entries: &[(&str, ToolHandler)] = &[
+            $(($name, $handler)),*
+        ];
+        let mut m: HashMap<&'static str, ToolHandler> = HashMap::with_capacity(entries.len());
+        for &(name, handler) in entries {
+            m.insert(name, handler);
+        }
+        m
+    }};
+}
+
+/// Build the dispatch table. Add new tools here — one line per tool.
 pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
-    let mut m: HashMap<&'static str, ToolHandler> = HashMap::with_capacity(70);
-
-    // Filesystem / search
-    m.insert("get_current_config", filesystem::get_current_config);
-    m.insert("read_file", filesystem::read_file_tool);
-    m.insert("list_dir", filesystem::list_dir_tool);
-    m.insert("find_file", filesystem::find_file_tool);
-    m.insert("search_for_pattern", filesystem::search_for_pattern_tool);
-    m.insert("find_annotations", filesystem::find_annotations);
-    m.insert("find_tests", filesystem::find_tests);
-
-    // Symbols / index
-    m.insert("get_symbols_overview", symbols::get_symbols_overview);
-    m.insert("find_symbol", symbols::find_symbol);
-    m.insert("get_ranked_context", symbols::get_ranked_context);
-    m.insert("refresh_symbol_index", symbols::refresh_symbol_index);
-    m.insert("get_complexity", symbols::get_complexity);
-    m.insert("search_symbols_fuzzy", symbols::search_symbols_fuzzy);
-    m.insert("get_project_structure", symbols::get_project_structure);
-
-    // LSP
-    m.insert("find_referencing_symbols", lsp::find_referencing_symbols);
-    m.insert("get_file_diagnostics", lsp::get_file_diagnostics);
-    m.insert("search_workspace_symbols", lsp::search_workspace_symbols);
-    m.insert("get_type_hierarchy", lsp::get_type_hierarchy);
-    m.insert("plan_symbol_rename", lsp::plan_symbol_rename);
-    m.insert("check_lsp_status", lsp::check_lsp_status);
-    m.insert("get_lsp_recipe", lsp::get_lsp_recipe);
-
-    // Graph / analysis
-    m.insert("get_changed_files", graph::get_changed_files_tool);
-    m.insert("get_diff_symbols", graph::get_changed_files_tool); // alias
-    m.insert("get_blast_radius", graph::get_blast_radius_tool);
-    m.insert("get_impact_analysis", graph::get_impact_analysis);
-    m.insert("find_importers", graph::find_importers_tool);
-    m.insert("get_symbol_importance", graph::get_symbol_importance);
-    m.insert("find_dead_code", graph::find_dead_code_v2_tool);
-    m.insert("find_dead_code_v2", graph::find_dead_code_v2_tool); // alias
-    m.insert(
-        "find_referencing_code_snippets",
-        graph::find_referencing_code_snippets,
-    );
-    m.insert("find_scoped_references", graph::find_scoped_references_tool);
-    m.insert("get_callers", graph::get_callers_tool);
-    m.insert("get_callees", graph::get_callees_tool);
-    m.insert(
-        "find_circular_dependencies",
-        graph::find_circular_dependencies_tool,
-    );
-    m.insert("get_change_coupling", graph::get_change_coupling_tool);
-
-    // Mutation / editing
-    m.insert("rename_symbol", mutation::rename_symbol);
-    m.insert("create_text_file", mutation::create_text_file_tool);
-    m.insert("delete_lines", mutation::delete_lines_tool);
-    m.insert("insert_at_line", mutation::insert_at_line_tool);
-    m.insert("replace_lines", mutation::replace_lines_tool);
-    m.insert("replace_content", mutation::replace_content_tool);
-    m.insert("replace_symbol_body", mutation::replace_symbol_body_tool);
-    m.insert("insert_before_symbol", mutation::insert_before_symbol_tool);
-    m.insert("insert_after_symbol", mutation::insert_after_symbol_tool);
-    m.insert(
-        "analyze_missing_imports",
-        mutation::analyze_missing_imports_tool,
-    );
-    m.insert("add_import", mutation::add_import_tool);
-
-    // Memory
-    m.insert("list_memories", memory::list_memories);
-    m.insert("read_memory", memory::read_memory);
-    m.insert("write_memory", memory::write_memory);
-    m.insert("delete_memory", memory::delete_memory);
-    m.insert("edit_memory", memory::edit_memory);
-    m.insert("rename_memory", memory::rename_memory);
-
-    // Session / config
-    m.insert("activate_project", session::activate_project);
-    m.insert(
-        "check_onboarding_performed",
-        session::check_onboarding_performed,
-    );
-    m.insert("initial_instructions", session::initial_instructions);
-    m.insert("onboarding", session::onboarding);
-    m.insert(
-        "prepare_for_new_conversation",
-        session::prepare_for_new_conversation,
-    );
-    m.insert("summarize_changes", session::summarize_changes);
-    m.insert("list_queryable_projects", session::list_queryable_projects);
-    m.insert("get_watch_status", session::get_watch_status);
-    m.insert("think_about_collected_information", session::think_noop);
-    m.insert("think_about_task_adherence", session::think_noop);
-    m.insert("think_about_whether_you_are_done", session::think_noop);
-    m.insert("switch_modes", session::switch_modes);
-    m.insert("set_preset", session::set_preset);
-    m.insert("get_capabilities", session::get_capabilities);
-    m.insert("get_tool_metrics", session::get_tool_metrics);
-
-    // Composite / agent
-    m.insert("summarize_file", composite::summarize_file);
-    m.insert("explain_code_flow", composite::explain_code_flow);
-    m.insert(
-        "refactor_extract_function",
-        composite::refactor_extract_function,
-    );
-    m.insert("onboard_project", composite::onboard_project);
-
-    m
+    tool_registry! {
+        // ── File I/O ──
+        "get_current_config"           => filesystem::get_current_config,
+        "read_file"                    => filesystem::read_file_tool,
+        "list_dir"                     => filesystem::list_dir_tool,
+        "find_file"                    => filesystem::find_file_tool,
+        "search_for_pattern"           => filesystem::search_for_pattern_tool,
+        "find_annotations"             => filesystem::find_annotations,
+        "find_tests"                   => filesystem::find_tests,
+        // ── Symbol ──
+        "get_symbols_overview"         => symbols::get_symbols_overview,
+        "find_symbol"                  => symbols::find_symbol,
+        "get_ranked_context"           => symbols::get_ranked_context,
+        "refresh_symbol_index"         => symbols::refresh_symbol_index,
+        "get_complexity"               => symbols::get_complexity,
+        "search_symbols_fuzzy"         => symbols::search_symbols_fuzzy,
+        "get_project_structure"        => symbols::get_project_structure,
+        // ── LSP ──
+        "find_referencing_symbols"     => lsp::find_referencing_symbols,
+        "get_file_diagnostics"         => lsp::get_file_diagnostics,
+        "search_workspace_symbols"     => lsp::search_workspace_symbols,
+        "get_type_hierarchy"           => lsp::get_type_hierarchy,
+        "plan_symbol_rename"           => lsp::plan_symbol_rename,
+        "check_lsp_status"             => lsp::check_lsp_status,
+        "get_lsp_recipe"               => lsp::get_lsp_recipe,
+        // ── Analysis ──
+        "get_changed_files"            => graph::get_changed_files_tool,
+        "get_impact_analysis"          => graph::get_impact_analysis,
+        "find_importers"               => graph::find_importers_tool,
+        "get_symbol_importance"        => graph::get_symbol_importance,
+        "find_dead_code"               => graph::find_dead_code_v2_tool,
+        "find_referencing_code_snippets" => graph::find_referencing_code_snippets,
+        "find_scoped_references"       => graph::find_scoped_references_tool,
+        "get_callers"                  => graph::get_callers_tool,
+        "get_callees"                  => graph::get_callees_tool,
+        "find_circular_dependencies"   => graph::find_circular_dependencies_tool,
+        "get_change_coupling"          => graph::get_change_coupling_tool,
+        // ── Edit (individual) ──
+        "rename_symbol"                => mutation::rename_symbol,
+        "create_text_file"             => mutation::create_text_file_tool,
+        "delete_lines"                 => mutation::delete_lines_tool,
+        "insert_at_line"               => mutation::insert_at_line_tool,
+        "replace_lines"                => mutation::replace_lines_tool,
+        "replace_content"              => mutation::replace_content_tool,
+        "replace_symbol_body"          => mutation::replace_symbol_body_tool,
+        "insert_before_symbol"         => mutation::insert_before_symbol_tool,
+        "insert_after_symbol"          => mutation::insert_after_symbol_tool,
+        "analyze_missing_imports"      => mutation::analyze_missing_imports_tool,
+        "add_import"                   => mutation::add_import_tool,
+        // ── Edit (unified — preferred in BALANCED/MINIMAL) ──
+        "insert_content"               => mutation::insert_content_tool,
+        "replace"                      => mutation::replace_content_unified,
+        // ── Memory ──
+        "list_memories"                => memory::list_memories,
+        "read_memory"                  => memory::read_memory,
+        "write_memory"                 => memory::write_memory,
+        "delete_memory"                => memory::delete_memory,
+        "rename_memory"                => memory::rename_memory,
+        // ── Session ──
+        "activate_project"             => session::activate_project,
+        "onboarding"                   => session::onboarding,
+        "prepare_for_new_conversation" => session::prepare_for_new_conversation,
+        "summarize_changes"            => session::summarize_changes,
+        "list_queryable_projects"      => session::list_queryable_projects,
+        "add_queryable_project"        => session::add_queryable_project,
+        "remove_queryable_project"     => session::remove_queryable_project,
+        "query_project"                => session::query_project,
+        "get_watch_status"             => session::get_watch_status,
+        "set_preset"                   => session::set_preset,
+        "get_capabilities"             => session::get_capabilities,
+        "get_tool_metrics"             => session::get_tool_metrics,
+        // ── Composite ──
+        "summarize_file"               => composite::summarize_file,
+        "explain_code_flow"            => composite::explain_code_flow,
+        "refactor_extract_function"    => composite::refactor_extract_function,
+        "onboard_project"              => composite::onboard_project,
+    }
 }
 
 /// Rough token count estimate: 1 token ≈ 4 bytes of UTF-8 text.
@@ -195,6 +178,16 @@ pub fn default_lsp_command_for_path(file_path: &str) -> Option<String> {
         "kt" | "kts" => Some("kotlin-language-server".to_owned()),
         "scala" | "sc" => Some("metals".to_owned()),
         "swift" => Some("sourcekit-lsp".to_owned()),
+        // Phase 6a languages
+        "lua" => Some("lua-language-server".to_owned()),
+        "zig" => Some("zls".to_owned()),
+        "ex" | "exs" => Some("nextls".to_owned()),
+        "hs" => Some("haskell-language-server-wrapper".to_owned()),
+        "ml" | "mli" => Some("ocamllsp".to_owned()),
+        "erl" | "hrl" => Some("erlang_ls".to_owned()),
+        "r" => Some("R".to_owned()),
+        "sh" | "bash" => Some("bash-language-server".to_owned()),
+        "jl" => Some("julia".to_owned()),
         _ => None,
     }
 }
@@ -207,6 +200,11 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
         "clangd" => vec!["--background-index".to_owned()],
         "solargraph" => vec!["stdio".to_owned()],
         "intelephense" => vec!["--stdio".to_owned()],
+        // Phase 6a languages
+        "nextls" => vec!["--stdio".to_owned()],
+        "haskell-language-server-wrapper" => vec!["--lsp".to_owned()],
+        "bash-language-server" => vec!["start".to_owned()],
+        "perlnavigator" => vec!["--stdio".to_owned()],
         _ => Vec::new(),
     }
 }
@@ -220,14 +218,16 @@ const MUTATION_TOOLS: &[&str] = &[
     "insert_at_line",
     "insert_before_symbol",
     "insert_after_symbol",
+    "insert_content",
+    "replace",
     "create_text_file",
     "add_import",
 ];
 
 const REVIEW_TOOLS: &[&str] = &[
     "get_changed_files",
-    "get_blast_radius",
     "get_impact_analysis",
+    "find_scoped_references",
 ];
 
 const EXPLORATION_TOOLS: &[&str] = &[
@@ -305,13 +305,12 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
 
         // ── Graph / analysis ─────────────────────────────────────────
         "get_changed_files" => &["get_impact_analysis", "get_symbols_overview"],
-        "get_blast_radius" => &["get_importers", "find_referencing_symbols"],
         "get_impact_analysis" => &["find_referencing_symbols", "get_symbols_overview"],
-        "get_importers" => &["get_blast_radius", "get_symbol_importance"],
-        "get_symbol_importance" => &["get_importers", "get_blast_radius"],
+        "get_importers" => &["get_impact_analysis", "get_symbol_importance"],
+        "get_symbol_importance" => &["get_importers", "get_impact_analysis"],
         "find_dead_code" => &["get_symbols_overview", "delete_lines"],
         "find_circular_dependencies" => &["get_impact_analysis", "get_symbols_overview"],
-        "get_change_coupling" => &["get_impact_analysis", "get_blast_radius"],
+        "get_change_coupling" => &["get_impact_analysis", "find_dead_code"],
         "get_callers" => &["get_callees", "find_symbol"],
         "get_callees" => &["get_callers", "find_symbol"],
         "find_scoped_references" => &["rename_symbol", "find_referencing_symbols"],
@@ -332,6 +331,8 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "insert_at_line" => &["get_file_diagnostics"],
         "insert_before_symbol" => &["get_file_diagnostics", "find_symbol"],
         "insert_after_symbol" => &["get_file_diagnostics", "find_symbol"],
+        "insert_content" => &["get_file_diagnostics", "find_symbol"],
+        "replace" => &["get_file_diagnostics", "get_symbols_overview"],
         "create_text_file" => &["get_symbols_overview"],
         "add_import" => &["get_file_diagnostics", "analyze_missing_imports"],
         "analyze_missing_imports" => &["add_import"],
@@ -349,6 +350,9 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         ],
         "onboard_project" => &["get_ranked_context", "find_symbol", "get_capabilities"],
         "get_watch_status" => &["refresh_symbol_index"],
+        "list_queryable_projects" => &["add_queryable_project", "query_project"],
+        "add_queryable_project" => &["query_project", "list_queryable_projects"],
+        "query_project" => &["find_symbol", "list_queryable_projects"],
         "set_preset" => &["get_capabilities"],
         "get_capabilities" => &[
             "get_project_structure",

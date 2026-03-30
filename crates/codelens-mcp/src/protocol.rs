@@ -34,6 +34,10 @@ pub struct Tool {
     pub description: &'static str,
     #[serde(rename = "inputSchema")]
     pub input_schema: Value,
+    /// MCP 2025-06 spec: structured output schema for tool results.
+    /// Enables downstream agents to understand return shapes without calling the tool.
+    #[serde(rename = "outputSchema", skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<ToolAnnotations>,
 }
@@ -120,6 +124,7 @@ pub enum BackendKind {
     Memory,
     Config,
     Session,
+    #[allow(dead_code)]
     Noop,
 }
 
@@ -206,12 +211,18 @@ impl Tool {
             name,
             description,
             input_schema,
+            output_schema: None,
             annotations: None,
         }
     }
 
     pub fn with_annotations(mut self, annotations: ToolAnnotations) -> Self {
         self.annotations = Some(annotations);
+        self
+    }
+
+    pub fn with_output_schema(mut self, schema: Value) -> Self {
+        self.output_schema = Some(schema);
         self
     }
 }

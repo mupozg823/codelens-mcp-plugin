@@ -14,8 +14,6 @@ pub struct ToolMetrics {
     pub error_count: u64,
     /// Last invocation timestamp (unix epoch milliseconds).
     pub last_called_at: u64,
-    /// Average latency in milliseconds (total_ms / call_count).
-    pub avg_ms: f64,
 }
 
 /// A single tool invocation in the session timeline.

@@ -54,20 +54,6 @@ pub fn delete_memory(state: &AppState, arguments: &serde_json::Value) -> ToolRes
     ))
 }
 
-pub fn edit_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let name = required_string(arguments, "memory_name")?;
-    let content = required_string(arguments, "content")?;
-    let path = resolve_memory_path(&state.memories_dir, name)?;
-    if !path.is_file() {
-        return Err(CodeLensError::NotFound(format!("Memory: {name}")));
-    }
-    std::fs::write(&path, content)?;
-    Ok((
-        json!({"status":"ok","memory_name": name}),
-        success_meta(BackendKind::Memory, 1.0),
-    ))
-}
-
 pub fn rename_memory(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let old_name = required_string(arguments, "old_name")?;
     let new_name = required_string(arguments, "new_name")?;
