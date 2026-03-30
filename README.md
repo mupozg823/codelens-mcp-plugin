@@ -152,7 +152,7 @@ Both are code intelligence MCP servers. Different trade-offs:
 | --------------------- | --------------------------------- | -------------------------------------- |
 | **Language**          | Rust                              | Python                                 |
 | **Core engine**       | tree-sitter (AST)                 | LSP (language servers)                 |
-| **Type resolution**   | No (AST-level only)               | Yes (full type-aware via LSP)          |
+| **Type resolution**   | Opt-in via LSP (`use_lsp=true`)   | Always-on (LSP is the core engine)     |
 | **Setup**             | Single binary, zero config        | Python + uv + per-language LSP servers |
 | **Cold start**        | 12ms                              | Seconds (LSP boot per language)        |
 | **Offline / air-gap** | Fully offline (ML model bundled)  | Partial (needs LSP binaries)           |
