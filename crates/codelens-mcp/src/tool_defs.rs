@@ -263,7 +263,7 @@ fn build_tools() -> Vec<Tool> {
     let mut_p = mutating.clone().with_tier(ToolTier::Primitive);
     let dest_a = destructive.clone().with_tier(ToolTier::Analysis);
     let mut_w = mutating.clone().with_tier(ToolTier::Workflow);
-    let mut tools = vec![
+    let tools = vec![
         // ── File I/O ────────────────────────────────────────────────────
         Tool::new("get_current_config", "[CodeLens:Session] Project config and index stats. Use to verify project is active.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
         Tool::new("read_file", "[CodeLens:File] Read file contents with optional line range.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"}},"required":["relative_path"]})).with_output_schema(file_content_output_schema()).with_annotations(ro_p.clone()),

@@ -114,7 +114,7 @@ fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> String {
 // ── Static dispatch table ──────────────────────────────────────────────
 
 static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> = LazyLock::new(|| {
-    let mut m = tools::dispatch_table();
+    let m = tools::dispatch_table();
     #[cfg(feature = "semantic")]
     {
         m.insert("semantic_search", |s, a| semantic_search_handler(s, a));
