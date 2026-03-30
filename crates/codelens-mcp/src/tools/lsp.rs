@@ -82,11 +82,32 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
 
     let has_position = arguments.get("line").is_some() && arguments.get("column").is_some();
 
-    // Default: tree-sitter scope analysis (fast, zero-config, works on broken code)
+    // Default: scope analysis (fast, zero-config, works on broken code)
     if !use_lsp && !has_position {
         let sym_name = symbol_name_param.ok_or_else(|| {
             CodeLensError::MissingParam("symbol_name (or line+column with use_lsp=true)".into())
         })?;
+
+        // JS/TS: use oxc_semantic for precise scope-aware reference resolution
+        let resolved = state.project().resolve(&file_path)?;
+        if codelens_core::oxc_analysis::is_js_ts(&resolved) {
+            if let Ok(source) = std::fs::read_to_string(&resolved) {
+                if let Ok(refs) = codelens_core::oxc_analysis::find_references_precise(
+                    &source, &file_path, sym_name,
+                ) {
+                    if !refs.is_empty() {
+                        let refs_limited: Vec<_> = refs.into_iter().take(max_results).collect();
+                        let count = refs_limited.len();
+                        return Ok((
+                            json!({ "references": refs_limited, "count": count, "backend": "oxc_semantic" }),
+                            meta_for_backend("oxc_semantic", 0.95),
+                        ));
+                    }
+                }
+            }
+            // oxc failed or empty — fall through to tree-sitter
+        }
+
         return Ok(find_referencing_symbols_via_text(
             &state.project(),
             sym_name,
