@@ -46,10 +46,12 @@ fn snapshot_find_symbol_exact() {
 fn snapshot_find_symbol_fuzzy() {
     let project = fixture_project();
     let results = find_symbol(&project, "user", None, false, false, 20).expect("find");
-    let summary: Vec<(&str, &str)> = results
+    let mut summary: Vec<(&str, &str)> = results
         .iter()
         .map(|s| (s.name.as_str(), s.file_path.as_str()))
         .collect();
+    // Sort for deterministic snapshot across platforms (file walk order varies)
+    summary.sort();
     insta::assert_json_snapshot!("find_symbol_fuzzy", summary);
 }
 

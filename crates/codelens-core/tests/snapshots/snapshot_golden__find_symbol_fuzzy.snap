@@ -1,15 +1,18 @@
 ---
 source: crates/codelens-core/tests/snapshot_golden.rs
-assertion_line: 53
 expression: summary
 ---
 [
   [
-    "UserService",
-    "src/service.py"
+    "User",
+    "src/models.ts"
   ],
   [
-    "get_user",
+    "UserRepository",
+    "src/models.ts"
+  ],
+  [
+    "UserService",
     "src/service.py"
   ],
   [
@@ -17,15 +20,11 @@ expression: summary
     "src/service.py"
   ],
   [
-    "User",
-    "src/models.ts"
+    "get_user",
+    "src/service.py"
   ],
   [
     "validateUser",
-    "src/models.ts"
-  ],
-  [
-    "UserRepository",
     "src/models.ts"
   ]
 ]
