@@ -9,6 +9,17 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 use tracing::{info_span, warn};
 
+// Thread-local request budget — avoids race condition when multiple
+// HTTP requests override the global token_budget concurrently.
+thread_local! {
+    static REQUEST_BUDGET: std::cell::Cell<usize> = const { std::cell::Cell::new(4000) };
+}
+
+/// Get the per-request token budget (set by dispatch_tool).
+pub(crate) fn request_token_budget() -> usize {
+    REQUEST_BUDGET.get()
+}
+
 // ── Semantic handlers (feature-gated) ──────────────────────────────────
 
 #[cfg(feature = "semantic")]
@@ -119,21 +130,19 @@ pub(crate) fn dispatch_tool(
         .cloned()
         .unwrap_or_else(|| json!({}));
 
-    // Request-scoped profile: temporarily override token budget if _profile is set
-    let profile_budget = arguments
+    // Request-scoped profile: set per-request budget via thread-local
+    // (avoids race condition when multiple HTTP requests run concurrently)
+    let request_budget = arguments
         .get("_profile")
         .and_then(|v| v.as_str())
         .map(|profile| match profile {
             "fast_local" => 2000usize,
             "deep_semantic" => 16000,
             "safe_mutation" => 4000,
-            _ => state.token_budget(), // "balanced" or unknown → use server default
-        });
-    let original_budget = profile_budget.map(|budget| {
-        let orig = state.token_budget();
-        state.set_token_budget(budget);
-        orig
-    });
+            _ => state.token_budget(),
+        })
+        .unwrap_or_else(|| state.token_budget());
+    REQUEST_BUDGET.set(request_budget);
 
     let span = info_span!("tool_call", tool = name);
     let _guard = span.enter();
@@ -144,11 +153,6 @@ pub(crate) fn dispatch_tool(
         Some(handler) => handler(state, &arguments),
         None => Err(CodeLensError::ToolNotFound(name.to_owned())),
     };
-
-    // Restore original budget if profile override was applied
-    if let Some(orig) = original_budget {
-        state.set_token_budget(orig);
-    }
 
     let elapsed_ms = start.elapsed().as_millis();
     if elapsed_ms > 5000 {
@@ -175,7 +179,8 @@ pub(crate) fn dispatch_tool(
                 true,
                 payload_estimate,
             );
-            resp.budget_hint = Some(budget_hint(name, payload_estimate, state.token_budget()));
+            let budget = request_token_budget();
+            resp.budget_hint = Some(budget_hint(name, payload_estimate, budget));
             resp.elapsed_ms = Some(elapsed_ms as u64);
             let mut text = serde_json::to_string(&resp).unwrap_or_else(|_| {
                 "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
@@ -183,14 +188,14 @@ pub(crate) fn dispatch_tool(
 
             // Global safety net: replace oversized responses with a valid JSON summary.
             // This prevents any single tool from blowing up the context window.
-            let max_chars = state.token_budget() * 8; // 2x budget in chars
+            let max_chars = budget * 8; // 2x budget in chars
             if text.len() > max_chars {
                 text = serde_json::to_string(&json!({
                     "success": true,
                     "truncated": true,
                     "error": format!(
                         "Response too large ({} tokens, budget {}). Narrow with path, max_tokens, or depth.",
-                        payload_estimate, state.token_budget()
+                        payload_estimate, budget
                     ),
                     "token_estimate": payload_estimate,
                 }))
