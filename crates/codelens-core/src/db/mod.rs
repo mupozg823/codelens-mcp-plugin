@@ -8,7 +8,7 @@ mod ops;
 #[cfg(test)]
 mod tests;
 
-const SCHEMA_VERSION: i64 = 4;
+const SCHEMA_VERSION: i64 = 5;
 
 /// SQLite-backed symbol and import index for a single project.
 pub struct IndexDb {
@@ -115,7 +115,7 @@ impl IndexDb {
         let conn = Connection::open(db_path)
             .with_context(|| format!("failed to open db at {}", db_path.display()))?;
         conn.execute_batch(
-            "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;",
+            "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -8000;",
         )?;
         let mut db = Self { conn };
         db.migrate()?;
@@ -217,6 +217,13 @@ impl IndexDb {
                 content=symbols, content_rowid=id,
                 tokenize='unicode61 remove_diacritics 2'
             );",
+        ),
+        (
+            5,
+            // Composite index: eliminates TEMP B-TREE sort for ranked_context / all_symbols_with_bytes
+            // Kind index: accelerates files_with_symbol_kinds (type_hierarchy, etc.)
+            "CREATE INDEX IF NOT EXISTS idx_symbols_file_byte ON symbols(file_id, start_byte);
+             CREATE INDEX IF NOT EXISTS idx_symbols_kind ON symbols(kind);",
         ),
     ];
 

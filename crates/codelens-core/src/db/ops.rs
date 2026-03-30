@@ -604,7 +604,7 @@ impl IndexDb {
              FROM symbols s
              JOIN files f ON s.file_id = f.id
              WHERE f.relative_path LIKE ?1
-             ORDER BY f.relative_path, s.start_byte",
+             ORDER BY s.file_id, s.start_byte",
         )?;
         let rows = stmt.query_map(params![pattern], |row| {
             Ok((
@@ -667,7 +667,7 @@ impl IndexDb {
             "SELECT s.name, s.kind, f.relative_path, s.line, s.signature, s.name_path,
                     s.start_byte, s.end_byte
              FROM symbols s JOIN files f ON s.file_id = f.id
-             ORDER BY f.relative_path, s.start_byte",
+             ORDER BY s.file_id, s.start_byte",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(SymbolWithFile {
@@ -698,7 +698,7 @@ impl IndexDb {
             "SELECT s.name, s.kind, f.relative_path, s.line, s.signature, s.name_path,
                     s.start_byte, s.end_byte
              FROM symbols s JOIN files f ON s.file_id = f.id
-             ORDER BY f.relative_path, s.start_byte",
+             ORDER BY s.file_id, s.start_byte",
         )?;
         let mut rows = stmt.query([])?;
         let mut count = 0usize;
@@ -729,7 +729,7 @@ impl IndexDb {
                     s.start_byte, s.end_byte
              FROM symbols s JOIN files f ON s.file_id = f.id
              WHERE f.relative_path IN ({})
-             ORDER BY f.relative_path, s.start_byte",
+             ORDER BY s.file_id, s.start_byte",
             placeholders.join(", ")
         );
         let mut stmt = self.conn.prepare(&sql)?;
