@@ -18,6 +18,8 @@ pub(super) static JS_REQUIRE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"require\(\s*["']([^"']+)["']\s*\)"#).unwrap());
 pub(super) static JS_DYNAMIC_IMPORT_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r#"import\(\s*["']([^"']+)["']\s*\)"#).unwrap());
+pub(super) static JS_REEXPORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)\bexport\s+[^;]*?\sfrom\s+["']([^"']+)["']"#).unwrap());
 
 // ── Go ────────────────────────────────────────────────────────────────────────
 pub(super) static GO_SINGLE_RE: LazyLock<Regex> =
@@ -154,6 +156,7 @@ pub(super) fn extract_js_imports(content: &str) -> Vec<String> {
         &*JS_IMPORT_SIDE_EFFECT_RE,
         &*JS_REQUIRE_RE,
         &*JS_DYNAMIC_IMPORT_RE,
+        &*JS_REEXPORT_RE,
     ] {
         for capture in regex.captures_iter(content) {
             let Some(module) = capture.get(1) else {
