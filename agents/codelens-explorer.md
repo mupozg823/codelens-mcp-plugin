@@ -31,6 +31,10 @@ disallowedTools:
     mcp__codelens__replace_symbol_body,
     mcp__codelens__insert_before_symbol,
     mcp__codelens__insert_after_symbol,
+    mcp__codelens__insert_at_line,
+    mcp__codelens__insert_content,
+    mcp__codelens__replace,
+    mcp__codelens__add_import,
   ]
 ---
 

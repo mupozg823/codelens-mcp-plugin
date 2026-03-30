@@ -8,7 +8,7 @@ tools:
     find_dead_code,
     find_circular_dependencies,
     get_change_coupling,
-    get_blast_radius,
+    get_impact_analysis,
   ]
 ---
 
@@ -22,7 +22,7 @@ Perform a comprehensive architecture health check on the codebase.
 2. **Dead code**: Call `find_dead_code` to find unreachable symbols and unused exports
 3. **Circular deps**: Call `find_circular_dependencies` to detect import cycles
 4. **Change coupling**: Call `get_change_coupling` to find files that always change together (hidden dependencies)
-5. **Hot spots**: For the top 5 most important files, call `get_blast_radius` to assess risk
+5. **Hot spots**: For the top 5 most important files, call `get_impact_analysis` to assess risk
 
 ## Usage
 
