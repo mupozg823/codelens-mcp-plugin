@@ -299,10 +299,14 @@ impl EmbeddingEngine {
         })
     }
 
+    /// Maximum symbols to embed. Prevents runaway memory/CPU on huge projects.
+    const MAX_EMBED_SYMBOLS: usize = 50_000;
+
     /// Index all symbols from the project's symbol database into the embedding index.
     ///
     /// Uses streaming batches: prepare text → embed → upsert → drop per batch,
     /// so only one batch worth of data is in memory at a time.
+    /// Caps at MAX_EMBED_SYMBOLS to prevent runaway on huge projects.
     pub fn index_from_project(&self, project: &ProjectRoot) -> Result<usize> {
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
@@ -316,6 +320,7 @@ impl EmbeddingEngine {
             .map_err(|_| anyhow::anyhow!("model lock"))?;
 
         let mut total_indexed = 0usize;
+        let mut total_seen = 0usize;
         let mut batch_texts: Vec<String> = Vec::with_capacity(EMBED_BATCH_SIZE);
         let mut batch_meta: Vec<crate::db::SymbolWithFile> = Vec::with_capacity(EMBED_BATCH_SIZE);
 
@@ -325,6 +330,11 @@ impl EmbeddingEngine {
 
         // Stream symbols from DB via callback — no Vec<SymbolWithFile> allocation
         symbol_db.for_each_symbol_with_bytes(|sym| {
+            total_seen += 1;
+            if total_seen > Self::MAX_EMBED_SYMBOLS {
+                return Ok(()); // skip remaining, will flush what we have
+            }
+
             // Cache file source per-file group
             if sym.file_path != current_file {
                 current_file = sym.file_path.clone();

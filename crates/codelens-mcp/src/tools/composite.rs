@@ -206,21 +206,29 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
     let cycles = find_circular_dependencies(&project, 10, &graph_cache).unwrap_or_default();
 
     // 4. Auto-index embeddings if semantic feature enabled and index empty
+    //    Skip for large projects (>2000 files) to avoid multi-minute blocking.
+    //    Users can call index_embeddings explicitly for large projects.
     #[cfg(feature = "semantic")]
     let semantic_status = {
-        let engine = state
-            .embedding
-            .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
-        match engine {
-            Some(engine) if !engine.is_indexed() => match engine.index_from_project(&project) {
-                Ok(count) => json!({"status": "indexed", "symbols": count}),
-                Err(e) => json!({"status": "failed", "error": e.to_string()}),
-            },
-            Some(engine) => {
-                let count = engine.is_indexed();
-                json!({"status": "ready", "already_indexed": count})
+        let total_files: usize = structure.iter().map(|d| d.files).sum();
+        const MAX_AUTO_EMBED_FILES: usize = 2000;
+        if total_files > MAX_AUTO_EMBED_FILES {
+            json!({"status": "skipped", "reason": format!("project too large ({total_files} files > {MAX_AUTO_EMBED_FILES}), call index_embeddings explicitly")})
+        } else {
+            let engine = state
+                .embedding
+                .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
+            match engine {
+                Some(engine) if !engine.is_indexed() => match engine.index_from_project(&project) {
+                    Ok(count) => json!({"status": "indexed", "symbols": count}),
+                    Err(e) => json!({"status": "failed", "error": e.to_string()}),
+                },
+                Some(engine) => {
+                    let count = engine.is_indexed();
+                    json!({"status": "ready", "already_indexed": count})
+                }
+                None => json!({"status": "unavailable"}),
             }
-            None => json!({"status": "unavailable"}),
         }
     };
     #[cfg(not(feature = "semantic"))]
