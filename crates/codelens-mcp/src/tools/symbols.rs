@@ -61,7 +61,7 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
     let exact_match = arguments
         .get("exact_match")
         .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+        .unwrap_or(false);
     let max_matches = arguments
         .get("max_matches")
         .and_then(|v| v.as_u64())

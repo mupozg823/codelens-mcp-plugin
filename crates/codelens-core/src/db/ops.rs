@@ -377,12 +377,14 @@ impl IndexDb {
                 "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num, s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id
                  FROM symbols s JOIN files f ON s.file_id = f.id
                  WHERE s.name LIKE '%' || ?1 || '%' AND f.relative_path = ?2
+                 ORDER BY LENGTH(s.name), s.name
                  LIMIT ?3",
                 true,
             ),
             (false, false) => (
                 "SELECT id, file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id
                  FROM symbols WHERE name LIKE '%' || ?1 || '%'
+                 ORDER BY LENGTH(name), name
                  LIMIT ?2",
                 false,
             ),
