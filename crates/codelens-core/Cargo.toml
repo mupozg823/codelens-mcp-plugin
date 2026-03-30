@@ -56,6 +56,10 @@ libc.workspace = true
 tracing.workspace = true
 fastembed = { workspace = true, optional = true }
 sqlite-vec = { workspace = true, optional = true }
+oxc_allocator.workspace = true
+oxc_parser.workspace = true
+oxc_semantic.workspace = true
+oxc_span.workspace = true
 
 [features]
 default = ["semantic"]

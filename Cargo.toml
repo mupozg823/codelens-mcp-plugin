@@ -60,6 +60,10 @@ tree-sitter-julia = "0.23"
 fastembed = "5"
 sqlite-vec = "0.1.8-alpha.1"
 criterion = { version = "0.5", features = ["html_reports"] }
+oxc_allocator = "0.123"
+oxc_parser = "0.123"
+oxc_semantic = "0.123"
+oxc_span = "0.123"
 insta = { version = "1", features = ["json", "redactions"] }
 notify = "7.0"
 notify-debouncer-mini = "0.5"
