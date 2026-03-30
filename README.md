@@ -144,18 +144,27 @@ CodeLens bundles a **code-trained MiniLM-L12 model** (fine-tuned on CodeSearchNe
 - **8.5ms** per query, **686 symbols/sec** indexing throughput
 - Powers: `semantic_search`, `get_ranked_context` hybrid ranking, `find_similar_code`, `find_code_duplicates`
 
-## vs Other Tools
+## vs Serena
 
-|               | CodeLens           | Serena                             | Copilot        | Sourcegraph          |
-| ------------- | ------------------ | ---------------------------------- | -------------- | -------------------- |
-| Runtime       | Single binary      | Python + LSP servers               | Cloud API      | Cloud + local agent  |
-| Setup         | Zero config        | Python + uv + per-language servers | GitHub account | Self-hosted or cloud |
-| Start time    | 12ms               | Seconds (LSP boot)                 | N/A            | N/A                  |
-| Offline       | Yes                | Partial                            | No             | No                   |
-| ML bundled    | Yes (34MB ONNX)    | No                                 | Cloud only     | Cloud only           |
-| Refactoring   | 4 operations       | 1 (replace body)                   | No             | No                   |
-| Languages     | 25                 | 40+ (via LSP)                      | Many (cloud)   | Many (SCIP)          |
-| Token control | 3 presets + budget | No                                 | No             | No                   |
+Both are code intelligence MCP servers. Different trade-offs:
+
+|                       | CodeLens                          | Serena                                 |
+| --------------------- | --------------------------------- | -------------------------------------- |
+| **Language**          | Rust                              | Python                                 |
+| **Core engine**       | tree-sitter (AST)                 | LSP (language servers)                 |
+| **Type resolution**   | No (AST-level only)               | Yes (full type-aware via LSP)          |
+| **Setup**             | Single binary, zero config        | Python + uv + per-language LSP servers |
+| **Cold start**        | 12ms                              | Seconds (LSP boot per language)        |
+| **Offline / air-gap** | Fully offline (ML model bundled)  | Partial (needs LSP binaries)           |
+| **ML / semantic**     | Bundled ONNX model (34MB)         | None                                   |
+| **Refactoring**       | 4 operations (inline, move, etc.) | 1 (replace symbol body)                |
+| **Languages**         | 25 (tree-sitter grammars)         | 40+ (via LSP ecosystem)                |
+| **Token budget**      | 3 presets + per-call budget       | No                                     |
+| **Stars**             | New project                       | 22K+                                   |
+
+**When to choose CodeLens:** Fast setup, offline environments, token-efficient agent workflows, refactoring operations.
+
+**When to choose Serena:** Deep type-aware analysis, languages not covered by tree-sitter, existing LSP infrastructure.
 
 ## Building
 
