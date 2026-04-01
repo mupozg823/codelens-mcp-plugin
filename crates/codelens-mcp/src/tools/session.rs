@@ -435,6 +435,8 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
                 "analysis_queue_max_depth": session.analysis_queue_max_depth,
                 "active_analysis_workers": session.active_analysis_workers,
                 "peak_active_analysis_workers": session.peak_active_analysis_workers,
+                "analysis_worker_limit": session.analysis_worker_limit,
+                "analysis_transport_mode": session.analysis_transport_mode.clone(),
                 "avg_ms_per_call": if session.total_calls > 0 {
                     session.total_ms / session.total_calls
                 } else { 0 },

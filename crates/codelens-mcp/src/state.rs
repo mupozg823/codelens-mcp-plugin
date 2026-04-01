@@ -9,28 +9,53 @@ use std::sync::{Arc, Condvar, Mutex, OnceLock};
 
 use crate::error::CodeLensError;
 use crate::telemetry::ToolMetricsRegistry;
-use crate::tool_defs::{ToolPreset, ToolSurface};
+use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface};
 use serde_json::Value;
 use std::collections::VecDeque;
 
 const MAX_ANALYSIS_ARTIFACTS: usize = 64;
 const MAX_ANALYSIS_JOBS: usize = 128;
 const MAX_PENDING_ANALYSIS_REQUESTS: usize = 32;
-const ANALYSIS_WORKER_COUNT: usize = 1;
+const STDIO_ANALYSIS_WORKER_COUNT: usize = 1;
+const HTTP_ANALYSIS_WORKER_COUNT: usize = 2;
 const ANALYSIS_TTL_MS: u64 = 24 * 60 * 60 * 1000;
 
 struct AnalysisJobRequest {
     job_id: String,
     kind: String,
     arguments: Value,
+    profile_hint: Option<String>,
 }
 
 struct AnalysisQueueState {
     pending: VecDeque<AnalysisJobRequest>,
+    active_jobs: usize,
 }
 
 struct AnalysisWorkerQueue {
     inner: Arc<(Mutex<AnalysisQueueState>, Condvar)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeTransportMode {
+    Stdio,
+    Http,
+}
+
+impl RuntimeTransportMode {
+    fn from_str(value: &str) -> Self {
+        match value {
+            "http" => Self::Http,
+            _ => Self::Stdio,
+        }
+    }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Stdio => "stdio",
+            Self::Http => "http",
+        }
+    }
 }
 
 impl AnalysisWorkerQueue {
@@ -38,22 +63,36 @@ impl AnalysisWorkerQueue {
         let inner = Arc::new((
             Mutex::new(AnalysisQueueState {
                 pending: VecDeque::new(),
+                active_jobs: 0,
             }),
             Condvar::new(),
         ));
-        for _ in 0..ANALYSIS_WORKER_COUNT {
+        let worker_limit = state.analysis_worker_limit();
+        state
+            .metrics()
+            .record_analysis_worker_pool(worker_limit, state.transport_mode().as_str());
+        for _ in 0..worker_limit {
             let inner_clone = Arc::clone(&inner);
             let worker_state = state.clone_for_worker();
             std::thread::spawn(move || loop {
                 let request = {
                     let (lock, condvar) = &*inner_clone;
                     let mut guard = lock.lock().unwrap_or_else(|p| p.into_inner());
-                    while guard.pending.is_empty() {
+                    loop {
+                        let Some(next_request) = guard.pending.front() else {
+                            guard = condvar.wait(guard).unwrap_or_else(|p| p.into_inner());
+                            continue;
+                        };
+                        let allowed_parallelism = worker_state
+                            .analysis_parallelism_for_profile(next_request.profile_hint.as_deref());
+                        if guard.active_jobs < allowed_parallelism {
+                            let request = guard.pending.pop_front();
+                            guard.active_jobs += 1;
+                            let remaining_depth = guard.pending.len();
+                            break request.map(|request| (request, remaining_depth));
+                        }
                         guard = condvar.wait(guard).unwrap_or_else(|p| p.into_inner());
                     }
-                    let request = guard.pending.pop_front();
-                    let remaining_depth = guard.pending.len();
-                    request.map(|request| (request, remaining_depth))
                 };
                 if let Some((request, remaining_depth)) = request {
                     if worker_state
@@ -67,12 +106,23 @@ impl AnalysisWorkerQueue {
                     worker_state
                         .metrics()
                         .record_analysis_job_started(remaining_depth);
-                    crate::tools::reports::run_analysis_job_from_queue(
+                    let final_status = crate::tools::reports::run_analysis_job_from_queue(
                         &worker_state,
                         request.job_id,
                         request.kind,
                         request.arguments,
                     );
+                    let remaining_depth = {
+                        let (lock, condvar) = &*inner_clone;
+                        let mut guard = lock.lock().unwrap_or_else(|p| p.into_inner());
+                        guard.active_jobs = guard.active_jobs.saturating_sub(1);
+                        let remaining_depth = guard.pending.len();
+                        condvar.notify_all();
+                        remaining_depth
+                    };
+                    worker_state
+                        .metrics()
+                        .record_analysis_job_finished(final_status, remaining_depth);
                 }
             });
         }
@@ -89,7 +139,7 @@ impl AnalysisWorkerQueue {
         }
         guard.pending.push_back(request);
         let depth = guard.pending.len();
-        condvar.notify_one();
+        condvar.notify_all();
         Ok(depth)
     }
 }
@@ -156,6 +206,7 @@ pub(crate) struct AppState {
     // Runtime project override (set by activate_project)
     project_override: std::sync::RwLock<Option<ProjectOverride>>,
     lsp_pool: LspSessionPool,
+    transport_mode: Mutex<RuntimeTransportMode>,
     surface: Mutex<ToolSurface>,
     /// Global token budget for response size control.
     /// Tools that produce variable-length output respect this limit.
@@ -360,6 +411,46 @@ impl AppState {
             .surface
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = surface;
+    }
+
+    pub(crate) fn configure_transport_mode(&self, transport: &str) {
+        let mode = RuntimeTransportMode::from_str(transport);
+        *self
+            .transport_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = mode;
+        self.metrics
+            .record_analysis_worker_pool(self.analysis_worker_limit(), mode.as_str());
+    }
+
+    pub(crate) fn transport_mode(&self) -> RuntimeTransportMode {
+        *self
+            .transport_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn analysis_worker_limit(&self) -> usize {
+        match self.transport_mode() {
+            RuntimeTransportMode::Http => HTTP_ANALYSIS_WORKER_COUNT,
+            RuntimeTransportMode::Stdio => STDIO_ANALYSIS_WORKER_COUNT,
+        }
+    }
+
+    pub(crate) fn analysis_parallelism_for_profile(&self, profile_hint: Option<&str>) -> usize {
+        let hinted_profile = profile_hint
+            .and_then(ToolProfile::from_str)
+            .or_else(|| match *self.surface() {
+                ToolSurface::Profile(profile) => Some(profile),
+                ToolSurface::Preset(_) => None,
+            });
+        let transport_limit = self.analysis_worker_limit();
+        match hinted_profile {
+            Some(ToolProfile::PlannerReadonly)
+            | Some(ToolProfile::ReviewerGraph)
+            | Some(ToolProfile::CiAudit) => transport_limit.min(HTTP_ANALYSIS_WORKER_COUNT),
+            Some(ToolProfile::BuilderMinimal) | Some(ToolProfile::RefactorFull) | None => 1,
+        }
     }
 
     /// Access the tool metrics registry.
@@ -643,6 +734,7 @@ impl AppState {
         job_id: String,
         kind: String,
         arguments: Value,
+        profile_hint: Option<String>,
     ) -> Result<(), CodeLensError> {
         let depth = self
             .analysis_queue
@@ -651,6 +743,7 @@ impl AppState {
                 job_id,
                 kind,
                 arguments,
+                profile_hint,
             })?;
         self.metrics.record_analysis_job_enqueued(depth);
         Ok(())
@@ -953,6 +1046,7 @@ impl AppState {
             default_audit_dir: audit_dir,
             project_override: std::sync::RwLock::new(None),
             lsp_pool: LspSessionPool::new(project),
+            transport_mode: Mutex::new(self.transport_mode()),
             surface: Mutex::new(*self.surface()),
             token_budget: std::sync::atomic::AtomicUsize::new(self.token_budget()),
             analysis_seq: std::sync::atomic::AtomicU64::new(0),
@@ -1009,6 +1103,7 @@ impl AppState {
             default_analysis_dir: analysis_dir,
             default_audit_dir: audit_dir,
             project_override: std::sync::RwLock::new(None),
+            transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
             surface: Mutex::new(ToolSurface::Preset(preset)),
             token_budget: std::sync::atomic::AtomicUsize::new(
                 crate::tool_defs::default_budget_for_preset(preset),
@@ -1029,6 +1124,7 @@ impl AppState {
             #[cfg(feature = "http")]
             session_store: None,
         };
+        state.configure_transport_mode("stdio");
         state.cleanup_stale_analysis_dirs(Self::now_ms());
         state.cleanup_stale_job_files(Self::now_ms());
         state

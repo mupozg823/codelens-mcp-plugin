@@ -65,6 +65,7 @@ def render_summary(data):
         a("")
         if queue.get("supported"):
             session = queue.get("session", {})
+            checks = queue.get("checks", {})
             a("| Metric | Value |")
             a("|---|---:|")
             a(f"| Jobs enqueued | {fmt_int(session.get('analysis_jobs_enqueued', 0))} |")
@@ -75,8 +76,24 @@ def render_summary(data):
             a(f"| Queue depth (current) | {fmt_int(session.get('analysis_queue_depth', 0))} |")
             a(f"| Queue depth (max) | {fmt_int(session.get('analysis_queue_max_depth', 0))} |")
             a(f"| Active workers (peak) | {fmt_int(session.get('peak_active_analysis_workers', 0))} |")
+            a(f"| Worker limit | {fmt_int(session.get('analysis_worker_limit', 0))} |")
+            a(f"| Transport mode | {session.get('analysis_transport_mode', 'unknown')} |")
             a(f"| Observed queued state | {queue.get('saw_queued')} |")
             a(f"| Observed running state | {queue.get('saw_running')} |")
+            a(
+                f"| Queue gate | {'PASS' if queue.get('gate_passed') else 'FAIL'} |"
+            )
+            a(
+                f"| Queue thresholds | depth>={checks.get('min_queue_depth', 0)}, "
+                f"workers>={checks.get('min_peak_workers', 0)}, "
+                f"success>={checks.get('min_queue_success_rate', 0.0):.2f}, "
+                f"failures<={checks.get('max_queue_failures', 0)} |"
+            )
+            if queue.get("gate_failures"):
+                a("")
+                a("Queue gate failures:")
+                for failure in queue["gate_failures"]:
+                    a(f"- {failure}")
         else:
             a(f"- skipped: {queue.get('reason', 'unavailable')}")
 

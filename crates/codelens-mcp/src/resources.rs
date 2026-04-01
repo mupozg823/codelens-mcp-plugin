@@ -196,6 +196,8 @@ pub(crate) fn read_resource(state: &AppState, uri: &str) -> serde_json::Value {
                         "analysis_queue_max_depth": session.analysis_queue_max_depth,
                         "active_analysis_workers": session.active_analysis_workers,
                         "peak_active_analysis_workers": session.peak_active_analysis_workers,
+                        "analysis_worker_limit": session.analysis_worker_limit,
+                        "analysis_transport_mode": session.analysis_transport_mode.clone(),
                         "handle_reuse_rate": if handle_reads > 0 {
                             session.handle_reuse_count as f64 / handle_reads as f64
                         } else { 0.0 }

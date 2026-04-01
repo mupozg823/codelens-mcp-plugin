@@ -68,7 +68,15 @@ jobs:
         env:
           CODELENS_BIN: target/release/codelens-mcp
         run: |
-          python3 benchmarks/token-efficiency.py . --check --require-handle-win | tee benchmarks/token-efficiency-ci.txt
+          python3 benchmarks/token-efficiency.py . \
+            --check \
+            --require-handle-win \
+            --min-workflow-savings 35 \
+            --min-chain-reduction 40 \
+            --min-queue-depth 1 \
+            --min-peak-workers 2 \
+            --min-queue-success-rate 1.0 \
+            --max-queue-failures 0 | tee benchmarks/token-efficiency-ci.txt
           python3 benchmarks/render-summary.py --output benchmarks/token-efficiency-summary.md
           cat benchmarks/token-efficiency-summary.md >> "$GITHUB_STEP_SUMMARY"
 

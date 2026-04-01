@@ -69,6 +69,8 @@ pub struct SessionMetrics {
     pub analysis_queue_max_depth: u64,
     pub active_analysis_workers: u64,
     pub peak_active_analysis_workers: u64,
+    pub analysis_worker_limit: u64,
+    pub analysis_transport_mode: String,
     #[serde(skip_serializing)]
     pub latency_samples: VecDeque<u64>,
     /// Ordered tool invocation timeline (capped at 200 entries).
@@ -316,6 +318,15 @@ impl ToolMetricsRegistry {
             "http" => session.http_session_count += 1,
             _ => session.stdio_session_count += 1,
         }
+    }
+
+    pub fn record_analysis_worker_pool(&self, worker_limit: usize, transport: &str) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.analysis_worker_limit = worker_limit as u64;
+        session.analysis_transport_mode = transport.to_owned();
     }
 
     pub fn record_analysis_job_enqueued(&self, queue_depth: usize) {

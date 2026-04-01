@@ -914,7 +914,7 @@ pub(crate) fn run_analysis_job_from_queue(
     job_id: String,
     kind: String,
     arguments: Value,
-) {
+) -> &'static str {
     let project_path = worker_state.project().as_path().to_string_lossy().to_string();
     if worker_state
         .get_analysis_job(&job_id)
@@ -922,10 +922,7 @@ pub(crate) fn run_analysis_job_from_queue(
         .map(|job| job.status.as_str())
         == Some("cancelled")
     {
-        worker_state
-            .metrics()
-            .record_analysis_job_finished("cancelled", 0);
-        return;
+        return "cancelled";
     }
     patch_job_file(
         &project_path,
@@ -936,14 +933,15 @@ pub(crate) fn run_analysis_job_from_queue(
         None,
         None,
     );
-    let worker = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<(), String> {
+    let worker =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<&'static str, String> {
         if worker_state
             .get_analysis_job(&job_id)
             .as_ref()
             .map(|job| job.status.as_str())
             == Some("cancelled")
         {
-            return Ok(());
+            return Ok("cancelled");
         }
         let result = run_job_kind_with_progress(worker_state, &job_id, &kind, &arguments);
         match result {
@@ -951,10 +949,7 @@ pub(crate) fn run_analysis_job_from_queue(
                 let (analysis_id, estimated_sections) = extract_handle_fields(&payload);
                 let current = worker_state.get_analysis_job(&job_id);
                 if current.as_ref().map(|job| job.status.as_str()) == Some("cancelled") {
-                    worker_state
-                        .metrics()
-                        .record_analysis_job_finished("cancelled", 0);
-                    return Ok(());
+                    return Ok("cancelled");
                 }
                 worker_state
                     .update_analysis_job(
@@ -967,11 +962,9 @@ pub(crate) fn run_analysis_job_from_queue(
                         Some(None),
                         )
                         .map_err(|error| error.to_string())?;
-                    worker_state
-                        .metrics()
-                        .record_analysis_job_finished("completed", 0);
+                Ok("completed")
                 }
-                Ok(_) => {}
+                Ok(_) => Ok("failed"),
                 Err(error) => {
                 worker_state
                     .update_analysis_job(
@@ -984,12 +977,9 @@ pub(crate) fn run_analysis_job_from_queue(
                         Some(Some(error.to_string())),
                         )
                         .map_err(|error| error.to_string())?;
-                    worker_state
-                        .metrics()
-                        .record_analysis_job_finished("failed", 0);
+                Ok("failed")
                 }
             }
-            Ok(())
     }));
     match worker {
         Err(panic) => {
@@ -1009,9 +999,7 @@ pub(crate) fn run_analysis_job_from_queue(
                 Some(None),
                 Some(Some(message)),
             );
-            worker_state
-                .metrics()
-                .record_analysis_job_finished("failed", 0);
+            "failed"
         }
         Ok(Err(message)) => {
             patch_job_file(
@@ -1023,11 +1011,9 @@ pub(crate) fn run_analysis_job_from_queue(
                 Some(None),
                 Some(Some(message)),
             );
-            worker_state
-                .metrics()
-                .record_analysis_job_finished("failed", 0);
+            "failed"
         }
-        Ok(Ok(())) => {}
+        Ok(Ok(status)) => status,
     }
 }
 
@@ -1048,7 +1034,7 @@ pub fn start_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
         None,
         None,
     )?;
-    state.enqueue_analysis_job(job.id.clone(), kind, arguments.clone())?;
+    state.enqueue_analysis_job(job.id.clone(), kind, arguments.clone(), profile_hint.clone())?;
     Ok((
         json!({
             "job_id": job.id,

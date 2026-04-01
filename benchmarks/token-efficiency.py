@@ -35,6 +35,10 @@ parser.add_argument("project_path", nargs="?", default=".")
 parser.add_argument("--check", action="store_true")
 parser.add_argument("--min-workflow-savings", type=float, default=35.0)
 parser.add_argument("--min-chain-reduction", type=float, default=40.0)
+parser.add_argument("--min-queue-depth", type=int, default=1)
+parser.add_argument("--min-peak-workers", type=int, default=2)
+parser.add_argument("--min-queue-success-rate", type=float, default=1.0)
+parser.add_argument("--max-queue-failures", type=int, default=0)
 parser.add_argument("--require-handle-win", action="store_true")
 ARGS = parser.parse_args()
 
@@ -290,12 +294,26 @@ def run_queue_observability_benchmark():
             },
             request_id=12,
         )
+        third = mcp_http_tool_call(
+            base_url,
+            "start_analysis_job",
+            {
+                "kind": "impact_report",
+                "path": key_file or test_file or ".",
+                "debug_step_delay_ms": 20,
+                "profile_hint": "reviewer-graph",
+            },
+            request_id=13,
+        )
         first_job = first.get("result", {}).get("content", [{}])[0].get("text", "{}")
         second_job = second.get("result", {}).get("content", [{}])[0].get("text", "{}")
+        third_job = third.get("result", {}).get("content", [{}])[0].get("text", "{}")
         first_payload = json.loads(first_job)
         second_payload = json.loads(second_job)
+        third_payload = json.loads(third_job)
         first_id = first_payload["data"]["job_id"]
         second_id = second_payload["data"]["job_id"]
+        third_id = third_payload["data"]["job_id"]
         saw_queued = False
         saw_running = False
         for idx in range(60):
@@ -305,17 +323,30 @@ def run_queue_observability_benchmark():
             second_status = mcp_http_tool_call(
                 base_url, "get_analysis_job", {"job_id": second_id}, request_id=200 + idx
             )
+            third_status = mcp_http_tool_call(
+                base_url, "get_analysis_job", {"job_id": third_id}, request_id=300 + idx
+            )
             first_data = json.loads(
                 first_status.get("result", {}).get("content", [{}])[0].get("text", "{}")
             )["data"]
             second_data = json.loads(
                 second_status.get("result", {}).get("content", [{}])[0].get("text", "{}")
             )["data"]
-            saw_running = saw_running or first_data.get("status") == "running"
-            saw_queued = saw_queued or second_data.get("status") == "queued"
+            third_data = json.loads(
+                third_status.get("result", {}).get("content", [{}])[0].get("text", "{}")
+            )["data"]
+            saw_running = saw_running or any(
+                job.get("status") == "running"
+                for job in (first_data, second_data, third_data)
+            )
+            saw_queued = saw_queued or any(
+                job.get("status") == "queued"
+                for job in (first_data, second_data, third_data)
+            )
             if (
                 first_data.get("status") == "completed"
                 and second_data.get("status") == "completed"
+                and third_data.get("status") == "completed"
             ):
                 break
             time.sleep(0.1)
@@ -325,6 +356,33 @@ def run_queue_observability_benchmark():
         )["data"]
         session = metrics_payload.get("session", {})
         derived = metrics_payload.get("derived_kpis", {})
+        queue_failures = session.get("analysis_jobs_failed", 0)
+        queue_max_depth = session.get("analysis_queue_max_depth", 0)
+        peak_workers = session.get("peak_active_analysis_workers", 0)
+        success_rate = derived.get("analysis_job_success_rate", 0.0)
+        queue_checks = {
+            "min_queue_depth": ARGS.min_queue_depth,
+            "min_peak_workers": ARGS.min_peak_workers,
+            "min_queue_success_rate": ARGS.min_queue_success_rate,
+            "max_queue_failures": ARGS.max_queue_failures,
+        }
+        queue_failures_list = []
+        if queue_max_depth < ARGS.min_queue_depth:
+            queue_failures_list.append(
+                f"queue depth {queue_max_depth} < required {ARGS.min_queue_depth}"
+            )
+        if peak_workers < ARGS.min_peak_workers:
+            queue_failures_list.append(
+                f"peak workers {peak_workers} < required {ARGS.min_peak_workers}"
+            )
+        if queue_failures > ARGS.max_queue_failures:
+            queue_failures_list.append(
+                f"queue failures {queue_failures} > allowed {ARGS.max_queue_failures}"
+            )
+        if success_rate < ARGS.min_queue_success_rate:
+            queue_failures_list.append(
+                f"queue success rate {success_rate:.2f} < required {ARGS.min_queue_success_rate:.2f}"
+            )
         return {
             "supported": True,
             "saw_running": saw_running,
@@ -341,10 +399,15 @@ def run_queue_observability_benchmark():
                 "peak_active_analysis_workers": session.get(
                     "peak_active_analysis_workers", 0
                 ),
+                "analysis_worker_limit": session.get("analysis_worker_limit", 0),
+                "analysis_transport_mode": session.get("analysis_transport_mode", "unknown"),
             },
             "derived_kpis": {
-                "analysis_job_success_rate": derived.get("analysis_job_success_rate", 0.0)
+                "analysis_job_success_rate": success_rate
             },
+            "checks": queue_checks,
+            "gate_passed": len(queue_failures_list) == 0 and saw_running and saw_queued,
+            "gate_failures": queue_failures_list,
             "port": port,
         }
     except Exception as exc:
@@ -837,6 +900,7 @@ for result in workflow_results:
 print("\n## Queue Observability\n")
 if queue_observability.get("supported"):
     session = queue_observability.get("session", {})
+    checks = queue_observability.get("checks", {})
     print(
         f"- jobs: enqueued {session.get('analysis_jobs_enqueued', 0)}, "
         f"started {session.get('analysis_jobs_started', 0)}, "
@@ -851,10 +915,24 @@ if queue_observability.get("supported"):
         f"peak workers {session.get('peak_active_analysis_workers', 0)}"
     )
     print(
+        f"- worker pool: limit={session.get('analysis_worker_limit', 0)}, "
+        f"transport={session.get('analysis_transport_mode', 'unknown')}"
+    )
+    print(
         f"- state transitions: running={queue_observability.get('saw_running')}, "
         f"queued={queue_observability.get('saw_queued')}, "
         f"success_rate={queue_observability.get('derived_kpis', {}).get('analysis_job_success_rate', 0.0):.2f}"
     )
+    print(
+        f"- gate: passed={queue_observability.get('gate_passed')}, "
+        f"min_depth>={checks.get('min_queue_depth', 0)}, "
+        f"min_peak_workers>={checks.get('min_peak_workers', 0)}, "
+        f"min_success_rate>={checks.get('min_queue_success_rate', 0.0):.2f}, "
+        f"max_failures<={checks.get('max_queue_failures', 0)}"
+    )
+    if queue_observability.get("gate_failures"):
+        for failure in queue_observability["gate_failures"]:
+            print(f"  - queue gate failure: {failure}")
 else:
     print(f"- skipped: {queue_observability.get('reason', 'unavailable')}")
 
@@ -923,17 +1001,46 @@ if ARGS.check:
             failures.append("no single-call compressed workflow found for handle/resource win")
     if queue_observability.get("supported"):
         session = queue_observability.get("session", {})
-        if session.get("analysis_queue_max_depth", 0) < 1:
-            failures.append("queue benchmark did not observe queue depth >= 1")
+        checks = queue_observability.get("checks", {})
+        if session.get("analysis_queue_max_depth", 0) < ARGS.min_queue_depth:
+            failures.append(
+                f"queue benchmark did not observe queue depth >= {ARGS.min_queue_depth}"
+            )
+        if session.get("peak_active_analysis_workers", 0) < ARGS.min_peak_workers:
+            failures.append(
+                f"queue benchmark did not observe peak workers >= {ARGS.min_peak_workers}"
+            )
+        if session.get("analysis_jobs_failed", 0) > ARGS.max_queue_failures:
+            failures.append(
+                f"queue benchmark observed failures {session.get('analysis_jobs_failed', 0)} > {ARGS.max_queue_failures}"
+            )
+        if (
+            queue_observability.get("derived_kpis", {}).get("analysis_job_success_rate", 0.0)
+            < ARGS.min_queue_success_rate
+        ):
+            failures.append(
+                "queue benchmark success rate "
+                f"{queue_observability.get('derived_kpis', {}).get('analysis_job_success_rate', 0.0):.2f} "
+                f"< {ARGS.min_queue_success_rate:.2f}"
+            )
         if not queue_observability.get("saw_queued"):
             failures.append("queue benchmark did not observe a queued job state")
         if not queue_observability.get("saw_running"):
             failures.append("queue benchmark did not observe a running job state")
+        for failure in queue_observability.get("gate_failures", []):
+            if failure not in failures:
+                failures.append(f"queue gate: {failure}")
     if failures:
         print("\nBenchmark gate failed:")
         for failure in failures:
             print(f"- {failure}")
         sys.exit(1)
     print(
-        f"\nBenchmark gate passed: workflow savings >= {ARGS.min_workflow_savings}% and chain reduction >= {ARGS.min_chain_reduction}%"
+        "\nBenchmark gate passed: "
+        f"workflow savings >= {ARGS.min_workflow_savings}%, "
+        f"chain reduction >= {ARGS.min_chain_reduction}%, "
+        f"queue depth >= {ARGS.min_queue_depth}, "
+        f"peak workers >= {ARGS.min_peak_workers}, "
+        f"queue success rate >= {ARGS.min_queue_success_rate:.2f}, "
+        f"queue failures <= {ARGS.max_queue_failures}"
     )

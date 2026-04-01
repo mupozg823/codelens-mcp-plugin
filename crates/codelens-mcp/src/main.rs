@@ -115,6 +115,7 @@ fn main() -> Result<()> {
         );
     }
     let app_state = AppState::new(project, preset);
+    app_state.configure_transport_mode(transport);
     if let Some(profile) = profile {
         app_state.set_surface(ToolSurface::Profile(profile));
         app_state.set_token_budget(default_budget_for_profile(profile));

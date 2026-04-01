@@ -896,6 +896,74 @@ fn analysis_jobs_queue_when_worker_busy() {
             .unwrap_or_default()
             >= 1
     );
+    assert_eq!(metrics["data"]["session"]["analysis_worker_limit"], json!(1));
+}
+
+#[test]
+fn reviewer_jobs_use_parallel_http_pool() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("parallel_first.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("parallel_second.py"),
+        "def beta():\n    return 2\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    state.configure_transport_mode("http");
+
+    let first = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "parallel_first.py",
+            "profile_hint": "reviewer-graph",
+            "debug_step_delay_ms": 80
+        }),
+    );
+    let second = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "parallel_second.py",
+            "profile_hint": "reviewer-graph",
+            "debug_step_delay_ms": 80
+        }),
+    );
+    let first_job_id = first["data"]["job_id"].as_str().unwrap();
+    let second_job_id = second["data"]["job_id"].as_str().unwrap();
+    for _ in 0..100 {
+        let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+        let peak_workers = metrics["data"]["session"]["peak_active_analysis_workers"]
+            .as_u64()
+            .unwrap_or_default();
+        if peak_workers >= 2 {
+            break;
+        }
+        let first_job = call_tool(&state, "get_analysis_job", json!({"job_id": first_job_id}));
+        let second_job = call_tool(&state, "get_analysis_job", json!({"job_id": second_job_id}));
+        if first_job["data"]["status"] == json!("completed")
+            && second_job["data"]["status"] == json!("completed")
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert_eq!(metrics["data"]["session"]["analysis_worker_limit"], json!(2));
+    assert_eq!(metrics["data"]["session"]["analysis_transport_mode"], json!("http"));
+    assert!(
+        metrics["data"]["session"]["peak_active_analysis_workers"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 2
+    );
 }
 
 #[test]
