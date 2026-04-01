@@ -17,7 +17,7 @@ use codelens_core::ProjectRoot;
 use server::oneshot::run_oneshot;
 use server::transport_stdio::run_stdio;
 use std::sync::Arc;
-use tool_defs::ToolPreset;
+use tool_defs::{ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile};
 
 // ── Entry point ────────────────────────────────────────────────────────
 
@@ -46,17 +46,31 @@ fn main() -> Result<()> {
                 .map(|s| ToolPreset::from_str(&s))
         })
         .unwrap_or(ToolPreset::Balanced);
+    let profile = args
+        .iter()
+        .position(|a| a == "--profile")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|s| ToolProfile::from_str(s))
+        .or_else(|| {
+            std::env::var("CODELENS_PROFILE")
+                .ok()
+                .and_then(|s| ToolProfile::from_str(&s))
+        });
 
     // Project root resolution priority:
     // 1. Explicit path argument (if not ".")
     // 2. CLAUDE_PROJECT_DIR environment variable (set by Claude Code)
     // 3. MCP_PROJECT_DIR environment variable (generic)
     // 4. Current working directory with .git/.cargo marker detection
-    let effective_path = if project_arg != "." {
+    let project_from_cli = project_arg != ".";
+    let project_from_claude = std::env::var("CLAUDE_PROJECT_DIR").ok();
+    let project_from_mcp = std::env::var("MCP_PROJECT_DIR").ok();
+
+    let effective_path = if project_from_cli {
         project_arg.to_string()
-    } else if let Ok(dir) = std::env::var("CLAUDE_PROJECT_DIR") {
+    } else if let Some(dir) = project_from_claude.clone() {
         dir
-    } else if let Ok(dir) = std::env::var("MCP_PROJECT_DIR") {
+    } else if let Some(dir) = project_from_mcp.clone() {
         dir
     } else {
         ".".to_string()
@@ -91,7 +105,23 @@ fn main() -> Result<()> {
         .unwrap_or(7837);
 
     let project = ProjectRoot::new(&effective_path)?;
+    if !project_from_cli
+        && project_from_claude.is_none()
+        && project_from_mcp.is_none()
+        && project.as_path() == std::path::Path::new("/")
+    {
+        anyhow::bail!(
+            "Refusing to start CodeLens on `/` without an explicit project root. Pass a path or set MCP_PROJECT_DIR/CLAUDE_PROJECT_DIR."
+        );
+    }
     let app_state = AppState::new(project, preset);
+    if let Some(profile) = profile {
+        app_state.set_surface(ToolSurface::Profile(profile));
+        app_state.set_token_budget(default_budget_for_profile(profile));
+    } else {
+        app_state.set_surface(ToolSurface::Preset(preset));
+        app_state.set_token_budget(default_budget_for_preset(preset));
+    }
 
     // One-shot mode: run a single tool and exit
     if let Some(tool_name) = cmd_tool {

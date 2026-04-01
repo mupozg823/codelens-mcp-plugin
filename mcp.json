@@ -1,7 +1,7 @@
 {
   "name": "codelens",
   "display_name": "CodeLens MCP",
-  "description": "Pure Rust MCP server for code intelligence — 62 tools, 25 languages, tree-sitter-first, zero external dependencies",
+  "description": "Compressed context provider for planner/reviewer/refactor agent harnesses",
   "version": "1.0.0",
   "license": "Apache-2.0",
   "repository": "https://github.com/mupozg823/codelens-mcp-plugin",
@@ -17,28 +17,28 @@
   },
   "config": {
     "command": "codelens-mcp",
-    "args": [".", "--preset", "balanced"],
+    "args": [".", "--profile", "planner-readonly"],
     "env": {}
   },
   "clients": {
     "claude-code": {
       "type": "stdio",
       "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"]
+      "args": [".", "--profile", "planner-readonly"]
     },
     "claude-desktop": {
       "type": "stdio",
       "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"]
+      "args": [".", "--profile", "planner-readonly"]
     },
     "cursor": {
       "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"]
+      "args": [".", "--profile", "builder-minimal"]
     },
     "vscode": {
       "type": "stdio",
       "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"]
+      "args": [".", "--profile", "builder-minimal"]
     }
   }
 }

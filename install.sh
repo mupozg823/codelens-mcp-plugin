@@ -74,7 +74,7 @@ write_mcp_json() {
     "codelens": {
       "type": "stdio",
       "command": "${BIN_PATH}",
-      "args": ["."]
+      "args": [".", "--profile", "planner-readonly"]
     }
   }
 }
@@ -86,7 +86,7 @@ EOF
   "mcpServers": {
     "codelens": {
       "command": "${BIN_PATH}",
-      "args": [".", "--preset", "balanced"]
+      "args": [".", "--profile", "builder-minimal"]
     }
   }
 }
@@ -99,7 +99,7 @@ EOF
     "codelens": {
       "type": "stdio",
       "command": "${BIN_PATH}",
-      "args": [".", "--preset", "balanced"]
+      "args": [".", "--profile", "builder-minimal"]
     }
   }
 }
@@ -110,7 +110,7 @@ EOF
 {
   "codelens": {
     "command": "${BIN_PATH}",
-    "args": [".", "--preset", "balanced"],
+    "args": [".", "--profile", "builder-minimal"],
     "transport": "stdio"
   }
 }

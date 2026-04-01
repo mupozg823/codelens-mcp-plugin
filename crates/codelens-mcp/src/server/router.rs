@@ -2,7 +2,7 @@ use crate::dispatch::dispatch_tool;
 use crate::prompts::{get_prompt, prompts};
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::resources::{read_resource, resources};
-use crate::tool_defs::{tools, ToolPreset, BALANCED_EXCLUDES, MINIMAL_TOOLS};
+use crate::tool_defs::visible_tools;
 use crate::AppState;
 use serde_json::json;
 
@@ -38,7 +38,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     "name": "codelens-mcp",
                     "version": env!("CARGO_PKG_VERSION")
                 },
-                "instructions": "CodeLens is a code intelligence engine. Use its tools instead of Read/Grep/Edit for code tasks: find_symbol to locate functions/classes, get_ranked_context for smart context retrieval, get_symbols_overview for file structure, find_referencing_symbols to trace usages, get_impact_analysis for change blast radius, get_file_diagnostics for type errors, replace_symbol_body/rename_symbol for refactoring. These tools understand code structure via tree-sitter and provide ranked, token-budgeted results.\n\nWhen working with tool results, write down any important information you might need later in your response, as the original tool result may be cleared later."
+                "instructions": "CodeLens is a compressed context provider for agent harnesses. Prefer high-level workflow tools such as analyze_change_request, impact_report, diff_aware_references, module_boundary_report, refactor_safety_report, dead_code_report, and safe_rename_report before expanding raw symbols or graph data. Keep the visible context bounded, and use get_analysis_section or analysis resources only when you need one section in more detail. For longer reports, start_analysis_job and poll with get_analysis_job."
             }),
         )),
         "resources/list" => Some(JsonRpcResponse::result(
@@ -80,18 +80,20 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             ))
         }
         "tools/list" => {
-            let current_preset = *state.preset();
-            let filtered: Vec<_> = tools()
-                .iter()
-                .filter(|t| match current_preset {
-                    ToolPreset::Full => true,
-                    ToolPreset::Minimal => MINIMAL_TOOLS.contains(&t.name),
-                    ToolPreset::Balanced => !BALANCED_EXCLUDES.contains(&t.name),
-                })
-                .collect();
+            let surface = *state.surface();
+            let filtered = visible_tools(surface);
+            let token_estimate = serde_json::to_string(&filtered)
+                .map(|body| crate::tools::estimate_tokens(&body))
+                .unwrap_or(0);
+            state
+                .metrics()
+                .record_call_with_tokens("tools/list", 0, true, token_estimate, surface.as_label());
             Some(JsonRpcResponse::result(
                 request.id,
-                json!({ "tools": filtered }),
+                json!({
+                    "active_surface": surface.as_label(),
+                    "tools": filtered
+                }),
             ))
         }
         "tools/call" => match request.params {

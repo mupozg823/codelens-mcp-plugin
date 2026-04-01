@@ -41,35 +41,32 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
 async fn server_card_handler(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let preset = *state.preset();
-    let tool_count = crate::tool_defs::tools()
-        .iter()
-        .filter(|t| crate::tool_defs::is_tool_in_preset(t.name, preset))
-        .count();
+    let surface = *state.surface();
+    let tool_count = crate::tool_defs::visible_tools(surface).len();
 
     let card = serde_json::json!({
         "name": "codelens-mcp",
         "version": env!("CARGO_PKG_VERSION"),
-        "description": "Pure Rust MCP server for code intelligence — 25 languages, tree-sitter-first",
+        "description": "Compressed context provider for planner/reviewer/refactor agent harnesses",
         "transport": ["stdio", "streamable-http"],
         "capabilities": {
             "tools": true,
-            "resources": false,
+            "resources": true,
             "prompts": true,
             "sampling": false
         },
         "tool_count": tool_count,
-        "preset": format!("{preset:?}"),
+        "active_surface": surface.as_label(),
         "languages": 25,
         "features": [
+            "role-based-tool-surfaces",
+            "composite-workflow-tools",
+            "analysis-handles-and-sections",
+            "durable-analysis-jobs",
+            "mutation-audit-log",
             "tree-sitter-symbol-parsing",
-            "fts5-search",
             "import-graph-analysis",
-            "semantic-search",
             "lsp-integration",
-            "file-watcher",
-            "tool-annotations",
-            "output-schemas",
             "token-budget-control"
         ]
     });
@@ -84,6 +81,7 @@ async fn server_card_handler(
 /// Start the HTTP server with Streamable HTTP transport.
 #[tokio::main]
 pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
+    state.metrics().record_transport_session("http");
     let app = build_router(state.clone());
 
     // Session cleanup background task

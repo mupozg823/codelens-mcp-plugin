@@ -1,6 +1,6 @@
 # CodeLens MCP — Platform Setup Guide
 
-> One binary, every AI coding agent.
+> One binary, compressed context for planner/reviewer/refactor harnesses.
 
 ## Quick Install
 
@@ -33,7 +33,7 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
     "codelens": {
       "type": "stdio",
       "command": "codelens-mcp",
-      "args": ["."]
+      "args": [".", "--profile", "planner-readonly"]
     }
   }
 }
@@ -47,13 +47,21 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
     "codelens": {
       "type": "stdio",
       "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"]
+      "args": [".", "--profile", "builder-minimal"]
     }
   }
 }
 ```
 
-**Presets:**
+**Profiles (preferred):**
+
+- `planner-readonly` — bounded planning/report surface
+- `builder-minimal` — implementation with minimal symbol/edit tools
+- `reviewer-graph` — graph-aware review and risk analysis
+- `refactor-full` — preview-first refactoring surface
+- `ci-audit` — diff-aware review/report surface
+
+**Legacy presets:**
 
 - `minimal` — 20 tools, fastest, read-only exploration + safe edits
 - `balanced` — 39 tools, default, excludes niche analysis + Claude built-in overlaps
@@ -70,7 +78,7 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
   "mcpServers": {
     "codelens": {
       "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"]
+      "args": [".", "--profile", "builder-minimal"]
     }
   }
 }
@@ -83,7 +91,7 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
   "mcpServers": {
     "codelens": {
       "command": "codelens-mcp",
-      "args": [".", "--preset", "full"]
+      "args": [".", "--profile", "reviewer-graph"]
     }
   }
 }
@@ -98,13 +106,13 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 ```toml
 [mcp_servers.codelens]
 command = "codelens-mcp"
-args = [".", "--preset", "balanced"]
+args = [".", "--profile", "planner-readonly"]
 ```
 
 **Or via CLI:**
 
 ```bash
-codex --mcp-server "codelens-mcp . --preset balanced"
+codex --mcp-server "codelens-mcp . --profile planner-readonly"
 ```
 
 ---
@@ -119,7 +127,7 @@ codex --mcp-server "codelens-mcp . --preset balanced"
     "codelens": {
       "type": "stdio",
       "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"]
+      "args": [".", "--profile", "builder-minimal"]
     }
   }
 }
@@ -133,7 +141,7 @@ codex --mcp-server "codelens-mcp . --preset balanced"
 
 - Name: `codelens`
 - Command: `codelens-mcp`
-- Arguments: `. --preset balanced`
+- Arguments: `. --profile builder-minimal`
 - Transport: stdio
 
 ---
@@ -147,14 +155,14 @@ codex --mcp-server "codelens-mcp . --preset balanced"
   "mcpServers": {
     "codelens": {
       "command": "codelens-mcp",
-      "args": [".", "--preset", "balanced"],
+      "args": [".", "--profile", "builder-minimal"],
       "transport": "stdio"
     }
   }
 }
 ```
 
-> **Note:** Windsurf has a 100-tool limit across all MCP servers. Use `balanced` (39 tools) or `minimal` (20) to leave room for other servers.
+> **Note:** Windsurf has a 100-tool limit across all MCP servers. Prefer `builder-minimal` or `planner-readonly` to keep the surface bounded.
 
 ### 6b. Cline
 
@@ -164,8 +172,8 @@ codex --mcp-server "codelens-mcp . --preset balanced"
 {
   "codelens": {
     "command": "codelens-mcp",
-    "args": [".", "--preset", "balanced"],
-    "transport": "stdio"
+      "args": [".", "--profile", "builder-minimal"],
+      "transport": "stdio"
   }
 }
 ```
@@ -174,11 +182,14 @@ codex --mcp-server "codelens-mcp . --preset balanced"
 
 ### 7. HTTP Transport (Remote / Multi-client)
 
-For remote deployment or multi-agent scenarios:
+For remote deployment or multi-agent harness scenarios:
 
 ```bash
-# Start HTTP server
-codelens-mcp /path/to/project --transport http --port 7837
+# Read-only shared daemon for planners/reviewers/CI
+codelens-mcp /path/to/project --transport http --profile reviewer-graph --port 7837
+
+# Mutation-enabled daemon for explicit refactor passes
+codelens-mcp /path/to/project --transport http --profile refactor-full --port 7838
 
 # Client connects to:
 #   POST http://localhost:7837/mcp          (JSON-RPC)
@@ -211,13 +222,13 @@ from anthropic.types import MCPServerStdio
 
 client = anthropic.Anthropic()
 
-# Use CodeLens as MCP tool server
+# Use CodeLens as a compressed context server for your agent
 agent = client.agents.create(
     model="claude-sonnet-4-20250514",
     mcp_servers=[
         MCPServerStdio(
             command="codelens-mcp",
-            args=[".", "--preset", "balanced"],
+            args=[".", "--profile", "planner-readonly"],
         )
     ],
 )
@@ -230,7 +241,17 @@ agent = client.agents.create(
 | Variable             | Default    | Description                                     |
 | -------------------- | ---------- | ----------------------------------------------- |
 | `CODELENS_LOG`       | `warn`     | Log level (trace/debug/info/warn/error)         |
-| `CODELENS_PRESET`    | `balanced` | Default preset (overridden by --preset)         |
+| `CODELENS_PROFILE`   | unset      | Preferred role profile (`planner-readonly`, `builder-minimal`, `reviewer-graph`, `refactor-full`, `ci-audit`) |
+
+## vNext Workflow Defaults
+
+- Planner/reviewer paths should start with `analyze_change_request`, `impact_report`, `module_boundary_report`, or `dead_code_report`.
+- Refactor paths should start with `refactor_safety_report` or `safe_rename_report`.
+- Heavier reports can use `start_analysis_job` and poll via `get_analysis_job`.
+- Expand detail only through `get_analysis_section` or `codelens://analysis/{id}/...` resources.
+- Mutation-enabled profiles write audit logs to `.codelens/audit/mutation-audit.jsonl`.
+| `CODELENS_PRESET`    | `balanced` | Legacy preset default (overridden by --preset)  |
+| `CODELENS_PROFILE`   | —          | Preferred role surface (overridden by --profile) |
 | `CLAUDE_PROJECT_DIR` | —          | Auto-detected project root (set by Claude Code) |
 | `MCP_PROJECT_DIR`    | —          | Generic project root override                   |
 
@@ -264,7 +285,7 @@ Unified insert/replace     ✓            ✓             ✓
 # Check binary
 codelens-mcp --help 2>&1 || codelens-mcp . --cmd get_capabilities --args '{}'
 
-# Check tool count per preset
+# Check tool count per legacy preset
 codelens-mcp . --cmd set_preset --args '{"preset":"full"}'
 codelens-mcp . --cmd set_preset --args '{"preset":"balanced"}'
 codelens-mcp . --cmd set_preset --args '{"preset":"minimal"}'

@@ -1,5 +1,6 @@
 use super::{success_meta, AppState, ToolResult};
 use crate::protocol::BackendKind;
+use crate::tool_defs::{default_budget_for_preset, default_budget_for_profile, ToolProfile, ToolPreset, ToolSurface};
 use crate::tools::memory::list_memory_names;
 use codelens_core::detect_frameworks;
 use serde_json::json;
@@ -34,23 +35,32 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         .unwrap_or(false);
     let frameworks = detect_frameworks(project.as_path());
 
-    // Auto-set preset based on project size
+    // Auto-set role surface based on project size
     let file_count = state
         .symbol_index()
         .stats()
         .map(|s| s.indexed_files)
         .unwrap_or(0);
-    let (auto_preset, auto_budget) = if file_count < 50 {
-        ("Minimal", 2000usize)
+    let (auto_surface, auto_budget, auto_label) = if file_count < 50 {
+        (
+            ToolSurface::Profile(ToolProfile::BuilderMinimal),
+            default_budget_for_profile(ToolProfile::BuilderMinimal),
+            "builder-minimal",
+        )
     } else if file_count > 500 {
-        ("Full", 8000)
+        (
+            ToolSurface::Profile(ToolProfile::ReviewerGraph),
+            default_budget_for_profile(ToolProfile::ReviewerGraph),
+            "reviewer-graph",
+        )
     } else {
-        ("Balanced", 4000)
+        (
+            ToolSurface::Profile(ToolProfile::PlannerReadonly),
+            default_budget_for_profile(ToolProfile::PlannerReadonly),
+            "planner-readonly",
+        )
     };
-    {
-        let mut guard = state.preset();
-        *guard = crate::tool_defs::ToolPreset::from_str(auto_preset);
-    }
+    state.set_surface(auto_surface);
     state.set_token_budget(auto_budget);
 
     Ok((
@@ -64,7 +74,7 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
             "serena_memories_dir": memories_dir.to_string_lossy(),
             "file_watcher": watcher_running,
             "frameworks": frameworks,
-            "auto_preset": auto_preset,
+            "auto_surface": auto_label,
             "auto_budget": auto_budget,
             "indexed_files": file_count
         }),
@@ -346,34 +356,111 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
 
 pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let snapshot = state.metrics().snapshot();
+    let surfaces = state.metrics().surface_snapshot();
     let session = state.metrics().session_snapshot();
-    let data: Vec<serde_json::Value> = snapshot
+    let per_tool: Vec<serde_json::Value> = snapshot
         .into_iter()
         .map(|(name, m)| {
             json!({
                 "tool": name,
                 "calls": m.call_count,
+                "success_count": m.success_count,
                 "total_ms": m.total_ms,
                 "max_ms": m.max_ms,
+                "total_tokens": m.total_tokens,
+                "avg_output_tokens": if m.call_count > 0 {
+                    m.total_tokens / m.call_count as usize
+                } else { 0 },
+                "p95_latency_ms": crate::telemetry::percentile_95(&m.latency_samples),
+                "success_rate": if m.call_count > 0 {
+                    m.success_count as f64 / m.call_count as f64
+                } else { 0.0 },
+                "error_rate": if m.call_count > 0 {
+                    m.error_count as f64 / m.call_count as f64
+                } else { 0.0 },
                 "errors": m.error_count,
                 "last_called": m.last_called_at,
             })
         })
         .collect();
-    let count = data.len();
+    let count = per_tool.len();
+    let per_surface = surfaces
+        .into_iter()
+        .map(|(surface, metrics)| json!({
+            "surface": surface,
+            "calls": metrics.call_count,
+            "success_count": metrics.success_count,
+            "total_ms": metrics.total_ms,
+            "total_tokens": metrics.total_tokens,
+            "errors": metrics.error_count,
+            "avg_tokens_per_call": if metrics.call_count > 0 {
+                metrics.total_tokens / metrics.call_count as usize
+            } else { 0 },
+            "p95_latency_ms": crate::telemetry::percentile_95(&metrics.latency_samples),
+            "surface_token_efficiency": if metrics.success_count > 0 {
+                metrics.total_tokens as f64 / metrics.success_count as f64
+            } else { 0.0 }
+        }))
+        .collect::<Vec<_>>();
+    let handle_reads = session.analysis_summary_reads + session.analysis_section_reads;
     Ok((
         json!({
-            "tools": data,
+            "tools": per_tool.clone(),
+            "per_tool": per_tool,
             "count": count,
+            "surfaces": per_surface.clone(),
+            "per_surface": per_surface,
             "session": {
                 "total_calls": session.total_calls,
+                "success_count": session.success_count,
                 "total_ms": session.total_ms,
                 "total_tokens": session.total_tokens,
                 "error_count": session.error_count,
+                "tools_list_tokens": session.tools_list_tokens,
+                "analysis_summary_reads": session.analysis_summary_reads,
+                "analysis_section_reads": session.analysis_section_reads,
+                "retry_count": session.retry_count,
+                "handle_reuse_count": session.handle_reuse_count,
+                "repeated_low_level_chain_count": session.repeated_low_level_chain_count,
+                "composite_calls": session.composite_calls,
+                "low_level_calls": session.low_level_calls,
+                "stdio_session_count": session.stdio_session_count,
+                "http_session_count": session.http_session_count,
+                "analysis_jobs_enqueued": session.analysis_jobs_enqueued,
+                "analysis_jobs_started": session.analysis_jobs_started,
+                "analysis_jobs_completed": session.analysis_jobs_completed,
+                "analysis_jobs_failed": session.analysis_jobs_failed,
+                "analysis_jobs_cancelled": session.analysis_jobs_cancelled,
+                "analysis_queue_depth": session.analysis_queue_depth,
+                "analysis_queue_max_depth": session.analysis_queue_max_depth,
+                "active_analysis_workers": session.active_analysis_workers,
+                "peak_active_analysis_workers": session.peak_active_analysis_workers,
                 "avg_ms_per_call": if session.total_calls > 0 {
                     session.total_ms / session.total_calls
                 } else { 0 },
+                "avg_tool_output_tokens": if session.total_calls > 0 {
+                    session.total_tokens / session.total_calls as usize
+                } else { 0 },
+                "p95_tool_latency_ms": crate::telemetry::percentile_95(&session.latency_samples),
                 "timeline_length": session.timeline.len(),
+            }
+            ,
+            "derived_kpis": {
+                "composite_ratio": if session.total_calls > 0 {
+                    session.composite_calls as f64 / session.total_calls as f64
+                } else { 0.0 },
+                "surface_token_efficiency": if session.success_count > 0 {
+                    session.total_tokens as f64 / session.success_count as f64
+                } else { 0.0 },
+                "low_level_chain_reduction": if session.low_level_calls > 0 {
+                    1.0 - (session.repeated_low_level_chain_count as f64 / session.low_level_calls as f64)
+                } else { 1.0 },
+                "handle_reuse_rate": if handle_reads > 0 {
+                    session.handle_reuse_count as f64 / handle_reads as f64
+                } else { 0.0 },
+                "analysis_job_success_rate": if session.analysis_jobs_started > 0 {
+                    session.analysis_jobs_completed as f64 / session.analysis_jobs_started as f64
+                } else { 0.0 }
             }
         }),
         success_meta(BackendKind::Telemetry, 1.0),
@@ -409,6 +496,14 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
     ));
     md.push_str(&format!("| Total tokens | {} |\n", session.total_tokens));
     md.push_str(&format!("| Errors | {} |\n", session.error_count));
+    md.push_str(&format!(
+        "| Analysis summary reads | {} |\n",
+        session.analysis_summary_reads
+    ));
+    md.push_str(&format!(
+        "| Analysis section reads | {} |\n",
+        session.analysis_section_reads
+    ));
     md.push_str(&format!("| Unique tools | {count} |\n\n"));
 
     md.push_str("## Tool Usage\n\n| Tool | Calls | Total(ms) | Avg(ms) | Max(ms) | Err |\n|---|---|---|---|---|---|\n");
@@ -459,33 +554,55 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         .get("preset")
         .and_then(|v| v.as_str())
         .unwrap_or("balanced");
-    let new_preset = crate::ToolPreset::from_str(preset_str);
-    let old_preset = {
-        let mut guard = state.preset();
-        let old = *guard;
-        *guard = new_preset;
-        old
-    };
+    let new_preset = ToolPreset::from_str(preset_str);
+    let old_surface = state.surface().as_label().to_owned();
+    state.set_surface(ToolSurface::Preset(new_preset));
 
     // Auto-set token budget per preset, or accept explicit override
     let budget = arguments
         .get("token_budget")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
-        .unwrap_or(match new_preset {
-            crate::ToolPreset::Full => 8000,
-            crate::ToolPreset::Balanced => 4000,
-            crate::ToolPreset::Minimal => 2000,
-        });
+        .unwrap_or(default_budget_for_preset(new_preset));
     state.set_token_budget(budget);
 
     Ok((
         json!({
             "status": "ok",
-            "previous_preset": format!("{old_preset:?}"),
+            "previous_surface": old_surface,
             "current_preset": format!("{new_preset:?}"),
+            "active_surface": ToolSurface::Preset(new_preset).as_label(),
             "token_budget": budget,
             "note": "Preset changed. Next tools/list call will reflect the new tool set."
+        }),
+        success_meta(BackendKind::Session, 1.0),
+    ))
+}
+
+pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let profile_str = arguments
+        .get("profile")
+        .and_then(|v| v.as_str())
+        .unwrap_or("planner-readonly");
+    let profile = ToolProfile::from_str(profile_str)
+        .ok_or_else(|| crate::error::CodeLensError::Validation(format!("unknown profile `{profile_str}`")))?;
+    let old_surface = state.surface().as_label().to_owned();
+    state.set_surface(ToolSurface::Profile(profile));
+    let budget = arguments
+        .get("token_budget")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(default_budget_for_profile(profile));
+    state.set_token_budget(budget);
+
+    Ok((
+        json!({
+            "status": "ok",
+            "previous_surface": old_surface,
+            "current_profile": profile.as_str(),
+            "active_surface": ToolSurface::Profile(profile).as_label(),
+            "token_budget": budget,
+            "note": "Profile changed. Next tools/list call will reflect the role-specific tool surface."
         }),
         success_meta(BackendKind::Session, 1.0),
     ))

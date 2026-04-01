@@ -21,6 +21,55 @@ impl ToolPreset {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolProfile {
+    PlannerReadonly,
+    BuilderMinimal,
+    ReviewerGraph,
+    RefactorFull,
+    CiAudit,
+}
+
+impl ToolProfile {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "planner-readonly" | "planner" => Some(Self::PlannerReadonly),
+            "builder-minimal" | "builder" => Some(Self::BuilderMinimal),
+            "reviewer-graph" | "reviewer" => Some(Self::ReviewerGraph),
+            "refactor-full" | "refactor" => Some(Self::RefactorFull),
+            "ci-audit" | "ci" => Some(Self::CiAudit),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::PlannerReadonly => "planner-readonly",
+            Self::BuilderMinimal => "builder-minimal",
+            Self::ReviewerGraph => "reviewer-graph",
+            Self::RefactorFull => "refactor-full",
+            Self::CiAudit => "ci-audit",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ToolSurface {
+    Preset(ToolPreset),
+    Profile(ToolProfile),
+}
+
+impl ToolSurface {
+    pub fn as_label(&self) -> &'static str {
+        match self {
+            Self::Preset(ToolPreset::Minimal) => "preset:minimal",
+            Self::Preset(ToolPreset::Balanced) => "preset:balanced",
+            Self::Preset(ToolPreset::Full) => "preset:full",
+            Self::Profile(profile) => profile.as_str(),
+        }
+    }
+}
+
 pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     "activate_project",
     "get_current_config",
@@ -80,6 +129,146 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "replace_lines",
     // ── Superseded by onboard_project ──
     "get_project_structure",
+];
+
+pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
+    "activate_project",
+    "get_current_config",
+    "get_capabilities",
+    "set_profile",
+    "set_preset",
+    "get_tool_metrics",
+    "read_file",
+    "list_dir",
+    "find_file",
+    "search_for_pattern",
+    "find_annotations",
+    "find_tests",
+    "get_symbols_overview",
+    "find_symbol",
+    "get_ranked_context",
+    "refresh_symbol_index",
+    "get_project_structure",
+    "find_referencing_symbols",
+    "get_changed_files",
+    "get_impact_analysis",
+    "find_scoped_references",
+    "get_symbol_importance",
+    "onboard_project",
+    "summarize_file",
+    "analyze_change_request",
+    "find_minimal_context_for_change",
+    "summarize_symbol_impact",
+    "module_boundary_report",
+    "safe_rename_report",
+    "dead_code_report",
+    "impact_report",
+    "refactor_safety_report",
+    "diff_aware_references",
+    "start_analysis_job",
+    "get_analysis_job",
+    "cancel_analysis_job",
+    "get_analysis_section",
+    "list_memories",
+    "read_memory",
+];
+
+pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
+    "activate_project",
+    "get_current_config",
+    "get_capabilities",
+    "set_profile",
+    "set_preset",
+    "get_tool_metrics",
+    "find_symbol",
+    "get_symbols_overview",
+    "get_ranked_context",
+    "find_referencing_symbols",
+    "get_file_diagnostics",
+    "plan_symbol_rename",
+    "replace_symbol_body",
+    "insert_content",
+    "replace",
+    "create_text_file",
+    "analyze_missing_imports",
+    "add_import",
+    "find_minimal_context_for_change",
+    "start_analysis_job",
+    "get_analysis_job",
+    "get_analysis_section",
+];
+
+pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
+    "activate_project",
+    "get_current_config",
+    "get_capabilities",
+    "set_profile",
+    "set_preset",
+    "get_tool_metrics",
+    "read_file",
+    "search_for_pattern",
+    "find_annotations",
+    "find_tests",
+    "get_symbols_overview",
+    "find_symbol",
+    "get_ranked_context",
+    "find_referencing_symbols",
+    "get_type_hierarchy",
+    "get_changed_files",
+    "get_impact_analysis",
+    "find_scoped_references",
+    "get_symbol_importance",
+    "find_dead_code",
+    "find_circular_dependencies",
+    "get_change_coupling",
+    "onboard_project",
+    "summarize_file",
+    "analyze_change_request",
+    "find_minimal_context_for_change",
+    "summarize_symbol_impact",
+    "module_boundary_report",
+    "safe_rename_report",
+    "dead_code_report",
+    "impact_report",
+    "refactor_safety_report",
+    "diff_aware_references",
+    "start_analysis_job",
+    "get_analysis_job",
+    "cancel_analysis_job",
+    "get_analysis_section",
+    "export_session_markdown",
+];
+
+pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
+    "activate_project",
+    "get_current_config",
+    "get_capabilities",
+    "set_profile",
+    "set_preset",
+    "get_tool_metrics",
+    "export_session_markdown",
+    "read_file",
+    "search_for_pattern",
+    "find_tests",
+    "get_symbols_overview",
+    "find_symbol",
+    "get_ranked_context",
+    "get_changed_files",
+    "get_impact_analysis",
+    "find_scoped_references",
+    "find_dead_code",
+    "find_circular_dependencies",
+    "get_change_coupling",
+    "analyze_change_request",
+    "summarize_symbol_impact",
+    "module_boundary_report",
+    "dead_code_report",
+    "impact_report",
+    "refactor_safety_report",
+    "diff_aware_references",
+    "start_analysis_job",
+    "get_analysis_job",
+    "get_analysis_section",
 ];
 
 // ── Output schemas for core tools ───────────────────────────────────────
@@ -239,14 +428,98 @@ fn memory_list_output_schema() -> serde_json::Value {
     })
 }
 
+fn analysis_handle_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "analysis_id": {"type": "string"},
+            "summary": {"type": "string"},
+            "top_findings": {"type": "array", "items": {"type": "string"}},
+            "confidence": {"type": "number"},
+            "next_actions": {"type": "array", "items": {"type": "string"}},
+            "available_sections": {"type": "array", "items": {"type": "string"}}
+        }
+    })
+}
+
+fn analysis_section_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "analysis_id": {"type": "string"},
+            "section": {"type": "string"},
+            "content": {}
+        }
+    })
+}
+
+fn analysis_job_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "job_id": {"type": "string"},
+            "kind": {"type": "string"},
+            "status": {"type": "string"},
+            "progress": {"type": "integer"},
+            "current_step": {"type": ["string", "null"]},
+            "profile_hint": {"type": ["string", "null"]},
+            "analysis_id": {"type": ["string", "null"]},
+            "estimated_sections": {"type": "array", "items": {"type": "string"}},
+            "error": {"type": ["string", "null"]},
+            "updated_at_ms": {"type": "integer"}
+        }
+    })
+}
+
 static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_tools);
 
 pub(crate) fn tools() -> &'static [Tool] {
     &TOOLS
 }
 
+pub(crate) fn default_budget_for_preset(preset: ToolPreset) -> usize {
+    match preset {
+        ToolPreset::Minimal => 2000,
+        ToolPreset::Balanced => 4000,
+        ToolPreset::Full => 8000,
+    }
+}
+
+pub(crate) fn default_budget_for_profile(profile: ToolProfile) -> usize {
+    match profile {
+        ToolProfile::PlannerReadonly => 3200,
+        ToolProfile::BuilderMinimal => 2400,
+        ToolProfile::ReviewerGraph => 5000,
+        ToolProfile::RefactorFull => 8000,
+        ToolProfile::CiAudit => 3600,
+    }
+}
+
+pub(crate) fn is_tool_in_profile(name: &str, profile: ToolProfile) -> bool {
+    match profile {
+        ToolProfile::PlannerReadonly => PLANNER_READONLY_TOOLS.contains(&name),
+        ToolProfile::BuilderMinimal => BUILDER_MINIMAL_TOOLS.contains(&name),
+        ToolProfile::ReviewerGraph => REVIEWER_GRAPH_TOOLS.contains(&name),
+        ToolProfile::RefactorFull => true,
+        ToolProfile::CiAudit => CI_AUDIT_TOOLS.contains(&name),
+    }
+}
+
+pub(crate) fn is_tool_in_surface(name: &str, surface: ToolSurface) -> bool {
+    match surface {
+        ToolSurface::Preset(preset) => is_tool_in_preset(name, preset),
+        ToolSurface::Profile(profile) => is_tool_in_profile(name, profile),
+    }
+}
+
+pub(crate) fn visible_tools(surface: ToolSurface) -> Vec<&'static Tool> {
+    tools()
+        .iter()
+        .filter(|tool| is_tool_in_surface(tool.name, surface))
+        .collect()
+}
+
 /// Check if a tool is included in a given preset.
-#[cfg(feature = "http")]
 pub(crate) fn is_tool_in_preset(name: &str, preset: ToolPreset) -> bool {
     match preset {
         ToolPreset::Full => true,
@@ -263,10 +536,18 @@ fn build_tools() -> Vec<Tool> {
     let ro_p = ro.clone().with_tier(ToolTier::Primitive);
     let ro_a = ro.clone().with_tier(ToolTier::Analysis);
     let ro_w = ro.clone().with_tier(ToolTier::Workflow);
-    let mut_p = mutating.clone().with_tier(ToolTier::Primitive);
-    let dest_a = destructive.clone().with_tier(ToolTier::Analysis);
-    let mut_w = mutating.clone().with_tier(ToolTier::Workflow);
-    let mut tools = vec![
+    let approved_mutating = mutating
+        .clone()
+        .with_approval_required(true)
+        .with_audit_category("mutation");
+    let approved_destructive = destructive
+        .clone()
+        .with_approval_required(true)
+        .with_audit_category("destructive");
+    let mut_p = approved_mutating.clone().with_tier(ToolTier::Primitive);
+    let dest_a = approved_destructive.clone().with_tier(ToolTier::Analysis);
+    let mut_w = approved_mutating.clone().with_tier(ToolTier::Workflow);
+    let tools = vec![
         // ── File I/O ────────────────────────────────────────────────────
         Tool::new("get_current_config", "[CodeLens:Session] Project config and index stats. Use to verify project is active.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
         Tool::new("read_file", "[CodeLens:File] Read file contents with optional line range.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"}},"required":["relative_path"]})).with_output_schema(file_content_output_schema()).with_annotations(ro_p.clone()),
@@ -325,6 +606,19 @@ fn build_tools() -> Vec<Tool> {
 
         // ── Composite (multi-step workflows) ────────────────────────────
         Tool::new("onboard_project", "[CodeLens:Session] One-shot onboarding: structure, key files (PageRank), cycles, stats. Call first on any codebase.", json!({"type":"object","properties":{}})).with_output_schema(onboard_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("analyze_change_request", "[CodeLens:Workflow] Compress a change request into ranked files, key symbols, risk, and next actions.", json!({"type":"object","properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}},"required":["task"]})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("find_minimal_context_for_change", "[CodeLens:Workflow] Return the smallest useful file and symbol context needed to start a change.", json!({"type":"object","properties":{"task":{"type":"string"}},"required":["task"]})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("summarize_symbol_impact", "[CodeLens:Workflow] Summarize callers, references, and affected files for one symbol.", json!({"type":"object","properties":{"symbol":{"type":"string"},"file_path":{"type":"string"},"depth":{"type":"integer"}},"required":["symbol"]})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("module_boundary_report", "[CodeLens:Workflow] Summarize dependency boundaries, coupling, and cycle risk for a module or path.", json!({"type":"object","properties":{"path":{"type":"string"}},"required":["path"]})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("safe_rename_report", "[CodeLens:Workflow] Assess rename safety, blockers, and preview edits before refactoring.", json!({"type":"object","properties":{"file_path":{"type":"string"},"symbol":{"type":"string"},"new_name":{"type":"string"}},"required":["file_path","symbol"]})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("dead_code_report", "[CodeLens:Workflow] Summarize dead-code candidates with bounded evidence and deletion risk.", json!({"type":"object","properties":{"scope":{"type":"string"},"max_results":{"type":"integer"}}})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("impact_report", "[CodeLens:Workflow] Summarize changed-file impact, references, and blast radius with a bounded report.", json!({"type":"object","properties":{"path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}}}})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("refactor_safety_report", "[CodeLens:Workflow] Combine boundary, symbol impact, and test cues into a preview-first refactor report.", json!({"type":"object","properties":{"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"}}})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("diff_aware_references", "[CodeLens:Workflow] Compress references for changed files into a bounded reviewer/CI report.", json!({"type":"object","properties":{"changed_files":{"type":"array","items":{"type":"string"}}}})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("start_analysis_job", "[CodeLens:Workflow] Start a durable analysis job and return a job handle for polling.", json!({"type":"object","properties":{"kind":{"type":"string","enum":["impact_report","dead_code_report","refactor_safety_report"]},"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}},"required":["kind"]})).with_output_schema(analysis_job_output_schema()).with_annotations(ro_w.clone()),
+        Tool::new("get_analysis_job", "[CodeLens:Workflow] Poll a durable analysis job by job_id.", json!({"type":"object","properties":{"job_id":{"type":"string"}},"required":["job_id"]})).with_output_schema(analysis_job_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new("cancel_analysis_job", "[CodeLens:Workflow] Cancel a queued or running analysis job by job_id.", json!({"type":"object","properties":{"job_id":{"type":"string"}},"required":["job_id"]})).with_output_schema(analysis_job_output_schema()).with_annotations(mut_w.clone()),
+        Tool::new("get_analysis_section", "[CodeLens:Workflow] Expand a stored analysis section by analysis_id.", json!({"type":"object","properties":{"analysis_id":{"type":"string"},"section":{"type":"string"}},"required":["analysis_id","section"]})).with_output_schema(analysis_section_output_schema()).with_annotations(ro_p.clone()),
 
         // ── Memory ──────────────────────────────────────────────────────
         Tool::new("list_memories", "[CodeLens:Memory] List project memory files under .codelens/memories.", json!({"type":"object","properties":{"topic":{"type":"string","description":"Optional topic to filter"}}})).with_output_schema(memory_list_output_schema()).with_annotations(ro_p.clone()),
@@ -343,6 +637,7 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("query_project", "[CodeLens:Session] Search symbols in a registered external project.", json!({"type":"object","properties":{"project_name":{"type":"string","description":"Name of the registered project"},"symbol_name":{"type":"string","description":"Symbol name to search for"},"max_results":{"type":"integer","description":"Max results (default 20)"}},"required":["project_name","symbol_name"]})).with_annotations(ro_a.clone()),
         Tool::new("list_queryable_projects", "[CodeLens:Session] List all registered projects (active + external).", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
         Tool::new("set_preset", "[CodeLens:Session] Switch tool preset at runtime. Auto-adjusts token budget.", json!({"type":"object","properties":{"preset":{"type":"string","enum":["minimal","balanced","full"],"description":"Target preset"},"token_budget":{"type":"integer","description":"Override token budget (default: auto per preset)"}},"required":["preset"]})).with_annotations(mutating.clone()),
+        Tool::new("set_profile", "[CodeLens:Session] Switch the active role profile. Preferred for harness-oriented workflows.", json!({"type":"object","properties":{"profile":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]},"token_budget":{"type":"integer","description":"Override token budget for the active profile"}},"required":["profile"]})).with_annotations(mutating.clone()),
         Tool::new("get_capabilities", "[CodeLens:Session] Check LSP, embeddings, index freshness. Use before advanced tools.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"Optional file path to check language-specific capabilities"}}})).with_annotations(ro_a.clone()),
         Tool::new("get_tool_metrics", "[CodeLens:Session] Per-tool call counts, latency, errors. Use for self-diagnosis.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
         Tool::new("export_session_markdown", "[CodeLens:Session] Export session telemetry as markdown report.", json!({"type":"object","properties":{"name":{"type":"string","description":"Session name for the report header"}}})).with_annotations(ro_p.clone()),
@@ -352,6 +647,7 @@ fn build_tools() -> Vec<Tool> {
     // ── Semantic (feature-gated) ────────────────────────────────────
     #[cfg(feature = "semantic")]
     {
+        let mut tools = tools;
         let ro = ro;
         tools.push(Tool::new("semantic_search", "[CodeLens:Symbol] Natural language code search via embeddings — find code by meaning.", json!({"type":"object","properties":{"query":{"type":"string","description":"Natural language search query"},"max_results":{"type":"integer","description":"Max results (default 20)"}},"required":["query"]})).with_annotations(ro_p.clone()));
         tools.push(Tool::new("index_embeddings", "[CodeLens:Symbol] Build semantic embedding index. Required before semantic_search.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()));
@@ -359,6 +655,7 @@ fn build_tools() -> Vec<Tool> {
         tools.push(Tool::new("find_code_duplicates", "[CodeLens:Analysis] Find near-duplicate code pairs across the codebase — DRY violations.", json!({"type":"object","properties":{"threshold":{"type":"number","description":"Cosine similarity threshold (default 0.85)"},"max_pairs":{"type":"integer","description":"Max pairs to return (default 20)"}}})).with_annotations(ro_a.clone()));
         tools.push(Tool::new("classify_symbol", "[CodeLens:Analysis] Zero-shot classify a symbol into categories — e.g. error handling, auth, database.", json!({"type":"object","properties":{"file_path":{"type":"string"},"symbol_name":{"type":"string"},"categories":{"type":"array","items":{"type":"string"},"description":"Category labels to classify against"}},"required":["file_path","symbol_name","categories"]})).with_annotations(ro_a.clone()));
         tools.push(Tool::new("find_misplaced_code", "[CodeLens:Analysis] Find symbols that are semantic outliers in their file — possible misplacement.", json!({"type":"object","properties":{"max_results":{"type":"integer","description":"Max outliers to return (default 10)"}}})).with_annotations(ro));
+        return tools;
     }
 
     tools

@@ -6,6 +6,7 @@ use std::io::{self, BufRead, Write};
 use std::sync::Arc;
 
 pub(crate) fn run_stdio(state: Arc<AppState>) -> Result<()> {
+    state.metrics().record_transport_session("stdio");
     let stdin = io::stdin();
     let mut stdout = io::stdout().lock();
 

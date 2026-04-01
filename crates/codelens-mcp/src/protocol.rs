@@ -60,6 +60,10 @@ pub struct ToolAnnotations {
     pub read_only_hint: Option<bool>,
     #[serde(rename = "destructiveHint", skip_serializing_if = "Option::is_none")]
     pub destructive_hint: Option<bool>,
+    #[serde(rename = "approvalRequired", skip_serializing_if = "Option::is_none")]
+    pub approval_required: Option<bool>,
+    #[serde(rename = "auditCategory", skip_serializing_if = "Option::is_none")]
+    pub audit_category: Option<String>,
     #[serde(rename = "idempotentHint", skip_serializing_if = "Option::is_none")]
     pub idempotent_hint: Option<bool>,
     #[serde(rename = "openWorldHint", skip_serializing_if = "Option::is_none")]
@@ -232,6 +236,8 @@ impl ToolAnnotations {
         Self {
             read_only_hint: Some(true),
             destructive_hint: Some(false),
+            approval_required: Some(false),
+            audit_category: None,
             idempotent_hint: None,
             open_world_hint: None,
             tier: None,
@@ -242,6 +248,8 @@ impl ToolAnnotations {
         Self {
             read_only_hint: Some(false),
             destructive_hint: Some(true),
+            approval_required: Some(true),
+            audit_category: Some("destructive".to_owned()),
             idempotent_hint: None,
             open_world_hint: None,
             tier: None,
@@ -252,6 +260,8 @@ impl ToolAnnotations {
         Self {
             read_only_hint: Some(false),
             destructive_hint: Some(false),
+            approval_required: Some(false),
+            audit_category: None,
             idempotent_hint: None,
             open_world_hint: None,
             tier: None,
@@ -261,6 +271,16 @@ impl ToolAnnotations {
     /// Set the tool tier.
     pub fn with_tier(mut self, tier: ToolTier) -> Self {
         self.tier = Some(tier);
+        self
+    }
+
+    pub fn with_approval_required(mut self, required: bool) -> Self {
+        self.approval_required = Some(required);
+        self
+    }
+
+    pub fn with_audit_category(mut self, category: impl Into<String>) -> Self {
+        self.audit_category = Some(category.into());
         self
     }
 }

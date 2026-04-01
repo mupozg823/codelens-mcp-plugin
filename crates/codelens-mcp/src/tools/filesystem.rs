@@ -9,7 +9,7 @@ use serde_json::json;
 
 pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let stats = state.symbol_index().stats()?;
-    let preset = *state.preset();
+    let surface = *state.surface();
     let frameworks = detect_frameworks(state.project().as_path());
     let workspace_packages = detect_workspace_packages(state.project().as_path());
     Ok((
@@ -19,8 +19,8 @@ pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> T
             "editor_integration": false,
             "available_backends": ["filesystem", "tree-sitter-cached", "lsp_pooled"],
             "symbol_index": stats,
-            "preset": format!("{preset:?}"),
-            "tool_count": crate::tool_defs::tools().len(),
+            "surface": surface.as_label(),
+            "tool_count": crate::tool_defs::visible_tools(surface).len(),
             "frameworks": frameworks,
             "workspace_packages": workspace_packages
         }),

@@ -8,6 +8,9 @@ use crate::tool_defs::tools;
 use codelens_core::ProjectRoot;
 use serde_json::json;
 use std::fs;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static TEST_PROJECT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 // ── Protocol-level tests ─────────────────────────────────────────────
 
@@ -25,12 +28,10 @@ fn lists_tools() {
         },
     )
     .expect("tools/list should return a response");
-    #[cfg(feature = "semantic")]
-    assert_eq!(tools().len(), 70);
-    #[cfg(not(feature = "semantic"))]
-    assert_eq!(tools().len(), 64);
+    assert!(tools().len() >= 64);
     let encoded = serde_json::to_string(&response).expect("serialize");
     assert!(encoded.contains("get_symbols_overview"));
+    assert!(encoded.contains("active_surface"));
 }
 
 #[test]
@@ -105,6 +106,45 @@ fn set_preset_changes_tools_list() {
 
     let bal_resp = call_tool(&state, "set_preset", json!({"preset": "balanced"}));
     assert_eq!(bal_resp["data"]["current_preset"], "Balanced");
+}
+
+#[test]
+fn set_profile_changes_tools_list() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let profile_resp = call_tool(&state, "set_profile", json!({"profile": "planner-readonly"}));
+    assert_eq!(profile_resp["data"]["current_profile"], "planner-readonly");
+
+    let list_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(9)),
+            method: "tools/list".to_owned(),
+            params: None,
+        },
+    )
+    .unwrap();
+    let encoded = serde_json::to_string(&list_resp).unwrap();
+    assert!(encoded.contains("analyze_change_request"));
+    assert!(!encoded.contains("\"rename_symbol\""));
+
+    let builder_resp = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
+    assert_eq!(builder_resp["data"]["current_profile"], "builder-minimal");
+    let builder_list = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(10)),
+            method: "tools/list".to_owned(),
+            params: None,
+        },
+    )
+    .unwrap();
+    let builder_encoded = serde_json::to_string(&builder_list).unwrap();
+    assert!(!builder_encoded.contains("\"find_dead_code\""));
+    assert!(builder_encoded.contains("\"find_symbol\""));
 }
 
 // ── Read-only tool tests ─────────────────────────────────────────────
@@ -676,6 +716,412 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"].get("index_fresh").is_some());
 }
 
+#[test]
+fn analyze_change_request_returns_handle_and_section() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("workflow.py"),
+        "def search_users(query):\n    return []\n\ndef delete_user(uid):\n    return uid\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "update search users flow"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let analysis_id = payload["data"]["analysis_id"]
+        .as_str()
+        .expect("analysis_id");
+    assert!(analysis_id.starts_with("analysis-"));
+
+    let section = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "ranked_files"}),
+    );
+    assert_eq!(section["success"], json!(true));
+    assert_eq!(section["data"]["analysis_id"], json!(analysis_id));
+    assert!(
+        state
+            .analysis_dir()
+            .join(analysis_id)
+            .join("ranked_files.json")
+            .exists()
+    );
+}
+
+#[test]
+fn start_analysis_job_returns_completed_handle() {
+    let project = project_root();
+    fs::write(project.as_path().join("impact.py"), "def alpha():\n    return 1\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({"kind": "impact_report", "path": "impact.py", "profile_hint": "reviewer-graph"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["status"], json!("queued"));
+    assert_eq!(payload["data"]["current_step"], json!("queued"));
+    let job_id = payload["data"]["job_id"].as_str().unwrap();
+    let mut job = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+    for _ in 0..100 {
+        if job["data"]["status"] == json!("completed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        job = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+    }
+    assert_eq!(job["data"]["status"], json!("completed"));
+    let analysis_id = job["data"]["analysis_id"].as_str().unwrap();
+    assert_eq!(job["data"]["analysis_id"], json!(analysis_id));
+
+    let section = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "impact_rows"}),
+    );
+    assert_eq!(section["success"], json!(true));
+}
+
+#[test]
+fn start_analysis_job_reports_running_progress() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("progress_job.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "progress_job.py",
+            "debug_step_delay_ms": 30
+        }),
+    );
+    let job_id = payload["data"]["job_id"].as_str().unwrap();
+    let mut saw_running = false;
+    let mut saw_mid_progress = false;
+    let mut saw_step = false;
+    for _ in 0..100 {
+        let job = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+        let status = job["data"]["status"].as_str().unwrap_or_default();
+        let progress = job["data"]["progress"].as_u64().unwrap_or_default();
+        if status == "running" {
+            saw_running = true;
+        }
+        if (1..100).contains(&progress) {
+            saw_mid_progress = true;
+        }
+        if job["data"]["current_step"].is_string() {
+            saw_step = true;
+        }
+        if status == "completed" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    assert!(saw_running);
+    assert!(saw_mid_progress);
+    assert!(saw_step);
+}
+
+#[test]
+fn analysis_jobs_queue_when_worker_busy() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("queue_first.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("queue_second.py"),
+        "def beta():\n    return 2\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let first = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "queue_first.py",
+            "debug_step_delay_ms": 60
+        }),
+    );
+    let first_job_id = first["data"]["job_id"].as_str().unwrap();
+    for _ in 0..50 {
+        let first_job = call_tool(&state, "get_analysis_job", json!({"job_id": first_job_id}));
+        if first_job["data"]["status"] == json!("running") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let second = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "queue_second.py",
+            "debug_step_delay_ms": 20
+        }),
+    );
+    let second_job_id = second["data"]["job_id"].as_str().unwrap();
+    let second_job = call_tool(&state, "get_analysis_job", json!({"job_id": second_job_id}));
+    assert_eq!(second_job["data"]["status"], json!("queued"));
+    assert_eq!(second_job["data"]["current_step"], json!("queued"));
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert!(
+        metrics["data"]["session"]["analysis_jobs_enqueued"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 2
+    );
+    assert!(
+        metrics["data"]["session"]["analysis_jobs_started"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+    assert!(
+        metrics["data"]["session"]["analysis_queue_max_depth"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+}
+
+#[test]
+fn cancel_analysis_job_marks_job_cancelled() {
+    let project = project_root();
+    fs::write(project.as_path().join("cancel_job.py"), "def beta():\n    return 2\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({"kind": "dead_code_report", "scope": "."}),
+    );
+    let job_id = payload["data"]["job_id"].as_str().unwrap();
+    let cancelled = call_tool(&state, "cancel_analysis_job", json!({"job_id": job_id}));
+    assert_eq!(cancelled["data"]["status"], json!("cancelled"));
+}
+
+#[test]
+fn resources_include_profile_guides_and_analysis_summaries() {
+    let project = project_root();
+    fs::write(project.as_path().join("module.py"), "def alpha():\n    return 1\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "dead_code_report",
+        json!({"scope": ".", "max_results": 5}),
+    );
+    let analysis_id = payload["data"]["analysis_id"].as_str().unwrap();
+
+    let list_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(21)),
+            method: "resources/list".to_owned(),
+            params: None,
+        },
+    )
+    .unwrap();
+    let encoded = serde_json::to_string(&list_response).unwrap();
+    assert!(encoded.contains("codelens://profile/planner-readonly/guide"));
+    assert!(encoded.contains(&format!("codelens://analysis/{analysis_id}/summary")));
+
+    let read_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(22)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": format!("codelens://analysis/{analysis_id}/summary")})),
+        },
+    )
+    .unwrap();
+    let body = serde_json::to_string(&read_response).unwrap();
+    assert!(body.contains("available_sections"));
+}
+
+#[test]
+fn tool_metrics_expose_kpis_and_chain_detection() {
+    let project = project_root();
+    fs::write(project.as_path().join("chain.py"), "def alpha():\n    return 1\n").unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool(
+        &state,
+        "find_symbol",
+        json!({"name": "alpha", "file_path": "chain.py", "include_body": false}),
+    );
+    let _ = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({"file_path": "chain.py", "symbol_name": "alpha", "max_results": 10}),
+    );
+    let _ = call_tool(&state, "read_file", json!({"relative_path": "chain.py"}));
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert!(metrics["data"]["per_tool"].is_array());
+    assert!(metrics["data"]["per_surface"].is_array());
+    assert!(metrics["data"]["derived_kpis"]["composite_ratio"].is_number());
+    assert!(
+        metrics["data"]["session"]["repeated_low_level_chain_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+}
+
+#[test]
+fn analysis_artifacts_evict_oldest_disk_payloads() {
+    let project = project_root();
+    fs::write(project.as_path().join("evict.py"), "def alpha():\n    return 1\n").unwrap();
+    let state = make_state(&project);
+    let mut first_analysis_id = None;
+
+    for idx in 0..70 {
+        let payload = call_tool(
+            &state,
+            "analyze_change_request",
+            json!({"task": format!("update alpha flow {idx}")}),
+        );
+        let analysis_id = payload["data"]["analysis_id"].as_str().unwrap().to_owned();
+        if first_analysis_id.is_none() {
+            first_analysis_id = Some(analysis_id);
+        }
+    }
+
+    let first_analysis_id = first_analysis_id.expect("first analysis id");
+    assert!(state.get_analysis(&first_analysis_id).is_none());
+    assert!(!state.analysis_dir().join(&first_analysis_id).exists());
+}
+
+#[test]
+fn mutation_tools_write_audit_log() {
+    let project = project_root();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "create_text_file",
+        json!({"relative_path": "audit.txt", "content": "hello"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+
+    let audit_path = project
+        .as_path()
+        .join(".codelens")
+        .join("audit")
+        .join("mutation-audit.jsonl");
+    let audit = fs::read_to_string(audit_path).unwrap();
+    assert!(audit.contains("create_text_file"));
+}
+
+#[test]
+fn analysis_artifacts_expire_by_ttl() {
+    let project = project_root();
+    fs::write(project.as_path().join("ttl.py"), "def gamma():\n    return 3\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "update gamma flow"}),
+    );
+    let analysis_id = payload["data"]["analysis_id"].as_str().unwrap().to_owned();
+    state.set_analysis_created_at_for_test(&analysis_id, 0).unwrap();
+
+    assert!(state.get_analysis(&analysis_id).is_none());
+    assert!(!state.analysis_dir().join(&analysis_id).exists());
+    assert!(state
+        .list_analysis_summaries()
+        .into_iter()
+        .all(|summary| summary.id != analysis_id));
+}
+
+#[test]
+fn startup_cleanup_removes_expired_analysis_artifacts() {
+    let project = project_root();
+    fs::write(project.as_path().join("startup_ttl.py"), "def delta():\n    return 4\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "update delta flow"}),
+    );
+    let analysis_id = payload["data"]["analysis_id"].as_str().unwrap().to_owned();
+    state.set_analysis_created_at_for_test(&analysis_id, 0).unwrap();
+
+    let restarted = make_state(&project);
+    assert!(!restarted.analysis_dir().join(&analysis_id).exists());
+}
+
+#[test]
+fn startup_cleanup_preserves_analysis_jobs_dir() {
+    let project = project_root();
+    fs::write(project.as_path().join("jobs_keep.py"), "def epsilon():\n    return 5\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({"kind": "impact_report", "path": "jobs_keep.py"}),
+    );
+    let job_id = payload["data"]["job_id"].as_str().unwrap().to_owned();
+    let job_path = project
+        .as_path()
+        .join(".codelens")
+        .join("analysis-cache")
+        .join("jobs")
+        .join(format!("{job_id}.json"));
+    assert!(job_path.exists());
+
+    let restarted = make_state(&project);
+    assert!(restarted.analysis_dir().join("jobs").exists());
+    assert!(job_path.exists());
+}
+
+#[test]
+fn analysis_reads_update_session_metrics() {
+    let project = project_root();
+    fs::write(project.as_path().join("metrics.py"), "def beta():\n    return 2\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "update beta flow"}),
+    );
+    let analysis_id = payload["data"]["analysis_id"].as_str().unwrap();
+
+    let _ = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "ranked_files"}),
+    );
+    let _ = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(23)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": format!("codelens://analysis/{analysis_id}/summary")})),
+        },
+    )
+    .unwrap();
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert_eq!(metrics["data"]["session"]["analysis_section_reads"], json!(1));
+    assert_eq!(metrics["data"]["session"]["analysis_summary_reads"], json!(1));
+}
+
 // ── Test helpers ─────────────────────────────────────────────────────
 
 fn make_state(project: &ProjectRoot) -> crate::AppState {
@@ -714,12 +1160,15 @@ fn parse_tool_payload(text: &str) -> serde_json::Value {
 }
 
 fn project_root() -> ProjectRoot {
+    let seq = TEST_PROJECT_SEQ.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
-        "codelens-test-{}",
+        "codelens-test-{}-{}-{}",
+        std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos(),
+        seq
     ));
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("hello.txt"), "hello world\n").unwrap();

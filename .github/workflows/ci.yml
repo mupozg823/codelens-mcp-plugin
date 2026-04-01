@@ -58,3 +58,26 @@ jobs:
 
       - name: cargo build --release (with semantic feature)
         run: cargo build --release
+
+      - name: cargo build --release (http for benchmark gate)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo build --release --features http
+
+      - name: token-efficiency benchmark gate
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          CODELENS_BIN: target/release/codelens-mcp
+        run: |
+          python3 benchmarks/token-efficiency.py . --check --require-handle-win | tee benchmarks/token-efficiency-ci.txt
+          python3 benchmarks/render-summary.py --output benchmarks/token-efficiency-summary.md
+          cat benchmarks/token-efficiency-summary.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: upload benchmark artifacts
+        if: matrix.os == 'ubuntu-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: token-efficiency-benchmark
+          path: |
+            benchmarks/benchmark_results.json
+            benchmarks/token-efficiency-ci.txt
+            benchmarks/token-efficiency-summary.md

@@ -116,7 +116,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     #[cfg(not(feature = "semantic"))]
     let semantic_scores = std::collections::HashMap::new();
 
-    let mut result = state.symbol_index().get_ranked_context_cached(
+    let result = state.symbol_index().get_ranked_context_cached(
         query,
         path,
         max_tokens,

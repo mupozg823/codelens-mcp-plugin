@@ -2,6 +2,7 @@
 
 use crate::error::CodeLensError;
 use crate::protocol::{JsonRpcResponse, ToolCallResponse};
+use crate::tool_defs::{default_budget_for_profile, ToolProfile};
 use crate::tools::{self, ToolHandler, ToolResult};
 use crate::AppState;
 use serde_json::json;
@@ -207,7 +208,9 @@ fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> String {
 // ── Static dispatch table ──────────────────────────────────────────────
 
 static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> = LazyLock::new(|| {
-    let mut m = tools::dispatch_table();
+    let m = tools::dispatch_table();
+    #[cfg(feature = "semantic")]
+    let mut m = m;
     #[cfg(feature = "semantic")]
     {
         m.insert("semantic_search", |s, a| semantic_search_handler(s, a));
@@ -244,11 +247,15 @@ pub(crate) fn dispatch_tool(
     let request_budget = arguments
         .get("_profile")
         .and_then(|v| v.as_str())
-        .map(|profile| match profile {
-            "fast_local" => 2000usize,
-            "deep_semantic" => 16000,
-            "safe_mutation" => 4000,
-            _ => state.token_budget(),
+        .map(|profile| {
+            ToolProfile::from_str(profile)
+                .map(default_budget_for_profile)
+                .unwrap_or_else(|| match profile {
+                    "fast_local" => 2000usize,
+                    "deep_semantic" => 16000,
+                    "safe_mutation" => 4000,
+                    _ => state.token_budget(),
+                })
         })
         .unwrap_or_else(|| state.token_budget());
     REQUEST_BUDGET.set(request_budget);
@@ -257,6 +264,7 @@ pub(crate) fn dispatch_tool(
     let _guard = span.enter();
     let start = std::time::Instant::now();
     state.push_recent_tool(name);
+    let active_surface = state.surface().as_label().to_owned();
 
     let result: ToolResult = match DISPATCH_TABLE.get(name) {
         Some(handler) => handler(state, &arguments),
@@ -280,6 +288,9 @@ pub(crate) fn dispatch_tool(
     ];
     if result.is_ok() && MUTATION_TOOLS.contains(&name) {
         state.graph_cache().invalidate();
+        if let Err(error) = state.record_mutation_audit(name, &active_surface, &arguments) {
+            warn!(tool = name, error = %error, "failed to write mutation audit event");
+        }
     }
 
     let elapsed_ms = start.elapsed().as_millis();
@@ -306,6 +317,7 @@ pub(crate) fn dispatch_tool(
                 elapsed_ms as u64,
                 true,
                 payload_estimate,
+                &active_surface,
             );
             let budget = request_token_budget();
             resp.budget_hint = Some(budget_hint(name, payload_estimate, budget));
@@ -339,7 +351,7 @@ pub(crate) fn dispatch_tool(
         Err(error) => {
             state
                 .metrics()
-                .record_call_with_tokens(name, elapsed_ms as u64, false, 0);
+                .record_call_with_tokens(name, elapsed_ms as u64, false, 0, &active_surface);
             // Protocol-level errors: return as JSON-RPC error response
             if error.is_protocol_error() {
                 return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());

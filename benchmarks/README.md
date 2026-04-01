@@ -37,6 +37,20 @@ cargo build --release
 - 제로 프로젝트 첫 호출 (auto-index 포함)
 - grep 대비 속도
 
+### 1-1. 토큰 효율 / workflow benchmark (token-efficiency.py)
+
+```bash
+CODELENS_BIN=target/debug/codelens-mcp python3 benchmarks/token-efficiency.py .
+python3 benchmarks/render-summary.py --output benchmarks/token-efficiency-summary.md
+```
+
+측정 항목:
+
+- 기존 baseline 대비 CodeLens output token 절감
+- `preset:balanced` low-level chain vs role-profile composite workflow 비교
+- scenario별 tool call count / low-level chain count / p95 latency / retry count
+- CI에서는 markdown summary를 `GITHUB_STEP_SUMMARY`와 artifact로 함께 저장
+
 ### 2. 세션 텔레메트리 (collect-session.sh)
 
 ```bash

@@ -4,6 +4,7 @@ pub mod graph;
 pub mod lsp;
 pub mod memory;
 pub mod mutation;
+pub mod reports;
 pub mod session;
 pub mod symbols;
 
@@ -104,6 +105,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "query_project"                => session::query_project,
         "get_watch_status"             => session::get_watch_status,
         "set_preset"                   => session::set_preset,
+        "set_profile"                  => session::set_profile,
         "get_capabilities"             => session::get_capabilities,
         "get_tool_metrics"             => session::get_tool_metrics,
         "export_session_markdown"      => session::export_session_markdown,
@@ -115,10 +117,26 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "refactor_move_to_file"        => composite::refactor_move_to_file,
         "refactor_change_signature"    => composite::refactor_change_signature,
         "onboard_project"              => composite::onboard_project,
+        // ── Reports / compressed context ──
+        "analyze_change_request"       => reports::analyze_change_request,
+        "find_minimal_context_for_change" => reports::find_minimal_context_for_change,
+        "summarize_symbol_impact"      => reports::summarize_symbol_impact,
+        "module_boundary_report"       => reports::module_boundary_report,
+        "safe_rename_report"           => reports::safe_rename_report,
+        "dead_code_report"             => reports::dead_code_report,
+        "impact_report"                => reports::impact_report,
+        "refactor_safety_report"       => reports::refactor_safety_report,
+        "diff_aware_references"        => reports::diff_aware_references,
+        "start_analysis_job"           => reports::start_analysis_job,
+        "get_analysis_job"             => reports::get_analysis_job,
+        "cancel_analysis_job"          => reports::cancel_analysis_job,
+        "get_analysis_section"         => reports::get_analysis_section,
     }
 }
 
 /// Rough token count estimate: 1 token ≈ 4 bytes of UTF-8 text.
+/// Accuracy: ~±30% vs tiktoken cl100k_base. Sufficient for budget control,
+/// not for precise measurement. JSON-heavy output tends to undercount.
 pub fn estimate_tokens(text: &str) -> usize {
     text.len() / 4
 }
@@ -388,6 +406,18 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],
         "refactor_change_signature" => &["get_file_diagnostics", "find_referencing_symbols"],
+        "analyze_change_request" => &["get_analysis_section", "impact_report", "refactor_safety_report"],
+        "find_minimal_context_for_change" => &["get_analysis_section", "analyze_change_request"],
+        "summarize_symbol_impact" => &["get_analysis_section", "safe_rename_report"],
+        "module_boundary_report" => &["get_analysis_section", "impact_report", "dead_code_report"],
+        "safe_rename_report" => &["get_analysis_section", "rename_symbol", "refactor_safety_report"],
+        "dead_code_report" => &["get_analysis_section", "impact_report"],
+        "impact_report" => &["get_analysis_section", "diff_aware_references"],
+        "refactor_safety_report" => &["get_analysis_section", "safe_rename_report"],
+        "diff_aware_references" => &["get_analysis_section", "impact_report"],
+        "start_analysis_job" => &["get_analysis_job"],
+        "get_analysis_job" => &["get_analysis_section"],
+        "cancel_analysis_job" => &["start_analysis_job"],
 
         _ => return None,
     };

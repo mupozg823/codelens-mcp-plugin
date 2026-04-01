@@ -7,18 +7,33 @@ pub(crate) fn prompts() -> Vec<serde_json::Value> {
     vec![
         json!({
             "name": "review-file",
-            "description": "Review a file for code quality, bugs, and improvements",
+            "description": "Review one file with compressed, graph-aware evidence instead of raw tool chaining",
             "arguments": [{ "name": "file_path", "description": "File to review", "required": true }]
         }),
         json!({
             "name": "onboard-project",
-            "description": "Get a comprehensive overview of the project for onboarding",
+            "description": "Get a harness-oriented project overview with the smallest useful context",
             "arguments": []
         }),
         json!({
             "name": "analyze-impact",
-            "description": "Analyze the impact of modifying a specific file",
+            "description": "Assess change surface and test risk for one file",
             "arguments": [{ "name": "file_path", "description": "File to analyze", "required": true }]
+        }),
+        json!({
+            "name": "planner-readonly-guide",
+            "description": "Recommended question pattern for planner-readonly",
+            "arguments": [{ "name": "task", "description": "Change request to compress", "required": true }]
+        }),
+        json!({
+            "name": "reviewer-graph-guide",
+            "description": "Recommended question pattern for reviewer-graph",
+            "arguments": [{ "name": "path", "description": "Path or module to inspect", "required": true }]
+        }),
+        json!({
+            "name": "refactor-full-guide",
+            "description": "Recommended preview-first pattern for refactor-full",
+            "arguments": [{ "name": "path", "description": "Path to refactor", "required": true }]
         }),
     ]
 }
@@ -41,13 +56,7 @@ pub(crate) fn get_prompt(
                     "content": {
                         "type": "text",
                         "text": format!(
-                            "Please review the file `{file_path}` in the project at `{project_root}`.\n\n\
-                            Use these tools to analyze:\n\
-                            1. `get_symbols_overview` to understand the file structure\n\
-                            2. `find_scoped_references` to check how symbols are used\n\
-                            3. `get_complexity` to identify complex functions\n\
-                            4. `analyze_missing_imports` to find import issues\n\n\
-                            Focus on: bugs, performance, readability, and missing error handling."
+                            "Review `{file_path}` in `{project_root}` using bounded evidence. Prefer `impact_report`, `module_boundary_report`, and `diff_aware_references`, then expand one section at a time with `get_analysis_section`. Focus on bug risk, structural coupling, and missing tests."
                         )
                     }
                 }]
@@ -60,13 +69,7 @@ pub(crate) fn get_prompt(
                     "content": {
                         "type": "text",
                         "text": format!(
-                            "I'm new to the project at `{project_root}`. Help me understand it.\n\n\
-                            Use these tools:\n\
-                            1. `get_symbols_overview` on the root to see top-level structure\n\
-                            2. `get_symbol_importance` to find the most important files\n\
-                            3. `find_circular_dependencies` to understand architecture issues\n\
-                            4. `search_for_pattern` for key patterns (main entry, config, tests)\n\n\
-                            Give me: architecture overview, key files, entry points, and test strategy."
+                            "Onboard me to `{project_root}` as a harness designer. Start with `onboard_project` or `find_minimal_context_for_change`, keep the context compressed, and call out the best planner/reviewer profiles for this repo."
                         )
                     }
                 }]
@@ -83,12 +86,49 @@ pub(crate) fn get_prompt(
                     "content": {
                         "type": "text",
                         "text": format!(
-                            "Analyze the impact of modifying `{file_path}` in `{project_root}`.\n\n\
-                            Use these tools:\n\
-                            1. `get_impact_analysis` for symbols + importers + blast radius\n\
-                            2. `get_symbols_overview` to understand what's in the file\n\
-                            3. `find_scoped_references` for each exported symbol\n\n\
-                            Assess: risk level, affected modules, required test coverage."
+                            "Assess the change surface for `{file_path}` in `{project_root}`. Prefer `impact_report` and `summarize_symbol_impact`, then expand individual sections only if the first report is insufficient."
+                        )
+                    }
+                }]
+            })
+        }
+        "planner-readonly-guide" => {
+            let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("planned change");
+            json!({
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "For planner-readonly, compress the request `{task}` in `{project_root}` into the smallest useful context. Start with `analyze_change_request`; only open `get_analysis_section` for ranked_files or changed_files if needed."
+                        )
+                    }
+                }]
+            })
+        }
+        "reviewer-graph-guide" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+            json!({
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "For reviewer-graph, inspect `{path}` in `{project_root}` with graph-aware evidence. Start with `impact_report`, `module_boundary_report`, and `dead_code_report`, then open individual sections only if the summary is insufficient."
+                        )
+                    }
+                }]
+            })
+        }
+        "refactor-full-guide" => {
+            let path = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
+            json!({
+                "messages": [{
+                    "role": "user",
+                    "content": {
+                        "type": "text",
+                        "text": format!(
+                            "For refactor-full, treat `{path}` in `{project_root}` as preview-first. Start with `refactor_safety_report` or `safe_rename_report`, poll any durable jobs with `get_analysis_job`, and only use mutation tools after the bounded report shows low risk."
                         )
                     }
                 }]
