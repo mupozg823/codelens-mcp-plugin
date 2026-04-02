@@ -1,5 +1,5 @@
-use codelens_core::rename::{rename_symbol, RenameScope};
 use codelens_core::ProjectRoot;
+use codelens_core::rename::{RenameScope, rename_symbol};
 
 #[test]
 fn real_world_rename_validation() {

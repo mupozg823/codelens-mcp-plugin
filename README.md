@@ -40,6 +40,16 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 
 ## Works With Every AI Agent
 
+### Shared HTTP Daemon (Preferred)
+
+```bash
+# Read-only shared daemon for planners, reviewers, and CI
+codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
+
+# Mutation-enabled daemon for explicit refactor passes
+codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
+```
+
 ### Claude Code
 
 ```json
@@ -47,9 +57,8 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 {
   "mcpServers": {
     "codelens": {
-      "type": "stdio",
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "planner-readonly"]
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     }
   }
 }
@@ -58,6 +67,22 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 ### Cursor / VS Code / Codex / Windsurf
 
 See [docs/platform-setup.md](docs/platform-setup.md) for all platforms.
+
+### Stdio Fallback
+
+Use stdio only for single local sessions:
+
+```json
+{
+  "mcpServers": {
+    "codelens": {
+      "type": "stdio",
+      "command": "codelens-mcp",
+      "args": [".", "--profile", "builder-minimal"]
+    }
+  }
+}
+```
 
 ## What It Does
 
@@ -96,6 +121,8 @@ Run `python3 benchmarks/token-efficiency.py <project>` to reproduce.
 | `refactor-full` | preview-first refactors and structured edits | `stdio` or HTTP |
 | `ci-audit` | machine-friendly review around diffs and risk | HTTP preferred |
 
+`ci-audit` composite reports use a fixed machine schema with `schema_version`, `report_kind`, `machine_summary`, and `evidence_handles` so CI can parse them without relying on prose.
+
 ## Why This Shape
 
 CodeLens is no longer primarily a "more tools" MCP. It is a bounded-answer MCP.
@@ -104,16 +131,17 @@ CodeLens is no longer primarily a "more tools" MCP. It is a bounded-answer MCP.
 - Analysis handles let agents expand only one section at a time.
 - Durable analysis jobs let harnesses poll heavier reports without dumping raw intermediate output into the model.
 - Resources expose stable project/profile context without repeating long prompt instructions.
+- `tools/list` can now be filtered by namespace, and HTTP clients can opt into deferred loading during `initialize` with `{"deferredToolLoading": true}` so the default tool list only loads preferred namespaces first.
 - Legacy presets still work, but profiles are the preferred public interface.
 
 ## Shared Daemon Patterns
 
 ```bash
 # Read-only shared daemon for planner/reviewer agents
-codelens-mcp /path/to/project --transport http --profile reviewer-graph --port 7837
+codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
 
 # Mutation-enabled shared daemon for refactor flows
-codelens-mcp /path/to/project --transport http --profile refactor-full --port 7838
+codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
 ```
 
 Use `7837`-style read-only endpoints as the default harness attachment. Reserve mutation-enabled daemons for explicit refactor passes.
@@ -132,17 +160,48 @@ All via statically-linked tree-sitter grammars. Zero runtime dependencies.
 | get_symbols_overview | <1ms  | Cached                  |
 | get_ranked_context   | ~20ms | 4-signal hybrid ranking |
 | get_impact_analysis  | ~1ms  | Graph cache             |
-| semantic_search      | ~9ms  | Bundled ONNX model      |
+| semantic_search      | warm, workload-dependent | Measure with `benchmarks/embedding-runtime.py` |
 | Cold start           | ~12ms | No LSP boot needed      |
 
 ## Embedding Model
 
-CodeLens bundles a **code-trained MiniLM-L12 model** (fine-tuned on CodeSearchNet, ONNX INT8) directly in the binary:
+CodeLens defaults to a **bundled MiniLM-L12 CodeSearchNet model** (ONNX INT8) and can optionally use a `fastembed` built-in model via `CODELENS_EMBED_MODEL`:
 
 - **No download required** — works offline, air-gapped environments
-- **MRR 0.878** on code search benchmarks
-- **8.5ms** per query, **686 symbols/sec** indexing throughput
+- **Current default model:** `MiniLM-L12-CodeSearchNet-INT8`
+- **Hybrid usage:** semantic ranking only supplements structural ranking in `get_ranked_context`
 - Powers: `semantic_search`, `get_ranked_context` hybrid ranking, `find_similar_code`, `find_code_duplicates`
+
+Measure current runtime latency, indexing cost, and indexed symbol counts on your machine:
+
+```bash
+python3 benchmarks/embedding-runtime.py .
+```
+
+Measure search quality and hybrid uplift on the current runtime:
+
+```bash
+python3 benchmarks/embedding-quality.py .
+```
+
+The quality report now breaks results down by query type:
+
+- `identifier`
+- `short_phrase`
+- `natural_language`
+
+`get_ranked_context` now applies a query-type-aware policy:
+
+- identifier-like queries stay lexical-first
+- short phrases and natural-language queries keep hybrid semantic blending
+
+Current local quality snapshot (`benchmarks/embedding-quality-results.json`):
+
+- `semantic_search`: `MRR 0.364`, `Acc@1 29%`, `Acc@3 38%`, `Acc@5 46%`
+- `get_ranked_context` lexical-only: `MRR 0.263`, `Acc@1 17%`, `Acc@3 33%`, `Acc@5 38%`
+- `get_ranked_context` hybrid: `MRR 0.399`, `Acc@1 33%`, `Acc@3 42%`, `Acc@5 50%`
+- Hybrid uplift over lexical-only: `+0.135 MRR`, `+17% Acc@1`, `+8% Acc@3`, `+12% Acc@5`
+- Identifier queries: hybrid uplift is neutral because `get_ranked_context` now stays lexical-first for identifier-like queries
 
 ## vs Serena
 
@@ -156,7 +215,7 @@ Both are code intelligence MCP servers. Different trade-offs:
 | **Setup**             | Single binary, zero config        | Python + uv + per-language LSP servers |
 | **Cold start**        | 12ms                              | Seconds (LSP boot per language)        |
 | **Offline / air-gap** | Fully offline (ML model bundled)  | Partial (needs LSP binaries)           |
-| **ML / semantic**     | Bundled ONNX model (34MB)         | None                                   |
+| **ML / semantic**     | Bundled CodeSearchNet ONNX model  | None                                   |
 | **Refactoring**       | 4 operations (inline, move, etc.) | 1 (replace symbol body)                |
 | **Languages**         | 25 (tree-sitter grammars)         | 40+ (via LSP ecosystem)                |
 | **Token budget**      | Role profiles + legacy presets    | No                                     |

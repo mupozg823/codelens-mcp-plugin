@@ -9,36 +9,33 @@
   "authors": ["mupozg823"],
   "keywords": ["code-intelligence", "tree-sitter", "mcp", "lsp", "ai"],
   "categories": ["developer-tools"],
-  "transport": "stdio",
+  "transport": "streamable-http",
   "install": {
     "shell": "curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash",
     "homebrew": "brew install mupozg823/tap/codelens-mcp",
     "cargo": "cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp"
   },
   "config": {
-    "command": "codelens-mcp",
-    "args": [".", "--profile", "planner-readonly"],
+    "type": "http",
+    "url": "http://127.0.0.1:7837/mcp",
     "env": {}
   },
   "clients": {
     "claude-code": {
-      "type": "stdio",
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "planner-readonly"]
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     },
     "claude-desktop": {
-      "type": "stdio",
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "planner-readonly"]
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     },
     "cursor": {
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "builder-minimal"]
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     },
     "vscode": {
-      "type": "stdio",
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "builder-minimal"]
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     }
   }
 }

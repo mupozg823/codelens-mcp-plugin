@@ -1,6 +1,6 @@
 # CodeLens MCP — Platform Setup Guide
 
-> One binary, compressed context for planner/reviewer/refactor harnesses.
+> One binary, compressed context runtime for planner/reviewer/refactor harnesses.
 
 ## Quick Install
 
@@ -23,6 +23,20 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 
 ## Platform Configurations
 
+### Preferred: Shared HTTP Daemon
+
+```bash
+# Read-only daemon for planner/reviewer/ci profiles
+codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
+
+# Mutation-enabled daemon for explicit refactor flows
+codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
+```
+
+Use HTTP as the default for multi-agent harnesses. Keep stdio for single local sessions only.
+
+For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces first, and clients can expand one namespace at a time with `{"namespace":"reports"}`-style params or request the full surface explicitly with `{"full": true}`.
+
 ### 1. Claude Code (CLI / Desktop / Web)
 
 **Global config** (`~/.claude.json`):
@@ -31,9 +45,8 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 {
   "mcpServers": {
     "codelens": {
-      "type": "stdio",
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "planner-readonly"]
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     }
   }
 }
@@ -45,9 +58,8 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 {
   "mcpServers": {
     "codelens": {
-      "type": "stdio",
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "builder-minimal"]
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     }
   }
 }
@@ -77,8 +89,8 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 {
   "mcpServers": {
     "codelens": {
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "builder-minimal"]
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     }
   }
 }
@@ -90,8 +102,8 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 {
   "mcpServers": {
     "codelens": {
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "reviewer-graph"]
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     }
   }
 }
@@ -105,14 +117,13 @@ Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 
 ```toml
 [mcp_servers.codelens]
-command = "codelens-mcp"
-args = [".", "--profile", "planner-readonly"]
+url = "http://127.0.0.1:7837/mcp"
 ```
 
 **Or via CLI:**
 
 ```bash
-codex --mcp-server "codelens-mcp . --profile planner-readonly"
+codex --mcp-server "http://127.0.0.1:7837/mcp"
 ```
 
 ---
@@ -125,9 +136,8 @@ codex --mcp-server "codelens-mcp . --profile planner-readonly"
 {
   "servers": {
     "codelens": {
-      "type": "stdio",
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "builder-minimal"]
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     }
   }
 }
@@ -140,9 +150,8 @@ codex --mcp-server "codelens-mcp . --profile planner-readonly"
 **Settings → Tools → MCP Servers → Add:**
 
 - Name: `codelens`
-- Command: `codelens-mcp`
-- Arguments: `. --profile builder-minimal`
-- Transport: stdio
+- URL: `http://127.0.0.1:7837/mcp`
+- Transport: HTTP
 
 ---
 
@@ -154,9 +163,8 @@ codex --mcp-server "codelens-mcp . --profile planner-readonly"
 {
   "mcpServers": {
     "codelens": {
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "builder-minimal"],
-      "transport": "stdio"
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
     }
   }
 }
@@ -171,9 +179,8 @@ codex --mcp-server "codelens-mcp . --profile planner-readonly"
 ```json
 {
   "codelens": {
-    "command": "codelens-mcp",
-      "args": [".", "--profile", "builder-minimal"],
-      "transport": "stdio"
+      "type": "http",
+      "url": "http://127.0.0.1:7837/mcp"
   }
 }
 ```
@@ -186,10 +193,10 @@ For remote deployment or multi-agent harness scenarios:
 
 ```bash
 # Read-only shared daemon for planners/reviewers/CI
-codelens-mcp /path/to/project --transport http --profile reviewer-graph --port 7837
+codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
 
 # Mutation-enabled daemon for explicit refactor passes
-codelens-mcp /path/to/project --transport http --profile refactor-full --port 7838
+codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
 
 # Client connects to:
 #   POST http://localhost:7837/mcp          (JSON-RPC)

@@ -1,17 +1,52 @@
 use super::{
-    default_lsp_command_for_path, parse_lsp_args, required_string, success_meta, AppState,
-    ToolResult,
+    AppState, ToolResult, default_lsp_command_for_path, parse_lsp_args, required_string,
+    success_meta,
 };
 use crate::authority::{meta_degraded, meta_for_backend};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_core::{
-    check_lsp_status as core_check_lsp_status, extract_word_at_position,
+    LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspTypeHierarchyRequest,
+    LspWorkspaceSymbolRequest, check_lsp_status as core_check_lsp_status, extract_word_at_position,
     find_referencing_symbols_via_text, get_lsp_recipe as core_get_lsp_recipe,
-    get_type_hierarchy_native, LspDiagnosticRequest, LspRenamePlanRequest, LspRequest,
-    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest,
+    get_type_hierarchy_native,
 };
 use serde_json::json;
+
+fn compact_text_references(
+    references: Vec<codelens_core::TextReference>,
+    include_context: bool,
+    full_results: bool,
+    sample_limit: usize,
+) -> (Vec<serde_json::Value>, usize, bool) {
+    let total_count = references.len();
+    let effective_limit = if full_results {
+        references.len()
+    } else {
+        sample_limit.min(references.len())
+    };
+    let sampled = !full_results && total_count > effective_limit;
+    let compact = references
+        .into_iter()
+        .take(effective_limit)
+        .map(|reference| {
+            let mut value = json!({
+                "file_path": reference.file_path,
+                "line": reference.line,
+                "column": reference.column,
+                "is_declaration": reference.is_declaration,
+            });
+            if include_context {
+                value["line_content"] = json!(reference.line_content);
+                if let Some(symbol) = reference.enclosing_symbol {
+                    value["enclosing_symbol"] = json!(symbol);
+                }
+            }
+            value
+        })
+        .collect::<Vec<_>>();
+    (compact, total_count, sampled)
+}
 
 fn lsp_install_hint(command: &str) -> &'static str {
     match command {
@@ -74,11 +109,23 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
     let max_results = arguments
         .get("max_results")
         .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+        .unwrap_or(20) as usize;
     let use_lsp = arguments
         .get("use_lsp")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
+    let include_context = arguments
+        .get("include_context")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let full_results = arguments
+        .get("full_results")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let sample_limit = arguments
+        .get("sample_limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(8) as usize;
 
     let has_position = arguments.get("line").is_some() && arguments.get("column").is_some();
 
@@ -99,7 +146,13 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                         let refs_limited: Vec<_> = refs.into_iter().take(max_results).collect();
                         let count = refs_limited.len();
                         return Ok((
-                            json!({ "references": refs_limited, "count": count, "backend": "oxc_semantic" }),
+                            json!({
+                                "references": refs_limited,
+                                "count": count,
+                                "returned_count": count,
+                                "sampled": false,
+                                "backend": "oxc_semantic"
+                            }),
                             meta_for_backend("oxc_semantic", 0.95),
                         ));
                     }
@@ -115,8 +168,16 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             max_results,
         )
         .map(|value| {
+            let (references, total_count, sampled) =
+                compact_text_references(value, include_context, full_results, sample_limit);
             (
-                json!({ "references": value, "count": value.len() }),
+                json!({
+                    "references": references,
+                    "count": total_count,
+                    "returned_count": references.len(),
+                    "sampled": sampled,
+                    "include_context": include_context,
+                }),
                 meta_for_backend("tree_sitter", 0.85),
             )
         })?);
@@ -162,7 +223,12 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         match lsp_result {
             Ok(value) => {
                 return Ok((
-                    json!({ "references": value, "count": value.len() }),
+                    json!({
+                        "references": value,
+                        "count": value.len(),
+                        "returned_count": value.len(),
+                        "sampled": false,
+                    }),
                     meta_for_backend("lsp", 0.95),
                 ));
             }
@@ -180,8 +246,16 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
     Ok(
         find_referencing_symbols_via_text(&state.project(), &word, Some(&file_path), max_results)
             .map(|value| {
+            let (references, total_count, sampled) =
+                compact_text_references(value, include_context, full_results, sample_limit);
             (
-                json!({ "references": value, "count": value.len() }),
+                json!({
+                    "references": references,
+                    "count": total_count,
+                    "returned_count": references.len(),
+                    "sampled": sampled,
+                    "include_context": include_context,
+                }),
                 meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"),
             )
         })?,

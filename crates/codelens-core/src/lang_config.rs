@@ -318,21 +318,41 @@ mod tests {
     #[test]
     fn new_langs_parse_and_extract_symbols() {
         let cases: Vec<(&str, tree_sitter::Language, &str, &str, &[&str])> = vec![
-            ("lua", tree_sitter_lua::LANGUAGE.into(), LUA_QUERY,
-             "function greet(name)\n  print(name)\nend\n\nlocal function helper()\n  return 42\nend",
-             &["greet", "helper"]),
-            ("zig", tree_sitter_zig::LANGUAGE.into(), ZIG_QUERY,
-             "pub fn add(a: i32, b: i32) i32 {\n    return a + b;\n}",
-             &["add"]),
-            ("haskell", tree_sitter_haskell::LANGUAGE.into(), HASKELL_QUERY,
-             "factorial :: Int -> Int\nfactorial 0 = 1\nfactorial n = n * factorial (n - 1)\n\ndata Color = Red | Green | Blue",
-             &["factorial"]),
-            ("bash", tree_sitter_bash::LANGUAGE.into(), BASH_QUERY,
-             "greet() {\n    echo \"Hello $1\"\n}\n\nhelper() {\n    return 0\n}",
-             &["greet", "helper"]),
-            ("r", tree_sitter_r::LANGUAGE.into(), R_QUERY,
-             "greet <- function(name) {\n  paste(\"Hello\", name)\n}",
-             &["greet"]),
+            (
+                "lua",
+                tree_sitter_lua::LANGUAGE.into(),
+                LUA_QUERY,
+                "function greet(name)\n  print(name)\nend\n\nlocal function helper()\n  return 42\nend",
+                &["greet", "helper"],
+            ),
+            (
+                "zig",
+                tree_sitter_zig::LANGUAGE.into(),
+                ZIG_QUERY,
+                "pub fn add(a: i32, b: i32) i32 {\n    return a + b;\n}",
+                &["add"],
+            ),
+            (
+                "haskell",
+                tree_sitter_haskell::LANGUAGE.into(),
+                HASKELL_QUERY,
+                "factorial :: Int -> Int\nfactorial 0 = 1\nfactorial n = n * factorial (n - 1)\n\ndata Color = Red | Green | Blue",
+                &["factorial"],
+            ),
+            (
+                "bash",
+                tree_sitter_bash::LANGUAGE.into(),
+                BASH_QUERY,
+                "greet() {\n    echo \"Hello $1\"\n}\n\nhelper() {\n    return 0\n}",
+                &["greet", "helper"],
+            ),
+            (
+                "r",
+                tree_sitter_r::LANGUAGE.into(),
+                R_QUERY,
+                "greet <- function(name) {\n  paste(\"Hello\", name)\n}",
+                &["greet"],
+            ),
         ];
 
         for (name, lang, query_str, source, expected_names) in cases {
@@ -382,9 +402,13 @@ mod tests {
             "class App {}\nfunction main() {}\nconst x = 1;",
             &["App", "main", "x"],
         );
-        super::assert_extracts("typescript", tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(), TYPESCRIPT_QUERY,
+        super::assert_extracts(
+            "typescript",
+            tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+            TYPESCRIPT_QUERY,
             "interface User {}\nclass Service {}\nfunction init() {}\nenum Color { Red }\ntype ID = string;",
-            &["User", "Service", "init", "Color", "ID"]);
+            &["User", "Service", "init", "Color", "ID"],
+        );
         super::assert_extracts(
             "go",
             tree_sitter_go::LANGUAGE.into(),
@@ -406,9 +430,13 @@ mod tests {
             "class App\nobject Singleton\nfun main() {}",
             &["App", "Singleton", "main"],
         );
-        super::assert_extracts("rust", tree_sitter_rust::LANGUAGE.into(), RUST_QUERY,
+        super::assert_extracts(
+            "rust",
+            tree_sitter_rust::LANGUAGE.into(),
+            RUST_QUERY,
             "struct Foo {}\nenum Bar {}\ntrait Baz {}\nfn main() {}\nconst X: i32 = 1;\ntype Alias = i32;",
-            &["Foo", "Bar", "Baz", "main", "X", "Alias"]);
+            &["Foo", "Bar", "Baz", "main", "X", "Alias"],
+        );
         super::assert_extracts(
             "c",
             tree_sitter_c::LANGUAGE.into(),

@@ -1,6 +1,8 @@
-use super::{success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, success_meta};
 use crate::protocol::BackendKind;
-use crate::tool_defs::{default_budget_for_preset, default_budget_for_profile, ToolProfile, ToolPreset, ToolSurface};
+use crate::tool_defs::{
+    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
+};
 use crate::tools::memory::list_memory_names;
 use codelens_core::detect_frameworks;
 use serde_json::json;
@@ -296,6 +298,24 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     #[cfg(not(feature = "semantic"))]
     let embeddings_loaded = false;
 
+    #[cfg(feature = "semantic")]
+    let configured_embedding_model = codelens_core::configured_embedding_model_name();
+    #[cfg(not(feature = "semantic"))]
+    let configured_embedding_model = String::from("not_compiled");
+
+    #[cfg(feature = "semantic")]
+    let embedding_index_info = state
+        .embedding
+        .get()
+        .and_then(|engine| engine.as_ref().map(|engine| engine.index_info()))
+        .or_else(|| {
+            codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
+                .ok()
+                .flatten()
+        });
+    #[cfg(not(feature = "semantic"))]
+    let embedding_index_info: Option<codelens_core::EmbeddingIndexInfo> = None;
+
     // Check index freshness
     let index_stats = state.symbol_index().stats().ok();
     let index_fresh = index_stats
@@ -345,6 +365,9 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "language": language,
             "lsp_attached": lsp_attached,
             "embeddings_loaded": embeddings_loaded,
+            "embedding_model": configured_embedding_model,
+            "embedding_indexed": embedding_index_info.as_ref().map(|info| info.indexed_symbols > 0).unwrap_or(false),
+            "embedding_indexed_symbols": embedding_index_info.as_ref().map(|info| info.indexed_symbols).unwrap_or(0),
             "index_fresh": index_fresh,
             "indexed_files": index_stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),
             "available": available,
@@ -386,23 +409,245 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
     let count = per_tool.len();
     let per_surface = surfaces
         .into_iter()
-        .map(|(surface, metrics)| json!({
-            "surface": surface,
-            "calls": metrics.call_count,
-            "success_count": metrics.success_count,
-            "total_ms": metrics.total_ms,
-            "total_tokens": metrics.total_tokens,
-            "errors": metrics.error_count,
-            "avg_tokens_per_call": if metrics.call_count > 0 {
-                metrics.total_tokens / metrics.call_count as usize
-            } else { 0 },
-            "p95_latency_ms": crate::telemetry::percentile_95(&metrics.latency_samples),
-            "surface_token_efficiency": if metrics.success_count > 0 {
-                metrics.total_tokens as f64 / metrics.success_count as f64
-            } else { 0.0 }
-        }))
+        .map(|(surface, metrics)| {
+            json!({
+                "surface": surface,
+                "calls": metrics.call_count,
+                "success_count": metrics.success_count,
+                "total_ms": metrics.total_ms,
+                "total_tokens": metrics.total_tokens,
+                "errors": metrics.error_count,
+                "avg_tokens_per_call": if metrics.call_count > 0 {
+                    metrics.total_tokens / metrics.call_count as usize
+                } else { 0 },
+                "p95_latency_ms": crate::telemetry::percentile_95(&metrics.latency_samples),
+                "surface_token_efficiency": if metrics.success_count > 0 {
+                    metrics.total_tokens as f64 / metrics.success_count as f64
+                } else { 0.0 }
+            })
+        })
         .collect::<Vec<_>>();
     let handle_reads = session.analysis_summary_reads + session.analysis_section_reads;
+    let mut session_json = serde_json::Map::new();
+    session_json.insert("total_calls".to_owned(), json!(session.total_calls));
+    session_json.insert("success_count".to_owned(), json!(session.success_count));
+    session_json.insert("total_ms".to_owned(), json!(session.total_ms));
+    session_json.insert("total_tokens".to_owned(), json!(session.total_tokens));
+    session_json.insert("error_count".to_owned(), json!(session.error_count));
+    session_json.insert(
+        "tools_list_tokens".to_owned(),
+        json!(session.tools_list_tokens),
+    );
+    session_json.insert(
+        "analysis_summary_reads".to_owned(),
+        json!(session.analysis_summary_reads),
+    );
+    session_json.insert(
+        "analysis_section_reads".to_owned(),
+        json!(session.analysis_section_reads),
+    );
+    session_json.insert(
+        "active_http_sessions".to_owned(),
+        json!(state.active_session_count()),
+    );
+    session_json.insert(
+        "session_resume_supported".to_owned(),
+        json!(state.session_resume_supported()),
+    );
+    session_json.insert(
+        "session_timeout_seconds".to_owned(),
+        json!(state.session_timeout_seconds()),
+    );
+    session_json.insert("retry_count".to_owned(), json!(session.retry_count));
+    session_json.insert(
+        "analysis_cache_hit_count".to_owned(),
+        json!(session.analysis_cache_hit_count),
+    );
+    session_json.insert(
+        "truncated_response_count".to_owned(),
+        json!(session.truncated_response_count),
+    );
+    session_json.insert(
+        "truncation_followup_count".to_owned(),
+        json!(session.truncation_followup_count),
+    );
+    session_json.insert(
+        "truncation_same_tool_retry_count".to_owned(),
+        json!(session.truncation_same_tool_retry_count),
+    );
+    session_json.insert(
+        "truncation_handle_followup_count".to_owned(),
+        json!(session.truncation_handle_followup_count),
+    );
+    session_json.insert(
+        "handle_reuse_count".to_owned(),
+        json!(session.handle_reuse_count),
+    );
+    session_json.insert(
+        "repeated_low_level_chain_count".to_owned(),
+        json!(session.repeated_low_level_chain_count),
+    );
+    session_json.insert(
+        "composite_guidance_emitted_count".to_owned(),
+        json!(session.composite_guidance_emitted_count),
+    );
+    session_json.insert(
+        "composite_guidance_followed_count".to_owned(),
+        json!(session.composite_guidance_followed_count),
+    );
+    session_json.insert(
+        "quality_contract_emitted_count".to_owned(),
+        json!(session.quality_contract_emitted_count),
+    );
+    session_json.insert(
+        "recommended_checks_emitted_count".to_owned(),
+        json!(session.recommended_checks_emitted_count),
+    );
+    session_json.insert(
+        "recommended_check_followthrough_count".to_owned(),
+        json!(session.recommended_check_followthrough_count),
+    );
+    session_json.insert(
+        "quality_focus_reuse_count".to_owned(),
+        json!(session.quality_focus_reuse_count),
+    );
+    session_json.insert(
+        "performance_watchpoint_emit_count".to_owned(),
+        json!(session.performance_watchpoint_emit_count),
+    );
+    session_json.insert("composite_calls".to_owned(), json!(session.composite_calls));
+    session_json.insert("low_level_calls".to_owned(), json!(session.low_level_calls));
+    session_json.insert(
+        "stdio_session_count".to_owned(),
+        json!(session.stdio_session_count),
+    );
+    session_json.insert(
+        "http_session_count".to_owned(),
+        json!(session.http_session_count),
+    );
+    session_json.insert(
+        "analysis_jobs_enqueued".to_owned(),
+        json!(session.analysis_jobs_enqueued),
+    );
+    session_json.insert(
+        "analysis_jobs_started".to_owned(),
+        json!(session.analysis_jobs_started),
+    );
+    session_json.insert(
+        "analysis_jobs_completed".to_owned(),
+        json!(session.analysis_jobs_completed),
+    );
+    session_json.insert(
+        "analysis_jobs_failed".to_owned(),
+        json!(session.analysis_jobs_failed),
+    );
+    session_json.insert(
+        "analysis_jobs_cancelled".to_owned(),
+        json!(session.analysis_jobs_cancelled),
+    );
+    session_json.insert(
+        "analysis_queue_depth".to_owned(),
+        json!(session.analysis_queue_depth),
+    );
+    session_json.insert(
+        "analysis_queue_max_depth".to_owned(),
+        json!(session.analysis_queue_max_depth),
+    );
+    session_json.insert(
+        "analysis_queue_weighted_depth".to_owned(),
+        json!(session.analysis_queue_weighted_depth),
+    );
+    session_json.insert(
+        "analysis_queue_max_weighted_depth".to_owned(),
+        json!(session.analysis_queue_max_weighted_depth),
+    );
+    session_json.insert(
+        "analysis_queue_priority_promotions".to_owned(),
+        json!(session.analysis_queue_priority_promotions),
+    );
+    session_json.insert(
+        "active_analysis_workers".to_owned(),
+        json!(session.active_analysis_workers),
+    );
+    session_json.insert(
+        "peak_active_analysis_workers".to_owned(),
+        json!(session.peak_active_analysis_workers),
+    );
+    session_json.insert(
+        "analysis_worker_limit".to_owned(),
+        json!(session.analysis_worker_limit),
+    );
+    session_json.insert(
+        "analysis_cost_budget".to_owned(),
+        json!(session.analysis_cost_budget),
+    );
+    session_json.insert(
+        "analysis_transport_mode".to_owned(),
+        json!(session.analysis_transport_mode.clone()),
+    );
+    session_json.insert(
+        "daemon_mode".to_owned(),
+        json!(state.daemon_mode().as_str()),
+    );
+    session_json.insert(
+        "avg_ms_per_call".to_owned(),
+        json!(if session.total_calls > 0 {
+            session.total_ms / session.total_calls
+        } else {
+            0
+        }),
+    );
+    session_json.insert(
+        "avg_tool_output_tokens".to_owned(),
+        json!(if session.total_calls > 0 {
+            session.total_tokens / session.total_calls as usize
+        } else {
+            0
+        }),
+    );
+    session_json.insert(
+        "p95_tool_latency_ms".to_owned(),
+        json!(crate::telemetry::percentile_95(&session.latency_samples)),
+    );
+    session_json.insert("timeline_length".to_owned(), json!(session.timeline.len()));
+    let derived_kpis = json!({
+        "composite_ratio": if session.total_calls > 0 {
+            session.composite_calls as f64 / session.total_calls as f64
+        } else { 0.0 },
+        "surface_token_efficiency": if session.success_count > 0 {
+            session.total_tokens as f64 / session.success_count as f64
+        } else { 0.0 },
+        "low_level_chain_reduction": if session.low_level_calls > 0 {
+            1.0 - (session.repeated_low_level_chain_count as f64 / session.low_level_calls as f64)
+        } else { 1.0 },
+        "handle_reuse_rate": if handle_reads > 0 {
+            session.handle_reuse_count as f64 / handle_reads as f64
+        } else { 0.0 },
+        "analysis_cache_hit_rate": if session.composite_calls > 0 {
+            session.analysis_cache_hit_count as f64 / session.composite_calls as f64
+        } else { 0.0 },
+        "quality_contract_present_rate": if session.composite_calls > 0 {
+            session.quality_contract_emitted_count as f64 / session.composite_calls as f64
+        } else { 0.0 },
+        "recommended_check_followthrough_rate": if session.quality_contract_emitted_count > 0 {
+            session.recommended_check_followthrough_count as f64 / session.quality_contract_emitted_count as f64
+        } else { 0.0 },
+        "quality_focus_reuse_rate": if session.handle_reuse_count > 0 {
+            session.quality_focus_reuse_count as f64 / session.handle_reuse_count as f64
+        } else { 0.0 },
+        "performance_watchpoint_emit_rate": if session.quality_contract_emitted_count > 0 {
+            session.performance_watchpoint_emit_count as f64 / session.quality_contract_emitted_count as f64
+        } else { 0.0 },
+        "truncation_followup_rate": if session.truncated_response_count > 0 {
+            session.truncation_followup_count as f64 / session.truncated_response_count as f64
+        } else { 0.0 },
+        "composite_guidance_followthrough_rate": if session.composite_guidance_emitted_count > 0 {
+            session.composite_guidance_followed_count as f64 / session.composite_guidance_emitted_count as f64
+        } else { 0.0 },
+        "analysis_job_success_rate": if session.analysis_jobs_started > 0 {
+            session.analysis_jobs_completed as f64 / session.analysis_jobs_started as f64
+        } else { 0.0 }
+    });
     Ok((
         json!({
             "tools": per_tool.clone(),
@@ -410,60 +655,8 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
             "count": count,
             "surfaces": per_surface.clone(),
             "per_surface": per_surface,
-            "session": {
-                "total_calls": session.total_calls,
-                "success_count": session.success_count,
-                "total_ms": session.total_ms,
-                "total_tokens": session.total_tokens,
-                "error_count": session.error_count,
-                "tools_list_tokens": session.tools_list_tokens,
-                "analysis_summary_reads": session.analysis_summary_reads,
-                "analysis_section_reads": session.analysis_section_reads,
-                "retry_count": session.retry_count,
-                "handle_reuse_count": session.handle_reuse_count,
-                "repeated_low_level_chain_count": session.repeated_low_level_chain_count,
-                "composite_calls": session.composite_calls,
-                "low_level_calls": session.low_level_calls,
-                "stdio_session_count": session.stdio_session_count,
-                "http_session_count": session.http_session_count,
-                "analysis_jobs_enqueued": session.analysis_jobs_enqueued,
-                "analysis_jobs_started": session.analysis_jobs_started,
-                "analysis_jobs_completed": session.analysis_jobs_completed,
-                "analysis_jobs_failed": session.analysis_jobs_failed,
-                "analysis_jobs_cancelled": session.analysis_jobs_cancelled,
-                "analysis_queue_depth": session.analysis_queue_depth,
-                "analysis_queue_max_depth": session.analysis_queue_max_depth,
-                "active_analysis_workers": session.active_analysis_workers,
-                "peak_active_analysis_workers": session.peak_active_analysis_workers,
-                "analysis_worker_limit": session.analysis_worker_limit,
-                "analysis_transport_mode": session.analysis_transport_mode.clone(),
-                "avg_ms_per_call": if session.total_calls > 0 {
-                    session.total_ms / session.total_calls
-                } else { 0 },
-                "avg_tool_output_tokens": if session.total_calls > 0 {
-                    session.total_tokens / session.total_calls as usize
-                } else { 0 },
-                "p95_tool_latency_ms": crate::telemetry::percentile_95(&session.latency_samples),
-                "timeline_length": session.timeline.len(),
-            }
-            ,
-            "derived_kpis": {
-                "composite_ratio": if session.total_calls > 0 {
-                    session.composite_calls as f64 / session.total_calls as f64
-                } else { 0.0 },
-                "surface_token_efficiency": if session.success_count > 0 {
-                    session.total_tokens as f64 / session.success_count as f64
-                } else { 0.0 },
-                "low_level_chain_reduction": if session.low_level_calls > 0 {
-                    1.0 - (session.repeated_low_level_chain_count as f64 / session.low_level_calls as f64)
-                } else { 1.0 },
-                "handle_reuse_rate": if handle_reads > 0 {
-                    session.handle_reuse_count as f64 / handle_reads as f64
-                } else { 0.0 },
-                "analysis_job_success_rate": if session.analysis_jobs_started > 0 {
-                    session.analysis_jobs_completed as f64 / session.analysis_jobs_started as f64
-                } else { 0.0 }
-            }
+            "session": session_json,
+            "derived_kpis": derived_kpis
         }),
         success_meta(BackendKind::Telemetry, 1.0),
     ))
@@ -586,8 +779,9 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         .get("profile")
         .and_then(|v| v.as_str())
         .unwrap_or("planner-readonly");
-    let profile = ToolProfile::from_str(profile_str)
-        .ok_or_else(|| crate::error::CodeLensError::Validation(format!("unknown profile `{profile_str}`")))?;
+    let profile = ToolProfile::from_str(profile_str).ok_or_else(|| {
+        crate::error::CodeLensError::Validation(format!("unknown profile `{profile_str}`"))
+    })?;
     let old_surface = state.surface().as_label().to_owned();
     state.set_surface(ToolSurface::Profile(profile));
     let budget = arguments

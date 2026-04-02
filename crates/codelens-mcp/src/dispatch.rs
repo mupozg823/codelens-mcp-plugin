@@ -1,10 +1,13 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::protocol::{JsonRpcResponse, ToolCallResponse};
-use crate::tool_defs::{default_budget_for_profile, ToolProfile};
+use crate::tool_defs::{
+    ToolProfile, default_budget_for_profile, is_content_mutation_tool, is_read_only_surface,
+    is_tool_in_surface,
+};
 use crate::tools::{self, ToolHandler, ToolResult};
-use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -264,32 +267,52 @@ pub(crate) fn dispatch_tool(
     let _guard = span.enter();
     let start = std::time::Instant::now();
     state.push_recent_tool(name);
-    let active_surface = state.surface().as_label().to_owned();
+    let surface = *state.surface();
+    let active_surface = surface.as_label().to_owned();
+    let session_trusted_client = arguments
+        .get("_session_trusted_client")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    let session_id = arguments
+        .get("_session_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
 
-    let result: ToolResult = match DISPATCH_TABLE.get(name) {
-        Some(handler) => handler(state, &arguments),
-        None => Err(CodeLensError::ToolNotFound(name.to_owned())),
+    let result: ToolResult = if !is_tool_in_surface(name, surface) {
+        Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is not available in active surface `{active_surface}`"
+        )))
+    } else if is_content_mutation_tool(name)
+        && matches!(state.daemon_mode(), crate::state::RuntimeDaemonMode::MutationEnabled)
+        && !session_trusted_client
+    {
+        Err(CodeLensError::Validation(format!(
+            "Tool `{name}` requires a trusted HTTP client in daemon mode `{}`",
+            state.daemon_mode().as_str()
+        )))
+    } else if is_content_mutation_tool(name) && !state.mutation_allowed_in_runtime() {
+        Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is blocked by daemon mode `{}`",
+            state.daemon_mode().as_str()
+        )))
+    } else if is_read_only_surface(surface) && is_content_mutation_tool(name) {
+        Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is blocked in read-only surface `{active_surface}`"
+        )))
+    } else {
+        match DISPATCH_TABLE.get(name) {
+            Some(handler) => handler(state, &arguments),
+            None => Err(CodeLensError::ToolNotFound(name.to_owned())),
+        }
     };
 
-    // Auto-invalidate graph cache after mutation tools
-    const MUTATION_TOOLS: &[&str] = &[
-        "replace_symbol_body",
-        "delete_lines",
-        "insert_at_line",
-        "insert_before_symbol",
-        "insert_after_symbol",
-        "insert_content",
-        "replace_content",
-        "replace_lines",
-        "replace",
-        "rename_symbol",
-        "create_text_file",
-        "add_import",
-    ];
-    if result.is_ok() && MUTATION_TOOLS.contains(&name) {
+    if result.is_ok() && is_content_mutation_tool(name) {
         state.graph_cache().invalidate();
         if let Err(error) = state.record_mutation_audit(name, &active_surface, &arguments) {
             warn!(tool = name, error = %error, "failed to write mutation audit event");
+        }
+        if !session_id.is_empty() {
+            tracing::info!(tool = name, session_id, "mutation completed for trusted session");
         }
     }
 
@@ -310,18 +333,32 @@ pub(crate) fn dispatch_tool(
                 .map(|s| tools::estimate_tokens(&s))
                 .unwrap_or(0);
             resp.token_estimate = Some(payload_estimate);
-
-            // Record with token estimate for session telemetry
-            state.metrics().record_call_with_tokens(
-                name,
-                elapsed_ms as u64,
-                true,
-                payload_estimate,
-                &active_surface,
-            );
             let budget = request_token_budget();
             resp.budget_hint = Some(budget_hint(name, payload_estimate, budget));
             resp.elapsed_ms = Some(elapsed_ms as u64);
+            let mut emitted_composite_guidance = false;
+            if let Some((guided_tools, guidance_hint)) =
+                tools::composite_guidance_for_chain(name, &state.recent_tools(), surface)
+            {
+                emitted_composite_guidance = true;
+                let mut suggestions = guided_tools;
+                if let Some(existing) = resp.suggested_next_tools.take() {
+                    for tool in existing {
+                        if suggestions.len() >= 3 {
+                            break;
+                        }
+                        if !suggestions.iter().any(|candidate| candidate == &tool) {
+                            suggestions.push(tool);
+                        }
+                    }
+                }
+                resp.suggested_next_tools = Some(suggestions);
+                resp.budget_hint = Some(match resp.budget_hint.take() {
+                    Some(existing) => format!("{existing} {guidance_hint}"),
+                    None => guidance_hint,
+                });
+            }
+
             let mut text = serde_json::to_string(&resp).unwrap_or_else(|_| {
                 "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
             });
@@ -329,7 +366,9 @@ pub(crate) fn dispatch_tool(
             // Global safety net: replace oversized responses with a valid JSON summary.
             // This prevents any single tool from blowing up the context window.
             let max_chars = budget * 8; // 2x budget in chars
+            let mut truncated = false;
             if text.len() > max_chars {
+                truncated = true;
                 text = serde_json::to_string(&json!({
                     "success": true,
                     "truncated": true,
@@ -341,6 +380,17 @@ pub(crate) fn dispatch_tool(
                 }))
                 .unwrap_or_else(|_| "{\"success\":false,\"truncated\":true}".to_owned());
             }
+            state.metrics().record_call_with_tokens(
+                name,
+                elapsed_ms as u64,
+                true,
+                payload_estimate,
+                &active_surface,
+                truncated,
+            );
+            if emitted_composite_guidance {
+                state.metrics().record_composite_guidance_emitted();
+            }
             JsonRpcResponse::result(
                 id,
                 json!({
@@ -349,9 +399,14 @@ pub(crate) fn dispatch_tool(
             )
         }
         Err(error) => {
-            state
-                .metrics()
-                .record_call_with_tokens(name, elapsed_ms as u64, false, 0, &active_surface);
+            state.metrics().record_call_with_tokens(
+                name,
+                elapsed_ms as u64,
+                false,
+                0,
+                &active_surface,
+                false,
+            );
             // Protocol-level errors: return as JSON-RPC error response
             if error.is_protocol_error() {
                 return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());

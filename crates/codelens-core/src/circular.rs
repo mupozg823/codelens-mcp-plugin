@@ -1,4 +1,4 @@
-use crate::import_graph::{build_graph_pub, GraphCache};
+use crate::import_graph::{GraphCache, build_graph_pub};
 use crate::project::ProjectRoot;
 use anyhow::Result;
 use petgraph::algo::tarjan_scc;

@@ -16,8 +16,11 @@ use anyhow::Result;
 use codelens_core::ProjectRoot;
 use server::oneshot::run_oneshot;
 use server::transport_stdio::run_stdio;
+use state::RuntimeDaemonMode;
 use std::sync::Arc;
-use tool_defs::{ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile};
+use tool_defs::{
+    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
+};
 
 // ── Entry point ────────────────────────────────────────────────────────
 
@@ -56,6 +59,17 @@ fn main() -> Result<()> {
                 .ok()
                 .and_then(|s| ToolProfile::from_str(&s))
         });
+    let daemon_mode = args
+        .iter()
+        .position(|a| a == "--daemon-mode")
+        .and_then(|i| args.get(i + 1))
+        .map(|s| RuntimeDaemonMode::from_str(s))
+        .or_else(|| {
+            std::env::var("CODELENS_DAEMON_MODE")
+                .ok()
+                .map(|s| RuntimeDaemonMode::from_str(&s))
+        })
+        .unwrap_or(RuntimeDaemonMode::Standard);
 
     // Project root resolution priority:
     // 1. Explicit path argument (if not ".")
@@ -116,6 +130,7 @@ fn main() -> Result<()> {
     }
     let app_state = AppState::new(project, preset);
     app_state.configure_transport_mode(transport);
+    app_state.configure_daemon_mode(daemon_mode);
     if let Some(profile) = profile {
         app_state.set_surface(ToolSurface::Profile(profile));
         app_state.set_token_budget(default_budget_for_profile(profile));
@@ -138,7 +153,9 @@ fn main() -> Result<()> {
         }
         #[cfg(not(feature = "http"))]
         "http" => {
-            anyhow::bail!("HTTP transport requires the `http` feature. Rebuild with: cargo build --features http");
+            anyhow::bail!(
+                "HTTP transport requires the `http` feature. Rebuild with: cargo build --features http"
+            );
         }
         _ => run_stdio(Arc::new(app_state)),
     }

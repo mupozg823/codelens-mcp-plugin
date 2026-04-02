@@ -125,7 +125,7 @@ codelens-mcp-plugin/
 │   │       ├── rename.rs              # Multi-file rename engine
 │   │       ├── auto_import.rs         # Missing import detection
 │   │       ├── git.rs                 # Git diff/changed files
-│   │       ├── embedding.rs           # fastembed vector indexing
+│   │       ├── embedding.rs           # bundled CodeSearchNet + optional fastembed indexing
 │   │       ├── embedding_store.rs     # sqlite-vec storage
 │   │       ├── vfs.rs                 # Virtual filesystem normalization
 │   │       └── watcher.rs             # File watcher (notify + debounce)

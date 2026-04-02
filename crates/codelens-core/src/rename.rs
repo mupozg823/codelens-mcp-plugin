@@ -1,6 +1,6 @@
 use crate::project::ProjectRoot;
-use crate::symbols::{get_symbols_overview, SymbolInfo};
-use anyhow::{bail, Result};
+use crate::symbols::{SymbolInfo, get_symbols_overview};
+use anyhow::{Result, bail};
 use regex::Regex;
 use serde::Serialize;
 use std::collections::HashMap;

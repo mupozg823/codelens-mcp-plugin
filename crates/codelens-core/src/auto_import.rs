@@ -5,7 +5,7 @@
 
 use crate::import_graph::extract_imports_for_file;
 use crate::project::ProjectRoot;
-use crate::symbols::{get_symbols_overview, language_for_path, SymbolIndex, SymbolInfo};
+use crate::symbols::{SymbolIndex, SymbolInfo, get_symbols_overview, language_for_path};
 use anyhow::Result;
 use regex::Regex;
 use serde::Serialize;

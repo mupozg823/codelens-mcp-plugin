@@ -1,13 +1,13 @@
-use crate::project::{is_excluded, ProjectRoot};
-use anyhow::{bail, Context, Result};
+use crate::project::{ProjectRoot, is_excluded};
+use anyhow::{Context, Result, bail};
 use regex::Regex;
 use std::fs;
 use std::path::PathBuf;
 use walkdir::WalkDir;
 
 use super::{
-    compile_glob, find_enclosing_symbol, flatten_to_ranges, to_directory_entry, DirectoryEntry,
-    FileMatch, FileReadResult, FlatSymbol, PatternMatch, SmartPatternMatch,
+    DirectoryEntry, FileMatch, FileReadResult, FlatSymbol, PatternMatch, SmartPatternMatch,
+    compile_glob, find_enclosing_symbol, flatten_to_ranges, to_directory_entry,
 };
 
 /// Maximum file size for read operations (10 MB). Prevents OOM on huge files.

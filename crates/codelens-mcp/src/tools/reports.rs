@@ -1,7 +1,8 @@
-use super::{required_string, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use serde_json::{json, Value};
+use crate::tool_defs::{ToolProfile, ToolSurface};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -29,31 +30,331 @@ fn strings_from_array(value: Option<&Vec<Value>>, field: &str, limit: usize) -> 
 fn make_handle_response(
     state: &AppState,
     tool_name: &str,
+    cache_key: Option<String>,
     summary: String,
     top_findings: Vec<String>,
     confidence: f64,
     next_actions: Vec<String>,
     sections: BTreeMap<String, Value>,
 ) -> ToolResult {
+    let risk_level = infer_risk_level(&summary, &top_findings, &next_actions);
+    let ci_audit = matches!(*state.surface(), ToolSurface::Profile(ToolProfile::CiAudit));
+    if let Some(cache_key) = cache_key.as_deref() {
+        if let Some(artifact) = state.find_reusable_analysis(tool_name, cache_key) {
+            state.metrics().record_analysis_cache_hit();
+            let data = build_handle_payload(
+                tool_name,
+                &artifact.id,
+                &artifact.summary,
+                &artifact.top_findings,
+                &artifact.risk_level,
+                artifact.confidence,
+                &artifact.next_actions,
+                &artifact.available_sections,
+                true,
+                ci_audit,
+            );
+            state.metrics().record_quality_contract_emitted(
+                data["quality_focus"].as_array().map(|v| v.len()).unwrap_or(0),
+                data["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
+                data["performance_watchpoints"]
+                    .as_array()
+                    .map(|v| v.len())
+                    .unwrap_or(0),
+            );
+            return Ok((
+                data,
+                success_meta(BackendKind::Hybrid, artifact.confidence),
+            ));
+        }
+    }
     let artifact = state.store_analysis(
         tool_name,
+        cache_key,
         summary.clone(),
         top_findings.clone(),
+        risk_level.to_owned(),
         confidence,
         next_actions.clone(),
         sections,
     )?;
+    let data = build_handle_payload(
+        tool_name,
+        &artifact.id,
+        &artifact.summary,
+        &artifact.top_findings,
+        &artifact.risk_level,
+        artifact.confidence,
+        &artifact.next_actions,
+        &artifact.available_sections,
+        false,
+        ci_audit,
+    );
+    state.metrics().record_quality_contract_emitted(
+        data["quality_focus"].as_array().map(|v| v.len()).unwrap_or(0),
+        data["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
+        data["performance_watchpoints"]
+            .as_array()
+            .map(|v| v.len())
+            .unwrap_or(0),
+    );
     Ok((
-        json!({
-            "analysis_id": artifact.id,
-            "summary": artifact.summary,
-            "top_findings": artifact.top_findings,
-            "confidence": artifact.confidence,
-            "next_actions": artifact.next_actions,
-            "available_sections": artifact.available_sections,
-        }),
+        data,
         success_meta(BackendKind::Hybrid, confidence),
     ))
+}
+
+fn build_handle_payload(
+    tool_name: &str,
+    analysis_id: &str,
+    summary: &str,
+    top_findings: &[String],
+    risk_level: &str,
+    confidence: f64,
+    next_actions: &[String],
+    available_sections: &[String],
+    reused: bool,
+    ci_audit: bool,
+) -> Value {
+    let quality_focus = infer_quality_focus(tool_name, summary, top_findings);
+    let recommended_checks = infer_recommended_checks(
+        tool_name,
+        summary,
+        top_findings,
+        next_actions,
+        available_sections,
+    );
+    let performance_watchpoints = infer_performance_watchpoints(summary, top_findings, next_actions);
+    let mut payload = json!({
+        "analysis_id": analysis_id,
+        "summary": summary,
+        "top_findings": top_findings,
+        "risk_level": risk_level,
+        "confidence": confidence,
+        "next_actions": next_actions,
+        "quality_focus": quality_focus,
+        "recommended_checks": recommended_checks,
+        "performance_watchpoints": performance_watchpoints,
+        "available_sections": available_sections,
+        "reused": reused,
+    });
+    if ci_audit {
+        payload["schema_version"] = json!("codelens-ci-audit-v1");
+        payload["report_kind"] = json!(tool_name);
+        payload["profile"] = json!("ci-audit");
+        payload["machine_summary"] = json!({
+            "finding_count": top_findings.len(),
+            "next_action_count": next_actions.len(),
+            "section_count": available_sections.len(),
+            "quality_focus_count": payload["quality_focus"].as_array().map(|v| v.len()).unwrap_or(0),
+            "recommended_check_count": payload["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
+            "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map(|v| v.len()).unwrap_or(0),
+        });
+        payload["evidence_handles"] = json!(
+            available_sections
+                .iter()
+                .map(|section| json!({
+                    "section": section,
+                    "uri": format!("codelens://analysis/{analysis_id}/{section}"),
+                }))
+                .collect::<Vec<_>>()
+        );
+    }
+    payload
+}
+
+fn infer_quality_focus(tool_name: &str, summary: &str, top_findings: &[String]) -> Vec<String> {
+    let combined = format!("{} {}", summary, top_findings.join(" ")).to_ascii_lowercase();
+    let mut focus = Vec::new();
+    let mut push_unique = |value: &str| {
+        if !focus.iter().any(|existing| existing == value) {
+            focus.push(value.to_owned());
+        }
+    };
+
+    push_unique("correctness");
+    if matches!(
+        tool_name,
+        "analyze_change_request" | "impact_report" | "refactor_safety_report" | "safe_rename_report"
+    ) {
+        push_unique("regression_safety");
+    }
+    if combined.contains("http")
+        || combined.contains("browser")
+        || combined.contains("ui")
+        || combined.contains("render")
+        || combined.contains("frontend")
+        || combined.contains("layout")
+    {
+        push_unique("user_experience");
+    }
+    if combined.contains("coupling")
+        || combined.contains("circular")
+        || combined.contains("refactor")
+        || combined.contains("boundary")
+    {
+        push_unique("maintainability");
+    }
+    if combined.contains("search")
+        || combined.contains("embedding")
+        || combined.contains("watch")
+        || combined.contains("latency")
+        || combined.contains("performance")
+    {
+        push_unique("performance");
+    }
+    focus
+}
+
+fn infer_recommended_checks(
+    tool_name: &str,
+    summary: &str,
+    top_findings: &[String],
+    next_actions: &[String],
+    available_sections: &[String],
+) -> Vec<String> {
+    let combined = format!(
+        "{} {} {} {}",
+        tool_name,
+        summary,
+        top_findings.join(" "),
+        next_actions.join(" ")
+    )
+    .to_ascii_lowercase();
+    let mut checks = Vec::new();
+    let mut push_unique = |value: &str| {
+        if !checks.iter().any(|existing| existing == value) {
+            checks.push(value.to_owned());
+        }
+    };
+
+    push_unique("run targeted tests for affected files or symbols");
+    push_unique("run diagnostics or lint on touched files before finalizing");
+
+    if available_sections.iter().any(|section| section == "related_tests") {
+        push_unique("expand related_tests and execute the highest-signal subset");
+    }
+    if combined.contains("rename") || combined.contains("refactor") {
+        push_unique("verify references and call sites after the refactor preview");
+    }
+    if combined.contains("http")
+        || combined.contains("browser")
+        || combined.contains("ui")
+        || combined.contains("frontend")
+        || combined.contains("layout")
+        || combined.contains("render")
+    {
+        push_unique("exercise the user-facing flow in a browser or UI harness");
+    }
+    if combined.contains("search")
+        || combined.contains("embedding")
+        || combined.contains("latency")
+        || combined.contains("performance")
+    {
+        push_unique("compare hot-path latency or throughput before and after the change");
+    }
+    if combined.contains("dead code") || combined.contains("delete") {
+        push_unique("confirm the candidate is unused in tests, runtime paths, and CI scripts");
+    }
+    checks
+}
+
+fn infer_performance_watchpoints(
+    summary: &str,
+    top_findings: &[String],
+    next_actions: &[String],
+) -> Vec<String> {
+    let combined = format!(
+        "{} {} {}",
+        summary,
+        top_findings.join(" "),
+        next_actions.join(" ")
+    )
+    .to_ascii_lowercase();
+    let mut watchpoints = Vec::new();
+    let mut push_unique = |value: &str| {
+        if !watchpoints.iter().any(|existing| existing == value) {
+            watchpoints.push(value.to_owned());
+        }
+    };
+
+    if combined.contains("search") || combined.contains("embedding") || combined.contains("query") {
+        push_unique("watch ranking quality, latency, and cache-hit behavior on search paths");
+    }
+    if combined.contains("http") || combined.contains("server") || combined.contains("route") {
+        push_unique("watch request latency, concurrency, and error-rate changes on hot routes");
+    }
+    if combined.contains("watch") || combined.contains("filesystem") {
+        push_unique("watch background work, queue depth, and repeated invalidation behavior");
+    }
+    if combined.contains("ui")
+        || combined.contains("frontend")
+        || combined.contains("layout")
+        || combined.contains("render")
+        || combined.contains("browser")
+    {
+        push_unique("watch rendering smoothness, layout stability, and unnecessary re-renders");
+    }
+    watchpoints
+}
+
+fn infer_risk_level(
+    summary: &str,
+    top_findings: &[String],
+    next_actions: &[String],
+) -> &'static str {
+    let combined = format!(
+        "{} {} {}",
+        summary,
+        top_findings.join(" "),
+        next_actions.join(" ")
+    )
+    .to_ascii_lowercase();
+    if [
+        "blocker",
+        "circular",
+        "cycle",
+        "destructive",
+        "breaking",
+        "high risk",
+        "error",
+        "failing",
+    ]
+    .iter()
+    .any(|needle| combined.contains(needle))
+    {
+        "high"
+    } else if top_findings.len() >= 3
+        || ["risk", "impact", "coupling", "dead code", "stale"]
+            .iter()
+            .any(|needle| combined.contains(needle))
+    {
+        "medium"
+    } else {
+        "low"
+    }
+}
+
+fn stable_cache_key(tool_name: &str, arguments: &Value, keys: &[&str]) -> Option<String> {
+    let mut fields = BTreeMap::new();
+    for key in keys {
+        if let Some(value) = arguments.get(*key) {
+            if !value.is_null() {
+                fields.insert((*key).to_owned(), value.clone());
+            }
+        }
+    }
+    if fields.is_empty() {
+        None
+    } else {
+        Some(
+            json!({
+                "tool": tool_name,
+                "fields": fields,
+            })
+            .to_string(),
+        )
+    }
 }
 
 fn extract_handle_fields(payload: &Value) -> (Option<String>, Vec<String>) {
@@ -65,7 +366,8 @@ fn extract_handle_fields(payload: &Value) -> (Option<String>, Vec<String>) {
         .get("available_sections")
         .and_then(|value| value.as_array())
         .map(|items| {
-            items.iter()
+            items
+                .iter()
                 .filter_map(|item| item.as_str().map(ToOwned::to_owned))
                 .collect::<Vec<_>>()
         })
@@ -224,9 +526,10 @@ fn run_dead_code_report_job(
     if !advance_job_progress(state, job_id, 20, "scanning dead code candidates", delay_ms)? {
         return Ok(json!({}));
     }
-    let dead_code = super::graph::find_dead_code_v2_tool(state, &json!({"max_results": max_results}))
-        .map(|output| output.0)
-        .map_err(|error| error.to_string())?;
+    let dead_code =
+        super::graph::find_dead_code_v2_tool(state, &json!({"max_results": max_results}))
+            .map(|output| output.0)
+            .map_err(|error| error.to_string())?;
     if !advance_job_progress(state, job_id, 70, "filtering scoped dead code", delay_ms)? {
         return Ok(json!({}));
     }
@@ -252,6 +555,7 @@ fn run_dead_code_report_job(
     make_handle_response(
         state,
         "dead_code_report",
+        stable_cache_key("dead_code_report", arguments, &["scope", "max_results"]),
         format!("Bounded dead-code audit for scope `{scope}`."),
         top_findings,
         0.84,
@@ -272,7 +576,9 @@ fn run_impact_report_job(
         return Ok(json!({}));
     }
     let changed_files = strings_from_array(
-        arguments.get("changed_files").and_then(|value| value.as_array()),
+        arguments
+            .get("changed_files")
+            .and_then(|value| value.as_array()),
         "file",
         8,
     );
@@ -285,7 +591,11 @@ fn run_impact_report_job(
             super::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))
                 .map(|out| out.0)
                 .unwrap_or_else(|_| json!({"files": [], "count": 0}));
-        strings_from_array(changed.get("files").and_then(|value| value.as_array()), "file", 8)
+        strings_from_array(
+            changed.get("files").and_then(|value| value.as_array()),
+            "file",
+            8,
+        )
     };
     if !advance_job_progress(state, job_id, 45, "measuring impact surface", delay_ms)? {
         return Ok(json!({}));
@@ -294,9 +604,14 @@ fn run_impact_report_job(
     let mut top_findings = Vec::new();
     let total = target_files.iter().take(5).count().max(1);
     for (idx, path) in target_files.iter().take(5).enumerate() {
-        let impact = super::graph::get_impact_analysis(state, &json!({"file_path": path, "max_depth": 2}))
-            .map(|output| output.0)
-            .unwrap_or_else(|_| json!({"file_path": path, "total_affected_files": 0, "direct_importers": []}));
+        let impact = super::graph::get_impact_analysis(
+            state,
+            &json!({"file_path": path, "max_depth": 2}),
+        )
+        .map(|output| output.0)
+        .unwrap_or_else(
+            |_| json!({"file_path": path, "total_affected_files": 0, "direct_importers": []}),
+        );
         let affected = impact
             .get("total_affected_files")
             .and_then(|value| value.as_u64())
@@ -330,6 +645,7 @@ fn run_impact_report_job(
     make_handle_response(
         state,
         "impact_report",
+        stable_cache_key("impact_report", arguments, &["path", "changed_files"]),
         "Diff-aware impact report with bounded blast radius and importer evidence.".to_owned(),
         top_findings,
         0.88,
@@ -388,24 +704,39 @@ fn run_refactor_safety_report_job(
 
     let mut top_findings = Vec::new();
     if let Some(symbol) = symbol {
-        top_findings.push(format!("Validate symbol-level callers before refactoring `{symbol}`."));
+        top_findings.push(format!(
+            "Validate symbol-level callers before refactoring `{symbol}`."
+        ));
     }
     if let Some(task) = task {
         top_findings.push(format!("Keep the refactor aligned with `{task}`."));
     }
-    top_findings.push(format!("Check tests around `{path}` before applying broad edits."));
+    top_findings.push(format!(
+        "Check tests around `{path}` before applying broad edits."
+    ));
 
     let mut sections = BTreeMap::new();
     sections.insert("module_boundary".to_owned(), boundary);
     sections.insert("symbol_impact".to_owned(), symbol_impact);
     sections.insert("change_request".to_owned(), change_request);
     sections.insert("related_tests".to_owned(), tests);
-    if !advance_job_progress(state, job_id, 92, "writing refactor safety analysis", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        job_id,
+        92,
+        "writing refactor safety analysis",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     make_handle_response(
         state,
         "refactor_safety_report",
+        stable_cache_key(
+            "refactor_safety_report",
+            arguments,
+            &["task", "symbol", "path", "file_path"],
+        ),
         format!("Preview-first refactor safety report for `{path}`."),
         top_findings,
         0.9,
@@ -423,12 +754,9 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
         &json!({"query": task, "max_tokens": 1200, "include_body": false, "depth": 2}),
     )?
     .0;
-    let changed = super::graph::get_changed_files_tool(
-        state,
-        &json!({"include_untracked": true}),
-    )
-    .map(|out| out.0)
-    .unwrap_or_else(|_| json!({"files": [], "count": 0, "note": "git metadata unavailable"}));
+    let changed = super::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))
+        .map(|out| out.0)
+        .unwrap_or_else(|_| json!({"files": [], "count": 0, "note": "git metadata unavailable"}));
     let ranked_symbols = ranked
         .get("symbols")
         .and_then(|v| v.as_array())
@@ -466,7 +794,8 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
     if has_changed_files {
         next_actions.push("Compare the request against the current diff".to_owned());
     }
-    let summary = if let Some(profile_hint) = arguments.get("profile_hint").and_then(|v| v.as_str()) {
+    let summary = if let Some(profile_hint) = arguments.get("profile_hint").and_then(|v| v.as_str())
+    {
         format!("Compressed change plan for `{task}` tuned for `{profile_hint}`.")
     } else {
         format!("Compressed change plan for `{task}` with the top starting points and risk cues.")
@@ -482,7 +811,20 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
     );
     sections.insert("raw_ranked_context".to_owned(), ranked);
     sections.insert("changed_files".to_owned(), changed);
-    make_handle_response(state, "analyze_change_request", summary, top_findings, 0.9, next_actions, sections)
+    make_handle_response(
+        state,
+        "analyze_change_request",
+        stable_cache_key(
+            "analyze_change_request",
+            arguments,
+            &["task", "profile_hint", "changed_files"],
+        ),
+        summary,
+        top_findings,
+        0.9,
+        next_actions,
+        sections,
+    )
 }
 
 pub fn find_minimal_context_for_change(state: &AppState, arguments: &Value) -> ToolResult {
@@ -534,6 +876,7 @@ pub fn find_minimal_context_for_change(state: &AppState, arguments: &Value) -> T
     make_handle_response(
         state,
         "find_minimal_context_for_change",
+        stable_cache_key("find_minimal_context_for_change", arguments, &["task"]),
         format!("Minimal starting context for `{task}` with the smallest useful file/symbol set."),
         top_findings,
         0.89,
@@ -550,9 +893,10 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
         &json!({"name": symbol, "file_path": file_path, "include_body": false, "exact_match": true, "max_matches": 5}),
     )?
     .0;
-    let callers = super::graph::get_callers_tool(state, &json!({"function_name": symbol, "max_results": 10}))
-        .map(|out| out.0)
-        .unwrap_or_else(|_| json!({"callers": []}));
+    let callers =
+        super::graph::get_callers_tool(state, &json!({"function_name": symbol, "max_results": 10}))
+            .map(|out| out.0)
+            .unwrap_or_else(|_| json!({"callers": []}));
     let callees = super::graph::get_callees_tool(
         state,
         &json!({"function_name": symbol, "file_path": file_path, "max_results": 10}),
@@ -565,14 +909,21 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
     )?
     .0;
 
-    let top_findings = vec![
-        format!(
-            "{} caller(s), {} callee(s), {} classified reference(s)",
-            callers.get("count").and_then(|v| v.as_u64()).unwrap_or_default(),
-            callees.get("count").and_then(|v| v.as_u64()).unwrap_or_default(),
-            scoped_refs.get("count").and_then(|v| v.as_u64()).unwrap_or_default()
-        ),
-    ];
+    let top_findings = vec![format!(
+        "{} caller(s), {} callee(s), {} classified reference(s)",
+        callers
+            .get("count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_default(),
+        callees
+            .get("count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_default(),
+        scoped_refs
+            .get("count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_default()
+    )];
     let mut sections = BTreeMap::new();
     sections.insert("symbol_matches".to_owned(), symbol_lookup);
     sections.insert("callers".to_owned(), callers);
@@ -581,6 +932,11 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
     make_handle_response(
         state,
         "summarize_symbol_impact",
+        stable_cache_key(
+            "summarize_symbol_impact",
+            arguments,
+            &["symbol", "file_path", "depth"],
+        ),
         format!("Bounded impact summary for symbol `{symbol}`."),
         top_findings,
         0.88,
@@ -591,10 +947,12 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
 
 pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
-    let impact = super::graph::get_impact_analysis(state, &json!({"file_path": path, "max_depth": 2}))
-        .map(|out| out.0)
-        .unwrap_or_else(|_| json!({"blast_radius": [], "direct_importers": []}));
-    let cycles = super::graph::find_circular_dependencies_tool(state, &json!({"max_results": 20}))?.0;
+    let impact =
+        super::graph::get_impact_analysis(state, &json!({"file_path": path, "max_depth": 2}))
+            .map(|out| out.0)
+            .unwrap_or_else(|_| json!({"blast_radius": [], "direct_importers": []}));
+    let cycles =
+        super::graph::find_circular_dependencies_tool(state, &json!({"max_results": 20}))?.0;
     let coupling = super::graph::get_change_coupling_tool(state, &json!({"max_results": 20}))?.0;
     let symbols = super::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1}))
         .map(|out| out.0)
@@ -620,24 +978,25 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         .take(5)
         .collect::<Vec<_>>();
 
-    let top_findings = vec![
-        format!(
-            "{} importer(s), {} impacted file(s), {} cycle hit(s)",
-            impact
-                .get("direct_importers")
-                .and_then(|v| v.as_array())
-                .map(|v| v.len())
-                .unwrap_or_default(),
-            impact
-                .get("total_affected_files")
-                .and_then(|v| v.as_u64())
-                .unwrap_or_default(),
-            cycle_hits.len()
-        ),
-    ];
+    let top_findings = vec![format!(
+        "{} importer(s), {} impacted file(s), {} cycle hit(s)",
+        impact
+            .get("direct_importers")
+            .and_then(|v| v.as_array())
+            .map(|v| v.len())
+            .unwrap_or_default(),
+        impact
+            .get("total_affected_files")
+            .and_then(|v| v.as_u64())
+            .unwrap_or_default(),
+        cycle_hits.len()
+    )];
     let mut sections = BTreeMap::new();
     sections.insert("impact".to_owned(), impact);
-    sections.insert("cycle_hits".to_owned(), json!({ "path": path, "cycles": cycle_hits }));
+    sections.insert(
+        "cycle_hits".to_owned(),
+        json!({ "path": path, "cycles": cycle_hits }),
+    );
     sections.insert(
         "coupling_hits".to_owned(),
         json!({ "path": path, "couplings": coupling_hits }),
@@ -646,6 +1005,7 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
     make_handle_response(
         state,
         "module_boundary_report",
+        stable_cache_key("module_boundary_report", arguments, &["path"]),
         format!("Module boundary report for `{path}` with inbound/outbound and structural risk."),
         top_findings,
         0.87,
@@ -677,7 +1037,10 @@ pub fn safe_rename_report(state: &AppState, arguments: &Value) -> ToolResult {
     } else {
         json!({"preview_skipped": true, "reason": "Provide new_name to generate a dry-run preview."})
     };
-    let ref_count = references.get("count").and_then(|v| v.as_u64()).unwrap_or_default();
+    let ref_count = references
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or_default();
     let blockers = if symbol_matches
         .get("count")
         .and_then(|v| v.as_u64())
@@ -688,7 +1051,9 @@ pub fn safe_rename_report(state: &AppState, arguments: &Value) -> ToolResult {
     } else {
         Vec::new()
     };
-    let mut top_findings = vec![format!("{ref_count} classified reference(s) found for `{symbol}`.")];
+    let mut top_findings = vec![format!(
+        "{ref_count} classified reference(s) found for `{symbol}`."
+    )];
     if !blockers.is_empty() {
         top_findings.extend(blockers.clone());
     }
@@ -699,6 +1064,11 @@ pub fn safe_rename_report(state: &AppState, arguments: &Value) -> ToolResult {
     make_handle_response(
         state,
         "safe_rename_report",
+        stable_cache_key(
+            "safe_rename_report",
+            arguments,
+            &["file_path", "symbol", "new_name"],
+        ),
         format!("Rename safety report for `{symbol}` in `{file_path}`."),
         top_findings,
         0.9,
@@ -716,7 +1086,8 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(20);
-    let dead_code = super::graph::find_dead_code_v2_tool(state, &json!({"max_results": max_results}))?.0;
+    let dead_code =
+        super::graph::find_dead_code_v2_tool(state, &json!({"max_results": max_results}))?.0;
     let candidates = dead_code
         .get("dead_code")
         .and_then(|v| v.as_array())
@@ -736,6 +1107,7 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
     make_handle_response(
         state,
         "dead_code_report",
+        stable_cache_key("dead_code_report", arguments, &["scope", "max_results"]),
         format!("Bounded dead-code audit for scope `{scope}`."),
         top_findings,
         0.84,
@@ -746,7 +1118,9 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
 
 pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
     let changed_files = strings_from_array(
-        arguments.get("changed_files").and_then(|value| value.as_array()),
+        arguments
+            .get("changed_files")
+            .and_then(|value| value.as_array()),
         "file",
         8,
     );
@@ -755,16 +1129,26 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
     } else if let Some(path) = arguments.get("path").and_then(|value| value.as_str()) {
         vec![path.to_owned()]
     } else {
-        let changed = super::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))?.0;
-        strings_from_array(changed.get("files").and_then(|value| value.as_array()), "file", 8)
+        let changed =
+            super::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))?.0;
+        strings_from_array(
+            changed.get("files").and_then(|value| value.as_array()),
+            "file",
+            8,
+        )
     };
 
     let mut impact_rows = Vec::new();
     let mut top_findings = Vec::new();
     for path in target_files.iter().take(5) {
-        let impact = super::graph::get_impact_analysis(state, &json!({"file_path": path, "max_depth": 2}))
-            .map(|output| output.0)
-            .unwrap_or_else(|_| json!({"file_path": path, "total_affected_files": 0, "direct_importers": []}));
+        let impact = super::graph::get_impact_analysis(
+            state,
+            &json!({"file_path": path, "max_depth": 2}),
+        )
+        .map(|output| output.0)
+        .unwrap_or_else(
+            |_| json!({"file_path": path, "total_affected_files": 0, "direct_importers": []}),
+        );
         let affected = impact
             .get("total_affected_files")
             .and_then(|value| value.as_u64())
@@ -786,6 +1170,7 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
     make_handle_response(
         state,
         "impact_report",
+        stable_cache_key("impact_report", arguments, &["path", "changed_files"]),
         "Diff-aware impact report with bounded blast radius and importer evidence.".to_owned(),
         top_findings,
         0.88,
@@ -823,12 +1208,16 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
 
     let mut top_findings = Vec::new();
     if let Some(symbol) = symbol {
-        top_findings.push(format!("Validate symbol-level callers before refactoring `{symbol}`."));
+        top_findings.push(format!(
+            "Validate symbol-level callers before refactoring `{symbol}`."
+        ));
     }
     if let Some(task) = task {
         top_findings.push(format!("Keep the refactor aligned with `{task}`."));
     }
-    top_findings.push(format!("Check tests around `{path}` before applying broad edits."));
+    top_findings.push(format!(
+        "Check tests around `{path}` before applying broad edits."
+    ));
 
     let mut sections = BTreeMap::new();
     sections.insert("module_boundary".to_owned(), boundary);
@@ -838,6 +1227,11 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
     make_handle_response(
         state,
         "refactor_safety_report",
+        stable_cache_key(
+            "refactor_safety_report",
+            arguments,
+            &["task", "symbol", "path", "file_path"],
+        ),
         format!("Preview-first refactor safety report for `{path}`."),
         top_findings,
         0.9,
@@ -848,13 +1242,20 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
 
 pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult {
     let changed_files = strings_from_array(
-        arguments.get("changed_files").and_then(|value| value.as_array()),
+        arguments
+            .get("changed_files")
+            .and_then(|value| value.as_array()),
         "file",
         8,
     );
     let changed_files = if changed_files.is_empty() {
-        let changed = super::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))?.0;
-        strings_from_array(changed.get("files").and_then(|value| value.as_array()), "file", 8)
+        let changed =
+            super::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))?.0;
+        strings_from_array(
+            changed.get("files").and_then(|value| value.as_array()),
+            "file",
+            8,
+        )
     } else {
         changed_files
     };
@@ -862,9 +1263,10 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
     let mut rows = Vec::new();
     let mut top_findings = Vec::new();
     for path in changed_files.iter().take(5) {
-        let symbols = super::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1}))
-            .map(|output| output.0)
-            .unwrap_or_else(|_| json!({"symbols": []}));
+        let symbols =
+            super::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1}))
+                .map(|output| output.0)
+                .unwrap_or_else(|_| json!({"symbols": []}));
         let symbol_names = symbols
             .get("symbols")
             .and_then(|value| value.as_array())
@@ -872,7 +1274,12 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
             .unwrap_or_default()
             .into_iter()
             .take(3)
-            .filter_map(|entry| entry.get("name").and_then(|value| value.as_str()).map(ToOwned::to_owned))
+            .filter_map(|entry| {
+                entry
+                    .get("name")
+                    .and_then(|value| value.as_str())
+                    .map(ToOwned::to_owned)
+            })
             .collect::<Vec<_>>();
         let mut reference_hits = Vec::new();
         for symbol_name in &symbol_names {
@@ -882,9 +1289,14 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
             )
             .map(|output| output.0)
             .unwrap_or_else(|_| json!({"references": [], "count": 0}));
-            let count = refs.get("count").and_then(|value| value.as_u64()).unwrap_or_default();
+            let count = refs
+                .get("count")
+                .and_then(|value| value.as_u64())
+                .unwrap_or_default();
             reference_hits.push(json!({"symbol": symbol_name, "count": count, "references": refs.get("references").cloned().unwrap_or(json!([]))}));
-            top_findings.push(format!("{path}: `{symbol_name}` has {count} classified reference(s)"));
+            top_findings.push(format!(
+                "{path}: `{symbol_name}` has {count} classified reference(s)"
+            ));
         }
         rows.push(json!({
             "path": path,
@@ -901,6 +1313,7 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
     make_handle_response(
         state,
         "diff_aware_references",
+        stable_cache_key("diff_aware_references", arguments, &["changed_files"]),
         "Diff-aware reference compression for reviewer and CI flows.".to_owned(),
         top_findings.into_iter().take(5).collect(),
         0.86,
@@ -915,7 +1328,11 @@ pub(crate) fn run_analysis_job_from_queue(
     kind: String,
     arguments: Value,
 ) -> &'static str {
-    let project_path = worker_state.project().as_path().to_string_lossy().to_string();
+    let project_path = worker_state
+        .project()
+        .as_path()
+        .to_string_lossy()
+        .to_string();
     if worker_state
         .get_analysis_job(&job_id)
         .as_ref()
@@ -933,54 +1350,55 @@ pub(crate) fn run_analysis_job_from_queue(
         None,
         None,
     );
-    let worker =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| -> Result<&'static str, String> {
-        if worker_state
-            .get_analysis_job(&job_id)
-            .as_ref()
-            .map(|job| job.status.as_str())
-            == Some("cancelled")
-        {
-            return Ok("cancelled");
-        }
-        let result = run_job_kind_with_progress(worker_state, &job_id, &kind, &arguments);
-        match result {
-            Ok(payload) if payload.is_object() => {
-                let (analysis_id, estimated_sections) = extract_handle_fields(&payload);
-                let current = worker_state.get_analysis_job(&job_id);
-                if current.as_ref().map(|job| job.status.as_str()) == Some("cancelled") {
-                    return Ok("cancelled");
-                }
-                worker_state
-                    .update_analysis_job(
-                        &job_id,
-                        Some("completed"),
-                        Some(100),
-                        Some(Some("completed".to_owned())),
-                        Some(estimated_sections),
-                        Some(analysis_id),
-                        Some(None),
+    let worker = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+        || -> Result<&'static str, String> {
+            if worker_state
+                .get_analysis_job(&job_id)
+                .as_ref()
+                .map(|job| job.status.as_str())
+                == Some("cancelled")
+            {
+                return Ok("cancelled");
+            }
+            let result = run_job_kind_with_progress(worker_state, &job_id, &kind, &arguments);
+            match result {
+                Ok(payload) if payload.is_object() => {
+                    let (analysis_id, estimated_sections) = extract_handle_fields(&payload);
+                    let current = worker_state.get_analysis_job(&job_id);
+                    if current.as_ref().map(|job| job.status.as_str()) == Some("cancelled") {
+                        return Ok("cancelled");
+                    }
+                    worker_state
+                        .update_analysis_job(
+                            &job_id,
+                            Some("completed"),
+                            Some(100),
+                            Some(Some("completed".to_owned())),
+                            Some(estimated_sections),
+                            Some(analysis_id),
+                            Some(None),
                         )
                         .map_err(|error| error.to_string())?;
-                Ok("completed")
+                    Ok("completed")
                 }
                 Ok(_) => Ok("failed"),
                 Err(error) => {
-                worker_state
-                    .update_analysis_job(
-                        &job_id,
-                        Some("failed"),
-                        Some(100),
-                        Some(Some("failed".to_owned())),
-                        None,
-                        Some(None),
-                        Some(Some(error.to_string())),
+                    worker_state
+                        .update_analysis_job(
+                            &job_id,
+                            Some("failed"),
+                            Some(100),
+                            Some(Some("failed".to_owned())),
+                            None,
+                            Some(None),
+                            Some(Some(error.to_string())),
                         )
                         .map_err(|error| error.to_string())?;
-                Ok("failed")
+                    Ok("failed")
                 }
             }
-    }));
+        },
+    ));
     match worker {
         Err(panic) => {
             let message = if let Some(text) = panic.downcast_ref::<&str>() {
@@ -1034,7 +1452,12 @@ pub fn start_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
         None,
         None,
     )?;
-    state.enqueue_analysis_job(job.id.clone(), kind, arguments.clone(), profile_hint.clone())?;
+    state.enqueue_analysis_job(
+        job.id.clone(),
+        kind,
+        arguments.clone(),
+        profile_hint.clone(),
+    )?;
     Ok((
         json!({
             "job_id": job.id,
@@ -1091,14 +1514,17 @@ pub fn get_analysis_section(state: &AppState, arguments: &Value) -> ToolResult {
     let artifact = state
         .get_analysis(analysis_id)
         .ok_or_else(|| CodeLensError::NotFound(format!("unknown analysis_id `{analysis_id}`")))?;
-    let content = state
-        .get_analysis_section(analysis_id, section)
-        .map_err(|error| match error {
-            CodeLensError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
-                CodeLensError::NotFound(format!("analysis `{analysis_id}` has no section `{section}`"))
-            }
-            other => other,
-        })?;
+    let content =
+        state
+            .get_analysis_section(analysis_id, section)
+            .map_err(|error| match error {
+                CodeLensError::Io(io) if io.kind() == std::io::ErrorKind::NotFound => {
+                    CodeLensError::NotFound(format!(
+                        "analysis `{analysis_id}` has no section `{section}`"
+                    ))
+                }
+                other => other,
+            })?;
     Ok((
         json!({
             "analysis_id": analysis_id,

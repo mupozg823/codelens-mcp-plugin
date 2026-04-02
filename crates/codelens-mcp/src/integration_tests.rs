@@ -113,7 +113,11 @@ fn set_profile_changes_tools_list() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
 
-    let profile_resp = call_tool(&state, "set_profile", json!({"profile": "planner-readonly"}));
+    let profile_resp = call_tool(
+        &state,
+        "set_profile",
+        json!({"profile": "planner-readonly"}),
+    );
     assert_eq!(profile_resp["data"]["current_profile"], "planner-readonly");
 
     let list_resp = handle_request(
@@ -145,6 +149,138 @@ fn set_profile_changes_tools_list() {
     let builder_encoded = serde_json::to_string(&builder_list).unwrap();
     assert!(!builder_encoded.contains("\"find_dead_code\""));
     assert!(builder_encoded.contains("\"find_symbol\""));
+    assert!(!builder_encoded.contains("\"create_text_file\""));
+    assert!(!builder_encoded.contains("\"start_analysis_job\""));
+    assert!(builder_encoded.contains("\"add_import\""));
+}
+
+#[test]
+fn tools_list_can_be_filtered_by_namespace() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "reviewer-graph"}));
+
+    let list_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(101)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"namespace": "reports"})),
+        },
+    )
+    .unwrap();
+    let encoded = serde_json::to_string(&list_resp).unwrap();
+    assert!(encoded.contains("\"selected_namespace\":\"reports\""));
+    assert!(encoded.contains("\"impact_report\""));
+    assert!(!encoded.contains("\"find_symbol\""));
+}
+
+#[test]
+fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "reviewer-graph"}));
+
+    let list_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1011)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"_session_deferred_tool_loading": true})),
+        },
+    )
+    .unwrap();
+    let encoded = serde_json::to_string(&list_resp).unwrap();
+    assert!(encoded.contains("\"deferred_loading_active\":true"));
+    assert!(encoded.contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
+    assert!(encoded.contains("\"impact_report\""));
+    assert!(!encoded.contains("\"read_file\""));
+    assert!(encoded.contains("\"tool_count_total\""));
+}
+
+#[test]
+fn refactor_profile_limits_surface_to_approved_mutations() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let profile_resp = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+    assert_eq!(profile_resp["data"]["current_profile"], "refactor-full");
+
+    let list_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(11)),
+            method: "tools/list".to_owned(),
+            params: None,
+        },
+    )
+    .unwrap();
+    let encoded = serde_json::to_string(&list_resp).unwrap();
+    assert!(encoded.contains("\"rename_symbol\""));
+    assert!(encoded.contains("\"refactor_safety_report\""));
+    assert!(!encoded.contains("\"write_memory\""));
+    assert!(!encoded.contains("\"add_queryable_project\""));
+}
+
+#[test]
+fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::RefactorFull,
+    ));
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::ReadOnly);
+
+    let payload = call_tool(
+        &state,
+        "create_text_file",
+        json!({"relative_path": "blocked.txt", "content": "nope"}),
+    );
+    assert_eq!(payload["success"], json!(false));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("blocked by daemon mode")
+    );
+}
+
+#[test]
+fn hidden_tools_are_blocked_at_call_time() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let _ = call_tool(
+        &state,
+        "set_profile",
+        json!({"profile": "planner-readonly"}),
+    );
+
+    let payload = call_tool(
+        &state,
+        "create_text_file",
+        json!({"relative_path": "blocked.txt", "content": "nope"}),
+    );
+    assert_eq!(payload["success"], json!(false));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not available in active surface")
+    );
+}
+
+#[test]
+fn read_only_surface_marks_content_mutations_for_blocking() {
+    assert!(crate::tool_defs::is_read_only_surface(
+        crate::tool_defs::ToolSurface::Profile(crate::tool_defs::ToolProfile::PlannerReadonly),
+    ));
+    assert!(crate::tool_defs::is_content_mutation_tool(
+        "create_text_file"
+    ));
+    assert!(!crate::tool_defs::is_content_mutation_tool("set_profile"));
 }
 
 // ── Read-only tool tests ─────────────────────────────────────────────
@@ -202,6 +338,23 @@ fn returns_ranked_context_via_tool_call() {
         &state,
         "get_ranked_context",
         json!({ "query": "search users" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+}
+
+#[test]
+fn returns_ranked_context_without_semantic_when_requested() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("rank_no_semantic.py"),
+        "def search_users(query):\n    pass\ndef delete_user(uid):\n    pass\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "get_ranked_context",
+        json!({ "query": "search users", "disable_semantic": true }),
     );
     assert_eq!(payload["success"], json!(true));
 }
@@ -701,6 +854,39 @@ fn onboard_project_returns_structure() {
     assert_eq!(payload["success"], json!(true));
     assert!(payload["data"]["directory_structure"].is_array());
     assert!(payload["data"]["key_files"].is_array());
+    assert!(payload["data"]["semantic"].get("status").is_some());
+}
+
+#[test]
+fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    fs::write(
+        project.as_path().join("src/main.py"),
+        "class App:\n    def run(self):\n        return 'ok'\n",
+    )
+    .unwrap();
+    let _bootstrap = make_state(&project);
+
+    let engine = codelens_core::EmbeddingEngine::new(&project).unwrap();
+    let indexed = engine.index_from_project(&project).unwrap();
+    assert!(indexed > 0);
+    drop(engine);
+
+    let state = make_state(&project);
+
+    let payload = call_tool(&state, "onboard_project", json!({}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["semantic"]["status"], json!("ready"));
+    assert_eq!(
+        payload["data"]["semantic"]["model"],
+        json!("MiniLM-L12-CodeSearchNet-INT8")
+    );
+    assert_eq!(
+        payload["data"]["semantic"]["indexed_symbols"],
+        json!(indexed)
+    );
+    assert_eq!(payload["data"]["semantic"]["loaded"], json!(false));
 }
 
 #[test]
@@ -713,7 +899,39 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"]["available"].is_array());
     assert!(payload["data"].get("lsp_attached").is_some());
     assert!(payload["data"].get("embeddings_loaded").is_some());
+    assert_eq!(
+        payload["data"]["embedding_model"],
+        json!("MiniLM-L12-CodeSearchNet-INT8")
+    );
+    assert!(payload["data"].get("embedding_indexed").is_some());
+    assert!(payload["data"].get("embedding_indexed_symbols").is_some());
     assert!(payload["data"].get("index_fresh").is_some());
+}
+
+#[test]
+fn get_capabilities_reports_existing_embedding_index_without_loading_engine() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("embed.py"),
+        "def hello():\n    return 'world'\n",
+    )
+    .unwrap();
+    let _bootstrap = make_state(&project);
+    let engine = codelens_core::EmbeddingEngine::new(&project).unwrap();
+    let indexed = engine.index_from_project(&project).unwrap();
+    assert!(indexed > 0);
+    drop(engine);
+
+    let state = make_state(&project);
+
+    let payload = call_tool(&state, "get_capabilities", json!({"file_path": "embed.py"}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["embedding_model"],
+        json!("MiniLM-L12-CodeSearchNet-INT8")
+    );
+    assert_eq!(payload["data"]["embedding_indexed"], json!(true));
+    assert_eq!(payload["data"]["embedding_indexed_symbols"], json!(indexed));
 }
 
 #[test]
@@ -735,6 +953,13 @@ fn analyze_change_request_returns_handle_and_section() {
         .as_str()
         .expect("analysis_id");
     assert!(analysis_id.starts_with("analysis-"));
+    assert!(matches!(
+        payload["data"]["risk_level"].as_str(),
+        Some("low" | "medium" | "high")
+    ));
+    assert!(payload["data"]["quality_focus"].is_array());
+    assert!(payload["data"]["recommended_checks"].is_array());
+    assert!(payload["data"]["performance_watchpoints"].is_array());
 
     let section = call_tool(
         &state,
@@ -753,9 +978,42 @@ fn analyze_change_request_returns_handle_and_section() {
 }
 
 #[test]
+fn ci_audit_reports_use_fixed_machine_schema() {
+    let project = project_root();
+    fs::write(project.as_path().join("audit.py"), "def alpha():\n    return 1\n").unwrap();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "ci-audit"}));
+
+    let payload = call_tool(&state, "impact_report", json!({"path": "audit.py"}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["profile"], json!("ci-audit"));
+    assert_eq!(
+        payload["data"]["schema_version"],
+        json!("codelens-ci-audit-v1")
+    );
+    assert_eq!(payload["data"]["report_kind"], json!("impact_report"));
+    assert!(payload["data"]["machine_summary"]["finding_count"].is_number());
+    assert!(payload["data"]["machine_summary"]["quality_focus_count"].is_number());
+    assert!(
+        payload["data"]["machine_summary"]["recommended_check_count"].is_number()
+    );
+    assert!(
+        payload["data"]["machine_summary"]["performance_watchpoint_count"].is_number()
+    );
+    assert!(payload["data"]["evidence_handles"].is_array());
+    assert!(payload["data"]["quality_focus"].is_array());
+    assert!(payload["data"]["recommended_checks"].is_array());
+    assert!(payload["data"]["performance_watchpoints"].is_array());
+}
+
+#[test]
 fn start_analysis_job_returns_completed_handle() {
     let project = project_root();
-    fs::write(project.as_path().join("impact.py"), "def alpha():\n    return 1\n").unwrap();
+    fs::write(
+        project.as_path().join("impact.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_state(&project);
     let payload = call_tool(
         &state,
@@ -896,7 +1154,10 @@ fn analysis_jobs_queue_when_worker_busy() {
             .unwrap_or_default()
             >= 1
     );
-    assert_eq!(metrics["data"]["session"]["analysis_worker_limit"], json!(1));
+    assert_eq!(
+        metrics["data"]["session"]["analysis_worker_limit"],
+        json!(1)
+    );
 }
 
 #[test]
@@ -956,27 +1217,152 @@ fn reviewer_jobs_use_parallel_http_pool() {
     }
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
-    assert_eq!(metrics["data"]["session"]["analysis_worker_limit"], json!(2));
-    assert_eq!(metrics["data"]["session"]["analysis_transport_mode"], json!("http"));
+    assert_eq!(
+        metrics["data"]["session"]["analysis_worker_limit"],
+        json!(2)
+    );
+    assert_eq!(
+        metrics["data"]["session"]["analysis_transport_mode"],
+        json!("http")
+    );
     assert!(
         metrics["data"]["session"]["peak_active_analysis_workers"]
             .as_u64()
             .unwrap_or_default()
             >= 2
     );
+    assert_eq!(metrics["data"]["session"]["analysis_cost_budget"], json!(3));
+}
+
+#[test]
+fn low_cost_jobs_bypass_heavy_jobs_in_http_queue() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("priority_first.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("priority_second.py"),
+        "def beta():\n    return 2\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    state.configure_transport_mode("http");
+
+    let first = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "priority_first.py",
+            "profile_hint": "reviewer-graph",
+            "debug_step_delay_ms": 80
+        }),
+    );
+    let first_job_id = first["data"]["job_id"].as_str().unwrap();
+    for _ in 0..50 {
+        let first_job = call_tool(&state, "get_analysis_job", json!({"job_id": first_job_id}));
+        if first_job["data"]["status"] == json!("running") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let heavy = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "dead_code_report",
+            "scope": ".",
+            "profile_hint": "reviewer-graph",
+            "debug_step_delay_ms": 80
+        }),
+    );
+    let heavy_job_id = heavy["data"]["job_id"].as_str().unwrap();
+
+    let second = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "priority_second.py",
+            "profile_hint": "reviewer-graph",
+            "debug_step_delay_ms": 80
+        }),
+    );
+    let second_job_id = second["data"]["job_id"].as_str().unwrap();
+
+    let mut saw_second_ahead_of_heavy = false;
+    for _ in 0..100 {
+        let heavy_job = call_tool(&state, "get_analysis_job", json!({"job_id": heavy_job_id}));
+        let second_job = call_tool(&state, "get_analysis_job", json!({"job_id": second_job_id}));
+        if (second_job["data"]["status"] == json!("running")
+            || second_job["data"]["status"] == json!("completed"))
+            && heavy_job["data"]["status"] == json!("queued")
+        {
+            saw_second_ahead_of_heavy = true;
+            break;
+        }
+        if heavy_job["data"]["status"] == json!("completed")
+            && second_job["data"]["status"] == json!("completed")
+        {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert!(saw_second_ahead_of_heavy);
+    assert!(
+        metrics["data"]["session"]["analysis_queue_priority_promotions"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+    assert!(
+        metrics["data"]["session"]["analysis_queue_max_weighted_depth"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 4
+    );
 }
 
 #[test]
 fn cancel_analysis_job_marks_job_cancelled() {
     let project = project_root();
-    fs::write(project.as_path().join("cancel_job.py"), "def beta():\n    return 2\n").unwrap();
+    fs::write(
+        project.as_path().join("cancel_job.py"),
+        "def beta():\n    return 2\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("cancel_blocker.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_state(&project);
+    let first = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({"kind": "impact_report", "path": "cancel_blocker.py", "debug_step_delay_ms": 60}),
+    );
+    let first_job_id = first["data"]["job_id"].as_str().unwrap();
+    for _ in 0..50 {
+        let first_job = call_tool(&state, "get_analysis_job", json!({"job_id": first_job_id}));
+        if first_job["data"]["status"] == json!("running") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     let payload = call_tool(
         &state,
         "start_analysis_job",
-        json!({"kind": "dead_code_report", "scope": "."}),
+        json!({"kind": "impact_report", "path": "cancel_job.py", "debug_step_delay_ms": 50}),
     );
     let job_id = payload["data"]["job_id"].as_str().unwrap();
+    let queued = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+    assert_eq!(queued["data"]["status"], json!("queued"));
     let cancelled = call_tool(&state, "cancel_analysis_job", json!({"job_id": job_id}));
     assert_eq!(cancelled["data"]["status"], json!("cancelled"));
 }
@@ -984,7 +1370,11 @@ fn cancel_analysis_job_marks_job_cancelled() {
 #[test]
 fn resources_include_profile_guides_and_analysis_summaries() {
     let project = project_root();
-    fs::write(project.as_path().join("module.py"), "def alpha():\n    return 1\n").unwrap();
+    fs::write(
+        project.as_path().join("module.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_state(&project);
     let payload = call_tool(
         &state,
@@ -1005,6 +1395,9 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     .unwrap();
     let encoded = serde_json::to_string(&list_response).unwrap();
     assert!(encoded.contains("codelens://profile/planner-readonly/guide"));
+    assert!(encoded.contains("codelens://profile/planner-readonly/guide/full"));
+    assert!(encoded.contains("codelens://tools/list/full"));
+    assert!(encoded.contains("codelens://session/http"));
     assert!(encoded.contains(&format!("codelens://analysis/{analysis_id}/summary")));
 
     let read_response = handle_request(
@@ -1019,12 +1412,104 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     .unwrap();
     let body = serde_json::to_string(&read_response).unwrap();
     assert!(body.contains("available_sections"));
+
+    let tools_summary = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(23)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://tools/list"})),
+        },
+    )
+    .unwrap();
+    let tools_summary_body = serde_json::to_string(&tools_summary).unwrap();
+    assert!(tools_summary_body.contains("recommended_tools"));
+    assert!(tools_summary_body.contains("visible_namespaces"));
+    assert!(!tools_summary_body.contains("\"description\""));
+    assert!(tools_summary_body.contains("reports"));
+
+    let tools_full = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(24)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://tools/list/full"})),
+        },
+    )
+    .unwrap();
+    let tools_full_body = serde_json::to_string(&tools_full).unwrap();
+    assert!(tools_full_body.contains("description"));
+    assert!(tools_full_body.contains("namespace"));
+
+    let session_resource = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(24_1)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://session/http"})),
+        },
+    )
+    .unwrap();
+    let session_resource_body = serde_json::to_string(&session_resource).unwrap();
+    assert!(session_resource_body.contains("resume_supported"));
+    assert!(session_resource_body.contains("active_sessions"));
+    assert!(session_resource_body.contains("deferred_loading_supported"));
+    assert!(session_resource_body.contains("preferred_namespaces"));
+
+    let profile_summary = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(25)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://profile/reviewer-graph/guide"})),
+        },
+    )
+    .unwrap();
+    let profile_summary_body = serde_json::to_string(&profile_summary).unwrap();
+    assert!(profile_summary_body.contains("preferred_namespaces"));
+    assert!(tools_summary_body.contains("preferred_namespaces"));
+}
+
+#[test]
+fn ci_audit_analysis_summary_resource_matches_machine_schema() {
+    let project = project_root();
+    fs::write(project.as_path().join("ci_audit.py"), "def alpha():\n    return 1\n").unwrap();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "ci-audit"}));
+    let payload = call_tool(&state, "impact_report", json!({"path": "ci_audit.py"}));
+    let analysis_id = payload["data"]["analysis_id"].as_str().unwrap();
+
+    let summary = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(26)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": format!("codelens://analysis/{analysis_id}/summary")})),
+        },
+    )
+    .unwrap();
+    let body = serde_json::to_string(&summary).unwrap();
+    assert!(body.contains("codelens-ci-audit-v1"));
+    assert!(body.contains("machine_summary"));
+    assert!(body.contains("evidence_handles"));
+    assert!(body.contains("quality_focus"));
+    assert!(body.contains("recommended_checks"));
+    assert!(body.contains("performance_watchpoints"));
 }
 
 #[test]
 fn tool_metrics_expose_kpis_and_chain_detection() {
     let project = project_root();
-    fs::write(project.as_path().join("chain.py"), "def alpha():\n    return 1\n").unwrap();
+    fs::write(
+        project.as_path().join("chain.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_state(&project);
 
     let _ = call_tool(
@@ -1038,11 +1523,37 @@ fn tool_metrics_expose_kpis_and_chain_detection() {
         json!({"file_path": "chain.py", "symbol_name": "alpha", "max_results": 10}),
     );
     let _ = call_tool(&state, "read_file", json!({"relative_path": "chain.py"}));
+    let report = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "improve alpha flow in chain.py"}),
+    );
+    let analysis_id = report["data"]["analysis_id"].as_str().unwrap();
+    let _ = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "ranked_files"}),
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(metrics["data"]["per_tool"].is_array());
     assert!(metrics["data"]["per_surface"].is_array());
     assert!(metrics["data"]["derived_kpis"]["composite_ratio"].is_number());
+    assert!(metrics["data"]["session"]["quality_contract_emitted_count"].is_number());
+    assert!(metrics["data"]["session"]["recommended_checks_emitted_count"].is_number());
+    assert!(metrics["data"]["session"]["quality_focus_reuse_count"].is_number());
+    assert!(
+        metrics["data"]["derived_kpis"]["quality_contract_present_rate"].is_number()
+    );
+    assert!(
+        metrics["data"]["derived_kpis"]["recommended_check_followthrough_rate"].is_number()
+    );
+    assert!(
+        metrics["data"]["derived_kpis"]["quality_focus_reuse_rate"].is_number()
+    );
+    assert!(
+        metrics["data"]["derived_kpis"]["performance_watchpoint_emit_rate"].is_number()
+    );
     assert!(
         metrics["data"]["session"]["repeated_low_level_chain_count"]
             .as_u64()
@@ -1052,9 +1563,72 @@ fn tool_metrics_expose_kpis_and_chain_detection() {
 }
 
 #[test]
+fn low_level_chain_emits_composite_guidance_and_tracks_followthrough() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("guided.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool(
+        &state,
+        "find_symbol",
+        json!({"name": "alpha", "file_path": "guided.py", "include_body": false}),
+    );
+    let _ = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({"file_path": "guided.py", "symbol_name": "alpha", "max_results": 10}),
+    );
+    let response = call_tool(&state, "read_file", json!({"relative_path": "guided.py"}));
+    let suggested = response["suggested_next_tools"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let suggested_names = suggested
+        .iter()
+        .filter_map(|value| value.as_str())
+        .collect::<Vec<_>>();
+    assert!(
+        suggested_names.contains(&"find_minimal_context_for_change")
+            || suggested_names.contains(&"analyze_change_request"),
+        "expected composite guidance, got {:?}",
+        suggested_names
+    );
+    let budget_hint = response["budget_hint"].as_str().unwrap_or_default();
+    assert!(budget_hint.contains("Repeated low-level chain detected"));
+
+    let _ = call_tool(
+        &state,
+        "find_minimal_context_for_change",
+        json!({"task": "update alpha safely"}),
+    );
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert!(
+        metrics["data"]["session"]["composite_guidance_emitted_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+    assert!(
+        metrics["data"]["session"]["composite_guidance_followed_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+}
+
+#[test]
 fn analysis_artifacts_evict_oldest_disk_payloads() {
     let project = project_root();
-    fs::write(project.as_path().join("evict.py"), "def alpha():\n    return 1\n").unwrap();
+    fs::write(
+        project.as_path().join("evict.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_state(&project);
     let mut first_analysis_id = None;
 
@@ -1076,6 +1650,87 @@ fn analysis_artifacts_evict_oldest_disk_payloads() {
 }
 
 #[test]
+fn foreign_project_scoped_analysis_is_ignored_for_reuse() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("foreign.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let analysis_id = "analysis-foreign";
+    let artifact_dir = state.analysis_dir().join(analysis_id);
+    fs::create_dir_all(&artifact_dir).unwrap();
+    let cache_key = json!({
+        "tool": "analyze_change_request",
+        "fields": {
+            "task": "update alpha safely"
+        }
+    })
+    .to_string();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let artifact = json!({
+        "id": analysis_id,
+        "tool_name": "analyze_change_request",
+        "surface": "preset:full",
+        "project_scope": "/tmp/other-project",
+        "cache_key": cache_key,
+        "summary": "foreign",
+        "top_findings": ["foreign"],
+        "confidence": 0.5,
+        "next_actions": ["ignore"],
+        "available_sections": ["summary"],
+        "created_at_ms": now_ms,
+    });
+    fs::write(
+        artifact_dir.join("summary.json"),
+        serde_json::to_vec_pretty(&artifact).unwrap(),
+    )
+    .unwrap();
+
+    assert!(state.get_analysis(analysis_id).is_none());
+    assert!(
+        state
+            .find_reusable_analysis("analyze_change_request", &cache_key)
+            .is_none()
+    );
+}
+
+#[test]
+fn foreign_project_scoped_job_file_is_ignored() {
+    let project = project_root();
+    let state = make_state(&project);
+    let jobs_dir = state.analysis_dir().join("jobs");
+    fs::create_dir_all(&jobs_dir).unwrap();
+    let job_path = jobs_dir.join("job-foreign.json");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_millis() as u64;
+    let job = json!({
+        "id": "job-foreign",
+        "kind": "impact_report",
+        "project_scope": "/tmp/other-project",
+        "status": "queued",
+        "progress": 0,
+        "current_step": "queued",
+        "profile_hint": "reviewer-graph",
+        "estimated_sections": ["impact"],
+        "analysis_id": null,
+        "error": null,
+        "created_at_ms": now_ms,
+        "updated_at_ms": now_ms,
+    });
+    fs::write(&job_path, serde_json::to_vec_pretty(&job).unwrap()).unwrap();
+
+    assert!(state.get_analysis_job("job-foreign").is_none());
+    assert!(!job_path.exists());
+}
+
+#[test]
 fn mutation_tools_write_audit_log() {
     let project = project_root();
     let state = make_state(&project);
@@ -1093,12 +1748,17 @@ fn mutation_tools_write_audit_log() {
         .join("mutation-audit.jsonl");
     let audit = fs::read_to_string(audit_path).unwrap();
     assert!(audit.contains("create_text_file"));
+    assert!(audit.contains(&state.current_project_scope()));
 }
 
 #[test]
 fn analysis_artifacts_expire_by_ttl() {
     let project = project_root();
-    fs::write(project.as_path().join("ttl.py"), "def gamma():\n    return 3\n").unwrap();
+    fs::write(
+        project.as_path().join("ttl.py"),
+        "def gamma():\n    return 3\n",
+    )
+    .unwrap();
     let state = make_state(&project);
     let payload = call_tool(
         &state,
@@ -1106,20 +1766,28 @@ fn analysis_artifacts_expire_by_ttl() {
         json!({"task": "update gamma flow"}),
     );
     let analysis_id = payload["data"]["analysis_id"].as_str().unwrap().to_owned();
-    state.set_analysis_created_at_for_test(&analysis_id, 0).unwrap();
+    state
+        .set_analysis_created_at_for_test(&analysis_id, 0)
+        .unwrap();
 
     assert!(state.get_analysis(&analysis_id).is_none());
     assert!(!state.analysis_dir().join(&analysis_id).exists());
-    assert!(state
-        .list_analysis_summaries()
-        .into_iter()
-        .all(|summary| summary.id != analysis_id));
+    assert!(
+        state
+            .list_analysis_summaries()
+            .into_iter()
+            .all(|summary| summary.id != analysis_id)
+    );
 }
 
 #[test]
 fn startup_cleanup_removes_expired_analysis_artifacts() {
     let project = project_root();
-    fs::write(project.as_path().join("startup_ttl.py"), "def delta():\n    return 4\n").unwrap();
+    fs::write(
+        project.as_path().join("startup_ttl.py"),
+        "def delta():\n    return 4\n",
+    )
+    .unwrap();
     let state = make_state(&project);
     let payload = call_tool(
         &state,
@@ -1127,7 +1795,9 @@ fn startup_cleanup_removes_expired_analysis_artifacts() {
         json!({"task": "update delta flow"}),
     );
     let analysis_id = payload["data"]["analysis_id"].as_str().unwrap().to_owned();
-    state.set_analysis_created_at_for_test(&analysis_id, 0).unwrap();
+    state
+        .set_analysis_created_at_for_test(&analysis_id, 0)
+        .unwrap();
 
     let restarted = make_state(&project);
     assert!(!restarted.analysis_dir().join(&analysis_id).exists());
@@ -1136,7 +1806,11 @@ fn startup_cleanup_removes_expired_analysis_artifacts() {
 #[test]
 fn startup_cleanup_preserves_analysis_jobs_dir() {
     let project = project_root();
-    fs::write(project.as_path().join("jobs_keep.py"), "def epsilon():\n    return 5\n").unwrap();
+    fs::write(
+        project.as_path().join("jobs_keep.py"),
+        "def epsilon():\n    return 5\n",
+    )
+    .unwrap();
     let state = make_state(&project);
     let payload = call_tool(
         &state,
@@ -1160,7 +1834,11 @@ fn startup_cleanup_preserves_analysis_jobs_dir() {
 #[test]
 fn analysis_reads_update_session_metrics() {
     let project = project_root();
-    fs::write(project.as_path().join("metrics.py"), "def beta():\n    return 2\n").unwrap();
+    fs::write(
+        project.as_path().join("metrics.py"),
+        "def beta():\n    return 2\n",
+    )
+    .unwrap();
     let state = make_state(&project);
     let payload = call_tool(
         &state,
@@ -1186,8 +1864,90 @@ fn analysis_reads_update_session_metrics() {
     .unwrap();
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
-    assert_eq!(metrics["data"]["session"]["analysis_section_reads"], json!(1));
-    assert_eq!(metrics["data"]["session"]["analysis_summary_reads"], json!(1));
+    assert_eq!(
+        metrics["data"]["session"]["analysis_section_reads"],
+        json!(1)
+    );
+    assert_eq!(
+        metrics["data"]["session"]["analysis_summary_reads"],
+        json!(1)
+    );
+}
+
+#[test]
+fn truncation_followups_are_recorded_in_metrics() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("truncation.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::PlannerReadonly,
+    ));
+    state.set_token_budget(1);
+
+    let first = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "update alpha flow"}),
+    );
+    assert_eq!(first["truncated"], json!(true));
+
+    let second = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "update alpha flow"}),
+    );
+    assert_eq!(second["truncated"], json!(true));
+
+    state.set_token_budget(3200);
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert_eq!(
+        metrics["data"]["session"]["truncated_response_count"],
+        json!(2)
+    );
+    assert_eq!(
+        metrics["data"]["session"]["truncation_followup_count"],
+        json!(1)
+    );
+    assert_eq!(
+        metrics["data"]["session"]["truncation_same_tool_retry_count"],
+        json!(1)
+    );
+}
+
+#[test]
+fn repeated_composite_request_reuses_existing_analysis_handle() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("reuse.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let first = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "update alpha flow", "profile_hint": "planner-readonly"}),
+    );
+    let second = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "update alpha flow", "profile_hint": "planner-readonly"}),
+    );
+
+    assert_eq!(first["data"]["reused"], json!(false));
+    assert_eq!(second["data"]["reused"], json!(true));
+    assert_eq!(first["data"]["analysis_id"], second["data"]["analysis_id"]);
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert_eq!(
+        metrics["data"]["session"]["analysis_cache_hit_count"],
+        json!(1)
+    );
 }
 
 // ── Test helpers ─────────────────────────────────────────────────────
@@ -1250,7 +2010,14 @@ fn tool_defs_and_dispatch_are_consistent() {
     let dispatch = crate::tools::dispatch_table();
     let defs = crate::tool_defs::tools();
     // semantic tools are feature-gated, skip if not compiled in
-    let semantic_tools = &["semantic_search", "index_embeddings"];
+    let semantic_tools = &[
+        "semantic_search",
+        "index_embeddings",
+        "find_similar_code",
+        "find_code_duplicates",
+        "classify_symbol",
+        "find_misplaced_code",
+    ];
     let mut missing_handlers = Vec::new();
     for tool in defs {
         if semantic_tools.contains(&tool.name) {

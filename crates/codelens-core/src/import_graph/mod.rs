@@ -2,9 +2,9 @@ mod dead_code;
 mod parsers;
 mod resolvers;
 
-use crate::db::{index_db_path, IndexDb};
-use crate::project::{collect_files, ProjectRoot};
-use anyhow::{bail, Result};
+use crate::db::{IndexDb, index_db_path};
+use crate::project::{ProjectRoot, collect_files};
+use anyhow::{Result, bail};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex};
 
 // ── Re-exports ───────────────────────────────────────────────────────────────
 
-pub use dead_code::{find_dead_code, find_dead_code_v2, DeadCodeEntryV2};
+pub use dead_code::{DeadCodeEntryV2, find_dead_code, find_dead_code_v2};
 pub use parsers::extract_imports_for_file;
 pub use parsers::extract_imports_from_source;
 pub use resolvers::resolve_module_for_file;
@@ -346,8 +346,8 @@ fn normalize_key(file_path: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        find_dead_code, get_blast_radius, get_importance, get_importers, supports_import_graph,
-        GraphCache,
+        GraphCache, find_dead_code, get_blast_radius, get_importance, get_importers,
+        supports_import_graph,
     };
     use crate::ProjectRoot;
     use std::fs;

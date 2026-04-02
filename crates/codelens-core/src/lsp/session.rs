@@ -62,13 +62,26 @@ pub(super) fn is_allowed_lsp_command(command: &str) -> bool {
 
 pub(super) const ALLOWED_COMMANDS: &[&str] = &[
     // From LSP_RECIPES
-    "pyright-langserver", "typescript-language-server", "rust-analyzer",
-    "gopls", "jdtls", "kotlin-language-server", "clangd",
-    "solargraph", "intelephense", "sourcekit-lsp", "csharp-ls", "dart",
+    "pyright-langserver",
+    "typescript-language-server",
+    "rust-analyzer",
+    "gopls",
+    "jdtls",
+    "kotlin-language-server",
+    "clangd",
+    "solargraph",
+    "intelephense",
+    "sourcekit-lsp",
+    "csharp-ls",
+    "dart",
     // Additional well-known LSP servers
-    "metals", "lua-language-server", "terraform-ls", "yaml-language-server",
+    "metals",
+    "lua-language-server",
+    "terraform-ls",
+    "yaml-language-server",
     // Test support: allow python3/python for mock LSP in tests
-    "python3", "python",
+    "python3",
+    "python",
 ];
 
 fn ensure_session<'a>(
@@ -78,7 +91,9 @@ fn ensure_session<'a>(
     args: &[String],
 ) -> Result<&'a mut LspSession> {
     if !is_allowed_lsp_command(command) {
-        bail!("Blocked: '{command}' is not a known LSP server. Only whitelisted LSP binaries are allowed.");
+        bail!(
+            "Blocked: '{command}' is not a known LSP server. Only whitelisted LSP binaries are allowed."
+        );
     }
 
     let key = SessionKey {
@@ -126,18 +141,23 @@ impl LspSessionPool {
 
     pub fn find_referencing_symbols(&self, request: &LspRequest) -> Result<Vec<LspReference>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session =
-            ensure_session(&mut sessions, &self.project, &request.command, &request.args)?;
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
         session.find_references(request)
     }
 
-    pub fn get_diagnostics(
-        &self,
-        request: &LspDiagnosticRequest,
-    ) -> Result<Vec<LspDiagnostic>> {
+    pub fn get_diagnostics(&self, request: &LspDiagnosticRequest) -> Result<Vec<LspDiagnostic>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session =
-            ensure_session(&mut sessions, &self.project, &request.command, &request.args)?;
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
         session.get_diagnostics(request)
     }
 
@@ -146,8 +166,12 @@ impl LspSessionPool {
         request: &LspWorkspaceSymbolRequest,
     ) -> Result<Vec<LspWorkspaceSymbol>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session =
-            ensure_session(&mut sessions, &self.project, &request.command, &request.args)?;
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
         session.search_workspace_symbols(request)
     }
 
@@ -156,15 +180,23 @@ impl LspSessionPool {
         request: &LspTypeHierarchyRequest,
     ) -> Result<HashMap<String, Value>> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session =
-            ensure_session(&mut sessions, &self.project, &request.command, &request.args)?;
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
         session.get_type_hierarchy(request)
     }
 
     pub fn get_rename_plan(&self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
         let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session =
-            ensure_session(&mut sessions, &self.project, &request.command, &request.args)?;
+        let session = ensure_session(
+            &mut sessions,
+            &self.project,
+            &request.command,
+            &request.args,
+        )?;
         session.get_rename_plan(request)
     }
 }

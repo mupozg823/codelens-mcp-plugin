@@ -28,6 +28,7 @@ pub struct ToolInvocation {
     pub elapsed_ms: u64,
     pub tokens: usize,
     pub success: bool,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Default, Serialize, Clone)]
@@ -54,8 +55,20 @@ pub struct SessionMetrics {
     pub analysis_summary_reads: u64,
     pub analysis_section_reads: u64,
     pub retry_count: u64,
+    pub analysis_cache_hit_count: u64,
+    pub truncated_response_count: u64,
+    pub truncation_followup_count: u64,
+    pub truncation_same_tool_retry_count: u64,
+    pub truncation_handle_followup_count: u64,
     pub handle_reuse_count: u64,
     pub repeated_low_level_chain_count: u64,
+    pub composite_guidance_emitted_count: u64,
+    pub composite_guidance_followed_count: u64,
+    pub quality_contract_emitted_count: u64,
+    pub recommended_checks_emitted_count: u64,
+    pub recommended_check_followthrough_count: u64,
+    pub quality_focus_reuse_count: u64,
+    pub performance_watchpoint_emit_count: u64,
     pub composite_calls: u64,
     pub low_level_calls: u64,
     pub stdio_session_count: u64,
@@ -67,12 +80,22 @@ pub struct SessionMetrics {
     pub analysis_jobs_cancelled: u64,
     pub analysis_queue_depth: u64,
     pub analysis_queue_max_depth: u64,
+    pub analysis_queue_weighted_depth: u64,
+    pub analysis_queue_max_weighted_depth: u64,
+    pub analysis_queue_priority_promotions: u64,
     pub active_analysis_workers: u64,
     pub peak_active_analysis_workers: u64,
     pub analysis_worker_limit: u64,
+    pub analysis_cost_budget: u64,
     pub analysis_transport_mode: String,
     #[serde(skip_serializing)]
     pub latency_samples: VecDeque<u64>,
+    #[serde(skip_serializing)]
+    pending_truncation_tool: Option<String>,
+    #[serde(skip_serializing)]
+    pending_composite_guidance: bool,
+    #[serde(skip_serializing)]
+    pending_quality_contract: bool,
     /// Ordered tool invocation timeline (capped at 200 entries).
     pub timeline: Vec<ToolInvocation>,
 }
@@ -148,7 +171,7 @@ impl ToolMetricsRegistry {
     /// Record a single tool invocation (per-tool + session).
     #[allow(dead_code)] // used in tests and as convenience wrapper
     pub fn record_call(&self, name: &str, elapsed_ms: u64, success: bool) {
-        self.record_call_with_tokens(name, elapsed_ms, success, 0, "unknown");
+        self.record_call_with_tokens(name, elapsed_ms, success, 0, "unknown", false);
     }
 
     /// Record a tool invocation with token estimate.
@@ -159,6 +182,7 @@ impl ToolMetricsRegistry {
         success: bool,
         tokens: usize,
         surface: &str,
+        truncated: bool,
     ) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -214,9 +238,33 @@ impl ToolMetricsRegistry {
             if !success {
                 session.error_count += 1;
             }
+            if name != "get_tool_metrics" && session.pending_composite_guidance {
+                if is_workflow_tool(name) {
+                    session.composite_guidance_followed_count += 1;
+                }
+                session.pending_composite_guidance = false;
+            }
+            if name != "get_tool_metrics"
+                && session.pending_quality_contract
+                && (name == "get_analysis_section"
+                    || name == "get_file_diagnostics"
+                    || name == "find_tests"
+                    || name == "get_tool_metrics")
+            {
+                session.recommended_check_followthrough_count += 1;
+                session.pending_quality_contract = false;
+            }
             if let Some(prev) = previous {
                 if prev.tool == name && !prev.success {
                     session.retry_count += 1;
+                }
+            }
+            if name != "get_tool_metrics" {
+                if let Some(prev_tool) = session.pending_truncation_tool.take() {
+                    session.truncation_followup_count += 1;
+                    if prev_tool == name {
+                        session.truncation_same_tool_retry_count += 1;
+                    }
                 }
             }
             push_latency_sample(&mut session.latency_samples, elapsed_ms);
@@ -227,6 +275,7 @@ impl ToolMetricsRegistry {
                     elapsed_ms,
                     tokens,
                     success,
+                    truncated,
                 });
             } else {
                 session.timeline.remove(0);
@@ -236,7 +285,12 @@ impl ToolMetricsRegistry {
                     elapsed_ms,
                     tokens,
                     success,
+                    truncated,
                 });
+            }
+            if truncated {
+                session.truncated_response_count += 1;
+                session.pending_truncation_tool = Some(name.to_owned());
             }
             if has_low_level_chain(&session.timeline) {
                 session.repeated_low_level_chain_count += 1;
@@ -302,11 +356,58 @@ impl ToolMetricsRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         session.handle_reuse_count += 1;
+        session.quality_focus_reuse_count += 1;
+        if session.pending_truncation_tool.take().is_some() {
+            session.truncation_followup_count += 1;
+            session.truncation_handle_followup_count += 1;
+        }
+        if session.pending_quality_contract {
+            session.recommended_check_followthrough_count += 1;
+            session.pending_quality_contract = false;
+        }
         if is_section {
             session.analysis_section_reads += 1;
         } else {
             session.analysis_summary_reads += 1;
         }
+    }
+
+    pub fn record_analysis_cache_hit(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.analysis_cache_hit_count += 1;
+        session.handle_reuse_count += 1;
+        session.quality_focus_reuse_count += 1;
+    }
+
+    pub fn record_quality_contract_emitted(
+        &self,
+        quality_focus_count: usize,
+        recommended_checks_count: usize,
+        performance_watchpoint_count: usize,
+    ) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.quality_contract_emitted_count += 1;
+        session.recommended_checks_emitted_count += recommended_checks_count as u64;
+        session.performance_watchpoint_emit_count += performance_watchpoint_count as u64;
+        session.pending_quality_contract = recommended_checks_count > 0;
+        if quality_focus_count == 0 {
+            session.pending_quality_contract = false;
+        }
+    }
+
+    pub fn record_composite_guidance_emitted(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.composite_guidance_emitted_count += 1;
+        session.pending_composite_guidance = true;
     }
 
     pub fn record_transport_session(&self, transport: &str) {
@@ -320,16 +421,27 @@ impl ToolMetricsRegistry {
         }
     }
 
-    pub fn record_analysis_worker_pool(&self, worker_limit: usize, transport: &str) {
+    pub fn record_analysis_worker_pool(
+        &self,
+        worker_limit: usize,
+        cost_budget: usize,
+        transport: &str,
+    ) {
         let mut session = self
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         session.analysis_worker_limit = worker_limit as u64;
+        session.analysis_cost_budget = cost_budget as u64;
         session.analysis_transport_mode = transport.to_owned();
     }
 
-    pub fn record_analysis_job_enqueued(&self, queue_depth: usize) {
+    pub fn record_analysis_job_enqueued(
+        &self,
+        queue_depth: usize,
+        weighted_depth: usize,
+        priority_promoted: bool,
+    ) {
         let mut session = self
             .session
             .lock()
@@ -337,22 +449,38 @@ impl ToolMetricsRegistry {
         session.analysis_jobs_enqueued += 1;
         session.analysis_queue_depth = queue_depth as u64;
         session.analysis_queue_max_depth = session.analysis_queue_max_depth.max(queue_depth as u64);
+        session.analysis_queue_weighted_depth = weighted_depth as u64;
+        session.analysis_queue_max_weighted_depth = session
+            .analysis_queue_max_weighted_depth
+            .max(weighted_depth as u64);
+        if priority_promoted {
+            session.analysis_queue_priority_promotions += 1;
+        }
     }
 
-    pub fn record_analysis_job_started(&self, queue_depth: usize) {
+    pub fn record_analysis_job_started(&self, queue_depth: usize, weighted_depth: usize) {
         let mut session = self
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         session.analysis_jobs_started += 1;
         session.analysis_queue_depth = queue_depth as u64;
+        session.analysis_queue_weighted_depth = weighted_depth as u64;
+        session.analysis_queue_max_weighted_depth = session
+            .analysis_queue_max_weighted_depth
+            .max(weighted_depth as u64);
         session.active_analysis_workers += 1;
         session.peak_active_analysis_workers = session
             .peak_active_analysis_workers
             .max(session.active_analysis_workers);
     }
 
-    pub fn record_analysis_job_finished(&self, status: &str, queue_depth: usize) {
+    pub fn record_analysis_job_finished(
+        &self,
+        status: &str,
+        queue_depth: usize,
+        weighted_depth: usize,
+    ) {
         let mut session = self
             .session
             .lock()
@@ -364,10 +492,14 @@ impl ToolMetricsRegistry {
         }
         session.analysis_queue_depth = queue_depth as u64;
         session.analysis_queue_max_depth = session.analysis_queue_max_depth.max(queue_depth as u64);
+        session.analysis_queue_weighted_depth = weighted_depth as u64;
+        session.analysis_queue_max_weighted_depth = session
+            .analysis_queue_max_weighted_depth
+            .max(weighted_depth as u64);
         session.active_analysis_workers = session.active_analysis_workers.saturating_sub(1);
     }
 
-    pub fn record_analysis_job_cancelled(&self, queue_depth: usize) {
+    pub fn record_analysis_job_cancelled(&self, queue_depth: usize, weighted_depth: usize) {
         let mut session = self
             .session
             .lock()
@@ -375,6 +507,10 @@ impl ToolMetricsRegistry {
         session.analysis_jobs_cancelled += 1;
         session.analysis_queue_depth = queue_depth as u64;
         session.analysis_queue_max_depth = session.analysis_queue_max_depth.max(queue_depth as u64);
+        session.analysis_queue_weighted_depth = weighted_depth as u64;
+        session.analysis_queue_max_weighted_depth = session
+            .analysis_queue_max_weighted_depth
+            .max(weighted_depth as u64);
     }
 
     /// Clear all recorded metrics.
@@ -463,9 +599,16 @@ mod tests {
     #[test]
     fn session_metrics_accumulate() {
         let reg = ToolMetricsRegistry::new();
-        reg.record_call_with_tokens("find_symbol", 15, true, 500, "planner-readonly");
-        reg.record_call_with_tokens("get_ranked_context", 42, true, 2000, "planner-readonly");
-        reg.record_call_with_tokens("rename_symbol", 8, false, 0, "refactor-full");
+        reg.record_call_with_tokens("find_symbol", 15, true, 500, "planner-readonly", false);
+        reg.record_call_with_tokens(
+            "get_ranked_context",
+            42,
+            true,
+            2000,
+            "planner-readonly",
+            false,
+        );
+        reg.record_call_with_tokens("rename_symbol", 8, false, 0, "refactor-full", false);
 
         let session = reg.session_snapshot();
         assert_eq!(session.total_calls, 3);
@@ -484,40 +627,44 @@ mod tests {
     }
 
     #[test]
-fn transport_counts_accumulate() {
-    let reg = ToolMetricsRegistry::new();
-    reg.record_transport_session("stdio");
-    reg.record_transport_session("http");
+    fn transport_counts_accumulate() {
+        let reg = ToolMetricsRegistry::new();
+        reg.record_transport_session("stdio");
+        reg.record_transport_session("http");
         reg.record_transport_session("http");
 
         let session = reg.session_snapshot();
         assert_eq!(session.stdio_session_count, 1);
-    assert_eq!(session.http_session_count, 2);
-}
+        assert_eq!(session.http_session_count, 2);
+    }
 
-#[test]
-fn analysis_queue_metrics_accumulate() {
-    let reg = ToolMetricsRegistry::new();
-    reg.record_analysis_job_enqueued(2);
-    reg.record_analysis_job_started(1);
-    reg.record_analysis_job_finished("completed", 0);
-    reg.record_analysis_job_cancelled(0);
-
-    let session = reg.session_snapshot();
-    assert_eq!(session.analysis_jobs_enqueued, 1);
-    assert_eq!(session.analysis_jobs_started, 1);
-    assert_eq!(session.analysis_jobs_completed, 1);
-    assert_eq!(session.analysis_jobs_cancelled, 1);
-    assert_eq!(session.analysis_queue_max_depth, 2);
-    assert_eq!(session.analysis_queue_depth, 0);
-    assert_eq!(session.active_analysis_workers, 0);
-    assert_eq!(session.peak_active_analysis_workers, 1);
-}
-
-#[test]
-fn session_reset_clears() {
+    #[test]
+    fn analysis_queue_metrics_accumulate() {
         let reg = ToolMetricsRegistry::new();
-        reg.record_call_with_tokens("a", 10, true, 100, "planner-readonly");
+        reg.record_analysis_worker_pool(2, 3, "http");
+        reg.record_analysis_job_enqueued(2, 4, true);
+        reg.record_analysis_job_started(1, 3);
+        reg.record_analysis_job_finished("completed", 0, 0);
+        reg.record_analysis_job_cancelled(0, 0);
+
+        let session = reg.session_snapshot();
+        assert_eq!(session.analysis_jobs_enqueued, 1);
+        assert_eq!(session.analysis_jobs_started, 1);
+        assert_eq!(session.analysis_jobs_completed, 1);
+        assert_eq!(session.analysis_jobs_cancelled, 1);
+        assert_eq!(session.analysis_queue_max_depth, 2);
+        assert_eq!(session.analysis_queue_max_weighted_depth, 4);
+        assert_eq!(session.analysis_queue_priority_promotions, 1);
+        assert_eq!(session.analysis_queue_depth, 0);
+        assert_eq!(session.active_analysis_workers, 0);
+        assert_eq!(session.peak_active_analysis_workers, 1);
+        assert_eq!(session.analysis_cost_budget, 3);
+    }
+
+    #[test]
+    fn session_reset_clears() {
+        let reg = ToolMetricsRegistry::new();
+        reg.record_call_with_tokens("a", 10, true, 100, "planner-readonly", false);
         assert_eq!(reg.session_snapshot().total_calls, 1);
 
         reg.reset();
@@ -525,6 +672,35 @@ fn session_reset_clears() {
         assert_eq!(session.total_calls, 0);
         assert_eq!(session.total_tokens, 0);
         assert!(session.timeline.is_empty());
+    }
+
+    #[test]
+    fn truncation_metrics_capture_followup() {
+        let reg = ToolMetricsRegistry::new();
+        reg.record_call_with_tokens(
+            "analyze_change_request",
+            20,
+            true,
+            1200,
+            "planner-readonly",
+            true,
+        );
+        reg.record_call_with_tokens(
+            "analyze_change_request",
+            18,
+            true,
+            800,
+            "planner-readonly",
+            false,
+        );
+        reg.record_call_with_tokens("impact_report", 10, true, 500, "reviewer-graph", true);
+        reg.record_analysis_read(true);
+
+        let session = reg.session_snapshot();
+        assert_eq!(session.truncated_response_count, 2);
+        assert_eq!(session.truncation_followup_count, 2);
+        assert_eq!(session.truncation_same_tool_retry_count, 1);
+        assert_eq!(session.truncation_handle_followup_count, 1);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use super::router::handle_request;
-use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::AppState;
+use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use anyhow::Result;
 use std::io::{self, BufRead, Write};
 use std::sync::Arc;

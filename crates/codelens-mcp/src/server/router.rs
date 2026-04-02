@@ -1,9 +1,11 @@
+use crate::AppState;
 use crate::dispatch::dispatch_tool;
 use crate::prompts::{get_prompt, prompts};
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::resources::{read_resource, resources};
-use crate::tool_defs::visible_tools;
-use crate::AppState;
+use crate::tool_defs::{
+    preferred_namespaces, visible_namespaces, visible_tools, visible_tools_for_namespace,
+};
 use serde_json::json;
 
 pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcResponse> {
@@ -81,17 +83,57 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
         }
         "tools/list" => {
             let surface = *state.surface();
-            let filtered = visible_tools(surface);
+            let all_tools = visible_tools(surface);
+            let all_namespaces = visible_namespaces(surface);
+            let requested_namespace = request
+                .params
+                .as_ref()
+                .and_then(|params| params.get("namespace"))
+                .and_then(|value| value.as_str());
+            let full_listing = request
+                .params
+                .as_ref()
+                .and_then(|params| params.get("full"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let deferred_loading_requested = request
+                .params
+                .as_ref()
+                .and_then(|params| params.get("_session_deferred_tool_loading"))
+                .and_then(|value| value.as_bool())
+                .unwrap_or(false);
+            let preferred_namespaces = preferred_namespaces(surface);
+            let filtered = match requested_namespace {
+                Some(namespace) => visible_tools_for_namespace(surface, namespace),
+                None if deferred_loading_requested && !full_listing => all_tools
+                    .iter()
+                    .copied()
+                    .filter(|tool| preferred_namespaces.contains(&crate::tool_defs::tool_namespace(tool.name)))
+                    .collect(),
+                None => all_tools.clone(),
+            };
             let token_estimate = serde_json::to_string(&filtered)
                 .map(|body| crate::tools::estimate_tokens(&body))
                 .unwrap_or(0);
-            state
-                .metrics()
-                .record_call_with_tokens("tools/list", 0, true, token_estimate, surface.as_label());
+            state.metrics().record_call_with_tokens(
+                "tools/list",
+                0,
+                true,
+                token_estimate,
+                surface.as_label(),
+                false,
+            );
             Some(JsonRpcResponse::result(
                 request.id,
                 json!({
                     "active_surface": surface.as_label(),
+                    "visible_namespaces": all_namespaces,
+                    "preferred_namespaces": preferred_namespaces,
+                    "selected_namespace": requested_namespace,
+                    "deferred_loading_active": deferred_loading_requested && requested_namespace.is_none() && !full_listing,
+                    "full_listing": full_listing,
+                    "tool_count": filtered.len(),
+                    "tool_count_total": all_tools.len(),
                     "tools": filtered
                 }),
             ))

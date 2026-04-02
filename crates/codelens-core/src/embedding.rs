@@ -291,6 +291,7 @@ impl EmbeddingStore for SqliteVecStore {
 // ── EmbeddingEngine (facade) ──────────────────────────────────────────
 
 const EMBED_BATCH_SIZE: usize = 256;
+const CODESEARCH_DIMENSION: usize = 384;
 
 /// Default: CodeSearchNet (MiniLM-L12 fine-tuned on code, bundled ONNX INT8).
 /// Override via `CODELENS_EMBED_MODEL` env var to use fastembed built-in models.
@@ -299,6 +300,13 @@ const CODESEARCH_MODEL_NAME: &str = "MiniLM-L12-CodeSearchNet-INT8";
 pub struct EmbeddingEngine {
     model: Mutex<TextEmbedding>,
     store: Box<dyn EmbeddingStore>,
+    model_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct EmbeddingIndexInfo {
+    pub model_name: String,
+    pub indexed_symbols: usize,
 }
 
 /// Load the bundled CodeSearchNet model (MiniLM-L12 fine-tuned, ONNX INT8).
@@ -319,16 +327,14 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
         },
     );
 
-    let mut model =
-        TextEmbedding::try_new_from_user_defined(user_model, InitOptionsUserDefined::new())
-            .context("failed to load CodeSearchNet embedding model")?;
+    let model = TextEmbedding::try_new_from_user_defined(user_model, InitOptionsUserDefined::new())
+        .context("failed to load CodeSearchNet embedding model")?;
 
-    let probe = model
-        .embed(vec!["dimension probe"], None)
-        .context("failed to detect embedding dimension")?;
-    let dimension = probe.first().map(|v| v.len()).unwrap_or(384);
-
-    Ok((model, dimension, CODESEARCH_MODEL_NAME.to_string()))
+    Ok((
+        model,
+        CODESEARCH_DIMENSION,
+        CODESEARCH_MODEL_NAME.to_string(),
+    ))
 }
 
 /// Load a fastembed built-in model (for backward compatibility).
@@ -372,6 +378,13 @@ fn parse_model_from_env() -> Option<EmbeddingModel> {
     }
 }
 
+pub fn configured_embedding_model_name() -> String {
+    match parse_model_from_env() {
+        None => CODESEARCH_MODEL_NAME.to_string(),
+        Some(model) => format!("{:?}", model),
+    }
+}
+
 impl EmbeddingEngine {
     pub fn new(project: &ProjectRoot) -> Result<Self> {
         let (model, dimension, model_name) = match parse_model_from_env() {
@@ -388,6 +401,7 @@ impl EmbeddingEngine {
         Ok(Self {
             model: Mutex::new(model),
             store: Box::new(store),
+            model_name,
         })
     }
 
@@ -403,7 +417,12 @@ impl EmbeddingEngine {
         Ok(Self {
             model: Mutex::new(model),
             store: Box::new(store),
+            model_name,
         })
+    }
+
+    pub fn model_name(&self) -> &str {
+        &self.model_name
     }
 
     /// Maximum symbols to embed. Prevents runaway memory/CPU on huge projects.
@@ -586,6 +605,43 @@ impl EmbeddingEngine {
     /// Whether the embedding index has been populated.
     pub fn is_indexed(&self) -> bool {
         self.store.count().unwrap_or(0) > 0
+    }
+
+    pub fn index_info(&self) -> EmbeddingIndexInfo {
+        EmbeddingIndexInfo {
+            model_name: self.model_name.clone(),
+            indexed_symbols: self.store.count().unwrap_or(0),
+        }
+    }
+
+    pub fn inspect_existing_index(project: &ProjectRoot) -> Result<Option<EmbeddingIndexInfo>> {
+        let db_path = project.as_path().join(".codelens/index/embeddings.db");
+        if !db_path.exists() {
+            return Ok(None);
+        }
+
+        ffi::register_sqlite_vec()?;
+        let conn = Connection::open(&db_path)?;
+        conn.execute_batch("PRAGMA busy_timeout=5000;")?;
+
+        let model_name: Option<String> = conn
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'model' LIMIT 1",
+                [],
+                |row| row.get(0),
+            )
+            .ok();
+        let indexed_symbols: usize = conn
+            .query_row("SELECT COUNT(*) FROM symbols", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .map(|count| count.max(0) as usize)
+            .unwrap_or(0);
+
+        Ok(model_name.map(|model_name| EmbeddingIndexInfo {
+            model_name,
+            indexed_symbols,
+        }))
     }
 
     // ── Embedding-powered analysis ─────────────────────────────────
@@ -1024,6 +1080,20 @@ mod tests {
     }
 
     #[test]
+    fn inspect_existing_index_returns_model_and_count() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        let info = EmbeddingEngine::inspect_existing_index(&project)
+            .unwrap()
+            .expect("index info should exist");
+        assert_eq!(info.model_name, engine.model_name());
+        assert_eq!(info.indexed_symbols, 2);
+    }
+
+    #[test]
     fn search_scored_returns_raw_chunks() {
         let _lock = MODEL_LOCK.lock().unwrap();
         let (_dir, project) = make_project_with_source();
@@ -1045,5 +1115,12 @@ mod tests {
         unsafe { std::env::remove_var("CODELENS_EMBED_MODEL") };
         let model = parse_model_from_env();
         assert!(model.is_none(), "default should be CodeSearchNet (None)");
+    }
+
+    #[test]
+    fn configured_embedding_model_name_defaults_to_codesearchnet() {
+        // SAFETY: test-only, single-threaded access to env var
+        unsafe { std::env::remove_var("CODELENS_EMBED_MODEL") };
+        assert_eq!(configured_embedding_model_name(), CODESEARCH_MODEL_NAME);
     }
 }

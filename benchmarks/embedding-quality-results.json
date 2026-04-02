@@ -1,0 +1,1079 @@
+{
+  "project": "/Users/bagjaeseog/codelens-mcp-plugin",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/debug/codelens-mcp",
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset.json",
+  "dataset_size": 24,
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.3694940476190476,
+      "acc1": 0.2916666666666667,
+      "acc3": 0.375,
+      "acc5": 0.4583333333333333,
+      "avg_elapsed_ms": 225.72625000000002,
+      "by_query_type": {
+        "identifier": {
+          "count": 4,
+          "mrr": 0.875,
+          "acc1": 0.75,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 214.5625
+        },
+        "natural_language": {
+          "count": 15,
+          "mrr": 0.14952380952380953,
+          "acc1": 0.06666666666666667,
+          "acc3": 0.13333333333333333,
+          "acc5": 0.26666666666666666,
+          "avg_elapsed_ms": 227.84
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.625,
+          "acc1": 0.6,
+          "acc3": 0.6,
+          "acc5": 0.6,
+          "avg_elapsed_ms": 228.31599999999997
+        }
+      },
+      "rows": [
+        {
+          "query": "rename a variable or function across the project",
+          "query_type": "natural_language",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/rename.rs",
+          "rank": 7,
+          "elapsed_ms": 220.35,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "project_scope_renames_across_files",
+            "file": "crates/codelens-core/src/rename.rs"
+          }
+        },
+        {
+          "query": "find where a symbol is defined in a file",
+          "query_type": "natural_language",
+          "expected_symbol": "find_symbol_range",
+          "expected_file_suffix": "crates/codelens-core/src/symbols/reader.rs",
+          "rank": null,
+          "elapsed_ms": 253.02,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "find_symbols_with_path",
+            "file": "crates/codelens-core/src/db/ops.rs"
+          }
+        },
+        {
+          "query": "apply text edits to multiple files",
+          "query_type": "short_phrase",
+          "expected_symbol": "apply_edits",
+          "expected_file_suffix": "crates/codelens-core/src/rename.rs",
+          "rank": 1,
+          "elapsed_ms": 220.96,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "apply_edits",
+            "file": "crates/codelens-core/src/rename.rs"
+          }
+        },
+        {
+          "query": "search code by natural language query",
+          "query_type": "natural_language",
+          "expected_symbol": "search",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 10,
+          "elapsed_ms": 254.18,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "is_natural_language_query",
+            "file": "crates/codelens-mcp/src/tools/symbols.rs"
+          }
+        },
+        {
+          "query": "inline a function and remove its definition",
+          "query_type": "natural_language",
+          "expected_symbol": "inline_function",
+          "expected_file_suffix": "crates/codelens-core/src/inline.rs",
+          "rank": 1,
+          "elapsed_ms": 225.8,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "inline_function",
+            "file": "crates/codelens-core/src/inline.rs"
+          }
+        },
+        {
+          "query": "move code to a different file",
+          "query_type": "short_phrase",
+          "expected_symbol": "move_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/move_symbol.rs",
+          "rank": 8,
+          "elapsed_ms": 249.62,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "file_path_to_module",
+            "file": "crates/codelens-core/src/move_symbol.rs"
+          }
+        },
+        {
+          "query": "change function parameters",
+          "query_type": "short_phrase",
+          "expected_symbol": "change_signature",
+          "expected_file_suffix": "crates/codelens-core/src/change_signature.rs",
+          "rank": null,
+          "elapsed_ms": 220.18,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "build_new_param_string",
+            "file": "crates/codelens-core/src/change_signature.rs"
+          }
+        },
+        {
+          "query": "find circular import dependencies",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-core/src/circular.rs",
+          "rank": 1,
+          "elapsed_ms": 225.45,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "find_circular_dependencies",
+            "file": "crates/codelens-core/src/circular.rs"
+          }
+        },
+        {
+          "query": "start an HTTP server with routes",
+          "query_type": "natural_language",
+          "expected_symbol": "run_http",
+          "expected_file_suffix": "crates/codelens-mcp/src/server/transport_http.rs",
+          "rank": 4,
+          "elapsed_ms": 223.53,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "start_http_daemon",
+            "file": "benchmarks/token-efficiency.py"
+          }
+        },
+        {
+          "query": "read input from stdin line by line",
+          "query_type": "natural_language",
+          "expected_symbol": "run_stdio",
+          "expected_file_suffix": "crates/codelens-mcp/src/server/transport_stdio.rs",
+          "rank": null,
+          "elapsed_ms": 220.72,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "readme",
+            "file": "benchmarks/token-efficiency.py"
+          }
+        },
+        {
+          "query": "parse source code into an AST",
+          "query_type": "natural_language",
+          "expected_symbol": "parse_symbols_recursive",
+          "expected_file_suffix": "crates/codelens-core/src/symbols/parser.rs",
+          "rank": null,
+          "elapsed_ms": 215.61,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "parse_args",
+            "file": "benchmarks/embedding-runtime.py"
+          }
+        },
+        {
+          "query": "build embedding vectors for all symbols",
+          "query_type": "natural_language",
+          "expected_symbol": "index_from_project",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": null,
+          "elapsed_ms": 225.31,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "MAX_EMBED_SYMBOLS",
+            "file": "crates/codelens-core/src/embedding.rs"
+          }
+        },
+        {
+          "query": "find near-duplicate code in the codebase",
+          "query_type": "natural_language",
+          "expected_symbol": "find_duplicates",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 2,
+          "elapsed_ms": 248.45,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "test_duplicate_detection",
+            "file": "models/benchmark_full.py"
+          }
+        },
+        {
+          "query": "categorize a function by its purpose",
+          "query_type": "natural_language",
+          "expected_symbol": "classify_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 4,
+          "elapsed_ms": 219.25,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "categories",
+            "file": "models/benchmark_full.py"
+          }
+        },
+        {
+          "query": "get project structure and key files on first load",
+          "query_type": "natural_language",
+          "expected_symbol": "onboard_project",
+          "expected_file_suffix": "crates/codelens-mcp/src/tools/composite.rs",
+          "rank": null,
+          "elapsed_ms": 218.73,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "get_project_structure",
+            "file": "crates/codelens-core/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "watch filesystem for file changes",
+          "query_type": "natural_language",
+          "expected_symbol": "start_watching",
+          "expected_file_suffix": "crates/codelens-core/src/watcher.rs",
+          "rank": null,
+          "elapsed_ms": 224.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "FileWatcher",
+            "file": "crates/codelens-core/src/watcher.rs"
+          }
+        },
+        {
+          "query": "extract lines of code into a new function",
+          "query_type": "natural_language",
+          "expected_symbol": "refactor_extract_function",
+          "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs",
+          "rank": null,
+          "elapsed_ms": 226.37,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "lines",
+            "file": "benchmarks/render-summary.py"
+          }
+        },
+        {
+          "query": "skip comments and string literals during search",
+          "query_type": "natural_language",
+          "expected_symbol": "build_non_code_ranges",
+          "expected_file_suffix": "crates/codelens-core/src/scope_analysis.rs",
+          "rank": null,
+          "elapsed_ms": 221.56,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "excludes_comments_and_strings",
+            "file": "crates/codelens-core/src/scope_analysis.rs"
+          }
+        },
+        {
+          "query": "compute similarity between two vectors",
+          "query_type": "short_phrase",
+          "expected_symbol": "cosine_similarity",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 1,
+          "elapsed_ms": 225.37,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "cosine_similarity",
+            "file": "crates/codelens-core/src/embedding.rs"
+          }
+        },
+        {
+          "query": "route an incoming tool request to the right handler",
+          "query_type": "natural_language",
+          "expected_symbol": "dispatch_tool",
+          "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs",
+          "rank": null,
+          "elapsed_ms": 220.45,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "ToolHandler",
+            "file": "crates/codelens-mcp/src/tools/mod.rs"
+          }
+        },
+        {
+          "query": "rename_symbol",
+          "query_type": "identifier",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/rename.rs",
+          "rank": 1,
+          "elapsed_ms": 217.19,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "rename_symbol",
+            "file": "crates/codelens-core/src/rename.rs"
+          }
+        },
+        {
+          "query": "dispatch_tool",
+          "query_type": "identifier",
+          "expected_symbol": "dispatch_tool",
+          "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs",
+          "rank": 2,
+          "elapsed_ms": 215.9,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "dispatch_table",
+            "file": "crates/codelens-mcp/src/tools/mod.rs"
+          }
+        },
+        {
+          "query": "cosine_similarity",
+          "query_type": "identifier",
+          "expected_symbol": "cosine_similarity",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 1,
+          "elapsed_ms": 210.75,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "cosine_similarity",
+            "file": "crates/codelens-core/src/embedding.rs"
+          }
+        },
+        {
+          "query": "find_circular_dependencies",
+          "query_type": "identifier",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-core/src/circular.rs",
+          "rank": 1,
+          "elapsed_ms": 214.41,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "find_circular_dependencies",
+            "file": "crates/codelens-core/src/circular.rs"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.25606524806892456,
+      "acc1": 0.16666666666666666,
+      "acc3": 0.2916666666666667,
+      "acc5": 0.3333333333333333,
+      "avg_elapsed_ms": 74.70125,
+      "by_query_type": {
+        "identifier": {
+          "count": 4,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 71.5975
+        },
+        "natural_language": {
+          "count": 15,
+          "mrr": 0.03356060606060606,
+          "acc1": 0.0,
+          "acc3": 0.0,
+          "acc5": 0.06666666666666667,
+          "avg_elapsed_ms": 75.98333333333333
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.3284313725490196,
+          "acc1": 0.0,
+          "acc3": 0.6,
+          "acc5": 0.6,
+          "avg_elapsed_ms": 73.338
+        }
+      },
+      "rows": [
+        {
+          "query": "rename a variable or function across the project",
+          "query_type": "natural_language",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/rename.rs",
+          "rank": 10,
+          "elapsed_ms": 80.91,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "project_scope_renames_across_files",
+            "file": "crates/codelens-core/src/rename.rs"
+          }
+        },
+        {
+          "query": "find where a symbol is defined in a file",
+          "query_type": "natural_language",
+          "expected_symbol": "find_symbol_range",
+          "expected_file_suffix": "crates/codelens-core/src/symbols/reader.rs",
+          "rank": null,
+          "elapsed_ms": 77.97,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-core/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "apply text edits to multiple files",
+          "query_type": "short_phrase",
+          "expected_symbol": "apply_edits",
+          "expected_file_suffix": "crates/codelens-core/src/rename.rs",
+          "rank": 2,
+          "elapsed_ms": 74.58,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "collect_files",
+            "file": "crates/codelens-core/src/project.rs"
+          }
+        },
+        {
+          "query": "search code by natural language query",
+          "query_type": "natural_language",
+          "expected_symbol": "search",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": null,
+          "elapsed_ms": 77.56,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "is_natural_language_query",
+            "file": "crates/codelens-core/src/symbols/ranking.rs"
+          }
+        },
+        {
+          "query": "inline a function and remove its definition",
+          "query_type": "natural_language",
+          "expected_symbol": "inline_function",
+          "expected_file_suffix": "crates/codelens-core/src/inline.rs",
+          "rank": 4,
+          "elapsed_ms": 74.36,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "apply_edits",
+            "file": "crates/codelens-core/src/rename.rs"
+          }
+        },
+        {
+          "query": "move code to a different file",
+          "query_type": "short_phrase",
+          "expected_symbol": "move_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/move_symbol.rs",
+          "rank": 12,
+          "elapsed_ms": 75.97,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "get_file",
+            "file": "crates/codelens-core/src/db/ops.rs"
+          }
+        },
+        {
+          "query": "change function parameters",
+          "query_type": "short_phrase",
+          "expected_symbol": "change_signature",
+          "expected_file_suffix": "crates/codelens-core/src/change_signature.rs",
+          "rank": 17,
+          "elapsed_ms": 71.6,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "natural_language_kind_prior_prefers_functions_over_types",
+            "file": "crates/codelens-core/src/symbols/ranking.rs"
+          }
+        },
+        {
+          "query": "find circular import dependencies",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-core/src/circular.rs",
+          "rank": 2,
+          "elapsed_ms": 74.07,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-core/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "start an HTTP server with routes",
+          "query_type": "natural_language",
+          "expected_symbol": "run_http",
+          "expected_file_suffix": "crates/codelens-mcp/src/server/transport_http.rs",
+          "rank": 11,
+          "elapsed_ms": 73.55,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "with_transaction",
+            "file": "crates/codelens-core/src/db/mod.rs"
+          }
+        },
+        {
+          "query": "read input from stdin line by line",
+          "query_type": "natural_language",
+          "expected_symbol": "run_stdio",
+          "expected_file_suffix": "crates/codelens-mcp/src/server/transport_stdio.rs",
+          "rank": null,
+          "elapsed_ms": 74.1,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "read_only",
+            "file": "crates/codelens-mcp/src/protocol.rs"
+          }
+        },
+        {
+          "query": "parse source code into an AST",
+          "query_type": "natural_language",
+          "expected_symbol": "parse_symbols_recursive",
+          "expected_file_suffix": "crates/codelens-core/src/symbols/parser.rs",
+          "rank": null,
+          "elapsed_ms": 75.34,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "parse_symbols",
+            "file": "crates/codelens-core/src/symbols/parser.rs"
+          }
+        },
+        {
+          "query": "build embedding vectors for all symbols",
+          "query_type": "natural_language",
+          "expected_symbol": "index_from_project",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": null,
+          "elapsed_ms": 77.87,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "symbols_for_files",
+            "file": "crates/codelens-core/src/db/ops.rs"
+          }
+        },
+        {
+          "query": "find near-duplicate code in the codebase",
+          "query_type": "natural_language",
+          "expected_symbol": "find_duplicates",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 16,
+          "elapsed_ms": 75.76,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-core/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "categorize a function by its purpose",
+          "query_type": "natural_language",
+          "expected_symbol": "classify_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": null,
+          "elapsed_ms": 71.82,
+          "candidate_count": 18,
+          "top_candidate": {
+            "name": "apply_edits",
+            "file": "crates/codelens-core/src/rename.rs"
+          }
+        },
+        {
+          "query": "get project structure and key files on first load",
+          "query_type": "natural_language",
+          "expected_symbol": "onboard_project",
+          "expected_file_suffix": "crates/codelens-mcp/src/tools/composite.rs",
+          "rank": null,
+          "elapsed_ms": 77.18,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "get_project_structure",
+            "file": "crates/codelens-core/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "watch filesystem for file changes",
+          "query_type": "natural_language",
+          "expected_symbol": "start_watching",
+          "expected_file_suffix": "crates/codelens-core/src/watcher.rs",
+          "rank": null,
+          "elapsed_ms": 75.26,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "symbols_for_files",
+            "file": "crates/codelens-core/src/db/ops.rs"
+          }
+        },
+        {
+          "query": "extract lines of code into a new function",
+          "query_type": "natural_language",
+          "expected_symbol": "refactor_extract_function",
+          "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs",
+          "rank": null,
+          "elapsed_ms": 77.4,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "new",
+            "file": "crates/codelens-mcp/src/protocol.rs"
+          }
+        },
+        {
+          "query": "skip comments and string literals during search",
+          "query_type": "natural_language",
+          "expected_symbol": "build_non_code_ranges",
+          "expected_file_suffix": "crates/codelens-core/src/scope_analysis.rs",
+          "rank": null,
+          "elapsed_ms": 73.32,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "search_symbols_fts",
+            "file": "crates/codelens-core/src/db/ops.rs"
+          }
+        },
+        {
+          "query": "compute similarity between two vectors",
+          "query_type": "short_phrase",
+          "expected_symbol": "cosine_similarity",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 2,
+          "elapsed_ms": 70.47,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "compute_pagerank",
+            "file": "crates/codelens-core/src/import_graph/mod.rs"
+          }
+        },
+        {
+          "query": "route an incoming tool request to the right handler",
+          "query_type": "natural_language",
+          "expected_symbol": "dispatch_tool",
+          "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs",
+          "rank": null,
+          "elapsed_ms": 77.35,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "is_tool_in_surface",
+            "file": "crates/codelens-mcp/src/tool_defs.rs"
+          }
+        },
+        {
+          "query": "rename_symbol",
+          "query_type": "identifier",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/rename.rs",
+          "rank": 1,
+          "elapsed_ms": 72.94,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "rename_symbol",
+            "file": "crates/codelens-core/src/rename.rs"
+          }
+        },
+        {
+          "query": "dispatch_tool",
+          "query_type": "identifier",
+          "expected_symbol": "dispatch_tool",
+          "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs",
+          "rank": 1,
+          "elapsed_ms": 72.74,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "dispatch_tool",
+            "file": "crates/codelens-mcp/src/dispatch.rs"
+          }
+        },
+        {
+          "query": "cosine_similarity",
+          "query_type": "identifier",
+          "expected_symbol": "cosine_similarity",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 1,
+          "elapsed_ms": 70.07,
+          "candidate_count": 5,
+          "top_candidate": {
+            "name": "cosine_similarity",
+            "file": "crates/codelens-core/src/embedding.rs"
+          }
+        },
+        {
+          "query": "find_circular_dependencies",
+          "query_type": "identifier",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-core/src/circular.rs",
+          "rank": 1,
+          "elapsed_ms": 70.64,
+          "candidate_count": 16,
+          "top_candidate": {
+            "name": "find_circular_dependencies",
+            "file": "crates/codelens-core/src/circular.rs"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.5674311391223156,
+      "acc1": 0.5,
+      "acc3": 0.625,
+      "acc5": 0.6666666666666666,
+      "avg_elapsed_ms": 213.97,
+      "by_query_type": {
+        "identifier": {
+          "count": 4,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 82.3375
+        },
+        "natural_language": {
+          "count": 15,
+          "mrr": 0.46111111111111114,
+          "acc1": 0.4,
+          "acc3": 0.5333333333333333,
+          "acc5": 0.6,
+          "avg_elapsed_ms": 242.85
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.5403361344537816,
+          "acc1": 0.4,
+          "acc3": 0.6,
+          "acc5": 0.6,
+          "avg_elapsed_ms": 232.63600000000002
+        }
+      },
+      "rows": [
+        {
+          "query": "rename a variable or function across the project",
+          "query_type": "natural_language",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/rename.rs",
+          "rank": 1,
+          "elapsed_ms": 234.21,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "rename_symbol",
+            "file": "crates/codelens-core/src/rename.rs"
+          }
+        },
+        {
+          "query": "find where a symbol is defined in a file",
+          "query_type": "natural_language",
+          "expected_symbol": "find_symbol_range",
+          "expected_file_suffix": "crates/codelens-core/src/symbols/reader.rs",
+          "rank": null,
+          "elapsed_ms": 229.14,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "find_symbol_range",
+            "file": "crates/codelens-core/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "apply text edits to multiple files",
+          "query_type": "short_phrase",
+          "expected_symbol": "apply_edits",
+          "expected_file_suffix": "crates/codelens-core/src/rename.rs",
+          "rank": 1,
+          "elapsed_ms": 224.19,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "apply_edits",
+            "file": "crates/codelens-core/src/rename.rs"
+          }
+        },
+        {
+          "query": "search code by natural language query",
+          "query_type": "natural_language",
+          "expected_symbol": "search",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 1,
+          "elapsed_ms": 229.08,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "search",
+            "file": "crates/codelens-core/src/embedding.rs"
+          }
+        },
+        {
+          "query": "inline a function and remove its definition",
+          "query_type": "natural_language",
+          "expected_symbol": "inline_function",
+          "expected_file_suffix": "crates/codelens-core/src/inline.rs",
+          "rank": 1,
+          "elapsed_ms": 228.98,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "inline_function",
+            "file": "crates/codelens-core/src/inline.rs"
+          }
+        },
+        {
+          "query": "move code to a different file",
+          "query_type": "short_phrase",
+          "expected_symbol": "move_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/move_symbol.rs",
+          "rank": 7,
+          "elapsed_ms": 225.32,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "file_path_to_module",
+            "file": "crates/codelens-core/src/move_symbol.rs"
+          }
+        },
+        {
+          "query": "change function parameters",
+          "query_type": "short_phrase",
+          "expected_symbol": "change_signature",
+          "expected_file_suffix": "crates/codelens-core/src/change_signature.rs",
+          "rank": 17,
+          "elapsed_ms": 221.8,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "natural_language_kind_prior_prefers_functions_over_types",
+            "file": "crates/codelens-core/src/symbols/ranking.rs"
+          }
+        },
+        {
+          "query": "find circular import dependencies",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-core/src/circular.rs",
+          "rank": 1,
+          "elapsed_ms": 224.74,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "find_circular_dependencies",
+            "file": "crates/codelens-core/src/circular.rs"
+          }
+        },
+        {
+          "query": "start an HTTP server with routes",
+          "query_type": "natural_language",
+          "expected_symbol": "run_http",
+          "expected_file_suffix": "crates/codelens-mcp/src/server/transport_http.rs",
+          "rank": 3,
+          "elapsed_ms": 233.34,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "start_http_daemon",
+            "file": "benchmarks/token-efficiency.py"
+          }
+        },
+        {
+          "query": "read input from stdin line by line",
+          "query_type": "natural_language",
+          "expected_symbol": "run_stdio",
+          "expected_file_suffix": "crates/codelens-mcp/src/server/transport_stdio.rs",
+          "rank": 1,
+          "elapsed_ms": 233.71,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "run_stdio",
+            "file": "crates/codelens-mcp/src/server/transport_stdio.rs"
+          }
+        },
+        {
+          "query": "parse source code into an AST",
+          "query_type": "natural_language",
+          "expected_symbol": "parse_symbols_recursive",
+          "expected_file_suffix": "crates/codelens-core/src/symbols/parser.rs",
+          "rank": null,
+          "elapsed_ms": 257.35,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "nest_symbols",
+            "file": "crates/codelens-core/src/symbols/parser.rs"
+          }
+        },
+        {
+          "query": "build embedding vectors for all symbols",
+          "query_type": "natural_language",
+          "expected_symbol": "index_from_project",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 1,
+          "elapsed_ms": 230.63,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "index_from_project",
+            "file": "crates/codelens-core/src/embedding.rs"
+          }
+        },
+        {
+          "query": "find near-duplicate code in the codebase",
+          "query_type": "natural_language",
+          "expected_symbol": "find_duplicates",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 3,
+          "elapsed_ms": 230.46,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "test_duplicate_detection",
+            "file": "models/benchmark_full.py"
+          }
+        },
+        {
+          "query": "categorize a function by its purpose",
+          "query_type": "natural_language",
+          "expected_symbol": "classify_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 1,
+          "elapsed_ms": 262.81,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "classify_symbol",
+            "file": "crates/codelens-core/src/embedding.rs"
+          }
+        },
+        {
+          "query": "get project structure and key files on first load",
+          "query_type": "natural_language",
+          "expected_symbol": "onboard_project",
+          "expected_file_suffix": "crates/codelens-mcp/src/tools/composite.rs",
+          "rank": 4,
+          "elapsed_ms": 262.68,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "get_project_structure",
+            "file": "crates/codelens-core/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "watch filesystem for file changes",
+          "query_type": "natural_language",
+          "expected_symbol": "start_watching",
+          "expected_file_suffix": "crates/codelens-core/src/watcher.rs",
+          "rank": null,
+          "elapsed_ms": 237.72,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "FileWatcher",
+            "file": "crates/codelens-core/src/watcher.rs"
+          }
+        },
+        {
+          "query": "extract lines of code into a new function",
+          "query_type": "natural_language",
+          "expected_symbol": "refactor_extract_function",
+          "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs",
+          "rank": null,
+          "elapsed_ms": 267.1,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "refactor_extract_function",
+            "file": "crates/codelens-mcp/src/tools/composite.rs"
+          }
+        },
+        {
+          "query": "skip comments and string literals during search",
+          "query_type": "natural_language",
+          "expected_symbol": "build_non_code_ranges",
+          "expected_file_suffix": "crates/codelens-core/src/scope_analysis.rs",
+          "rank": null,
+          "elapsed_ms": 238.14,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "excludes_comments_and_strings",
+            "file": "crates/codelens-core/src/scope_analysis.rs"
+          }
+        },
+        {
+          "query": "compute similarity between two vectors",
+          "query_type": "short_phrase",
+          "expected_symbol": "cosine_similarity",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 2,
+          "elapsed_ms": 267.13,
+          "candidate_count": 8,
+          "top_candidate": {
+            "name": "find_similar_code",
+            "file": "crates/codelens-core/src/embedding.rs"
+          }
+        },
+        {
+          "query": "route an incoming tool request to the right handler",
+          "query_type": "natural_language",
+          "expected_symbol": "dispatch_tool",
+          "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs",
+          "rank": null,
+          "elapsed_ms": 267.4,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "ToolHandler",
+            "file": "crates/codelens-mcp/src/tools/mod.rs"
+          }
+        },
+        {
+          "query": "rename_symbol",
+          "query_type": "identifier",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-core/src/rename.rs",
+          "rank": 1,
+          "elapsed_ms": 75.95,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "rename_symbol",
+            "file": "crates/codelens-core/src/rename.rs"
+          }
+        },
+        {
+          "query": "dispatch_tool",
+          "query_type": "identifier",
+          "expected_symbol": "dispatch_tool",
+          "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs",
+          "rank": 1,
+          "elapsed_ms": 106.21,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "dispatch_tool",
+            "file": "crates/codelens-mcp/src/dispatch.rs"
+          }
+        },
+        {
+          "query": "cosine_similarity",
+          "query_type": "identifier",
+          "expected_symbol": "cosine_similarity",
+          "expected_file_suffix": "crates/codelens-core/src/embedding.rs",
+          "rank": 1,
+          "elapsed_ms": 73.75,
+          "candidate_count": 5,
+          "top_candidate": {
+            "name": "cosine_similarity",
+            "file": "crates/codelens-core/src/embedding.rs"
+          }
+        },
+        {
+          "query": "find_circular_dependencies",
+          "query_type": "identifier",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-core/src/circular.rs",
+          "rank": 1,
+          "elapsed_ms": 73.44,
+          "candidate_count": 16,
+          "top_candidate": {
+            "name": "find_circular_dependencies",
+            "file": "crates/codelens-core/src/circular.rs"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": 0.311365891053391,
+    "acc1_delta": 0.33333333333333337,
+    "acc3_delta": 0.3333333333333333,
+    "acc5_delta": 0.3333333333333333
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": 0.42755050505050507,
+      "acc1_delta": 0.4,
+      "acc3_delta": 0.5333333333333333,
+      "acc5_delta": 0.5333333333333333
+    },
+    "short_phrase": {
+      "mrr_delta": 0.21190476190476198,
+      "acc1_delta": 0.4,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    }
+  }
+}

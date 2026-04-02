@@ -1,12 +1,12 @@
-use super::{required_string, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_core::change_signature::{change_signature, ParamSpec};
+use codelens_core::change_signature::{ParamSpec, change_signature};
 use codelens_core::inline::inline_function;
 use codelens_core::move_symbol::move_symbol;
 use codelens_core::{
-    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
-    get_symbols_overview, SymbolKind,
+    SymbolKind, find_circular_dependencies, get_callees, get_callers, get_importance,
+    get_importers, get_symbols_overview,
 };
 use serde_json::json;
 
@@ -322,22 +322,82 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
     let semantic_status = {
         let total_files: usize = structure.iter().map(|d| d.files).sum();
         const MAX_AUTO_EMBED_FILES: usize = 2000;
+        let configured_model = codelens_core::configured_embedding_model_name();
         if total_files > MAX_AUTO_EMBED_FILES {
-            json!({"status": "skipped", "reason": format!("project too large ({total_files} files > {MAX_AUTO_EMBED_FILES}), call index_embeddings explicitly")})
+            json!({
+                "status": "skipped",
+                "model": configured_model,
+                "reason": format!("project too large ({total_files} files > {MAX_AUTO_EMBED_FILES}), call index_embeddings explicitly")
+            })
         } else {
-            let engine = state
-                .embedding
-                .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
-            match engine {
-                Some(engine) if !engine.is_indexed() => match engine.index_from_project(&project) {
-                    Ok(count) => json!({"status": "indexed", "symbols": count}),
-                    Err(e) => json!({"status": "failed", "error": e.to_string()}),
-                },
-                Some(engine) => {
-                    let count = engine.is_indexed();
-                    json!({"status": "ready", "already_indexed": count})
+            let existing = codelens_core::EmbeddingEngine::inspect_existing_index(&project)
+                .ok()
+                .flatten();
+            if let Some(info) = existing {
+                if info.model_name == configured_model && info.indexed_symbols > 0 {
+                    json!({
+                        "status": "ready",
+                        "model": info.model_name,
+                        "indexed_symbols": info.indexed_symbols,
+                        "loaded": false
+                    })
+                } else {
+                    let engine = state
+                        .embedding
+                        .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
+                    match engine {
+                        Some(engine) if !engine.is_indexed() => {
+                            match engine.index_from_project(&project) {
+                                Ok(count) => json!({
+                                    "status": "indexed",
+                                    "model": engine.model_name(),
+                                    "indexed_symbols": count,
+                                    "loaded": true
+                                }),
+                                Err(e) => json!({
+                                    "status": "failed",
+                                    "model": engine.model_name(),
+                                    "error": e.to_string()
+                                }),
+                            }
+                        }
+                        Some(engine) => json!({
+                            "status": "ready",
+                            "model": engine.model_name(),
+                            "indexed_symbols": engine.index_info().indexed_symbols,
+                            "loaded": true
+                        }),
+                        None => json!({"status": "unavailable", "model": configured_model}),
+                    }
                 }
-                None => json!({"status": "unavailable"}),
+            } else {
+                let engine = state
+                    .embedding
+                    .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
+                match engine {
+                    Some(engine) if !engine.is_indexed() => {
+                        match engine.index_from_project(&project) {
+                            Ok(count) => json!({
+                                "status": "indexed",
+                                "model": engine.model_name(),
+                                "indexed_symbols": count,
+                                "loaded": true
+                            }),
+                            Err(e) => json!({
+                                "status": "failed",
+                                "model": engine.model_name(),
+                                "error": e.to_string()
+                            }),
+                        }
+                    }
+                    Some(engine) => json!({
+                        "status": "ready",
+                        "model": engine.model_name(),
+                        "indexed_symbols": engine.index_info().indexed_symbols,
+                        "loaded": true
+                    }),
+                    None => json!({"status": "unavailable", "model": configured_model}),
+                }
             }
         }
     };

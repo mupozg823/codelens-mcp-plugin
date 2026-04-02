@@ -20,16 +20,35 @@ const STDIO_ANALYSIS_WORKER_COUNT: usize = 1;
 const HTTP_ANALYSIS_WORKER_COUNT: usize = 2;
 const ANALYSIS_TTL_MS: u64 = 24 * 60 * 60 * 1000;
 
+fn default_risk_level() -> String {
+    "medium".to_owned()
+}
+
+fn analysis_job_cost_units(kind: &str) -> usize {
+    match kind {
+        "impact_report" => 1,
+        "refactor_safety_report" => 2,
+        "dead_code_report" => 3,
+        _ => 2,
+    }
+}
+
+fn queue_pending_cost_units(pending: &VecDeque<AnalysisJobRequest>) -> usize {
+    pending.iter().map(|request| request.cost_units).sum()
+}
+
 struct AnalysisJobRequest {
     job_id: String,
     kind: String,
     arguments: Value,
     profile_hint: Option<String>,
+    cost_units: usize,
 }
 
 struct AnalysisQueueState {
     pending: VecDeque<AnalysisJobRequest>,
     active_jobs: usize,
+    active_cost_units: usize,
 }
 
 struct AnalysisWorkerQueue {
@@ -58,78 +77,135 @@ impl RuntimeTransportMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeDaemonMode {
+    Standard,
+    ReadOnly,
+    MutationEnabled,
+}
+
+impl RuntimeDaemonMode {
+    pub(crate) fn from_str(value: &str) -> Self {
+        match value {
+            "read-only" | "readonly" | "read_only" => Self::ReadOnly,
+            "mutation-enabled" | "mutation_enabled" | "mutating" => Self::MutationEnabled,
+            _ => Self::Standard,
+        }
+    }
+
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Standard => "standard",
+            Self::ReadOnly => "read-only",
+            Self::MutationEnabled => "mutation-enabled",
+        }
+    }
+}
+
 impl AnalysisWorkerQueue {
     fn new(state: &AppState) -> Self {
         let inner = Arc::new((
             Mutex::new(AnalysisQueueState {
                 pending: VecDeque::new(),
                 active_jobs: 0,
+                active_cost_units: 0,
             }),
             Condvar::new(),
         ));
         let worker_limit = state.analysis_worker_limit();
-        state
-            .metrics()
-            .record_analysis_worker_pool(worker_limit, state.transport_mode().as_str());
+        state.metrics().record_analysis_worker_pool(
+            worker_limit,
+            state.analysis_cost_budget(),
+            state.transport_mode().as_str(),
+        );
         for _ in 0..worker_limit {
             let inner_clone = Arc::clone(&inner);
             let worker_state = state.clone_for_worker();
-            std::thread::spawn(move || loop {
-                let request = {
-                    let (lock, condvar) = &*inner_clone;
-                    let mut guard = lock.lock().unwrap_or_else(|p| p.into_inner());
-                    loop {
-                        let Some(next_request) = guard.pending.front() else {
-                            guard = condvar.wait(guard).unwrap_or_else(|p| p.into_inner());
-                            continue;
-                        };
-                        let allowed_parallelism = worker_state
-                            .analysis_parallelism_for_profile(next_request.profile_hint.as_deref());
-                        if guard.active_jobs < allowed_parallelism {
-                            let request = guard.pending.pop_front();
-                            guard.active_jobs += 1;
-                            let remaining_depth = guard.pending.len();
-                            break request.map(|request| (request, remaining_depth));
-                        }
-                        guard = condvar.wait(guard).unwrap_or_else(|p| p.into_inner());
-                    }
-                };
-                if let Some((request, remaining_depth)) = request {
-                    if worker_state
-                        .get_analysis_job(&request.job_id)
-                        .as_ref()
-                        .map(|job| job.status.as_str())
-                        == Some("cancelled")
-                    {
-                        continue;
-                    }
-                    worker_state
-                        .metrics()
-                        .record_analysis_job_started(remaining_depth);
-                    let final_status = crate::tools::reports::run_analysis_job_from_queue(
-                        &worker_state,
-                        request.job_id,
-                        request.kind,
-                        request.arguments,
-                    );
-                    let remaining_depth = {
+            std::thread::spawn(move || {
+                loop {
+                    let request = {
                         let (lock, condvar) = &*inner_clone;
                         let mut guard = lock.lock().unwrap_or_else(|p| p.into_inner());
-                        guard.active_jobs = guard.active_jobs.saturating_sub(1);
-                        let remaining_depth = guard.pending.len();
-                        condvar.notify_all();
-                        remaining_depth
+                        loop {
+                            if guard.pending.is_empty() {
+                                guard = condvar.wait(guard).unwrap_or_else(|p| p.into_inner());
+                                continue;
+                            }
+                            let cost_budget = worker_state.analysis_cost_budget();
+                            let next_index = guard.pending.iter().position(|request| {
+                                let allowed_parallelism = worker_state
+                                    .analysis_parallelism_for_profile(
+                                        request.profile_hint.as_deref(),
+                                    );
+                                guard.active_jobs < allowed_parallelism
+                                    && guard.active_cost_units + request.cost_units <= cost_budget
+                            });
+                            if let Some(index) = next_index {
+                                let request = guard.pending.remove(index);
+                                guard.active_jobs += 1;
+                                if let Some(request) = request.as_ref() {
+                                    guard.active_cost_units += request.cost_units;
+                                }
+                                let remaining_depth = guard.pending.len();
+                                let remaining_cost_units = queue_pending_cost_units(&guard.pending)
+                                    + guard.active_cost_units;
+                                break request.map(|request| {
+                                    (request, remaining_depth, remaining_cost_units)
+                                });
+                            }
+                            guard = condvar.wait(guard).unwrap_or_else(|p| p.into_inner());
+                        }
                     };
-                    worker_state
-                        .metrics()
-                        .record_analysis_job_finished(final_status, remaining_depth);
+                    if let Some((request, remaining_depth, remaining_cost_units)) = request {
+                        if worker_state
+                            .get_analysis_job(&request.job_id)
+                            .as_ref()
+                            .map(|job| job.status.as_str())
+                            == Some("cancelled")
+                        {
+                            let (lock, condvar) = &*inner_clone;
+                            let mut guard = lock.lock().unwrap_or_else(|p| p.into_inner());
+                            guard.active_jobs = guard.active_jobs.saturating_sub(1);
+                            guard.active_cost_units =
+                                guard.active_cost_units.saturating_sub(request.cost_units);
+                            condvar.notify_all();
+                            continue;
+                        }
+                        let request_cost = request.cost_units;
+                        worker_state
+                            .metrics()
+                            .record_analysis_job_started(remaining_depth, remaining_cost_units);
+                        let final_status = crate::tools::reports::run_analysis_job_from_queue(
+                            &worker_state,
+                            request.job_id,
+                            request.kind,
+                            request.arguments,
+                        );
+                        let (remaining_depth, remaining_cost_units) = {
+                            let (lock, condvar) = &*inner_clone;
+                            let mut guard = lock.lock().unwrap_or_else(|p| p.into_inner());
+                            guard.active_jobs = guard.active_jobs.saturating_sub(1);
+                            guard.active_cost_units =
+                                guard.active_cost_units.saturating_sub(request_cost);
+                            let remaining_depth = guard.pending.len();
+                            let remaining_cost_units =
+                                queue_pending_cost_units(&guard.pending) + guard.active_cost_units;
+                            condvar.notify_all();
+                            (remaining_depth, remaining_cost_units)
+                        };
+                        worker_state.metrics().record_analysis_job_finished(
+                            final_status,
+                            remaining_depth,
+                            remaining_cost_units,
+                        );
+                    }
                 }
             });
         }
         Self { inner }
     }
 
-    fn enqueue(&self, request: AnalysisJobRequest) -> Result<usize, CodeLensError> {
+    fn enqueue(&self, request: AnalysisJobRequest) -> Result<(usize, usize, bool), CodeLensError> {
         let (lock, condvar) = &*self.inner;
         let mut guard = lock.lock().unwrap_or_else(|p| p.into_inner());
         if guard.pending.len() >= MAX_PENDING_ANALYSIS_REQUESTS {
@@ -137,10 +213,17 @@ impl AnalysisWorkerQueue {
                 "analysis queue is full (>{MAX_PENDING_ANALYSIS_REQUESTS} pending jobs)"
             )));
         }
-        guard.pending.push_back(request);
+        let insert_at = guard
+            .pending
+            .iter()
+            .position(|existing| existing.cost_units > request.cost_units)
+            .unwrap_or(guard.pending.len());
+        let priority_promoted = insert_at < guard.pending.len();
+        guard.pending.insert(insert_at, request);
         let depth = guard.pending.len();
+        let weighted_depth = queue_pending_cost_units(&guard.pending) + guard.active_cost_units;
         condvar.notify_all();
-        Ok(depth)
+        Ok((depth, weighted_depth, priority_promoted))
     }
 }
 
@@ -163,8 +246,14 @@ pub(crate) struct AnalysisArtifact {
     pub id: String,
     pub tool_name: String,
     pub surface: String,
+    #[serde(default)]
+    pub project_scope: Option<String>,
+    #[serde(default)]
+    pub cache_key: Option<String>,
     pub summary: String,
     pub top_findings: Vec<String>,
+    #[serde(default = "default_risk_level")]
+    pub risk_level: String,
     pub confidence: f64,
     pub next_actions: Vec<String>,
     pub available_sections: Vec<String>,
@@ -184,6 +273,8 @@ pub(crate) struct AnalysisSummary {
 pub(crate) struct AnalysisJob {
     pub id: String,
     pub kind: String,
+    #[serde(default)]
+    pub project_scope: Option<String>,
     pub status: String,
     pub progress: u8,
     pub current_step: Option<String>,
@@ -207,6 +298,7 @@ pub(crate) struct AppState {
     project_override: std::sync::RwLock<Option<ProjectOverride>>,
     lsp_pool: LspSessionPool,
     transport_mode: Mutex<RuntimeTransportMode>,
+    daemon_mode: Mutex<RuntimeDaemonMode>,
     surface: Mutex<ToolSurface>,
     /// Global token budget for response size control.
     /// Tools that produce variable-length output respect this limit.
@@ -246,6 +338,17 @@ impl AppState {
 
     fn analysis_expired(created_at_ms: u64, now_ms: u64) -> bool {
         now_ms.saturating_sub(created_at_ms) > ANALYSIS_TTL_MS
+    }
+
+    pub(crate) fn current_project_scope(&self) -> String {
+        self.project().as_path().to_string_lossy().to_string()
+    }
+
+    fn matches_current_project_scope(&self, scope: Option<&str>) -> bool {
+        match scope {
+            Some(scope) => scope == self.current_project_scope(),
+            None => true,
+        }
     }
 
     // ── Active project accessors (check override, fallback to default) ──
@@ -413,14 +516,24 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = surface;
     }
 
+    pub(crate) fn configure_daemon_mode(&self, daemon_mode: RuntimeDaemonMode) {
+        *self
+            .daemon_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = daemon_mode;
+    }
+
     pub(crate) fn configure_transport_mode(&self, transport: &str) {
         let mode = RuntimeTransportMode::from_str(transport);
         *self
             .transport_mode
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = mode;
-        self.metrics
-            .record_analysis_worker_pool(self.analysis_worker_limit(), mode.as_str());
+        self.metrics.record_analysis_worker_pool(
+            self.analysis_worker_limit(),
+            self.analysis_cost_budget(),
+            mode.as_str(),
+        );
     }
 
     pub(crate) fn transport_mode(&self) -> RuntimeTransportMode {
@@ -430,6 +543,17 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    pub(crate) fn daemon_mode(&self) -> RuntimeDaemonMode {
+        *self
+            .daemon_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn mutation_allowed_in_runtime(&self) -> bool {
+        !matches!(self.daemon_mode(), RuntimeDaemonMode::ReadOnly)
+    }
+
     pub(crate) fn analysis_worker_limit(&self) -> usize {
         match self.transport_mode() {
             RuntimeTransportMode::Http => HTTP_ANALYSIS_WORKER_COUNT,
@@ -437,13 +561,21 @@ impl AppState {
         }
     }
 
+    pub(crate) fn analysis_cost_budget(&self) -> usize {
+        match self.transport_mode() {
+            RuntimeTransportMode::Http => 3,
+            RuntimeTransportMode::Stdio => 2,
+        }
+    }
+
     pub(crate) fn analysis_parallelism_for_profile(&self, profile_hint: Option<&str>) -> usize {
-        let hinted_profile = profile_hint
-            .and_then(ToolProfile::from_str)
-            .or_else(|| match *self.surface() {
-                ToolSurface::Profile(profile) => Some(profile),
-                ToolSurface::Preset(_) => None,
-            });
+        let hinted_profile =
+            profile_hint
+                .and_then(ToolProfile::from_str)
+                .or_else(|| match *self.surface() {
+                    ToolSurface::Profile(profile) => Some(profile),
+                    ToolSurface::Preset(_) => None,
+                });
         let transport_limit = self.analysis_worker_limit();
         match hinted_profile {
             Some(ToolProfile::PlannerReadonly)
@@ -510,7 +642,8 @@ impl AppState {
             .map_err(|error| CodeLensError::Internal(error.into()))?;
         fs::write(summary_path, summary_bytes)?;
         for (section, value) in sections {
-            let section_path = artifact_dir.join(format!("{}.json", Self::sanitize_section_name(section)));
+            let section_path =
+                artifact_dir.join(format!("{}.json", Self::sanitize_section_name(section)));
             let section_bytes = serde_json::to_vec_pretty(value)
                 .map_err(|error| CodeLensError::Internal(error.into()))?;
             fs::write(section_path, section_bytes)?;
@@ -523,6 +656,9 @@ impl AppState {
         fs::read(summary_path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<AnalysisArtifact>(&bytes).ok())
+            .filter(|artifact| {
+                self.matches_current_project_scope(artifact.project_scope.as_deref())
+            })
     }
 
     fn remove_analysis_from_disk(&self, analysis_id: &str) {
@@ -532,8 +668,8 @@ impl AppState {
     fn write_job_to_disk(&self, job: &AnalysisJob) -> Result<(), CodeLensError> {
         let jobs_dir = self.jobs_dir();
         fs::create_dir_all(&jobs_dir)?;
-        let bytes =
-            serde_json::to_vec_pretty(job).map_err(|error| CodeLensError::Internal(error.into()))?;
+        let bytes = serde_json::to_vec_pretty(job)
+            .map_err(|error| CodeLensError::Internal(error.into()))?;
         let path = self.analysis_job_path(&job.id);
         let tmp_path = path.with_extension("json.tmp");
         fs::write(&tmp_path, bytes)?;
@@ -613,7 +749,10 @@ impl AppState {
                 .ok()
                 .and_then(|bytes| serde_json::from_slice::<AnalysisJob>(&bytes).ok());
             match job {
-                Some(job) if Self::analysis_expired(job.updated_at_ms, now_ms) => {
+                Some(job)
+                    if Self::analysis_expired(job.updated_at_ms, now_ms)
+                        || !self.matches_current_project_scope(job.project_scope.as_deref()) =>
+                {
                     let _ = fs::remove_file(&path);
                 }
                 None => {
@@ -736,16 +875,18 @@ impl AppState {
         arguments: Value,
         profile_hint: Option<String>,
     ) -> Result<(), CodeLensError> {
-        let depth = self
+        let (depth, weighted_depth, priority_promoted) = self
             .analysis_queue
             .get_or_init(|| AnalysisWorkerQueue::new(self))
             .enqueue(AnalysisJobRequest {
                 job_id,
+                cost_units: analysis_job_cost_units(&kind),
                 kind,
                 arguments,
                 profile_hint,
             })?;
-        self.metrics.record_analysis_job_enqueued(depth);
+        self.metrics
+            .record_analysis_job_enqueued(depth, weighted_depth, priority_promoted);
         Ok(())
     }
 
@@ -768,6 +909,7 @@ impl AppState {
         let job = AnalysisJob {
             id: id.clone(),
             kind: kind.to_owned(),
+            project_scope: Some(self.current_project_scope()),
             status: status.to_owned(),
             progress,
             current_step,
@@ -797,12 +939,14 @@ impl AppState {
         let job = fs::read(&path)
             .ok()
             .and_then(|bytes| serde_json::from_slice::<AnalysisJob>(&bytes).ok())
+            .filter(|job| self.matches_current_project_scope(job.project_scope.as_deref()))
             .or_else(|| {
                 self.jobs
                     .lock()
                     .unwrap_or_else(|p| p.into_inner())
                     .get(job_id)
                     .cloned()
+                    .filter(|job| self.matches_current_project_scope(job.project_scope.as_deref()))
             })?;
         self.jobs
             .lock()
@@ -826,7 +970,7 @@ impl AppState {
             job.current_step = Some("cancelled".to_owned());
             job.updated_at_ms = Self::now_ms();
             if previous_status == "queued" {
-                self.metrics.record_analysis_job_cancelled(0);
+                self.metrics.record_analysis_job_cancelled(0, 0);
             }
         }
         self.write_job_to_disk(&job)?;
@@ -893,11 +1037,48 @@ impl AppState {
         let audit_dir = self.audit_dir();
         fs::create_dir_all(&audit_dir)?;
         let path = audit_dir.join("mutation-audit.jsonl");
+        let session_id = arguments
+            .get("_session_id")
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned);
+        let session_trusted_client = arguments
+            .get("_session_trusted_client")
+            .and_then(|value| value.as_bool());
+        let session_requested_profile = arguments
+            .get("_session_requested_profile")
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned);
+        let session_client_name = arguments
+            .get("_session_client_name")
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned);
+        let session_client_version = arguments
+            .get("_session_client_version")
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned);
+        let scrubbed_arguments = match arguments {
+            serde_json::Value::Object(map) => serde_json::Value::Object(
+                map.iter()
+                    .filter(|(key, _)| !key.starts_with("_session_"))
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ),
+            other => other.clone(),
+        };
         let event = serde_json::json!({
             "timestamp_ms": Self::now_ms(),
+            "project_scope": self.current_project_scope(),
             "surface": surface,
+            "daemon_mode": self.daemon_mode().as_str(),
             "tool": tool,
-            "arguments": arguments,
+            "arguments": scrubbed_arguments,
+            "session": {
+                "id": session_id,
+                "trusted_client": session_trusted_client,
+                "requested_profile": session_requested_profile,
+                "client_name": session_client_name,
+                "client_version": session_client_version,
+            },
         });
         let mut line =
             serde_json::to_string(&event).map_err(|error| CodeLensError::Internal(error.into()))?;
@@ -914,8 +1095,10 @@ impl AppState {
     pub(crate) fn store_analysis(
         &self,
         tool_name: &str,
+        cache_key: Option<String>,
         summary: String,
         top_findings: Vec<String>,
+        risk_level: String,
         confidence: f64,
         next_actions: Vec<String>,
         sections: std::collections::BTreeMap<String, serde_json::Value>,
@@ -930,8 +1113,11 @@ impl AppState {
             id: id.clone(),
             tool_name: tool_name.to_owned(),
             surface: self.surface().as_label().to_owned(),
+            project_scope: Some(self.current_project_scope()),
+            cache_key,
             summary,
             top_findings,
+            risk_level,
             confidence,
             next_actions,
             available_sections,
@@ -953,6 +1139,39 @@ impl AppState {
         Ok(artifact)
     }
 
+    pub(crate) fn find_reusable_analysis(
+        &self,
+        tool_name: &str,
+        cache_key: &str,
+    ) -> Option<AnalysisArtifact> {
+        self.prune_analysis_artifacts(Self::now_ms());
+        for analysis_id in self.list_analysis_ids_on_disk() {
+            let _ = self.get_analysis(&analysis_id);
+        }
+        let active_surface = self.surface().as_label().to_owned();
+        let order = self
+            .analysis_order
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .rev()
+            .cloned()
+            .collect::<Vec<_>>();
+        let analyses = self.analyses.lock().unwrap_or_else(|p| p.into_inner());
+        order.into_iter().find_map(|id| {
+            let artifact = analyses.get(&id)?;
+            if artifact.tool_name == tool_name
+                && artifact.surface == active_surface
+                && self.matches_current_project_scope(artifact.project_scope.as_deref())
+                && artifact.cache_key.as_deref() == Some(cache_key)
+            {
+                Some(artifact.clone())
+            } else {
+                None
+            }
+        })
+    }
+
     pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
         self.prune_analysis_artifacts(Self::now_ms());
         if let Some(artifact) = self
@@ -961,6 +1180,9 @@ impl AppState {
             .unwrap_or_else(|p| p.into_inner())
             .get(analysis_id)
             .cloned()
+            .filter(|artifact| {
+                self.matches_current_project_scope(artifact.project_scope.as_deref())
+            })
         {
             return Some(artifact);
         }
@@ -969,7 +1191,10 @@ impl AppState {
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .insert(analysis_id.to_owned(), artifact.clone());
-        let mut order = self.analysis_order.lock().unwrap_or_else(|p| p.into_inner());
+        let mut order = self
+            .analysis_order
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
         if !order.iter().any(|existing| existing == analysis_id) {
             order.push_back(analysis_id.to_owned());
         }
@@ -988,11 +1213,9 @@ impl AppState {
             .iter()
             .cloned()
             .collect::<Vec<_>>();
-        let analyses = self
-            .analyses
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        order.iter()
+        let analyses = self.analyses.lock().unwrap_or_else(|p| p.into_inner());
+        order
+            .iter()
             .rev()
             .filter_map(|id| analyses.get(id))
             .map(|artifact| AnalysisSummary {
@@ -1047,6 +1270,7 @@ impl AppState {
             project_override: std::sync::RwLock::new(None),
             lsp_pool: LspSessionPool::new(project),
             transport_mode: Mutex::new(self.transport_mode()),
+            daemon_mode: Mutex::new(self.daemon_mode()),
             surface: Mutex::new(*self.surface()),
             token_budget: std::sync::atomic::AtomicUsize::new(self.token_budget()),
             analysis_seq: std::sync::atomic::AtomicU64::new(0),
@@ -1104,6 +1328,7 @@ impl AppState {
             default_audit_dir: audit_dir,
             project_override: std::sync::RwLock::new(None),
             transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
+            daemon_mode: Mutex::new(RuntimeDaemonMode::Standard),
             surface: Mutex::new(ToolSurface::Preset(preset)),
             token_budget: std::sync::atomic::AtomicUsize::new(
                 crate::tool_defs::default_budget_for_preset(preset),
@@ -1201,6 +1426,39 @@ impl AppState {
         self
     }
 
+    #[cfg(feature = "http")]
+    pub(crate) fn active_session_count(&self) -> usize {
+        self.session_store.as_ref().map(|store| store.len()).unwrap_or(0)
+    }
+
+    #[cfg(feature = "http")]
+    pub(crate) fn session_timeout_seconds(&self) -> u64 {
+        self.session_store
+            .as_ref()
+            .map(|store| store.timeout_secs())
+            .unwrap_or(0)
+    }
+
+    #[cfg(feature = "http")]
+    pub(crate) fn session_resume_supported(&self) -> bool {
+        self.session_store.is_some()
+    }
+
+    #[cfg(not(feature = "http"))]
+    pub(crate) fn active_session_count(&self) -> usize {
+        0
+    }
+
+    #[cfg(not(feature = "http"))]
+    pub(crate) fn session_timeout_seconds(&self) -> u64 {
+        0
+    }
+
+    #[cfg(not(feature = "http"))]
+    pub(crate) fn session_resume_supported(&self) -> bool {
+        false
+    }
+
     #[cfg(test)]
     pub(crate) fn set_analysis_created_at_for_test(
         &self,
@@ -1217,11 +1475,11 @@ impl AppState {
         }
         let summary_path = self.analysis_artifact_dir(analysis_id).join("summary.json");
         let bytes = fs::read(&summary_path)?;
-        let mut artifact: AnalysisArtifact =
-            serde_json::from_slice(&bytes).map_err(|error| CodeLensError::Internal(error.into()))?;
+        let mut artifact: AnalysisArtifact = serde_json::from_slice(&bytes)
+            .map_err(|error| CodeLensError::Internal(error.into()))?;
         artifact.created_at_ms = created_at_ms;
-        let updated =
-            serde_json::to_vec_pretty(&artifact).map_err(|error| CodeLensError::Internal(error.into()))?;
+        let updated = serde_json::to_vec_pretty(&artifact)
+            .map_err(|error| CodeLensError::Internal(error.into()))?;
         fs::write(summary_path, updated)?;
         Ok(())
     }

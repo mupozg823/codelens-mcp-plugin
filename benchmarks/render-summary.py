@@ -26,6 +26,47 @@ def render_summary(data):
     workflow_results = data.get("workflow_results", [])
     results = data.get("results", [])
     queue = data.get("queue_observability", {})
+    quality_contract = data.get("quality_contract", {})
+    regression_results = []
+    if workflow_results:
+        workflow_savings = [float(result.get("savings_pct", 0)) for result in workflow_results]
+        total_baseline_calls = sum(
+            int(result.get("baseline", {}).get("tool_call_count", 0))
+            for result in workflow_results
+        )
+        total_profile_calls = sum(
+            int(result.get("compressed", {}).get("tool_call_count", 0))
+            for result in workflow_results
+        )
+        total_baseline_chain = sum(
+            int(result.get("baseline", {}).get("low_level_chain_count", 0))
+            for result in workflow_results
+        )
+        total_profile_chain = sum(
+            int(result.get("compressed", {}).get("low_level_chain_count", 0))
+            for result in workflow_results
+        )
+        avg_workflow_savings = sum(workflow_savings) / len(workflow_savings)
+        best_workflow = max(workflow_results, key=lambda result: result.get("savings_pct", 0))
+        slowest_profile = max(
+            workflow_results,
+            key=lambda result: result.get("compressed", {}).get("p95_latency_ms", 0),
+        )
+    else:
+        workflow_savings = []
+        total_baseline_calls = 0
+        total_profile_calls = 0
+        total_baseline_chain = 0
+        total_profile_chain = 0
+        avg_workflow_savings = 0.0
+        best_workflow = None
+        slowest_profile = None
+
+    for result in results:
+        baseline_tokens = result.get("baseline_tokens", 0)
+        codelens_tokens = result.get("codelens_tokens", 0)
+        if baseline_tokens and codelens_tokens >= baseline_tokens:
+            regression_results.append(result)
 
     lines = []
     a = lines.append
@@ -39,6 +80,26 @@ def render_summary(data):
     a(f"| Baseline tokens | {fmt_int(totals.get('baseline_tokens', 0))} |")
     a(f"| CodeLens tokens | {fmt_int(totals.get('codelens_tokens', 0))} |")
     a(f"| Savings | {fmt_pct(totals.get('savings_pct', 0))} |")
+
+    if workflow_results:
+        a("")
+        a("## Headline Deltas")
+        a("")
+        a("| KPI | Value |")
+        a("|---|---:|")
+        a(f"| Avg workflow savings | {fmt_pct(avg_workflow_savings)} |")
+        a(f"| Workflow call reduction | {fmt_int(total_baseline_calls)} -> {fmt_int(total_profile_calls)} |")
+        a(f"| Low-level chain reduction | {fmt_int(total_baseline_chain)} -> {fmt_int(total_profile_chain)} |")
+        if best_workflow:
+            a(
+                f"| Best workflow | {best_workflow.get('scenario', 'unknown')} ({fmt_pct(best_workflow.get('savings_pct', 0))}) |"
+            )
+        if slowest_profile:
+            a(
+                f"| Slowest compressed workflow | {slowest_profile.get('scenario', 'unknown')} ({fmt_int(slowest_profile.get('compressed', {}).get('p95_latency_ms', 0))}ms p95) |"
+            )
+        if regression_results:
+            a(f"| Point-lookups still worse | {fmt_int(len(regression_results))} |")
 
     if workflow_results:
         a("")
@@ -75,8 +136,12 @@ def render_summary(data):
             a(f"| Jobs cancelled | {fmt_int(session.get('analysis_jobs_cancelled', 0))} |")
             a(f"| Queue depth (current) | {fmt_int(session.get('analysis_queue_depth', 0))} |")
             a(f"| Queue depth (max) | {fmt_int(session.get('analysis_queue_max_depth', 0))} |")
+            a(f"| Queue weighted depth (current) | {fmt_int(session.get('analysis_queue_weighted_depth', 0))} |")
+            a(f"| Queue weighted depth (max) | {fmt_int(session.get('analysis_queue_max_weighted_depth', 0))} |")
+            a(f"| Queue priority promotions | {fmt_int(session.get('analysis_queue_priority_promotions', 0))} |")
             a(f"| Active workers (peak) | {fmt_int(session.get('peak_active_analysis_workers', 0))} |")
             a(f"| Worker limit | {fmt_int(session.get('analysis_worker_limit', 0))} |")
+            a(f"| Cost budget | {fmt_int(session.get('analysis_cost_budget', 0))} |")
             a(f"| Transport mode | {session.get('analysis_transport_mode', 'unknown')} |")
             a(f"| Observed queued state | {queue.get('saw_queued')} |")
             a(f"| Observed running state | {queue.get('saw_running')} |")
@@ -96,6 +161,35 @@ def render_summary(data):
                     a(f"- {failure}")
         else:
             a(f"- skipped: {queue.get('reason', 'unavailable')}")
+
+    if quality_contract:
+        a("")
+        a("## Quality Contract")
+        a("")
+        a("| Metric | Value |")
+        a("|---|---:|")
+        a(
+            f"| Present rate | {fmt_pct(quality_contract.get('quality_contract_present_rate', 0) * 100)} |"
+        )
+        a(
+            f"| Recommended checks emitted | {fmt_int(quality_contract.get('recommended_checks_total', 0))} |"
+        )
+        a(
+            f"| Performance watchpoints emitted | {fmt_int(quality_contract.get('performance_watchpoints_total', 0))} |"
+        )
+        scenarios = quality_contract.get("scenarios", [])
+        if scenarios:
+            a("")
+            a("| Scenario | Contract | Quality Focus | Recommended Checks | Watchpoints |")
+            a("|---|---:|---:|---:|---:|")
+            for item in scenarios:
+                a(
+                    f"| {item.get('scenario', 'unknown')} | "
+                    f"{'yes' if item.get('has_quality_contract') else 'no'} | "
+                    f"{fmt_int(item.get('quality_focus_count', 0))} | "
+                    f"{fmt_int(item.get('recommended_check_count', 0))} | "
+                    f"{fmt_int(item.get('performance_watchpoint_count', 0))} |"
+                )
 
     if results:
         a("")
@@ -117,6 +211,25 @@ def render_summary(data):
                 f"{fmt_int(baseline_tokens)} | "
                 f"{fmt_int(codelens_tokens)} | "
                 f"{fmt_pct(savings)} |"
+            )
+
+    if regression_results:
+        a("")
+        a("## Point-Lookup Regressions")
+        a("")
+        a("| Task | Baseline Tokens | CodeLens Tokens | Overhead |")
+        a("|---|---:|---:|---:|")
+        for result in regression_results:
+            baseline_tokens = result.get("baseline_tokens", 0)
+            codelens_tokens = result.get("codelens_tokens", 0)
+            overhead = 0.0
+            if baseline_tokens:
+                overhead = ((codelens_tokens / baseline_tokens) - 1) * 100
+            a(
+                f"| {result.get('task', 'unknown')} | "
+                f"{fmt_int(baseline_tokens)} | "
+                f"{fmt_int(codelens_tokens)} | "
+                f"+{fmt_pct(overhead)} |"
             )
 
     a("")

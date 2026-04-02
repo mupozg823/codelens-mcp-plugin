@@ -1,8 +1,8 @@
 use super::{
-    find_referencing_symbols_via_lsp, get_diagnostics_via_lsp, get_rename_plan_via_lsp,
-    get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp, LspDiagnosticRequest,
-    LspRenamePlanRequest, LspRequest, LspSessionPool, LspTypeHierarchyRequest,
-    LspWorkspaceSymbolRequest,
+    LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
+    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, find_referencing_symbols_via_lsp,
+    get_diagnostics_via_lsp, get_rename_plan_via_lsp, get_type_hierarchy_via_lsp,
+    search_workspace_symbols_via_lsp,
 };
 use crate::ProjectRoot;
 use serde_json::Value;
@@ -167,14 +167,18 @@ fn reads_type_hierarchy_from_mock_lsp() {
         hierarchy.get("fully_qualified_name"),
         Some(&Value::String("sample.Service".to_owned()))
     );
-    assert!(hierarchy
-        .get("supertypes")
-        .and_then(Value::as_array)
-        .is_some_and(|items: &Vec<Value>| !items.is_empty()));
-    assert!(hierarchy
-        .get("subtypes")
-        .and_then(Value::as_array)
-        .is_some_and(|items: &Vec<Value>| !items.is_empty()));
+    assert!(
+        hierarchy
+            .get("supertypes")
+            .and_then(Value::as_array)
+            .is_some_and(|items: &Vec<Value>| !items.is_empty())
+    );
+    assert!(
+        hierarchy
+            .get("subtypes")
+            .and_then(Value::as_array)
+            .is_some_and(|items: &Vec<Value>| !items.is_empty())
+    );
 }
 
 #[test]

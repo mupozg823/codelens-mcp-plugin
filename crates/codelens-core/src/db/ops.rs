@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::{DirStats, FileRow, IndexDb, NewCall, NewImport, NewSymbol, SymbolRow, SymbolWithFile};
 

@@ -68,6 +68,8 @@ pub struct ToolAnnotations {
     pub idempotent_hint: Option<bool>,
     #[serde(rename = "openWorldHint", skip_serializing_if = "Option::is_none")]
     pub open_world_hint: Option<bool>,
+    #[serde(rename = "toolNamespace", skip_serializing_if = "Option::is_none")]
+    pub tool_namespace: Option<String>,
     /// Tool complexity tier for agent tool selection guidance.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tier: Option<ToolTier>,
@@ -240,6 +242,7 @@ impl ToolAnnotations {
             audit_category: None,
             idempotent_hint: None,
             open_world_hint: None,
+            tool_namespace: None,
             tier: None,
         }
     }
@@ -252,6 +255,7 @@ impl ToolAnnotations {
             audit_category: Some("destructive".to_owned()),
             idempotent_hint: None,
             open_world_hint: None,
+            tool_namespace: None,
             tier: None,
         }
     }
@@ -264,6 +268,7 @@ impl ToolAnnotations {
             audit_category: None,
             idempotent_hint: None,
             open_world_hint: None,
+            tool_namespace: None,
             tier: None,
         }
     }
@@ -281,6 +286,11 @@ impl ToolAnnotations {
 
     pub fn with_audit_category(mut self, category: impl Into<String>) -> Self {
         self.audit_category = Some(category.into());
+        self
+    }
+
+    pub fn with_namespace(mut self, namespace: impl Into<String>) -> Self {
+        self.tool_namespace = Some(namespace.into());
         self
     }
 }

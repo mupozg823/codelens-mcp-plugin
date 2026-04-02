@@ -163,6 +163,7 @@ def run_sequence(label, steps):
                 "elapsed_ms": elapsed_ms,
                 "tokens": tokens,
                 "success": bool(payload and payload.get("success")),
+                "data": payload.get("data", {}) if payload else {},
             }
         )
         total_tokens += tokens
@@ -178,6 +179,43 @@ def run_sequence(label, steps):
         "retry_count": retries,
         "p95_latency_ms": percentile_95([entry["elapsed_ms"] for entry in outputs]),
         "steps": outputs,
+    }
+
+
+def summarize_quality_contract(workflow_results):
+    summaries = []
+    for result in workflow_results:
+        compressed_steps = result.get("compressed", {}).get("steps", [])
+        if not compressed_steps:
+            continue
+        data = compressed_steps[-1].get("data") or {}
+        quality_focus = data.get("quality_focus") or []
+        recommended_checks = data.get("recommended_checks") or []
+        performance_watchpoints = data.get("performance_watchpoints") or []
+        summaries.append(
+            {
+                "scenario": result.get("scenario", "unknown"),
+                "has_quality_contract": all(
+                    key in data
+                    for key in (
+                        "quality_focus",
+                        "recommended_checks",
+                        "performance_watchpoints",
+                    )
+                ),
+                "quality_focus_count": len(quality_focus),
+                "recommended_check_count": len(recommended_checks),
+                "performance_watchpoint_count": len(performance_watchpoints),
+            }
+        )
+    present = sum(1 for item in summaries if item["has_quality_contract"])
+    watchpoints = sum(item["performance_watchpoint_count"] for item in summaries)
+    checks = sum(item["recommended_check_count"] for item in summaries)
+    return {
+        "scenarios": summaries,
+        "quality_contract_present_rate": (present / len(summaries)) if summaries else 0.0,
+        "recommended_checks_total": checks,
+        "performance_watchpoints_total": watchpoints,
     }
 
 
@@ -395,11 +433,21 @@ def run_queue_observability_benchmark():
                 "analysis_jobs_cancelled": session.get("analysis_jobs_cancelled", 0),
                 "analysis_queue_depth": session.get("analysis_queue_depth", 0),
                 "analysis_queue_max_depth": session.get("analysis_queue_max_depth", 0),
+                "analysis_queue_weighted_depth": session.get(
+                    "analysis_queue_weighted_depth", 0
+                ),
+                "analysis_queue_max_weighted_depth": session.get(
+                    "analysis_queue_max_weighted_depth", 0
+                ),
+                "analysis_queue_priority_promotions": session.get(
+                    "analysis_queue_priority_promotions", 0
+                ),
                 "active_analysis_workers": session.get("active_analysis_workers", 0),
                 "peak_active_analysis_workers": session.get(
                     "peak_active_analysis_workers", 0
                 ),
                 "analysis_worker_limit": session.get("analysis_worker_limit", 0),
+                "analysis_cost_budget": session.get("analysis_cost_budget", 0),
                 "analysis_transport_mode": session.get("analysis_transport_mode", "unknown"),
             },
             "derived_kpis": {
@@ -812,6 +860,7 @@ if test_file:
     )
 
 queue_observability = run_queue_observability_benchmark()
+quality_contract = summarize_quality_contract(workflow_results)
 
 # ================================================================
 # OUTPUT
@@ -936,6 +985,20 @@ if queue_observability.get("supported"):
 else:
     print(f"- skipped: {queue_observability.get('reason', 'unavailable')}")
 
+print("\n## Quality Contract Summary\n")
+print(
+    f"- present_rate={quality_contract.get('quality_contract_present_rate', 0.0):.2f}, "
+    f"recommended_checks_total={quality_contract.get('recommended_checks_total', 0)}, "
+    f"performance_watchpoints_total={quality_contract.get('performance_watchpoints_total', 0)}"
+)
+for item in quality_contract.get("scenarios", []):
+    print(
+        f"  - {item['scenario']}: present={item['has_quality_contract']}, "
+        f"quality_focus={item['quality_focus_count']}, "
+        f"recommended_checks={item['recommended_check_count']}, "
+        f"performance_watchpoints={item['performance_watchpoint_count']}"
+    )
+
 # Detailed breakdown
 print("### Detailed Breakdown\n")
 for r in results:
@@ -958,6 +1021,7 @@ json_out = {
     "results": results,
     "workflow_results": workflow_results,
     "queue_observability": queue_observability,
+    "quality_contract": quality_contract,
     "totals": {
         "baseline_tokens": total_baseline,
         "codelens_tokens": total_codelens,

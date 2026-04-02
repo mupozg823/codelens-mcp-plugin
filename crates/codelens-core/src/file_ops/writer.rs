@@ -1,5 +1,5 @@
 use crate::project::ProjectRoot;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use regex::Regex;
 use std::fs;
 

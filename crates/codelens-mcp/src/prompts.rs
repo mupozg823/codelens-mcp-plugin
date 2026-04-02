@@ -93,7 +93,10 @@ pub(crate) fn get_prompt(
             })
         }
         "planner-readonly-guide" => {
-            let task = args.get("task").and_then(|v| v.as_str()).unwrap_or("planned change");
+            let task = args
+                .get("task")
+                .and_then(|v| v.as_str())
+                .unwrap_or("planned change");
             json!({
                 "messages": [{
                     "role": "user",

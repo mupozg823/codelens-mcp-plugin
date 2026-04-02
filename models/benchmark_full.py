@@ -1,6 +1,7 @@
 """
-Full embedding model evaluation on CodeLens's own codebase.
-Tests: search quality, similarity, clustering, classification, duplicate detection, outlier detection.
+Exploratory embedding quality evaluation on CodeLens's own codebase.
+This script uses an external sentence-transformers model as a comparative harness.
+It is not the same as the runtime-bundled CodeLens embedding model.
 """
 
 import time

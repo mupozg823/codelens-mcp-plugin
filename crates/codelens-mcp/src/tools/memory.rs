@@ -1,4 +1,4 @@
-use super::{required_string, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use serde_json::json;

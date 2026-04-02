@@ -3,11 +3,11 @@ use crate::symbols::SymbolIndex;
 use crate::vfs;
 use anyhow::Result;
 use notify::RecommendedWatcher;
-use notify_debouncer_mini::{new_debouncer, DebouncedEventKind, Debouncer};
+use notify_debouncer_mini::{DebouncedEventKind, Debouncer, new_debouncer};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
     Arc,
+    atomic::{AtomicBool, AtomicU64, Ordering},
 };
 use std::time::Duration;
 use tracing::{debug, warn};

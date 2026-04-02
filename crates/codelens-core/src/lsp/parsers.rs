@@ -2,8 +2,8 @@ use super::types::{
     LspDiagnostic, LspReference, LspRenamePlan, LspTypeHierarchyNode, LspWorkspaceSymbol,
 };
 use crate::project::ProjectRoot;
-use anyhow::{bail, Context, Result};
-use serde_json::{json, Value};
+use anyhow::{Context, Result, bail};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use url::Url;
 

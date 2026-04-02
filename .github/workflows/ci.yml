@@ -80,6 +80,17 @@ jobs:
           python3 benchmarks/render-summary.py --output benchmarks/token-efficiency-summary.md
           cat benchmarks/token-efficiency-summary.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: embedding-quality benchmark summary
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          CODELENS_BIN: target/release/codelens-mcp
+        run: |
+          python3 benchmarks/embedding-quality.py . \
+            --binary target/release/codelens-mcp \
+            --output benchmarks/embedding-quality-results.json \
+            --markdown-output benchmarks/embedding-quality-summary.md | tee benchmarks/embedding-quality-ci.txt
+          cat benchmarks/embedding-quality-summary.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: upload benchmark artifacts
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
@@ -89,3 +100,6 @@ jobs:
             benchmarks/benchmark_results.json
             benchmarks/token-efficiency-ci.txt
             benchmarks/token-efficiency-summary.md
+            benchmarks/embedding-quality-results.json
+            benchmarks/embedding-quality-ci.txt
+            benchmarks/embedding-quality-summary.md

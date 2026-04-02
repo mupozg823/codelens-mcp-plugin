@@ -12,15 +12,15 @@ use ranking::prune_to_budget;
 use scoring::score_symbol;
 pub(crate) use types::ReadDb;
 pub use types::{
-    make_symbol_id, parse_symbol_id, IndexStats, RankedContextEntry, RankedContextResult,
-    SymbolInfo, SymbolKind,
+    IndexStats, RankedContextEntry, RankedContextResult, SymbolInfo, SymbolKind, make_symbol_id,
+    parse_symbol_id,
 };
 
-use crate::db::{self, content_hash, index_db_path, IndexDb};
+use crate::db::{self, IndexDb, content_hash, index_db_path};
 // Re-export language_for_path so downstream crate modules keep working.
-pub(crate) use crate::lang_config::{language_for_path, LanguageConfig};
+pub(crate) use crate::lang_config::{LanguageConfig, language_for_path};
 use crate::project::ProjectRoot;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;

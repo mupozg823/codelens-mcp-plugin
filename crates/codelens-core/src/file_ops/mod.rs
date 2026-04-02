@@ -2,7 +2,7 @@ mod reader;
 mod writer;
 
 use crate::project::ProjectRoot;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use globset::{Glob, GlobMatcher};
 use serde::Serialize;
 use std::fs;

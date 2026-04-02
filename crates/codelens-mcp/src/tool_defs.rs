@@ -73,6 +73,8 @@ impl ToolSurface {
 pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     "activate_project",
     "get_current_config",
+    "set_preset",
+    "set_profile",
     // File (kept for non-Claude-Code clients)
     "read_file",
     "list_dir",
@@ -186,16 +188,9 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "find_referencing_symbols",
     "get_file_diagnostics",
     "plan_symbol_rename",
-    "replace_symbol_body",
-    "insert_content",
-    "replace",
-    "create_text_file",
     "analyze_missing_imports",
     "add_import",
     "find_minimal_context_for_change",
-    "start_analysis_job",
-    "get_analysis_job",
-    "get_analysis_section",
 ];
 
 pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
@@ -237,6 +232,55 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "cancel_analysis_job",
     "get_analysis_section",
     "export_session_markdown",
+];
+
+pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
+    "activate_project",
+    "get_current_config",
+    "get_capabilities",
+    "set_profile",
+    "set_preset",
+    "get_tool_metrics",
+    "read_file",
+    "search_for_pattern",
+    "find_annotations",
+    "find_tests",
+    "get_symbols_overview",
+    "find_symbol",
+    "get_ranked_context",
+    "find_referencing_symbols",
+    "get_type_hierarchy",
+    "get_file_diagnostics",
+    "get_changed_files",
+    "get_impact_analysis",
+    "find_scoped_references",
+    "get_symbol_importance",
+    "find_dead_code",
+    "find_circular_dependencies",
+    "get_change_coupling",
+    "onboard_project",
+    "summarize_file",
+    "analyze_change_request",
+    "find_minimal_context_for_change",
+    "summarize_symbol_impact",
+    "module_boundary_report",
+    "safe_rename_report",
+    "dead_code_report",
+    "impact_report",
+    "refactor_safety_report",
+    "diff_aware_references",
+    "start_analysis_job",
+    "get_analysis_job",
+    "cancel_analysis_job",
+    "get_analysis_section",
+    "plan_symbol_rename",
+    "rename_symbol",
+    "replace_symbol_body",
+    "insert_content",
+    "replace",
+    "create_text_file",
+    "analyze_missing_imports",
+    "add_import",
 ];
 
 pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
@@ -435,9 +479,38 @@ fn analysis_handle_output_schema() -> serde_json::Value {
             "analysis_id": {"type": "string"},
             "summary": {"type": "string"},
             "top_findings": {"type": "array", "items": {"type": "string"}},
+            "risk_level": {"type": "string", "enum": ["low", "medium", "high"]},
             "confidence": {"type": "number"},
             "next_actions": {"type": "array", "items": {"type": "string"}},
-            "available_sections": {"type": "array", "items": {"type": "string"}}
+            "quality_focus": {"type": "array", "items": {"type": "string"}},
+            "recommended_checks": {"type": "array", "items": {"type": "string"}},
+            "performance_watchpoints": {"type": "array", "items": {"type": "string"}},
+            "available_sections": {"type": "array", "items": {"type": "string"}},
+            "reused": {"type": "boolean"},
+            "schema_version": {"type": "string"},
+            "report_kind": {"type": "string"},
+            "profile": {"type": "string"},
+            "machine_summary": {
+                "type": "object",
+                "properties": {
+                    "finding_count": {"type": "integer"},
+                    "next_action_count": {"type": "integer"},
+                    "section_count": {"type": "integer"},
+                    "quality_focus_count": {"type": "integer"},
+                    "recommended_check_count": {"type": "integer"},
+                    "performance_watchpoint_count": {"type": "integer"}
+                }
+            },
+            "evidence_handles": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section": {"type": "string"},
+                        "uri": {"type": "string"}
+                    }
+                }
+            }
         }
     })
 }
@@ -500,7 +573,7 @@ pub(crate) fn is_tool_in_profile(name: &str, profile: ToolProfile) -> bool {
         ToolProfile::PlannerReadonly => PLANNER_READONLY_TOOLS.contains(&name),
         ToolProfile::BuilderMinimal => BUILDER_MINIMAL_TOOLS.contains(&name),
         ToolProfile::ReviewerGraph => REVIEWER_GRAPH_TOOLS.contains(&name),
-        ToolProfile::RefactorFull => true,
+        ToolProfile::RefactorFull => REFACTOR_FULL_TOOLS.contains(&name),
         ToolProfile::CiAudit => CI_AUDIT_TOOLS.contains(&name),
     }
 }
@@ -517,6 +590,151 @@ pub(crate) fn visible_tools(surface: ToolSurface) -> Vec<&'static Tool> {
         .iter()
         .filter(|tool| is_tool_in_surface(tool.name, surface))
         .collect()
+}
+
+pub(crate) fn visible_tools_for_namespace(
+    surface: ToolSurface,
+    namespace: &str,
+) -> Vec<&'static Tool> {
+    visible_tools(surface)
+        .into_iter()
+        .filter(|tool| tool_namespace(tool.name) == namespace)
+        .collect()
+}
+
+pub(crate) fn visible_namespaces(surface: ToolSurface) -> Vec<&'static str> {
+    let mut namespaces = visible_tools(surface)
+        .into_iter()
+        .map(|tool| tool_namespace(tool.name))
+        .collect::<Vec<_>>();
+    namespaces.sort_unstable();
+    namespaces.dedup();
+    namespaces
+}
+
+pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
+    match surface {
+        ToolSurface::Profile(ToolProfile::PlannerReadonly) => {
+            vec!["reports", "symbols", "graph", "filesystem", "session"]
+        }
+        ToolSurface::Profile(ToolProfile::BuilderMinimal) => {
+            vec!["symbols", "filesystem", "session"]
+        }
+        ToolSurface::Profile(ToolProfile::ReviewerGraph) => {
+            vec!["reports", "graph", "symbols", "session"]
+        }
+        ToolSurface::Profile(ToolProfile::RefactorFull) => {
+            vec!["reports", "mutation", "symbols", "session"]
+        }
+        ToolSurface::Profile(ToolProfile::CiAudit) => {
+            vec!["reports", "graph", "session"]
+        }
+        ToolSurface::Preset(ToolPreset::Minimal) => vec!["symbols", "filesystem", "mutation"],
+        ToolSurface::Preset(ToolPreset::Balanced) => {
+            vec!["reports", "symbols", "graph", "filesystem", "session"]
+        }
+        ToolSurface::Preset(ToolPreset::Full) => visible_namespaces(surface),
+    }
+}
+
+pub(crate) fn tool_namespace(name: &str) -> &'static str {
+    match name {
+        "read_file" | "list_dir" | "find_file" | "search_for_pattern" | "find_annotations"
+        | "find_tests" => "filesystem",
+        "get_symbols_overview"
+        | "find_symbol"
+        | "get_ranked_context"
+        | "search_symbols_fuzzy"
+        | "find_referencing_symbols"
+        | "search_workspace_symbols"
+        | "get_type_hierarchy"
+        | "plan_symbol_rename"
+        | "semantic_search"
+        | "index_embeddings" => "symbols",
+        "get_changed_files"
+        | "get_impact_analysis"
+        | "find_scoped_references"
+        | "get_symbol_importance"
+        | "find_dead_code"
+        | "find_circular_dependencies"
+        | "get_change_coupling"
+        | "find_similar_code"
+        | "find_code_duplicates"
+        | "classify_symbol"
+        | "find_misplaced_code"
+        | "get_complexity" => "graph",
+        "rename_symbol"
+        | "replace_symbol_body"
+        | "delete_lines"
+        | "insert_at_line"
+        | "insert_before_symbol"
+        | "insert_after_symbol"
+        | "insert_content"
+        | "replace_content"
+        | "replace_lines"
+        | "replace"
+        | "create_text_file"
+        | "add_import"
+        | "refactor_extract_function"
+        | "refactor_inline_function"
+        | "refactor_move_to_file"
+        | "refactor_change_signature" => "mutation",
+        "analyze_change_request"
+        | "find_minimal_context_for_change"
+        | "summarize_symbol_impact"
+        | "module_boundary_report"
+        | "safe_rename_report"
+        | "dead_code_report"
+        | "impact_report"
+        | "refactor_safety_report"
+        | "diff_aware_references"
+        | "start_analysis_job"
+        | "get_analysis_job"
+        | "cancel_analysis_job"
+        | "get_analysis_section"
+        | "onboard_project" => "reports",
+        "list_memories" | "read_memory" | "write_memory" | "delete_memory" | "rename_memory" => {
+            "memory"
+        }
+        "get_file_diagnostics" | "check_lsp_status" | "get_lsp_recipe" => "lsp",
+        _ => "session",
+    }
+}
+
+pub(crate) fn is_read_only_surface(surface: ToolSurface) -> bool {
+    matches!(
+        surface,
+        ToolSurface::Profile(ToolProfile::PlannerReadonly)
+            | ToolSurface::Profile(ToolProfile::ReviewerGraph)
+            | ToolSurface::Profile(ToolProfile::CiAudit)
+    )
+}
+
+pub(crate) fn is_content_mutation_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "replace_symbol_body"
+            | "delete_lines"
+            | "insert_at_line"
+            | "insert_before_symbol"
+            | "insert_after_symbol"
+            | "insert_content"
+            | "replace_content"
+            | "replace_lines"
+            | "replace"
+            | "rename_symbol"
+            | "create_text_file"
+            | "add_import"
+            | "write_memory"
+            | "delete_memory"
+            | "rename_memory"
+            | "add_queryable_project"
+            | "remove_queryable_project"
+            | "refactor_extract_function"
+            | "refactor_inline_function"
+            | "refactor_move_to_file"
+            | "refactor_change_signature"
+    )
 }
 
 /// Check if a tool is included in a given preset.
@@ -547,7 +765,7 @@ fn build_tools() -> Vec<Tool> {
     let mut_p = approved_mutating.clone().with_tier(ToolTier::Primitive);
     let dest_a = approved_destructive.clone().with_tier(ToolTier::Analysis);
     let mut_w = approved_mutating.clone().with_tier(ToolTier::Workflow);
-    let tools = vec![
+    let mut tools = vec![
         // ── File I/O ────────────────────────────────────────────────────
         Tool::new("get_current_config", "[CodeLens:Session] Project config and index stats. Use to verify project is active.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
         Tool::new("read_file", "[CodeLens:File] Read file contents with optional line range.", json!({"type":"object","properties":{"relative_path":{"type":"string"},"start_line":{"type":"integer"},"end_line":{"type":"integer"}},"required":["relative_path"]})).with_output_schema(file_content_output_schema()).with_annotations(ro_p.clone()),
@@ -560,8 +778,8 @@ fn build_tools() -> Vec<Tool> {
         // ── Symbol Lookup (use these to understand code) ────────────────
         Tool::new("get_symbols_overview", "[CodeLens:Symbol] List all symbols in a file — structural map. Use first to understand a file.", json!({"type":"object","properties":{"path":{"type":"string"},"depth":{"type":"integer"}},"required":["path"]})).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
         Tool::new("find_symbol", "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body. Use when you know the name.", json!({"type":"object","properties":{"name":{"type":"string","description":"Symbol name to search for"},"symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},"file_path":{"type":"string"},"include_body":{"type":"boolean"},"exact_match":{"type":"boolean"},"max_matches":{"type":"integer"}}})).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
-        Tool::new("get_ranked_context", "[CodeLens:Symbol] Smart context retrieval — best symbols for a query within token budget. Use for broad questions.", json!({"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"}},"required":["query"]})).with_output_schema(symbol_output_schema()).with_annotations(ro_a.clone()),
-        Tool::new("search_symbols_fuzzy", "[CodeLens:Symbol] Fuzzy symbol search — tolerates typos and partial names. Use when exact name is unknown.", json!({"type":"object","properties":{"query":{"type":"string","description":"Symbol name to search for"},"max_results":{"type":"integer","description":"Maximum number of results to return (default 30)"},"fuzzy_threshold":{"type":"number","description":"Minimum jaro_winkler similarity 0.0-1.0 for fuzzy matches (default 0.6)"}},"required":["query"]})).with_annotations(ro_a.clone()),
+        Tool::new("get_ranked_context", "[CodeLens:Symbol] Smart context retrieval — best symbols for a query within token budget. Use for broad questions.", json!({"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"},"disable_semantic":{"type":"boolean","description":"Disable semantic/hybrid ranking and use structural signals only"}},"required":["query"]})).with_output_schema(symbol_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new("search_symbols_fuzzy", "[CodeLens:Symbol] Fuzzy symbol search — tolerates typos and partial names. Use when exact name is unknown.", json!({"type":"object","properties":{"query":{"type":"string","description":"Symbol name to search for"},"max_results":{"type":"integer","description":"Maximum number of results to return (default 30)"},"fuzzy_threshold":{"type":"number","description":"Minimum jaro_winkler similarity 0.0-1.0 for fuzzy matches (default 0.6)"},"disable_semantic":{"type":"boolean","description":"Disable semantic score blending and use lexical search only"}},"required":["query"]})).with_annotations(ro_a.clone()),
         Tool::new("get_complexity", "[CodeLens:Analysis] Cyclomatic complexity for functions. Use to find code needing refactoring.", json!({"type":"object","properties":{"path":{"type":"string"},"symbol_name":{"type":"string"}},"required":["path"]})).with_annotations(ro_a.clone()),
         Tool::new("refresh_symbol_index", "[CodeLens:Symbol] Rebuild the symbol database. Use if index is stale.", json!({"type":"object","properties":{}})).with_annotations(mut_w.clone()),
         Tool::new("get_project_structure", "[CodeLens:Symbol] Directory-level overview — file counts and symbol density per directory.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
@@ -647,15 +865,21 @@ fn build_tools() -> Vec<Tool> {
     // ── Semantic (feature-gated) ────────────────────────────────────
     #[cfg(feature = "semantic")]
     {
-        let mut tools = tools;
-        let ro = ro;
         tools.push(Tool::new("semantic_search", "[CodeLens:Symbol] Natural language code search via embeddings — find code by meaning.", json!({"type":"object","properties":{"query":{"type":"string","description":"Natural language search query"},"max_results":{"type":"integer","description":"Max results (default 20)"}},"required":["query"]})).with_annotations(ro_p.clone()));
         tools.push(Tool::new("index_embeddings", "[CodeLens:Symbol] Build semantic embedding index. Required before semantic_search.", json!({"type":"object","properties":{}})).with_annotations(ro.clone()));
         tools.push(Tool::new("find_similar_code", "[CodeLens:Analysis] Find semantically similar code to a given symbol — clone detection, reuse opportunities.", json!({"type":"object","properties":{"file_path":{"type":"string","description":"File containing the symbol"},"symbol_name":{"type":"string","description":"Symbol to find similar code for"},"max_results":{"type":"integer","description":"Max results (default 10)"}},"required":["file_path","symbol_name"]})).with_annotations(ro_a.clone()));
         tools.push(Tool::new("find_code_duplicates", "[CodeLens:Analysis] Find near-duplicate code pairs across the codebase — DRY violations.", json!({"type":"object","properties":{"threshold":{"type":"number","description":"Cosine similarity threshold (default 0.85)"},"max_pairs":{"type":"integer","description":"Max pairs to return (default 20)"}}})).with_annotations(ro_a.clone()));
         tools.push(Tool::new("classify_symbol", "[CodeLens:Analysis] Zero-shot classify a symbol into categories — e.g. error handling, auth, database.", json!({"type":"object","properties":{"file_path":{"type":"string"},"symbol_name":{"type":"string"},"categories":{"type":"array","items":{"type":"string"},"description":"Category labels to classify against"}},"required":["file_path","symbol_name","categories"]})).with_annotations(ro_a.clone()));
         tools.push(Tool::new("find_misplaced_code", "[CodeLens:Analysis] Find symbols that are semantic outliers in their file — possible misplacement.", json!({"type":"object","properties":{"max_results":{"type":"integer","description":"Max outliers to return (default 10)"}}})).with_annotations(ro));
-        return tools;
+    }
+
+    for tool in &mut tools {
+        let annotations = tool
+            .annotations
+            .take()
+            .unwrap_or_else(crate::protocol::ToolAnnotations::read_only)
+            .with_namespace(tool_namespace(tool.name));
+        tool.annotations = Some(annotations);
     }
 
     tools

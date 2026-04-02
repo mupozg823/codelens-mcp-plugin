@@ -2,9 +2,9 @@
 //!
 //! Replaces JetBrains PSI `find_references` with tree-sitter scope resolution.
 
-use crate::db::{index_db_path, IndexDb};
-use crate::project::is_excluded;
+use crate::db::{IndexDb, index_db_path};
 use crate::project::ProjectRoot;
+use crate::project::is_excluded;
 use crate::symbols::language_for_path;
 use anyhow::Result;
 use serde::Serialize;

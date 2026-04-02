@@ -1,13 +1,16 @@
 pub mod auto_import;
-pub(crate) mod lang_config;
-pub mod lang_registry;
 pub mod call_graph;
 pub mod circular;
 pub mod coupling;
 pub mod db;
+#[cfg(feature = "semantic")]
+pub mod embedding;
+pub mod embedding_store;
 pub mod file_ops;
 pub mod git;
 pub mod import_graph;
+pub(crate) mod lang_config;
+pub mod lang_registry;
 pub mod lsp;
 pub mod project;
 pub mod rename;
@@ -15,22 +18,24 @@ pub mod scope_analysis;
 pub mod search;
 pub mod symbols;
 pub mod type_hierarchy;
-pub mod watcher;
-pub mod embedding_store;
 pub mod vfs;
-#[cfg(feature = "semantic")]
-pub mod embedding;
+pub mod watcher;
 
+pub use auto_import::{
+    ImportSuggestion, MissingImportAnalysis, add_import, analyze_missing_imports,
+};
 pub use call_graph::{CallEdge, CalleeEntry, CallerEntry, extract_calls, get_callees, get_callers};
 pub use circular::{CircularDependency, find_circular_dependencies};
 pub use coupling::{CouplingEntry, get_change_coupling};
-pub use db::{DirStats, IndexDb, NewCall, NewImport, NewSymbol, SymbolWithFile, content_hash, index_db_path};
+pub use db::{
+    DirStats, IndexDb, NewCall, NewImport, NewSymbol, SymbolWithFile, content_hash, index_db_path,
+};
 pub use file_ops::{
-    DirectoryEntry, FileMatch, FileReadResult, PatternMatch, TextReference, create_text_file,
-    delete_lines, extract_word_at_position, find_files, find_referencing_symbols_via_text,
-    insert_after_symbol, insert_at_line, insert_before_symbol, list_dir, read_file,
-    replace_content, replace_lines, replace_symbol_body, search_for_pattern,
-    search_for_pattern_smart, SmartPatternMatch, EnclosingSymbol,
+    DirectoryEntry, EnclosingSymbol, FileMatch, FileReadResult, PatternMatch, SmartPatternMatch,
+    TextReference, create_text_file, delete_lines, extract_word_at_position, find_files,
+    find_referencing_symbols_via_text, insert_after_symbol, insert_at_line, insert_before_symbol,
+    list_dir, read_file, replace_content, replace_lines, replace_symbol_body, search_for_pattern,
+    search_for_pattern_smart,
 };
 pub use git::{ChangedFile, DiffSymbol, DiffSymbolEntry, get_changed_files, get_diff_symbols};
 pub use import_graph::{
@@ -39,26 +44,31 @@ pub use import_graph::{
     get_importers, resolve_module_for_file, supports_import_graph,
 };
 pub use lsp::{
-    LspDiagnostic, LspDiagnosticRequest, LspRecipe, LspReference, LspRenamePlan,
+    LSP_RECIPES, LspDiagnostic, LspDiagnosticRequest, LspRecipe, LspReference, LspRenamePlan,
     LspRenamePlanRequest, LspRequest, LspSessionPool, LspStatus, LspTypeHierarchyRequest,
-    LspWorkspaceSymbol, LspWorkspaceSymbolRequest, LSP_RECIPES, check_lsp_status,
+    LspWorkspaceSymbol, LspWorkspaceSymbolRequest, check_lsp_status,
     find_referencing_symbols_via_lsp, get_diagnostics_via_lsp, get_lsp_recipe,
     get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
 };
-pub use auto_import::{ImportSuggestion, MissingImportAnalysis, add_import, analyze_missing_imports};
 pub use project::{ProjectRoot, WorkspacePackage, detect_frameworks, detect_workspace_packages};
-pub use rename::{RenameEdit, RenameResult, RenameScope, apply_edits, find_all_word_matches, rename_symbol};
+pub use rename::{
+    RenameEdit, RenameResult, RenameScope, apply_edits, find_all_word_matches, rename_symbol,
+};
+pub mod change_signature;
 pub mod inline;
 pub mod move_symbol;
-pub mod change_signature;
 pub mod oxc_analysis;
-pub use scope_analysis::{ScopedReference, ReferenceKind, find_scoped_references, find_scoped_references_in_file};
-pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};
-pub use search::{SearchResult, search_symbols_hybrid, search_symbols_hybrid_with_semantic};
-pub use watcher::{FileWatcher, WatcherStats};
 #[cfg(feature = "semantic")]
-pub use embedding::{EmbeddingEngine, SemanticMatch};
+pub use embedding::{
+    EmbeddingEngine, EmbeddingIndexInfo, SemanticMatch, configured_embedding_model_name,
+};
+pub use scope_analysis::{
+    ReferenceKind, ScopedReference, find_scoped_references, find_scoped_references_in_file,
+};
+pub use search::{SearchResult, search_symbols_hybrid, search_symbols_hybrid_with_semantic};
 pub use symbols::{
     IndexStats, RankedContextEntry, RankedContextResult, SymbolIndex, SymbolInfo, SymbolKind,
     find_symbol, find_symbol_range, get_symbols_overview, make_symbol_id, parse_symbol_id,
 };
+pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};
+pub use watcher::{FileWatcher, WatcherStats};

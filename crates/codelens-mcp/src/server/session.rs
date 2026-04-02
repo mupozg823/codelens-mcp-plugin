@@ -7,13 +7,22 @@
 use crate::tool_defs::ToolPreset;
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc, Mutex, RwLock,
+    atomic::{AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 pub type SessionId = String;
+
+#[derive(Debug, Clone, Default)]
+pub struct SessionClientMetadata {
+    pub client_name: Option<String>,
+    pub client_version: Option<String>,
+    pub requested_profile: Option<String>,
+    pub trusted_client: Option<bool>,
+    pub deferred_tool_loading: Option<bool>,
+}
 
 /// Server-Sent Event for pushing to clients via GET /mcp SSE stream.
 #[derive(Debug, Clone)]
@@ -29,6 +38,8 @@ pub struct SessionState {
     last_active: RwLock<Instant>,
     pub preset: Mutex<ToolPreset>,
     pub token_budget: AtomicUsize,
+    resume_count: AtomicUsize,
+    client_metadata: RwLock<SessionClientMetadata>,
     /// SSE sender for server→client push on the GET stream.
     pub sse_tx: Mutex<Option<mpsc::Sender<SseEvent>>>,
 }
@@ -41,6 +52,8 @@ impl SessionState {
             last_active: RwLock::new(Instant::now()),
             preset: Mutex::new(ToolPreset::Balanced),
             token_budget: AtomicUsize::new(4000),
+            resume_count: AtomicUsize::new(0),
+            client_metadata: RwLock::new(SessionClientMetadata::default()),
             sse_tx: Mutex::new(None),
         }
     }
@@ -63,6 +76,28 @@ impl SessionState {
 
     pub fn set_token_budget(&self, budget: usize) {
         self.token_budget.store(budget, Ordering::Relaxed);
+    }
+
+    pub fn set_client_metadata(&self, metadata: SessionClientMetadata) {
+        if let Ok(mut current) = self.client_metadata.write() {
+            *current = metadata;
+        }
+    }
+
+    pub fn client_metadata(&self) -> SessionClientMetadata {
+        self.client_metadata
+            .read()
+            .map(|metadata| metadata.clone())
+            .unwrap_or_default()
+    }
+
+    pub fn mark_resumed(&self) -> usize {
+        self.touch();
+        self.resume_count.fetch_add(1, Ordering::Relaxed) + 1
+    }
+
+    pub fn resume_count(&self) -> usize {
+        self.resume_count.load(Ordering::Relaxed)
     }
 
     fn is_expired(&self, timeout: Duration) -> bool {
@@ -119,6 +154,16 @@ impl SessionStore {
         session
     }
 
+    pub fn create_or_resume(&self, existing_id: Option<&str>) -> (Arc<SessionState>, bool) {
+        if let Some(id) = existing_id {
+            if let Some(session) = self.get(id) {
+                session.mark_resumed();
+                return (session, true);
+            }
+        }
+        (self.create(), false)
+    }
+
     /// Look up a session by ID and refresh its activity timestamp.
     pub fn get(&self, id: &str) -> Option<Arc<SessionState>> {
         let sessions = self.sessions.read().ok()?;
@@ -148,6 +193,10 @@ impl SessionStore {
     /// Number of active sessions.
     pub fn len(&self) -> usize {
         self.sessions.read().map(|s| s.len()).unwrap_or(0)
+    }
+
+    pub fn timeout_secs(&self) -> u64 {
+        self.timeout.as_secs()
     }
 }
 
@@ -191,5 +240,16 @@ mod tests {
         assert_eq!(session.token_budget(), 4000);
         session.set_token_budget(8000);
         assert_eq!(session.token_budget(), 8000);
+    }
+
+    #[test]
+    fn create_or_resume_reuses_existing_session() {
+        let store = SessionStore::new(Duration::from_secs(300));
+        let session = store.create();
+        let session_id = session.id.clone();
+        let (resumed, was_resumed) = store.create_or_resume(Some(&session_id));
+        assert!(was_resumed);
+        assert_eq!(resumed.id, session_id);
+        assert_eq!(resumed.resume_count(), 1);
     }
 }

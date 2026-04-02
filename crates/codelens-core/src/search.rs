@@ -1,4 +1,4 @@
-use crate::db::{index_db_path, IndexDb};
+use crate::db::{IndexDb, index_db_path};
 use crate::project::ProjectRoot;
 use anyhow::Result;
 use serde::Serialize;
@@ -165,7 +165,7 @@ pub fn search_symbols_hybrid_with_semantic(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::{index_db_path, IndexDb, NewSymbol};
+    use crate::db::{IndexDb, NewSymbol, index_db_path};
 
     /// Create a temp directory seeded with test symbols.
     /// Returns the owned PathBuf (keep it alive for the test duration) and a ProjectRoot.

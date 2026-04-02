@@ -1,8 +1,8 @@
 use codelens_core::{
-    content_hash, find_circular_dependencies, get_blast_radius, get_callers, get_symbols_overview,
-    search_for_pattern, search_symbols_hybrid, GraphCache, ProjectRoot, SymbolIndex,
+    GraphCache, ProjectRoot, SymbolIndex, content_hash, find_circular_dependencies,
+    get_blast_radius, get_callers, get_symbols_overview, search_for_pattern, search_symbols_hybrid,
 };
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::fs;
 
 /// Create a realistic multi-language fixture project for benchmarking.

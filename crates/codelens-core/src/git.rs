@@ -1,5 +1,5 @@
 use crate::project::ProjectRoot;
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use serde::Serialize;
 use std::process::Command;
 
@@ -120,7 +120,7 @@ pub fn get_changed_files(
 }
 
 pub fn get_diff_symbols(project: &ProjectRoot, git_ref: Option<&str>) -> Result<Vec<DiffSymbol>> {
-    use crate::symbols::{get_symbols_overview, SymbolKind};
+    use crate::symbols::{SymbolKind, get_symbols_overview};
 
     let changed = get_changed_files(project, git_ref, false)?;
     let mut result = Vec::new();

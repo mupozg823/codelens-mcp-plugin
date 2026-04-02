@@ -1,0 +1,146 @@
+[
+  {
+    "query": "rename a variable or function across the project",
+    "query_type": "natural_language",
+    "expected_symbol": "rename_symbol",
+    "expected_file_suffix": "crates/codelens-core/src/rename.rs"
+  },
+  {
+    "query": "find where a symbol is defined in a file",
+    "query_type": "natural_language",
+    "expected_symbol": "find_symbol_range",
+    "expected_file_suffix": "crates/codelens-core/src/symbols/reader.rs"
+  },
+  {
+    "query": "apply text edits to multiple files",
+    "query_type": "short_phrase",
+    "expected_symbol": "apply_edits",
+    "expected_file_suffix": "crates/codelens-core/src/rename.rs"
+  },
+  {
+    "query": "search code by natural language query",
+    "query_type": "natural_language",
+    "expected_symbol": "search",
+    "expected_file_suffix": "crates/codelens-core/src/embedding.rs"
+  },
+  {
+    "query": "inline a function and remove its definition",
+    "query_type": "natural_language",
+    "expected_symbol": "inline_function",
+    "expected_file_suffix": "crates/codelens-core/src/inline.rs"
+  },
+  {
+    "query": "move code to a different file",
+    "query_type": "short_phrase",
+    "expected_symbol": "move_symbol",
+    "expected_file_suffix": "crates/codelens-core/src/move_symbol.rs"
+  },
+  {
+    "query": "change function parameters",
+    "query_type": "short_phrase",
+    "expected_symbol": "change_signature",
+    "expected_file_suffix": "crates/codelens-core/src/change_signature.rs"
+  },
+  {
+    "query": "find circular import dependencies",
+    "query_type": "short_phrase",
+    "expected_symbol": "find_circular_dependencies",
+    "expected_file_suffix": "crates/codelens-core/src/circular.rs"
+  },
+  {
+    "query": "start an HTTP server with routes",
+    "query_type": "natural_language",
+    "expected_symbol": "run_http",
+    "expected_file_suffix": "crates/codelens-mcp/src/server/transport_http.rs"
+  },
+  {
+    "query": "read input from stdin line by line",
+    "query_type": "natural_language",
+    "expected_symbol": "run_stdio",
+    "expected_file_suffix": "crates/codelens-mcp/src/server/transport_stdio.rs"
+  },
+  {
+    "query": "parse source code into an AST",
+    "query_type": "natural_language",
+    "expected_symbol": "parse_symbols_recursive",
+    "expected_file_suffix": "crates/codelens-core/src/symbols/parser.rs"
+  },
+  {
+    "query": "build embedding vectors for all symbols",
+    "query_type": "natural_language",
+    "expected_symbol": "index_from_project",
+    "expected_file_suffix": "crates/codelens-core/src/embedding.rs"
+  },
+  {
+    "query": "find near-duplicate code in the codebase",
+    "query_type": "natural_language",
+    "expected_symbol": "find_duplicates",
+    "expected_file_suffix": "crates/codelens-core/src/embedding.rs"
+  },
+  {
+    "query": "categorize a function by its purpose",
+    "query_type": "natural_language",
+    "expected_symbol": "classify_symbol",
+    "expected_file_suffix": "crates/codelens-core/src/embedding.rs"
+  },
+  {
+    "query": "get project structure and key files on first load",
+    "query_type": "natural_language",
+    "expected_symbol": "onboard_project",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/composite.rs"
+  },
+  {
+    "query": "watch filesystem for file changes",
+    "query_type": "natural_language",
+    "expected_symbol": "start_watching",
+    "expected_file_suffix": "crates/codelens-core/src/watcher.rs"
+  },
+  {
+    "query": "extract lines of code into a new function",
+    "query_type": "natural_language",
+    "expected_symbol": "refactor_extract_function",
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+  },
+  {
+    "query": "skip comments and string literals during search",
+    "query_type": "natural_language",
+    "expected_symbol": "build_non_code_ranges",
+    "expected_file_suffix": "crates/codelens-core/src/scope_analysis.rs"
+  },
+  {
+    "query": "compute similarity between two vectors",
+    "query_type": "short_phrase",
+    "expected_symbol": "cosine_similarity",
+    "expected_file_suffix": "crates/codelens-core/src/embedding.rs"
+  },
+  {
+    "query": "route an incoming tool request to the right handler",
+    "query_type": "natural_language",
+    "expected_symbol": "dispatch_tool",
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+  },
+  {
+    "query": "rename_symbol",
+    "query_type": "identifier",
+    "expected_symbol": "rename_symbol",
+    "expected_file_suffix": "crates/codelens-core/src/rename.rs"
+  },
+  {
+    "query": "dispatch_tool",
+    "query_type": "identifier",
+    "expected_symbol": "dispatch_tool",
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+  },
+  {
+    "query": "cosine_similarity",
+    "query_type": "identifier",
+    "expected_symbol": "cosine_similarity",
+    "expected_file_suffix": "crates/codelens-core/src/embedding.rs"
+  },
+  {
+    "query": "find_circular_dependencies",
+    "query_type": "identifier",
+    "expected_symbol": "find_circular_dependencies",
+    "expected_file_suffix": "crates/codelens-core/src/circular.rs"
+  }
+]

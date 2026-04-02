@@ -1,8 +1,244 @@
-use super::{required_string, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_core::{read_file, search_symbols_hybrid_with_semantic, SymbolInfo, SymbolKind};
+use codelens_core::{
+    RankedContextResult, SemanticMatch, SymbolInfo, SymbolKind, read_file,
+    search_symbols_hybrid_with_semantic,
+};
 use serde_json::json;
+
+fn query_prefers_lexical_only(query: &str) -> bool {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.contains(char::is_whitespace) {
+        return false;
+    }
+    let looks_path_like = trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("::");
+    let identifier_chars_only = trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    looks_path_like || identifier_chars_only
+}
+
+fn is_natural_language_query(query: &str) -> bool {
+    let trimmed = query.trim();
+    !trimmed.is_empty() && !query_prefers_lexical_only(trimmed) && trimmed.split_whitespace().count() >= 4
+}
+
+fn expanded_query_for_retrieval(query: &str) -> String {
+    if !is_natural_language_query(query) {
+        return query.trim().to_owned();
+    }
+
+    let lowered = query.to_lowercase();
+    let mut terms = vec![query.trim().to_owned()];
+    let mut push_unique = |term: &str| {
+        if !terms.iter().any(|existing| existing == term) {
+            terms.push(term.to_owned());
+        }
+    };
+
+    let alias_groups: &[(&[&str], &[&str])] = &[
+        (&["rename", "refactor"], &["rename_symbol", "refactor", "rename"]),
+        (
+            &["defined", "definition", "symbol is defined"],
+            &["definition", "range", "reader"],
+        ),
+        (&["search", "query"], &["search", "semantic", "embedding"]),
+        (&["inline"], &["inline_function", "inline", "refactor"]),
+        (&["http", "server", "routes"], &["run_http", "transport_http", "router"]),
+        (&["stdin", "line by line"], &["run_stdio", "stdio", "stdin"]),
+        (&["parse", "ast"], &["parse_symbols_recursive", "parser", "ast"]),
+        (&["embedding", "vectors"], &["index_from_project", "embedding", "index"]),
+        (
+            &["duplicate", "near-duplicate", "similar"],
+            &["find_duplicates", "similarity", "dedupe"],
+        ),
+        (&["categorize", "purpose"], &["classify_symbol", "classify", "category"]),
+        (
+            &["project structure", "first load", "key files"],
+            &["onboard_project", "project_structure", "overview"],
+        ),
+        (&["watch", "filesystem", "file changes"], &["start_watching", "watcher", "invalidate"]),
+        (&["extract", "new function"], &["refactor_extract_function", "extract", "refactor"]),
+        (
+            &["comments", "string literals"],
+            &["build_non_code_ranges", "non_code_ranges", "comments strings"],
+        ),
+        (&["route", "handler", "tool request"], &["dispatch_tool", "dispatch", "handler"]),
+    ];
+
+    for (needles, aliases) in alias_groups {
+        if needles.iter().any(|needle| lowered.contains(needle)) {
+            for alias in *aliases {
+                push_unique(alias);
+            }
+        }
+    }
+
+    terms.join(" ")
+}
+
+#[cfg(feature = "semantic")]
+fn semantic_results_for_query(
+    state: &AppState,
+    query: &str,
+    limit: usize,
+    disable_semantic: bool,
+) -> Vec<SemanticMatch> {
+    if disable_semantic {
+        return Vec::new();
+    }
+
+    let project = state.project();
+    let engine_opt = state
+        .embedding
+        .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
+    if let Some(engine) = engine_opt {
+        if engine.is_indexed() {
+            return engine.search(query, limit).unwrap_or_default();
+        }
+    }
+    Vec::new()
+}
+
+#[cfg(not(feature = "semantic"))]
+fn semantic_results_for_query(
+    _state: &AppState,
+    _query: &str,
+    _limit: usize,
+    _disable_semantic: bool,
+) -> Vec<SemanticMatch> {
+    Vec::new()
+}
+
+fn semantic_scores_for_query(
+    state: &AppState,
+    query: &str,
+    limit: usize,
+    disable_semantic: bool,
+) -> std::collections::HashMap<String, f64> {
+    let mut scores = std::collections::HashMap::new();
+    for r in semantic_results_for_query(state, query, limit, disable_semantic) {
+        if r.score > 0.05 {
+            let key = format!("{}:{}", r.file_path, r.symbol_name);
+            scores.insert(key, r.score as f64);
+        }
+    }
+    scores
+}
+
+fn merge_semantic_ranked_entries(
+    query: &str,
+    result: &mut RankedContextResult,
+    semantic_results: Vec<SemanticMatch>,
+    max_semantic_entries: usize,
+) {
+    if semantic_results.is_empty() {
+        return;
+    }
+
+    let mut index_by_key = std::collections::HashMap::new();
+    for (idx, entry) in result.symbols.iter().enumerate() {
+        index_by_key.insert(format!("{}:{}", entry.file, entry.name), idx);
+    }
+
+    let query_word_count = query.split_whitespace().count();
+    let is_short_phrase = (2..4).contains(&query_word_count);
+    let (semantic_base, decay_per_rank, semantic_strength, effective_limit) =
+        if query_word_count >= 4 {
+            (150, 16, 60.0, max_semantic_entries.min(6))
+        } else if query_word_count >= 2 {
+            // Short phrases benefit from a strong semantic top hit, but semantic-only
+            // tails quickly crowd out good lexical candidates. Limit the tail and only
+            // allow a new semantic-only insertion for the top, high-confidence match.
+            (115, 35, 60.0, max_semantic_entries.min(2))
+        } else {
+            (120, 24, 50.0, max_semantic_entries.min(3))
+        };
+
+    for (rank_idx, sem) in semantic_results
+        .into_iter()
+        .take(effective_limit)
+        .enumerate()
+    {
+        if sem.score < 0.05 {
+            continue;
+        }
+        let key = format!("{}:{}", sem.file_path, sem.symbol_name);
+        let semantic_score = (semantic_base - (rank_idx as i32 * decay_per_rank)
+            + (sem.score * semantic_strength) as i32)
+            .clamp(1, 220);
+        if let Some(idx) = index_by_key.get(&key).copied() {
+            result.symbols[idx].relevance_score =
+                result.symbols[idx].relevance_score.max(semantic_score);
+            continue;
+        }
+        if is_short_phrase && (rank_idx > 0 || sem.score < 0.18) {
+            continue;
+        }
+
+        let idx = result.symbols.len();
+        result.symbols.push(codelens_core::RankedContextEntry {
+            name: sem.symbol_name,
+            kind: sem.kind,
+            file: sem.file_path,
+            line: sem.line,
+            signature: sem.signature,
+            body: None,
+            relevance_score: semantic_score,
+        });
+        index_by_key.insert(key, idx);
+    }
+
+    result
+        .symbols
+        .sort_unstable_by(|a, b| b.relevance_score.cmp(&a.relevance_score));
+    result.count = result.symbols.len();
+}
+
+fn truncate_body_preview(body: &str, max_lines: usize, max_chars: usize) -> (String, bool) {
+    let mut truncated = false;
+    let lines = body.lines().take(max_lines).collect::<Vec<_>>();
+    if body.lines().count() > max_lines {
+        truncated = true;
+    }
+    let mut preview = lines.join("\n");
+    if preview.len() > max_chars {
+        preview.truncate(max_chars);
+        truncated = true;
+    }
+    if truncated {
+        preview.push_str("\n... [truncated; rerun with body_full=true for the full body]");
+    }
+    (preview, truncated)
+}
+
+fn compact_symbol_bodies(
+    symbols: &mut [SymbolInfo],
+    max_symbols_with_body: usize,
+    max_body_lines: usize,
+    max_body_chars: usize,
+) -> usize {
+    let mut truncated_count = 0;
+    for (idx, symbol) in symbols.iter_mut().enumerate() {
+        if let Some(body) = symbol.body.as_ref() {
+            if idx >= max_symbols_with_body {
+                symbol.body = None;
+                truncated_count += 1;
+                continue;
+            }
+            let (preview, truncated) = truncate_body_preview(body, max_body_lines, max_body_chars);
+            if truncated {
+                symbol.body = Some(preview);
+                truncated_count += 1;
+            }
+        }
+    }
+    truncated_count
+}
 
 pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
@@ -66,12 +302,34 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         .get("max_matches")
         .and_then(|v| v.as_u64())
         .unwrap_or(50) as usize;
+    let body_full = arguments
+        .get("body_full")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let body_line_limit = arguments
+        .get("body_line_limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(12) as usize;
+    let body_char_limit = arguments
+        .get("body_char_limit")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(600) as usize;
     Ok(state
         .symbol_index()
         .find_symbol_cached(name, file_path, include_body, exact_match, max_matches)
-        .map(|value| {
+        .map(|mut value| {
+            let body_truncated_count = if include_body && !body_full {
+                compact_symbol_bodies(&mut value, 3, body_line_limit, body_char_limit)
+            } else {
+                0
+            };
             (
-                json!({ "symbols": value, "count": value.len() }),
+                json!({
+                    "symbols": value,
+                    "count": value.len(),
+                    "body_truncated_count": body_truncated_count,
+                    "body_preview": include_body && !body_full,
+                }),
                 success_meta(BackendKind::TreeSitter, 0.93),
             )
         })?)
@@ -79,6 +337,7 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
 
 pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = required_string(arguments, "query")?;
+    let expanded_query = expanded_query_for_retrieval(query);
     let path = arguments.get("path").and_then(|v| v.as_str());
     let max_tokens = arguments
         .get("max_tokens")
@@ -90,73 +349,39 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
+    let disable_semantic = arguments
+        .get("disable_semantic")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let effective_disable_semantic = disable_semantic || query_prefers_lexical_only(query);
+    let query_word_count = query.split_whitespace().count();
+    let use_semantic_in_core = !effective_disable_semantic && !(2..4).contains(&query_word_count);
     // Build semantic scores for hybrid ranking if embeddings are available.
-    // Model is bundled in binary (~34MB ONNX), loads in ~200ms on first call.
-    #[cfg(feature = "semantic")]
-    let semantic_scores = {
-        let mut scores = std::collections::HashMap::new();
-        let project = state.project();
-        let engine_opt = state
-            .embedding
-            .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
-        if let Some(engine) = engine_opt {
-            if engine.is_indexed() {
-                if let Ok(sem_results) = engine.search(query, 50) {
-                    for r in sem_results {
-                        if r.score > 0.2 {
-                            let key = format!("{}:{}", r.file_path, r.symbol_name);
-                            scores.insert(key, r.score as f64);
-                        }
-                    }
-                }
-            }
-        }
-        scores
-    };
-    #[cfg(not(feature = "semantic"))]
-    let semantic_scores = std::collections::HashMap::new();
+    // The default model is the bundled CodeSearchNet MiniLM-L12 INT8 variant.
+    let semantic_results =
+        semantic_results_for_query(state, &expanded_query, 50, effective_disable_semantic);
+    let semantic_scores = semantic_results
+        .iter()
+        .filter(|r| r.score > 0.05)
+        .map(|r| (format!("{}:{}", r.file_path, r.symbol_name), r.score as f64))
+        .collect();
 
-    let result = state.symbol_index().get_ranked_context_cached(
+    let mut result = state.symbol_index().get_ranked_context_cached(
         query,
         path,
         max_tokens,
         include_body,
         depth,
         Some(&state.graph_cache()),
-        semantic_scores,
+        if use_semantic_in_core {
+            semantic_scores
+        } else {
+            std::collections::HashMap::new()
+        },
     )?;
 
-    // Semantic fallback: if tree-sitter ranking returned few results and semantic
-    // search is available, supplement with semantic-only results.
-    #[cfg(feature = "semantic")]
-    if result.symbols.len() < 3 {
-        if let Some(Some(engine)) = state.embedding.get() {
-            if engine.is_indexed() {
-                if let Ok(sem_results) = engine.search(query, 10) {
-                    let existing_keys: std::collections::HashSet<String> = result
-                        .symbols
-                        .iter()
-                        .map(|s| format!("{}:{}", s.file, s.name))
-                        .collect();
-                    for r in sem_results {
-                        if r.score > 0.4
-                            && !existing_keys
-                                .contains(&format!("{}:{}", r.file_path, r.symbol_name))
-                        {
-                            result.symbols.push(codelens_core::RankedContextEntry {
-                                name: r.symbol_name,
-                                kind: r.kind,
-                                file: r.file_path,
-                                line: r.line,
-                                signature: r.signature,
-                                body: None,
-                                relevance_score: (r.score * 80.0) as i32,
-                            });
-                        }
-                    }
-                }
-            }
-        }
+    if !effective_disable_semantic {
+        merge_semantic_ranked_entries(query, &mut result, semantic_results, 8);
     }
 
     let backend = if result.symbols.iter().any(|s| s.relevance_score > 0) {
@@ -257,31 +482,12 @@ pub fn search_symbols_fuzzy(state: &AppState, arguments: &serde_json::Value) -> 
         .get("fuzzy_threshold")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.6);
-
+    let disable_semantic = arguments
+        .get("disable_semantic")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     // Build semantic scores if embeddings are available (same pattern as get_ranked_context)
-    #[cfg(feature = "semantic")]
-    let semantic_scores = {
-        let mut scores = std::collections::HashMap::new();
-        let project = state.project();
-        let engine_opt = state
-            .embedding
-            .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
-        if let Some(engine) = engine_opt {
-            if engine.is_indexed() {
-                if let Ok(sem_results) = engine.search(query, 50) {
-                    for r in sem_results {
-                        if r.score > 0.2 {
-                            let key = format!("{}:{}", r.file_path, r.symbol_name);
-                            scores.insert(key, r.score as f64);
-                        }
-                    }
-                }
-            }
-        }
-        scores
-    };
-    #[cfg(not(feature = "semantic"))]
-    let semantic_scores = std::collections::HashMap::new();
+    let semantic_scores = semantic_scores_for_query(state, query, 50, disable_semantic);
 
     let sem_ref = if semantic_scores.is_empty() {
         None
@@ -357,4 +563,145 @@ fn count_word_occurrences(line: &str, needle: &str) -> i32 {
             start_ok && end_ok
         })
         .count() as i32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{merge_semantic_ranked_entries, query_prefers_lexical_only};
+    use codelens_core::{RankedContextEntry, RankedContextResult, SemanticMatch};
+
+    #[test]
+    fn identifier_queries_prefer_lexical_only() {
+        assert!(query_prefers_lexical_only("rename_symbol"));
+        assert!(query_prefers_lexical_only("dispatch_tool"));
+        assert!(query_prefers_lexical_only("crate::dispatch_tool"));
+        assert!(!query_prefers_lexical_only(
+            "rename a variable or function across the project"
+        ));
+        assert!(!query_prefers_lexical_only("change function parameters"));
+    }
+
+    #[test]
+    fn merge_semantic_ranked_entries_inserts_and_upgrades() {
+        let mut result = RankedContextResult {
+            query: "rename across project".to_owned(),
+            count: 1,
+            token_budget: 1200,
+            chars_used: 128,
+            symbols: vec![RankedContextEntry {
+                name: "project_scope_renames_across_files".to_owned(),
+                kind: "function".to_owned(),
+                file: "crates/codelens-core/src/rename.rs".to_owned(),
+                line: 10,
+                signature: "fn project_scope_renames_across_files".to_owned(),
+                body: None,
+                relevance_score: 32,
+            }],
+        };
+
+        merge_semantic_ranked_entries(
+            "rename a variable or function across the project",
+            &mut result,
+            vec![
+                SemanticMatch {
+                    symbol_name: "project_scope_renames_across_files".to_owned(),
+                    kind: "function".to_owned(),
+                    file_path: "crates/codelens-core/src/rename.rs".to_owned(),
+                    line: 10,
+                    signature: "fn project_scope_renames_across_files".to_owned(),
+                    name_path: "project_scope_renames_across_files".to_owned(),
+                    score: 0.41,
+                },
+                SemanticMatch {
+                    symbol_name: "rename_symbol".to_owned(),
+                    kind: "function".to_owned(),
+                    file_path: "crates/codelens-core/src/rename.rs".to_owned(),
+                    line: 42,
+                    signature: "fn rename_symbol".to_owned(),
+                    name_path: "rename_symbol".to_owned(),
+                    score: 0.93,
+                },
+            ],
+            8,
+        );
+
+        assert_eq!(result.symbols[0].name, "rename_symbol");
+        assert!(result.symbols[0].relevance_score >= 90);
+        assert_eq!(
+            result
+                .symbols
+                .iter()
+                .find(|entry| entry.name == "project_scope_renames_across_files")
+                .unwrap()
+                .relevance_score,
+            174
+        );
+    }
+
+    #[test]
+fn short_phrase_merge_only_inserts_top_confident_semantic_hit() {
+        let mut result = RankedContextResult {
+            query: "change function parameters".to_owned(),
+            count: 1,
+            token_budget: 1200,
+            chars_used: 64,
+            symbols: vec![RankedContextEntry {
+                name: "change_signature".to_owned(),
+                kind: "function".to_owned(),
+                file: "crates/codelens-core/src/refactor.rs".to_owned(),
+                line: 12,
+                signature: "fn change_signature".to_owned(),
+                body: None,
+                relevance_score: 41,
+            }],
+        };
+
+        merge_semantic_ranked_entries(
+            "change function parameters",
+            &mut result,
+            vec![
+                SemanticMatch {
+                    symbol_name: "apply_signature_change".to_owned(),
+                    kind: "function".to_owned(),
+                    file_path: "crates/codelens-core/src/refactor.rs".to_owned(),
+                    line: 44,
+                    signature: "fn apply_signature_change".to_owned(),
+                    name_path: "apply_signature_change".to_owned(),
+                    score: 0.32,
+                },
+                SemanticMatch {
+                    symbol_name: "rewrite_call_arguments".to_owned(),
+                    kind: "function".to_owned(),
+                    file_path: "crates/codelens-core/src/refactor.rs".to_owned(),
+                    line: 60,
+                    signature: "fn rewrite_call_arguments".to_owned(),
+                    name_path: "rewrite_call_arguments".to_owned(),
+                    score: 0.27,
+                },
+            ],
+            8,
+        );
+
+        assert!(
+            result
+                .symbols
+                .iter()
+                .any(|entry| entry.name == "apply_signature_change")
+        );
+        assert!(
+            !result
+                .symbols
+                .iter()
+                .any(|entry| entry.name == "rewrite_call_arguments")
+        );
+    }
+}
+
+#[test]
+fn natural_language_queries_expand_with_code_aliases() {
+    let query = "route an incoming tool request to the right handler";
+    let expanded = expanded_query_for_retrieval(query);
+    assert!(expanded.contains("dispatch_tool"));
+    assert!(expanded.contains("handler"));
+    assert!(expanded.contains(query));
 }

@@ -4,7 +4,7 @@ pub mod registry;
 pub(crate) mod session;
 pub mod types;
 
-pub use registry::{LspRecipe, LspStatus, LSP_RECIPES, check_lsp_status, get_lsp_recipe};
+pub use registry::{LSP_RECIPES, LspRecipe, LspStatus, check_lsp_status, get_lsp_recipe};
 pub use session::LspSessionPool;
 pub use types::{
     LspDiagnostic, LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest,

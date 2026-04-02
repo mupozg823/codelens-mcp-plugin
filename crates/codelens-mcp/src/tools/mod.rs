@@ -8,9 +8,10 @@ pub mod reports;
 pub mod session;
 pub mod symbols;
 
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::protocol::{AnalysisSource, BackendKind, Freshness, ToolResponseMeta};
-use crate::AppState;
+use crate::tool_defs::{ToolProfile, ToolSurface};
 use std::collections::HashMap;
 
 /// Tool handler result type — every handler returns this.
@@ -305,6 +306,85 @@ pub fn suggest_next_contextual(tool_name: &str, recent_tools: &[String]) -> Opti
     Some(suggestions)
 }
 
+fn is_workflow_tool_name(name: &str) -> bool {
+    matches!(
+        name,
+        "analyze_change_request"
+            | "find_minimal_context_for_change"
+            | "summarize_symbol_impact"
+            | "module_boundary_report"
+            | "safe_rename_report"
+            | "dead_code_report"
+            | "impact_report"
+            | "refactor_safety_report"
+            | "diff_aware_references"
+            | "start_analysis_job"
+            | "get_analysis_job"
+            | "cancel_analysis_job"
+            | "get_analysis_section"
+    )
+}
+
+fn has_recent_low_level_chain(recent_tools: &[String]) -> bool {
+    if recent_tools.len() < 3 {
+        return false;
+    }
+    recent_tools[recent_tools.len() - 3..]
+        .iter()
+        .all(|tool| !is_workflow_tool_name(tool))
+}
+
+fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static str] {
+    match surface {
+        ToolSurface::Profile(ToolProfile::PlannerReadonly) => &[
+            "find_minimal_context_for_change",
+            "analyze_change_request",
+            "impact_report",
+        ],
+        ToolSurface::Profile(ToolProfile::ReviewerGraph)
+        | ToolSurface::Profile(ToolProfile::CiAudit) => {
+            &["impact_report", "diff_aware_references", "dead_code_report"]
+        }
+        ToolSurface::Profile(ToolProfile::RefactorFull) => &[
+            "refactor_safety_report",
+            "safe_rename_report",
+            "summarize_symbol_impact",
+        ],
+        ToolSurface::Profile(ToolProfile::BuilderMinimal) | ToolSurface::Preset(_) => &[
+            "find_minimal_context_for_change",
+            "analyze_change_request",
+            "summarize_symbol_impact",
+        ],
+    }
+}
+
+pub fn composite_guidance_for_chain(
+    tool_name: &str,
+    recent_tools: &[String],
+    surface: ToolSurface,
+) -> Option<(Vec<String>, String)> {
+    if is_workflow_tool_name(tool_name) || !has_recent_low_level_chain(recent_tools) {
+        return None;
+    }
+
+    let suggestions = composite_suggestions_for_surface(surface)
+        .iter()
+        .copied()
+        .filter(|candidate| *candidate != tool_name)
+        .take(3)
+        .map(ToOwned::to_owned)
+        .collect::<Vec<_>>();
+    if suggestions.is_empty() {
+        return None;
+    }
+
+    let hint = format!(
+        "Repeated low-level chain detected. Prefer {} for compressed context before continuing.",
+        suggestions.join(", ")
+    );
+    Some((suggestions, hint))
+}
+
 pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
     let suggestions: &[&str] = match tool_name {
         // ── Symbols / index ──────────────────────────────────────────
@@ -406,11 +486,19 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],
         "refactor_change_signature" => &["get_file_diagnostics", "find_referencing_symbols"],
-        "analyze_change_request" => &["get_analysis_section", "impact_report", "refactor_safety_report"],
+        "analyze_change_request" => &[
+            "get_analysis_section",
+            "impact_report",
+            "refactor_safety_report",
+        ],
         "find_minimal_context_for_change" => &["get_analysis_section", "analyze_change_request"],
         "summarize_symbol_impact" => &["get_analysis_section", "safe_rename_report"],
         "module_boundary_report" => &["get_analysis_section", "impact_report", "dead_code_report"],
-        "safe_rename_report" => &["get_analysis_section", "rename_symbol", "refactor_safety_report"],
+        "safe_rename_report" => &[
+            "get_analysis_section",
+            "rename_symbol",
+            "refactor_safety_report",
+        ],
         "dead_code_report" => &["get_analysis_section", "impact_report"],
         "impact_report" => &["get_analysis_section", "diff_aware_references"],
         "refactor_safety_report" => &["get_analysis_section", "safe_rename_report"],
