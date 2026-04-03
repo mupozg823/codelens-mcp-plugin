@@ -149,9 +149,11 @@ fn set_profile_changes_tools_list() {
     let builder_encoded = serde_json::to_string(&builder_list).unwrap();
     assert!(!builder_encoded.contains("\"find_dead_code\""));
     assert!(builder_encoded.contains("\"find_symbol\""));
-    assert!(!builder_encoded.contains("\"create_text_file\""));
+    assert!(builder_encoded.contains("\"create_text_file\""));
     assert!(!builder_encoded.contains("\"start_analysis_job\""));
     assert!(builder_encoded.contains("\"add_import\""));
+    assert!(builder_encoded.contains("\"verify_change_readiness\""));
+    assert!(!builder_encoded.contains("\"unresolved_reference_check\""));
 }
 
 #[test]
@@ -194,8 +196,12 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(encoded.contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
+    assert!(encoded
+        .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
+    assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
+    assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"impact_report\""));
+    assert!(!encoded.contains("\"find_symbol\""));
     assert!(!encoded.contains("\"read_file\""));
     assert!(encoded.contains("\"tool_count_total\""));
 }
@@ -240,12 +246,10 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("blocked by daemon mode")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("blocked by daemon mode"));
 }
 
 #[test]
@@ -264,12 +268,10 @@ fn hidden_tools_are_blocked_at_call_time() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("not available in active surface")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("not available in active surface"));
 }
 
 #[test]
@@ -281,6 +283,115 @@ fn read_only_surface_marks_content_mutations_for_blocking() {
         "create_text_file"
     ));
     assert!(!crate::tool_defs::is_content_mutation_tool("set_profile"));
+}
+
+#[test]
+fn watch_status_reports_lock_contention_field() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let payload = call_tool(&state, "get_watch_status", json!({}));
+    assert!(payload["data"].get("lock_contention_batches").is_some());
+    assert!(payload["data"].get("index_failures").is_some());
+    assert!(payload["data"].get("index_failures_total").is_some());
+    assert!(payload["data"].get("stale_index_failures").is_some());
+    assert!(payload["data"].get("persistent_index_failures").is_some());
+    assert!(payload["data"].get("pruned_missing_failures").is_some());
+    assert!(payload["data"]
+        .get("recent_failure_window_seconds")
+        .is_some());
+}
+
+#[test]
+fn watch_status_is_read_only_for_failure_health() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    {
+        let symbol_index = state.symbol_index();
+        let db = symbol_index.db();
+        db.record_index_failure("missing.py", "index_batch_error", "boom")
+            .unwrap();
+    }
+
+    let payload = call_tool(&state, "get_watch_status", json!({}));
+    assert_eq!(
+        payload["data"]["pruned_missing_failures"]
+            .as_u64()
+            .unwrap_or_default(),
+        0
+    );
+    assert_eq!(
+        payload["data"]["index_failures_total"]
+            .as_u64()
+            .unwrap_or_default(),
+        1
+    );
+    let symbol_index = state.symbol_index();
+    let db = symbol_index.db();
+    assert_eq!(db.index_failure_count().unwrap_or_default(), 1);
+}
+
+#[test]
+fn prune_index_failures_explicitly_cleans_missing_failure_records() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    {
+        let symbol_index = state.symbol_index();
+        let db = symbol_index.db();
+        db.record_index_failure("missing.py", "index_batch_error", "boom")
+            .unwrap();
+    }
+
+    let payload = call_tool(&state, "prune_index_failures", json!({}));
+    assert_eq!(
+        payload["data"]["pruned_missing_failures"]
+            .as_u64()
+            .unwrap_or_default(),
+        1
+    );
+    assert_eq!(
+        payload["data"]["index_failures_total"]
+            .as_u64()
+            .unwrap_or_default(),
+        0
+    );
+    let watch_status = call_tool(&state, "get_watch_status", json!({}));
+    assert_eq!(
+        watch_status["data"]["pruned_missing_failures"]
+            .as_u64()
+            .unwrap_or_default(),
+        1
+    );
+    let symbol_index = state.symbol_index();
+    let db = symbol_index.db();
+    assert_eq!(db.index_failure_count().unwrap_or_default(), 0);
+}
+
+#[test]
+fn observability_reads_do_not_mutate_index_failures() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    {
+        let symbol_index = state.symbol_index();
+        let db = symbol_index.db();
+        db.record_index_failure("missing.py", "index_batch_error", "boom")
+            .unwrap();
+    }
+
+    let _ = call_tool(&state, "get_tool_metrics", json!({}));
+    let _ = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(2502)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://stats/token-efficiency"})),
+        },
+    )
+    .unwrap();
+
+    let symbol_index = state.symbol_index();
+    let db = symbol_index.db();
+    assert_eq!(db.index_failure_count().unwrap_or_default(), 1);
 }
 
 // ── Read-only tool tests ─────────────────────────────────────────────
@@ -960,6 +1071,13 @@ fn analyze_change_request_returns_handle_and_section() {
     assert!(payload["data"]["quality_focus"].is_array());
     assert!(payload["data"]["recommended_checks"].is_array());
     assert!(payload["data"]["performance_watchpoints"].is_array());
+    assert!(payload["data"]["blockers"].is_array());
+    assert!(payload["data"]["blocker_count"].is_number());
+    assert!(payload["data"]["readiness"]["diagnostics_ready"].is_string());
+    assert!(payload["data"]["readiness"]["reference_safety"].is_string());
+    assert!(payload["data"]["readiness"]["test_readiness"].is_string());
+    assert!(payload["data"]["readiness"]["mutation_ready"].is_string());
+    assert!(payload["data"]["verifier_checks"].is_array());
 
     let section = call_tool(
         &state,
@@ -968,19 +1086,21 @@ fn analyze_change_request_returns_handle_and_section() {
     );
     assert_eq!(section["success"], json!(true));
     assert_eq!(section["data"]["analysis_id"], json!(analysis_id));
-    assert!(
-        state
-            .analysis_dir()
-            .join(analysis_id)
-            .join("ranked_files.json")
-            .exists()
-    );
+    assert!(state
+        .analysis_dir()
+        .join(analysis_id)
+        .join("ranked_files.json")
+        .exists());
 }
 
 #[test]
 fn ci_audit_reports_use_fixed_machine_schema() {
     let project = project_root();
-    fs::write(project.as_path().join("audit.py"), "def alpha():\n    return 1\n").unwrap();
+    fs::write(
+        project.as_path().join("audit.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
     let _ = call_tool(&state, "set_profile", json!({"profile": "ci-audit"}));
 
@@ -993,17 +1113,81 @@ fn ci_audit_reports_use_fixed_machine_schema() {
     );
     assert_eq!(payload["data"]["report_kind"], json!("impact_report"));
     assert!(payload["data"]["machine_summary"]["finding_count"].is_number());
+    assert!(payload["data"]["machine_summary"]["blocker_count"].is_number());
+    assert!(payload["data"]["machine_summary"]["verifier_check_count"].is_number());
+    assert!(payload["data"]["machine_summary"]["ready_check_count"].is_number());
+    assert!(payload["data"]["machine_summary"]["blocked_check_count"].is_number());
     assert!(payload["data"]["machine_summary"]["quality_focus_count"].is_number());
-    assert!(
-        payload["data"]["machine_summary"]["recommended_check_count"].is_number()
-    );
-    assert!(
-        payload["data"]["machine_summary"]["performance_watchpoint_count"].is_number()
-    );
+    assert!(payload["data"]["machine_summary"]["recommended_check_count"].is_number());
+    assert!(payload["data"]["machine_summary"]["performance_watchpoint_count"].is_number());
     assert!(payload["data"]["evidence_handles"].is_array());
+    assert!(payload["data"]["blockers"].is_array());
+    assert!(payload["data"]["readiness"].is_object());
+    assert!(payload["data"]["verifier_checks"].is_array());
     assert!(payload["data"]["quality_focus"].is_array());
     assert!(payload["data"]["recommended_checks"].is_array());
     assert!(payload["data"]["performance_watchpoints"].is_array());
+}
+
+#[test]
+fn verify_change_readiness_returns_verifier_contract() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("readiness_modal_ssr.py"),
+        "def render_modal():\n    return 'ok'\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "verify_change_readiness",
+        json!({
+            "task": "update modal render flow",
+            "changed_files": ["readiness_modal_ssr.py"]
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert!(payload["data"]["analysis_id"].is_string());
+    assert!(payload["data"]["blockers"].is_array());
+    assert!(payload["data"]["readiness"].is_object());
+    assert!(payload["data"]["verifier_checks"].is_array());
+    assert_eq!(
+        payload["data"]["readiness"]["test_readiness"],
+        json!("caution")
+    );
+}
+
+#[test]
+fn unresolved_reference_check_blocks_missing_symbol() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("references.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "unresolved_reference_check",
+        json!({"file_path": "references.py", "symbol": "missing_symbol"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["readiness"]["reference_safety"],
+        json!("blocked")
+    );
+    assert_eq!(
+        payload["data"]["readiness"]["mutation_ready"],
+        json!("blocked")
+    );
+    assert!(
+        payload["data"]["blocker_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
 }
 
 #[test]
@@ -1426,6 +1610,13 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     let tools_summary_body = serde_json::to_string(&tools_summary).unwrap();
     assert!(tools_summary_body.contains("recommended_tools"));
     assert!(tools_summary_body.contains("visible_namespaces"));
+    assert!(tools_summary_body.contains("visible_tiers"));
+    assert!(tools_summary_body.contains("all_namespaces"));
+    assert!(tools_summary_body.contains("all_tiers"));
+    assert!(tools_summary_body.contains("loaded_namespaces"));
+    assert!(tools_summary_body.contains("loaded_tiers"));
+    assert!(tools_summary_body.contains("effective_namespaces"));
+    assert!(tools_summary_body.contains("effective_tiers"));
     assert!(!tools_summary_body.contains("\"description\""));
     assert!(tools_summary_body.contains("reports"));
 
@@ -1442,6 +1633,10 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     let tools_full_body = serde_json::to_string(&tools_full).unwrap();
     assert!(tools_full_body.contains("description"));
     assert!(tools_full_body.contains("namespace"));
+    assert!(tools_full_body.contains("tier"));
+    assert!(tools_full_body.contains("loaded_namespaces"));
+    assert!(tools_full_body.contains("loaded_tiers"));
+    assert!(tools_full_body.contains("full_tool_exposure"));
 
     let session_resource = handle_request(
         &state,
@@ -1457,7 +1652,18 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(session_resource_body.contains("resume_supported"));
     assert!(session_resource_body.contains("active_sessions"));
     assert!(session_resource_body.contains("deferred_loading_supported"));
+    assert!(session_resource_body.contains("loaded_namespaces"));
+    assert!(session_resource_body.contains("loaded_tiers"));
+    assert!(session_resource_body.contains("full_tool_exposure"));
     assert!(session_resource_body.contains("preferred_namespaces"));
+    assert!(session_resource_body.contains("preferred_tiers"));
+    assert!(session_resource_body.contains("deferred_namespace_gate"));
+    assert!(session_resource_body.contains("deferred_tier_gate"));
+    assert!(session_resource_body.contains("mutation_preflight_required"));
+    assert!(session_resource_body.contains("preflight_ttl_seconds"));
+    assert!(session_resource_body.contains("rename_requires_symbol_preflight"));
+    assert!(session_resource_body.contains("requires_namespace_listing_before_tool_call"));
+    assert!(session_resource_body.contains("requires_tier_listing_before_tool_call"));
 
     let profile_summary = handle_request(
         &state,
@@ -1471,13 +1677,19 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     .unwrap();
     let profile_summary_body = serde_json::to_string(&profile_summary).unwrap();
     assert!(profile_summary_body.contains("preferred_namespaces"));
+    assert!(profile_summary_body.contains("preferred_tiers"));
     assert!(tools_summary_body.contains("preferred_namespaces"));
+    assert!(tools_summary_body.contains("preferred_tiers"));
 }
 
 #[test]
 fn ci_audit_analysis_summary_resource_matches_machine_schema() {
     let project = project_root();
-    fs::write(project.as_path().join("ci_audit.py"), "def alpha():\n    return 1\n").unwrap();
+    fs::write(
+        project.as_path().join("ci_audit.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
     let _ = call_tool(&state, "set_profile", json!({"profile": "ci-audit"}));
     let payload = call_tool(&state, "impact_report", json!({"path": "ci_audit.py"}));
@@ -1497,6 +1709,12 @@ fn ci_audit_analysis_summary_resource_matches_machine_schema() {
     assert!(body.contains("codelens-ci-audit-v1"));
     assert!(body.contains("machine_summary"));
     assert!(body.contains("evidence_handles"));
+    assert!(body.contains("blocker_count"));
+    assert!(body.contains("verifier_check_count"));
+    assert!(body.contains("ready_check_count"));
+    assert!(body.contains("blocked_check_count"));
+    assert!(body.contains("readiness"));
+    assert!(body.contains("verifier_checks"));
     assert!(body.contains("quality_focus"));
     assert!(body.contains("recommended_checks"));
     assert!(body.contains("performance_watchpoints"));
@@ -1542,24 +1760,289 @@ fn tool_metrics_expose_kpis_and_chain_detection() {
     assert!(metrics["data"]["session"]["quality_contract_emitted_count"].is_number());
     assert!(metrics["data"]["session"]["recommended_checks_emitted_count"].is_number());
     assert!(metrics["data"]["session"]["quality_focus_reuse_count"].is_number());
-    assert!(
-        metrics["data"]["derived_kpis"]["quality_contract_present_rate"].is_number()
-    );
-    assert!(
-        metrics["data"]["derived_kpis"]["recommended_check_followthrough_rate"].is_number()
-    );
-    assert!(
-        metrics["data"]["derived_kpis"]["quality_focus_reuse_rate"].is_number()
-    );
-    assert!(
-        metrics["data"]["derived_kpis"]["performance_watchpoint_emit_rate"].is_number()
-    );
+    assert!(metrics["data"]["session"]["verifier_contract_emitted_count"].is_number());
+    assert!(metrics["data"]["session"]["blocker_emit_count"].is_number());
+    assert!(metrics["data"]["session"]["verifier_followthrough_count"].is_number());
+    assert!(metrics["data"]["session"]["mutation_preflight_checked_count"].is_number());
+    assert!(metrics["data"]["session"]["mutation_without_preflight_count"].is_number());
+    assert!(metrics["data"]["session"]["mutation_preflight_gate_denied_count"].is_number());
+    assert!(metrics["data"]["session"]["stale_preflight_reject_count"].is_number());
+    assert!(metrics["data"]["session"]["mutation_with_caution_count"].is_number());
+    assert!(metrics["data"]["session"]["rename_without_symbol_preflight_count"].is_number());
+    assert!(metrics["data"]["session"]["deferred_namespace_expansion_count"].is_number());
+    assert!(metrics["data"]["session"]["deferred_hidden_tool_call_denied_count"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["quality_contract_present_rate"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["recommended_check_followthrough_rate"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["quality_focus_reuse_rate"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["performance_watchpoint_emit_rate"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["verifier_contract_present_rate"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["blocker_emit_rate"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["verifier_followthrough_rate"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["mutation_preflight_gate_deny_rate"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["deferred_hidden_tool_call_deny_rate"].is_number());
     assert!(
         metrics["data"]["session"]["repeated_low_level_chain_count"]
             .as_u64()
             .unwrap_or_default()
             >= 1
     );
+    assert!(metrics["data"]["session"]["watcher_lock_contention_batches"].is_number());
+    assert!(metrics["data"]["session"]["watcher_index_failures"].is_number());
+    assert!(metrics["data"]["session"]["watcher_index_failures_total"].is_number());
+    assert!(metrics["data"]["session"]["watcher_stale_index_failures"].is_number());
+    assert!(metrics["data"]["session"]["watcher_persistent_index_failures"].is_number());
+    assert!(metrics["data"]["session"]["watcher_pruned_missing_failures"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["watcher_lock_contention_rate"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["watcher_recent_failure_share"].is_number());
+}
+
+#[test]
+fn token_efficiency_resource_includes_watcher_metrics() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let stats = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(2501)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://stats/token-efficiency"})),
+        },
+    )
+    .unwrap();
+    let body = serde_json::to_string(&stats).unwrap();
+    assert!(body.contains("watcher_lock_contention_batches"));
+    assert!(body.contains("watcher_index_failures"));
+    assert!(body.contains("watcher_index_failures_total"));
+    assert!(body.contains("watcher_stale_index_failures"));
+    assert!(body.contains("watcher_persistent_index_failures"));
+    assert!(body.contains("watcher_pruned_missing_failures"));
+    assert!(body.contains("watcher_lock_contention_rate"));
+    assert!(body.contains("watcher_recent_failure_share"));
+    assert!(body.contains("deferred_namespace_expansion_count"));
+    assert!(body.contains("deferred_hidden_tool_call_denied_count"));
+    assert!(body.contains("deferred_hidden_tool_call_deny_rate"));
+    assert!(body.contains("mutation_preflight_checked_count"));
+}
+
+#[test]
+fn schema_tools_return_structured_content_payload() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("sample.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(3101)),
+            method: "tools/call".to_owned(),
+            params: Some(
+                json!({ "name": "get_symbols_overview", "arguments": { "path": "sample.py" } }),
+            ),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    assert!(value["result"]["structuredContent"].is_object());
+    assert!(value["result"]["structuredContent"]["symbols"].is_array());
+
+    let text_payload = extract_tool_text(&response);
+    let wrapped = parse_tool_payload(&text_payload);
+    assert!(wrapped["data"]["symbols"].is_array());
+}
+
+#[test]
+fn output_schema_workflow_tools_return_structured_content() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("flow.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(3102)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "analyze_change_request",
+                "arguments": { "task": "improve alpha in flow.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    assert!(value["result"]["structuredContent"].is_object());
+    assert!(value["result"]["structuredContent"]["analysis_id"].is_string());
+    assert!(value["result"]["structuredContent"]["summary"].is_string());
+    assert!(value["result"]["structuredContent"]["readiness"].is_object());
+    assert!(value["result"]["structuredContent"]["verifier_checks"].is_array());
+}
+
+#[test]
+fn verifier_tools_return_structured_content_payload() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("verify.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let readiness_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(3102_1)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "verify_change_readiness",
+                "arguments": { "task": "update alpha in verify.py", "changed_files": ["verify.py"] }
+            })),
+        },
+    )
+    .unwrap();
+    let readiness_value = serde_json::to_value(&readiness_response).unwrap();
+    assert!(readiness_value["result"]["structuredContent"]["analysis_id"].is_string());
+    assert!(readiness_value["result"]["structuredContent"]["readiness"].is_object());
+    assert!(readiness_value["result"]["structuredContent"]["verifier_checks"].is_array());
+
+    let unresolved_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(3102_2)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "unresolved_reference_check",
+                "arguments": { "file_path": "verify.py", "symbol": "missing_symbol" }
+            })),
+        },
+    )
+    .unwrap();
+    let unresolved_value = serde_json::to_value(&unresolved_response).unwrap();
+    assert!(unresolved_value["result"]["structuredContent"]["blockers"].is_array());
+    assert_eq!(
+        unresolved_value["result"]["structuredContent"]["readiness"]["reference_safety"],
+        json!("blocked")
+    );
+}
+
+#[test]
+fn oversized_schema_tool_truncates_structured_content_too() {
+    let project = project_root();
+    let source = (0..40)
+        .map(|index| format!("def alpha_{index}():\n    return {index}\n"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    fs::write(project.as_path().join("oversized.py"), source).unwrap();
+    let state = make_state(&project);
+    state.set_token_budget(1);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(3103)),
+            method: "tools/call".to_owned(),
+            params: Some(
+                json!({ "name": "get_symbols_overview", "arguments": { "path": "oversized.py" } }),
+            ),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    assert_eq!(
+        parse_tool_payload(&extract_tool_text(&response))["truncated"],
+        json!(true)
+    );
+    assert_eq!(
+        value["result"]["structuredContent"]["truncated"],
+        json!(true)
+    );
+    assert!(
+        value["result"]["structuredContent"]["symbols"]
+            .as_array()
+            .map(|symbols| symbols.len())
+            .unwrap_or_default()
+            <= 3
+    );
+}
+
+#[test]
+fn oversized_analysis_handle_keeps_structured_content_schema_shape() {
+    let project = project_root();
+    fs::write(project.as_path().join("preflight.py"), "print('hello')\n").unwrap();
+    let state = make_state(&project);
+    state.set_token_budget(1);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(3104)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "verify_change_readiness",
+                "arguments": {
+                    "task": "update preflight.py",
+                    "changed_files": ["preflight.py"]
+                }
+            })),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    assert_eq!(
+        parse_tool_payload(&extract_tool_text(&response))["truncated"],
+        json!(true)
+    );
+    assert_eq!(value["result"]["structuredContent"].get("truncated"), None);
+    assert!(value["result"]["structuredContent"]["analysis_id"]
+        .as_str()
+        .is_some());
+    assert!(
+        value["result"]["structuredContent"]["readiness"]["mutation_ready"]
+            .as_str()
+            .is_some()
+    );
+}
+
+#[test]
+fn impact_analysis_schema_matches_payload_shape() {
+    let schema = crate::tool_defs::tool_definition("get_impact_analysis")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let properties = schema["properties"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    assert!(properties.contains_key("symbols"));
+    assert!(properties.contains_key("direct_importers"));
+}
+
+#[test]
+fn onboard_project_schema_matches_payload_shape() {
+    let schema = crate::tool_defs::tool_definition("onboard_project")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let properties = schema["properties"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    assert!(properties.contains_key("project_root"));
+    assert!(properties.contains_key("suggested_next_tools"));
 }
 
 #[test]
@@ -1692,11 +2175,9 @@ fn foreign_project_scoped_analysis_is_ignored_for_reuse() {
     .unwrap();
 
     assert!(state.get_analysis(analysis_id).is_none());
-    assert!(
-        state
-            .find_reusable_analysis("analyze_change_request", &cache_key)
-            .is_none()
-    );
+    assert!(state
+        .find_reusable_analysis("analyze_change_request", &cache_key)
+        .is_none());
 }
 
 #[test]
@@ -1772,12 +2253,10 @@ fn analysis_artifacts_expire_by_ttl() {
 
     assert!(state.get_analysis(&analysis_id).is_none());
     assert!(!state.analysis_dir().join(&analysis_id).exists());
-    assert!(
-        state
-            .list_analysis_summaries()
-            .into_iter()
-            .all(|summary| summary.id != analysis_id)
-    );
+    assert!(state
+        .list_analysis_summaries()
+        .into_iter()
+        .all(|summary| summary.id != analysis_id));
 }
 
 #[test]
@@ -1950,6 +2429,263 @@ fn repeated_composite_request_reuses_existing_analysis_handle() {
     );
 }
 
+#[test]
+fn refactor_surface_requires_preflight_before_create_text_file() {
+    let project = project_root();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let payload = call_tool(
+        &state,
+        "create_text_file",
+        json!({"relative_path": "mutated.txt", "content": "hello"}),
+    );
+    assert_eq!(payload["success"], json!(false));
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("requires a fresh preflight"));
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert!(
+        metrics["data"]["session"]["mutation_without_preflight_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+    assert!(
+        metrics["data"]["session"]["mutation_preflight_gate_denied_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+}
+
+#[test]
+fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
+    let project = project_root();
+    fs::write(project.as_path().join("gated.py"), "print('old')\n").unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let preflight = call_tool(
+        &state,
+        "verify_change_readiness",
+        json!({
+            "task": "update gated output",
+            "changed_files": ["gated.py"]
+        }),
+    );
+    assert_eq!(preflight["success"], json!(true));
+    assert_eq!(
+        preflight["data"]["readiness"]["mutation_ready"],
+        json!("caution")
+    );
+
+    let payload = call_tool(
+        &state,
+        "replace_content",
+        json!({
+            "relative_path": "gated.py",
+            "old_text": "old",
+            "new_text": "new"
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert!(fs::read_to_string(project.as_path().join("gated.py"))
+        .unwrap()
+        .contains("new"));
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert!(
+        metrics["data"]["session"]["mutation_with_caution_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+}
+
+#[test]
+fn safe_rename_report_blocked_preflight_blocks_rename_symbol() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("rename_guard.py"),
+        "def old_name():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let preflight = call_tool(
+        &state,
+        "safe_rename_report",
+        json!({
+            "file_path": "rename_guard.py",
+            "symbol": "missing_symbol",
+            "new_name": "renamed_symbol"
+        }),
+    );
+    assert_eq!(preflight["success"], json!(true));
+    assert_eq!(
+        preflight["data"]["readiness"]["mutation_ready"],
+        json!("blocked")
+    );
+
+    let payload = call_tool(
+        &state,
+        "rename_symbol",
+        json!({
+            "file_path": "rename_guard.py",
+            "symbol_name": "missing_symbol",
+            "new_name": "renamed_symbol",
+            "dry_run": true
+        }),
+    );
+    assert_eq!(payload["success"], json!(false));
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("blocked by verifier readiness"));
+}
+
+#[test]
+fn rename_symbol_requires_symbol_aware_preflight() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("rename_need_preflight.py"),
+        "def old_name():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let preflight = call_tool(
+        &state,
+        "verify_change_readiness",
+        json!({
+            "task": "rename old_name in rename_need_preflight.py",
+            "changed_files": ["rename_need_preflight.py"]
+        }),
+    );
+    assert_eq!(preflight["success"], json!(true));
+
+    let payload = call_tool(
+        &state,
+        "rename_symbol",
+        json!({
+            "file_path": "rename_need_preflight.py",
+            "symbol_name": "old_name",
+            "new_name": "new_name",
+            "dry_run": true
+        }),
+    );
+    assert_eq!(payload["success"], json!(false));
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("symbol-aware preflight"));
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert!(
+        metrics["data"]["session"]["rename_without_symbol_preflight_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+}
+
+#[test]
+fn stale_preflight_is_rejected() {
+    let project = project_root();
+    fs::write(project.as_path().join("stale_gate.py"), "print('old')\n").unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let preflight = call_tool(
+        &state,
+        "verify_change_readiness",
+        json!({
+            "task": "update stale gate file",
+            "changed_files": ["stale_gate.py"]
+        }),
+    );
+    assert_eq!(preflight["success"], json!(true));
+    state.set_recent_preflight_timestamp_for_test("local", 0);
+
+    let payload = call_tool(
+        &state,
+        "replace_content",
+        json!({
+            "relative_path": "stale_gate.py",
+            "old_text": "old",
+            "new_text": "new"
+        }),
+    );
+    assert_eq!(payload["success"], json!(false));
+    assert!(payload["error"].as_str().unwrap_or("").contains("stale"));
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert!(
+        metrics["data"]["session"]["stale_preflight_reject_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+}
+
+#[test]
+fn session_scoped_preflight_does_not_cross_sessions() {
+    let project = project_root();
+    fs::write(project.as_path().join("session_gate.py"), "print('old')\n").unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let preflight = call_tool_with_session(
+        &state,
+        "verify_change_readiness",
+        json!({
+            "task": "update session-gated file",
+            "changed_files": ["session_gate.py"]
+        }),
+        "session-a",
+    );
+    assert_eq!(preflight["success"], json!(true));
+
+    let payload = call_tool_with_session(
+        &state,
+        "replace_content",
+        json!({
+            "relative_path": "session_gate.py",
+            "old_text": "old",
+            "new_text": "new"
+        }),
+        "session-b",
+    );
+    assert_eq!(payload["success"], json!(false));
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("requires a fresh preflight"));
+}
+
+#[test]
+fn builder_minimal_mutation_behavior_unchanged() {
+    let project = project_root();
+    fs::write(project.as_path().join("builder_import.py"), "print('hi')\n").unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
+
+    let payload = call_tool(
+        &state,
+        "add_import",
+        json!({
+            "file_path": "builder_import.py",
+            "import_statement": "import os"
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+}
+
 // ── Test helpers ─────────────────────────────────────────────────────
 
 fn make_state(project: &ProjectRoot) -> crate::AppState {
@@ -1957,6 +2693,25 @@ fn make_state(project: &ProjectRoot) -> crate::AppState {
 }
 
 fn call_tool(
+    state: &crate::AppState,
+    name: &str,
+    arguments: serde_json::Value,
+) -> serde_json::Value {
+    call_tool_with_augmented_args(state, name, arguments)
+}
+
+fn call_tool_with_session(
+    state: &crate::AppState,
+    name: &str,
+    arguments: serde_json::Value,
+    session_id: &str,
+) -> serde_json::Value {
+    let mut map = arguments.as_object().cloned().unwrap_or_default();
+    map.insert("_session_id".to_owned(), json!(session_id));
+    call_tool_with_augmented_args(state, name, serde_json::Value::Object(map))
+}
+
+fn call_tool_with_augmented_args(
     state: &crate::AppState,
     name: &str,
     arguments: serde_json::Value,

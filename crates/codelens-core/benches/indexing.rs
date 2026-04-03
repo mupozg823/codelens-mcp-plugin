@@ -223,7 +223,7 @@ fn bench_refresh_all(c: &mut Criterion) {
 
     c.bench_function("refresh_all (9 files, 5 langs)", |b| {
         b.iter(|| {
-            let mut index = SymbolIndex::new_memory(black_box(project.clone()));
+            let index = SymbolIndex::new_memory(black_box(project.clone()));
             index.refresh_all().unwrap();
         })
     });
@@ -231,7 +231,7 @@ fn bench_refresh_all(c: &mut Criterion) {
 
 fn bench_find_symbol_exact(c: &mut Criterion) {
     let (_dir, project) = create_fixture();
-    let mut index = SymbolIndex::new_memory(project.clone());
+    let index = SymbolIndex::new_memory(project.clone());
     index.refresh_all().unwrap();
 
     c.bench_function("find_symbol exact (UserService)", |b| {
@@ -245,7 +245,7 @@ fn bench_find_symbol_exact(c: &mut Criterion) {
 
 fn bench_find_symbol_fuzzy(c: &mut Criterion) {
     let (_dir, project) = create_fixture();
-    let mut index = SymbolIndex::new_memory(project.clone());
+    let index = SymbolIndex::new_memory(project.clone());
     index.refresh_all().unwrap();
 
     c.bench_function("find_symbol substring (user)", |b| {
@@ -279,7 +279,7 @@ fn bench_search_for_pattern(c: &mut Criterion) {
 
 fn bench_search_symbols_hybrid(c: &mut Criterion) {
     let (_dir, project) = create_fixture();
-    let mut index = SymbolIndex::new_memory(project.clone());
+    let index = SymbolIndex::new_memory(project.clone());
     index.refresh_all().unwrap();
 
     c.bench_function("search_symbols_hybrid (Usr, fuzzy)", |b| {
