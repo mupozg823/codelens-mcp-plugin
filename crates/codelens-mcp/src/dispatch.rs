@@ -1,13 +1,14 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
-use crate::AppState;
 use crate::error::CodeLensError;
 use crate::protocol::{JsonRpcResponse, ToolCallResponse};
 use crate::tool_defs::{
-    ToolProfile, default_budget_for_profile, is_content_mutation_tool, is_read_only_surface,
-    is_tool_in_surface,
+    default_budget_for_profile, is_content_mutation_tool, is_read_only_surface, is_tool_in_surface,
+    preferred_namespaces, preferred_tier_labels, tool_definition, tool_namespace, tool_tier_label,
+    ToolProfile,
 };
 use crate::tools::{self, ToolHandler, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -22,6 +23,364 @@ thread_local! {
 /// Get the per-request token budget (set by dispatch_tool).
 pub(crate) fn request_token_budget() -> usize {
     REQUEST_BUDGET.get()
+}
+
+fn summarize_structured_content(value: &serde_json::Value, depth: usize) -> serde_json::Value {
+    const MAX_STRING_CHARS: usize = 240;
+    const MAX_ARRAY_ITEMS: usize = 3;
+    const MAX_OBJECT_DEPTH: usize = 4;
+
+    match value {
+        serde_json::Value::Null | serde_json::Value::Bool(_) | serde_json::Value::Number(_) => {
+            value.clone()
+        }
+        serde_json::Value::String(text) => {
+            if text.chars().count() <= MAX_STRING_CHARS {
+                value.clone()
+            } else {
+                let truncated = text.chars().take(MAX_STRING_CHARS).collect::<String>();
+                serde_json::Value::String(format!("{truncated}..."))
+            }
+        }
+        serde_json::Value::Array(items) => serde_json::Value::Array(
+            items
+                .iter()
+                .take(MAX_ARRAY_ITEMS)
+                .map(|item| summarize_structured_content(item, depth + 1))
+                .collect(),
+        ),
+        serde_json::Value::Object(map) => {
+            let max_items = if depth >= MAX_OBJECT_DEPTH {
+                MAX_ARRAY_ITEMS
+            } else {
+                usize::MAX
+            };
+            let mut summarized = serde_json::Map::with_capacity(map.len().min(max_items));
+            for (index, (key, item)) in map.iter().enumerate() {
+                if index >= max_items {
+                    break;
+                }
+                summarized.insert(key.clone(), summarize_structured_content(item, depth + 1));
+            }
+            // Preserve the tool's declared schema shape: only mark truncation when the payload
+            // already exposes that field.
+            if map.contains_key("truncated") {
+                summarized.insert("truncated".to_owned(), serde_json::Value::Bool(true));
+            }
+            serde_json::Value::Object(summarized)
+        }
+    }
+}
+
+#[derive(Clone)]
+struct MutationGateAllowance {
+    caution: bool,
+}
+
+struct MutationGateFailure {
+    message: String,
+    analysis_id: Option<String>,
+    suggested_next_tools: Vec<String>,
+    budget_hint: String,
+    stale: bool,
+    rename_without_symbol_preflight: bool,
+    missing_preflight: bool,
+}
+
+fn logical_session_id(arguments: &serde_json::Value) -> &str {
+    arguments
+        .get("_session_id")
+        .and_then(|value| value.as_str())
+        .unwrap_or("local")
+}
+
+fn session_loaded_namespaces(arguments: &serde_json::Value) -> Vec<&str> {
+    arguments
+        .get("_session_loaded_namespaces")
+        .and_then(|value| value.as_array())
+        .map(|values| values.iter().filter_map(|value| value.as_str()).collect())
+        .unwrap_or_default()
+}
+
+fn session_loaded_tiers(arguments: &serde_json::Value) -> Vec<&str> {
+    arguments
+        .get("_session_loaded_tiers")
+        .and_then(|value| value.as_array())
+        .map(|values| values.iter().filter_map(|value| value.as_str()).collect())
+        .unwrap_or_default()
+}
+
+fn session_full_tool_exposure(arguments: &serde_json::Value) -> bool {
+    arguments
+        .get("_session_full_tool_exposure")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
+fn is_deferred_namespace_access_allowed(
+    name: &str,
+    arguments: &serde_json::Value,
+    surface: crate::tool_defs::ToolSurface,
+) -> bool {
+    let deferred_requested = arguments
+        .get("_session_deferred_tool_loading")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    if !deferred_requested || logical_session_id(arguments) == "local" {
+        return true;
+    }
+    if session_full_tool_exposure(arguments) {
+        return true;
+    }
+    let namespace = tool_namespace(name);
+    let preferred = preferred_namespaces(surface);
+    if preferred.contains(&namespace) {
+        return true;
+    }
+    session_loaded_namespaces(arguments).contains(&namespace)
+}
+
+fn is_deferred_tier_access_allowed(
+    name: &str,
+    arguments: &serde_json::Value,
+    surface: crate::tool_defs::ToolSurface,
+) -> bool {
+    let deferred_requested = arguments
+        .get("_session_deferred_tool_loading")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+    if !deferred_requested || logical_session_id(arguments) == "local" {
+        return true;
+    }
+    if session_full_tool_exposure(arguments) {
+        return true;
+    }
+    let tier = tool_tier_label(name);
+    let preferred = preferred_tier_labels(surface);
+    if preferred.contains(&tier) {
+        return true;
+    }
+    session_loaded_tiers(arguments).contains(&tier)
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn is_verifier_source_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "verify_change_readiness"
+            | "safe_rename_report"
+            | "unresolved_reference_check"
+            | "refactor_safety_report"
+    )
+}
+
+fn is_refactor_gated_mutation_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "rename_symbol"
+            | "replace_symbol_body"
+            | "delete_lines"
+            | "insert_at_line"
+            | "insert_before_symbol"
+            | "insert_after_symbol"
+            | "insert_content"
+            | "replace_content"
+            | "replace_lines"
+            | "replace"
+            | "create_text_file"
+            | "add_import"
+            | "refactor_extract_function"
+            | "refactor_inline_function"
+            | "refactor_move_to_file"
+            | "refactor_change_signature"
+    )
+}
+
+fn is_symbol_aware_mutation_tool(name: &str) -> bool {
+    matches!(name, "rename_symbol")
+}
+
+fn mutation_gate_failure(
+    name: &str,
+    reason: impl Into<String>,
+    analysis_id: Option<String>,
+    stale: bool,
+    rename_without_symbol_preflight: bool,
+    missing_preflight: bool,
+) -> MutationGateFailure {
+    let suggested_next_tools = if is_symbol_aware_mutation_tool(name) {
+        vec![
+            "safe_rename_report".to_owned(),
+            "unresolved_reference_check".to_owned(),
+            "get_analysis_section".to_owned(),
+        ]
+    } else {
+        vec![
+            "verify_change_readiness".to_owned(),
+            "get_analysis_section".to_owned(),
+            "get_file_diagnostics".to_owned(),
+        ]
+    };
+    let budget_hint = if is_symbol_aware_mutation_tool(name) {
+        "Run symbol-aware preflight before rename, then expand evidence if the target is ambiguous."
+            .to_owned()
+    } else {
+        "Run preflight first, then expand verifier evidence before mutation.".to_owned()
+    };
+    MutationGateFailure {
+        message: reason.into(),
+        analysis_id,
+        suggested_next_tools,
+        budget_hint,
+        stale,
+        rename_without_symbol_preflight,
+        missing_preflight,
+    }
+}
+
+fn evaluate_mutation_gate(
+    state: &AppState,
+    name: &str,
+    arguments: &serde_json::Value,
+    surface: crate::tool_defs::ToolSurface,
+) -> Result<Option<MutationGateAllowance>, MutationGateFailure> {
+    if !matches!(
+        surface,
+        crate::tool_defs::ToolSurface::Profile(ToolProfile::RefactorFull)
+    ) || !is_refactor_gated_mutation_tool(name)
+    {
+        return Ok(None);
+    }
+
+    let logical_session = logical_session_id(arguments);
+    let Some(preflight) = state.recent_preflight(logical_session) else {
+        return Err(mutation_gate_failure(
+            name,
+            format!(
+                "Tool `{name}` requires a fresh preflight in `refactor-full`. Run `verify_change_readiness` first."
+            ),
+            None,
+            false,
+            false,
+            true,
+        ));
+    };
+
+    if now_ms().saturating_sub(preflight.timestamp_ms) > crate::state::PREFLIGHT_TTL_MS {
+        return Err(mutation_gate_failure(
+            name,
+            format!(
+                "Tool `{name}` is blocked because the last `{}` preflight from surface `{}` is stale. Re-run verifier tools within {} seconds before mutating.",
+                preflight.tool_name,
+                preflight.surface,
+                state.preflight_ttl_seconds()
+            ),
+            preflight.analysis_id.clone(),
+            true,
+            false,
+            false,
+        ));
+    }
+
+    let mutation_paths = state.extract_target_paths(arguments);
+    if mutation_paths.is_empty() {
+        return Err(mutation_gate_failure(
+            name,
+            format!(
+                "Tool `{name}` is blocked because no mutation target path was provided for preflight matching."
+            ),
+            preflight.analysis_id.clone(),
+            false,
+            is_symbol_aware_mutation_tool(name),
+            false,
+        ));
+    }
+    let path_overlap = mutation_paths
+        .iter()
+        .any(|path| preflight.target_paths.iter().any(|target| target == path));
+    if !path_overlap {
+        return Err(mutation_gate_failure(
+            name,
+            format!(
+                "Tool `{name}` is blocked because the recent preflight does not cover the requested target paths."
+            ),
+            preflight.analysis_id.clone(),
+            false,
+            false,
+            false,
+        ));
+    }
+
+    if is_symbol_aware_mutation_tool(name) {
+        if !matches!(
+            preflight.tool_name.as_str(),
+            "safe_rename_report" | "unresolved_reference_check"
+        ) {
+            return Err(mutation_gate_failure(
+                name,
+                format!(
+                    "Tool `{name}` requires a symbol-aware preflight. Run `safe_rename_report` or `unresolved_reference_check` first."
+                ),
+                preflight.analysis_id.clone(),
+                false,
+                true,
+                false,
+            ));
+        }
+        let Some(mutation_symbol) = state.extract_symbol_hint(arguments) else {
+            return Err(mutation_gate_failure(
+                name,
+                format!(
+                    "Tool `{name}` requires an exact symbol hint plus symbol-aware preflight evidence."
+                ),
+                preflight.analysis_id.clone(),
+                false,
+                true,
+                false,
+            ));
+        };
+        if preflight
+            .symbol
+            .as_deref()
+            .map(|symbol| symbol != mutation_symbol)
+            .unwrap_or(true)
+        {
+            return Err(mutation_gate_failure(
+                name,
+                format!(
+                    "Tool `{name}` is blocked because the symbol-aware preflight does not match `{mutation_symbol}`."
+                ),
+                preflight.analysis_id.clone(),
+                false,
+                true,
+                false,
+            ));
+        }
+    }
+
+    if preflight.readiness.mutation_ready == "blocked" {
+        return Err(mutation_gate_failure(
+            name,
+            format!(
+                "Tool `{name}` is blocked by verifier readiness. The last `{}` preflight reported {} blocker(s); resolve them before mutation.",
+                preflight.tool_name, preflight.blocker_count
+            ),
+            preflight.analysis_id.clone(),
+            false,
+            false,
+            false,
+        ));
+    }
+
+    Ok(Some(MutationGateAllowance {
+        caution: preflight.readiness.mutation_ready == "caution",
+    }))
 }
 
 // ── Semantic handlers (feature-gated) ──────────────────────────────────
@@ -263,6 +622,16 @@ pub(crate) fn dispatch_tool(
         .unwrap_or_else(|| state.token_budget());
     REQUEST_BUDGET.set(request_budget);
 
+    let compact = arguments
+        .get("_compact")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    let harness_phase = arguments
+        .get("_harness_phase")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_owned());
+
     let span = info_span!("tool_call", tool = name);
     let _guard = span.enter();
     let start = std::time::Instant::now();
@@ -277,13 +646,32 @@ pub(crate) fn dispatch_tool(
         .get("_session_id")
         .and_then(|value| value.as_str())
         .unwrap_or_default();
+    let mut gate_allowance: Option<MutationGateAllowance> = None;
+    let mut gate_failure: Option<MutationGateFailure> = None;
 
     let result: ToolResult = if !is_tool_in_surface(name, surface) {
         Err(CodeLensError::Validation(format!(
             "Tool `{name}` is not available in active surface `{active_surface}`"
         )))
+    } else if !is_deferred_namespace_access_allowed(name, &arguments, surface) {
+        state.metrics().record_deferred_hidden_tool_call_denied();
+        Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is hidden by deferred loading in namespace `{}`. Call `tools/list` with `{{\"namespace\":\"{}\"}}` or `{{\"full\":true}}` first.",
+            tool_namespace(name),
+            tool_namespace(name)
+        )))
+    } else if !is_deferred_tier_access_allowed(name, &arguments, surface) {
+        state.metrics().record_deferred_hidden_tool_call_denied();
+        Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is hidden by deferred loading in tier `{}`. Call `tools/list` with `{{\"tier\":\"{}\"}}` or `{{\"full\":true}}` first.",
+            tool_tier_label(name),
+            tool_tier_label(name)
+        )))
     } else if is_content_mutation_tool(name)
-        && matches!(state.daemon_mode(), crate::state::RuntimeDaemonMode::MutationEnabled)
+        && matches!(
+            state.daemon_mode(),
+            crate::state::RuntimeDaemonMode::MutationEnabled
+        )
         && !session_trusted_client
     {
         Err(CodeLensError::Validation(format!(
@@ -299,6 +687,35 @@ pub(crate) fn dispatch_tool(
         Err(CodeLensError::Validation(format!(
             "Tool `{name}` is blocked in read-only surface `{active_surface}`"
         )))
+    } else if is_refactor_gated_mutation_tool(name) {
+        state.metrics().record_mutation_preflight_checked();
+        match evaluate_mutation_gate(state, name, &arguments, surface) {
+            Ok(allowance) => {
+                gate_allowance = allowance;
+                match DISPATCH_TABLE.get(name) {
+                    Some(handler) => handler(state, &arguments),
+                    None => Err(CodeLensError::ToolNotFound(name.to_owned())),
+                }
+            }
+            Err(failure) => {
+                if failure.missing_preflight || failure.stale {
+                    state.metrics().record_mutation_without_preflight();
+                }
+                if failure.rename_without_symbol_preflight {
+                    state.metrics().record_rename_without_symbol_preflight();
+                }
+                state
+                    .metrics()
+                    .record_mutation_preflight_gate_denied(failure.stale);
+                gate_failure = Some(failure);
+                Err(CodeLensError::Validation(
+                    gate_failure
+                        .as_ref()
+                        .map(|failure| failure.message.clone())
+                        .unwrap_or_else(|| "mutation preflight rejected".to_owned()),
+                ))
+            }
+        }
     } else {
         match DISPATCH_TABLE.get(name) {
             Some(handler) => handler(state, &arguments),
@@ -312,7 +729,11 @@ pub(crate) fn dispatch_tool(
             warn!(tool = name, error = %error, "failed to write mutation audit event");
         }
         if !session_id.is_empty() {
-            tracing::info!(tool = name, session_id, "mutation completed for trusted session");
+            tracing::info!(
+                tool = name,
+                session_id,
+                "mutation completed for trusted session"
+            );
         }
     }
 
@@ -327,8 +748,28 @@ pub(crate) fn dispatch_tool(
 
     match result {
         Ok((payload, meta)) => {
+            if is_verifier_source_tool(name) {
+                state.record_recent_preflight_from_payload(
+                    name,
+                    &active_surface,
+                    logical_session_id(&arguments),
+                    &arguments,
+                    &payload,
+                );
+            }
+            if gate_allowance.as_ref().map(|allowance| allowance.caution) == Some(true) {
+                state.metrics().record_mutation_with_caution();
+            }
+            let has_output_schema = tool_definition(name)
+                .and_then(|tool| tool.output_schema.as_ref())
+                .is_some();
+            let mut structured_content = has_output_schema.then(|| payload.clone());
             let mut resp = ToolCallResponse::success(payload, meta);
-            resp.suggested_next_tools = tools::suggest_next_contextual(name, &state.recent_tools());
+            resp.suggested_next_tools = tools::suggest_next_contextual(
+                name,
+                &state.recent_tools(),
+                harness_phase.as_deref(),
+            );
             let payload_estimate = serde_json::to_string(&resp.data)
                 .map(|s| tools::estimate_tokens(&s))
                 .unwrap_or(0);
@@ -359,6 +800,22 @@ pub(crate) fn dispatch_tool(
                 });
             }
 
+            // Strip non-essential fields in compact mode (saves ~300 tokens for harness evaluators)
+            if compact {
+                if let Some(ref mut data) = resp.data {
+                    if let Some(obj) = data.as_object_mut() {
+                        obj.remove("quality_focus");
+                        obj.remove("recommended_checks");
+                        obj.remove("performance_watchpoints");
+                        obj.remove("available_sections");
+                        obj.remove("evidence_handles");
+                        obj.remove("schema_version");
+                        obj.remove("report_kind");
+                        obj.remove("profile");
+                    }
+                }
+            }
+
             let mut text = serde_json::to_string(&resp).unwrap_or_else(|_| {
                 "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
             });
@@ -369,6 +826,9 @@ pub(crate) fn dispatch_tool(
             let mut truncated = false;
             if text.len() > max_chars {
                 truncated = true;
+                if let Some(existing) = structured_content.as_ref() {
+                    structured_content = Some(summarize_structured_content(existing, 0));
+                }
                 text = serde_json::to_string(&json!({
                     "success": true,
                     "truncated": true,
@@ -391,12 +851,13 @@ pub(crate) fn dispatch_tool(
             if emitted_composite_guidance {
                 state.metrics().record_composite_guidance_emitted();
             }
-            JsonRpcResponse::result(
-                id,
-                json!({
-                    "content": [{ "type": "text", "text": text }]
-                }),
-            )
+            let mut result = json!({
+                "content": [{ "type": "text", "text": text }]
+            });
+            if let Some(structured_content) = structured_content {
+                result["structuredContent"] = structured_content;
+            }
+            JsonRpcResponse::result(id, result)
         }
         Err(error) => {
             state.metrics().record_call_with_tokens(
@@ -412,7 +873,17 @@ pub(crate) fn dispatch_tool(
                 return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());
             }
             // Tool execution errors: return as MCP isError content
-            let resp = ToolCallResponse::error(error.to_string());
+            let mut resp = ToolCallResponse::error(error.to_string());
+            if let Some(failure) = gate_failure {
+                let analysis_hint = failure
+                    .analysis_id
+                    .as_ref()
+                    .map(|analysis_id| format!(" Last related analysis_id: `{analysis_id}`."))
+                    .unwrap_or_default();
+                resp.error = Some(format!("{}{}", failure.message, analysis_hint));
+                resp.suggested_next_tools = Some(failure.suggested_next_tools);
+                resp.budget_hint = Some(failure.budget_hint);
+            }
             let text = serde_json::to_string(&resp).unwrap_or_else(|_| {
                 "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
             });

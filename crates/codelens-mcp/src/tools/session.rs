@@ -1,7 +1,7 @@
-use super::{AppState, ToolResult, success_meta};
+use super::{success_meta, AppState, ToolResult};
 use crate::protocol::BackendKind;
 use crate::tool_defs::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
+    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
 };
 use crate::tools::memory::list_memory_names;
 use codelens_core::detect_frameworks;
@@ -254,18 +254,68 @@ pub fn query_project(state: &AppState, arguments: &serde_json::Value) -> ToolRes
 }
 
 pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let failure_count = state.symbol_index().db().index_failure_count().unwrap_or(0);
+    let failure_health = state.watcher_failure_health();
     match &state.watcher {
         Some(watcher) => {
             let mut stats = watcher.stats();
-            stats.index_failures = Some(failure_count);
-            Ok((json!(stats), success_meta(BackendKind::Config, 1.0)))
+            stats.index_failures = Some(failure_health.recent_failures);
+            let mut payload = serde_json::to_value(stats).unwrap_or_else(|_| json!({}));
+            if let Some(map) = payload.as_object_mut() {
+                map.insert(
+                    "index_failures_total".to_owned(),
+                    json!(failure_health.total_failures),
+                );
+                map.insert(
+                    "stale_index_failures".to_owned(),
+                    json!(failure_health.stale_failures),
+                );
+                map.insert(
+                    "persistent_index_failures".to_owned(),
+                    json!(failure_health.persistent_failures),
+                );
+                map.insert(
+                    "pruned_missing_failures".to_owned(),
+                    json!(failure_health.pruned_missing_failures),
+                );
+                map.insert(
+                    "recent_failure_window_seconds".to_owned(),
+                    json!(failure_health.recent_window_seconds),
+                );
+            }
+            Ok((payload, success_meta(BackendKind::Config, 1.0)))
         }
         None => Ok((
-            json!({"running": false, "events_processed": 0, "files_reindexed": 0, "index_failures": failure_count, "note": "File watcher not started"}),
+            json!({
+                "running": false,
+                "events_processed": 0,
+                "files_reindexed": 0,
+                "lock_contention_batches": 0,
+                "index_failures": failure_health.recent_failures,
+                "index_failures_total": failure_health.total_failures,
+                "stale_index_failures": failure_health.stale_failures,
+                "persistent_index_failures": failure_health.persistent_failures,
+                "pruned_missing_failures": failure_health.pruned_missing_failures,
+                "recent_failure_window_seconds": failure_health.recent_window_seconds,
+                "note": "File watcher not started"
+            }),
             success_meta(BackendKind::Config, 1.0),
         )),
     }
+}
+
+pub fn prune_index_failures(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let failure_health = state.prune_index_failures()?;
+    Ok((
+        json!({
+            "pruned_missing_failures": failure_health.pruned_missing_failures,
+            "index_failures": failure_health.recent_failures,
+            "index_failures_total": failure_health.total_failures,
+            "stale_index_failures": failure_health.stale_failures,
+            "persistent_index_failures": failure_health.persistent_failures,
+            "recent_failure_window_seconds": failure_health.recent_window_seconds,
+        }),
+        success_meta(BackendKind::Session, 1.0),
+    ))
 }
 
 pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -428,6 +478,8 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         })
         .collect::<Vec<_>>();
     let handle_reads = session.analysis_summary_reads + session.analysis_section_reads;
+    let watcher_stats = state.watcher.as_ref().map(|watcher| watcher.stats());
+    let watcher_failure_health = state.watcher_failure_health();
     let mut session_json = serde_json::Map::new();
     session_json.insert("total_calls".to_owned(), json!(session.total_calls));
     session_json.insert("success_count".to_owned(), json!(session.success_count));
@@ -515,6 +567,50 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         "performance_watchpoint_emit_count".to_owned(),
         json!(session.performance_watchpoint_emit_count),
     );
+    session_json.insert(
+        "verifier_contract_emitted_count".to_owned(),
+        json!(session.verifier_contract_emitted_count),
+    );
+    session_json.insert(
+        "blocker_emit_count".to_owned(),
+        json!(session.blocker_emit_count),
+    );
+    session_json.insert(
+        "verifier_followthrough_count".to_owned(),
+        json!(session.verifier_followthrough_count),
+    );
+    session_json.insert(
+        "mutation_preflight_checked_count".to_owned(),
+        json!(session.mutation_preflight_checked_count),
+    );
+    session_json.insert(
+        "mutation_without_preflight_count".to_owned(),
+        json!(session.mutation_without_preflight_count),
+    );
+    session_json.insert(
+        "mutation_preflight_gate_denied_count".to_owned(),
+        json!(session.mutation_preflight_gate_denied_count),
+    );
+    session_json.insert(
+        "stale_preflight_reject_count".to_owned(),
+        json!(session.stale_preflight_reject_count),
+    );
+    session_json.insert(
+        "mutation_with_caution_count".to_owned(),
+        json!(session.mutation_with_caution_count),
+    );
+    session_json.insert(
+        "rename_without_symbol_preflight_count".to_owned(),
+        json!(session.rename_without_symbol_preflight_count),
+    );
+    session_json.insert(
+        "deferred_namespace_expansion_count".to_owned(),
+        json!(session.deferred_namespace_expansion_count),
+    );
+    session_json.insert(
+        "deferred_hidden_tool_call_denied_count".to_owned(),
+        json!(session.deferred_hidden_tool_call_denied_count),
+    );
     session_json.insert("composite_calls".to_owned(), json!(session.composite_calls));
     session_json.insert("low_level_calls".to_owned(), json!(session.low_level_calls));
     session_json.insert(
@@ -590,6 +686,58 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         json!(state.daemon_mode().as_str()),
     );
     session_json.insert(
+        "watcher_running".to_owned(),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.running)
+            .unwrap_or(false)),
+    );
+    session_json.insert(
+        "watcher_events_processed".to_owned(),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.events_processed)
+            .unwrap_or(0)),
+    );
+    session_json.insert(
+        "watcher_files_reindexed".to_owned(),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.files_reindexed)
+            .unwrap_or(0)),
+    );
+    session_json.insert(
+        "watcher_lock_contention_batches".to_owned(),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.lock_contention_batches)
+            .unwrap_or(0)),
+    );
+    session_json.insert(
+        "watcher_index_failures".to_owned(),
+        json!(watcher_failure_health.recent_failures),
+    );
+    session_json.insert(
+        "watcher_index_failures_total".to_owned(),
+        json!(watcher_failure_health.total_failures),
+    );
+    session_json.insert(
+        "watcher_stale_index_failures".to_owned(),
+        json!(watcher_failure_health.stale_failures),
+    );
+    session_json.insert(
+        "watcher_persistent_index_failures".to_owned(),
+        json!(watcher_failure_health.persistent_failures),
+    );
+    session_json.insert(
+        "watcher_pruned_missing_failures".to_owned(),
+        json!(watcher_failure_health.pruned_missing_failures),
+    );
+    session_json.insert(
+        "watcher_recent_failure_window_seconds".to_owned(),
+        json!(watcher_failure_health.recent_window_seconds),
+    );
+    session_json.insert(
         "avg_ms_per_call".to_owned(),
         json!(if session.total_calls > 0 {
             session.total_ms / session.total_calls
@@ -638,6 +786,23 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         "performance_watchpoint_emit_rate": if session.quality_contract_emitted_count > 0 {
             session.performance_watchpoint_emit_count as f64 / session.quality_contract_emitted_count as f64
         } else { 0.0 },
+        "verifier_contract_present_rate": if session.composite_calls > 0 {
+            session.verifier_contract_emitted_count as f64 / session.composite_calls as f64
+        } else { 0.0 },
+        "blocker_emit_rate": if session.verifier_contract_emitted_count > 0 {
+            session.blocker_emit_count as f64 / session.verifier_contract_emitted_count as f64
+        } else { 0.0 },
+        "verifier_followthrough_rate": if session.verifier_contract_emitted_count > 0 {
+            session.verifier_followthrough_count as f64 / session.verifier_contract_emitted_count as f64
+        } else { 0.0 },
+        "mutation_preflight_gate_deny_rate": if session.mutation_preflight_checked_count > 0 {
+            session.mutation_preflight_gate_denied_count as f64
+                / session.mutation_preflight_checked_count as f64
+        } else { 0.0 },
+        "deferred_hidden_tool_call_deny_rate": if session.deferred_namespace_expansion_count > 0 {
+            session.deferred_hidden_tool_call_denied_count as f64
+                / session.deferred_namespace_expansion_count as f64
+        } else { 0.0 },
         "truncation_followup_rate": if session.truncated_response_count > 0 {
             session.truncation_followup_count as f64 / session.truncated_response_count as f64
         } else { 0.0 },
@@ -646,6 +811,21 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
         } else { 0.0 },
         "analysis_job_success_rate": if session.analysis_jobs_started > 0 {
             session.analysis_jobs_completed as f64 / session.analysis_jobs_started as f64
+        } else { 0.0 },
+        "watcher_lock_contention_rate": if watcher_stats
+            .as_ref()
+            .map(|stats| stats.events_processed)
+            .unwrap_or(0)
+            > 0
+        {
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.lock_contention_batches as f64 / stats.events_processed as f64)
+                .unwrap_or(0.0)
+        } else { 0.0 },
+        "watcher_recent_failure_share": if watcher_failure_health.total_failures > 0 {
+            watcher_failure_health.recent_failures as f64
+                / watcher_failure_health.total_failures as f64
         } else { 0.0 }
     });
     Ok((

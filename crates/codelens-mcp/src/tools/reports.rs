@@ -1,11 +1,23 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
+use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
 use crate::tool_defs::{ToolProfile, ToolSurface};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
+
+const VERIFIER_READY: &str = "ready";
+const VERIFIER_CAUTION: &str = "caution";
+const VERIFIER_BLOCKED: &str = "blocked";
+
+#[derive(Default)]
+struct VerifierContract {
+    blockers: Vec<String>,
+    readiness: AnalysisReadiness,
+    verifier_checks: Vec<AnalysisVerifierCheck>,
+}
 
 fn strings_from_array(value: Option<&Vec<Value>>, field: &str, limit: usize) -> Vec<String> {
     value
@@ -27,6 +39,412 @@ fn strings_from_array(value: Option<&Vec<Value>>, field: &str, limit: usize) -> 
         .collect()
 }
 
+fn push_unique(values: &mut Vec<String>, value: impl Into<String>) {
+    let value = value.into();
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
+    }
+}
+
+fn push_verifier_check(
+    checks: &mut Vec<AnalysisVerifierCheck>,
+    check: &str,
+    status: &str,
+    summary: impl Into<String>,
+    evidence_section: Option<&str>,
+) {
+    if checks.len() >= 6 {
+        return;
+    }
+    checks.push(AnalysisVerifierCheck {
+        check: check.to_owned(),
+        status: status.to_owned(),
+        summary: summary.into(),
+        evidence_section: evidence_section.map(ToOwned::to_owned),
+    });
+}
+
+fn verifier_status_rank(status: &str) -> u8 {
+    match status {
+        VERIFIER_BLOCKED => 2,
+        VERIFIER_CAUTION => 1,
+        _ => 0,
+    }
+}
+
+fn combine_verifier_status<'a>(statuses: &[&'a str]) -> &'a str {
+    statuses
+        .iter()
+        .copied()
+        .max_by_key(|status| verifier_status_rank(status))
+        .unwrap_or(VERIFIER_READY)
+}
+
+fn normalized_touched_files(touched_files: &[String]) -> Vec<String> {
+    let mut files = Vec::new();
+    for file in touched_files {
+        let trimmed = file.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if !files.iter().any(|existing| existing == trimmed) {
+            files.push(trimmed.to_owned());
+        }
+        if files.len() >= 4 {
+            break;
+        }
+    }
+    files
+}
+
+fn browser_or_ssr_sensitive(
+    touched_files: &[String],
+    summary: &str,
+    top_findings: &[String],
+    next_actions: &[String],
+) -> bool {
+    let combined = format!(
+        "{} {} {} {}",
+        touched_files.join(" "),
+        summary,
+        top_findings.join(" "),
+        next_actions.join(" ")
+    )
+    .to_ascii_lowercase();
+    [
+        "browser", "frontend", "layout", "modal", "render", "route", "ssr", "ui",
+    ]
+    .iter()
+    .any(|needle| combined.contains(needle))
+}
+
+fn build_verifier_contract(
+    state: &AppState,
+    tool_name: &str,
+    summary: &str,
+    top_findings: &[String],
+    next_actions: &[String],
+    sections: &mut BTreeMap<String, Value>,
+    touched_files: &[String],
+    symbol_hint: Option<&str>,
+) -> VerifierContract {
+    let touched_files = normalized_touched_files(touched_files);
+    let mut contract = VerifierContract::default();
+
+    let mut diagnostic_rows = Vec::new();
+    let mut diagnostic_errors = Vec::new();
+    let mut diagnostic_count = 0usize;
+    for file in touched_files.iter().take(3) {
+        match super::lsp::get_file_diagnostics(
+            state,
+            &json!({"file_path": file, "max_results": 20}),
+        ) {
+            Ok((payload, _meta)) => {
+                let count = payload
+                    .get("count")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or_default() as usize;
+                diagnostic_count += count;
+                diagnostic_rows.push(json!({
+                    "file_path": file,
+                    "count": count,
+                    "diagnostics": payload.get("diagnostics").cloned().unwrap_or_else(|| json!([])),
+                }));
+            }
+            Err(error) => diagnostic_errors.push(json!({
+                "file_path": file,
+                "error": error.to_string(),
+            })),
+        }
+    }
+    let diagnostics_section = if !diagnostic_rows.is_empty() || !diagnostic_errors.is_empty() {
+        sections.insert(
+            "verifier_diagnostics".to_owned(),
+            json!({
+                "files": diagnostic_rows,
+                "errors": diagnostic_errors,
+            }),
+        );
+        Some("verifier_diagnostics")
+    } else {
+        None
+    };
+    let diagnostics_status = if diagnostic_count > 0 {
+        push_unique(
+            &mut contract.blockers,
+            "Resolve reported diagnostics before mutating the touched files",
+        );
+        VERIFIER_BLOCKED
+    } else if !touched_files.is_empty() && diagnostics_section.is_none() {
+        VERIFIER_CAUTION
+    } else {
+        VERIFIER_READY
+    };
+    contract.readiness.diagnostics_ready = diagnostics_status.to_owned();
+    let diagnostics_summary = if diagnostic_count > 0 {
+        format!("{diagnostic_count} diagnostic(s) reported across touched files.")
+    } else if !touched_files.is_empty() && diagnostics_section.is_none() {
+        "Diagnostics unavailable for touched files; treat edits as provisional.".to_owned()
+    } else if touched_files.is_empty() {
+        "No touched files were available for diagnostics checks.".to_owned()
+    } else {
+        format!(
+            "No diagnostics reported for {} touched file(s).",
+            touched_files.len()
+        )
+    };
+    push_verifier_check(
+        &mut contract.verifier_checks,
+        "diagnostic_verifier",
+        diagnostics_status,
+        diagnostics_summary,
+        diagnostics_section,
+    );
+
+    let mut reference_details = json!({
+        "tool_name": tool_name,
+        "symbol": symbol_hint,
+    });
+    let mut reference_status = VERIFIER_READY;
+    let mut reference_summary = "Reference safety signals look stable.".to_owned();
+    if tool_name == "safe_rename_report" || tool_name == "unresolved_reference_check" {
+        let symbol_match_count = sections
+            .get("symbol_matches")
+            .and_then(|value| value.get("count"))
+            .and_then(|value| value.as_u64())
+            .unwrap_or_default();
+        let reference_count = sections
+            .get("references")
+            .and_then(|value| value.get("count"))
+            .and_then(|value| value.as_u64())
+            .unwrap_or_default();
+        let preview_error = sections
+            .get("rename_preview")
+            .and_then(|value| value.get("preview_error"))
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned);
+        reference_details["symbol_match_count"] = json!(symbol_match_count);
+        reference_details["reference_count"] = json!(reference_count);
+        if let Some(error) = preview_error.as_deref() {
+            reference_details["preview_error"] = json!(error);
+        }
+        if symbol_match_count == 0 {
+            reference_status = VERIFIER_BLOCKED;
+            push_unique(
+                &mut contract.blockers,
+                "No exact symbol match found; resolve the target before renaming",
+            );
+            reference_summary =
+                "Rename target did not resolve to an exact symbol match.".to_owned();
+        } else if symbol_match_count > 1 {
+            reference_status = VERIFIER_BLOCKED;
+            push_unique(
+                &mut contract.blockers,
+                "Ambiguous symbol match; narrow the target before renaming",
+            );
+            reference_summary =
+                format!("{symbol_match_count} exact matches found; rename target is ambiguous.");
+        } else if preview_error.is_some() {
+            reference_status = VERIFIER_BLOCKED;
+            push_unique(
+                &mut contract.blockers,
+                "Rename preview failed; inspect the preview error before mutating references",
+            );
+            reference_summary = "Rename preview raised an error.".to_owned();
+        } else if reference_count == 0 {
+            reference_status = if tool_name == "safe_rename_report" {
+                push_unique(
+                    &mut contract.blockers,
+                    "Reference set is empty; verify call sites manually before renaming",
+                );
+                VERIFIER_BLOCKED
+            } else {
+                VERIFIER_CAUTION
+            };
+            reference_summary =
+                "Reference coverage is sparse; verify the target manually before refactoring."
+                    .to_owned();
+        } else {
+            reference_summary =
+                format!("{reference_count} classified reference(s) available for review.");
+        }
+    } else if tool_name == "impact_report" {
+        let impacted = sections
+            .get("impact_rows")
+            .and_then(|value| value.get("impacts"))
+            .and_then(|value| value.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let high_impact = impacted.iter().any(|row| {
+            row.get("affected_files")
+                .and_then(|value| value.as_u64())
+                .unwrap_or_default()
+                >= 8
+        });
+        reference_details["impact_rows"] = json!(impacted.len());
+        if high_impact {
+            reference_status = VERIFIER_CAUTION;
+            reference_summary =
+                "Large blast radius detected; expand importer evidence before broad edits."
+                    .to_owned();
+        } else if impacted.is_empty() {
+            reference_status = VERIFIER_CAUTION;
+            reference_summary =
+                "No impact rows were produced; verify importers manually before editing."
+                    .to_owned();
+        } else {
+            reference_summary = format!("Impact rows available for {} file(s).", impacted.len());
+        }
+    } else if tool_name == "refactor_safety_report" {
+        let symbol_error = sections
+            .get("symbol_impact")
+            .and_then(|value| value.get("error"))
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned);
+        let boundary_risk = sections
+            .get("module_boundary")
+            .and_then(|value| value.get("risk_level"))
+            .and_then(|value| value.as_str())
+            .unwrap_or("low");
+        reference_details["boundary_risk"] = json!(boundary_risk);
+        if symbol_error.is_some() {
+            reference_status = VERIFIER_BLOCKED;
+            push_unique(
+                &mut contract.blockers,
+                "Symbol impact could not be resolved; fix reference analysis before refactoring",
+            );
+            reference_summary =
+                "Symbol impact lookup failed for the requested refactor target.".to_owned();
+        } else if boundary_risk == "high" || boundary_risk == "medium" {
+            reference_status = VERIFIER_CAUTION;
+            reference_summary =
+                "Boundary analysis shows elevated structural risk; verify call paths before mutating."
+                    .to_owned();
+        }
+    } else if matches!(
+        tool_name,
+        "analyze_change_request" | "verify_change_readiness"
+    ) {
+        let ranked_files = sections
+            .get("ranked_files")
+            .and_then(|value| value.get("ranked_files"))
+            .and_then(|value| value.as_array())
+            .map(|value| value.len())
+            .unwrap_or_default();
+        reference_details["ranked_file_count"] = json!(ranked_files);
+        if ranked_files == 0 {
+            reference_status = VERIFIER_CAUTION;
+            reference_summary =
+                "No ranked file anchors were found; confirm the edit anchor manually.".to_owned();
+        } else {
+            reference_summary =
+                format!("{ranked_files} ranked file anchor(s) available for the change.");
+        }
+    }
+    let references_section = if reference_details.as_object().is_some() {
+        sections.insert("verifier_references".to_owned(), reference_details);
+        Some("verifier_references")
+    } else {
+        None
+    };
+    contract.readiness.reference_safety = reference_status.to_owned();
+    push_verifier_check(
+        &mut contract.verifier_checks,
+        "reference_verifier",
+        reference_status,
+        reference_summary,
+        references_section,
+    );
+
+    let mut related_tests = Vec::new();
+    for path in touched_files.iter().take(2) {
+        if let Ok((payload, _meta)) =
+            super::filesystem::find_tests(state, &json!({"path": path, "max_results": 10}))
+        {
+            related_tests.push(json!({
+                "path": path,
+                "tests": payload.get("tests").cloned().unwrap_or_else(|| json!([])),
+                "count": payload.get("count").cloned().unwrap_or_else(|| json!(0)),
+            }));
+        }
+    }
+    if related_tests.is_empty() {
+        if let Some(existing) = sections.get("related_tests") {
+            related_tests.push(existing.clone());
+        }
+    }
+    let sensitive = browser_or_ssr_sensitive(&touched_files, summary, top_findings, next_actions);
+    let related_test_count = related_tests
+        .iter()
+        .map(|entry| {
+            entry
+                .get("count")
+                .and_then(|value| value.as_u64())
+                .unwrap_or_default() as usize
+        })
+        .sum::<usize>();
+    let tests_section = if !related_tests.is_empty() || sensitive {
+        sections.insert(
+            "verifier_test_readiness".to_owned(),
+            json!({
+                "files": touched_files,
+                "related_tests": related_tests,
+                "browser_or_ssr_sensitive": sensitive,
+            }),
+        );
+        Some("verifier_test_readiness")
+    } else {
+        None
+    };
+    let test_status = if sensitive || related_test_count == 0 {
+        VERIFIER_CAUTION
+    } else {
+        VERIFIER_READY
+    };
+    contract.readiness.test_readiness = test_status.to_owned();
+    let test_summary = if sensitive {
+        "Browser/SSR-sensitive paths detected; hand off to UI or SSR verification.".to_owned()
+    } else if related_test_count == 0 {
+        "No nearby test targets were found; keep validation scope explicit.".to_owned()
+    } else {
+        format!("{related_test_count} related test target(s) found near the change.")
+    };
+    push_verifier_check(
+        &mut contract.verifier_checks,
+        "test_readiness_verifier",
+        test_status,
+        test_summary,
+        tests_section,
+    );
+
+    contract.blockers.truncate(5);
+    let mutation_status = if !contract.blockers.is_empty() {
+        VERIFIER_BLOCKED
+    } else {
+        combine_verifier_status(&[
+            contract.readiness.diagnostics_ready.as_str(),
+            contract.readiness.reference_safety.as_str(),
+            contract.readiness.test_readiness.as_str(),
+        ])
+    };
+    contract.readiness.mutation_ready = mutation_status.to_owned();
+    let mutation_summary = match mutation_status {
+        VERIFIER_BLOCKED => {
+            "Blockers remain; keep the workflow in preflight until they are resolved."
+        }
+        VERIFIER_CAUTION => "Proceed only with targeted edits and explicit verification steps.",
+        _ => "No blocker-level signals found; mutation path is ready for a narrow change.",
+    };
+    push_verifier_check(
+        &mut contract.verifier_checks,
+        "mutation_readiness_verifier",
+        mutation_status,
+        mutation_summary,
+        None,
+    );
+    contract
+}
+
 fn make_handle_response(
     state: &AppState,
     tool_name: &str,
@@ -35,10 +453,22 @@ fn make_handle_response(
     top_findings: Vec<String>,
     confidence: f64,
     next_actions: Vec<String>,
-    sections: BTreeMap<String, Value>,
+    mut sections: BTreeMap<String, Value>,
+    touched_files: Vec<String>,
+    symbol_hint: Option<String>,
 ) -> ToolResult {
     let risk_level = infer_risk_level(&summary, &top_findings, &next_actions);
     let ci_audit = matches!(*state.surface(), ToolSurface::Profile(ToolProfile::CiAudit));
+    let verifier = build_verifier_contract(
+        state,
+        tool_name,
+        &summary,
+        &top_findings,
+        &next_actions,
+        &mut sections,
+        &touched_files,
+        symbol_hint.as_deref(),
+    );
     if let Some(cache_key) = cache_key.as_deref() {
         if let Some(artifact) = state.find_reusable_analysis(tool_name, cache_key) {
             state.metrics().record_analysis_cache_hit();
@@ -50,22 +480,35 @@ fn make_handle_response(
                 &artifact.risk_level,
                 artifact.confidence,
                 &artifact.next_actions,
+                &artifact.blockers,
+                &artifact.readiness,
+                &artifact.verifier_checks,
                 &artifact.available_sections,
                 true,
                 ci_audit,
             );
             state.metrics().record_quality_contract_emitted(
-                data["quality_focus"].as_array().map(|v| v.len()).unwrap_or(0),
-                data["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
+                data["quality_focus"]
+                    .as_array()
+                    .map(|v| v.len())
+                    .unwrap_or(0),
+                data["recommended_checks"]
+                    .as_array()
+                    .map(|v| v.len())
+                    .unwrap_or(0),
                 data["performance_watchpoints"]
                     .as_array()
                     .map(|v| v.len())
                     .unwrap_or(0),
             );
-            return Ok((
-                data,
-                success_meta(BackendKind::Hybrid, artifact.confidence),
-            ));
+            state.metrics().record_verifier_contract_emitted(
+                data["blockers"].as_array().map(|v| v.len()).unwrap_or(0),
+                data["verifier_checks"]
+                    .as_array()
+                    .map(|v| v.len())
+                    .unwrap_or(0),
+            );
+            return Ok((data, success_meta(BackendKind::Hybrid, artifact.confidence)));
         }
     }
     let artifact = state.store_analysis(
@@ -76,6 +519,9 @@ fn make_handle_response(
         risk_level.to_owned(),
         confidence,
         next_actions.clone(),
+        verifier.blockers.clone(),
+        verifier.readiness.clone(),
+        verifier.verifier_checks.clone(),
         sections,
     )?;
     let data = build_handle_payload(
@@ -86,22 +532,35 @@ fn make_handle_response(
         &artifact.risk_level,
         artifact.confidence,
         &artifact.next_actions,
+        &artifact.blockers,
+        &artifact.readiness,
+        &artifact.verifier_checks,
         &artifact.available_sections,
         false,
         ci_audit,
     );
     state.metrics().record_quality_contract_emitted(
-        data["quality_focus"].as_array().map(|v| v.len()).unwrap_or(0),
-        data["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
+        data["quality_focus"]
+            .as_array()
+            .map(|v| v.len())
+            .unwrap_or(0),
+        data["recommended_checks"]
+            .as_array()
+            .map(|v| v.len())
+            .unwrap_or(0),
         data["performance_watchpoints"]
             .as_array()
             .map(|v| v.len())
             .unwrap_or(0),
     );
-    Ok((
-        data,
-        success_meta(BackendKind::Hybrid, confidence),
-    ))
+    state.metrics().record_verifier_contract_emitted(
+        data["blockers"].as_array().map(|v| v.len()).unwrap_or(0),
+        data["verifier_checks"]
+            .as_array()
+            .map(|v| v.len())
+            .unwrap_or(0),
+    );
+    Ok((data, success_meta(BackendKind::Hybrid, confidence)))
 }
 
 fn build_handle_payload(
@@ -112,10 +571,51 @@ fn build_handle_payload(
     risk_level: &str,
     confidence: f64,
     next_actions: &[String],
+    blockers: &[String],
+    readiness: &AnalysisReadiness,
+    verifier_checks: &[AnalysisVerifierCheck],
     available_sections: &[String],
     reused: bool,
     ci_audit: bool,
 ) -> Value {
+    let normalized_verifier_checks = if verifier_checks.is_empty() {
+        vec![
+            AnalysisVerifierCheck {
+                check: "diagnostic_verifier".to_owned(),
+                status: readiness.diagnostics_ready.clone(),
+                summary: "Refresh diagnostics evidence before trusting a reused artifact."
+                    .to_owned(),
+                evidence_section: None,
+            },
+            AnalysisVerifierCheck {
+                check: "reference_verifier".to_owned(),
+                status: readiness.reference_safety.clone(),
+                summary: "Refresh reference evidence before mutating reused analysis targets."
+                    .to_owned(),
+                evidence_section: None,
+            },
+            AnalysisVerifierCheck {
+                check: "test_readiness_verifier".to_owned(),
+                status: readiness.test_readiness.clone(),
+                summary: "Refresh test-readiness evidence before relying on a reused artifact."
+                    .to_owned(),
+                evidence_section: None,
+            },
+            AnalysisVerifierCheck {
+                check: "mutation_readiness_verifier".to_owned(),
+                status: readiness.mutation_ready.clone(),
+                summary: if blockers.is_empty() {
+                    "Reused artifact needs fresh verifier evidence before mutation.".to_owned()
+                } else {
+                    "Blockers remain on the reused artifact; refresh evidence before mutation."
+                        .to_owned()
+                },
+                evidence_section: None,
+            },
+        ]
+    } else {
+        verifier_checks.to_vec()
+    };
     let quality_focus = infer_quality_focus(tool_name, summary, top_findings);
     let recommended_checks = infer_recommended_checks(
         tool_name,
@@ -124,7 +624,8 @@ fn build_handle_payload(
         next_actions,
         available_sections,
     );
-    let performance_watchpoints = infer_performance_watchpoints(summary, top_findings, next_actions);
+    let performance_watchpoints =
+        infer_performance_watchpoints(summary, top_findings, next_actions);
     let mut payload = json!({
         "analysis_id": analysis_id,
         "summary": summary,
@@ -132,12 +633,30 @@ fn build_handle_payload(
         "risk_level": risk_level,
         "confidence": confidence,
         "next_actions": next_actions,
+        "blockers": blockers,
+        "blocker_count": blockers.len(),
+        "readiness": readiness,
+        "verifier_checks": normalized_verifier_checks,
         "quality_focus": quality_focus,
         "recommended_checks": recommended_checks,
         "performance_watchpoints": performance_watchpoints,
         "available_sections": available_sections,
         "reused": reused,
     });
+    // Compute numeric readiness_score for harness evaluators
+    fn status_to_score(s: &str) -> f64 {
+        match s {
+            "ready" => 1.0,
+            "caution" => 0.5,
+            _ => 0.0, // "blocked" or unknown
+        }
+    }
+    let readiness_score = (status_to_score(&readiness.diagnostics_ready)
+        + status_to_score(&readiness.reference_safety)
+        + status_to_score(&readiness.test_readiness)
+        + status_to_score(&readiness.mutation_ready))
+        / 4.0;
+    payload["readiness_score"] = json!(readiness_score);
     if ci_audit {
         payload["schema_version"] = json!("codelens-ci-audit-v1");
         payload["report_kind"] = json!(tool_name);
@@ -146,19 +665,21 @@ fn build_handle_payload(
             "finding_count": top_findings.len(),
             "next_action_count": next_actions.len(),
             "section_count": available_sections.len(),
+            "blocker_count": blockers.len(),
+            "verifier_check_count": payload["verifier_checks"].as_array().map(|v| v.len()).unwrap_or(0),
+            "ready_check_count": payload["verifier_checks"].as_array().map(|checks| checks.iter().filter(|check| check.get("status") == Some(&json!(VERIFIER_READY))).count()).unwrap_or(0),
+            "blocked_check_count": payload["verifier_checks"].as_array().map(|checks| checks.iter().filter(|check| check.get("status") == Some(&json!(VERIFIER_BLOCKED))).count()).unwrap_or(0),
             "quality_focus_count": payload["quality_focus"].as_array().map(|v| v.len()).unwrap_or(0),
             "recommended_check_count": payload["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
             "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map(|v| v.len()).unwrap_or(0),
         });
-        payload["evidence_handles"] = json!(
-            available_sections
-                .iter()
-                .map(|section| json!({
-                    "section": section,
-                    "uri": format!("codelens://analysis/{analysis_id}/{section}"),
-                }))
-                .collect::<Vec<_>>()
-        );
+        payload["evidence_handles"] = json!(available_sections
+            .iter()
+            .map(|section| json!({
+                "section": section,
+                "uri": format!("codelens://analysis/{analysis_id}/{section}"),
+            }))
+            .collect::<Vec<_>>());
     }
     payload
 }
@@ -175,7 +696,12 @@ fn infer_quality_focus(tool_name: &str, summary: &str, top_findings: &[String]) 
     push_unique("correctness");
     if matches!(
         tool_name,
-        "analyze_change_request" | "impact_report" | "refactor_safety_report" | "safe_rename_report"
+        "analyze_change_request"
+            | "verify_change_readiness"
+            | "impact_report"
+            | "refactor_safety_report"
+            | "safe_rename_report"
+            | "unresolved_reference_check"
     ) {
         push_unique("regression_safety");
     }
@@ -231,7 +757,10 @@ fn infer_recommended_checks(
     push_unique("run targeted tests for affected files or symbols");
     push_unique("run diagnostics or lint on touched files before finalizing");
 
-    if available_sections.iter().any(|section| section == "related_tests") {
+    if available_sections
+        .iter()
+        .any(|section| section == "related_tests")
+    {
         push_unique("expand related_tests and execute the highest-signal subset");
     }
     if combined.contains("rename") || combined.contains("refactor") {
@@ -561,6 +1090,12 @@ fn run_dead_code_report_job(
         0.84,
         vec!["Validate runtime entry points before deleting candidates".to_owned()],
         sections,
+        if scope == "." {
+            Vec::new()
+        } else {
+            vec![scope.to_owned()]
+        },
+        None,
     )
     .map(|(payload, _meta)| payload)
     .map_err(|error| error.to_string())
@@ -651,6 +1186,8 @@ fn run_impact_report_job(
         0.88,
         vec!["Expand only the highest-impact file before deeper review".to_owned()],
         sections,
+        target_files,
+        None,
     )
     .map(|(payload, _meta)| payload)
     .map_err(|error| error.to_string())
@@ -742,6 +1279,12 @@ fn run_refactor_safety_report_job(
         0.9,
         vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()],
         sections,
+        vec![arguments
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or(path)
+            .to_owned()],
+        symbol.map(ToOwned::to_owned),
     )
     .map(|(payload, _meta)| payload)
     .map_err(|error| error.to_string())
@@ -754,9 +1297,29 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
         &json!({"query": task, "max_tokens": 1200, "include_body": false, "depth": 2}),
     )?
     .0;
-    let changed = super::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))
-        .map(|out| out.0)
-        .unwrap_or_else(|_| json!({"files": [], "count": 0, "note": "git metadata unavailable"}));
+    let requested_changed_files = strings_from_array(
+        arguments
+            .get("changed_files")
+            .and_then(|value| value.as_array()),
+        "file",
+        8,
+    );
+    let changed = if requested_changed_files.is_empty() {
+        super::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))
+            .map(|out| out.0)
+            .unwrap_or_else(
+                |_| json!({"files": [], "count": 0, "note": "git metadata unavailable"}),
+            )
+    } else {
+        json!({
+            "files": requested_changed_files
+                .iter()
+                .map(|path| json!({"path": path, "status": "provided"}))
+                .collect::<Vec<_>>(),
+            "count": requested_changed_files.len(),
+            "source": "provided",
+        })
+    };
     let ranked_symbols = ranked
         .get("symbols")
         .and_then(|v| v.as_array())
@@ -811,6 +1374,14 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
     );
     sections.insert("raw_ranked_context".to_owned(), ranked);
     sections.insert("changed_files".to_owned(), changed);
+    let touched_files = strings_from_array(
+        sections
+            .get("changed_files")
+            .and_then(|value| value.get("files"))
+            .and_then(|value| value.as_array()),
+        "path",
+        6,
+    );
     make_handle_response(
         state,
         "analyze_change_request",
@@ -824,6 +1395,105 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
         0.9,
         next_actions,
         sections,
+        touched_files,
+        None,
+    )
+}
+
+pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResult {
+    let task = required_string(arguments, "task")?;
+    let ranked = super::symbols::get_ranked_context(
+        state,
+        &json!({"query": task, "max_tokens": 1200, "include_body": false, "depth": 2}),
+    )?
+    .0;
+    let requested_changed_files = strings_from_array(
+        arguments
+            .get("changed_files")
+            .and_then(|value| value.as_array()),
+        "file",
+        8,
+    );
+    let changed = if requested_changed_files.is_empty() {
+        super::graph::get_changed_files_tool(state, &json!({"include_untracked": true}))
+            .map(|out| out.0)
+            .unwrap_or_else(
+                |_| json!({"files": [], "count": 0, "note": "git metadata unavailable"}),
+            )
+    } else {
+        json!({
+            "files": requested_changed_files
+                .iter()
+                .map(|path| json!({"path": path, "status": "provided"}))
+                .collect::<Vec<_>>(),
+            "count": requested_changed_files.len(),
+            "source": "provided",
+        })
+    };
+    let ranked_symbols = ranked
+        .get("symbols")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let ranked_files = ranked_symbols
+        .iter()
+        .take(5)
+        .map(|entry| {
+            json!({
+                "file": entry.get("file").or_else(|| entry.get("file_path")).and_then(|v| v.as_str()).unwrap_or_default(),
+                "symbol": entry.get("name").and_then(|v| v.as_str()).unwrap_or_default(),
+                "kind": entry.get("kind").and_then(|v| v.as_str()).unwrap_or_default(),
+                "score": entry.get("relevance_score").cloned().unwrap_or(json!(0))
+            })
+        })
+        .collect::<Vec<_>>();
+    let top_findings = ranked_files
+        .iter()
+        .take(3)
+        .filter_map(|entry| {
+            Some(format!(
+                "{}: verify {} first",
+                entry.get("symbol")?.as_str()?,
+                entry.get("file")?.as_str()?
+            ))
+        })
+        .collect::<Vec<_>>();
+    let mut sections = BTreeMap::new();
+    sections.insert(
+        "ranked_files".to_owned(),
+        json!({
+            "task": task,
+            "ranked_files": ranked_files,
+        }),
+    );
+    sections.insert("raw_ranked_context".to_owned(), ranked);
+    sections.insert("changed_files".to_owned(), changed);
+    let touched_files = strings_from_array(
+        sections
+            .get("changed_files")
+            .and_then(|value| value.get("files"))
+            .and_then(|value| value.as_array()),
+        "path",
+        6,
+    );
+    make_handle_response(
+        state,
+        "verify_change_readiness",
+        stable_cache_key(
+            "verify_change_readiness",
+            arguments,
+            &["task", "profile_hint", "changed_files"],
+        ),
+        format!("Verifier-first readiness report for `{task}` with blockers and preflight cues."),
+        top_findings,
+        0.91,
+        vec![
+            "Review blockers before starting edits".to_owned(),
+            "Expand verifier evidence before enabling mutation tools".to_owned(),
+        ],
+        sections,
+        touched_files,
+        None,
     )
 }
 
@@ -882,6 +1552,15 @@ pub fn find_minimal_context_for_change(state: &AppState, arguments: &Value) -> T
         0.89,
         vec!["Open only the listed files first".to_owned()],
         sections,
+        top.iter()
+            .filter_map(|entry| {
+                entry
+                    .get("file")
+                    .and_then(|value| value.as_str())
+                    .map(ToOwned::to_owned)
+            })
+            .collect(),
+        None,
     )
 }
 
@@ -942,6 +1621,10 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
         0.88,
         vec!["Validate the dominant call sites before refactoring".to_owned()],
         sections,
+        file_path
+            .map(|value| vec![value.to_owned()])
+            .unwrap_or_default(),
+        Some(symbol.to_owned()),
     )
 }
 
@@ -1011,6 +1694,8 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         0.87,
         vec!["Check cycle hits before moving ownership boundaries".to_owned()],
         sections,
+        vec![path.to_owned()],
+        None,
     )
 }
 
@@ -1074,6 +1759,111 @@ pub fn safe_rename_report(state: &AppState, arguments: &Value) -> ToolResult {
         0.9,
         vec!["Review the preview before enabling mutation tools".to_owned()],
         sections,
+        vec![file_path.to_owned()],
+        Some(symbol.to_owned()),
+    )
+}
+
+pub fn unresolved_reference_check(state: &AppState, arguments: &Value) -> ToolResult {
+    let file_path = required_string(arguments, "file_path")?;
+    let symbol = arguments.get("symbol").and_then(|value| value.as_str());
+    let changed_files = strings_from_array(
+        arguments
+            .get("changed_files")
+            .and_then(|value| value.as_array()),
+        "file",
+        8,
+    );
+    let symbol_matches = if let Some(symbol) = symbol {
+        super::symbols::find_symbol(
+            state,
+            &json!({
+                "name": symbol,
+                "file_path": file_path,
+                "include_body": false,
+                "exact_match": true,
+                "max_matches": 5
+            }),
+        )?
+        .0
+    } else {
+        json!({
+            "symbols": [],
+            "count": 0,
+            "note": "Provide symbol to run an exact unresolved-reference check."
+        })
+    };
+    let references = if let Some(symbol) = symbol {
+        super::graph::find_scoped_references_tool(
+            state,
+            &json!({"symbol_name": symbol, "file_path": file_path, "max_results": 50}),
+        )?
+        .0
+    } else {
+        json!({
+            "references": [],
+            "count": 0,
+            "note": "Provide symbol to classify references."
+        })
+    };
+    let mut sections = BTreeMap::new();
+    sections.insert("symbol_matches".to_owned(), symbol_matches);
+    sections.insert("references".to_owned(), references);
+    if !changed_files.is_empty() {
+        sections.insert(
+            "changed_files".to_owned(),
+            json!({
+                "files": changed_files
+                    .iter()
+                    .map(|path| json!({"path": path, "status": "provided"}))
+                    .collect::<Vec<_>>(),
+                "count": changed_files.len(),
+                "source": "provided",
+            }),
+        );
+    }
+    let mut top_findings = if let Some(symbol) = symbol {
+        vec![format!(
+            "Reference guard prepared for `{symbol}` in `{file_path}`."
+        )]
+    } else {
+        vec![format!(
+            "Symbol hint missing for `{file_path}`; unresolved-reference verdict will stay conservative."
+        )]
+    };
+    if !changed_files.is_empty() {
+        top_findings.push(format!(
+            "{} changed file(s) supplied for context.",
+            changed_files.len()
+        ));
+    }
+    let mut touched_files = vec![file_path.to_owned()];
+    for path in changed_files {
+        if !touched_files.iter().any(|existing| existing == &path) {
+            touched_files.push(path);
+        }
+    }
+    make_handle_response(
+        state,
+        "unresolved_reference_check",
+        stable_cache_key(
+            "unresolved_reference_check",
+            arguments,
+            &["file_path", "symbol", "changed_files"],
+        ),
+        if let Some(symbol) = symbol {
+            format!("Unresolved-reference check for `{symbol}` in `{file_path}`.")
+        } else {
+            format!(
+                "Unresolved-reference check for `{file_path}` with conservative file-level guards."
+            )
+        },
+        top_findings,
+        0.87,
+        vec!["Expand verifier_references before a rename or broad edit".to_owned()],
+        sections,
+        touched_files,
+        symbol.map(ToOwned::to_owned),
     )
 }
 
@@ -1113,6 +1903,12 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
         0.84,
         vec!["Validate runtime entry points before deleting candidates".to_owned()],
         sections,
+        if scope == "." {
+            Vec::new()
+        } else {
+            vec![scope.to_owned()]
+        },
+        None,
     )
 }
 
@@ -1176,6 +1972,8 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         0.88,
         vec!["Expand only the highest-impact file before deeper review".to_owned()],
         sections,
+        target_files,
+        None,
     )
 }
 
@@ -1237,6 +2035,12 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         0.9,
         vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()],
         sections,
+        vec![arguments
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or(path)
+            .to_owned()],
+        symbol.map(ToOwned::to_owned),
     )
 }
 
@@ -1319,6 +2123,8 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
         0.86,
         vec!["Expand only the changed file with the highest reference count".to_owned()],
         sections,
+        changed_files,
+        None,
     )
 }
 
