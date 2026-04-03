@@ -1,3 +1,4 @@
+mod analysis_queue;
 mod authority;
 mod dispatch;
 mod error;
