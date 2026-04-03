@@ -3,8 +3,8 @@ use crate::protocol::BackendKind;
 use crate::tool_defs::{
     default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
 };
-use crate::tools::memory::list_memory_names;
 use codelens_core::detect_frameworks;
+use codelens_core::memory::list_memory_names;
 use serde_json::json;
 
 pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
