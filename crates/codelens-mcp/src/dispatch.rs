@@ -506,7 +506,7 @@ fn build_success_response(
         });
     }
 
-    // Strip non-essential fields in compact mode (saves ~300 tokens for harness evaluators)
+    // Strip non-essential fields in compact mode (saves ~500 tokens for harness evaluators)
     if compact {
         if let Some(ref mut data) = resp.data {
             if let Some(obj) = data.as_object_mut() {
@@ -518,6 +518,19 @@ fn build_success_response(
                 obj.remove("schema_version");
                 obj.remove("report_kind");
                 obj.remove("profile");
+                obj.remove("next_actions");
+                obj.remove("machine_summary");
+                // Compact verifier_checks: keep only check name + status, drop verbose summary
+                if let Some(checks) = obj.get_mut("verifier_checks") {
+                    if let Some(arr) = checks.as_array_mut() {
+                        for check in arr.iter_mut() {
+                            if let Some(check_obj) = check.as_object_mut() {
+                                check_obj.remove("summary");
+                                check_obj.remove("evidence_section");
+                            }
+                        }
+                    }
+                }
             }
         }
     }
