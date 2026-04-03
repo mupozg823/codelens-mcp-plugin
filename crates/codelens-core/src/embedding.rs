@@ -5,10 +5,7 @@ use crate::db::IndexDb;
 use crate::embedding_store::{EmbeddingChunk, EmbeddingStore, ScoredChunk};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
-use fastembed::{
-    EmbeddingModel, InitOptions, InitOptionsUserDefined, TextEmbedding, TokenizerFiles,
-    UserDefinedEmbeddingModel,
-};
+use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
 use rusqlite::Connection;
 use serde::Serialize;
 use std::sync::Mutex;
@@ -309,21 +306,87 @@ pub struct EmbeddingIndexInfo {
     pub indexed_symbols: usize,
 }
 
-/// Load the bundled CodeSearchNet model (MiniLM-L12 fine-tuned, ONNX INT8).
+/// Resolve the sidecar model directory.
+///
+/// Search order:
+/// 1. `$CODELENS_MODEL_DIR` env var (explicit override)
+/// 2. Next to the executable: `<exe_dir>/models/codesearch/`
+/// 3. User cache: `~/.cache/codelens/models/codesearch/`
+/// 4. Compile-time relative path (for development): `models/codesearch/` from crate root
+fn resolve_model_dir() -> Result<std::path::PathBuf> {
+    // Explicit override
+    if let Ok(dir) = std::env::var("CODELENS_MODEL_DIR") {
+        let p = std::path::PathBuf::from(dir).join("codesearch");
+        if p.join("model.onnx").exists() {
+            return Ok(p);
+        }
+    }
+
+    // Next to executable
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            let p = exe_dir.join("models").join("codesearch");
+            if p.join("model.onnx").exists() {
+                return Ok(p);
+            }
+        }
+    }
+
+    // User cache
+    if let Some(home) = dirs_fallback() {
+        let p = home
+            .join(".cache")
+            .join("codelens")
+            .join("models")
+            .join("codesearch");
+        if p.join("model.onnx").exists() {
+            return Ok(p);
+        }
+    }
+
+    // Development: crate-relative path
+    let dev_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("models")
+        .join("codesearch");
+    if dev_path.join("model.onnx").exists() {
+        return Ok(dev_path);
+    }
+
+    anyhow::bail!(
+        "CodeSearchNet model not found. Place model files in one of:\n\
+         - $CODELENS_MODEL_DIR/codesearch/\n\
+         - <executable>/models/codesearch/\n\
+         - ~/.cache/codelens/models/codesearch/\n\
+         Required files: model.onnx, tokenizer.json, config.json, special_tokens_map.json, tokenizer_config.json"
+    )
+}
+
+fn dirs_fallback() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(std::path::PathBuf::from)
+}
+
+/// Load the CodeSearchNet model from sidecar files (MiniLM-L12 fine-tuned, ONNX INT8).
 fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
-    let onnx_bytes = include_bytes!("../models/codesearch/model.onnx");
-    let tokenizer_bytes = include_bytes!("../models/codesearch/tokenizer.json");
-    let config_bytes = include_bytes!("../models/codesearch/config.json");
-    let special_tokens_bytes = include_bytes!("../models/codesearch/special_tokens_map.json");
-    let tokenizer_config_bytes = include_bytes!("../models/codesearch/tokenizer_config.json");
+    let model_dir = resolve_model_dir()?;
+
+    let onnx_bytes =
+        std::fs::read(model_dir.join("model.onnx")).context("failed to read model.onnx")?;
+    let tokenizer_bytes =
+        std::fs::read(model_dir.join("tokenizer.json")).context("failed to read tokenizer.json")?;
+    let config_bytes =
+        std::fs::read(model_dir.join("config.json")).context("failed to read config.json")?;
+    let special_tokens_bytes = std::fs::read(model_dir.join("special_tokens_map.json"))
+        .context("failed to read special_tokens_map.json")?;
+    let tokenizer_config_bytes = std::fs::read(model_dir.join("tokenizer_config.json"))
+        .context("failed to read tokenizer_config.json")?;
 
     let user_model = UserDefinedEmbeddingModel::new(
-        onnx_bytes.to_vec(),
+        onnx_bytes,
         TokenizerFiles {
-            tokenizer_file: tokenizer_bytes.to_vec(),
-            config_file: config_bytes.to_vec(),
-            special_tokens_map_file: special_tokens_bytes.to_vec(),
-            tokenizer_config_file: tokenizer_config_bytes.to_vec(),
+            tokenizer_file: tokenizer_bytes,
+            config_file: config_bytes,
+            special_tokens_map_file: special_tokens_bytes,
+            tokenizer_config_file: tokenizer_config_bytes,
         },
     );
 
@@ -337,76 +400,13 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
     ))
 }
 
-/// Load a fastembed built-in model (for backward compatibility).
-fn load_fastembed_model(embedding_model: EmbeddingModel) -> Result<(TextEmbedding, usize, String)> {
-    let mut model = TextEmbedding::try_new(
-        InitOptions::new(embedding_model.clone()).with_show_download_progress(false),
-    )
-    .context("failed to load embedding model")?;
-
-    let probe = model
-        .embed(vec!["dimension probe"], None)
-        .context("failed to detect embedding dimension")?;
-    let dimension = probe.first().map(|v| v.len()).unwrap_or(384);
-    let model_name = format!("{:?}", embedding_model);
-
-    Ok((model, dimension, model_name))
-}
-
-/// Parse CODELENS_EMBED_MODEL env var. Returns None for default (CodeSearchNet).
-fn parse_model_from_env() -> Option<EmbeddingModel> {
-    match std::env::var("CODELENS_EMBED_MODEL").ok().as_deref() {
-        Some("CodeSearchNet") | None => None, // Use bundled CodeSearchNet
-        Some("BGESmallENV15Q") => Some(EmbeddingModel::BGESmallENV15Q),
-        Some("GTEBaseENV15Q") => Some(EmbeddingModel::GTEBaseENV15Q),
-        Some("GTELargeENV15Q") => Some(EmbeddingModel::GTELargeENV15Q),
-        Some("JinaEmbeddingsV2BaseCode") => Some(EmbeddingModel::JinaEmbeddingsV2BaseCode),
-        Some("NomicEmbedTextV15Q") => Some(EmbeddingModel::NomicEmbedTextV15Q),
-        Some("BGEBaseENV15Q") => Some(EmbeddingModel::BGEBaseENV15Q),
-        Some("BGELargeENV15Q") => Some(EmbeddingModel::BGELargeENV15Q),
-        Some("SnowflakeArcticEmbedSQ") => Some(EmbeddingModel::SnowflakeArcticEmbedSQ),
-        Some("SnowflakeArcticEmbedMQ") => Some(EmbeddingModel::SnowflakeArcticEmbedMQ),
-        Some("SnowflakeArcticEmbedXSQ") => Some(EmbeddingModel::SnowflakeArcticEmbedXSQ),
-        Some("ModernBertEmbedLarge") => Some(EmbeddingModel::ModernBertEmbedLarge),
-        Some(other) => {
-            tracing::warn!(
-                model = other,
-                "unknown CODELENS_EMBED_MODEL, using CodeSearchNet"
-            );
-            None
-        }
-    }
-}
-
 pub fn configured_embedding_model_name() -> String {
-    match parse_model_from_env() {
-        None => CODESEARCH_MODEL_NAME.to_string(),
-        Some(model) => format!("{:?}", model),
-    }
+    CODESEARCH_MODEL_NAME.to_string()
 }
 
 impl EmbeddingEngine {
     pub fn new(project: &ProjectRoot) -> Result<Self> {
-        let (model, dimension, model_name) = match parse_model_from_env() {
-            None => load_codesearch_model()?,
-            Some(fastembed_model) => load_fastembed_model(fastembed_model)?,
-        };
-
-        let db_dir = project.as_path().join(".codelens/index");
-        std::fs::create_dir_all(&db_dir)?;
-        let db_path = db_dir.join("embeddings.db");
-
-        let store = SqliteVecStore::new(&db_path, dimension, &model_name)?;
-
-        Ok(Self {
-            model: Mutex::new(model),
-            store: Box::new(store),
-            model_name,
-        })
-    }
-
-    pub fn new_with_model(project: &ProjectRoot, embedding_model: EmbeddingModel) -> Result<Self> {
-        let (model, dimension, model_name) = load_fastembed_model(embedding_model)?;
+        let (model, dimension, model_name) = load_codesearch_model()?;
 
         let db_dir = project.as_path().join(".codelens/index");
         std::fs::create_dir_all(&db_dir)?;
@@ -1109,18 +1109,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_model_from_env_default() {
-        // Without env var, should return None (CodeSearchNet)
-        // SAFETY: test-only, single-threaded access to env var
-        unsafe { std::env::remove_var("CODELENS_EMBED_MODEL") };
-        let model = parse_model_from_env();
-        assert!(model.is_none(), "default should be CodeSearchNet (None)");
-    }
-
-    #[test]
     fn configured_embedding_model_name_defaults_to_codesearchnet() {
-        // SAFETY: test-only, single-threaded access to env var
-        unsafe { std::env::remove_var("CODELENS_EMBED_MODEL") };
         assert_eq!(configured_embedding_model_name(), CODESEARCH_MODEL_NAME);
     }
 }
