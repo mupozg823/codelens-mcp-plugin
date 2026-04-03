@@ -1,11 +1,15 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
 use crate::error::CodeLensError;
-use crate::protocol::{JsonRpcResponse, ToolCallResponse};
+use crate::mutation_gate::{
+    evaluate_mutation_gate, is_refactor_gated_mutation_tool, is_verifier_source_tool,
+    MutationGateAllowance, MutationGateFailure,
+};
+use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};
 use crate::tool_defs::{
     default_budget_for_profile, is_content_mutation_tool, is_read_only_surface, is_tool_in_surface,
     preferred_namespaces, preferred_tier_labels, tool_definition, tool_namespace, tool_tier_label,
-    ToolProfile,
+    ToolProfile, ToolSurface,
 };
 use crate::tools::{self, ToolHandler, ToolResult};
 use crate::AppState;
@@ -72,22 +76,7 @@ fn summarize_structured_content(value: &serde_json::Value, depth: usize) -> serd
     }
 }
 
-#[derive(Clone)]
-struct MutationGateAllowance {
-    caution: bool,
-}
-
-struct MutationGateFailure {
-    message: String,
-    analysis_id: Option<String>,
-    suggested_next_tools: Vec<String>,
-    budget_hint: String,
-    stale: bool,
-    rename_without_symbol_preflight: bool,
-    missing_preflight: bool,
-}
-
-fn logical_session_id(arguments: &serde_json::Value) -> &str {
+pub(crate) fn logical_session_id(arguments: &serde_json::Value) -> &str {
     arguments
         .get("_session_id")
         .and_then(|value| value.as_str())
@@ -120,7 +109,7 @@ fn session_full_tool_exposure(arguments: &serde_json::Value) -> bool {
 fn is_deferred_namespace_access_allowed(
     name: &str,
     arguments: &serde_json::Value,
-    surface: crate::tool_defs::ToolSurface,
+    surface: ToolSurface,
 ) -> bool {
     let deferred_requested = arguments
         .get("_session_deferred_tool_loading")
@@ -143,7 +132,7 @@ fn is_deferred_namespace_access_allowed(
 fn is_deferred_tier_access_allowed(
     name: &str,
     arguments: &serde_json::Value,
-    surface: crate::tool_defs::ToolSurface,
+    surface: ToolSurface,
 ) -> bool {
     let deferred_requested = arguments
         .get("_session_deferred_tool_loading")
@@ -161,226 +150,6 @@ fn is_deferred_tier_access_allowed(
         return true;
     }
     session_loaded_tiers(arguments).contains(&tier)
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-fn is_verifier_source_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "verify_change_readiness"
-            | "safe_rename_report"
-            | "unresolved_reference_check"
-            | "refactor_safety_report"
-    )
-}
-
-fn is_refactor_gated_mutation_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "rename_symbol"
-            | "replace_symbol_body"
-            | "delete_lines"
-            | "insert_at_line"
-            | "insert_before_symbol"
-            | "insert_after_symbol"
-            | "insert_content"
-            | "replace_content"
-            | "replace_lines"
-            | "replace"
-            | "create_text_file"
-            | "add_import"
-            | "refactor_extract_function"
-            | "refactor_inline_function"
-            | "refactor_move_to_file"
-            | "refactor_change_signature"
-    )
-}
-
-fn is_symbol_aware_mutation_tool(name: &str) -> bool {
-    matches!(name, "rename_symbol")
-}
-
-fn mutation_gate_failure(
-    name: &str,
-    reason: impl Into<String>,
-    analysis_id: Option<String>,
-    stale: bool,
-    rename_without_symbol_preflight: bool,
-    missing_preflight: bool,
-) -> MutationGateFailure {
-    let suggested_next_tools = if is_symbol_aware_mutation_tool(name) {
-        vec![
-            "safe_rename_report".to_owned(),
-            "unresolved_reference_check".to_owned(),
-            "get_analysis_section".to_owned(),
-        ]
-    } else {
-        vec![
-            "verify_change_readiness".to_owned(),
-            "get_analysis_section".to_owned(),
-            "get_file_diagnostics".to_owned(),
-        ]
-    };
-    let budget_hint = if is_symbol_aware_mutation_tool(name) {
-        "Run symbol-aware preflight before rename, then expand evidence if the target is ambiguous."
-            .to_owned()
-    } else {
-        "Run preflight first, then expand verifier evidence before mutation.".to_owned()
-    };
-    MutationGateFailure {
-        message: reason.into(),
-        analysis_id,
-        suggested_next_tools,
-        budget_hint,
-        stale,
-        rename_without_symbol_preflight,
-        missing_preflight,
-    }
-}
-
-fn evaluate_mutation_gate(
-    state: &AppState,
-    name: &str,
-    arguments: &serde_json::Value,
-    surface: crate::tool_defs::ToolSurface,
-) -> Result<Option<MutationGateAllowance>, MutationGateFailure> {
-    if !matches!(
-        surface,
-        crate::tool_defs::ToolSurface::Profile(ToolProfile::RefactorFull)
-    ) || !is_refactor_gated_mutation_tool(name)
-    {
-        return Ok(None);
-    }
-
-    let logical_session = logical_session_id(arguments);
-    let Some(preflight) = state.recent_preflight(logical_session) else {
-        return Err(mutation_gate_failure(
-            name,
-            format!(
-                "Tool `{name}` requires a fresh preflight in `refactor-full`. Run `verify_change_readiness` first."
-            ),
-            None,
-            false,
-            false,
-            true,
-        ));
-    };
-
-    if now_ms().saturating_sub(preflight.timestamp_ms) > crate::state::PREFLIGHT_TTL_MS {
-        return Err(mutation_gate_failure(
-            name,
-            format!(
-                "Tool `{name}` is blocked because the last `{}` preflight from surface `{}` is stale. Re-run verifier tools within {} seconds before mutating.",
-                preflight.tool_name,
-                preflight.surface,
-                state.preflight_ttl_seconds()
-            ),
-            preflight.analysis_id.clone(),
-            true,
-            false,
-            false,
-        ));
-    }
-
-    let mutation_paths = state.extract_target_paths(arguments);
-    if mutation_paths.is_empty() {
-        return Err(mutation_gate_failure(
-            name,
-            format!(
-                "Tool `{name}` is blocked because no mutation target path was provided for preflight matching."
-            ),
-            preflight.analysis_id.clone(),
-            false,
-            is_symbol_aware_mutation_tool(name),
-            false,
-        ));
-    }
-    let path_overlap = mutation_paths
-        .iter()
-        .any(|path| preflight.target_paths.iter().any(|target| target == path));
-    if !path_overlap {
-        return Err(mutation_gate_failure(
-            name,
-            format!(
-                "Tool `{name}` is blocked because the recent preflight does not cover the requested target paths."
-            ),
-            preflight.analysis_id.clone(),
-            false,
-            false,
-            false,
-        ));
-    }
-
-    if is_symbol_aware_mutation_tool(name) {
-        if !matches!(
-            preflight.tool_name.as_str(),
-            "safe_rename_report" | "unresolved_reference_check"
-        ) {
-            return Err(mutation_gate_failure(
-                name,
-                format!(
-                    "Tool `{name}` requires a symbol-aware preflight. Run `safe_rename_report` or `unresolved_reference_check` first."
-                ),
-                preflight.analysis_id.clone(),
-                false,
-                true,
-                false,
-            ));
-        }
-        let Some(mutation_symbol) = state.extract_symbol_hint(arguments) else {
-            return Err(mutation_gate_failure(
-                name,
-                format!(
-                    "Tool `{name}` requires an exact symbol hint plus symbol-aware preflight evidence."
-                ),
-                preflight.analysis_id.clone(),
-                false,
-                true,
-                false,
-            ));
-        };
-        if preflight
-            .symbol
-            .as_deref()
-            .map(|symbol| symbol != mutation_symbol)
-            .unwrap_or(true)
-        {
-            return Err(mutation_gate_failure(
-                name,
-                format!(
-                    "Tool `{name}` is blocked because the symbol-aware preflight does not match `{mutation_symbol}`."
-                ),
-                preflight.analysis_id.clone(),
-                false,
-                true,
-                false,
-            ));
-        }
-    }
-
-    if preflight.readiness.mutation_ready == "blocked" {
-        return Err(mutation_gate_failure(
-            name,
-            format!(
-                "Tool `{name}` is blocked by verifier readiness. The last `{}` preflight reported {} blocker(s); resolve them before mutation.",
-                preflight.tool_name, preflight.blocker_count
-            ),
-            preflight.analysis_id.clone(),
-            false,
-            false,
-            false,
-        ));
-    }
-
-    Ok(Some(MutationGateAllowance {
-        caution: preflight.readiness.mutation_ready == "caution",
-    }))
 }
 
 // ── Semantic handlers (feature-gated) ──────────────────────────────────
@@ -589,6 +358,266 @@ static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> = LazyLock::
     m
 });
 
+// ── Dispatch helpers ───────────────────────────────────────────────────
+
+/// Check surface, namespace, tier, and daemon-mode access.
+/// Returns `Ok(())` if the tool is allowed, `Err(CodeLensError)` if blocked.
+fn validate_tool_access(
+    name: &str,
+    arguments: &serde_json::Value,
+    surface: ToolSurface,
+    state: &AppState,
+) -> Result<(), CodeLensError> {
+    let active_surface = surface.as_label();
+
+    if !is_tool_in_surface(name, surface) {
+        return Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is not available in active surface `{active_surface}`"
+        )));
+    }
+
+    if !is_deferred_namespace_access_allowed(name, arguments, surface) {
+        state.metrics().record_deferred_hidden_tool_call_denied();
+        return Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is hidden by deferred loading in namespace `{}`. Call `tools/list` with `{{\"namespace\":\"{}\"}}` or `{{\"full\":true}}` first.",
+            tool_namespace(name),
+            tool_namespace(name)
+        )));
+    }
+
+    if !is_deferred_tier_access_allowed(name, arguments, surface) {
+        state.metrics().record_deferred_hidden_tool_call_denied();
+        return Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is hidden by deferred loading in tier `{}`. Call `tools/list` with `{{\"tier\":\"{}\"}}` or `{{\"full\":true}}` first.",
+            tool_tier_label(name),
+            tool_tier_label(name)
+        )));
+    }
+
+    let session_trusted_client = arguments
+        .get("_session_trusted_client")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
+
+    if is_content_mutation_tool(name)
+        && matches!(
+            state.daemon_mode(),
+            crate::state::RuntimeDaemonMode::MutationEnabled
+        )
+        && !session_trusted_client
+    {
+        return Err(CodeLensError::Validation(format!(
+            "Tool `{name}` requires a trusted HTTP client in daemon mode `{}`",
+            state.daemon_mode().as_str()
+        )));
+    }
+
+    if is_content_mutation_tool(name) && !state.mutation_allowed_in_runtime() {
+        return Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is blocked by daemon mode `{}`",
+            state.daemon_mode().as_str()
+        )));
+    }
+
+    if is_read_only_surface(surface) && is_content_mutation_tool(name) {
+        return Err(CodeLensError::Validation(format!(
+            "Tool `{name}` is blocked in read-only surface `{active_surface}`"
+        )));
+    }
+
+    Ok(())
+}
+
+/// Assemble a successful tool response with suggestions, budget, truncation, metrics.
+fn build_success_response(
+    name: &str,
+    payload: serde_json::Value,
+    meta: ToolResponseMeta,
+    state: &AppState,
+    surface: ToolSurface,
+    active_surface: &str,
+    arguments: &serde_json::Value,
+    gate_allowance: Option<&MutationGateAllowance>,
+    compact: bool,
+    harness_phase: Option<&str>,
+    start: std::time::Instant,
+    id: Option<serde_json::Value>,
+) -> JsonRpcResponse {
+    let elapsed_ms = start.elapsed().as_millis();
+
+    // Record preflight for verifier tools
+    if is_verifier_source_tool(name) {
+        state.record_recent_preflight_from_payload(
+            name,
+            active_surface,
+            logical_session_id(arguments),
+            arguments,
+            &payload,
+        );
+    }
+
+    // Record caution metric
+    if gate_allowance.map(|a| a.caution) == Some(true) {
+        state.metrics().record_mutation_with_caution();
+    }
+
+    // Output schema / structured content handling
+    let has_output_schema = tool_definition(name)
+        .and_then(|tool| tool.output_schema.as_ref())
+        .is_some();
+    let mut structured_content = has_output_schema.then(|| payload.clone());
+
+    let mut resp = ToolCallResponse::success(payload, meta);
+
+    // suggested_next_tools
+    resp.suggested_next_tools =
+        tools::suggest_next_contextual(name, &state.recent_tools(), harness_phase);
+
+    // token estimate + budget hint
+    let payload_estimate = serde_json::to_string(&resp.data)
+        .map(|s| tools::estimate_tokens(&s))
+        .unwrap_or(0);
+    resp.token_estimate = Some(payload_estimate);
+    let budget = request_token_budget();
+    resp.budget_hint = Some(budget_hint(name, payload_estimate, budget));
+    resp.elapsed_ms = Some(elapsed_ms as u64);
+
+    // Composite guidance
+    let mut emitted_composite_guidance = false;
+    if let Some((guided_tools, guidance_hint)) =
+        tools::composite_guidance_for_chain(name, &state.recent_tools(), surface)
+    {
+        emitted_composite_guidance = true;
+        let mut suggestions = guided_tools;
+        if let Some(existing) = resp.suggested_next_tools.take() {
+            for tool in existing {
+                if suggestions.len() >= 3 {
+                    break;
+                }
+                if !suggestions.iter().any(|candidate| candidate == &tool) {
+                    suggestions.push(tool);
+                }
+            }
+        }
+        resp.suggested_next_tools = Some(suggestions);
+        resp.budget_hint = Some(match resp.budget_hint.take() {
+            Some(existing) => format!("{existing} {guidance_hint}"),
+            None => guidance_hint,
+        });
+    }
+
+    // Strip non-essential fields in compact mode (saves ~300 tokens for harness evaluators)
+    if compact {
+        if let Some(ref mut data) = resp.data {
+            if let Some(obj) = data.as_object_mut() {
+                obj.remove("quality_focus");
+                obj.remove("recommended_checks");
+                obj.remove("performance_watchpoints");
+                obj.remove("available_sections");
+                obj.remove("evidence_handles");
+                obj.remove("schema_version");
+                obj.remove("report_kind");
+                obj.remove("profile");
+            }
+        }
+    }
+
+    let mut text = serde_json::to_string(&resp)
+        .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned());
+
+    // Truncation safety net: replace oversized responses with a valid JSON summary.
+    let max_chars = budget * 8; // 2x budget in chars
+    let mut truncated = false;
+    if text.len() > max_chars {
+        truncated = true;
+        if let Some(existing) = structured_content.as_ref() {
+            structured_content = Some(summarize_structured_content(existing, 0));
+        }
+        text = serde_json::to_string(&json!({
+            "success": true,
+            "truncated": true,
+            "error": format!(
+                "Response too large ({} tokens, budget {}). Narrow with path, max_tokens, or depth.",
+                payload_estimate, budget
+            ),
+            "token_estimate": payload_estimate,
+        }))
+        .unwrap_or_else(|_| "{\"success\":false,\"truncated\":true}".to_owned());
+    }
+
+    // Metrics recording
+    state.metrics().record_call_with_tokens(
+        name,
+        elapsed_ms as u64,
+        true,
+        payload_estimate,
+        active_surface,
+        truncated,
+    );
+    if emitted_composite_guidance {
+        state.metrics().record_composite_guidance_emitted();
+    }
+
+    // Final JSON-RPC response
+    let mut result = json!({
+        "content": [{ "type": "text", "text": text }]
+    });
+    if let Some(structured_content) = structured_content {
+        result["structuredContent"] = structured_content;
+    }
+    JsonRpcResponse::result(id, result)
+}
+
+/// Assemble an error response with gate failure details if applicable.
+fn build_error_response(
+    name: &str,
+    error: CodeLensError,
+    gate_failure: Option<MutationGateFailure>,
+    active_surface: &str,
+    state: &AppState,
+    start: std::time::Instant,
+    id: Option<serde_json::Value>,
+) -> JsonRpcResponse {
+    let elapsed_ms = start.elapsed().as_millis();
+
+    // Error metrics recording
+    state.metrics().record_call_with_tokens(
+        name,
+        elapsed_ms as u64,
+        false,
+        0,
+        active_surface,
+        false,
+    );
+
+    // Protocol-level errors: return as JSON-RPC error response
+    if error.is_protocol_error() {
+        return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());
+    }
+
+    // Tool execution errors: return as MCP isError content
+    let mut resp = ToolCallResponse::error(error.to_string());
+    if let Some(failure) = gate_failure {
+        let analysis_hint = failure
+            .analysis_id
+            .as_ref()
+            .map(|analysis_id| format!(" Last related analysis_id: `{analysis_id}`."))
+            .unwrap_or_default();
+        resp.error = Some(format!("{}{}", failure.message, analysis_hint));
+        resp.suggested_next_tools = Some(failure.suggested_next_tools);
+        resp.budget_hint = Some(failure.budget_hint);
+    }
+    let text = serde_json::to_string(&resp)
+        .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned());
+    JsonRpcResponse::result(
+        id,
+        json!({
+            "content": [{ "type": "text", "text": text }],
+            "isError": true
+        }),
+    )
+}
+
 // ── Dispatch entry point ───────────────────────────────────────────────
 
 pub(crate) fn dispatch_tool(
@@ -604,8 +633,7 @@ pub(crate) fn dispatch_tool(
         .cloned()
         .unwrap_or_else(|| json!({}));
 
-    // Request-scoped profile: set per-request budget via thread-local
-    // (avoids race condition when multiple HTTP requests run concurrently)
+    // 1. Extract params (_profile, _compact, _harness_phase)
     let request_budget = arguments
         .get("_profile")
         .and_then(|v| v.as_str())
@@ -626,7 +654,6 @@ pub(crate) fn dispatch_tool(
         .get("_compact")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-
     let harness_phase = arguments
         .get("_harness_phase")
         .and_then(|v| v.as_str())
@@ -638,56 +665,17 @@ pub(crate) fn dispatch_tool(
     state.push_recent_tool(name);
     let surface = *state.surface();
     let active_surface = surface.as_label().to_owned();
-    let session_trusted_client = arguments
-        .get("_session_trusted_client")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    let session_id = arguments
-        .get("_session_id")
-        .and_then(|value| value.as_str())
-        .unwrap_or_default();
+
+    // 2. Validate tool access (surface, namespace, tier, daemon mode)
+    if let Err(access_err) = validate_tool_access(name, &arguments, surface, state) {
+        return build_error_response(name, access_err, None, &active_surface, state, start, id);
+    }
+
+    // 3. Mutation gate check + 4. Execute tool via DISPATCH_TABLE
     let mut gate_allowance: Option<MutationGateAllowance> = None;
     let mut gate_failure: Option<MutationGateFailure> = None;
 
-    let result: ToolResult = if !is_tool_in_surface(name, surface) {
-        Err(CodeLensError::Validation(format!(
-            "Tool `{name}` is not available in active surface `{active_surface}`"
-        )))
-    } else if !is_deferred_namespace_access_allowed(name, &arguments, surface) {
-        state.metrics().record_deferred_hidden_tool_call_denied();
-        Err(CodeLensError::Validation(format!(
-            "Tool `{name}` is hidden by deferred loading in namespace `{}`. Call `tools/list` with `{{\"namespace\":\"{}\"}}` or `{{\"full\":true}}` first.",
-            tool_namespace(name),
-            tool_namespace(name)
-        )))
-    } else if !is_deferred_tier_access_allowed(name, &arguments, surface) {
-        state.metrics().record_deferred_hidden_tool_call_denied();
-        Err(CodeLensError::Validation(format!(
-            "Tool `{name}` is hidden by deferred loading in tier `{}`. Call `tools/list` with `{{\"tier\":\"{}\"}}` or `{{\"full\":true}}` first.",
-            tool_tier_label(name),
-            tool_tier_label(name)
-        )))
-    } else if is_content_mutation_tool(name)
-        && matches!(
-            state.daemon_mode(),
-            crate::state::RuntimeDaemonMode::MutationEnabled
-        )
-        && !session_trusted_client
-    {
-        Err(CodeLensError::Validation(format!(
-            "Tool `{name}` requires a trusted HTTP client in daemon mode `{}`",
-            state.daemon_mode().as_str()
-        )))
-    } else if is_content_mutation_tool(name) && !state.mutation_allowed_in_runtime() {
-        Err(CodeLensError::Validation(format!(
-            "Tool `{name}` is blocked by daemon mode `{}`",
-            state.daemon_mode().as_str()
-        )))
-    } else if is_read_only_surface(surface) && is_content_mutation_tool(name) {
-        Err(CodeLensError::Validation(format!(
-            "Tool `{name}` is blocked in read-only surface `{active_surface}`"
-        )))
-    } else if is_refactor_gated_mutation_tool(name) {
+    let result: ToolResult = if is_refactor_gated_mutation_tool(name) {
         state.metrics().record_mutation_preflight_checked();
         match evaluate_mutation_gate(state, name, &arguments, surface) {
             Ok(allowance) => {
@@ -711,7 +699,7 @@ pub(crate) fn dispatch_tool(
                 Err(CodeLensError::Validation(
                     gate_failure
                         .as_ref()
-                        .map(|failure| failure.message.clone())
+                        .map(|f| f.message.clone())
                         .unwrap_or_else(|| "mutation preflight rejected".to_owned()),
                 ))
             }
@@ -723,11 +711,16 @@ pub(crate) fn dispatch_tool(
         }
     };
 
+    // 5. Post-mutation side effects (graph invalidation, audit)
     if result.is_ok() && is_content_mutation_tool(name) {
         state.graph_cache().invalidate();
         if let Err(error) = state.record_mutation_audit(name, &active_surface, &arguments) {
             warn!(tool = name, error = %error, "failed to write mutation audit event");
         }
+        let session_id = arguments
+            .get("_session_id")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
         if !session_id.is_empty() {
             tracing::info!(
                 tool = name,
@@ -746,154 +739,24 @@ pub(crate) fn dispatch_tool(
         );
     }
 
+    // 6. Build response
     match result {
-        Ok((payload, meta)) => {
-            if is_verifier_source_tool(name) {
-                state.record_recent_preflight_from_payload(
-                    name,
-                    &active_surface,
-                    logical_session_id(&arguments),
-                    &arguments,
-                    &payload,
-                );
-            }
-            if gate_allowance.as_ref().map(|allowance| allowance.caution) == Some(true) {
-                state.metrics().record_mutation_with_caution();
-            }
-            let has_output_schema = tool_definition(name)
-                .and_then(|tool| tool.output_schema.as_ref())
-                .is_some();
-            let mut structured_content = has_output_schema.then(|| payload.clone());
-            let mut resp = ToolCallResponse::success(payload, meta);
-            resp.suggested_next_tools = tools::suggest_next_contextual(
-                name,
-                &state.recent_tools(),
-                harness_phase.as_deref(),
-            );
-            let payload_estimate = serde_json::to_string(&resp.data)
-                .map(|s| tools::estimate_tokens(&s))
-                .unwrap_or(0);
-            resp.token_estimate = Some(payload_estimate);
-            let budget = request_token_budget();
-            resp.budget_hint = Some(budget_hint(name, payload_estimate, budget));
-            resp.elapsed_ms = Some(elapsed_ms as u64);
-            let mut emitted_composite_guidance = false;
-            if let Some((guided_tools, guidance_hint)) =
-                tools::composite_guidance_for_chain(name, &state.recent_tools(), surface)
-            {
-                emitted_composite_guidance = true;
-                let mut suggestions = guided_tools;
-                if let Some(existing) = resp.suggested_next_tools.take() {
-                    for tool in existing {
-                        if suggestions.len() >= 3 {
-                            break;
-                        }
-                        if !suggestions.iter().any(|candidate| candidate == &tool) {
-                            suggestions.push(tool);
-                        }
-                    }
-                }
-                resp.suggested_next_tools = Some(suggestions);
-                resp.budget_hint = Some(match resp.budget_hint.take() {
-                    Some(existing) => format!("{existing} {guidance_hint}"),
-                    None => guidance_hint,
-                });
-            }
-
-            // Strip non-essential fields in compact mode (saves ~300 tokens for harness evaluators)
-            if compact {
-                if let Some(ref mut data) = resp.data {
-                    if let Some(obj) = data.as_object_mut() {
-                        obj.remove("quality_focus");
-                        obj.remove("recommended_checks");
-                        obj.remove("performance_watchpoints");
-                        obj.remove("available_sections");
-                        obj.remove("evidence_handles");
-                        obj.remove("schema_version");
-                        obj.remove("report_kind");
-                        obj.remove("profile");
-                    }
-                }
-            }
-
-            let mut text = serde_json::to_string(&resp).unwrap_or_else(|_| {
-                "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
-            });
-
-            // Global safety net: replace oversized responses with a valid JSON summary.
-            // This prevents any single tool from blowing up the context window.
-            let max_chars = budget * 8; // 2x budget in chars
-            let mut truncated = false;
-            if text.len() > max_chars {
-                truncated = true;
-                if let Some(existing) = structured_content.as_ref() {
-                    structured_content = Some(summarize_structured_content(existing, 0));
-                }
-                text = serde_json::to_string(&json!({
-                    "success": true,
-                    "truncated": true,
-                    "error": format!(
-                        "Response too large ({} tokens, budget {}). Narrow with path, max_tokens, or depth.",
-                        payload_estimate, budget
-                    ),
-                    "token_estimate": payload_estimate,
-                }))
-                .unwrap_or_else(|_| "{\"success\":false,\"truncated\":true}".to_owned());
-            }
-            state.metrics().record_call_with_tokens(
-                name,
-                elapsed_ms as u64,
-                true,
-                payload_estimate,
-                &active_surface,
-                truncated,
-            );
-            if emitted_composite_guidance {
-                state.metrics().record_composite_guidance_emitted();
-            }
-            let mut result = json!({
-                "content": [{ "type": "text", "text": text }]
-            });
-            if let Some(structured_content) = structured_content {
-                result["structuredContent"] = structured_content;
-            }
-            JsonRpcResponse::result(id, result)
-        }
+        Ok((payload, meta)) => build_success_response(
+            name,
+            payload,
+            meta,
+            state,
+            surface,
+            &active_surface,
+            &arguments,
+            gate_allowance.as_ref(),
+            compact,
+            harness_phase.as_deref(),
+            start,
+            id,
+        ),
         Err(error) => {
-            state.metrics().record_call_with_tokens(
-                name,
-                elapsed_ms as u64,
-                false,
-                0,
-                &active_surface,
-                false,
-            );
-            // Protocol-level errors: return as JSON-RPC error response
-            if error.is_protocol_error() {
-                return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());
-            }
-            // Tool execution errors: return as MCP isError content
-            let mut resp = ToolCallResponse::error(error.to_string());
-            if let Some(failure) = gate_failure {
-                let analysis_hint = failure
-                    .analysis_id
-                    .as_ref()
-                    .map(|analysis_id| format!(" Last related analysis_id: `{analysis_id}`."))
-                    .unwrap_or_default();
-                resp.error = Some(format!("{}{}", failure.message, analysis_hint));
-                resp.suggested_next_tools = Some(failure.suggested_next_tools);
-                resp.budget_hint = Some(failure.budget_hint);
-            }
-            let text = serde_json::to_string(&resp).unwrap_or_else(|_| {
-                "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
-            });
-            JsonRpcResponse::result(
-                id,
-                json!({
-                    "content": [{ "type": "text", "text": text }],
-                    "isError": true
-                }),
-            )
+            build_error_response(name, error, gate_failure, &active_surface, state, start, id)
         }
     }
 }

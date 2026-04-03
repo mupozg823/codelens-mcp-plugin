@@ -1,6 +1,7 @@
 mod authority;
 mod dispatch;
 mod error;
+mod mutation_gate;
 mod prompts;
 mod protocol;
 mod resources;
