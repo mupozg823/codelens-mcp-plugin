@@ -1,11 +1,15 @@
 mod analysis_queue;
 mod authority;
+mod client_profile;
 mod dispatch;
+mod dispatch_access;
+mod dispatch_response;
 mod error;
 mod mutation_gate;
 mod prompts;
 mod protocol;
 mod resources;
+mod runtime_types;
 mod server;
 mod state;
 mod telemetry;

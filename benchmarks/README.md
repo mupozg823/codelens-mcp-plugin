@@ -252,14 +252,22 @@ python3 benchmarks/export-routing-policy.py \
 - dated policy
   - `~/.codex/harness/policies/<date>-*.json`
   - `~/.codex/harness/policies/<date>-*.md`
-- canonical latest policy
+- canonical latest policies
+  - shared reference
+    - `~/.codex/harness/policies/codelens-routing-policy.shared.json`
+    - `~/.codex/harness/policies/codelens-routing-policy.shared.md`
+  - Codex
   - `~/.codex/harness/policies/codelens-routing-policy.json`
   - `~/.codex/harness/policies/codelens-routing-policy.md`
+  - Claude
+    - `~/.claude/harness/policies/codelens-routing-policy.json`
+    - `~/.claude/harness/policies/codelens-routing-policy.md`
 
 이 policy는:
 
 - global task-kind rule
 - repo-specific override
+- agent-specific optimization split
 - AGENTS/snippet용 설명
 
 을 함께 담는다.
@@ -272,9 +280,10 @@ python3 benchmarks/apply-routing-policy.py
 
 이 명령은:
 
-- `~/.codex/AGENTS.md` 에 generated `CodeLens Routing Policy` section을 주입/갱신
-- `~/.codex/harness/policies/repo-overrides/*.md` 에 repo별 override snippet 생성
-- `harness-eval-config.json` 에 등록된 repo 중 기존 `AGENTS.md` 가 있는 repo에는 project-local `CodeLens Repo Routing Policy` section도 주입/갱신
+- `~/.codex/AGENTS.md` 에 Codex용 generated `CodeLens Routing Policy` section을 주입/갱신
+- `~/.claude/CLAUDE.md` 에 Claude용 generated `CodeLens Routing Policy` section을 주입/갱신
+- `~/.codex/harness/policies/repo-overrides/*-codex.md`, `*-claude.md` 에 repo별 override snippet 생성
+- `harness-eval-config.json` 에 등록된 repo 중 기존 `AGENTS.md` / `CLAUDE.md` 가 있는 repo에는 project-local `CodeLens Repo Routing Policy` section도 각각 주입/갱신
 
 대표 repo 중 `AGENTS.md` 가 없는 저장소까지 bootstrap 하려면:
 

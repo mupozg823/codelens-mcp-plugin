@@ -6,8 +6,8 @@ mod presets;
 
 // Re-exports from presets
 pub(crate) use presets::{
-    default_budget_for_preset, default_budget_for_profile, is_tool_in_surface, tool_namespace,
-    ToolPreset, ToolProfile, ToolSurface,
+    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
+    is_tool_in_surface, tool_namespace,
 };
 
 // Re-exports from build

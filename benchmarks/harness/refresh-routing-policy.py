@@ -10,6 +10,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import agent_registry as agents
 import harness_eval_common as common
 
 
@@ -24,7 +25,9 @@ DEFAULT_REFRESH_REPORT_DIR = Path.home() / ".codex" / "harness" / "reports" / "r
 DEFAULT_REFRESH_STATUS_DIR = Path.home() / ".codex" / "harness" / "reports" / "refresh-status"
 DEFAULT_DRIFT_REPORT_DIR = Path.home() / ".codex" / "harness" / "reports" / "drift"
 DEFAULT_PREVIEW_POLICY_DIR = Path.home() / ".codex" / "harness" / "policies" / "previews"
-DEFAULT_CANONICAL_POLICY = Path.home() / ".codex" / "harness" / "policies" / "codelens-routing-policy.json"
+DEFAULT_CANONICAL_POLICY = Path(agents.get_agent("codex")["canonical_policy_json"])
+DEFAULT_SHARED_CANONICAL_POLICY = Path(agents.SHARED_POLICY["canonical_policy_json"])
+DEFAULT_CLAUDE_CANONICAL_POLICY = Path(agents.get_agent("claude")["canonical_policy_json"])
 HARNESS_EVAL_SCRIPT = SCRIPT_DIR / "harness-eval.py"
 EXPORT_POLICY_SCRIPT = SCRIPT_DIR / "export-routing-policy.py"
 APPLY_POLICY_SCRIPT = SCRIPT_DIR / "apply-routing-policy.py"
@@ -33,10 +36,7 @@ DEFAULT_REQUIRED_TASK_KINDS = [
     "onboarding/planning",
     "refactor preflight",
 ]
-DEFAULT_REQUIRED_AGENTS = [
-    "codex",
-    "claude",
-]
+DEFAULT_REQUIRED_AGENTS = agents.required_agents()
 
 
 def load_entries(paths):
@@ -182,6 +182,20 @@ def policy_drift_summary(canonical_policy_path: Path, preview_policy_path: Path)
     }
 
 
+def aggregate_policy_drift(platform_drifts):
+    global_changes = []
+    repo_override_changes = []
+    for platform, drift in sorted(platform_drifts.items()):
+        for row in drift.get("global_rule_changes") or []:
+            global_changes.append({"platform": platform, **row})
+        for row in drift.get("repo_override_changes") or []:
+            repo_override_changes.append({"platform": platform, **row})
+    return {
+        "global_rule_changes": global_changes,
+        "repo_override_changes": repo_override_changes,
+    }
+
+
 def render_drift_markdown(drift, canonical_policy_path: Path, preview_policy_path: Path):
     lines = [
         "# Routing Policy Drift",
@@ -199,7 +213,9 @@ def render_drift_markdown(drift, canonical_policy_path: Path, preview_policy_pat
     if drift["global_rule_changes"]:
         lines.extend(["## Global Rules", ""])
         for row in drift["global_rule_changes"]:
-            lines.append(f"- `{row['task_kind']}`")
+            platform = row.get("platform")
+            prefix = f"[{platform}] " if platform else ""
+            lines.append(f"- {prefix}`{row['task_kind']}`")
             lines.append(f"  - before: `{row['before']}`")
             lines.append(f"  - after: `{row['after']}`")
         lines.append("")
@@ -207,7 +223,9 @@ def render_drift_markdown(drift, canonical_policy_path: Path, preview_policy_pat
     if drift["repo_override_changes"]:
         lines.extend(["## Repo Overrides", ""])
         for row in drift["repo_override_changes"]:
-            lines.append(f"- `{row['repo_id']} / {row['task_kind']}`")
+            platform = row.get("platform")
+            prefix = f"[{platform}] " if platform else ""
+            lines.append(f"- {prefix}`{row['repo_id']} / {row['task_kind']}`")
             lines.append(f"  - before: `{row['before']}`")
             lines.append(f"  - after: `{row['after']}`")
         lines.append("")
@@ -395,20 +413,44 @@ def main():
         "--skip-canonical-write",
     ]
     preview_policy_result = run_json_command(export_preview_cmd)
-    policy_drift = policy_drift_summary(DEFAULT_CANONICAL_POLICY, preview_policy_json)
+    platform_policy_drift = {
+        "shared": policy_drift_summary(
+            DEFAULT_SHARED_CANONICAL_POLICY,
+            Path(preview_policy_result["shared_policy_json"]).expanduser(),
+        )
+    }
+    for agent in agents.agent_names():
+        platform_policy_drift[agent] = policy_drift_summary(
+            Path(agents.get_agent(agent)["canonical_policy_json"]),
+            Path(preview_policy_result[f"{agent}_policy_json"]).expanduser(),
+        )
+    policy_drift = aggregate_policy_drift(platform_policy_drift)
     drift_report_json = drift_report_dir / f"{base_name}.json"
     drift_report_md = drift_report_dir / f"{base_name}.md"
     drift_payload = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "canonical_policy_json": str(DEFAULT_CANONICAL_POLICY),
         "preview_policy_json": str(preview_policy_json),
+        "canonical_shared_policy_json": str(DEFAULT_SHARED_CANONICAL_POLICY),
+        "canonical_claude_policy_json": str(DEFAULT_CLAUDE_CANONICAL_POLICY),
+        "canonical_agent_policy_jsons": {
+            agent: str(agents.get_agent(agent)["canonical_policy_json"])
+            for agent in agents.agent_names()
+        },
         "global_rule_change_count": len(policy_drift["global_rule_changes"]),
         "repo_override_change_count": len(policy_drift["repo_override_changes"]),
         "changed": bool(policy_drift["global_rule_changes"] or policy_drift["repo_override_changes"]),
         "policy_drift": policy_drift,
+        "platform_policy_drift": platform_policy_drift,
     }
     drift_report_json.write_text(json.dumps(drift_payload, ensure_ascii=False, indent=2) + "\n")
-    drift_report_md.write_text(render_drift_markdown(policy_drift, DEFAULT_CANONICAL_POLICY, preview_policy_json))
+    drift_report_md.write_text(
+        render_drift_markdown(
+            policy_drift,
+            DEFAULT_SHARED_CANONICAL_POLICY,
+            Path(preview_policy_result["shared_policy_json"]).expanduser(),
+        )
+    )
 
     promote = coverage["ready"] and not args.skip_promote
     promoted_policy_result = None
@@ -430,7 +472,10 @@ def main():
                 str(APPLY_POLICY_SCRIPT),
                 "--policy",
                 str(DEFAULT_CANONICAL_POLICY),
+                "--claude-policy",
+                str(DEFAULT_CLAUDE_CANONICAL_POLICY),
                 "--bootstrap-missing-agents",
+                "--bootstrap-missing-claude",
             ]
         )
 
@@ -453,6 +498,7 @@ def main():
         "duplicate_real_session_count": len(coverage["duplicate_real_sessions"]),
         "duplicate_real_sessions": coverage["duplicate_real_sessions"],
         "policy_drift": policy_drift,
+        "platform_policy_drift": platform_policy_drift,
         "drift_report_json": str(drift_report_json),
         "drift_report_markdown": str(drift_report_md),
         "ready_for_promotion": coverage["ready"],
@@ -461,6 +507,16 @@ def main():
         "preview_report_markdown": str(preview_report_md),
         "preview_policy_json": str(preview_policy_json),
         "preview_policy_markdown": str(preview_policy_md),
+        "preview_shared_policy_json": preview_policy_result.get("shared_policy_json"),
+        "preview_shared_policy_markdown": preview_policy_result.get("shared_policy_markdown"),
+        "preview_agent_policy_jsons": {
+            agent: preview_policy_result.get(f"{agent}_policy_json")
+            for agent in agents.agent_names()
+        },
+        "preview_agent_policy_markdowns": {
+            agent: preview_policy_result.get(f"{agent}_policy_markdown")
+            for agent in agents.agent_names()
+        },
         "refresh_status_json": str(refresh_status_json),
         "refresh_status_markdown": str(refresh_status_md),
         "harness_eval_result": harness_result,
@@ -473,7 +529,22 @@ def main():
         "canonical_policy_markdown": (
             promoted_policy_result.get("canonical_markdown") if promoted_policy_result else None
         ),
+        "shared_canonical_policy_json": (
+            promoted_policy_result.get("shared_canonical_json") if promoted_policy_result else None
+        ),
+        "agent_canonical_policy_jsons": {
+            agent: promoted_policy_result.get(f"{agent}_canonical_json") if promoted_policy_result else None
+            for agent in agents.agent_names()
+        },
     }
+    if "codex" in agents.agent_names():
+        payload["preview_codex_policy_json"] = payload["preview_agent_policy_jsons"].get("codex")
+        payload["preview_codex_policy_markdown"] = payload["preview_agent_policy_markdowns"].get("codex")
+        payload["codex_canonical_policy_json"] = payload["agent_canonical_policy_jsons"].get("codex")
+    if "claude" in agents.agent_names():
+        payload["preview_claude_policy_json"] = payload["preview_agent_policy_jsons"].get("claude")
+        payload["preview_claude_policy_markdown"] = payload["preview_agent_policy_markdowns"].get("claude")
+        payload["claude_canonical_policy_json"] = payload["agent_canonical_policy_jsons"].get("claude")
     refresh_status_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
     refresh_status_md.write_text(render_refresh_status_markdown(payload))
     print(json.dumps(payload, ensure_ascii=False, indent=2))

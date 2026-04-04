@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 
 /// List all memory file names under the memories directory.
 /// Optionally filtered by topic prefix.

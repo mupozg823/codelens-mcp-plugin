@@ -30,7 +30,6 @@ def render_summary(data):
     quality_contract = data.get("quality_contract", {})
     verifier_contract = data.get("verifier_contract", {})
     gate_observability = data.get("gate_observability", {})
-    codex_like_sessions = data.get("codex_like_sessions", {})
     regression_results = []
     if workflow_results:
         workflow_savings = [float(result.get("savings_pct", 0)) for result in workflow_results]
@@ -315,50 +314,6 @@ def render_summary(data):
             )
         else:
             a(f"- skipped: {gate_observability.get('reason', 'unavailable')}")
-
-    if codex_like_sessions:
-        a("")
-        a("## Codex-Like Sessions")
-        a("")
-        if codex_like_sessions.get("supported"):
-            a("| Metric | Value |")
-            a("|---|---:|")
-            a(
-                f"| Scenarios | {fmt_int(codex_like_sessions.get('scenario_count', 0))} |"
-            )
-            a(
-                f"| Avg bootstrap tokens | {fmt_int(codex_like_sessions.get('avg_bootstrap_tokens', 0))} |"
-            )
-            a(
-                f"| Avg session overhead vs direct composite | {fmt_pct(codex_like_sessions.get('avg_session_overhead_vs_direct_pct', 0.0))} |"
-            )
-            a(
-                f"| Avg session savings vs baseline | {fmt_pct(codex_like_sessions.get('avg_session_savings_vs_baseline_pct', 0.0))} |"
-            )
-            scenarios = codex_like_sessions.get("scenarios", [])
-            if scenarios:
-                a("")
-                a("| Scenario | Bootstrap | Tool Response | Session Total | Direct Composite | Baseline | Savings vs Baseline | Overhead vs Direct | Visible Tools |")
-                a("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
-                for item in scenarios:
-                    if not item.get("supported"):
-                        a(
-                            f"| {item.get('scenario', 'unknown')} | - | - | - | - | - | - | - | skipped: {item.get('reason', 'unavailable')} |"
-                        )
-                        continue
-                    a(
-                        f"| {item.get('scenario', 'unknown')} | "
-                        f"{fmt_int(item.get('bootstrap_tokens', 0))} | "
-                        f"{fmt_int(item.get('tool_response_tokens', 0))} | "
-                        f"{fmt_int(item.get('total_session_tokens', 0))} | "
-                        f"{fmt_int(item.get('direct_profile_tokens', 0))} | "
-                        f"{fmt_int(item.get('baseline_tokens', 0))} | "
-                        f"{fmt_pct(item.get('session_savings_vs_baseline_pct', 0.0))} | "
-                        f"{fmt_pct(item.get('session_overhead_vs_direct_pct', 0.0))} | "
-                        f"{fmt_int(item.get('tool_count', 0))}/{fmt_int(item.get('tool_count_total', 0))} |"
-                    )
-        else:
-            a(f"- skipped: {codex_like_sessions.get('reason', 'unavailable')}")
 
     if results:
         a("")

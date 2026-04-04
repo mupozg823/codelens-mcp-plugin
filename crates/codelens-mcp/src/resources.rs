@@ -1,10 +1,10 @@
 //! MCP resource definitions and handlers.
 
-use crate::tool_defs::{
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
-    visible_namespaces, visible_tiers, visible_tools, ToolProfile,
-};
 use crate::AppState;
+use crate::tool_defs::{
+    ToolProfile, preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
+    visible_namespaces, visible_tiers, visible_tools,
+};
 use codelens_core::{detect_frameworks, detect_workspace_packages};
 use serde_json::json;
 use std::collections::BTreeMap;
@@ -440,14 +440,16 @@ fn analysis_summary_payload(artifact: &crate::state::AnalysisArtifact) -> serde_
             "recommended_check_count": payload["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
             "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map(|v| v.len()).unwrap_or(0),
         });
-        payload["evidence_handles"] = json!(artifact
-            .available_sections
-            .iter()
-            .map(|section| json!({
-                "section": section,
-                "uri": format!("codelens://analysis/{}/{section}", artifact.id),
-            }))
-            .collect::<Vec<_>>());
+        payload["evidence_handles"] = json!(
+            artifact
+                .available_sections
+                .iter()
+                .map(|section| json!({
+                    "section": section,
+                    "uri": format!("codelens://analysis/{}/{section}", artifact.id),
+                }))
+                .collect::<Vec<_>>()
+        );
     }
     payload
 }
@@ -828,31 +830,39 @@ pub(crate) fn read_resource(
             );
             stats.insert(
                 "watcher_running".to_owned(),
-                json!(watcher_stats
-                    .as_ref()
-                    .map(|stats| stats.running)
-                    .unwrap_or(false)),
+                json!(
+                    watcher_stats
+                        .as_ref()
+                        .map(|stats| stats.running)
+                        .unwrap_or(false)
+                ),
             );
             stats.insert(
                 "watcher_events_processed".to_owned(),
-                json!(watcher_stats
-                    .as_ref()
-                    .map(|stats| stats.events_processed)
-                    .unwrap_or(0)),
+                json!(
+                    watcher_stats
+                        .as_ref()
+                        .map(|stats| stats.events_processed)
+                        .unwrap_or(0)
+                ),
             );
             stats.insert(
                 "watcher_files_reindexed".to_owned(),
-                json!(watcher_stats
-                    .as_ref()
-                    .map(|stats| stats.files_reindexed)
-                    .unwrap_or(0)),
+                json!(
+                    watcher_stats
+                        .as_ref()
+                        .map(|stats| stats.files_reindexed)
+                        .unwrap_or(0)
+                ),
             );
             stats.insert(
                 "watcher_lock_contention_batches".to_owned(),
-                json!(watcher_stats
-                    .as_ref()
-                    .map(|stats| stats.lock_contention_batches)
-                    .unwrap_or(0)),
+                json!(
+                    watcher_stats
+                        .as_ref()
+                        .map(|stats| stats.lock_contention_batches)
+                        .unwrap_or(0)
+                ),
             );
             stats.insert(
                 "watcher_index_failures".to_owned(),

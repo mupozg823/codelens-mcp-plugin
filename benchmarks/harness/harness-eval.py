@@ -13,6 +13,7 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+import agent_registry as agents
 import harness_eval_common as common
 
 
@@ -30,6 +31,7 @@ WORKFLOW_TASK_MAP = {
     "Refactor safety": "refactor preflight",
 }
 LOCAL_LOOKUP_TASKS = ("Find symbol", "Understand file structure", "Context retrieval")
+DEFAULT_POLICY_AGENTS = agents.agent_names()
 
 def default_report_paths(label: str):
     stamp = datetime.now().strftime("%Y-%m-%d")
@@ -414,6 +416,38 @@ def build_task_summaries(entries):
     return summaries
 
 
+def build_agent_task_summaries(entries, policy_agents=DEFAULT_POLICY_AGENTS):
+    summaries = {}
+    seen_real_agents = []
+    for entry in entries:
+        if entry.get("source_kind") != "real-session":
+            continue
+        agent = (entry.get("agent") or "").strip().lower()
+        if not agent or agent in seen_real_agents:
+            continue
+        seen_real_agents.append(agent)
+
+    ordered_agents = []
+    for agent in policy_agents:
+        if agent not in ordered_agents:
+            ordered_agents.append(agent)
+    for agent in seen_real_agents:
+        if agent not in ordered_agents:
+            ordered_agents.append(agent)
+
+    for agent in ordered_agents:
+        scoped_entries = []
+        for entry in entries:
+            if entry.get("source_kind") == "synthetic":
+                scoped_entries.append(dict(entry))
+            elif (entry.get("agent") or "").strip().lower() == agent:
+                scoped_entries.append(dict(entry))
+        if not scoped_entries:
+            continue
+        summaries[agent] = build_task_summaries(scoped_entries)
+    return summaries
+
+
 def render_report(report):
     lines = []
     a = lines.append
@@ -611,6 +645,7 @@ def main():
         duplicate_real_sessions = []
 
     task_summaries = build_task_summaries(entries)
+    agent_task_summaries = build_agent_task_summaries(entries)
     report = {
         "schema_version": "codelens-harness-eval-v1",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -620,6 +655,7 @@ def main():
         "entries": entries,
         "duplicate_real_sessions": duplicate_real_sessions,
         "task_summaries": task_summaries,
+        "agent_task_summaries": agent_task_summaries,
         "synthetic_failures": synthetic_failures,
     }
 
@@ -641,6 +677,9 @@ def main():
                 "entry_count": len(entries),
                 "duplicate_real_session_count": len(duplicate_real_sessions),
                 "task_summary_count": len(task_summaries),
+                "agent_task_summary_count": sum(
+                    len(items) for items in agent_task_summaries.values()
+                ),
                 "synthetic_failures": synthetic_failures,
             },
             ensure_ascii=False,

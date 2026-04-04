@@ -42,9 +42,9 @@ def build_queue_id(item: dict) -> str:
 def latest_qualifying_entries(refresh, patterns):
     session_paths = refresh.resolve_session_entry_paths(patterns)
     entries = refresh.load_entries(session_paths)
-    config = refresh.load_json(Path(refresh.DEFAULT_CONFIG).expanduser())
+    config = common.load_json(Path(refresh.DEFAULT_CONFIG).expanduser())
     repo_map = {
-        refresh.normalize_repo_id(repo_cfg): repo_cfg
+        common.normalize_repo_id(repo_cfg): repo_cfg
         for repo_cfg in config.get("representative_repos", [])
     }
     latest = {}

@@ -1,15 +1,14 @@
 #[cfg(feature = "semantic")]
 use codelens_core::EmbeddingEngine;
 use codelens_core::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::analysis_queue::{
-    analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
-    STDIO_ANALYSIS_WORKER_COUNT,
+    AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
+    STDIO_ANALYSIS_WORKER_COUNT, analysis_job_cost_units,
 };
 use crate::error::CodeLensError;
 use crate::telemetry::ToolMetricsRegistry;
@@ -23,13 +22,11 @@ const ANALYSIS_TTL_MS: u64 = 24 * 60 * 60 * 1000;
 const WATCHER_RECENT_FAILURE_WINDOW_SECS: i64 = 15 * 60;
 pub(crate) const PREFLIGHT_TTL_MS: u64 = 10 * 60 * 1000;
 
-fn default_risk_level() -> String {
-    "medium".to_owned()
-}
-
-fn default_verifier_status() -> String {
-    "caution".to_owned()
-}
+pub(crate) use crate::client_profile::ClientProfile;
+pub(crate) use crate::runtime_types::{
+    AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisSummary, AnalysisVerifierCheck,
+    RecentPreflight, RuntimeDaemonMode, RuntimeTransportMode, WatcherFailureHealth,
+};
 
 fn push_unique_string(items: &mut Vec<String>, value: String) {
     if !items.iter().any(|existing| existing == &value) {
@@ -51,129 +48,6 @@ fn normalize_path_for_project(project_root: &Path, path: &str) -> String {
         .replace('\\', "/")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RuntimeTransportMode {
-    Stdio,
-    Http,
-}
-
-impl RuntimeTransportMode {
-    fn from_str(value: &str) -> Self {
-        match value {
-            "http" => Self::Http,
-            _ => Self::Stdio,
-        }
-    }
-
-    pub(crate) fn as_str(&self) -> &'static str {
-        match self {
-            Self::Stdio => "stdio",
-            Self::Http => "http",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RuntimeDaemonMode {
-    Standard,
-    ReadOnly,
-    MutationEnabled,
-}
-
-#[derive(Debug, Clone, Default, Serialize)]
-pub(crate) struct WatcherFailureHealth {
-    pub recent_failures: usize,
-    pub total_failures: usize,
-    pub stale_failures: usize,
-    pub persistent_failures: usize,
-    pub pruned_missing_failures: usize,
-    pub recent_window_seconds: i64,
-}
-
-impl RuntimeDaemonMode {
-    pub(crate) fn from_str(value: &str) -> Self {
-        match value {
-            "read-only" | "readonly" | "read_only" => Self::ReadOnly,
-            "mutation-enabled" | "mutation_enabled" | "mutating" => Self::MutationEnabled,
-            _ => Self::Standard,
-        }
-    }
-
-    pub(crate) fn as_str(&self) -> &'static str {
-        match self {
-            Self::Standard => "standard",
-            Self::ReadOnly => "read-only",
-            Self::MutationEnabled => "mutation-enabled",
-        }
-    }
-}
-
-// ── Client profile (Codex vs Claude optimization) ─────────────────────
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ClientProfile {
-    /// Claude Code — tighter budget, balanced preset excludes builtins
-    Claude,
-    /// OpenAI Codex CLI — larger budget, minimal preset (has own builtins)
-    Codex,
-    /// Unknown or generic MCP client
-    Generic,
-}
-
-impl ClientProfile {
-    /// Detect client from name string (from MCP clientInfo or env).
-    pub(crate) fn detect(client_name: Option<&str>) -> Self {
-        match client_name {
-            Some(name) => {
-                let lower = name.to_ascii_lowercase();
-                if lower.contains("codex") {
-                    Self::Codex
-                } else if lower.contains("claude") {
-                    Self::Claude
-                } else {
-                    Self::Generic
-                }
-            }
-            None => {
-                // Fallback: check env vars
-                if std::env::var("CLAUDE_PROJECT_DIR").is_ok()
-                    || std::env::var("CLAUDE_CODE_ENTRYPOINT").is_ok()
-                {
-                    Self::Claude
-                } else if std::env::var("CODEX_SANDBOX_DIR").is_ok() {
-                    Self::Codex
-                } else {
-                    Self::Generic
-                }
-            }
-        }
-    }
-
-    pub(crate) fn default_budget(&self) -> usize {
-        match self {
-            Self::Codex => 6000,  // larger context, cheaper tokens
-            Self::Claude => 4000, // tighter context, pricier tokens
-            Self::Generic => 4000,
-        }
-    }
-
-    pub(crate) fn default_preset(&self) -> crate::tool_defs::ToolPreset {
-        match self {
-            Self::Codex => crate::tool_defs::ToolPreset::Minimal, // Codex has own file tools
-            Self::Claude => crate::tool_defs::ToolPreset::Balanced, // exclude overlap
-            Self::Generic => crate::tool_defs::ToolPreset::Balanced,
-        }
-    }
-
-    pub(crate) fn as_str(&self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-            Self::Generic => "generic",
-        }
-    }
-}
-
 // ── Application state ──────────────────────────────────────────────────
 
 /// Holds project-specific resources that can be swapped at runtime.
@@ -186,104 +60,6 @@ struct ProjectOverride {
     audit_dir: PathBuf,
     #[allow(dead_code)]
     watcher: Option<FileWatcher>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct AnalysisArtifact {
-    pub id: String,
-    pub tool_name: String,
-    pub surface: String,
-    #[serde(default)]
-    pub project_scope: Option<String>,
-    #[serde(default)]
-    pub cache_key: Option<String>,
-    pub summary: String,
-    pub top_findings: Vec<String>,
-    #[serde(default = "default_risk_level")]
-    pub risk_level: String,
-    pub confidence: f64,
-    pub next_actions: Vec<String>,
-    #[serde(default)]
-    pub blockers: Vec<String>,
-    #[serde(default)]
-    pub readiness: AnalysisReadiness,
-    #[serde(default)]
-    pub verifier_checks: Vec<AnalysisVerifierCheck>,
-    pub available_sections: Vec<String>,
-    pub created_at_ms: u64,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub(crate) struct AnalysisReadiness {
-    #[serde(default = "default_verifier_status")]
-    pub diagnostics_ready: String,
-    #[serde(default = "default_verifier_status")]
-    pub reference_safety: String,
-    #[serde(default = "default_verifier_status")]
-    pub test_readiness: String,
-    #[serde(default = "default_verifier_status")]
-    pub mutation_ready: String,
-}
-
-impl Default for AnalysisReadiness {
-    fn default() -> Self {
-        Self {
-            diagnostics_ready: default_verifier_status(),
-            reference_safety: default_verifier_status(),
-            test_readiness: default_verifier_status(),
-            mutation_ready: default_verifier_status(),
-        }
-    }
-}
-
-#[derive(Clone, Default, Serialize, Deserialize)]
-pub(crate) struct AnalysisVerifierCheck {
-    #[serde(default)]
-    pub check: String,
-    #[serde(default = "default_verifier_status")]
-    pub status: String,
-    #[serde(default)]
-    pub summary: String,
-    #[serde(default)]
-    pub evidence_section: Option<String>,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct AnalysisSummary {
-    pub id: String,
-    pub tool_name: String,
-    pub summary: String,
-    pub surface: String,
-    pub created_at_ms: u64,
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub(crate) struct AnalysisJob {
-    pub id: String,
-    pub kind: String,
-    #[serde(default)]
-    pub project_scope: Option<String>,
-    pub status: String,
-    pub progress: u8,
-    pub current_step: Option<String>,
-    pub profile_hint: Option<String>,
-    pub estimated_sections: Vec<String>,
-    pub analysis_id: Option<String>,
-    pub error: Option<String>,
-    pub created_at_ms: u64,
-    pub updated_at_ms: u64,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct RecentPreflight {
-    pub tool_name: String,
-    pub analysis_id: Option<String>,
-    pub surface: String,
-    pub timestamp_ms: u64,
-    pub readiness: AnalysisReadiness,
-    pub blocker_count: usize,
-    pub target_paths: Vec<String>,
-    pub symbol: Option<String>,
 }
 
 pub(crate) struct AppState {

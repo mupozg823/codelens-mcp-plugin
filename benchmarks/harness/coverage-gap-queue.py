@@ -10,6 +10,7 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+import agent_registry as agents
 import harness_eval_common as common
 
 
@@ -18,9 +19,6 @@ SESSION_PACK_SCRIPT = SCRIPT_DIR / "session-pack.py"
 REFRESH_SCRIPT = SCRIPT_DIR / "refresh-routing-policy.py"
 TASK_BOOTSTRAP_SCRIPT = SCRIPT_DIR / "task-bootstrap.py"
 DEFAULT_OUTPUT_DIR = Path.home() / ".codex" / "harness" / "reports" / "coverage-queues"
-DEFAULT_POLICY = Path.home() / ".codex" / "harness" / "policies" / "codelens-routing-policy.json"
-DEFAULT_CODEX_WRAPPER = Path.home() / ".codex" / "harness" / "bin" / "codex-harness-task"
-DEFAULT_CLAUDE_WRAPPER = Path.home() / ".claude" / "harness" / "bin" / "claude-harness-task"
 
 
 def load_module(path: Path, name: str):
@@ -44,10 +42,7 @@ def mode_for_policy(policy_name: str) -> str:
 
 
 def build_command(agent: str, pack_json: Path, scenario_id: str):
-    if agent == "claude":
-        base = [str(DEFAULT_CLAUDE_WRAPPER)]
-    else:
-        base = [str(DEFAULT_CODEX_WRAPPER)]
+    base = [str(agents.get_agent(agent)["wrapper_path"])]
     return base + [
         "--scenario-file",
         str(pack_json),
@@ -67,13 +62,16 @@ def render_markdown(queue_items, pack_json: Path):
         "",
     ]
     by_agent = Counter(item["agent"] for item in queue_items)
+    agent_summary = [
+        f"- {agents.agent_label(agent)} items: `{by_agent.get(agent, 0)}`"
+        for agent in agents.agent_names()
+    ]
     lines.extend(
         [
             "## Summary",
             "",
             f"- Total queue items: `{len(queue_items)}`",
-            f"- Codex items: `{by_agent.get('codex', 0)}`",
-            f"- Claude items: `{by_agent.get('claude', 0)}`",
+            *agent_summary,
             "",
             "## Queue",
             "",
@@ -106,7 +104,7 @@ def render_markdown(queue_items, pack_json: Path):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--policy", default=str(DEFAULT_POLICY))
+    parser.add_argument("--policy", default=str(agents.SHARED_POLICY["canonical_policy_json"]))
     parser.add_argument("--output-json", default="")
     parser.add_argument("--output-md", default="")
     parser.add_argument("--label", default="coverage-gap-queue")
@@ -116,8 +114,11 @@ def main():
     session_pack = load_module(SESSION_PACK_SCRIPT, "session_pack_module")
     task_bootstrap = load_module(TASK_BOOTSTRAP_SCRIPT, "task_bootstrap_module")
 
-    config = refresh.load_json(refresh.DEFAULT_CONFIG)
-    policy = task_bootstrap.load_json(Path(args.policy).expanduser())
+    config = common.load_json(Path(refresh.DEFAULT_CONFIG).expanduser())
+    agent_policies = {
+        agent: task_bootstrap.load_json(Path(agents.get_agent(agent)["canonical_policy_json"]).expanduser())
+        for agent in refresh.DEFAULT_REQUIRED_AGENTS
+    }
     session_paths = refresh.resolve_session_entry_paths([refresh.DEFAULT_SESSION_GLOB])
     entries = refresh.load_entries(session_paths)
     coverage = refresh.coverage_summary(
@@ -128,29 +129,27 @@ def main():
         list(refresh.DEFAULT_REQUIRED_AGENTS),
     )
 
-    needed_modes = set()
     scenario_requests = []
     for row in coverage["missing_agent_coverage"]:
-        resolved_rule = task_bootstrap.choose_rule(policy, row["repo_id"], row["task_kind"])
-        mode = mode_for_policy(resolved_rule["recommended_policy"])
-        needed_modes.add(mode)
-        scenario_requests.append(
-            {
-                "repo_id": row["repo_id"],
-                "repo_label": row["repo_label"],
-                "task_kind": row["task_kind"],
-                "missing_agents": row["missing_agents"],
-                "recommended_policy": resolved_rule["recommended_policy"],
-                "mode": mode,
-            }
-        )
+        for agent in row["missing_agents"]:
+            resolved_rule = task_bootstrap.choose_rule(agent_policies[agent], row["repo_id"], row["task_kind"])
+            scenario_requests.append(
+                {
+                    "repo_id": row["repo_id"],
+                    "repo_label": row["repo_label"],
+                    "task_kind": row["task_kind"],
+                    "agent": agent,
+                    "recommended_policy": resolved_rule["recommended_policy"],
+                    "mode": mode_for_policy(resolved_rule["recommended_policy"]),
+                }
+            )
 
     scenarios = session_pack.build_scenarios(
         config["representative_repos"],
-        refresh.load_json(session_pack.DEFAULT_CATALOG),
+        common.load_json(Path(session_pack.DEFAULT_CATALOG).expanduser()),
         selected_repos=sorted({item["repo_id"] for item in scenario_requests}),
         selected_tasks=sorted({item["task_kind"] for item in scenario_requests}),
-        selected_modes=sorted(needed_modes),
+        selected_modes=sorted({item["mode"] for item in scenario_requests}),
     )
     scenario_map = {
         (scenario["repo_id"], scenario["task_kind"], scenario["mode"]): scenario
@@ -176,28 +175,31 @@ def main():
     queue_items = []
     for request in scenario_requests:
         scenario = scenario_map[(request["repo_id"], request["task_kind"], request["mode"])]
-        for agent in request["missing_agents"]:
-            queue_items.append(
-                {
-                    "queue_id": build_queue_id(request["repo_id"], request["task_kind"], agent),
-                    "repo_id": request["repo_id"],
-                    "repo_label": request["repo_label"],
-                    "repo_path": scenario["repo_path"],
-                    "task_kind": request["task_kind"],
-                    "agent": agent,
-                    "mode": request["mode"],
-                    "recommended_policy": request["recommended_policy"],
-                    "missing_agents": request["missing_agents"],
-                    "scenario_id": scenario["scenario_id"],
-                    "scenario_pack_json": str(pack_json),
-                    "command": build_command(agent, pack_json, scenario["scenario_id"]),
-                }
-            )
+        queue_items.append(
+            {
+                "queue_id": build_queue_id(request["repo_id"], request["task_kind"], request["agent"]),
+                "repo_id": request["repo_id"],
+                "repo_label": request["repo_label"],
+                "repo_path": scenario["repo_path"],
+                "task_kind": request["task_kind"],
+                "agent": request["agent"],
+                "mode": request["mode"],
+                "recommended_policy": request["recommended_policy"],
+                "missing_agents": [request["agent"]],
+                "scenario_id": scenario["scenario_id"],
+                "scenario_pack_json": str(pack_json),
+                "command": build_command(request["agent"], pack_json, scenario["scenario_id"]),
+            }
+        )
 
     queue_payload = {
         "schema_version": "codelens-coverage-gap-queue-v1",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "policy_path": str(Path(args.policy).expanduser()),
+        "agent_policy_paths": {
+            agent: str(agents.get_agent(agent)["canonical_policy_json"])
+            for agent in refresh.DEFAULT_REQUIRED_AGENTS
+        },
         "session_entry_glob": refresh.DEFAULT_SESSION_GLOB,
         "required_task_kinds": list(refresh.DEFAULT_REQUIRED_TASK_KINDS),
         "required_agents": list(refresh.DEFAULT_REQUIRED_AGENTS),

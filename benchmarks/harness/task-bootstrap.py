@@ -8,16 +8,17 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import agent_registry as agents
 import harness_eval_common as common
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 BENCH_DIR = SCRIPT_DIR.parent
-DEFAULT_POLICY = Path.home() / ".codex" / "harness" / "policies" / "codelens-routing-policy.json"
-DEFAULT_CLAUDE_POLICY = Path.home() / ".claude" / "harness" / "policies" / "codelens-routing-policy.json"
+DEFAULT_POLICY = Path(agents.get_agent("codex")["canonical_policy_json"])
+DEFAULT_CLAUDE_POLICY = Path(agents.get_agent("claude")["canonical_policy_json"])
 DEFAULT_REPO_CONFIG = BENCH_DIR / "harness-eval-config.json"
-DEFAULT_OUTPUT_DIR = Path.home() / ".codex" / "harness" / "bootstrap"
-DEFAULT_CLAUDE_OUTPUT_DIR = Path.home() / ".claude" / "harness" / "bootstrap"
+DEFAULT_OUTPUT_DIR = Path(agents.get_agent("codex")["bootstrap_output_dir"])
+DEFAULT_CLAUDE_OUTPUT_DIR = Path(agents.get_agent("claude")["bootstrap_output_dir"])
 
 
 POLICY_RUNTIME = {
@@ -88,18 +89,13 @@ TASK_ENTRYPOINTS = {
 }
 
 PLATFORM_DEFAULTS = {
-    "codex": {
-        "global_instructions": str(Path.home() / ".codex" / "AGENTS.md"),
-        "repo_instructions_name": "AGENTS.md",
-        "default_policy": DEFAULT_POLICY,
-        "default_output_dir": DEFAULT_OUTPUT_DIR,
-    },
-    "claude": {
-        "global_instructions": str(Path.home() / ".claude" / "CLAUDE.md"),
-        "repo_instructions_name": "CLAUDE.md",
-        "default_policy": DEFAULT_CLAUDE_POLICY,
-        "default_output_dir": DEFAULT_CLAUDE_OUTPUT_DIR,
-    },
+    agent: {
+        "global_instructions": str(cfg["global_instruction_path"]),
+        "repo_instructions_name": cfg["repo_instruction_name"],
+        "default_policy": Path(cfg["canonical_policy_json"]),
+        "default_output_dir": Path(cfg["bootstrap_output_dir"]),
+    }
+    for agent, cfg in agents.AGENT_REGISTRY.items()
 }
 
 
@@ -241,9 +237,10 @@ def build_first_actions(task_kind: str, runtime: dict, scenario: dict | None = N
 
 
 def build_platform_actions(task_kind: str, platform: str, runtime: dict):
+    platform_cfg = agents.get_agent(platform)
     if platform == "claude":
         actions = [
-            "Read the repo-local `CLAUDE.md` and global `~/.claude/CLAUDE.md` before choosing a harness path.",
+            f"Read the repo-local `{platform_cfg['repo_instruction_name']}` and global `{platform_cfg['global_instruction_label']}` before choosing a harness path.",
         ]
         if runtime["use_codelens"] in {"recommended", "required"}:
             actions.append("Prefer CodeLens-aware exploration; do not use Explore agents for code tasks.")
@@ -251,7 +248,7 @@ def build_platform_actions(task_kind: str, platform: str, runtime: dict):
             actions.append("If the task grows beyond a local edit, select a Claude harness pattern (`tool-centric`, `workflow`, or `agent-loop`) explicitly.")
         return actions
     return [
-        "Follow repo-local `AGENTS.md` and global `~/.codex/AGENTS.md` before starting the task.",
+        f"Follow repo-local `{platform_cfg['repo_instruction_name']}` and global `{platform_cfg['global_instruction_label']}` before starting the task.",
     ]
 
 
@@ -364,7 +361,7 @@ def main():
     parser.add_argument("--repo", required=True)
     parser.add_argument("--task-kind", required=True)
     parser.add_argument("--task", default="")
-    parser.add_argument("--platform", choices=["codex", "claude"], default="codex")
+    parser.add_argument("--platform", choices=list(agents.agent_names()), default="codex")
     parser.add_argument("--policy", default="")
     parser.add_argument("--repo-config", default=str(DEFAULT_REPO_CONFIG))
     parser.add_argument("--output-json", default="")

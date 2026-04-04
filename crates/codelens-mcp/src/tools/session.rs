@@ -1,7 +1,7 @@
-use super::{success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, success_meta};
 use crate::protocol::BackendKind;
 use crate::tool_defs::{
-    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
+    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
 };
 use codelens_core::detect_frameworks;
 use codelens_core::memory::list_memory_names;
@@ -688,31 +688,39 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
     );
     session_json.insert(
         "watcher_running".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.running)
-            .unwrap_or(false)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.running)
+                .unwrap_or(false)
+        ),
     );
     session_json.insert(
         "watcher_events_processed".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.events_processed)
-            .unwrap_or(0)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.events_processed)
+                .unwrap_or(0)
+        ),
     );
     session_json.insert(
         "watcher_files_reindexed".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.files_reindexed)
-            .unwrap_or(0)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.files_reindexed)
+                .unwrap_or(0)
+        ),
     );
     session_json.insert(
         "watcher_lock_contention_batches".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.lock_contention_batches)
-            .unwrap_or(0)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.lock_contention_batches)
+                .unwrap_or(0)
+        ),
     );
     session_json.insert(
         "watcher_index_failures".to_owned(),

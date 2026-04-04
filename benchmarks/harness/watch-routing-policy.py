@@ -8,13 +8,14 @@ import json
 from datetime import datetime
 from pathlib import Path
 
+import agent_registry as agents
 import harness_eval_common as common
 
 
 DEFAULT_REFRESH_DIR = Path.home() / ".codex" / "harness" / "reports" / "refresh-status"
 DEFAULT_DRIFT_DIR = Path.home() / ".codex" / "harness" / "reports" / "drift"
 DEFAULT_WATCH_DIR = Path.home() / ".codex" / "harness" / "reports" / "watch"
-DEFAULT_CANONICAL_POLICY = Path.home() / ".codex" / "harness" / "policies" / "codelens-routing-policy.json"
+DEFAULT_CANONICAL_POLICY = Path(agents.get_agent("codex")["canonical_policy_json"])
 
 
 def list_json_files(directory: Path):
@@ -171,6 +172,14 @@ def render_markdown(payload):
             "",
         ]
     )
+    if payload.get("platform_canonical_policies"):
+        lines.extend(["## Platform Canonical Policies", ""])
+        for platform, row in sorted(payload["platform_canonical_policies"].items()):
+            lines.append(
+                f"- `{platform}` path=`{row['path']}` exists=`{row['exists']}` "
+                f"global_rules=`{row['global_rule_count']}` repo_overrides=`{row['repo_override_count']}`"
+            )
+        lines.append("")
 
     if payload["flapping"]["global_task_kinds"] or payload["flapping"]["repo_overrides"]:
         lines.extend(["## Drifted Rules In Window", ""])
@@ -227,6 +236,13 @@ def main():
             default=0,
         ),
         "canonical_policy": canonical_policy_summary(Path(args.canonical_policy).expanduser()),
+        "platform_canonical_policies": {
+            "shared": canonical_policy_summary(Path(agents.SHARED_POLICY["canonical_policy_json"])),
+            **{
+                agent: canonical_policy_summary(Path(agents.get_agent(agent)["canonical_policy_json"]))
+                for agent in agents.agent_names()
+            },
+        },
         "flapping": flapping_summary(rows),
         "warnings": warnings(rows),
         "history": rows,
