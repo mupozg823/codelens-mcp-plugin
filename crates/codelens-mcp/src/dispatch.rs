@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
-use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    SuccessResponseInput, build_error_response, build_success_response,
+    build_error_response, build_success_response, SuccessResponseInput,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
-    is_refactor_gated_mutation_tool,
+    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
+    MutationGateFailure,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
+use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
 use crate::tools::{self, ToolHandler, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -22,6 +22,62 @@ use tracing::{info_span, warn};
 // HTTP requests override the global token_budget concurrently.
 thread_local! {
     static REQUEST_BUDGET: std::cell::Cell<usize> = const { std::cell::Cell::new(4000) };
+}
+
+/// Normalized tool call request — extracted from raw JSON-RPC params.
+pub(crate) struct ToolCallEnvelope {
+    pub name: String,
+    pub arguments: serde_json::Value,
+    pub budget: usize,
+    pub compact: bool,
+    pub harness_phase: Option<String>,
+}
+
+impl ToolCallEnvelope {
+    /// Parse raw JSON-RPC params into a normalized envelope.
+    pub fn parse(
+        params: &serde_json::Value,
+        state: &AppState,
+    ) -> Result<Self, (&'static str, i64)> {
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or(("Missing tool name", -32602i64))?
+            .to_owned();
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let budget = arguments
+            .get("_profile")
+            .and_then(|v| v.as_str())
+            .map(|profile| {
+                ToolProfile::from_str(profile)
+                    .map(default_budget_for_profile)
+                    .unwrap_or_else(|| match profile {
+                        "fast_local" => 2000usize,
+                        "deep_semantic" => 16000,
+                        "safe_mutation" => 4000,
+                        _ => state.token_budget(),
+                    })
+            })
+            .unwrap_or_else(|| state.token_budget());
+        let compact = arguments
+            .get("_compact")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let harness_phase = arguments
+            .get("_harness_phase")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_owned());
+        Ok(Self {
+            name,
+            arguments,
+            budget,
+            compact,
+            harness_phase,
+        })
+    }
 }
 
 pub(crate) fn logical_session_id(arguments: &serde_json::Value) -> &str {
@@ -213,39 +269,16 @@ pub(crate) fn dispatch_tool(
     id: Option<serde_json::Value>,
     params: serde_json::Value,
 ) -> JsonRpcResponse {
-    let Some(name) = params.get("name").and_then(|value| value.as_str()) else {
-        return JsonRpcResponse::error(id, -32602, "Missing tool name");
+    // 1. Parse and normalize request
+    let envelope = match ToolCallEnvelope::parse(&params, state) {
+        Ok(env) => env,
+        Err((msg, code)) => return JsonRpcResponse::error(id, code, msg),
     };
-    let arguments = params
-        .get("arguments")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-
-    // 1. Extract params (_profile, _compact, _harness_phase)
-    let request_budget = arguments
-        .get("_profile")
-        .and_then(|v| v.as_str())
-        .map(|profile| {
-            ToolProfile::from_str(profile)
-                .map(default_budget_for_profile)
-                .unwrap_or_else(|| match profile {
-                    "fast_local" => 2000usize,
-                    "deep_semantic" => 16000,
-                    "safe_mutation" => 4000,
-                    _ => state.token_budget(),
-                })
-        })
-        .unwrap_or_else(|| state.token_budget());
-    REQUEST_BUDGET.set(request_budget);
-
-    let compact = arguments
-        .get("_compact")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let harness_phase = arguments
-        .get("_harness_phase")
-        .and_then(|v| v.as_str())
-        .map(|s| s.to_owned());
+    let name = envelope.name.as_str();
+    let arguments = &envelope.arguments;
+    let compact = envelope.compact;
+    let harness_phase = envelope.harness_phase;
+    REQUEST_BUDGET.set(envelope.budget);
 
     let span = info_span!("tool_call", tool = name);
     let _guard = span.enter();
@@ -255,7 +288,7 @@ pub(crate) fn dispatch_tool(
     let active_surface = surface.as_label().to_owned();
 
     // 2. Validate tool access (surface, namespace, tier, daemon mode)
-    if let Err(access_err) = validate_tool_access(name, &arguments, surface, state) {
+    if let Err(access_err) = validate_tool_access(name, arguments, surface, state) {
         return build_error_response(name, access_err, None, &active_surface, state, start, id);
     }
 
@@ -341,7 +374,7 @@ pub(crate) fn dispatch_tool(
             gate_allowance: gate_allowance.as_ref(),
             compact,
             harness_phase: harness_phase.as_deref(),
-            request_budget,
+            request_budget: envelope.budget,
             start,
             id,
         }),
