@@ -16,7 +16,6 @@ from pathlib import Path
 import agent_registry as agents
 import harness_eval_common as common
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 BENCH_DIR = SCRIPT_DIR.parent
 ROOT = BENCH_DIR.parent
@@ -32,6 +31,7 @@ WORKFLOW_TASK_MAP = {
 }
 LOCAL_LOOKUP_TASKS = ("Find symbol", "Understand file structure", "Context retrieval")
 DEFAULT_POLICY_AGENTS = agents.agent_names()
+
 
 def default_report_paths(label: str):
     stamp = datetime.now().strftime("%Y-%m-%d")
@@ -62,7 +62,9 @@ def resolve_binary(explicit: str):
     for candidate in candidates:
         if candidate.exists():
             return candidate.resolve()
-    raise FileNotFoundError("unable to find codelens-mcp binary; pass --binary or build the repo")
+    raise FileNotFoundError(
+        "unable to find codelens-mcp binary; pass --binary or build the repo"
+    )
 
 
 def run_token_benchmark(project_path: str, binary: Path):
@@ -78,7 +80,9 @@ def run_token_benchmark(project_path: str, binary: Path):
             "--output-json",
             str(output_json),
         ]
-        subprocess.run(cmd, cwd=ROOT, env=env, check=True, capture_output=True, text=True)
+        subprocess.run(
+            cmd, cwd=ROOT, env=env, check=True, capture_output=True, text=True
+        )
         benchmark = json.loads(output_json.read_text())
         session_cmd = [
             sys.executable,
@@ -89,8 +93,12 @@ def run_token_benchmark(project_path: str, binary: Path):
             "--output-json",
             str(session_overhead_json),
         ]
-        subprocess.run(session_cmd, cwd=ROOT, env=env, check=True, capture_output=True, text=True)
-        benchmark["harness_session_overhead"] = json.loads(session_overhead_json.read_text())
+        subprocess.run(
+            session_cmd, cwd=ROOT, env=env, check=True, capture_output=True, text=True
+        )
+        benchmark["harness_session_overhead"] = json.loads(
+            session_overhead_json.read_text()
+        )
         return benchmark
 
 
@@ -140,7 +148,9 @@ def make_entry(
 
 def summarize_local_lookup(repo_cfg, benchmark):
     relevant = [
-        item for item in benchmark.get("results", []) if item.get("task", "").startswith(LOCAL_LOOKUP_TASKS)
+        item
+        for item in benchmark.get("results", [])
+        if item.get("task", "").startswith(LOCAL_LOOKUP_TASKS)
     ]
     if not relevant:
         return []
@@ -148,7 +158,9 @@ def summarize_local_lookup(repo_cfg, benchmark):
     baseline_ms = sum(int(item.get("baseline_ms", 0)) for item in relevant)
     naive_tokens = sum(int(item.get("codelens_tokens", 0)) for item in relevant)
     naive_ms = sum(int(item.get("codelens_ms", 0)) for item in relevant)
-    notes = "synthetic aggregate over " + ", ".join(item.get("task", "unknown") for item in relevant)
+    notes = "synthetic aggregate over " + ", ".join(
+        item.get("task", "unknown") for item in relevant
+    )
     return [
         make_entry(
             repo_cfg,
@@ -200,7 +212,9 @@ def normalize_synthetic_entries(repo_cfg, benchmark):
     entries = []
     session_map = {
         item.get("scenario"): item
-        for item in (benchmark.get("harness_session_overhead", {}) or {}).get("scenarios", [])
+        for item in (benchmark.get("harness_session_overhead", {}) or {}).get(
+            "scenarios", []
+        )
         if item.get("supported")
     }
     for workflow in benchmark.get("workflow_results", []):
@@ -263,11 +277,11 @@ def normalize_synthetic_entries(repo_cfg, benchmark):
     entries.extend(summarize_local_lookup(repo_cfg, benchmark))
     return entries
 
+
 def load_synthetic_entries_from_report(path: Path, representative_repos):
     raw = common.load_json(path.expanduser())
     selected_paths = {
-        str(Path(repo_cfg["path"]).expanduser())
-        for repo_cfg in representative_repos
+        str(Path(repo_cfg["path"]).expanduser()) for repo_cfg in representative_repos
     }
     entries = []
     for entry in raw.get("entries", []):
@@ -288,20 +302,42 @@ def total_tokens(entry):
 
 def mode_stats(entries):
     count = len(entries)
-    quality_scores = [float(entry["quality_score"]) for entry in entries if entry.get("quality_score") is not None]
-    verify_scores = [entry.get("verify_passed") for entry in entries if entry.get("verify_passed") is not None]
-    acceptance_scores = [
-        entry.get("acceptance_passed") for entry in entries if entry.get("acceptance_passed") is not None
+    quality_scores = [
+        float(entry["quality_score"])
+        for entry in entries
+        if entry.get("quality_score") is not None
     ]
-    measured_success = [entry.get("success") for entry in entries if entry.get("success") is not None]
+    verify_scores = [
+        entry.get("verify_passed")
+        for entry in entries
+        if entry.get("verify_passed") is not None
+    ]
+    acceptance_scores = [
+        entry.get("acceptance_passed")
+        for entry in entries
+        if entry.get("acceptance_passed") is not None
+    ]
+    measured_success = [
+        entry.get("success") for entry in entries if entry.get("success") is not None
+    ]
     return {
         "count": count,
         "measured_count": len(measured_success),
-        "avg_total_tokens": sum(total_tokens(entry) for entry in entries) / count if count else 0.0,
-        "avg_bootstrap_tokens": sum(int(entry.get("bootstrap_tokens") or 0) for entry in entries) / count if count else 0.0,
-        "avg_quality_score": sum(quality_scores) / len(quality_scores) if quality_scores else None,
+        "avg_total_tokens": (
+            sum(total_tokens(entry) for entry in entries) / count if count else 0.0
+        ),
+        "avg_bootstrap_tokens": (
+            sum(int(entry.get("bootstrap_tokens") or 0) for entry in entries) / count
+            if count
+            else 0.0
+        ),
+        "avg_quality_score": (
+            sum(quality_scores) / len(quality_scores) if quality_scores else None
+        ),
         "verify_pass_rate": (
-            sum(1 for value in verify_scores if value) / len(verify_scores) if verify_scores else None
+            sum(1 for value in verify_scores if value) / len(verify_scores)
+            if verify_scores
+            else None
         ),
         "acceptance_pass_rate": (
             sum(1 for value in acceptance_scores if value) / len(acceptance_scores)
@@ -313,7 +349,9 @@ def mode_stats(entries):
             if measured_success
             else None
         ),
-        "sample_notes": [entry.get("notes", "") for entry in entries[:2] if entry.get("notes")],
+        "sample_notes": [
+            entry.get("notes", "") for entry in entries[:2] if entry.get("notes")
+        ],
     }
 
 
@@ -321,7 +359,8 @@ def choose_policy(task_kind: str, stats_by_mode):
     viable = {
         mode: stats
         for mode, stats in stats_by_mode.items()
-        if stats.get("success_rate") is not None and stats.get("success_rate", 0.0) > 0.0
+        if stats.get("success_rate") is not None
+        and stats.get("success_rate", 0.0) > 0.0
     }
     if task_kind == "simple local lookup/edit":
         baseline = viable.get("baseline", {})
@@ -330,12 +369,16 @@ def choose_policy(task_kind: str, stats_by_mode):
             return "native_or_naive_both_ok_but_default_native"
         return "avoid_codelens_for_simple_local_lookup"
 
+    # Quality-aware path: only activate when >=2 modes have quality data
+    # and at least one exceeds the minimum threshold (0.3).
+    min_quality_threshold = 0.3
     quality_candidates = {
         mode: stats
         for mode, stats in viable.items()
         if stats.get("avg_quality_score") is not None
+        and stats["avg_quality_score"] >= min_quality_threshold
     }
-    if quality_candidates:
+    if len(quality_candidates) >= 2:
         best_mode = sorted(
             quality_candidates.items(),
             key=lambda item: (
@@ -354,10 +397,16 @@ def choose_policy(task_kind: str, stats_by_mode):
     baseline = viable.get("baseline", {})
     naive = viable.get("naive-on", {})
     routed = viable.get("routed-on", {})
-    if routed and routed.get("avg_total_tokens", 0) <= baseline.get("avg_total_tokens", 0):
+    if routed and routed.get("avg_total_tokens", 0) <= baseline.get(
+        "avg_total_tokens", 0
+    ):
         return "prefer_routed_codelens"
-    if naive and naive.get("avg_total_tokens", 0) <= baseline.get("avg_total_tokens", 0):
-        if routed and routed.get("avg_total_tokens", 0) > baseline.get("avg_total_tokens", 0):
+    if naive and naive.get("avg_total_tokens", 0) <= baseline.get(
+        "avg_total_tokens", 0
+    ):
+        if routed and routed.get("avg_total_tokens", 0) > baseline.get(
+            "avg_total_tokens", 0
+        ):
             return "prefer_codelens_after_bootstrap"
         return "prefer_naive_codelens"
     return "prefer_native_baseline"
@@ -388,7 +437,8 @@ def build_task_summaries(entries):
             and stats[mode].get("success_rate", 0.0) == 0.0
         ]
         has_real_quality = any(
-            entry.get("source_kind") == "real-session" and entry.get("quality_score") is not None
+            entry.get("source_kind") == "real-session"
+            and entry.get("quality_score") is not None
             for entry in group_entries
         )
         if has_real_quality and not unsupported_modes and not failing_modes:
@@ -478,12 +528,24 @@ def render_report(report):
     task_summaries = report["task_summaries"]
     binary = report.get("binary", "unknown")
     helped = [
-        item for item in task_summaries if item["recommended_policy"] in {"prefer_routed_codelens", "prefer_codelens_after_bootstrap", "prefer_naive_codelens"}
+        item
+        for item in task_summaries
+        if item["recommended_policy"]
+        in {
+            "prefer_routed_codelens",
+            "prefer_codelens_after_bootstrap",
+            "prefer_naive_codelens",
+        }
     ]
     hurt = [
-        item for item in task_summaries if item["recommended_policy"] in {"prefer_native_baseline", "avoid_codelens_for_simple_local_lookup"}
+        item
+        for item in task_summaries
+        if item["recommended_policy"]
+        in {"prefer_native_baseline", "avoid_codelens_for_simple_local_lookup"}
     ]
-    needs_more_data = [item for item in task_summaries if item.get("confidence") == "low"]
+    needs_more_data = [
+        item for item in task_summaries if item.get("confidence") == "low"
+    ]
 
     a("# CodeLens Harness Evaluation")
     a("")
@@ -492,17 +554,25 @@ def render_report(report):
     a("| Metric | Value |")
     a("|---|---|")
     a(f"| Binary | {binary} |")
-    a(f"| Synthetic entries | {sum(1 for entry in entries if entry.get('source_kind') == 'synthetic')} |")
-    a(f"| Real-session entries | {sum(1 for entry in entries if entry.get('source_kind') == 'real-session')} |")
+    a(
+        f"| Synthetic entries | {sum(1 for entry in entries if entry.get('source_kind') == 'synthetic')} |"
+    )
+    a(
+        f"| Real-session entries | {sum(1 for entry in entries if entry.get('source_kind') == 'real-session')} |"
+    )
     a(f"| Policy-input real sessions | {report.get('policy_real_session_count', 0)} |")
-    a(f"| Excluded non-qualifying real sessions | {report.get('excluded_policy_real_session_count', 0)} |")
+    a(
+        f"| Excluded non-qualifying real sessions | {report.get('excluded_policy_real_session_count', 0)} |"
+    )
     a(f"| Representative repos | {len(report['representative_repos'])} |")
     a(f"| Task summaries | {len(task_summaries)} |")
     a(f"| Baseline workflow savings | {baseline.get('workflow_total_savings_pct')}% |")
     a(
         f"| Baseline low-level chain | {baseline.get('low_level_chain_before')} -> {baseline.get('low_level_chain_after')} |"
     )
-    a(f"| Baseline avg bootstrap tokens | {baseline.get('codex_like_avg_bootstrap_tokens')} |")
+    a(
+        f"| Baseline avg bootstrap tokens | {baseline.get('codex_like_avg_bootstrap_tokens')} |"
+    )
     a(
         f"| Baseline direct-composite overhead | {baseline.get('codex_like_avg_overhead_vs_direct_pct')}% |"
     )
@@ -511,9 +581,19 @@ def render_report(report):
     a("")
     a("## Task-by-Task Results")
     a("")
-    a("| Repo | Task Kind | Mode | Source | Success | Acceptance | Verify | Quality | Total Tokens | Bootstrap | Calls | Low-level Chain | Elapsed(ms) | Policy |")
+    a(
+        "| Repo | Task Kind | Mode | Source | Success | Acceptance | Verify | Quality | Total Tokens | Bootstrap | Calls | Low-level Chain | Elapsed(ms) | Policy |"
+    )
     a("|---|---|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---|")
-    for entry in sorted(entries, key=lambda item: (item.get("repo_id", item["repo"]), item["task_kind"], item["mode"], item.get("source_kind", ""))):
+    for entry in sorted(
+        entries,
+        key=lambda item: (
+            item.get("repo_id", item["repo"]),
+            item["task_kind"],
+            item["mode"],
+            item.get("source_kind", ""),
+        ),
+    ):
         success = entry.get("success")
         success_label = "unsupported" if success is None else str(success)
         a(
@@ -612,7 +692,12 @@ def main():
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
     parser.add_argument("--binary", default="")
     parser.add_argument("--base-report", default="")
-    parser.add_argument("--repo", action="append", default=[], help="Repo id or absolute path. Can be passed multiple times.")
+    parser.add_argument(
+        "--repo",
+        action="append",
+        default=[],
+        help="Repo id or absolute path. Can be passed multiple times.",
+    )
     parser.add_argument("--skip-synthetic", action="store_true")
     parser.add_argument("--skip-real-sessions", action="store_true")
     parser.add_argument("--session-entry-glob", action="append", default=[])
@@ -660,7 +745,11 @@ def main():
     if not args.skip_real_sessions:
         patterns = list(args.session_entry_glob)
         if not args.no_default_session_glob:
-            patterns = [DEFAULT_SESSION_GLOB, *patterns] if patterns else [DEFAULT_SESSION_GLOB]
+            patterns = (
+                [DEFAULT_SESSION_GLOB, *patterns]
+                if patterns
+                else [DEFAULT_SESSION_GLOB]
+            )
         real_entries, duplicate_real_sessions = common.dedupe_real_session_entries(
             common.load_session_entries(patterns, selected)
         )
@@ -686,7 +775,8 @@ def main():
         "excluded_policy_real_session_count": sum(
             1
             for entry in entries
-            if entry.get("source_kind") == "real-session" and not common.qualifying_real_entry(entry)
+            if entry.get("source_kind") == "real-session"
+            and not common.qualifying_real_entry(entry)
         ),
         "duplicate_real_sessions": duplicate_real_sessions,
         "task_summaries": task_summaries,
