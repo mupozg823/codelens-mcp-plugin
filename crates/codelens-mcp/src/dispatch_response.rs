@@ -1,9 +1,9 @@
-use crate::AppState;
 use crate::error::CodeLensError;
-use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
+use crate::mutation_gate::{is_verifier_source_tool, MutationGateAllowance, MutationGateFailure};
 use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};
-use crate::tool_defs::{ToolSurface, tool_definition};
+use crate::tool_defs::{tool_definition, ToolSurface};
 use crate::tools;
+use crate::AppState;
 use serde_json::json;
 
 fn summarize_structured_content(value: &serde_json::Value, depth: usize) -> serde_json::Value {
@@ -168,6 +168,26 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     resp.token_estimate = Some(payload_estimate);
     resp.budget_hint = Some(budget_hint(name, payload_estimate, request_budget));
     resp.elapsed_ms = Some(elapsed_ms as u64);
+
+    // Set routing_hint based on response characteristics
+    let is_cached = resp
+        .data
+        .as_ref()
+        .and_then(|d| d.get("reused"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let is_analysis_handle = resp
+        .data
+        .as_ref()
+        .and_then(|d| d.get("analysis_id"))
+        .is_some();
+    resp.routing_hint = Some(if is_cached {
+        "cached".to_owned()
+    } else if is_analysis_handle {
+        "async".to_owned()
+    } else {
+        "sync".to_owned()
+    });
 
     let mut emitted_composite_guidance = false;
     if let Some((guided_tools, guidance_hint)) =

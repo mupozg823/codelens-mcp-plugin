@@ -11,10 +11,10 @@ pub mod reports;
 pub mod session;
 pub mod symbols;
 
-use crate::AppState;
 use crate::error::CodeLensError;
 use crate::protocol::{AnalysisSource, BackendKind, Freshness, ToolResponseMeta};
 use crate::tool_defs::{ToolProfile, ToolSurface};
+use crate::AppState;
 use std::collections::HashMap;
 
 /// Tool handler result type — every handler returns this.
@@ -353,6 +353,22 @@ pub fn suggest_next_contextual(
         suggestions.retain(|s| s != "get_file_diagnostics");
         suggestions.insert(0, "get_file_diagnostics".to_owned());
         suggestions.truncate(3);
+    }
+
+    // Before mutation: suggest verify_change_readiness after exploration/review
+    // so agents run preflight before editing code
+    if !MUTATION_TOOLS.contains(&tool_name)
+        && !suggestions.contains(&"verify_change_readiness".to_owned())
+    {
+        let is_pre_mutation_context = REVIEW_TOOLS.contains(&tool_name)
+            || EXPLORATION_TOOLS.contains(&tool_name)
+            || tool_name == "get_ranked_context"
+            || tool_name == "find_symbol"
+            || tool_name == "find_referencing_symbols";
+        if is_pre_mutation_context {
+            suggestions.push("verify_change_readiness".to_owned());
+            suggestions.truncate(4);
+        }
     }
 
     // During review workflow: boost review-oriented tools
