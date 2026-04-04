@@ -869,18 +869,119 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
 /// - No "passage:" prefix (model not trained with prefixes)
 /// - Include file context for disambiguation
 /// - Signature-focused (body inclusion hurts quality for this model)
-fn build_embedding_text(sym: &crate::db::SymbolWithFile, _source: Option<&str>) -> String {
+/// Build the text to embed for a symbol.
+///
+/// When `CODELENS_EMBED_DOCSTRINGS=1` is set, leading docstrings/comments are
+/// appended. Disabled by default because the bundled CodeSearchNet-INT8 model
+/// is optimized for code signatures and dilutes on natural language text.
+/// Enable when switching to a hybrid code+text model (E5-large, BGE-base, etc).
+fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> String {
     let file_ctx = if sym.file_path.is_empty() {
         String::new()
     } else {
         format!(" in {}", sym.file_path)
     };
 
-    if sym.signature.is_empty() {
+    let base = if sym.signature.is_empty() {
         format!("{} {}{}", sym.kind, sym.name, file_ctx)
     } else {
         format!("{} {}{}: {}", sym.kind, sym.name, file_ctx, sym.signature)
+    };
+
+    let docstrings_enabled = std::env::var("CODELENS_EMBED_DOCSTRINGS")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+
+    if !docstrings_enabled {
+        return base;
     }
+
+    let docstring = source
+        .and_then(|src| extract_leading_doc(src, sym.start_byte as usize, sym.end_byte as usize))
+        .unwrap_or_default();
+
+    if docstring.is_empty() {
+        base
+    } else {
+        let truncated = if docstring.len() > 200 {
+            format!("{}...", &docstring[..200])
+        } else {
+            docstring
+        };
+        format!("{} — {}", base, truncated)
+    }
+}
+
+/// Extract the leading docstring or comment block from a symbol's body.
+/// Supports: Python triple-quote, Rust //!//// doc comments, JS/TS /** */ blocks.
+fn extract_leading_doc(source: &str, start: usize, end: usize) -> Option<String> {
+    if start >= source.len() || end > source.len() || start >= end {
+        return None;
+    }
+    let body = &source[start..end.min(source.len())];
+    let lines: Vec<&str> = body.lines().skip(1).collect(); // skip the signature line
+    if lines.is_empty() {
+        return None;
+    }
+
+    let mut doc_lines = Vec::new();
+
+    // Python: triple-quote docstrings
+    let first_trimmed = lines.first().map(|l| l.trim()).unwrap_or_default();
+    if first_trimmed.starts_with("\"\"\"") || first_trimmed.starts_with("'''") {
+        let quote = &first_trimmed[..3];
+        for line in &lines {
+            let t = line.trim();
+            doc_lines.push(t.trim_start_matches(quote).trim_end_matches(quote));
+            if doc_lines.len() > 1 && t.ends_with(quote) {
+                break;
+            }
+        }
+    }
+    // Rust: /// or //! doc comments (before the body, captured by tree-sitter)
+    else if first_trimmed.starts_with("///") || first_trimmed.starts_with("//!") {
+        for line in &lines {
+            let t = line.trim();
+            if t.starts_with("///") || t.starts_with("//!") {
+                doc_lines.push(t.trim_start_matches("///").trim_start_matches("//!").trim());
+            } else {
+                break;
+            }
+        }
+    }
+    // JS/TS: /** ... */ block comments
+    else if first_trimmed.starts_with("/**") {
+        for line in &lines {
+            let t = line.trim();
+            let cleaned = t
+                .trim_start_matches("/**")
+                .trim_start_matches('*')
+                .trim_end_matches("*/")
+                .trim();
+            if !cleaned.is_empty() {
+                doc_lines.push(cleaned);
+            }
+            if t.ends_with("*/") {
+                break;
+            }
+        }
+    }
+    // Generic: leading // or # comment block
+    else {
+        for line in &lines {
+            let t = line.trim();
+            if t.starts_with("//") || t.starts_with('#') {
+                doc_lines.push(t.trim_start_matches("//").trim_start_matches('#').trim());
+            } else {
+                break;
+            }
+        }
+    }
+
+    if doc_lines.is_empty() {
+        return None;
+    }
+    Some(doc_lines.join(" ").trim().to_owned())
 }
 
 fn embedding_to_bytes(embedding: &[f32]) -> Vec<u8> {
@@ -990,6 +1091,28 @@ mod tests {
         };
         let text = build_embedding_text(&sym, None);
         assert_eq!(text, "variable CONFIG in config.py");
+    }
+
+    #[test]
+    fn extract_python_docstring() {
+        let source =
+            "def greet(name):\n    \"\"\"Say hello to a person.\"\"\"\n    print(f'hi {name}')\n";
+        let doc = extract_leading_doc(source, 0, source.len()).unwrap();
+        assert!(doc.contains("Say hello to a person"));
+    }
+
+    #[test]
+    fn extract_rust_doc_comment() {
+        let source = "fn dispatch_tool() {\n    /// Route incoming tool requests.\n    /// Handles all MCP methods.\n    let x = 1;\n}\n";
+        let doc = extract_leading_doc(source, 0, source.len()).unwrap();
+        assert!(doc.contains("Route incoming tool requests"));
+        assert!(doc.contains("Handles all MCP methods"));
+    }
+
+    #[test]
+    fn extract_leading_doc_returns_none_for_no_doc() {
+        let source = "def f():\n    return 1\n";
+        assert!(extract_leading_doc(source, 0, source.len()).is_none());
     }
 
     #[test]
