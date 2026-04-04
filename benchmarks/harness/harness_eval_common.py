@@ -182,6 +182,41 @@ def dedupe_real_session_entries(entries, include_entry=None):
     return deduped, duplicates
 
 
+def compute_quality_score(entry):
+    """Compute quality_score from session metrics when not manually set.
+
+    Returns float 0.0-1.0 or None if insufficient data.
+    Weights:
+      - error_free (0.3): no errors during session
+      - verifier_used (0.2): verifier contract was present
+      - verifier_followthrough (0.2): verifier checks were actually followed
+      - evidence_reuse (0.15): analysis handles were reused
+      - composite_usage (0.15): workflow tools were used (not just primitives)
+    """
+    metrics = entry.get("metrics_snapshot") or {}
+    error_count = int(metrics.get("error_count") or 0)
+    tool_calls = int(entry.get("tool_calls") or 0)
+
+    # Skip entries with no real tool activity
+    if tool_calls == 0:
+        return None
+
+    error_free = 1.0 if error_count == 0 else 0.0
+    verifier = 1.0 if entry.get("verifier_used") else 0.0
+    vf_rate = float(metrics.get("verifier_followthrough_rate") or 0.0)
+    evidence = min(float(entry.get("evidence_reuse_rate") or 0.0), 1.0)
+    composite = min(float(entry.get("composite_ratio") or 0.0), 1.0)
+
+    score = (
+        0.30 * error_free
+        + 0.20 * verifier
+        + 0.20 * vf_rate
+        + 0.15 * evidence
+        + 0.15 * composite
+    )
+    return round(score, 3)
+
+
 def filter_qualifying_entries(entries):
     """Return only entries that are synthetic OR qualifying real-sessions."""
     return [

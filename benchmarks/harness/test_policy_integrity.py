@@ -225,6 +225,67 @@ def test_normalize_repo_id_fallback():
     assert common.normalize_repo_id({"path": "/Users/dev/MyProject"}) == "MyProject"
 
 
+def test_compute_quality_score_full_signals():
+    """Entry with all quality signals gets a high score."""
+    entry = {
+        "tool_calls": 5,
+        "verifier_used": True,
+        "evidence_reuse_rate": 1.0,
+        "composite_ratio": 0.33,
+        "metrics_snapshot": {
+            "error_count": 0,
+            "verifier_followthrough_rate": 1.0,
+        },
+    }
+    score = common.compute_quality_score(entry)
+    assert score is not None
+    # 0.3*1.0 + 0.2*1.0 + 0.2*1.0 + 0.15*1.0 + 0.15*0.33 = 0.9 + 0.0495
+    assert 0.89 <= score <= 1.0, f"Expected high score, got {score}"
+
+
+def test_compute_quality_score_errors_lower_score():
+    """Errors reduce quality_score via the error_free component."""
+    entry = {
+        "tool_calls": 3,
+        "verifier_used": False,
+        "evidence_reuse_rate": 0.0,
+        "composite_ratio": 0.5,
+        "metrics_snapshot": {
+            "error_count": 2,
+            "verifier_followthrough_rate": 0.0,
+        },
+    }
+    score = common.compute_quality_score(entry)
+    assert score is not None
+    # 0.3*0.0 + 0.2*0.0 + 0.2*0.0 + 0.15*0.0 + 0.15*0.5 = 0.075
+    assert score == 0.075, f"Expected 0.075, got {score}"
+
+
+def test_compute_quality_score_no_tool_calls():
+    """Zero tool calls returns None — insufficient data."""
+    entry = {
+        "tool_calls": 0,
+        "verifier_used": True,
+        "metrics_snapshot": {"error_count": 0, "verifier_followthrough_rate": 1.0},
+    }
+    assert common.compute_quality_score(entry) is None
+
+
+def test_compute_quality_score_empty_claude_session():
+    """Claude placeholder session (all zeros) returns None."""
+    entry = {
+        "tool_calls": 0,
+        "verifier_used": False,
+        "evidence_reuse_rate": 0.0,
+        "composite_ratio": 0.0,
+        "metrics_snapshot": {
+            "error_count": 0,
+            "verifier_followthrough_rate": 0.0,
+        },
+    }
+    assert common.compute_quality_score(entry) is None
+
+
 def main():
     tests = [
         test_repo_override_trumps_global,
@@ -232,6 +293,10 @@ def main():
         test_repo_id_canonicalization,
         test_qualifying_filter,
         test_qualifying_real_entry_edge_cases,
+        test_compute_quality_score_full_signals,
+        test_compute_quality_score_errors_lower_score,
+        test_compute_quality_score_no_tool_calls,
+        test_compute_quality_score_empty_claude_session,
         test_promotion_structural_identity,
         test_promotion_structural_ignores_timestamps,
         test_normalize_repo_id_fallback,

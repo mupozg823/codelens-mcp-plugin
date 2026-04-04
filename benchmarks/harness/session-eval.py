@@ -11,7 +11,6 @@ from pathlib import Path
 
 import harness_eval_common as common
 
-
 DEFAULT_REPORT_DIR = Path.home() / ".codex" / "harness" / "reports" / "session-entries"
 
 
@@ -98,7 +97,7 @@ def build_entry(args, payload):
     if success is None:
         success = int(session.get("error_count") or 0) == 0
 
-    return {
+    entry_draft = {
         "schema_version": "codelens-harness-eval-entry-v1",
         "source_kind": "real-session",
         "captured_at": getattr(args, "captured_at", None),
@@ -117,11 +116,14 @@ def build_entry(args, payload):
         "token_out": token_out,
         "bootstrap_tokens": bootstrap_tokens,
         "tool_calls": int(session.get("total_calls") or 0),
-        "low_level_chain_count": int(session.get("repeated_low_level_chain_count") or 0),
+        "low_level_chain_count": int(
+            session.get("repeated_low_level_chain_count") or 0
+        ),
         "elapsed_ms": session.get("total_ms"),
         "notes": " | ".join(notes),
         "recommended_policy": args.recommended_policy or "pending",
-        "verifier_used": float(derived.get("verifier_contract_present_rate") or 0.0) > 0,
+        "verifier_used": float(derived.get("verifier_contract_present_rate") or 0.0)
+        > 0,
         "evidence_reuse_rate": float(derived.get("handle_reuse_rate") or 0.0),
         "recommended_check_followthrough_rate": float(
             derived.get("recommended_check_followthrough_rate") or 0.0
@@ -143,6 +145,12 @@ def build_entry(args, payload):
         },
         "captured_at": datetime.now().isoformat(timespec="seconds"),
     }
+
+    # Auto-compute quality_score from metrics when not manually set
+    if entry_draft["quality_score"] is None:
+        entry_draft["quality_score"] = common.compute_quality_score(entry_draft)
+
+    return entry_draft
 
 
 def render_markdown(entry):
@@ -175,14 +183,20 @@ def render_markdown(entry):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--input", default="", help="Path to raw get_tool_metrics JSON. Reads stdin when omitted.")
+    parser.add_argument(
+        "--input",
+        default="",
+        help="Path to raw get_tool_metrics JSON. Reads stdin when omitted.",
+    )
     parser.add_argument("--scenario-file", default="")
     parser.add_argument("--scenario-id", default="")
     parser.add_argument("--repo", default="")
     parser.add_argument("--repo-id", default="")
     parser.add_argument("--repo-label", default="")
     parser.add_argument("--task-kind", default="")
-    parser.add_argument("--mode", default="", choices=["", "baseline", "naive-on", "routed-on"])
+    parser.add_argument(
+        "--mode", default="", choices=["", "baseline", "naive-on", "routed-on"]
+    )
     parser.add_argument("--agent", default="codex")
     parser.add_argument("--acceptance-passed", type=parse_bool_flag, default=None)
     parser.add_argument("--verify-passed", type=parse_bool_flag, default=None)
@@ -211,7 +225,9 @@ def main():
         if not args.recommended_policy:
             args.recommended_policy = "pending"
     if not args.repo or not args.task_kind or not args.mode:
-        raise SystemExit("--repo, --task-kind, and --mode are required unless provided by --scenario-file")
+        raise SystemExit(
+            "--repo, --task-kind, and --mode are required unless provided by --scenario-file"
+        )
 
     payload = unwrap_metrics_payload(load_json(args.input))
     entry = build_entry(args, payload)
@@ -236,7 +252,13 @@ def main():
         output_md.parent.mkdir(parents=True, exist_ok=True)
         output_md.write_text(markdown + "\n")
 
-    print(json.dumps({"entry": entry, "output_json": str(output_json)}, ensure_ascii=False, indent=2))
+    print(
+        json.dumps(
+            {"entry": entry, "output_json": str(output_json)},
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
