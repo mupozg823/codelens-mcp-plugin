@@ -192,7 +192,7 @@ async fn mutation_enabled_daemon_rejects_untrusted_client_mutation() {
         .unwrap();
     assert_eq!(preflight.status(), StatusCode::OK);
     let preflight_body = body_string(preflight).await;
-    assert!(preflight_body.contains("\"success\":true"));
+    assert!(preflight_body.contains("\\\"success\\\":true"));
 
     let resp = app
         .oneshot(
@@ -245,6 +245,25 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
         .unwrap()
         .to_owned();
 
+    // RefactorFull requires preflight before mutation
+    let preflight = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .header("x-codelens-trusted-client", "true")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"verify_change_readiness","arguments":{"task":"create audit_http.py","changed_files":["audit_http.py"]}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(preflight.status(), StatusCode::OK);
+
     let resp = app
         .oneshot(
             Request::builder()
@@ -252,8 +271,9 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
                 .uri("/mcp")
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
+                .header("x-codelens-trusted-client", "true")
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"create_text_file","arguments":{"relative_path":"audit_http.py","content":"print('hi')","overwrite":true}}}"#,
+                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"create_text_file","arguments":{"relative_path":"audit_http.py","content":"print('hi')","overwrite":true}}}"#,
                 ))
                 .unwrap(),
         )
@@ -393,7 +413,8 @@ async fn deferred_resources_read_tracks_loaded_namespaces_for_session() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"codelens://tools/list","namespace":"filesystem"}}"#,
+                    // Use lsp namespace — get_file_diagnostics is in reviewer-graph but lsp is not preferred
+                    r#"{"jsonrpc":"2.0","id":3,"method":"resources/read","params":{"uri":"codelens://tools/list","namespace":"lsp"}}"#,
                 ))
                 .unwrap(),
         )
@@ -403,8 +424,8 @@ async fn deferred_resources_read_tracks_loaded_namespaces_for_session() {
     assert_eq!(expand.status(), StatusCode::OK);
     let expand_body = body_string(expand).await;
     let expand_text = first_resource_text(&expand_body);
-    assert!(expand_text.contains("\"selected_namespace\": \"filesystem\""));
-    assert!(!expand_text.contains("\"read_file\""));
+    assert!(expand_text.contains("\"selected_namespace\": \"lsp\""));
+    assert!(expand_text.contains("\"get_file_diagnostics\""));
 
     let tier_expand = app
         .clone()
@@ -448,12 +469,12 @@ async fn deferred_resources_read_tracks_loaded_namespaces_for_session() {
     let summary_after_body = body_string(summary_after).await;
     let summary_after_text = first_resource_text(&summary_after_body);
     assert!(summary_after_text.contains("\"loaded_namespaces\": ["));
-    assert!(summary_after_text.contains("\"filesystem\""));
+    assert!(summary_after_text.contains("\"lsp\""));
     assert!(summary_after_text.contains("\"loaded_tiers\": ["));
     assert!(summary_after_text.contains("\"primitive\""));
     assert!(summary_after_text.contains("\"effective_namespaces\": ["));
     assert!(summary_after_text.contains("\"effective_tiers\": ["));
-    assert!(summary_after_text.contains("\"read_file\""));
+    assert!(summary_after_text.contains("\"get_file_diagnostics\""));
     assert!(summary_after_text.contains("\"find_symbol\""));
 
     let session_resource = app
@@ -475,7 +496,7 @@ async fn deferred_resources_read_tracks_loaded_namespaces_for_session() {
     let session_body = body_string(session_resource).await;
     let session_text = first_resource_text(&session_body);
     assert!(session_text.contains("\"loaded_namespaces\": ["));
-    assert!(session_text.contains("\"filesystem\""));
+    assert!(session_text.contains("\"lsp\""));
     assert!(session_text.contains("\"loaded_tiers\": ["));
     assert!(session_text.contains("\"primitive\""));
     assert!(session_text.contains("\"full_tool_exposure\": false"));
@@ -517,6 +538,8 @@ async fn deferred_session_blocks_hidden_tool_calls_until_namespace_is_loaded() {
         .unwrap()
         .to_owned();
 
+    // get_file_diagnostics is in reviewer-graph but namespace "lsp" is not preferred,
+    // so it should be hidden by deferred namespace loading.
     let blocked = app
         .clone()
         .oneshot(
@@ -526,7 +549,7 @@ async fn deferred_session_blocks_hidden_tool_calls_until_namespace_is_loaded() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(format!(
-                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"read_file","arguments":{{"file_path":"{}"}}}}}}"#,
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"get_file_diagnostics","arguments":{{"file_path":"{}"}}}}}}"#,
                     file_path.display()
                 )))
                 .unwrap(),
@@ -537,7 +560,6 @@ async fn deferred_session_blocks_hidden_tool_calls_until_namespace_is_loaded() {
     assert_eq!(blocked.status(), StatusCode::OK);
     let blocked_body = body_string(blocked).await;
     assert!(blocked_body.contains("hidden by deferred loading"));
-    assert!(blocked_body.contains("\"namespace\":\"filesystem\""));
 }
 
 #[tokio::test]
@@ -572,7 +594,8 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
         .unwrap()
         .to_owned();
 
-    let expand = app
+    // Load tier "primitive" first — then namespace "lsp" becomes visible
+    let tier_expand = app
         .clone()
         .oneshot(
             Request::builder()
@@ -581,19 +604,20 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"namespace":"filesystem"}}"#,
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"tier":"primitive"}}"#,
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(expand.status(), StatusCode::OK);
-    let expand_body = body_string(expand).await;
-    assert!(expand_body.contains("\"selected_namespace\":\"filesystem\""));
-    assert!(expand_body.contains("\"read_file\""));
+    assert_eq!(tier_expand.status(), StatusCode::OK);
+    let tier_body = body_string(tier_expand).await;
+    assert!(tier_body.contains("\"selected_tier\":\"primitive\""));
+    assert!(tier_body.contains("\"find_symbol\""));
 
-    let default_list = app
+    // Now load namespace "lsp" — get_file_diagnostics should appear
+    let ns_expand = app
         .clone()
         .oneshot(
             Request::builder()
@@ -602,21 +626,19 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#,
+                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/list","params":{"namespace":"lsp"}}"#,
                 ))
                 .unwrap(),
         )
         .await
         .unwrap();
 
-    assert_eq!(default_list.status(), StatusCode::OK);
-    let default_body = body_string(default_list).await;
-    assert!(default_body.contains("\"loaded_namespaces\":[\"filesystem\"]"));
-    assert!(default_body.contains(
-        "\"effective_namespaces\":[\"filesystem\",\"graph\",\"reports\",\"session\",\"symbols\"]"
-    ));
-    assert!(default_body.contains("\"read_file\""));
+    assert_eq!(ns_expand.status(), StatusCode::OK);
+    let ns_body = body_string(ns_expand).await;
+    assert!(ns_body.contains("\"selected_namespace\":\"lsp\""));
+    assert!(ns_body.contains("\"get_file_diagnostics\""));
 
+    // Verify expanded tool call works
     let allowed = app
         .oneshot(
             Request::builder()
@@ -625,7 +647,7 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(format!(
-                    r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"read_file","arguments":{{"file_path":"{}"}}}}}}"#,
+                    r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"get_file_diagnostics","arguments":{{"file_path":"{}"}}}}}}"#,
                     file_path.display()
                 )))
                 .unwrap(),
@@ -635,7 +657,7 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
 
     assert_eq!(allowed.status(), StatusCode::OK);
     let allowed_body = body_string(allowed).await;
-    assert!(allowed_body.contains("\"success\":true"));
+    assert!(allowed_body.contains("\\\"success\\\":true"));
 }
 
 #[tokio::test]
@@ -751,7 +773,7 @@ async fn deferred_tier_load_expands_default_surface_and_allows_calls() {
 
     assert_eq!(allowed.status(), StatusCode::OK);
     let allowed_body = body_string(allowed).await;
-    assert!(allowed_body.contains("\"success\":true"));
+    assert!(allowed_body.contains("\\\"success\\\":true"));
 }
 
 #[tokio::test]

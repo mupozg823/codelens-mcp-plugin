@@ -57,6 +57,7 @@ struct ProjectOverride {
     symbol_index: Arc<SymbolIndex>,
     graph_cache: Arc<GraphCache>,
     memories_dir: PathBuf,
+    #[allow(dead_code)]
     analysis_dir: PathBuf,
     audit_dir: PathBuf,
     #[allow(dead_code)]
@@ -303,6 +304,7 @@ impl AppState {
         self.artifact_store.analysis_dir().to_path_buf()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn artifact_store(&self) -> &AnalysisArtifactStore {
         &self.artifact_store
     }
