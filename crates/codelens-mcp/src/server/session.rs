@@ -22,6 +22,9 @@ pub struct SessionClientMetadata {
     pub requested_profile: Option<String>,
     pub trusted_client: Option<bool>,
     pub deferred_tool_loading: Option<bool>,
+    pub loaded_namespaces: Vec<String>,
+    pub loaded_tiers: Vec<String>,
+    pub full_tool_exposure: Option<bool>,
 }
 
 /// Server-Sent Event for pushing to clients via GET /mcp SSE stream.
@@ -81,6 +84,34 @@ impl SessionState {
     pub fn set_client_metadata(&self, metadata: SessionClientMetadata) {
         if let Ok(mut current) = self.client_metadata.write() {
             *current = metadata;
+        }
+    }
+
+    pub fn record_loaded_namespace(&self, namespace: &str) {
+        if let Ok(mut current) = self.client_metadata.write() {
+            if !current
+                .loaded_namespaces
+                .iter()
+                .any(|value| value == namespace)
+            {
+                current.loaded_namespaces.push(namespace.to_owned());
+                current.loaded_namespaces.sort();
+            }
+        }
+    }
+
+    pub fn record_loaded_tier(&self, tier: &str) {
+        if let Ok(mut current) = self.client_metadata.write() {
+            if !current.loaded_tiers.iter().any(|value| value == tier) {
+                current.loaded_tiers.push(tier.to_owned());
+                current.loaded_tiers.sort();
+            }
+        }
+    }
+
+    pub fn enable_full_tool_exposure(&self) {
+        if let Ok(mut current) = self.client_metadata.write() {
+            current.full_tool_exposure = Some(true);
         }
     }
 

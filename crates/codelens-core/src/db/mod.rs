@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 mod ops;
 
@@ -58,6 +59,14 @@ pub struct ImportRow {
     pub source_file_id: i64,
     pub target_path: String,
     pub raw_import: String,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct IndexFailureSummary {
+    pub total_failures: usize,
+    pub recent_failures: usize,
+    pub stale_failures: usize,
+    pub persistent_failures: usize,
 }
 
 /// Per-directory aggregate: file count, symbol count, import count.
@@ -267,15 +276,62 @@ impl IndexDb {
 
     /// Execute a closure within an RAII transaction.
     /// Automatically rolls back on error or panic; commits only on success.
-    pub fn with_transaction<F, T>(&mut self, f: F) -> Result<T>
+    pub fn with_transaction<F, T>(&mut self, mut f: F) -> Result<T>
     where
-        F: FnOnce(&Connection) -> Result<T>,
+        F: FnMut(&Connection) -> Result<T>,
     {
-        let tx = self.conn.transaction()?;
-        let result = f(&tx)?;
-        tx.commit()?;
-        Ok(result)
+        const MAX_ATTEMPTS: usize = 4;
+        const BACKOFF_MS: [u64; MAX_ATTEMPTS - 1] = [25, 75, 150];
+
+        let mut attempt = 0usize;
+        loop {
+            let tx = match self.conn.transaction() {
+                Ok(tx) => tx,
+                Err(error) if is_lock_contention(&error) && attempt + 1 < MAX_ATTEMPTS => {
+                    std::thread::sleep(Duration::from_millis(BACKOFF_MS[attempt]));
+                    attempt += 1;
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
+
+            match f(&tx) {
+                Ok(result) => match tx.commit() {
+                    Ok(()) => return Ok(result),
+                    Err(error) if is_lock_contention(&error) && attempt + 1 < MAX_ATTEMPTS => {
+                        std::thread::sleep(Duration::from_millis(BACKOFF_MS[attempt]));
+                        attempt += 1;
+                    }
+                    Err(error) => return Err(error.into()),
+                },
+                Err(error) if is_lock_contention_anyhow(&error) && attempt + 1 < MAX_ATTEMPTS => {
+                    drop(tx);
+                    std::thread::sleep(Duration::from_millis(BACKOFF_MS[attempt]));
+                    attempt += 1;
+                }
+                Err(error) => return Err(error),
+            }
+        }
     }
+}
+
+fn is_lock_contention(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(code, _)
+            if matches!(
+                code.code,
+                rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+            )
+    )
+}
+
+fn is_lock_contention_anyhow(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<rusqlite::Error>()
+            .is_some_and(is_lock_contention)
+    })
 }
 
 /// Compute SHA-256 hex digest of content.

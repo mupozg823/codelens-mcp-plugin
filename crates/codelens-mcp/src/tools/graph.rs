@@ -1,4 +1,4 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::protocol::BackendKind;
 use crate::tools::symbols::flatten_symbols;
 use codelens_core::{

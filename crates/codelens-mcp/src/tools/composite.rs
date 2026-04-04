@@ -1,12 +1,12 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_core::change_signature::{ParamSpec, change_signature};
+use codelens_core::change_signature::{change_signature, ParamSpec};
 use codelens_core::inline::inline_function;
 use codelens_core::move_symbol::move_symbol;
 use codelens_core::{
-    SymbolKind, find_circular_dependencies, get_callees, get_callers, get_importance,
-    get_importers, get_symbols_overview,
+    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
+    get_symbols_overview, SymbolKind,
 };
 use serde_json::json;
 

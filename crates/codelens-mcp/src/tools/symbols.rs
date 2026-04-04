@@ -1,9 +1,9 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_core::{
-    RankedContextResult, SemanticMatch, SymbolInfo, SymbolKind, read_file,
-    search_symbols_hybrid_with_semantic,
+    read_file, search_symbols_hybrid_with_semantic, RankedContextResult, SemanticMatch, SymbolInfo,
+    SymbolKind,
 };
 use serde_json::json;
 
@@ -24,7 +24,9 @@ fn query_prefers_lexical_only(query: &str) -> bool {
 
 fn is_natural_language_query(query: &str) -> bool {
     let trimmed = query.trim();
-    !trimmed.is_empty() && !query_prefers_lexical_only(trimmed) && trimmed.split_whitespace().count() >= 4
+    !trimmed.is_empty()
+        && !query_prefers_lexical_only(trimmed)
+        && trimmed.split_whitespace().count() >= 4
 }
 
 fn expanded_query_for_retrieval(query: &str) -> String {
@@ -41,33 +43,61 @@ fn expanded_query_for_retrieval(query: &str) -> String {
     };
 
     let alias_groups: &[(&[&str], &[&str])] = &[
-        (&["rename", "refactor"], &["rename_symbol", "refactor", "rename"]),
+        (
+            &["rename", "refactor"],
+            &["rename_symbol", "refactor", "rename"],
+        ),
         (
             &["defined", "definition", "symbol is defined"],
             &["definition", "range", "reader"],
         ),
         (&["search", "query"], &["search", "semantic", "embedding"]),
         (&["inline"], &["inline_function", "inline", "refactor"]),
-        (&["http", "server", "routes"], &["run_http", "transport_http", "router"]),
+        (
+            &["http", "server", "routes"],
+            &["run_http", "transport_http", "router"],
+        ),
         (&["stdin", "line by line"], &["run_stdio", "stdio", "stdin"]),
-        (&["parse", "ast"], &["parse_symbols_recursive", "parser", "ast"]),
-        (&["embedding", "vectors"], &["index_from_project", "embedding", "index"]),
+        (
+            &["parse", "ast"],
+            &["parse_symbols_recursive", "parser", "ast"],
+        ),
+        (
+            &["embedding", "vectors"],
+            &["index_from_project", "embedding", "index"],
+        ),
         (
             &["duplicate", "near-duplicate", "similar"],
             &["find_duplicates", "similarity", "dedupe"],
         ),
-        (&["categorize", "purpose"], &["classify_symbol", "classify", "category"]),
+        (
+            &["categorize", "purpose"],
+            &["classify_symbol", "classify", "category"],
+        ),
         (
             &["project structure", "first load", "key files"],
             &["onboard_project", "project_structure", "overview"],
         ),
-        (&["watch", "filesystem", "file changes"], &["start_watching", "watcher", "invalidate"]),
-        (&["extract", "new function"], &["refactor_extract_function", "extract", "refactor"]),
+        (
+            &["watch", "filesystem", "file changes"],
+            &["start_watching", "watcher", "invalidate"],
+        ),
+        (
+            &["extract", "new function"],
+            &["refactor_extract_function", "extract", "refactor"],
+        ),
         (
             &["comments", "string literals"],
-            &["build_non_code_ranges", "non_code_ranges", "comments strings"],
+            &[
+                "build_non_code_ranges",
+                "non_code_ranges",
+                "comments strings",
+            ],
         ),
-        (&["route", "handler", "tool request"], &["dispatch_tool", "dispatch", "handler"]),
+        (
+            &["route", "handler", "tool request"],
+            &["dispatch_tool", "dispatch", "handler"],
+        ),
     ];
 
     for (needles, aliases) in alias_groups {
@@ -207,7 +237,11 @@ fn truncate_body_preview(body: &str, max_lines: usize, max_chars: usize) -> (Str
     }
     let mut preview = lines.join("\n");
     if preview.len() > max_chars {
-        preview.truncate(max_chars);
+        let mut boundary = max_chars.min(preview.len());
+        while boundary > 0 && !preview.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        preview.truncate(boundary);
         truncated = true;
     }
     if truncated {
@@ -567,7 +601,7 @@ fn count_word_occurrences(line: &str, needle: &str) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_semantic_ranked_entries, query_prefers_lexical_only};
+    use super::{merge_semantic_ranked_entries, query_prefers_lexical_only, truncate_body_preview};
     use codelens_core::{RankedContextEntry, RankedContextResult, SemanticMatch};
 
     #[test]
@@ -639,7 +673,7 @@ mod tests {
     }
 
     #[test]
-fn short_phrase_merge_only_inserts_top_confident_semantic_hit() {
+    fn short_phrase_merge_only_inserts_top_confident_semantic_hit() {
         let mut result = RankedContextResult {
             query: "change function parameters".to_owned(),
             count: 1,
@@ -682,18 +716,23 @@ fn short_phrase_merge_only_inserts_top_confident_semantic_hit() {
             8,
         );
 
-        assert!(
-            result
-                .symbols
-                .iter()
-                .any(|entry| entry.name == "apply_signature_change")
-        );
-        assert!(
-            !result
-                .symbols
-                .iter()
-                .any(|entry| entry.name == "rewrite_call_arguments")
-        );
+        assert!(result
+            .symbols
+            .iter()
+            .any(|entry| entry.name == "apply_signature_change"));
+        assert!(!result
+            .symbols
+            .iter()
+            .any(|entry| entry.name == "rewrite_call_arguments"));
+    }
+
+    #[test]
+    fn truncate_body_preview_respects_utf8_boundaries() {
+        let body = "가나다abc";
+        let (preview, truncated) = truncate_body_preview(body, 10, 4);
+        assert!(truncated);
+        assert!(preview.starts_with("가"));
+        assert!(!preview.starts_with("가나"));
     }
 }
 
