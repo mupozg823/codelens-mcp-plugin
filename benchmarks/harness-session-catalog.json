@@ -1,0 +1,180 @@
+{
+  "version": 1,
+  "tasks": [
+    {
+      "id": "onboarding/planning",
+      "task_mode": "read-only-eval",
+      "verification_mode": "smallest-relevant",
+      "workflow_budget": {
+        "max_native_steps": 1,
+        "max_workflow_calls": 1,
+        "max_evidence_expansions": 1
+      },
+      "result_budget": {
+        "next_edit_areas": 3,
+        "blockers": 3,
+        "verify_paths": 1
+      },
+      "primary_entrypoint": "analyze_change_request",
+      "secondary_entrypoints": [
+        "verify_change_readiness"
+      ],
+      "stop_rule": "Stop after naming up to 3 next edit areas, up to 3 blockers, and one verify path.",
+      "agent_hints": {
+        "claude_effort": "low"
+      },
+      "goal": "Orient in the repository and identify the next safe implementation area.",
+      "acceptance_criteria": [
+        "핵심 변경 후보 파일 또는 모듈을 1~3개로 좁힌다",
+        "작업 전 blocker 또는 readiness 리스크를 명시한다",
+        "다음 액션과 verify 경로를 한 줄로 정리한다"
+      ],
+      "execution_quality_checks": [
+        "불필요한 primitive tool chain으로 새지 않는다",
+        "근거 없는 broad edit 제안을 하지 않는다",
+        "verify 또는 follow-up check를 연결한다"
+      ],
+      "mode_prompts": {
+        "baseline": "Use native repo exploration only. Read the repo, identify the best next edit area, and explain the reasoning with the smallest possible search/read loop.",
+        "naive-on": "Use CodeLens if helpful, but do not follow any special routing rules. Find the best next edit area and explain the reasoning.",
+        "routed-on": "Use deferred loading and workflow-first routing. Start with analyze_change_request or verify_change_readiness, expand evidence only if needed, and identify the best next edit area."
+      }
+    },
+    {
+      "id": "impact/reviewer",
+      "task_mode": "read-only-eval",
+      "verification_mode": "smallest-relevant",
+      "workflow_budget": {
+        "max_native_steps": 1,
+        "max_workflow_calls": 1,
+        "max_evidence_expansions": 1
+      },
+      "result_budget": {
+        "risky_files": 3,
+        "reviewer_checks": 3,
+        "evidence_handles": 3
+      },
+      "primary_entrypoint": "impact_report",
+      "secondary_entrypoints": [
+        "verify_change_readiness",
+        "get_analysis_section"
+      ],
+      "stop_rule": "Stop after the first sufficient workflow report. Return at most 3 risky files, 3 reviewer checks, and 3 evidence handles.",
+      "agent_hints": {
+        "claude_effort": "low",
+        "claude_timeout_seconds": 75
+      },
+      "goal": "Review change impact and explain what can break, what must be checked, and where the strongest evidence lives.",
+      "acceptance_criteria": [
+        "영향 파일 또는 모듈을 우선순위와 함께 제시한다",
+        "verify 또는 reviewer 관점의 check 목록을 제시한다",
+        "근거가 되는 importer/reference/evidence 경로를 남긴다"
+      ],
+      "execution_quality_checks": [
+        "multi-file reasoning을 실제로 수행한다",
+        "impact claim에 evidence handle 또는 동등 근거를 연결한다",
+        "reviewer 관점에서 설명 가능한 결과를 만든다"
+      ],
+      "mode_prompts": {
+        "baseline": "Review the likely impact of the target change using native search/read only. Identify risky files, likely breakpoints, and what should be verified.",
+        "naive-on": "Review the likely impact of the target change. Use CodeLens if helpful, but without special routing constraints.",
+        "routed-on": "Use deferred loading and workflow-first routing. Start with impact_report or verify_change_readiness, then expand evidence only if the first report is insufficient."
+      }
+    },
+    {
+      "id": "refactor preflight",
+      "task_mode": "read-only-eval",
+      "verification_mode": "smallest-relevant",
+      "workflow_budget": {
+        "max_native_steps": 1,
+        "max_workflow_calls": 2,
+        "max_evidence_expansions": 1
+      },
+      "result_budget": {
+        "blockers": 3,
+        "verifier_checks": 3,
+        "next_actions": 2
+      },
+      "primary_entrypoint": "safe_rename_report",
+      "secondary_entrypoints": [
+        "unresolved_reference_check",
+        "refactor_safety_report"
+      ],
+      "stop_rule": "Stop after one readiness verdict, up to 3 blockers or checks, and at most 2 next actions.",
+      "agent_hints": {
+        "claude_effort": "medium",
+        "claude_timeout_seconds": 150
+      },
+      "goal": "Decide whether a rename or refactor is ready to execute and what must be verified first.",
+      "acceptance_criteria": [
+        "preflight verdict를 ready/caution/blocked 수준으로 정리한다",
+        "참조/rename safety와 verify 필요 지점을 명시한다",
+        "mutation 전 선행해야 할 check를 남긴다"
+      ],
+      "execution_quality_checks": [
+        "symbol-aware preflight를 거친다",
+        "mutation readiness를 추정이 아닌 verifier 결과로 설명한다",
+        "blocked 또는 caution 이유를 actionable하게 적는다"
+      ],
+      "mode_prompts": {
+        "baseline": "Assess rename or refactor safety using native search, references, and tests only. State whether the change is ready, caution, or blocked.",
+        "naive-on": "Assess rename or refactor safety. Use CodeLens if helpful, but do not force deferred loading or verifier-first routing.",
+        "routed-on": "Use verifier-first routing. Start with safe_rename_report, unresolved_reference_check, or refactor_safety_report before any mutation suggestion."
+      }
+    },
+    {
+      "id": "simple local lookup/edit",
+      "task_mode": "bounded-local-eval",
+      "verification_mode": "smallest-relevant",
+      "workflow_budget": {
+        "max_native_steps": 1,
+        "max_workflow_calls": 1,
+        "max_evidence_expansions": 0
+      },
+      "result_budget": {
+        "files": 1,
+        "symbols": 1
+      },
+      "stop_rule": "Stop after the first local answer; do not expand into multi-file reasoning unless the task boundary breaks.",
+      "agent_hints": {
+        "claude_effort": "low",
+        "claude_timeout_seconds": 60
+      },
+      "goal": "Complete a small local code understanding or single-file edit task with minimal overhead.",
+      "acceptance_criteria": [
+        "대상 파일 또는 심볼을 빠르게 찾는다",
+        "불필요한 multi-file reasoning을 하지 않는다",
+        "작업 범위를 최소화한다"
+      ],
+      "execution_quality_checks": [
+        "point lookup 성격이면 native path를 유지한다",
+        "CodeLens를 쓰더라도 bootstrap 비용을 정당화할 만큼 이득이 있어야 한다"
+      ],
+      "mode_prompts": {
+        "baseline": "Solve the local lookup or single-file task with the smallest possible native loop.",
+        "naive-on": "Solve the local lookup or single-file task. CodeLens is available but not required.",
+        "routed-on": "Use routed CodeLens only if the task unexpectedly turns into a multi-file or reviewer-heavy problem. Otherwise stay native."
+      }
+    }
+  ],
+  "repo_overrides": {
+    "codelens-mcp-plugin": {
+      "notes": [
+        "Rust MCP/runtime repo",
+        "Use current deferred loading and verifier/runtime behavior as the evaluation subject"
+      ]
+    },
+    "stream-admin": {
+      "notes": [
+        "Large Next/Electron mixed app",
+        "Prefer impact/reviewer tasks that cross app shell, frontend, and scripts"
+      ]
+    },
+    "signature-studio": {
+      "notes": [
+        "Next.js repo with existing AGENTS guidance",
+        "Onboarding may remain cheaper with native repo reading on narrow tasks"
+      ]
+    }
+  }
+}

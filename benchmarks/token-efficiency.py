@@ -9,30 +9,25 @@ CodeLens tool output and equivalent agent workflows (search + file reads).
 No arbitrary multipliers — only real data.
 """
 
-import argparse, subprocess, json, os, sys, glob, time, socket
-from urllib import request as urllib_request
-from urllib import error as urllib_error
+import argparse, subprocess, json, os, sys, glob
 
-# --- tiktoken setup ---
-try:
-    import tiktoken
+import benchmark_project_context as project_context
+import benchmark_runtime_common as runtime_common
+import token_efficiency_scenarios as scenario_runner
 
-    enc = tiktoken.get_encoding("cl100k_base")
-
-    def count_tokens(text: str) -> int:
-        return len(enc.encode(text)) if text else 0
-
-except ImportError:
-    print("WARNING: tiktoken not installed. Falling back to bytes/4 estimate.")
+count_tokens, token_warning = runtime_common.build_token_counter()
+if token_warning:
+    print(token_warning)
     print("Install with: pip3 install tiktoken\n")
-
-def count_tokens(text: str) -> int:
-        return len(text.encode("utf-8")) // 4 if text else 0
 
 
 parser = argparse.ArgumentParser()
 parser.add_argument("project_path", nargs="?", default=".")
 parser.add_argument("--check", action="store_true")
+parser.add_argument(
+    "--output-json",
+    default=os.path.join(os.path.dirname(__file__), "benchmark_results.json"),
+)
 parser.add_argument("--min-workflow-savings", type=float, default=35.0)
 parser.add_argument("--min-chain-reduction", type=float, default=40.0)
 parser.add_argument("--min-queue-depth", type=int, default=1)
@@ -61,510 +56,105 @@ LOW_LEVEL_TOOLS = {
 }
 
 
-def percentile_95(values):
-    if not values:
-        return 0
-    ordered = sorted(values)
-    index = max(0, int(round(0.95 * (len(ordered) - 1))))
-    return ordered[index]
-
-
-def parse_output_json(output: str):
-    text = (output or "").strip()
-    if not text:
-        return None
-    try:
-        return json.loads(text.splitlines()[-1])
-    except Exception:
-        return None
-
-
 def codelens(cmd, args, timeout=15, preset=None, profile=None):
-    """Run a CodeLens command and return output, token count, elapsed, parsed payload."""
-    argv = [BIN, PROJECT]
-    if profile:
-        argv += ["--profile", profile]
-    elif preset:
-        argv += ["--preset", preset]
-    argv += ["--cmd", cmd, "--args", json.dumps(args)]
-    t0 = time.monotonic()
-    try:
-        r = subprocess.run(
-            argv,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        elapsed = int((time.monotonic() - t0) * 1000)
-        output = r.stdout or ""
-        return output, count_tokens(output), elapsed, parse_output_json(output)
-    except Exception as e:
-        elapsed = int((time.monotonic() - t0) * 1000)
-        return "", 0, elapsed, None
+    return runtime_common.codelens(BIN, PROJECT, cmd, args, count_tokens, timeout=timeout, preset=preset, profile=profile)
 
 
 def read_file(path):
-    """Read a file and return its content."""
-    full = os.path.join(PROJECT, path) if not os.path.isabs(path) else path
-    try:
-        with open(full, "r", errors="replace") as f:
-            return f.read()
-    except:
-        return ""
+    return runtime_common.read_file(PROJECT, path)
 
 
 def run_search(pattern, include="*.rs", max_lines=50):
-    """Run ripgrep and return output (simulating what an agent search tool returns)."""
-    t0 = time.monotonic()
-    try:
-        r = subprocess.run(
-            ["rg", "-n", pattern, ".", "-g", include],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            cwd=PROJECT,
-        )
-        lines = r.stdout.strip().split("\n")[:max_lines]
-        elapsed = int((time.monotonic() - t0) * 1000)
-        return "\n".join(lines), elapsed
-    except:
-        return "", 0
+    return runtime_common.run_search(PROJECT, pattern, include=include, max_lines=max_lines)
 
 
-def run_sequence(label, steps):
-    """Run a tool sequence and compute workflow-visible token/latency metrics."""
-    outputs = []
-    total_tokens = 0
-    total_ms = 0
-    retries = 0
-    low_level_calls = 0
-    for step in steps:
-        timeout = step.get("timeout", 20)
-        output, tokens, elapsed_ms, payload = codelens(
-            step["cmd"],
-            step["args"],
-            timeout=timeout,
-            preset=step.get("preset"),
-            profile=step.get("profile"),
-        )
-        if not output and not payload:
-            retries += 1
-            output, tokens, elapsed_ms, payload = codelens(
-                step["cmd"],
-                step["args"],
-                timeout=timeout,
-                preset=step.get("preset"),
-                profile=step.get("profile"),
-            )
-        outputs.append(
-            {
-                "tool": step["cmd"],
-                "surface": step.get("profile") or f"preset:{step.get('preset', 'balanced')}",
-                "elapsed_ms": elapsed_ms,
-                "tokens": tokens,
-                "success": bool(payload and payload.get("success")),
-                "data": payload.get("data", {}) if payload else {},
-            }
-        )
-        total_tokens += tokens
-        total_ms += elapsed_ms
-        if step["cmd"] in LOW_LEVEL_TOOLS:
-            low_level_calls += 1
-    return {
-        "label": label,
-        "tool_call_count": len(steps),
-        "low_level_chain_count": low_level_calls if low_level_calls > 1 else 0,
-        "total_tokens": total_tokens,
-        "total_ms": total_ms,
-        "retry_count": retries,
-        "p95_latency_ms": percentile_95([entry["elapsed_ms"] for entry in outputs]),
-        "steps": outputs,
-    }
-
-
-def summarize_quality_contract(workflow_results):
-    summaries = []
-    for result in workflow_results:
-        compressed_steps = result.get("compressed", {}).get("steps", [])
-        if not compressed_steps:
-            continue
-        data = compressed_steps[-1].get("data") or {}
-        quality_focus = data.get("quality_focus") or []
-        recommended_checks = data.get("recommended_checks") or []
-        performance_watchpoints = data.get("performance_watchpoints") or []
-        summaries.append(
-            {
-                "scenario": result.get("scenario", "unknown"),
-                "has_quality_contract": all(
-                    key in data
-                    for key in (
-                        "quality_focus",
-                        "recommended_checks",
-                        "performance_watchpoints",
-                    )
-                ),
-                "quality_focus_count": len(quality_focus),
-                "recommended_check_count": len(recommended_checks),
-                "performance_watchpoint_count": len(performance_watchpoints),
-            }
-        )
-    present = sum(1 for item in summaries if item["has_quality_contract"])
-    watchpoints = sum(item["performance_watchpoint_count"] for item in summaries)
-    checks = sum(item["recommended_check_count"] for item in summaries)
-    return {
-        "scenarios": summaries,
-        "quality_contract_present_rate": (present / len(summaries)) if summaries else 0.0,
-        "recommended_checks_total": checks,
-        "performance_watchpoints_total": watchpoints,
-    }
-
-
-def compare_workflows(name, baseline_steps, compressed_steps):
-    baseline = run_sequence(f"{name} baseline", baseline_steps)
-    compressed = run_sequence(f"{name} compressed", compressed_steps)
-    savings_pct = 0.0
-    if baseline["total_tokens"] > 0:
-        savings_pct = round(
-            (1 - compressed["total_tokens"] / baseline["total_tokens"]) * 100, 1
-        )
-    return {
-        "scenario": name,
-        "baseline": baseline,
-        "compressed": compressed,
-        "savings_pct": savings_pct,
-    }
-
-
-def reserve_port():
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("127.0.0.1", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    return port
-
-
-def start_http_daemon():
-    port = reserve_port()
-    proc = subprocess.Popen(
-        [BIN, PROJECT, "--transport", "http", "--port", str(port)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    base_url = f"http://127.0.0.1:{port}"
-    card_url = f"{base_url}/.well-known/mcp.json"
-    for _ in range(50):
-        if proc.poll() is not None:
-            return None, None, proc
-        try:
-            with urllib_request.urlopen(card_url, timeout=0.5) as resp:
-                if resp.status == 200:
-                    return base_url, port, proc
-        except Exception:
-            time.sleep(0.1)
-    return None, None, proc
+def start_http_daemon(profile=None, preset="full"):
+    return runtime_common.start_http_daemon(BIN, PROJECT, profile=profile, preset=preset)
 
 
 def stop_http_daemon(proc):
-    if not proc:
-        return
-    if proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=3)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait(timeout=3)
+    return runtime_common.stop_http_daemon(proc)
 
 
-def mcp_http_call(base_url, method, params=None, request_id=1):
-    payload = {
-        "jsonrpc": "2.0",
-        "id": request_id,
-        "method": method,
-    }
-    if params is not None:
-        payload["params"] = params
-    req = urllib_request.Request(
-        f"{base_url}/mcp",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"content-type": "application/json"},
-        method="POST",
-    )
-    with urllib_request.urlopen(req, timeout=5) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+def mcp_http_call(base_url, method, params=None, request_id=1, headers=None, include_headers=False):
+    return runtime_common.mcp_http_call(base_url, method, params=params, request_id=request_id, headers=headers, include_headers=include_headers)
 
 
-def mcp_http_tool_call(base_url, name, arguments, request_id=1):
-    return mcp_http_call(
+def initialize_http_session(
+    base_url,
+    profile=None,
+    deferred_tool_loading=False,
+    trusted_client=None,
+    request_id=1,
+):
+    return runtime_common.initialize_http_session(
         base_url,
-        "tools/call",
-        {"name": name, "arguments": arguments},
+        profile=profile,
+        deferred_tool_loading=deferred_tool_loading,
+        trusted_client=trusted_client,
         request_id=request_id,
     )
 
 
-def run_queue_observability_benchmark():
-    base_url, port, proc = start_http_daemon()
-    if not base_url:
-        stop_http_daemon(proc)
-        return {"supported": False, "reason": "http transport unavailable"}
-    try:
-        first = mcp_http_tool_call(
-            base_url,
-            "start_analysis_job",
-            {
-                "kind": "impact_report",
-                "path": key_file or test_file or ".",
-                "debug_step_delay_ms": 80,
-                "profile_hint": "reviewer-graph",
-            },
-            request_id=11,
-        )
-        second = mcp_http_tool_call(
-            base_url,
-            "start_analysis_job",
-            {
-                "kind": "impact_report",
-                "path": test_file or key_file or ".",
-                "debug_step_delay_ms": 20,
-                "profile_hint": "reviewer-graph",
-            },
-            request_id=12,
-        )
-        third = mcp_http_tool_call(
-            base_url,
-            "start_analysis_job",
-            {
-                "kind": "impact_report",
-                "path": key_file or test_file or ".",
-                "debug_step_delay_ms": 20,
-                "profile_hint": "reviewer-graph",
-            },
-            request_id=13,
-        )
-        first_job = first.get("result", {}).get("content", [{}])[0].get("text", "{}")
-        second_job = second.get("result", {}).get("content", [{}])[0].get("text", "{}")
-        third_job = third.get("result", {}).get("content", [{}])[0].get("text", "{}")
-        first_payload = json.loads(first_job)
-        second_payload = json.loads(second_job)
-        third_payload = json.loads(third_job)
-        first_id = first_payload["data"]["job_id"]
-        second_id = second_payload["data"]["job_id"]
-        third_id = third_payload["data"]["job_id"]
-        saw_queued = False
-        saw_running = False
-        for idx in range(60):
-            first_status = mcp_http_tool_call(
-                base_url, "get_analysis_job", {"job_id": first_id}, request_id=100 + idx
-            )
-            second_status = mcp_http_tool_call(
-                base_url, "get_analysis_job", {"job_id": second_id}, request_id=200 + idx
-            )
-            third_status = mcp_http_tool_call(
-                base_url, "get_analysis_job", {"job_id": third_id}, request_id=300 + idx
-            )
-            first_data = json.loads(
-                first_status.get("result", {}).get("content", [{}])[0].get("text", "{}")
-            )["data"]
-            second_data = json.loads(
-                second_status.get("result", {}).get("content", [{}])[0].get("text", "{}")
-            )["data"]
-            third_data = json.loads(
-                third_status.get("result", {}).get("content", [{}])[0].get("text", "{}")
-            )["data"]
-            saw_running = saw_running or any(
-                job.get("status") == "running"
-                for job in (first_data, second_data, third_data)
-            )
-            saw_queued = saw_queued or any(
-                job.get("status") == "queued"
-                for job in (first_data, second_data, third_data)
-            )
-            if (
-                first_data.get("status") == "completed"
-                and second_data.get("status") == "completed"
-                and third_data.get("status") == "completed"
-            ):
-                break
-            time.sleep(0.1)
-        metrics_resp = mcp_http_tool_call(base_url, "get_tool_metrics", {}, request_id=999)
-        metrics_payload = json.loads(
-            metrics_resp.get("result", {}).get("content", [{}])[0].get("text", "{}")
-        )["data"]
-        session = metrics_payload.get("session", {})
-        derived = metrics_payload.get("derived_kpis", {})
-        queue_failures = session.get("analysis_jobs_failed", 0)
-        queue_max_depth = session.get("analysis_queue_max_depth", 0)
-        peak_workers = session.get("peak_active_analysis_workers", 0)
-        success_rate = derived.get("analysis_job_success_rate", 0.0)
-        queue_checks = {
-            "min_queue_depth": ARGS.min_queue_depth,
-            "min_peak_workers": ARGS.min_peak_workers,
-            "min_queue_success_rate": ARGS.min_queue_success_rate,
-            "max_queue_failures": ARGS.max_queue_failures,
-        }
-        queue_failures_list = []
-        if queue_max_depth < ARGS.min_queue_depth:
-            queue_failures_list.append(
-                f"queue depth {queue_max_depth} < required {ARGS.min_queue_depth}"
-            )
-        if peak_workers < ARGS.min_peak_workers:
-            queue_failures_list.append(
-                f"peak workers {peak_workers} < required {ARGS.min_peak_workers}"
-            )
-        if queue_failures > ARGS.max_queue_failures:
-            queue_failures_list.append(
-                f"queue failures {queue_failures} > allowed {ARGS.max_queue_failures}"
-            )
-        if success_rate < ARGS.min_queue_success_rate:
-            queue_failures_list.append(
-                f"queue success rate {success_rate:.2f} < required {ARGS.min_queue_success_rate:.2f}"
-            )
-        return {
-            "supported": True,
-            "saw_running": saw_running,
-            "saw_queued": saw_queued,
-            "session": {
-                "analysis_jobs_enqueued": session.get("analysis_jobs_enqueued", 0),
-                "analysis_jobs_started": session.get("analysis_jobs_started", 0),
-                "analysis_jobs_completed": session.get("analysis_jobs_completed", 0),
-                "analysis_jobs_failed": session.get("analysis_jobs_failed", 0),
-                "analysis_jobs_cancelled": session.get("analysis_jobs_cancelled", 0),
-                "analysis_queue_depth": session.get("analysis_queue_depth", 0),
-                "analysis_queue_max_depth": session.get("analysis_queue_max_depth", 0),
-                "analysis_queue_weighted_depth": session.get(
-                    "analysis_queue_weighted_depth", 0
-                ),
-                "analysis_queue_max_weighted_depth": session.get(
-                    "analysis_queue_max_weighted_depth", 0
-                ),
-                "analysis_queue_priority_promotions": session.get(
-                    "analysis_queue_priority_promotions", 0
-                ),
-                "active_analysis_workers": session.get("active_analysis_workers", 0),
-                "peak_active_analysis_workers": session.get(
-                    "peak_active_analysis_workers", 0
-                ),
-                "analysis_worker_limit": session.get("analysis_worker_limit", 0),
-                "analysis_cost_budget": session.get("analysis_cost_budget", 0),
-                "analysis_transport_mode": session.get("analysis_transport_mode", "unknown"),
-            },
-            "derived_kpis": {
-                "analysis_job_success_rate": success_rate
-            },
-            "checks": queue_checks,
-            "gate_passed": len(queue_failures_list) == 0 and saw_running and saw_queued,
-            "gate_failures": queue_failures_list,
-            "port": port,
-        }
-    except Exception as exc:
-        return {"supported": False, "reason": str(exc)}
-    finally:
-        stop_http_daemon(proc)
-
-
-# --- Discover project info ---
-info_out, _, _, info_payload = codelens("get_project_structure", {}, preset="balanced")
-total_files = total_symbols = "?"
-if info_payload:
-    try:
-        total_files = info_payload["data"]["total_files"]
-        total_symbols = info_payload["data"]["total_symbols"]
-    except:
-        pass
-
-# Detect language (exclude vendored dirs)
-EXCLUDE_DIRS = {
-    "node_modules",
-    ".venv",
-    "venv",
-    "target",
-    "dist",
-    "build",
-    "__pycache__",
-    ".git",
-}
-src_exts = [".rs", ".py", ".ts", ".js", ".go", ".java"]
-ext_counts = {}
-for ext in src_exts:
-    all_files = glob.glob(os.path.join(PROJECT, "**/*" + ext), recursive=True)
-    filtered = [
-        f for f in all_files if not any(d in f.split(os.sep) for d in EXCLUDE_DIRS)
-    ]
-    if filtered:
-        ext_counts[ext] = len(filtered)
-primary_ext = max(ext_counts, key=ext_counts.get) if ext_counts else ".rs"
-grep_include = "*" + primary_ext
-
-# Find test targets — use a specific, non-trivial symbol (not "main" which matches too broadly)
-CANDIDATE_SYMBOLS = [
-    "dispatch_tool",
-    "handle_request",
-    "process",
-    "execute",
-    "run_server",
-    "parse_args",
-    "build",
-    "create_app",
-    "init",
-    "setup",
-]
-test_symbol = None
-test_file = None
-
-for candidate in CANDIDATE_SYMBOLS:
-    sym_out, _, _, sym_payload = codelens(
-        "find_symbol", {"name": candidate, "max_matches": 1}, preset="balanced"
+def mcp_http_tool_call(base_url, name, arguments, request_id=1, session_id=None, headers=None):
+    return runtime_common.mcp_http_tool_call(
+        base_url,
+        name,
+        arguments,
+        request_id=request_id,
+        session_id=session_id,
+        headers=headers,
     )
-    if sym_payload:
-        try:
-            sd = sym_payload
-            if sd.get("data", {}).get("count", 0) > 0:
-                s = sd["data"]["symbols"][0]
-                test_symbol = s.get("name", candidate)
-                test_file = s.get("file_path")
-                break
-        except:
-            pass
 
-# Fallback to "main" only if nothing better found
-if not test_symbol:
-    sym_out, _, _, sym_payload = codelens(
-        "find_symbol", {"name": "main", "max_matches": 1}, preset="balanced"
+
+def mcp_http_resource_read(base_url, uri, request_id=1, session_id=None, params=None, headers=None):
+    return runtime_common.mcp_http_resource_read(
+        base_url,
+        uri,
+        request_id=request_id,
+        session_id=session_id,
+        params=params,
+        headers=headers,
     )
-    test_symbol = "main"
-    if sym_payload:
-        try:
-            sd = sym_payload
-            if sd.get("data", {}).get("count", 0) > 0:
-                s = sd["data"]["symbols"][0]
-                test_symbol = s.get("name", "main")
-                test_file = s.get("file_path")
-        except:
-            pass
 
-onboard_out, _, _, onboard_payload = codelens(
-    "onboard_project", {}, timeout=30, preset="balanced"
+
+def extract_tool_payload(response):
+    return runtime_common.extract_tool_payload(response)
+
+def count_json_tokens(payload):
+    return runtime_common.count_json_tokens(payload, count_tokens)
+
+
+RUNTIME = runtime_common.BenchmarkRuntime(
+    codelens=codelens,
+    percentile_95=runtime_common.percentile_95,
+    start_http_daemon=start_http_daemon,
+    stop_http_daemon=stop_http_daemon,
+    mcp_http_call=mcp_http_call,
+    initialize_http_session=initialize_http_session,
+    mcp_http_tool_call=mcp_http_tool_call,
+    mcp_http_resource_read=mcp_http_resource_read,
+    extract_tool_payload=extract_tool_payload,
+    count_json_tokens=count_json_tokens,
+    project=PROJECT,
 )
-key_file = None
-key_files_list = []
-if onboard_payload:
-    try:
-        kd = onboard_payload
-        kf = kd.get("data", {}).get("key_files", [])
-        key_files_list = [f["file"] for f in kf[:5]]
-        if kf:
-            key_file = kf[0]["file"]
-    except:
-        pass
+QUEUE_THRESHOLDS = scenario_runner.QueueGateThresholds(
+    min_queue_depth=ARGS.min_queue_depth,
+    min_peak_workers=ARGS.min_peak_workers,
+    min_queue_success_rate=ARGS.min_queue_success_rate,
+    max_queue_failures=ARGS.max_queue_failures,
+)
 
-if not test_file:
-    all_src = glob.glob(os.path.join(PROJECT, "**/*" + primary_ext), recursive=True)
-    if all_src:
-        test_file = os.path.relpath(all_src[0], PROJECT)
-if not key_file:
-    key_file = test_file
+
+context = project_context.discover_project_context(PROJECT, codelens)
+total_files = context["total_files"]
+total_symbols = context["total_symbols"]
+primary_ext = context["primary_ext"]
+grep_include = context["grep_include"]
+test_symbol = context["test_symbol"]
+test_file = context["test_file"]
+key_file = context["key_file"]
+key_files_list = context["key_files_list"]
 
 # ================================================================
 # BENCHMARKS — fair 1:1 comparisons
@@ -768,7 +358,7 @@ workflow_results = []
 
 planner_task = f"understand where to implement changes around {test_symbol}"
 workflow_results.append(
-    compare_workflows(
+    scenario_runner.compare_workflows(
         "Planner change request",
         baseline_steps=[
             {
@@ -789,12 +379,14 @@ workflow_results.append(
                 "profile": "planner-readonly",
             }
         ],
+        runtime=RUNTIME,
+        low_level_tools=LOW_LEVEL_TOOLS,
     )
 )
 
 if key_file:
     workflow_results.append(
-        compare_workflows(
+        scenario_runner.compare_workflows(
             "Reviewer impact analysis",
             baseline_steps=[
                 {
@@ -820,12 +412,14 @@ if key_file:
                     "profile": "reviewer-graph",
                 }
             ],
+            runtime=RUNTIME,
+            low_level_tools=LOW_LEVEL_TOOLS,
         )
     )
 
 if test_file:
     workflow_results.append(
-        compare_workflows(
+        scenario_runner.compare_workflows(
             "Refactor safety",
             baseline_steps=[
                 {
@@ -856,11 +450,21 @@ if test_file:
                     "profile": "refactor-full",
                 }
             ],
+            runtime=RUNTIME,
+            low_level_tools=LOW_LEVEL_TOOLS,
         )
     )
 
-queue_observability = run_queue_observability_benchmark()
-quality_contract = summarize_quality_contract(workflow_results)
+queue_observability = scenario_runner.run_queue_observability_benchmark(
+    RUNTIME,
+    QUEUE_THRESHOLDS,
+    key_file,
+    test_file,
+)
+watcher_observability = scenario_runner.run_watcher_observability_benchmark(RUNTIME)
+quality_contract = scenario_runner.summarize_quality_contract(workflow_results)
+verifier_contract = scenario_runner.summarize_verifier_contract(workflow_results)
+gate_observability = scenario_runner.run_gate_observability_benchmark(RUNTIME)
 
 # ================================================================
 # OUTPUT
@@ -985,6 +589,30 @@ if queue_observability.get("supported"):
 else:
     print(f"- skipped: {queue_observability.get('reason', 'unavailable')}")
 
+print("\nWATCHER OBSERVABILITY")
+if watcher_observability.get("supported"):
+    watcher_session = watcher_observability.get("session", {})
+    watcher_status = watcher_observability.get("watch_status", {})
+    print(
+        f"- running={watcher_session.get('watcher_running')}, "
+        f"events={watcher_session.get('watcher_events_processed', 0)}, "
+        f"reindexed={watcher_session.get('watcher_files_reindexed', 0)}"
+    )
+    print(
+        f"- contention_batches={watcher_session.get('watcher_lock_contention_batches', 0)}, "
+        f"recent_failures={watcher_session.get('watcher_index_failures', 0)}, "
+        f"total_failures={watcher_session.get('watcher_index_failures_total', 0)}, "
+        f"contention_rate={watcher_observability.get('derived_kpis', {}).get('watcher_lock_contention_rate', 0.0):.4f}"
+    )
+    print(
+        f"- watch_status parity: running={watcher_status.get('running')}, "
+        f"contention={watcher_status.get('lock_contention_batches', 0)}, "
+        f"recent_failures={watcher_status.get('index_failures', 0)}, "
+        f"total_failures={watcher_status.get('index_failures_total', 0)}"
+    )
+else:
+    print(f"- skipped: {watcher_observability.get('reason', 'unavailable')}")
+
 print("\n## Quality Contract Summary\n")
 print(
     f"- present_rate={quality_contract.get('quality_contract_present_rate', 0.0):.2f}, "
@@ -998,6 +626,56 @@ for item in quality_contract.get("scenarios", []):
         f"recommended_checks={item['recommended_check_count']}, "
         f"performance_watchpoints={item['performance_watchpoint_count']}"
     )
+
+print("\n## Verifier Contract Summary\n")
+print(
+    f"- present_rate={verifier_contract.get('verifier_contract_present_rate', 0.0):.2f}, "
+    f"blockers_total={verifier_contract.get('blocker_total', 0)}, "
+    f"verifier_checks_total={verifier_contract.get('verifier_checks_total', 0)}, "
+    f"blocked_mutation_ready={verifier_contract.get('blocked_mutation_ready_scenarios', 0)}"
+)
+for item in verifier_contract.get("scenarios", []):
+    print(
+        f"  - {item['scenario']}: present={item['has_verifier_contract']}, "
+        f"blockers={item['blocker_count']}, "
+        f"verifier_checks={item['verifier_check_count']}, "
+        f"mutation_ready={item['mutation_ready']}, "
+        f"test_readiness={item['test_readiness']}"
+    )
+
+print("\n## Execution Gate Summary\n")
+if gate_observability.get("supported"):
+    mutation_gate = gate_observability.get("mutation_gate", {})
+    deferred_gate = gate_observability.get("deferred_gate", {})
+    mutation_session = mutation_gate.get("session", {})
+    mutation_checks = mutation_gate.get("checks", {})
+    deferred_session = deferred_gate.get("session", {})
+    deferred_checks = deferred_gate.get("checks", {})
+    print(
+        f"- mutation gate: denies={mutation_session.get('mutation_preflight_gate_denied_count', 0)}, "
+        f"caution_count={mutation_session.get('mutation_with_caution_count', 0)}, "
+        f"rename_symbol_preflight_denies={mutation_session.get('rename_without_symbol_preflight_count', 0)}, "
+        f"deny_rate={mutation_gate.get('derived_kpis', {}).get('mutation_preflight_gate_deny_rate', 0.0):.2f}"
+    )
+    print(
+        f"  - checks: missing_preflight_denied={mutation_checks.get('missing_preflight_denied')}, "
+        f"preflight_mutation_allowed={mutation_checks.get('preflight_mutation_allowed')}, "
+        f"rename_requires_symbol_preflight={mutation_checks.get('rename_requires_symbol_preflight')}, "
+        f"mutation_ready={mutation_checks.get('preflight_mutation_ready', 'unknown')}"
+    )
+    print(
+        f"- deferred gate: expansions={deferred_session.get('deferred_namespace_expansion_count', 0)}, "
+        f"hidden_call_denies={deferred_session.get('deferred_hidden_tool_call_denied_count', 0)}, "
+        f"deny_rate={deferred_gate.get('derived_kpis', {}).get('deferred_hidden_tool_call_deny_rate', 0.0):.2f}"
+    )
+    print(
+        f"  - checks: hidden_namespace_denied={deferred_checks.get('hidden_namespace_denied')}, "
+        f"hidden_tier_denied={deferred_checks.get('hidden_tier_denied')}, "
+        f"filesystem_loaded={deferred_checks.get('filesystem_namespace_loaded')}, "
+        f"primitive_loaded={deferred_checks.get('primitive_tier_loaded')}"
+    )
+else:
+    print(f"- skipped: {gate_observability.get('reason', 'unavailable')}")
 
 # Detailed breakdown
 print("### Detailed Breakdown\n")
@@ -1021,7 +699,18 @@ json_out = {
     "results": results,
     "workflow_results": workflow_results,
     "queue_observability": queue_observability,
+    "watcher_observability": watcher_observability,
     "quality_contract": quality_contract,
+    "verifier_contract": verifier_contract,
+    "gate_observability": gate_observability,
+    "project_context": {
+        "primary_ext": primary_ext,
+        "grep_include": grep_include,
+        "test_symbol": test_symbol,
+        "test_file": test_file,
+        "key_file": key_file,
+        "key_files_list": key_files_list,
+    },
     "totals": {
         "baseline_tokens": total_baseline,
         "codelens_tokens": total_codelens,
@@ -1032,7 +721,8 @@ json_out = {
         ),
     },
 }
-json_path = os.path.join(os.path.dirname(__file__), "benchmark_results.json")
+json_path = os.path.abspath(ARGS.output_json)
+os.makedirs(os.path.dirname(json_path), exist_ok=True)
 with open(json_path, "w") as f:
     json.dump(json_out, f, indent=2)
 print(f"\nResults saved to {json_path}")

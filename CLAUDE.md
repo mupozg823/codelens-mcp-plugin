@@ -54,3 +54,25 @@ FULL=70 | BALANCED=39 (default) | MINIMAL=21
 ## Hook
 
 `hooks/post-edit-diagnostics.sh` — Auto-diagnose after file edits (activated in settings)
+
+<!-- CODELENS_REPO_CLAUDE_ROUTING_POLICY:BEGIN -->
+## CodeLens Repo Routing Policy
+
+_Generated from `/Users/bagjaeseog/.codex/harness/reports/refreshes/2026-04-04-043122-routing-policy-refresh.json` on 2026-04-04T04:31:22 for `codelens-mcp-plugin`_
+
+Repo-specific routing rules:
+- no repo-specific exceptions; follow the global CodeLens routing policy.
+
+Claude harness guidance:
+- on complex tasks, use the repo and global CLAUDE instructions before selecting a harness pattern.
+- keep simple point lookups native when the policy says native is preferred.
+- use CodeLens-aware exploration for multi-file or reviewer-heavy work.
+<!-- CODELENS_REPO_CLAUDE_ROUTING_POLICY:END -->
+
+
+
+
+
+
+
+

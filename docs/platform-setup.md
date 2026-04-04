@@ -35,7 +35,7 @@ codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-
 
 Use HTTP as the default for multi-agent harnesses. Keep stdio for single local sessions only.
 
-For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces first, and clients can expand one namespace at a time with `{"namespace":"reports"}`-style params or request the full surface explicitly with `{"full": true}`.
+For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces and tiers first. Clients can expand one namespace at a time with `{"namespace":"reports"}`, open primitive tools with `{"tier":"primitive"}`, or request the full surface explicitly with `{"full": true}`. In deferred sessions, hidden namespaces and primitive tiers can gate `tools/call` until the client explicitly loads them, and `codelens://tools/list` / `codelens://session/http` resources reflect the same session state.
 
 ### 1. Claude Code (CLI / Desktop / Web)
 
@@ -72,6 +72,14 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 - `reviewer-graph` — graph-aware review and risk analysis
 - `refactor-full` — preview-first refactoring surface
 - `ci-audit` — diff-aware review/report surface
+
+For `refactor-full`, use a preflight-first path:
+1. `verify_change_readiness`
+2. `safe_rename_report` or `unresolved_reference_check` for rename-heavy changes
+3. `get_analysis_section` for extra evidence
+4. mutation execution
+
+Recent matching preflight is required before `refactor-full` content mutations execute.
 
 **Legacy presets:**
 
@@ -254,6 +262,7 @@ agent = client.agents.create(
 
 - Planner/reviewer paths should start with `analyze_change_request`, `impact_report`, `module_boundary_report`, or `dead_code_report`.
 - Refactor paths should start with `refactor_safety_report` or `safe_rename_report`.
+- `refactor-full` mutation execution is preflight-gated. Missing, stale, or blocked verifier evidence is rejected at runtime.
 - Heavier reports can use `start_analysis_job` and poll via `get_analysis_job`.
 - Expand detail only through `get_analysis_section` or `codelens://analysis/{id}/...` resources.
 - Mutation-enabled profiles write audit logs to `.codelens/audit/mutation-audit.jsonl`.

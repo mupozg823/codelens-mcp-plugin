@@ -26,7 +26,11 @@ def render_summary(data):
     workflow_results = data.get("workflow_results", [])
     results = data.get("results", [])
     queue = data.get("queue_observability", {})
+    watcher = data.get("watcher_observability", {})
     quality_contract = data.get("quality_contract", {})
+    verifier_contract = data.get("verifier_contract", {})
+    gate_observability = data.get("gate_observability", {})
+    codex_like_sessions = data.get("codex_like_sessions", {})
     regression_results = []
     if workflow_results:
         workflow_savings = [float(result.get("savings_pct", 0)) for result in workflow_results]
@@ -162,6 +166,31 @@ def render_summary(data):
         else:
             a(f"- skipped: {queue.get('reason', 'unavailable')}")
 
+    if watcher:
+        a("")
+        a("## Watcher Observability")
+        a("")
+        if watcher.get("supported"):
+            session = watcher.get("session", {})
+            status = watcher.get("watch_status", {})
+            derived = watcher.get("derived_kpis", {})
+            a("| Metric | Value |")
+            a("|---|---:|")
+            a(f"| Watcher running | {session.get('watcher_running')} |")
+            a(f"| Events processed | {fmt_int(session.get('watcher_events_processed', 0))} |")
+            a(f"| Files reindexed | {fmt_int(session.get('watcher_files_reindexed', 0))} |")
+            a(f"| Lock contention batches | {fmt_int(session.get('watcher_lock_contention_batches', 0))} |")
+            a(f"| Recent index failures | {fmt_int(session.get('watcher_index_failures', 0))} |")
+            a(f"| Total unresolved failures | {fmt_int(session.get('watcher_index_failures_total', 0))} |")
+            a(f"| Stale failures | {fmt_int(session.get('watcher_stale_index_failures', 0))} |")
+            a(f"| Persistent failures | {fmt_int(session.get('watcher_persistent_index_failures', 0))} |")
+            a(f"| Pruned missing failures | {fmt_int(session.get('watcher_pruned_missing_failures', 0))} |")
+            a(f"| Lock contention rate | {derived.get('watcher_lock_contention_rate', 0.0):.4f} |")
+            a(f"| Recent failure share | {derived.get('watcher_recent_failure_share', 0.0):.4f} |")
+            a(f"| Watch status parity | running={status.get('running')}, contention={fmt_int(status.get('lock_contention_batches', 0))}, recent={fmt_int(status.get('index_failures', 0))}, total={fmt_int(status.get('index_failures_total', 0))} |")
+        else:
+            a(f"- skipped: {watcher.get('reason', 'unavailable')}")
+
     if quality_contract:
         a("")
         a("## Quality Contract")
@@ -190,6 +219,146 @@ def render_summary(data):
                     f"{fmt_int(item.get('recommended_check_count', 0))} | "
                     f"{fmt_int(item.get('performance_watchpoint_count', 0))} |"
                 )
+
+    if verifier_contract:
+        a("")
+        a("## Verifier Contract")
+        a("")
+        a("| Metric | Value |")
+        a("|---|---:|")
+        a(
+            f"| Present rate | {fmt_pct(verifier_contract.get('verifier_contract_present_rate', 0) * 100)} |"
+        )
+        a(
+            f"| Blockers emitted | {fmt_int(verifier_contract.get('blocker_total', 0))} |"
+        )
+        a(
+            f"| Verifier checks emitted | {fmt_int(verifier_contract.get('verifier_checks_total', 0))} |"
+        )
+        a(
+            f"| Blocked mutation-ready scenarios | {fmt_int(verifier_contract.get('blocked_mutation_ready_scenarios', 0))} |"
+        )
+        a(
+            f"| Caution test-readiness scenarios | {fmt_int(verifier_contract.get('caution_test_readiness_scenarios', 0))} |"
+        )
+        scenarios = verifier_contract.get("scenarios", [])
+        if scenarios:
+            a("")
+            a("| Scenario | Contract | Blockers | Checks | Diagnostics | References | Tests | Mutation |")
+            a("|---|---:|---:|---:|---|---|---|---|")
+            for item in scenarios:
+                a(
+                    f"| {item.get('scenario', 'unknown')} | "
+                    f"{'yes' if item.get('has_verifier_contract') else 'no'} | "
+                    f"{fmt_int(item.get('blocker_count', 0))} | "
+                    f"{fmt_int(item.get('verifier_check_count', 0))} | "
+                    f"{item.get('diagnostics_ready', 'unknown')} | "
+                    f"{item.get('reference_safety', 'unknown')} | "
+                    f"{item.get('test_readiness', 'unknown')} | "
+                    f"{item.get('mutation_ready', 'unknown')} |"
+                )
+
+    if gate_observability:
+        a("")
+        a("## Execution Gates")
+        a("")
+        if gate_observability.get("supported"):
+            mutation = gate_observability.get("mutation_gate", {})
+            mutation_session = mutation.get("session", {})
+            mutation_checks = mutation.get("checks", {})
+            deferred = gate_observability.get("deferred_gate", {})
+            deferred_session = deferred.get("session", {})
+            deferred_checks = deferred.get("checks", {})
+            a("| Metric | Value |")
+            a("|---|---:|")
+            a(
+                f"| Mutation preflight denies | {fmt_int(mutation_session.get('mutation_preflight_gate_denied_count', 0))} |"
+            )
+            a(
+                f"| Mutation caution count | {fmt_int(mutation_session.get('mutation_with_caution_count', 0))} |"
+            )
+            a(
+                f"| Rename symbol-preflight denies | {fmt_int(mutation_session.get('rename_without_symbol_preflight_count', 0))} |"
+            )
+            a(
+                f"| Mutation gate deny rate | {fmt_pct(mutation.get('derived_kpis', {}).get('mutation_preflight_gate_deny_rate', 0.0) * 100)} |"
+            )
+            a(
+                f"| Missing preflight denied | {mutation_checks.get('missing_preflight_denied')} |"
+            )
+            a(
+                f"| Preflight mutation allowed | {mutation_checks.get('preflight_mutation_allowed')} |"
+            )
+            a(
+                f"| Rename requires symbol preflight | {mutation_checks.get('rename_requires_symbol_preflight')} |"
+            )
+            a(
+                f"| Deferred namespace expansions | {fmt_int(deferred_session.get('deferred_namespace_expansion_count', 0))} |"
+            )
+            a(
+                f"| Deferred hidden tool denies | {fmt_int(deferred_session.get('deferred_hidden_tool_call_denied_count', 0))} |"
+            )
+            a(
+                f"| Deferred hidden-call deny rate | {fmt_pct(deferred.get('derived_kpis', {}).get('deferred_hidden_tool_call_deny_rate', 0.0) * 100)} |"
+            )
+            a(
+                f"| Hidden namespace denied | {deferred_checks.get('hidden_namespace_denied')} |"
+            )
+            a(
+                f"| Hidden tier denied | {deferred_checks.get('hidden_tier_denied')} |"
+            )
+            a(
+                f"| Filesystem namespace loaded | {deferred_checks.get('filesystem_namespace_loaded')} |"
+            )
+            a(
+                f"| Primitive tier loaded | {deferred_checks.get('primitive_tier_loaded')} |"
+            )
+        else:
+            a(f"- skipped: {gate_observability.get('reason', 'unavailable')}")
+
+    if codex_like_sessions:
+        a("")
+        a("## Codex-Like Sessions")
+        a("")
+        if codex_like_sessions.get("supported"):
+            a("| Metric | Value |")
+            a("|---|---:|")
+            a(
+                f"| Scenarios | {fmt_int(codex_like_sessions.get('scenario_count', 0))} |"
+            )
+            a(
+                f"| Avg bootstrap tokens | {fmt_int(codex_like_sessions.get('avg_bootstrap_tokens', 0))} |"
+            )
+            a(
+                f"| Avg session overhead vs direct composite | {fmt_pct(codex_like_sessions.get('avg_session_overhead_vs_direct_pct', 0.0))} |"
+            )
+            a(
+                f"| Avg session savings vs baseline | {fmt_pct(codex_like_sessions.get('avg_session_savings_vs_baseline_pct', 0.0))} |"
+            )
+            scenarios = codex_like_sessions.get("scenarios", [])
+            if scenarios:
+                a("")
+                a("| Scenario | Bootstrap | Tool Response | Session Total | Direct Composite | Baseline | Savings vs Baseline | Overhead vs Direct | Visible Tools |")
+                a("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+                for item in scenarios:
+                    if not item.get("supported"):
+                        a(
+                            f"| {item.get('scenario', 'unknown')} | - | - | - | - | - | - | - | skipped: {item.get('reason', 'unavailable')} |"
+                        )
+                        continue
+                    a(
+                        f"| {item.get('scenario', 'unknown')} | "
+                        f"{fmt_int(item.get('bootstrap_tokens', 0))} | "
+                        f"{fmt_int(item.get('tool_response_tokens', 0))} | "
+                        f"{fmt_int(item.get('total_session_tokens', 0))} | "
+                        f"{fmt_int(item.get('direct_profile_tokens', 0))} | "
+                        f"{fmt_int(item.get('baseline_tokens', 0))} | "
+                        f"{fmt_pct(item.get('session_savings_vs_baseline_pct', 0.0))} | "
+                        f"{fmt_pct(item.get('session_overhead_vs_direct_pct', 0.0))} | "
+                        f"{fmt_int(item.get('tool_count', 0))}/{fmt_int(item.get('tool_count_total', 0))} |"
+                    )
+        else:
+            a(f"- skipped: {codex_like_sessions.get('reason', 'unavailable')}")
 
     if results:
         a("")
