@@ -51,7 +51,14 @@ def choose_global_policy(items):
     }
 
 
-def build_policy(report, task_summaries, *, policy_scope: str, agent: str | None = None):
+def build_policy(
+    report,
+    task_summaries,
+    *,
+    policy_scope: str,
+    agent: str | None = None,
+    generated_at: str | None = None,
+):
     task_groups = defaultdict(list)
     repo_overrides = []
     for item in task_summaries:
@@ -87,10 +94,12 @@ def build_policy(report, task_summaries, *, policy_scope: str, agent: str | None
         "schema_version": "codelens-routing-policy-v2",
         "policy_scope": policy_scope,
         "agent": agent,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "generated_at": generated_at or datetime.now().isoformat(timespec="seconds"),
         "source_report": report.get("source_report") or report.get("generated_at"),
         "source_report_path": report.get("_source_path"),
         "binary": report.get("binary"),
+        "source_of_truth": "policy_json",
+        "runtime_authority": "agent_canonical_json" if policy_scope == "agent" else "shared_summary_json",
         "global_rules": global_rules,
         "repo_overrides": repo_overrides,
     }
@@ -110,6 +119,9 @@ def render_markdown(policy):
     a(f"| Source report | {policy.get('source_report_path') or policy.get('source_report')} |")
     a(f"| Binary | {policy.get('binary', 'unknown')} |")
     a(f"| Generated at | {policy.get('generated_at')} |")
+    a(f"| Runtime authority | {policy.get('runtime_authority')} |")
+    a("")
+    a("_This markdown is derived from the authoritative policy JSON and is not policy input._")
     a("")
     a("## Global Rules")
     a("")
@@ -156,15 +168,18 @@ def main():
     parser.add_argument("--label", default="codelens-routing-policy")
     parser.add_argument("--skip-canonical-write", action="store_true")
     parser.add_argument("--skip-claude-mirror", action="store_true")
+    parser.add_argument("--generated-at", default="")
     args = parser.parse_args()
 
     report_path = Path(args.input).expanduser()
     report = load_report(report_path)
     report["_source_path"] = str(report_path)
+    generated_at = args.generated_at or datetime.now().isoformat(timespec="seconds")
     shared_policy = build_policy(
         report,
         report.get("task_summaries", []),
         policy_scope="shared",
+        generated_at=generated_at,
     )
     agent_task_summaries = report.get("agent_task_summaries") or {}
     agent_policies = {
@@ -173,6 +188,7 @@ def main():
             agent_task_summaries.get(agent) or report.get("task_summaries", []),
             policy_scope="agent",
             agent=agent,
+            generated_at=generated_at,
         )
         for agent in agents.agent_names()
     }

@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 import agent_registry as agents
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 BENCH_DIR = SCRIPT_DIR.parent
 DEFAULT_CODEX_POLICY = Path(agents.get_agent("codex")["canonical_policy_json"])
@@ -42,13 +43,12 @@ def render_policy_section(policy):
         f"_Generated from `{policy.get('source_report_path', policy.get('source_report', 'unknown'))}` on {policy.get('generated_at', datetime.now().isoformat(timespec='seconds'))}_",
         "",
         f"_Policy target: `{agent}`_",
+        "_Derived from the authoritative policy JSON for this agent. This markdown is non-authoritative and must not be used as policy input._",
         "",
         "Global rules:",
     ]
     for rule in policy.get("global_rules", []):
-        lines.append(
-            f"- `{rule['task_kind']}` → `{rule['recommended_policy']}`"
-        )
+        lines.append(f"- `{rule['task_kind']}` → `{rule['recommended_policy']}`")
         lines.append(f"  {rule.get('explanation', '')}")
 
     overrides = policy.get("repo_overrides", [])
@@ -85,6 +85,7 @@ def render_claude_policy_section(policy):
         f"_Generated from `{policy.get('source_report_path', policy.get('source_report', 'unknown'))}` on {policy.get('generated_at', datetime.now().isoformat(timespec='seconds'))}_",
         "",
         f"_Policy target: `{agent}`_",
+        "_Derived from the authoritative policy JSON for this agent. This markdown is non-authoritative and must not be used as policy input._",
         "",
         "Global rules:",
     ]
@@ -114,7 +115,9 @@ def render_claude_policy_section(policy):
     return "\n".join(lines)
 
 
-def apply_marked_section(existing: str, new_section: str, begin_marker: str, end_marker: str):
+def apply_marked_section(
+    existing: str, new_section: str, begin_marker: str, end_marker: str
+):
     if begin_marker in existing and end_marker in existing:
         start = existing.index(begin_marker)
         end = existing.index(end_marker) + len(end_marker)
@@ -126,11 +129,13 @@ def apply_marked_section(existing: str, new_section: str, begin_marker: str, end
     return new_section
 
 
-def render_override_snippet(repo_label, repo_id, overrides):
+def render_override_snippet(repo_label, repo_id, overrides, agent: str):
     lines = [
         f"# CodeLens Override: {repo_label}",
         "",
+        f"- Policy target: `{agent}`",
         f"- Repo id: `{repo_id}`",
+        "- Derived from authoritative policy JSON; reference only.",
         "",
         "Task-specific overrides:",
     ]
@@ -161,9 +166,11 @@ def render_override_snippet(repo_label, repo_id, overrides):
 
 
 def load_repo_map(path: Path):
+    import harness_eval_common as common
+
     config = json.loads(path.read_text())
     return {
-        repo["id"]: repo
+        common.normalize_repo_id(repo): repo
         for repo in config.get("representative_repos", [])
     }
 
@@ -178,6 +185,8 @@ def render_repo_policy_section(policy, repo_label, repo_id, overrides):
             f"on {policy.get('generated_at', datetime.now().isoformat(timespec='seconds'))} for `{repo_id}`_"
         ),
         "",
+        "_Derived from the authoritative Codex policy JSON. This repo section is non-authoritative._",
+        "",
         "Repo-specific routing rules:",
     ]
     if overrides:
@@ -189,7 +198,9 @@ def render_repo_policy_section(policy, repo_label, repo_id, overrides):
                 ]
             )
     else:
-        lines.append("- no repo-specific exceptions; follow the global CodeLens routing policy.")
+        lines.append(
+            "- no repo-specific exceptions; follow the global CodeLens routing policy."
+        )
     lines.extend(
         [
             "",
@@ -214,6 +225,8 @@ def render_repo_claude_policy_section(policy, repo_label, repo_id, overrides):
             f"on {policy.get('generated_at', datetime.now().isoformat(timespec='seconds'))} for `{repo_id}`_"
         ),
         "",
+        "_Derived from the authoritative Claude policy JSON. This repo section is non-authoritative._",
+        "",
         "Repo-specific routing rules:",
     ]
     if overrides:
@@ -225,7 +238,9 @@ def render_repo_claude_policy_section(policy, repo_label, repo_id, overrides):
                 ]
             )
     else:
-        lines.append("- no repo-specific exceptions; follow the global CodeLens routing policy.")
+        lines.append(
+            "- no repo-specific exceptions; follow the global CodeLens routing policy."
+        )
     lines.extend(
         [
             "",
@@ -247,6 +262,7 @@ def render_bootstrap_agents(repo):
         "## Codex Harness Bootstrap",
         "",
         "This AGENTS.md was bootstrap-generated to attach minimal verification defaults and repo-local CodeLens routing guidance.",
+        "The authoritative routing rules remain in policy JSON; this file is derived guidance only.",
         "Global defaults still come from `~/.codex/AGENTS.md`.",
         "",
         "## Verification",
@@ -280,6 +296,7 @@ def render_bootstrap_claude(repo):
         "## Codex/Claude Harness Bootstrap",
         "",
         "This CLAUDE.md was bootstrap-generated to attach minimal verification defaults and repo-local CodeLens routing guidance.",
+        "The authoritative routing rules remain in policy JSON; this file is derived guidance only.",
         "Global defaults still come from `~/.claude/CLAUDE.md`.",
         "",
         "## Verification",
@@ -326,13 +343,17 @@ def main():
     repo_map = load_repo_map(repo_config_path)
     agents_text = agents_path.read_text() if agents_path.exists() else ""
     section = render_policy_section(policy)
-    updated_agents = apply_marked_section(agents_text, section, BEGIN_MARKER, END_MARKER)
+    updated_agents = apply_marked_section(
+        agents_text, section, BEGIN_MARKER, END_MARKER
+    )
     agents_path.parent.mkdir(parents=True, exist_ok=True)
     agents_path.write_text(updated_agents)
 
     claude_text = claude_path.read_text() if claude_path.exists() else ""
     claude_section = render_claude_policy_section(claude_policy)
-    updated_claude = apply_marked_section(claude_text, claude_section, CLAUDE_BEGIN_MARKER, CLAUDE_END_MARKER)
+    updated_claude = apply_marked_section(
+        claude_text, claude_section, CLAUDE_BEGIN_MARKER, CLAUDE_END_MARKER
+    )
     claude_path.parent.mkdir(parents=True, exist_ok=True)
     claude_path.write_text(updated_claude)
 
@@ -357,8 +378,14 @@ def main():
     for repo_id in sorted(repo_ids):
         overrides = grouped_overrides.get(repo_id, [])
         claude_overrides = grouped_claude_overrides.get(repo_id, [])
-        path = override_dir / f"{repo_id}-{agents.get_agent('codex')['override_suffix']}.md"
-        claude_override_path = override_dir / f"{repo_id}-{agents.get_agent('claude')['override_suffix']}.md"
+        path = (
+            override_dir
+            / f"{repo_id}-{agents.get_agent('codex')['override_suffix']}.md"
+        )
+        claude_override_path = (
+            override_dir
+            / f"{repo_id}-{agents.get_agent('claude')['override_suffix']}.md"
+        )
         repo = repo_map.get(repo_id)
         if not repo:
             skipped_repo_overrides.append(
@@ -370,18 +397,27 @@ def main():
             continue
 
         repo_label = overrides[0]["repo_label"] if overrides else repo["label"]
-        path.write_text(render_override_snippet(repo_label, repo_id, overrides))
+        path.write_text(
+            render_override_snippet(repo_label, repo_id, overrides, "codex")
+        )
         override_paths.append(str(path))
         claude_override_path.write_text(
             render_override_snippet(
-                claude_overrides[0]["repo_label"] if claude_overrides else repo["label"],
+                (
+                    claude_overrides[0]["repo_label"]
+                    if claude_overrides
+                    else repo["label"]
+                ),
                 repo_id,
                 claude_overrides,
+                "claude",
             )
         )
         claude_override_paths.append(str(claude_override_path))
 
-        repo_agents_path = Path(repo["path"]) / str(agents.get_agent("codex")["repo_instruction_name"])
+        repo_agents_path = Path(repo["path"]) / str(
+            agents.get_agent("codex")["repo_instruction_name"]
+        )
         if not repo_agents_path.exists():
             if not args.bootstrap_missing_agents:
                 skipped_repo_overrides.append(
@@ -411,7 +447,9 @@ def main():
         )
         repo_agents_paths.append(str(repo_agents_path))
 
-        repo_claude_path = Path(repo["path"]) / str(agents.get_agent("claude")["repo_instruction_name"])
+        repo_claude_path = Path(repo["path"]) / str(
+            agents.get_agent("claude")["repo_instruction_name"]
+        )
         if not repo_claude_path.exists():
             if not args.bootstrap_missing_claude:
                 skipped_repo_overrides.append(
@@ -428,7 +466,11 @@ def main():
             repo_claude_text = repo_claude_path.read_text()
             repo_claude_section = render_repo_claude_policy_section(
                 claude_policy,
-                claude_overrides[0]["repo_label"] if claude_overrides else repo["label"],
+                (
+                    claude_overrides[0]["repo_label"]
+                    if claude_overrides
+                    else repo["label"]
+                ),
                 repo_id,
                 claude_overrides,
             )

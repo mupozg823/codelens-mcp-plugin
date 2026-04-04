@@ -448,6 +448,28 @@ def build_agent_task_summaries(entries, policy_agents=DEFAULT_POLICY_AGENTS):
     return summaries
 
 
+def build_policy_entries(entries):
+    policy_entries = []
+    for entry in entries:
+        if entry.get("source_kind") == "synthetic":
+            policy_entries.append(dict(entry))
+            continue
+        if common.qualifying_real_entry(entry):
+            policy_entries.append(dict(entry))
+    return policy_entries
+
+
+def apply_summary_policies(entries, task_summaries):
+    policy_by_key = {
+        (summary["repo_id"], summary["task_kind"]): summary["recommended_policy"]
+        for summary in task_summaries
+    }
+    for entry in entries:
+        key = (entry.get("repo_id", entry.get("repo", "")), entry["task_kind"])
+        if key in policy_by_key:
+            entry["recommended_policy"] = policy_by_key[key]
+
+
 def render_report(report):
     lines = []
     a = lines.append
@@ -472,6 +494,8 @@ def render_report(report):
     a(f"| Binary | {binary} |")
     a(f"| Synthetic entries | {sum(1 for entry in entries if entry.get('source_kind') == 'synthetic')} |")
     a(f"| Real-session entries | {sum(1 for entry in entries if entry.get('source_kind') == 'real-session')} |")
+    a(f"| Policy-input real sessions | {report.get('policy_real_session_count', 0)} |")
+    a(f"| Excluded non-qualifying real sessions | {report.get('excluded_policy_real_session_count', 0)} |")
     a(f"| Representative repos | {len(report['representative_repos'])} |")
     a(f"| Task summaries | {len(task_summaries)} |")
     a(f"| Baseline workflow savings | {baseline.get('workflow_total_savings_pct')}% |")
@@ -644,8 +668,10 @@ def main():
     else:
         duplicate_real_sessions = []
 
-    task_summaries = build_task_summaries(entries)
-    agent_task_summaries = build_agent_task_summaries(entries)
+    policy_entries = build_policy_entries(entries)
+    task_summaries = build_task_summaries(policy_entries)
+    agent_task_summaries = build_agent_task_summaries(policy_entries)
+    apply_summary_policies(entries, task_summaries)
     report = {
         "schema_version": "codelens-harness-eval-v1",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -653,6 +679,15 @@ def main():
         "baseline_reference": config["baseline_reference"],
         "representative_repos": selected,
         "entries": entries,
+        "policy_entry_count": len(policy_entries),
+        "policy_real_session_count": sum(
+            1 for entry in policy_entries if entry.get("source_kind") == "real-session"
+        ),
+        "excluded_policy_real_session_count": sum(
+            1
+            for entry in entries
+            if entry.get("source_kind") == "real-session" and not common.qualifying_real_entry(entry)
+        ),
         "duplicate_real_sessions": duplicate_real_sessions,
         "task_summaries": task_summaries,
         "agent_task_summaries": agent_task_summaries,

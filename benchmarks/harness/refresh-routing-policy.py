@@ -47,88 +47,45 @@ def resolve_session_entry_paths(patterns):
     return common.resolve_session_entry_paths(patterns)
 
 
-def resolve_entry_repo_id(entry, repo_map):
-    repo_id = entry.get("repo_id")
-    if repo_id:
-        matched = repo_map.get(repo_id)
-        if matched:
-            return repo_id
-        canonical = common.canonical_repo_key(repo_id)
-        for candidate_id, repo_cfg in repo_map.items():
-            if canonical in {
-                common.canonical_repo_key(candidate_id),
-                common.canonical_repo_key(Path(repo_cfg["path"]).name),
-            }:
-                return candidate_id
-    repo_path = entry.get("repo")
-    if repo_path:
-        for candidate_id, repo_cfg in repo_map.items():
-            if Path(repo_cfg["path"]).expanduser().resolve() == Path(repo_path).expanduser().resolve():
-                return candidate_id
-    return ""
-
-
-def dedupe_qualifying_real_entries(entries, repo_map):
+def dedupe_qualifying_real_entries(entries, representative_repos):
+    repo_map = {
+        common.normalize_repo_id(repo_cfg): repo_cfg
+        for repo_cfg in representative_repos
+    }
     total_real_entries = 0
     qualifying_entries = 0
-    latest_by_key = {}
-    duplicate_buckets = defaultdict(list)
     overall_agent_counts = defaultdict(int)
+    qualifying_candidates = []
 
     for entry in entries:
         if entry.get("source_kind") != "real-session":
             continue
         total_real_entries += 1
-        repo_id = resolve_entry_repo_id(entry, repo_map)
-        if not repo_id or not qualifying_real_entry(entry):
+        repo_id = entry.get("repo_id", "")
+        if repo_id not in repo_map or not common.qualifying_real_entry(entry):
             continue
         qualifying_entries += 1
+        normalized = dict(entry)
+        normalized["repo_id"] = repo_id
+        normalized["repo_label"] = repo_map[repo_id].get("label", repo_id)
         agent = (entry.get("agent") or "unknown").strip().lower()
         overall_agent_counts[agent] += 1
-        scenario_id = common.infer_scenario_id(entry)
-        key = (
-            repo_id,
-            entry.get("task_kind", ""),
-            agent,
-            entry.get("mode", ""),
-            scenario_id or "",
-        )
-        existing = latest_by_key.get(key)
-        if existing is None or str(entry.get("_source_path", "")) > str(existing.get("_source_path", "")):
-            if existing is not None:
-                duplicate_buckets[key].append(existing)
-            latest_by_key[key] = entry
-        else:
-            duplicate_buckets[key].append(entry)
+        qualifying_candidates.append(normalized)
 
-    duplicates = []
-    for key, duplicates_list in sorted(duplicate_buckets.items()):
-        kept = latest_by_key[key]
-        duplicates.append(
-            {
-                "repo_id": key[0],
-                "task_kind": key[1],
-                "agent": key[2],
-                "mode": key[3],
-                "scenario_id": key[4] or None,
-                "kept_source_path": kept.get("_source_path"),
-                "discarded_source_paths": [item.get("_source_path") for item in duplicates_list],
-                "duplicate_count": len(duplicates_list),
-            }
-        )
+    deduped_entries, duplicates = common.dedupe_real_session_entries(qualifying_candidates)
 
     unique_agent_counts = defaultdict(int)
-    for entry in latest_by_key.values():
+    for entry in deduped_entries:
         agent = (entry.get("agent") or "unknown").strip().lower()
         unique_agent_counts[agent] += 1
 
     return {
         "total_real_entries": total_real_entries,
         "qualifying_real_entries": qualifying_entries,
-        "unique_qualifying_real_entries": len(latest_by_key),
+        "unique_qualifying_real_entries": len(deduped_entries),
         "overall_agent_counts": dict(sorted(overall_agent_counts.items())),
         "unique_overall_agent_counts": dict(sorted(unique_agent_counts.items())),
-        "entries": list(latest_by_key.values()),
+        "entries": deduped_entries,
         "duplicates": duplicates,
     }
 
@@ -179,6 +136,85 @@ def policy_drift_summary(canonical_policy_path: Path, preview_policy_path: Path)
     return {
         "global_rule_changes": global_changes,
         "repo_override_changes": override_changes,
+    }
+
+
+def agent_policy_divergence(shared_policy_path: Path, agent_policy_paths: dict[str, str | Path]):
+    if not shared_policy_path.exists():
+        return {"changed": False, "global_rule_changes": [], "repo_override_changes": []}
+
+    shared_policy = common.load_json(shared_policy_path)
+    shared_globals, shared_overrides = policy_map_by_key(shared_policy)
+    global_changes = []
+    repo_override_changes = []
+
+    for agent, path_value in sorted(agent_policy_paths.items()):
+        policy_path = Path(path_value).expanduser()
+        if not policy_path.exists():
+            continue
+        agent_policy = common.load_json(policy_path)
+        agent_globals, agent_overrides = policy_map_by_key(agent_policy)
+        for key in sorted(set(shared_globals) | set(agent_globals)):
+            shared_row = shared_globals.get(key)
+            agent_row = agent_globals.get(key)
+            if shared_row != agent_row:
+                global_changes.append(
+                    {
+                        "agent": agent,
+                        "task_kind": key,
+                        "shared": shared_row,
+                        "agent_policy": agent_row,
+                    }
+                )
+        for key in sorted(set(shared_overrides) | set(agent_overrides)):
+            shared_row = shared_overrides.get(key)
+            agent_row = agent_overrides.get(key)
+            if shared_row != agent_row:
+                repo_override_changes.append(
+                    {
+                        "agent": agent,
+                        "repo_id": key[0],
+                        "task_kind": key[1],
+                        "shared": shared_row,
+                        "agent_policy": agent_row,
+                    }
+                )
+
+    return {
+        "changed": bool(global_changes or repo_override_changes),
+        "global_rule_changes": global_changes,
+        "repo_override_changes": repo_override_changes,
+    }
+
+
+def promotion_integrity_summary(preview_policy_paths: dict[str, str | Path], canonical_policy_paths: dict[str, str | Path]):
+    comparisons = {}
+    mismatches = []
+    for label, preview_path_value in sorted(preview_policy_paths.items()):
+        preview_path = Path(preview_path_value).expanduser()
+        canonical_path_value = canonical_policy_paths.get(label)
+        canonical_path = Path(canonical_path_value).expanduser() if canonical_path_value else None
+        preview_exists = preview_path.exists()
+        canonical_exists = canonical_path.exists() if canonical_path else False
+        matches = False
+        if preview_exists and canonical_exists:
+            preview_policy = common.load_json(preview_path)
+            canonical_policy = common.load_json(canonical_path)
+            matches = common.policy_structure(preview_policy) == common.policy_structure(canonical_policy)
+        comparisons[label] = {
+            "preview_path": str(preview_path),
+            "canonical_path": str(canonical_path) if canonical_path else None,
+            "preview_exists": preview_exists,
+            "canonical_exists": canonical_exists,
+            "matches": matches,
+        }
+        if not matches:
+            mismatches.append(label)
+    return {
+        "checked": True,
+        "ok": not mismatches,
+        "mismatched_targets": mismatches,
+        "comparisons": comparisons,
     }
 
 
@@ -234,11 +270,14 @@ def render_drift_markdown(drift, canonical_policy_path: Path, preview_policy_pat
 
 
 def render_refresh_status_markdown(payload):
+    promotion_integrity = payload.get("promotion_integrity") or {}
+    agent_divergence = payload.get("agent_policy_divergence") or {}
     lines = [
         "# Routing Policy Refresh",
         "",
         f"- Generated: `{payload['generated_at']}`",
         f"- Ready for promotion: `{payload['ready_for_promotion']}`",
+        f"- Promotion attempted: `{payload.get('promotion_attempted')}`",
         f"- Promoted: `{payload['promoted']}`",
         f"- Unique qualifying real entries: `{payload['unique_qualifying_real_entries']}`",
         f"- Duplicate real session count: `{payload['duplicate_real_session_count']}`",
@@ -254,19 +293,27 @@ def render_refresh_status_markdown(payload):
     else:
         lines.append("No active coverage gaps.")
         lines.append("")
+    if agent_divergence.get("changed"):
+        lines.extend(["## Agent Divergence", ""])
+        for row in agent_divergence.get("global_rule_changes") or []:
+            lines.append(f"- global: `{row['agent']} / {row['task_kind']}`")
+        for row in agent_divergence.get("repo_override_changes") or []:
+            lines.append(f"- override: `{row['agent']} / {row['repo_id']} / {row['task_kind']}`")
+        lines.append("")
+    else:
+        lines.extend(["## Agent Divergence", "", "No agent-specific divergence from shared preview policy.", ""])
+    lines.extend(["## Promotion Integrity", ""])
+    if not promotion_integrity.get("checked"):
+        lines.append("- skipped")
+        lines.append("")
+        return "\n".join(lines)
+    lines.append(f"- ok: `{promotion_integrity.get('ok')}`")
+    for label, comparison in sorted((promotion_integrity.get("comparisons") or {}).items()):
+        lines.append(
+            f"- `{label}`: preview_exists=`{comparison['preview_exists']}` canonical_exists=`{comparison['canonical_exists']}` matches=`{comparison['matches']}`"
+        )
+    lines.append("")
     return "\n".join(lines)
-
-
-def qualifying_real_entry(entry):
-    if entry.get("source_kind") != "real-session":
-        return False
-    if entry.get("success") is not True:
-        return False
-    if entry.get("acceptance_passed") is False:
-        return False
-    if entry.get("verify_passed") is False:
-        return False
-    return True
 
 
 def coverage_summary(config, entries, required_task_kinds, min_per_combo, required_agents):
@@ -274,11 +321,13 @@ def coverage_summary(config, entries, required_task_kinds, min_per_combo, requir
         common.normalize_repo_id(repo_cfg): repo_cfg
         for repo_cfg in config.get("representative_repos", [])
     }
-    deduped = dedupe_qualifying_real_entries(entries, repo_map)
+    deduped = dedupe_qualifying_real_entries(entries, config.get("representative_repos", []))
     counts = defaultdict(int)
     agent_counts = defaultdict(lambda: defaultdict(int))
     for entry in deduped["entries"]:
-        repo_id = resolve_entry_repo_id(entry, repo_map)
+        repo_id = entry.get("repo_id", "")
+        if repo_id not in repo_map:
+            continue
         task_kind = entry.get("task_kind", "")
         counts[(repo_id, task_kind)] += 1
         agent = (entry.get("agent") or "unknown").strip().lower()
@@ -356,12 +405,15 @@ def main():
     drift_report_dir.mkdir(parents=True, exist_ok=True)
     preview_policy_dir.mkdir(parents=True, exist_ok=True)
 
+    config = common.load_json(config_path)
     required_task_kinds = args.required_task_kind or list(DEFAULT_REQUIRED_TASK_KINDS)
     required_agents = [agent.strip().lower() for agent in (args.required_agent or list(DEFAULT_REQUIRED_AGENTS)) if agent.strip()]
     session_patterns = args.session_entry_glob or [DEFAULT_SESSION_GLOB]
     session_paths = resolve_session_entry_paths(session_patterns)
-    real_entries = load_entries(session_paths)
-    config = common.load_json(config_path)
+    real_entries = common.canonicalize_entry_repo_ids(
+        load_entries(session_paths),
+        config.get("representative_repos", []),
+    )
     coverage = coverage_summary(
         config,
         real_entries,
@@ -378,6 +430,7 @@ def main():
     refresh_status_md = refresh_status_dir / f"{base_name}.md"
     preview_policy_json = preview_policy_dir / f"{base_name}.json"
     preview_policy_md = preview_policy_dir / f"{base_name}.md"
+    policy_generated_at = datetime.now().isoformat(timespec="seconds")
 
     harness_cmd = [
         "python3",
@@ -411,8 +464,18 @@ def main():
         "--label",
         f"{args.label}-preview",
         "--skip-canonical-write",
+        "--generated-at",
+        policy_generated_at,
     ]
     preview_policy_result = run_json_command(export_preview_cmd)
+    preview_agent_policy_jsons = {
+        agent: preview_policy_result.get(f"{agent}_policy_json")
+        for agent in agents.agent_names()
+    }
+    agent_policy_divergence_summary = agent_policy_divergence(
+        Path(preview_policy_result["shared_policy_json"]).expanduser(),
+        preview_agent_policy_jsons,
+    )
     platform_policy_drift = {
         "shared": policy_drift_summary(
             DEFAULT_SHARED_CANONICAL_POLICY,
@@ -453,9 +516,11 @@ def main():
     )
 
     promote = coverage["ready"] and not args.skip_promote
+    promotion_attempted = promote
     promoted_policy_result = None
     apply_result = None
-    if promote:
+    promotion_integrity = {"checked": False, "ok": None, "mismatched_targets": [], "comparisons": {}}
+    if promotion_attempted:
         promoted_policy_result = run_json_command(
             [
                 "python3",
@@ -464,20 +529,38 @@ def main():
                 str(preview_report_json),
                 "--label",
                 args.label,
+                "--generated-at",
+                policy_generated_at,
             ]
         )
-        apply_result = run_json_command(
-            [
-                "python3",
-                str(APPLY_POLICY_SCRIPT),
-                "--policy",
-                str(DEFAULT_CANONICAL_POLICY),
-                "--claude-policy",
-                str(DEFAULT_CLAUDE_CANONICAL_POLICY),
-                "--bootstrap-missing-agents",
-                "--bootstrap-missing-claude",
-            ]
+        promotion_integrity = promotion_integrity_summary(
+            {
+                "shared": preview_policy_result["shared_policy_json"],
+                **preview_agent_policy_jsons,
+            },
+            {
+                "shared": promoted_policy_result.get("shared_canonical_json"),
+                **{
+                    agent: promoted_policy_result.get(f"{agent}_canonical_json")
+                    for agent in agents.agent_names()
+                },
+            },
         )
+        if promotion_integrity["ok"]:
+            apply_result = run_json_command(
+                [
+                    "python3",
+                    str(APPLY_POLICY_SCRIPT),
+                    "--policy",
+                    str(DEFAULT_CANONICAL_POLICY),
+                    "--claude-policy",
+                    str(DEFAULT_CLAUDE_CANONICAL_POLICY),
+                    "--bootstrap-missing-agents",
+                    "--bootstrap-missing-claude",
+                ]
+            )
+        else:
+            promote = False
 
     payload = {
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -499,9 +582,12 @@ def main():
         "duplicate_real_sessions": coverage["duplicate_real_sessions"],
         "policy_drift": policy_drift,
         "platform_policy_drift": platform_policy_drift,
+        "agent_policy_divergence": agent_policy_divergence_summary,
+        "promotion_integrity": promotion_integrity,
         "drift_report_json": str(drift_report_json),
         "drift_report_markdown": str(drift_report_md),
         "ready_for_promotion": coverage["ready"],
+        "promotion_attempted": promotion_attempted,
         "promoted": promote,
         "preview_report_json": str(preview_report_json),
         "preview_report_markdown": str(preview_report_md),
@@ -509,10 +595,7 @@ def main():
         "preview_policy_markdown": str(preview_policy_md),
         "preview_shared_policy_json": preview_policy_result.get("shared_policy_json"),
         "preview_shared_policy_markdown": preview_policy_result.get("shared_policy_markdown"),
-        "preview_agent_policy_jsons": {
-            agent: preview_policy_result.get(f"{agent}_policy_json")
-            for agent in agents.agent_names()
-        },
+        "preview_agent_policy_jsons": preview_agent_policy_jsons,
         "preview_agent_policy_markdowns": {
             agent: preview_policy_result.get(f"{agent}_policy_markdown")
             for agent in agents.agent_names()
