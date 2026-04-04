@@ -144,6 +144,12 @@ fn detect_root(start: &Path) -> Option<PathBuf> {
     let home = dirs_fallback();
     let mut current = start.to_path_buf();
     loop {
+        // `~/.codelens` stores global CodeLens state, so treating the home directory as an
+        // inferred project root causes unrelated folders to collapse onto `$HOME`.
+        // If the user really wants to operate on `$HOME`, they can pass it explicitly.
+        if current != start && Some(current.as_path()) == home.as_deref() {
+            break;
+        }
         for marker in ROOT_MARKERS {
             if current.join(marker).exists() {
                 return Some(current);
@@ -161,7 +167,9 @@ fn detect_root(start: &Path) -> Option<PathBuf> {
 }
 
 fn dirs_fallback() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from)
+    std::env::var_os("HOME").map(PathBuf::from).map(|path| {
+        path.canonicalize().unwrap_or(path)
+    })
 }
 
 // ── Framework detection ─────────────────────────────────────────────────
@@ -417,7 +425,7 @@ fn normalize_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::ProjectRoot;
-    use std::fs;
+    use std::{env, fs, sync::{Mutex, OnceLock}};
 
     #[test]
     fn rejects_path_escape() {
@@ -438,6 +446,69 @@ mod tests {
 
         let project = ProjectRoot::new(&dir).expect("project root");
         assert_eq!(project.to_relative(&nested), "src/lib.rs");
+    }
+
+    #[test]
+    fn does_not_promote_home_directory_from_global_codelens_marker() {
+        let _guard = env_lock().lock().expect("lock");
+        let home = tempfile_dir();
+        let nested = home.join("Downloads/codelens");
+        fs::create_dir_all(home.join(".codelens")).expect("mkdir global codelens");
+        fs::create_dir_all(&nested).expect("mkdir nested");
+
+        let previous_home = env::var_os("HOME");
+        unsafe {
+            env::set_var("HOME", &home);
+        }
+
+        let project = ProjectRoot::new(&nested).expect("project root");
+
+        match previous_home {
+            Some(value) => unsafe { env::set_var("HOME", value) },
+            None => unsafe { env::remove_var("HOME") },
+        }
+
+        assert_eq!(
+            project.as_path(),
+            nested.canonicalize().expect("canonical nested").as_path()
+        );
+    }
+
+    #[test]
+    fn still_detects_project_root_before_home_directory() {
+        let _guard = env_lock().lock().expect("lock");
+        let home = tempfile_dir();
+        let project_root = home.join("workspace/app");
+        let nested = project_root.join("src/features");
+        fs::create_dir_all(home.join(".codelens")).expect("mkdir global codelens");
+        fs::create_dir_all(&nested).expect("mkdir nested");
+        fs::write(project_root.join("Cargo.toml"), "[package]\nname = \"demo\"\n")
+            .expect("write cargo");
+
+        let previous_home = env::var_os("HOME");
+        unsafe {
+            env::set_var("HOME", &home);
+        }
+
+        let project = ProjectRoot::new(&nested).expect("project root");
+
+        match previous_home {
+            Some(value) => unsafe { env::set_var("HOME", value) },
+            None => unsafe { env::remove_var("HOME") },
+        }
+
+        assert_eq!(
+            project.as_path(),
+            project_root
+                .canonicalize()
+                .expect("canonical project root")
+                .as_path()
+        );
+    }
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
     }
 
     fn tempfile_dir() -> std::path::PathBuf {
