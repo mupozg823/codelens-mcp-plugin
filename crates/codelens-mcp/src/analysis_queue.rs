@@ -114,7 +114,7 @@ impl AnalysisWorkerQueue {
                         worker_state
                             .metrics()
                             .record_analysis_job_started(remaining_depth, remaining_cost_units);
-                        let final_status = crate::tools::reports::run_analysis_job_from_queue(
+                        let final_status = crate::tools::report_jobs::run_analysis_job_from_queue(
                             &worker_state,
                             request.job_id,
                             request.kind,

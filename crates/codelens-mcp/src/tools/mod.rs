@@ -5,6 +5,8 @@ pub mod lsp;
 pub mod memory;
 pub mod mutation;
 mod report_contract;
+pub(crate) mod report_jobs;
+mod report_utils;
 pub mod reports;
 pub mod session;
 pub mod symbols;
@@ -132,10 +134,10 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "impact_report"                => reports::impact_report,
         "refactor_safety_report"       => reports::refactor_safety_report,
         "diff_aware_references"        => reports::diff_aware_references,
-        "start_analysis_job"           => reports::start_analysis_job,
-        "get_analysis_job"             => reports::get_analysis_job,
-        "cancel_analysis_job"          => reports::cancel_analysis_job,
-        "get_analysis_section"         => reports::get_analysis_section,
+        "start_analysis_job"           => report_jobs::start_analysis_job,
+        "get_analysis_job"             => report_jobs::get_analysis_job,
+        "cancel_analysis_job"          => report_jobs::cancel_analysis_job,
+        "get_analysis_section"         => report_jobs::get_analysis_section,
     }
 }
 

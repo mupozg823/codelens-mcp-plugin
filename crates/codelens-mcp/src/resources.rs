@@ -1,9 +1,12 @@
 //! MCP resource definitions and handlers.
 
 use crate::AppState;
+use crate::resource_context::{
+    ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
+};
+use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    ToolProfile, preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
-    visible_namespaces, visible_tiers, visible_tools,
+    ToolProfile, preferred_tier_labels, tool_namespace, tool_tier_label, visible_tools,
 };
 use codelens_core::{detect_frameworks, detect_workspace_packages};
 use serde_json::json;
@@ -67,184 +70,17 @@ fn profile_guide_summary(profile: ToolProfile) -> serde_json::Value {
     })
 }
 
-fn deferred_loading_requested(params: Option<&serde_json::Value>) -> bool {
-    params
-        .and_then(|params| params.get("_session_deferred_tool_loading"))
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
-}
-
-fn loaded_namespaces(params: Option<&serde_json::Value>) -> Vec<String> {
-    params
-        .and_then(|params| params.get("_session_loaded_namespaces"))
-        .and_then(|value| value.as_array())
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_str())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
-}
-
-fn loaded_tiers(params: Option<&serde_json::Value>) -> Vec<String> {
-    params
-        .and_then(|params| params.get("_session_loaded_tiers"))
-        .and_then(|value| value.as_array())
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_str())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
-}
-
-fn full_tool_exposure(params: Option<&serde_json::Value>) -> bool {
-    params
-        .and_then(|params| params.get("_session_full_tool_exposure"))
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
-}
-
-fn resource_requested_namespace(params: Option<&serde_json::Value>) -> Option<String> {
-    params
-        .and_then(|params| params.get("namespace"))
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned)
-}
-
-fn resource_requested_tier(params: Option<&serde_json::Value>) -> Option<String> {
-    params
-        .and_then(|params| params.get("tier"))
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned)
-}
-
-fn resource_full_listing(uri: &str, params: Option<&serde_json::Value>) -> bool {
-    uri == "codelens://tools/list/full"
-        || params
-            .and_then(|params| params.get("full"))
-            .and_then(|value| value.as_bool())
-            .unwrap_or(false)
-}
-
-fn effective_visible_tools(
-    state: &AppState,
-    uri: &str,
-    params: Option<&serde_json::Value>,
-) -> (
-    Vec<&'static crate::protocol::Tool>,
-    Vec<&'static str>,
-    Vec<&'static str>,
-    Vec<&'static str>,
-    Vec<&'static str>,
-    Vec<String>,
-    Vec<String>,
-    Vec<String>,
-    Vec<String>,
-    Option<String>,
-    Option<String>,
-    bool,
-    bool,
-) {
-    let surface = *state.surface();
-    let all_tools = visible_tools(surface);
-    let all_namespaces = visible_namespaces(surface);
-    let all_tiers = visible_tiers(surface);
-    let preferred = preferred_namespaces(surface);
-    let preferred_tiers = preferred_tier_labels(surface);
-    let loaded = loaded_namespaces(params);
-    let loaded_tier_values = loaded_tiers(params);
-    let selected_namespace = resource_requested_namespace(params);
-    let selected_tier = resource_requested_tier(params);
-    let full_listing = resource_full_listing(uri, params);
-    let full_exposure = full_tool_exposure(params);
-    let deferred = deferred_loading_requested(params);
-    let filtered = all_tools
-        .iter()
-        .copied()
-        .filter(|tool| match selected_namespace.as_deref() {
-            Some(namespace) => tool_namespace(tool.name) == namespace,
-            None if deferred && !full_listing && !full_exposure => {
-                let namespace = tool_namespace(tool.name);
-                preferred.contains(&namespace) || loaded.iter().any(|value| value == namespace)
-            }
-            None => true,
-        })
-        .filter(|tool| match selected_tier.as_deref() {
-            Some(tier) => tool_tier_label(tool.name) == tier,
-            None if deferred && !full_listing && !full_exposure => {
-                let tier = tool_tier_label(tool.name);
-                preferred_tiers.contains(&tier)
-                    || loaded_tier_values.iter().any(|value| value == tier)
-            }
-            None => true,
-        })
-        .collect::<Vec<_>>();
-    let mut effective = preferred
-        .iter()
-        .map(|value| (*value).to_owned())
-        .collect::<Vec<_>>();
-    for namespace in &loaded {
-        if !effective.iter().any(|value| value == namespace) {
-            effective.push(namespace.clone());
-        }
-    }
-    effective.sort();
-    let mut effective_tiers = preferred_tiers
-        .iter()
-        .map(|value| (*value).to_owned())
-        .collect::<Vec<_>>();
-    for tier in &loaded_tier_values {
-        if !effective_tiers.iter().any(|value| value == tier) {
-            effective_tiers.push(tier.clone());
-        }
-    }
-    effective_tiers.sort();
-    (
-        filtered,
-        all_namespaces,
-        all_tiers,
-        preferred,
-        preferred_tiers,
-        loaded,
-        loaded_tier_values,
-        effective,
-        effective_tiers,
-        selected_namespace,
-        selected_tier,
-        deferred && !full_listing && !full_exposure,
-        full_exposure,
-    )
-}
-
 fn visible_tool_summary(
     state: &AppState,
     uri: &str,
     params: Option<&serde_json::Value>,
 ) -> serde_json::Value {
     let surface = *state.surface();
-    let (
-        tools,
-        all_namespaces,
-        all_tiers,
-        preferred,
-        preferred_tiers,
-        loaded,
-        loaded_tiers,
-        effective,
-        effective_tiers,
-        selected_namespace,
-        selected_tier,
-        deferred_active,
-        full_exposure,
-    ) = effective_visible_tools(state, uri, params);
+    let request = ResourceRequestContext::from_request(uri, params);
+    let context = build_visible_tool_context(state, &request);
     let mut namespace_counts = BTreeMap::new();
     let mut tier_counts = BTreeMap::new();
-    for tool in &tools {
+    for tool in &context.tools {
         *namespace_counts
             .entry(tool_namespace(tool.name).to_owned())
             .or_insert(0usize) += 1;
@@ -252,7 +88,8 @@ fn visible_tool_summary(
             .entry(tool_tier_label(tool.name).to_owned())
             .or_insert(0usize) += 1;
     }
-    let prioritized = tools
+    let prioritized = context
+        .tools
         .iter()
         .take(8)
         .map(|tool| {
@@ -263,26 +100,24 @@ fn visible_tool_summary(
             })
         })
         .collect::<Vec<_>>();
-    let deferred_loading_active =
-        deferred_active && selected_namespace.is_none() && selected_tier.is_none();
     json!({
         "active_surface": surface.as_label(),
-        "tool_count": tools.len(),
-        "tool_count_total": visible_tools(surface).len(),
+        "tool_count": context.tools.len(),
+        "tool_count_total": context.total_tool_count,
         "visible_namespaces": namespace_counts,
         "visible_tiers": tier_counts,
-        "all_namespaces": all_namespaces,
-        "all_tiers": all_tiers,
-        "preferred_namespaces": preferred,
-        "preferred_tiers": preferred_tiers,
-        "loaded_namespaces": loaded,
-        "loaded_tiers": loaded_tiers,
-        "effective_namespaces": effective,
-        "effective_tiers": effective_tiers,
-        "selected_namespace": selected_namespace,
-        "selected_tier": selected_tier,
-        "deferred_loading_active": deferred_loading_active,
-        "full_tool_exposure": full_exposure,
+        "all_namespaces": context.all_namespaces,
+        "all_tiers": context.all_tiers,
+        "preferred_namespaces": context.preferred_namespaces,
+        "preferred_tiers": context.preferred_tiers,
+        "loaded_namespaces": context.loaded_namespaces,
+        "loaded_tiers": context.loaded_tiers,
+        "effective_namespaces": context.effective_namespaces,
+        "effective_tiers": context.effective_tiers,
+        "selected_namespace": context.selected_namespace,
+        "selected_tier": context.selected_tier,
+        "deferred_loading_active": context.deferred_loading_active,
+        "full_tool_exposure": context.full_tool_exposure,
         "recommended_tools": prioritized,
         "note": "Read `codelens://tools/list/full` only when summary is insufficient."
     })
@@ -294,22 +129,10 @@ fn visible_tool_details(
     params: Option<&serde_json::Value>,
 ) -> serde_json::Value {
     let surface = *state.surface();
-    let (
-        tools,
-        all_namespaces,
-        all_tiers,
-        preferred,
-        preferred_tiers,
-        loaded,
-        loaded_tiers,
-        effective,
-        effective_tiers,
-        selected_namespace,
-        selected_tier,
-        deferred_active,
-        full_exposure,
-    ) = effective_visible_tools(state, uri, params);
-    let tools = tools
+    let request = ResourceRequestContext::from_request(uri, params);
+    let context = build_visible_tool_context(state, &request);
+    let tools = context
+        .tools
         .into_iter()
         .map(|tool| {
             json!({
@@ -320,24 +143,22 @@ fn visible_tool_details(
             })
         })
         .collect::<Vec<_>>();
-    let deferred_loading_active =
-        deferred_active && selected_namespace.is_none() && selected_tier.is_none();
     json!({
         "active_surface": surface.as_label(),
         "tool_count": tools.len(),
-        "tool_count_total": visible_tools(surface).len(),
-        "all_namespaces": all_namespaces,
-        "all_tiers": all_tiers,
-        "preferred_namespaces": preferred,
-        "preferred_tiers": preferred_tiers,
-        "loaded_namespaces": loaded,
-        "loaded_tiers": loaded_tiers,
-        "effective_namespaces": effective,
-        "effective_tiers": effective_tiers,
-        "selected_namespace": selected_namespace,
-        "selected_tier": selected_tier,
-        "deferred_loading_active": deferred_loading_active,
-        "full_tool_exposure": full_exposure,
+        "tool_count_total": context.total_tool_count,
+        "all_namespaces": context.all_namespaces,
+        "all_tiers": context.all_tiers,
+        "preferred_namespaces": context.preferred_namespaces,
+        "preferred_tiers": context.preferred_tiers,
+        "loaded_namespaces": context.loaded_namespaces,
+        "loaded_tiers": context.loaded_tiers,
+        "effective_namespaces": context.effective_namespaces,
+        "effective_tiers": context.effective_tiers,
+        "selected_namespace": context.selected_namespace,
+        "selected_tier": context.selected_tier,
+        "deferred_loading_active": context.deferred_loading_active,
+        "full_tool_exposure": context.full_tool_exposure,
         "tools": tools
     })
 }
@@ -730,9 +551,9 @@ pub(crate) fn read_resource(
             })
         }
         "codelens://tools/list" => {
-            if deferred_loading_requested(params)
-                && (resource_requested_namespace(params).is_some()
-                    || resource_requested_tier(params).is_some())
+            let request = ResourceRequestContext::from_request(uri, params);
+            if request.deferred_loading_requested
+                && (request.requested_namespace.is_some() || request.requested_tier.is_some())
             {
                 state.metrics().record_deferred_namespace_expansion();
             }
@@ -754,312 +575,9 @@ pub(crate) fn read_resource(
             })
         }
         "codelens://stats/token-efficiency" => {
-            let session = state.metrics().session_snapshot();
-            let handle_reads = session.analysis_summary_reads + session.analysis_section_reads;
-            let watcher_stats = state.watcher.as_ref().map(|watcher| watcher.stats());
-            let watcher_failure_health = state.watcher_failure_health();
-            let derived = json!({
-                "truncation_followup_rate": if session.truncated_response_count > 0 {
-                    session.truncation_followup_count as f64 / session.truncated_response_count as f64
-                } else { 0.0 },
-                "composite_guidance_followthrough_rate": if session.composite_guidance_emitted_count > 0 {
-                    session.composite_guidance_followed_count as f64 / session.composite_guidance_emitted_count as f64
-                } else { 0.0 },
-                "analysis_cache_hit_rate": if session.composite_calls > 0 {
-                    session.analysis_cache_hit_count as f64 / session.composite_calls as f64
-                } else { 0.0 },
-                "quality_contract_present_rate": if session.composite_calls > 0 {
-                    session.quality_contract_emitted_count as f64 / session.composite_calls as f64
-                } else { 0.0 },
-                "recommended_check_followthrough_rate": if session.quality_contract_emitted_count > 0 {
-                    session.recommended_check_followthrough_count as f64 / session.quality_contract_emitted_count as f64
-                } else { 0.0 },
-                "quality_focus_reuse_rate": if session.handle_reuse_count > 0 {
-                    session.quality_focus_reuse_count as f64 / session.handle_reuse_count as f64
-                } else { 0.0 },
-                "performance_watchpoint_emit_rate": if session.quality_contract_emitted_count > 0 {
-                    session.performance_watchpoint_emit_count as f64 / session.quality_contract_emitted_count as f64
-                } else { 0.0 },
-                "verifier_contract_present_rate": if session.composite_calls > 0 {
-                    session.verifier_contract_emitted_count as f64 / session.composite_calls as f64
-                } else { 0.0 },
-                "blocker_emit_rate": if session.verifier_contract_emitted_count > 0 {
-                    session.blocker_emit_count as f64 / session.verifier_contract_emitted_count as f64
-                } else { 0.0 },
-                "verifier_followthrough_rate": if session.verifier_contract_emitted_count > 0 {
-                    session.verifier_followthrough_count as f64 / session.verifier_contract_emitted_count as f64
-                } else { 0.0 },
-                "mutation_preflight_gate_deny_rate": if session.mutation_preflight_checked_count > 0 {
-                    session.mutation_preflight_gate_denied_count as f64
-                        / session.mutation_preflight_checked_count as f64
-                } else { 0.0 },
-                "deferred_hidden_tool_call_deny_rate": if session.deferred_namespace_expansion_count > 0 {
-                    session.deferred_hidden_tool_call_denied_count as f64
-                        / session.deferred_namespace_expansion_count as f64
-                } else { 0.0 },
-                "watcher_lock_contention_rate": if watcher_stats
-                    .as_ref()
-                    .map(|stats| stats.events_processed)
-                    .unwrap_or(0)
-                    > 0
-                {
-                    watcher_stats
-                        .as_ref()
-                        .map(|stats| stats.lock_contention_batches as f64 / stats.events_processed as f64)
-                        .unwrap_or(0.0)
-                } else { 0.0 },
-                "watcher_recent_failure_share": if watcher_failure_health.total_failures > 0 {
-                    watcher_failure_health.recent_failures as f64 / watcher_failure_health.total_failures as f64
-                } else { 0.0 },
-                "handle_reuse_rate": if handle_reads > 0 {
-                    session.handle_reuse_count as f64 / handle_reads as f64
-                } else { 0.0 }
-            });
-            let mut stats = serde_json::Map::new();
-            stats.insert(
-                "active_http_sessions".to_owned(),
-                json!(state.active_session_count()),
-            );
-            stats.insert(
-                "session_resume_supported".to_owned(),
-                json!(state.session_resume_supported()),
-            );
-            stats.insert(
-                "session_timeout_seconds".to_owned(),
-                json!(state.session_timeout_seconds()),
-            );
-            stats.insert(
-                "watcher_running".to_owned(),
-                json!(
-                    watcher_stats
-                        .as_ref()
-                        .map(|stats| stats.running)
-                        .unwrap_or(false)
-                ),
-            );
-            stats.insert(
-                "watcher_events_processed".to_owned(),
-                json!(
-                    watcher_stats
-                        .as_ref()
-                        .map(|stats| stats.events_processed)
-                        .unwrap_or(0)
-                ),
-            );
-            stats.insert(
-                "watcher_files_reindexed".to_owned(),
-                json!(
-                    watcher_stats
-                        .as_ref()
-                        .map(|stats| stats.files_reindexed)
-                        .unwrap_or(0)
-                ),
-            );
-            stats.insert(
-                "watcher_lock_contention_batches".to_owned(),
-                json!(
-                    watcher_stats
-                        .as_ref()
-                        .map(|stats| stats.lock_contention_batches)
-                        .unwrap_or(0)
-                ),
-            );
-            stats.insert(
-                "watcher_index_failures".to_owned(),
-                json!(watcher_failure_health.recent_failures),
-            );
-            stats.insert(
-                "watcher_index_failures_total".to_owned(),
-                json!(watcher_failure_health.total_failures),
-            );
-            stats.insert(
-                "watcher_stale_index_failures".to_owned(),
-                json!(watcher_failure_health.stale_failures),
-            );
-            stats.insert(
-                "watcher_persistent_index_failures".to_owned(),
-                json!(watcher_failure_health.persistent_failures),
-            );
-            stats.insert(
-                "watcher_pruned_missing_failures".to_owned(),
-                json!(watcher_failure_health.pruned_missing_failures),
-            );
-            stats.insert(
-                "watcher_recent_failure_window_seconds".to_owned(),
-                json!(watcher_failure_health.recent_window_seconds),
-            );
-            stats.insert(
-                "tools_list_tokens".to_owned(),
-                json!(session.tools_list_tokens),
-            );
-            stats.insert(
-                "avg_tool_output_tokens".to_owned(),
-                json!(if session.total_calls > 0 {
-                    session.total_tokens / session.total_calls as usize
-                } else {
-                    0
-                }),
-            );
-            stats.insert(
-                "p95_tool_latency_ms".to_owned(),
-                json!(crate::telemetry::percentile_95(&session.latency_samples)),
-            );
-            for (key, value) in [
-                ("retry_count", json!(session.retry_count)),
-                (
-                    "analysis_cache_hit_count",
-                    json!(session.analysis_cache_hit_count),
-                ),
-                (
-                    "truncated_response_count",
-                    json!(session.truncated_response_count),
-                ),
-                (
-                    "truncation_followup_count",
-                    json!(session.truncation_followup_count),
-                ),
-                (
-                    "truncation_same_tool_retry_count",
-                    json!(session.truncation_same_tool_retry_count),
-                ),
-                (
-                    "truncation_handle_followup_count",
-                    json!(session.truncation_handle_followup_count),
-                ),
-                ("handle_reuse_count", json!(session.handle_reuse_count)),
-                (
-                    "repeated_low_level_chain_count",
-                    json!(session.repeated_low_level_chain_count),
-                ),
-                (
-                    "composite_guidance_emitted_count",
-                    json!(session.composite_guidance_emitted_count),
-                ),
-                (
-                    "composite_guidance_followed_count",
-                    json!(session.composite_guidance_followed_count),
-                ),
-                (
-                    "quality_contract_emitted_count",
-                    json!(session.quality_contract_emitted_count),
-                ),
-                (
-                    "recommended_checks_emitted_count",
-                    json!(session.recommended_checks_emitted_count),
-                ),
-                (
-                    "recommended_check_followthrough_count",
-                    json!(session.recommended_check_followthrough_count),
-                ),
-                (
-                    "quality_focus_reuse_count",
-                    json!(session.quality_focus_reuse_count),
-                ),
-                (
-                    "performance_watchpoint_emit_count",
-                    json!(session.performance_watchpoint_emit_count),
-                ),
-                (
-                    "verifier_contract_emitted_count",
-                    json!(session.verifier_contract_emitted_count),
-                ),
-                ("blocker_emit_count", json!(session.blocker_emit_count)),
-                (
-                    "verifier_followthrough_count",
-                    json!(session.verifier_followthrough_count),
-                ),
-                (
-                    "mutation_preflight_checked_count",
-                    json!(session.mutation_preflight_checked_count),
-                ),
-                (
-                    "mutation_without_preflight_count",
-                    json!(session.mutation_without_preflight_count),
-                ),
-                (
-                    "mutation_preflight_gate_denied_count",
-                    json!(session.mutation_preflight_gate_denied_count),
-                ),
-                (
-                    "stale_preflight_reject_count",
-                    json!(session.stale_preflight_reject_count),
-                ),
-                (
-                    "mutation_with_caution_count",
-                    json!(session.mutation_with_caution_count),
-                ),
-                (
-                    "rename_without_symbol_preflight_count",
-                    json!(session.rename_without_symbol_preflight_count),
-                ),
-                (
-                    "deferred_namespace_expansion_count",
-                    json!(session.deferred_namespace_expansion_count),
-                ),
-                (
-                    "deferred_hidden_tool_call_denied_count",
-                    json!(session.deferred_hidden_tool_call_denied_count),
-                ),
-                ("composite_calls", json!(session.composite_calls)),
-                ("low_level_calls", json!(session.low_level_calls)),
-                ("stdio_session_count", json!(session.stdio_session_count)),
-                ("http_session_count", json!(session.http_session_count)),
-                (
-                    "analysis_jobs_enqueued",
-                    json!(session.analysis_jobs_enqueued),
-                ),
-                (
-                    "analysis_jobs_started",
-                    json!(session.analysis_jobs_started),
-                ),
-                (
-                    "analysis_jobs_completed",
-                    json!(session.analysis_jobs_completed),
-                ),
-                ("analysis_jobs_failed", json!(session.analysis_jobs_failed)),
-                (
-                    "analysis_jobs_cancelled",
-                    json!(session.analysis_jobs_cancelled),
-                ),
-                ("analysis_queue_depth", json!(session.analysis_queue_depth)),
-                (
-                    "analysis_queue_max_depth",
-                    json!(session.analysis_queue_max_depth),
-                ),
-                (
-                    "analysis_queue_weighted_depth",
-                    json!(session.analysis_queue_weighted_depth),
-                ),
-                (
-                    "analysis_queue_max_weighted_depth",
-                    json!(session.analysis_queue_max_weighted_depth),
-                ),
-                (
-                    "analysis_queue_priority_promotions",
-                    json!(session.analysis_queue_priority_promotions),
-                ),
-                (
-                    "active_analysis_workers",
-                    json!(session.active_analysis_workers),
-                ),
-                (
-                    "peak_active_analysis_workers",
-                    json!(session.peak_active_analysis_workers),
-                ),
-                (
-                    "analysis_worker_limit",
-                    json!(session.analysis_worker_limit),
-                ),
-                ("analysis_cost_budget", json!(session.analysis_cost_budget)),
-                (
-                    "analysis_transport_mode",
-                    json!(session.analysis_transport_mode.clone()),
-                ),
-                ("daemon_mode", json!(state.daemon_mode().as_str())),
-            ] {
-                stats.insert(key.to_owned(), value);
-            }
-            stats.insert("derived_kpis".to_owned(), derived);
+            let metrics_payload = build_session_metrics_payload(state);
+            let mut stats = metrics_payload.session;
+            stats.insert("derived_kpis".to_owned(), metrics_payload.derived_kpis);
             json!({
                 "contents": [{
                     "uri": uri,
@@ -1069,38 +587,8 @@ pub(crate) fn read_resource(
             })
         }
         "codelens://session/http" => {
-            let loaded_namespaces = loaded_namespaces(params);
-            let loaded_tiers = loaded_tiers(params);
-            let full_tool_exposure = full_tool_exposure(params);
-            let payload = json!({
-                "enabled": state.session_resume_supported(),
-                "active_sessions": state.active_session_count(),
-                "timeout_seconds": state.session_timeout_seconds(),
-                "resume_supported": state.session_resume_supported(),
-                "daemon_mode": state.daemon_mode().as_str(),
-                "active_surface": state.surface().as_label(),
-                "deferred_loading_supported": true,
-                "loaded_namespaces": loaded_namespaces,
-                "loaded_tiers": loaded_tiers,
-                "full_tool_exposure": full_tool_exposure,
-                "deferred_namespace_gate": true,
-                "deferred_tier_gate": true,
-                "preferred_namespaces": preferred_namespaces(*state.surface()),
-                "preferred_tiers": preferred_tier_labels(*state.surface()),
-                "trusted_client_hook": true,
-                "mutation_requires_trusted_client": matches!(
-                    state.daemon_mode(),
-                    crate::state::RuntimeDaemonMode::MutationEnabled
-                ),
-                "mutation_preflight_required": matches!(
-                    *state.surface(),
-                    crate::tool_defs::ToolSurface::Profile(ToolProfile::RefactorFull)
-                ),
-                "preflight_ttl_seconds": state.preflight_ttl_seconds(),
-                "rename_requires_symbol_preflight": true,
-                "requires_namespace_listing_before_tool_call": true,
-                "requires_tier_listing_before_tool_call": true
-            });
+            let request = ResourceRequestContext::from_request(uri, params);
+            let payload = build_http_session_payload(state, &request);
             json!({
                 "contents": [{
                     "uri": uri,
