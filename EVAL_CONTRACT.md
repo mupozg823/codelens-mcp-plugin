@@ -1,0 +1,42 @@
+# Evaluation Contract
+
+## Local Stop-Hook Gate
+
+- `cargo check`
+- `cargo test -p codelens-core`
+- `cargo test -p codelens-mcp`
+
+## Local Extended Gate
+
+- `cargo test -p codelens-mcp --features http`
+- `cargo clippy -- -W clippy::all`
+
+## CI Parity Additions
+
+- `cargo build --release --no-default-features`
+- `cargo build --release`
+- `cargo build --release --features http`
+
+## CI-Only Benchmark Gates
+
+- `python3 benchmarks/token-efficiency.py ... --check`
+- `python3 benchmarks/embedding-quality.py ...`
+
+## Benchmark Interpretation
+
+- Compare like-for-like build profiles only.
+- Separate warm and cold measurements.
+- Record p50 and p95 where applicable.
+- Do not attribute release-vs-debug differences to refactor wins.
+
+## Flake Policy
+
+- A single green run is not enough for historically flaky HTTP tests.
+- Re-run the HTTP suite multiple times before calling stability resolved.
+- If a failure appears only under parallel load, classify it as harness stability risk until disproven.
+
+## Notes
+
+- Local stop hooks should approximate CI without making every save or stop path unreasonably slow.
+- Benchmarks remain CI-oriented unless a task explicitly targets benchmark work.
+- Formatting is handled separately by edit-time tooling; stop hooks should not fail on checks CI does not enforce.

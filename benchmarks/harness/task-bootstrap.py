@@ -238,9 +238,13 @@ def build_first_actions(task_kind: str, runtime: dict, scenario: dict | None = N
 
 def build_platform_actions(task_kind: str, platform: str, runtime: dict):
     platform_cfg = agents.get_agent(platform)
+    contract_names = platform_cfg.get("repo_contract_names", ())
+    contract_note = ""
+    if contract_names:
+        contract_note = " and repo-local contract docs (" + ", ".join(f"`{name}`" for name in contract_names) + ")"
     if platform == "claude":
         actions = [
-            f"Read the repo-local `{platform_cfg['repo_instruction_name']}` and global `{platform_cfg['global_instruction_label']}` before choosing a harness path.",
+            f"Read the repo-local `{platform_cfg['repo_instruction_name']}`{contract_note} and global `{platform_cfg['global_instruction_label']}` before choosing a harness path.",
         ]
         if runtime["use_codelens"] in {"recommended", "required"}:
             actions.append("Prefer CodeLens-aware exploration; do not use Explore agents for code tasks.")
@@ -248,7 +252,7 @@ def build_platform_actions(task_kind: str, platform: str, runtime: dict):
             actions.append("If the task grows beyond a local edit, select a Claude harness pattern (`tool-centric`, `workflow`, or `agent-loop`) explicitly.")
         return actions
     return [
-        f"Follow repo-local `{platform_cfg['repo_instruction_name']}` and global `{platform_cfg['global_instruction_label']}` before starting the task.",
+        f"Follow repo-local `{platform_cfg['repo_instruction_name']}`{contract_note} and global `{platform_cfg['global_instruction_label']}` before starting the task.",
     ]
 
 
@@ -256,6 +260,9 @@ def build_brief(repo: dict, task_kind: str, task_text: str, policy: dict, resolv
     runtime = POLICY_RUNTIME[resolved_rule["recommended_policy"]]
     platform_cfg = PLATFORM_DEFAULTS[platform]
     repo_agents = Path(repo["path"]) / platform_cfg["repo_instructions_name"]
+    repo_contract_paths = [
+        str(Path(repo["path"]) / name) for name in platform_cfg.get("repo_contract_names", ())
+    ]
     first_actions = build_first_actions(task_kind, runtime)
     first_actions.extend(build_platform_actions(task_kind, platform, runtime))
     return {
@@ -268,6 +275,7 @@ def build_brief(repo: dict, task_kind: str, task_text: str, policy: dict, resolv
         "repo_stack": repo.get("stack", "unknown"),
         "repo_instruction_path": str(repo_agents),
         "repo_instruction_exists": repo_agents.exists(),
+        "repo_contract_paths": repo_contract_paths,
         "global_instruction_path": platform_cfg["global_instructions"],
         "task_kind": task_kind,
         "task": task_text,
@@ -326,6 +334,8 @@ def render_markdown(brief: dict) -> str:
     a(f"| Deferred loading | {brief['deferred_loading']} |")
     a(f"| Repo instructions | {brief['repo_instruction_path']} |")
     a(f"| Global instructions | {brief['global_instruction_path']} |")
+    if brief.get("repo_contract_paths"):
+        a(f"| Repo contracts | {'<br>'.join(brief['repo_contract_paths'])} |")
     a("")
     if brief.get("task"):
         a("## Task")

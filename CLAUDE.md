@@ -1,5 +1,13 @@
 # CodeLens MCP
 
+## Repo Contracts
+
+Use repo-local contract docs as the authoritative source for project-specific behavior:
+
+- `PROJECT_AGENT_POLICY.md`
+- `EVAL_CONTRACT.md`
+- `HARNESS_MODES.md`
+
 ## Tool Routing — PREFER CodeLens over Read/Grep for code tasks
 
 | Task                      | Use This                                         | Not This            |
@@ -23,37 +31,13 @@
 
 ## Verify
 
-```bash
-cargo test -p codelens-core && cargo test -p codelens-mcp
-cargo test -p codelens-mcp --features http
-cargo build --release
-```
+See `EVAL_CONTRACT.md` for minimum and extended verification gates.
 
-## Presets
+## Repo Notes
 
-FULL=70 | BALANCED=39 (default) | MINIMAL=21
-
-(64 base + 6 semantic feature-gated) | DB schema v4 (FTS5) | 25 languages | 13 output schemas
-
-## CLI
-
-`codelens-mcp . --cmd <tool> --args '<json>'`
-
-## Skills
-
-| Skill               | Trigger     | Description                                      |
-| ------------------- | ----------- | ------------------------------------------------ |
-| `/codelens-review`  | code-review | Change impact + diagnostics analysis             |
-| `/codelens-onboard` | onboard     | Project structure + key symbols discovery        |
-| `/codelens-analyze` | analyze     | Architecture health: dead code, cycles, coupling |
-
-## Agent
-
-`codelens-explorer` — Read-only code exploration (haiku, fast, safe)
-
-## Hook
-
-`hooks/post-edit-diagnostics.sh` — Auto-diagnose after file edits (activated in settings)
+- Keep simple point lookups native when the routing policy says native is preferred.
+- Use CodeLens workflow tools for multi-file review, impact, and refactor preflight.
+- Treat CodeLens as an external coprocessor for harnesses, not as embedded runtime logic.
 
 <!-- CODELENS_REPO_CLAUDE_ROUTING_POLICY:BEGIN -->
 ## CodeLens Repo Routing Policy
@@ -70,7 +54,6 @@ Claude harness guidance:
 - keep simple point lookups native when the policy says native is preferred.
 - use CodeLens-aware exploration for multi-file or reviewer-heavy work.
 <!-- CODELENS_REPO_CLAUDE_ROUTING_POLICY:END -->
-
 
 
 

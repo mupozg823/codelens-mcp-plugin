@@ -1,16 +1,13 @@
 # Rust MCP repo
 
-## Codex Harness Bootstrap
+## Repo Contracts
 
-This AGENTS.md was bootstrap-generated to attach minimal verification defaults and repo-local CodeLens routing guidance.
+This repo keeps project-specific agent policy inside versioned repo-local documents.
 Global defaults still come from `~/.codex/AGENTS.md`.
 
-## Verification
-
-Before finishing, run:
-- `cargo fmt --check`
-- `cargo check`
-- `cargo test`
+- `PROJECT_AGENT_POLICY.md` — shared agent roles, routing, and non-goals
+- `EVAL_CONTRACT.md` — verification and benchmark interpretation
+- `HARNESS_MODES.md` — native vs CodeLens vs verifier vs async job paths
 
 ## Stack
 
@@ -21,6 +18,7 @@ Before finishing, run:
 - Keep diffs minimal and prefer existing modules over new wrappers.
 - Use native `rg/read/test` for trivial point lookups.
 - Escalate to CodeLens workflow tools only when the task becomes multi-file, reviewer-heavy, or refactor-sensitive.
+- Follow `EVAL_CONTRACT.md` for what must be run before calling work done.
 
 <!-- CODELENS_REPO_ROUTING_POLICY:BEGIN -->
 ## CodeLens Repo Routing Policy
@@ -37,7 +35,6 @@ Operational guidance:
 - keep simple point lookups on native rg/read/test when the repo rule says native is preferred.
 - use verifier-first CodeLens workflow for refactor/impact tasks only when the routing threshold is crossed.
 <!-- CODELENS_REPO_ROUTING_POLICY:END -->
-
 
 
 

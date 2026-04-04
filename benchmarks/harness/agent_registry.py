@@ -15,6 +15,11 @@ SHARED_POLICY = {
     "canonical_policy_json": SHARED_POLICY_DIR / "codelens-routing-policy.shared.json",
     "canonical_policy_markdown": SHARED_POLICY_DIR / "codelens-routing-policy.shared.md",
 }
+REPO_CONTRACT_NAMES = (
+    "PROJECT_AGENT_POLICY.md",
+    "EVAL_CONTRACT.md",
+    "HARNESS_MODES.md",
+)
 
 AGENT_REGISTRY = {
     "codex": {
@@ -22,6 +27,7 @@ AGENT_REGISTRY = {
         "global_instruction_path": CODEX_HOME / "AGENTS.md",
         "global_instruction_label": "~/.codex/AGENTS.md",
         "repo_instruction_name": "AGENTS.md",
+        "repo_contract_names": REPO_CONTRACT_NAMES,
         "policy_output_dir": SHARED_POLICY_DIR,
         "canonical_policy_json": SHARED_POLICY_DIR / "codelens-routing-policy.json",
         "canonical_policy_markdown": SHARED_POLICY_DIR / "codelens-routing-policy.md",
@@ -36,6 +42,7 @@ AGENT_REGISTRY = {
         "global_instruction_path": CLAUDE_HOME / "CLAUDE.md",
         "global_instruction_label": "~/.claude/CLAUDE.md",
         "repo_instruction_name": "CLAUDE.md",
+        "repo_contract_names": REPO_CONTRACT_NAMES,
         "policy_output_dir": CLAUDE_HOME / "harness" / "policies",
         "canonical_policy_json": CLAUDE_HOME / "harness" / "policies" / "codelens-routing-policy.json",
         "canonical_policy_markdown": CLAUDE_HOME / "harness" / "policies" / "codelens-routing-policy.md",
@@ -69,4 +76,3 @@ def get_agent(agent: str) -> dict:
 
 def agent_label(agent: str) -> str:
     return str(get_agent(agent)["label"])
-
