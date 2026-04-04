@@ -11,6 +11,8 @@ use crate::analysis_queue::{
     STDIO_ANALYSIS_WORKER_COUNT,
 };
 use crate::error::CodeLensError;
+use crate::mutation_audit;
+use crate::preflight_store::RecentPreflightStore;
 use crate::runtime_types::JobLifecycle;
 use crate::telemetry::ToolMetricsRegistry;
 use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface};
@@ -86,7 +88,7 @@ pub(crate) struct AppState {
     pub(crate) metrics: Arc<ToolMetricsRegistry>,
     /// Recent tool call names for context-aware suggestions (max 5).
     recent_tools: Mutex<VecDeque<String>>,
-    recent_preflights: Mutex<HashMap<String, RecentPreflight>>,
+    preflight_store: RecentPreflightStore,
     analysis_order: Mutex<VecDeque<String>>,
     analyses: Mutex<HashMap<String, AnalysisArtifact>>,
     job_order: Mutex<VecDeque<String>>,
@@ -136,14 +138,11 @@ impl AppState {
     }
 
     fn preflight_key(&self, logical_session: &str) -> String {
-        format!("{}::{logical_session}", self.current_project_scope())
+        RecentPreflightStore::key(&self.current_project_scope(), logical_session)
     }
 
     fn clear_recent_preflights(&self) {
-        self.recent_preflights
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
+        self.preflight_store.clear();
     }
 
     pub(crate) fn normalize_target_path(&self, path: &str) -> String {
@@ -201,47 +200,21 @@ impl AppState {
         arguments: &Value,
         payload: &Value,
     ) {
-        let readiness = payload
-            .get("readiness")
-            .cloned()
-            .and_then(|value| serde_json::from_value::<AnalysisReadiness>(value).ok())
-            .unwrap_or_default();
-        let blocker_count = payload
-            .get("blocker_count")
-            .and_then(|value| value.as_u64())
-            .map(|value| value as usize)
-            .unwrap_or_else(|| {
-                payload
-                    .get("blockers")
-                    .and_then(|value| value.as_array())
-                    .map(|value| value.len())
-                    .unwrap_or_default()
-            });
-        let preflight = RecentPreflight {
-            tool_name: tool_name.to_owned(),
-            analysis_id: payload
-                .get("analysis_id")
-                .and_then(|value| value.as_str())
-                .map(ToOwned::to_owned),
-            surface: surface.to_owned(),
-            timestamp_ms: Self::now_ms(),
-            readiness,
-            blocker_count,
-            target_paths: self.extract_target_paths(arguments),
-            symbol: self.extract_symbol_hint(arguments),
-        };
-        self.recent_preflights
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(self.preflight_key(logical_session), preflight);
+        let key = self.preflight_key(logical_session);
+        self.preflight_store.record_from_payload(
+            key,
+            tool_name,
+            surface,
+            Self::now_ms(),
+            self.extract_target_paths(arguments),
+            self.extract_symbol_hint(arguments),
+            payload,
+        );
     }
 
     pub(crate) fn recent_preflight(&self, logical_session: &str) -> Option<RecentPreflight> {
-        self.recent_preflights
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
+        self.preflight_store
             .get(&self.preflight_key(logical_session))
-            .cloned()
     }
 
     #[cfg(test)]
@@ -250,14 +223,8 @@ impl AppState {
         logical_session: &str,
         timestamp_ms: u64,
     ) {
-        if let Some(preflight) = self
-            .recent_preflights
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get_mut(&self.preflight_key(logical_session))
-        {
-            preflight.timestamp_ms = timestamp_ms;
-        }
+        self.preflight_store
+            .set_timestamp_for_test(&self.preflight_key(logical_session), timestamp_ms);
     }
 
     // ── Active project accessors (check override, fallback to default) ──
@@ -991,62 +958,15 @@ impl AppState {
         surface: &str,
         arguments: &serde_json::Value,
     ) -> Result<(), CodeLensError> {
-        let audit_dir = self.audit_dir();
-        fs::create_dir_all(&audit_dir)?;
-        let path = audit_dir.join("mutation-audit.jsonl");
-        let session_id = arguments
-            .get("_session_id")
-            .and_then(|value| value.as_str())
-            .map(ToOwned::to_owned);
-        let session_trusted_client = arguments
-            .get("_session_trusted_client")
-            .and_then(|value| value.as_bool());
-        let session_requested_profile = arguments
-            .get("_session_requested_profile")
-            .and_then(|value| value.as_str())
-            .map(ToOwned::to_owned);
-        let session_client_name = arguments
-            .get("_session_client_name")
-            .and_then(|value| value.as_str())
-            .map(ToOwned::to_owned);
-        let session_client_version = arguments
-            .get("_session_client_version")
-            .and_then(|value| value.as_str())
-            .map(ToOwned::to_owned);
-        let scrubbed_arguments = match arguments {
-            serde_json::Value::Object(map) => serde_json::Value::Object(
-                map.iter()
-                    .filter(|(key, _)| !key.starts_with("_session_"))
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect(),
-            ),
-            other => other.clone(),
-        };
-        let event = serde_json::json!({
-            "timestamp_ms": Self::now_ms(),
-            "project_scope": self.current_project_scope(),
-            "surface": surface,
-            "daemon_mode": self.daemon_mode().as_str(),
-            "tool": tool,
-            "arguments": scrubbed_arguments,
-            "session": {
-                "id": session_id,
-                "trusted_client": session_trusted_client,
-                "requested_profile": session_requested_profile,
-                "client_name": session_client_name,
-                "client_version": session_client_version,
-            },
-        });
-        let mut line =
-            serde_json::to_string(&event).map_err(|error| CodeLensError::Internal(error.into()))?;
-        line.push('\n');
-        use std::io::Write;
-        let mut file = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path)?;
-        file.write_all(line.as_bytes())?;
-        Ok(())
+        mutation_audit::record_mutation_audit(
+            &self.audit_dir(),
+            Self::now_ms(),
+            &self.current_project_scope(),
+            self.daemon_mode().as_str(),
+            surface,
+            tool,
+            arguments,
+        )
     }
 
     pub(crate) fn store_analysis(
@@ -1241,7 +1161,7 @@ impl AppState {
             job_seq: std::sync::atomic::AtomicU64::new(0),
             metrics: Arc::clone(&self.metrics),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
-            recent_preflights: Mutex::new(HashMap::new()),
+            preflight_store: RecentPreflightStore::new(),
             analysis_order: Mutex::new(VecDeque::with_capacity(MAX_ANALYSIS_ARTIFACTS)),
             analyses: Mutex::new(HashMap::new()),
             job_order: Mutex::new(VecDeque::with_capacity(MAX_ANALYSIS_JOBS)),
@@ -1304,7 +1224,7 @@ impl AppState {
             job_seq: std::sync::atomic::AtomicU64::new(0),
             metrics: Arc::new(ToolMetricsRegistry::new()),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
-            recent_preflights: Mutex::new(HashMap::new()),
+            preflight_store: RecentPreflightStore::new(),
             analysis_order: Mutex::new(VecDeque::with_capacity(MAX_ANALYSIS_ARTIFACTS)),
             analyses: Mutex::new(HashMap::new()),
             job_order: Mutex::new(VecDeque::with_capacity(MAX_ANALYSIS_JOBS)),
