@@ -20,8 +20,6 @@ use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface};
 use serde_json::Value;
 use std::collections::VecDeque;
 
-const MAX_ANALYSIS_JOBS: usize = 128;
-const ANALYSIS_TTL_MS: u64 = 24 * 60 * 60 * 1000;
 const WATCHER_RECENT_FAILURE_WINDOW_SECS: i64 = 15 * 60;
 pub(crate) const PREFLIGHT_TTL_MS: u64 = 10 * 60 * 1000;
 
@@ -83,13 +81,11 @@ pub(crate) struct AppState {
     /// Tools that produce variable-length output respect this limit.
     pub(crate) token_budget: std::sync::atomic::AtomicUsize,
     artifact_store: AnalysisArtifactStore,
-    job_seq: std::sync::atomic::AtomicU64,
+    job_store: crate::job_store::AnalysisJobStore,
     pub(crate) metrics: Arc<ToolMetricsRegistry>,
     /// Recent tool call names for context-aware suggestions (max 5).
     recent_tools: Mutex<VecDeque<String>>,
     preflight_store: RecentPreflightStore,
-    job_order: Mutex<VecDeque<String>>,
-    jobs: Mutex<HashMap<String, AnalysisJob>>,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
     pub(crate) watcher: Option<FileWatcher>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,
@@ -115,23 +111,12 @@ impl AppState {
             .as_millis() as u64
     }
 
-    fn analysis_expired(created_at_ms: u64, now_ms: u64) -> bool {
-        now_ms.saturating_sub(created_at_ms) > ANALYSIS_TTL_MS
-    }
-
     pub(crate) fn current_project_scope(&self) -> String {
         self.project().as_path().to_string_lossy().to_string()
     }
 
     pub(crate) fn preflight_ttl_seconds(&self) -> u64 {
         PREFLIGHT_TTL_MS / 1000
-    }
-
-    fn matches_current_project_scope(&self, scope: Option<&str>) -> bool {
-        match scope {
-            Some(scope) => scope == self.current_project_scope(),
-            None => true,
-        }
     }
 
     fn preflight_key(&self, logical_session: &str) -> String {
@@ -333,10 +318,6 @@ impl AppState {
         }
     }
 
-    fn jobs_dir(&self) -> PathBuf {
-        self.analysis_dir().join("jobs")
-    }
-
     /// Switch the active project at runtime. Creates a new index and graph cache.
     pub(crate) fn switch_project(&self, path: &str) -> anyhow::Result<String> {
         let project = ProjectRoot::new(path)?;
@@ -379,12 +360,15 @@ impl AppState {
             audit_dir,
             watcher,
         });
-        self.artifact_store.set_analysis_dir(analysis_dir);
+        self.artifact_store.set_analysis_dir(analysis_dir.clone());
+        self.job_store.set_jobs_dir(analysis_dir.join("jobs"));
         self.artifact_store.clear();
-        self.clear_analysis_jobs();
+        self.job_store.clear();
         self.clear_recent_preflights();
         self.artifact_store.cleanup_stale_dirs(Self::now_ms());
-        self.cleanup_stale_job_files(Self::now_ms());
+        let scope = self.current_project_scope();
+        self.job_store
+            .cleanup_stale_files(Self::now_ms(), Some(&scope));
         Ok(name)
     }
 
@@ -396,7 +380,7 @@ impl AppState {
             .write()
             .unwrap_or_else(|p| p.into_inner()) = None;
         self.artifact_store.clear();
-        self.clear_analysis_jobs();
+        self.job_store.clear();
         self.clear_recent_preflights();
     }
 
@@ -528,102 +512,7 @@ impl AppState {
             .collect()
     }
 
-    fn analysis_job_path(&self, job_id: &str) -> PathBuf {
-        self.jobs_dir().join(format!("{job_id}.json"))
-    }
-
-    fn write_job_to_disk(&self, job: &AnalysisJob) -> Result<(), CodeLensError> {
-        let jobs_dir = self.jobs_dir();
-        fs::create_dir_all(&jobs_dir)?;
-        let bytes = serde_json::to_vec_pretty(job)
-            .map_err(|error| CodeLensError::Internal(error.into()))?;
-        let path = self.analysis_job_path(&job.id);
-        let tmp_path = path.with_extension("json.tmp");
-        fs::write(&tmp_path, bytes)?;
-        fs::rename(tmp_path, path)?;
-        Ok(())
-    }
-
-    fn remove_job_from_disk(&self, job_id: &str) {
-        let _ = fs::remove_file(self.analysis_job_path(job_id));
-    }
-
-    fn cleanup_stale_job_files(&self, now_ms: u64) {
-        let entries = match fs::read_dir(self.jobs_dir()) {
-            Ok(entries) => entries,
-            Err(_) => return,
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            let job = fs::read(&path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<AnalysisJob>(&bytes).ok());
-            match job {
-                Some(job)
-                    if Self::analysis_expired(job.updated_at_ms, now_ms)
-                        || !self.matches_current_project_scope(job.project_scope.as_deref()) =>
-                {
-                    let _ = fs::remove_file(&path);
-                }
-                None => {
-                    let _ = fs::remove_file(&path);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn prune_analysis_jobs(&self, now_ms: u64) {
-        self.cleanup_stale_job_files(now_ms);
-
-        let expired_ids = {
-            let jobs = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
-            jobs.iter()
-                .filter_map(|(id, job)| {
-                    Self::analysis_expired(job.updated_at_ms, now_ms).then(|| id.clone())
-                })
-                .collect::<Vec<_>>()
-        };
-
-        let mut evicted = expired_ids;
-        {
-            let mut order = self.job_order.lock().unwrap_or_else(|p| p.into_inner());
-            if !evicted.is_empty() {
-                order.retain(|id| !evicted.contains(id));
-            }
-            while order.len() > MAX_ANALYSIS_JOBS {
-                if let Some(oldest) = order.pop_front() {
-                    evicted.push(oldest);
-                }
-            }
-        }
-
-        if evicted.is_empty() {
-            return;
-        }
-
-        evicted.sort();
-        evicted.dedup();
-        let mut jobs = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
-        for job_id in &evicted {
-            jobs.remove(job_id);
-        }
-        drop(jobs);
-        for job_id in evicted {
-            self.remove_job_from_disk(&job_id);
-        }
-    }
-
-    fn clear_analysis_jobs(&self) {
-        self.jobs.lock().unwrap_or_else(|p| p.into_inner()).clear();
-        self.job_order
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
-    }
+    // ── Job Store delegations ────────────────────────────────────────────
 
     pub(crate) fn enqueue_analysis_job(
         &self,
@@ -658,57 +547,23 @@ impl AppState {
         analysis_id: Option<String>,
         error: Option<String>,
     ) -> Result<AnalysisJob, CodeLensError> {
-        let now_ms = Self::now_ms();
-        let seq = self
-            .job_seq
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let id = format!("job-{now_ms}-{seq}");
-        let job = AnalysisJob {
-            id: id.clone(),
-            kind: kind.to_owned(),
-            project_scope: Some(self.current_project_scope()),
+        self.job_store.store(
+            kind,
+            profile_hint,
+            estimated_sections,
             status,
             progress,
             current_step,
-            profile_hint,
-            estimated_sections,
             analysis_id,
             error,
-            created_at_ms: now_ms,
-            updated_at_ms: now_ms,
-        };
-        self.write_job_to_disk(&job)?;
-        self.jobs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(id.clone(), job.clone());
-        self.job_order
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .push_back(id);
-        self.prune_analysis_jobs(now_ms);
-        Ok(job)
+            self.current_project_scope(),
+        )
     }
 
     pub(crate) fn get_analysis_job(&self, job_id: &str) -> Option<AnalysisJob> {
-        self.prune_analysis_jobs(Self::now_ms());
-        let path = self.analysis_job_path(job_id);
-        let job = fs::read(&path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<AnalysisJob>(&bytes).ok())
-            .filter(|job| self.matches_current_project_scope(job.project_scope.as_deref()))
-            .or_else(|| {
-                self.jobs
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .get(job_id)
-                    .cloned()
-                    .filter(|job| self.matches_current_project_scope(job.project_scope.as_deref()))
-            })?;
-        self.jobs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(job_id.to_owned(), job.clone());
+        let scope = self.current_project_scope();
+        let job = self.job_store.get(job_id, Some(&scope))?;
+        // Cross-concern: warm artifact cache when job references an analysis
         if let Some(analysis_id) = job.analysis_id.as_deref() {
             let _ = self.get_analysis(analysis_id);
         }
@@ -716,25 +571,11 @@ impl AppState {
     }
 
     pub(crate) fn cancel_analysis_job(&self, job_id: &str) -> Result<AnalysisJob, CodeLensError> {
-        self.prune_analysis_jobs(Self::now_ms());
-        let mut job = self
-            .get_analysis_job(job_id)
-            .ok_or_else(|| CodeLensError::NotFound(format!("Unknown job `{job_id}`")))?;
-        let previous_status = job.status;
-        if job.status != JobLifecycle::Completed {
-            job.status = JobLifecycle::Cancelled;
-            job.progress = 0;
-            job.current_step = Some("cancelled".to_owned());
-            job.updated_at_ms = Self::now_ms();
-            if previous_status == JobLifecycle::Queued {
-                self.metrics.record_analysis_job_cancelled(0, 0);
-            }
+        let scope = self.current_project_scope();
+        let job = self.job_store.cancel(job_id, Some(&scope))?;
+        if job.status == JobLifecycle::Cancelled {
+            self.metrics.record_analysis_job_cancelled(0, 0);
         }
-        self.write_job_to_disk(&job)?;
-        self.jobs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(job_id.to_owned(), job.clone());
         Ok(job)
     }
 
@@ -748,41 +589,17 @@ impl AppState {
         analysis_id: Option<Option<String>>,
         error: Option<Option<String>>,
     ) -> Result<AnalysisJob, CodeLensError> {
-        let path = self.analysis_job_path(job_id);
-        let mut job = self
-            .get_analysis_job(job_id)
-            .ok_or_else(|| CodeLensError::NotFound(format!("Unknown job `{job_id}`")))?;
-        if let Some(status) = status {
-            job.status = status;
-        }
-        if let Some(progress) = progress {
-            job.progress = progress;
-        }
-        if let Some(current_step) = current_step {
-            job.current_step = current_step;
-        }
-        if let Some(estimated_sections) = estimated_sections {
-            job.estimated_sections = estimated_sections;
-        }
-        if let Some(analysis_id) = analysis_id {
-            job.analysis_id = analysis_id;
-        }
-        if let Some(error) = error {
-            job.error = error;
-        }
-        job.updated_at_ms = Self::now_ms();
-        self.write_job_to_disk(&job)?;
-        self.jobs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(job_id.to_owned(), job.clone());
-        if !path.exists() {
-            self.job_order
-                .lock()
-                .unwrap_or_else(|p| p.into_inner())
-                .push_back(job_id.to_owned());
-        }
-        Ok(job)
+        let scope = self.current_project_scope();
+        self.job_store.update(
+            job_id,
+            status,
+            progress,
+            current_step,
+            estimated_sections,
+            analysis_id,
+            error,
+            Some(&scope),
+        )
     }
 
     pub(crate) fn record_mutation_audit(
@@ -901,13 +718,11 @@ impl AppState {
             client_profile: self.client_profile,
             surface: Mutex::new(*self.surface()),
             token_budget: std::sync::atomic::AtomicUsize::new(self.token_budget()),
-            artifact_store: AnalysisArtifactStore::new(analysis_dir),
-            job_seq: std::sync::atomic::AtomicU64::new(0),
+            artifact_store: AnalysisArtifactStore::new(analysis_dir.clone()),
+            job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
             metrics: Arc::clone(&self.metrics),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
             preflight_store: RecentPreflightStore::new(),
-            job_order: Mutex::new(VecDeque::with_capacity(MAX_ANALYSIS_JOBS)),
-            jobs: Mutex::new(HashMap::new()),
             analysis_queue: OnceLock::new(),
             watcher: None,
             watcher_maintenance: Mutex::new(HashMap::new()),
@@ -959,7 +774,10 @@ impl AppState {
         );
         state.configure_transport_mode("stdio");
         state.artifact_store.cleanup_stale_dirs(Self::now_ms());
-        state.cleanup_stale_job_files(Self::now_ms());
+        let scope = state.current_project_scope();
+        state
+            .job_store
+            .cleanup_stale_files(Self::now_ms(), Some(&scope));
         state
     }
 
@@ -1026,13 +844,11 @@ impl AppState {
             token_budget: std::sync::atomic::AtomicUsize::new(
                 crate::tool_defs::default_budget_for_preset(preset),
             ),
-            artifact_store: AnalysisArtifactStore::new(analysis_dir),
-            job_seq: std::sync::atomic::AtomicU64::new(0),
+            artifact_store: AnalysisArtifactStore::new(analysis_dir.clone()),
+            job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
             metrics: Arc::new(ToolMetricsRegistry::new()),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
             preflight_store: RecentPreflightStore::new(),
-            job_order: Mutex::new(VecDeque::with_capacity(MAX_ANALYSIS_JOBS)),
-            jobs: Mutex::new(HashMap::new()),
             analysis_queue: OnceLock::new(),
             watcher,
             watcher_maintenance: Mutex::new(HashMap::new()),
