@@ -1,8 +1,8 @@
-use super::{AppState, ToolResult, success_meta};
+use super::{success_meta, AppState, ToolResult};
 use crate::protocol::BackendKind;
 use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
 use crate::tool_defs::{ToolProfile, ToolSurface};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 const VERIFIER_READY: &str = "ready";
@@ -649,15 +649,13 @@ fn build_handle_payload(
             "recommended_check_count": payload["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
             "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map(|v| v.len()).unwrap_or(0),
         });
-        payload["evidence_handles"] = json!(
-            available_sections
-                .iter()
-                .map(|section| json!({
-                    "section": section,
-                    "uri": format!("codelens://analysis/{analysis_id}/{section}"),
-                }))
-                .collect::<Vec<_>>()
-        );
+        payload["evidence_handles"] = json!(available_sections
+            .iter()
+            .map(|section| json!({
+                "section": section,
+                "uri": format!("codelens://analysis/{analysis_id}/{section}"),
+            }))
+            .collect::<Vec<_>>());
     }
     payload
 }

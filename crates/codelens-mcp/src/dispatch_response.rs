@@ -139,6 +139,12 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
 
     let elapsed_ms = start.elapsed().as_millis();
 
+    // Apply per-tool hard cap if defined (stricter than global budget)
+    let effective_budget = tool_definition(name)
+        .and_then(|t| t.max_response_tokens)
+        .map(|cap| request_budget.min(cap))
+        .unwrap_or(request_budget);
+
     if is_verifier_source_tool(name) {
         state.record_recent_preflight_from_payload(
             name,
@@ -166,7 +172,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         .map(|s| tools::estimate_tokens(&s))
         .unwrap_or(0);
     resp.token_estimate = Some(payload_estimate);
-    resp.budget_hint = Some(budget_hint(name, payload_estimate, request_budget));
+    resp.budget_hint = Some(budget_hint(name, payload_estimate, effective_budget));
     resp.elapsed_ms = Some(elapsed_ms as u64);
 
     // Set routing_hint based on response characteristics
@@ -182,11 +188,11 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         .and_then(|d| d.get("analysis_id"))
         .is_some();
     resp.routing_hint = Some(if is_cached {
-        "cached".to_owned()
+        crate::protocol::RoutingHint::Cached
     } else if is_analysis_handle {
-        "async".to_owned()
+        crate::protocol::RoutingHint::Async
     } else {
-        "sync".to_owned()
+        crate::protocol::RoutingHint::Sync
     });
 
     let mut emitted_composite_guidance = false;
@@ -219,7 +225,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     let mut text = serde_json::to_string(&resp)
         .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned());
 
-    let max_chars = request_budget * 8;
+    let max_chars = effective_budget * 8;
     let mut truncated = false;
     if text.len() > max_chars {
         truncated = true;
@@ -231,7 +237,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
             "truncated": true,
             "error": format!(
                 "Response too large ({} tokens, budget {}). Narrow with path, max_tokens, or depth.",
-                payload_estimate, request_budget
+                payload_estimate, effective_budget
             ),
             "token_estimate": payload_estimate,
         }))

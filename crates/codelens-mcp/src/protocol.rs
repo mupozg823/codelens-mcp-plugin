@@ -40,6 +40,10 @@ pub struct Tool {
     pub output_schema: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<ToolAnnotations>,
+    /// Per-tool hard cap on response tokens. Enforced in dispatch_response.
+    /// None means use the global request_budget.
+    #[serde(skip)]
+    pub max_response_tokens: Option<usize>,
 }
 
 /// Tool complexity tier — guides agent tool selection strategy.
@@ -111,12 +115,23 @@ pub struct ToolCallResponse {
     pub suggested_next_tools: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub budget_hint: Option<String>,
-    /// Routing hint for external callers: "sync" (safe to call inline),
-    /// "async" (use start_analysis_job), or "cached" (reused artifact).
+    /// Routing hint for external callers.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub routing_hint: Option<String>,
+    pub routing_hint: Option<RoutingHint>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
+}
+
+/// Routing hint for external callers — guides sync vs async call strategy.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoutingHint {
+    /// Safe to call inline — response is fast and bounded.
+    Sync,
+    /// Heavy computation — prefer `start_analysis_job` + polling.
+    Async,
+    /// Reused a cached artifact — no new computation cost.
+    Cached,
 }
 
 /// Type-safe backend identifier for consistent tool responses.
@@ -223,6 +238,7 @@ impl Tool {
             input_schema,
             output_schema: None,
             annotations: None,
+            max_response_tokens: None,
         }
     }
 
@@ -233,6 +249,11 @@ impl Tool {
 
     pub fn with_output_schema(mut self, schema: Value) -> Self {
         self.output_schema = Some(schema);
+        self
+    }
+
+    pub fn with_max_response_tokens(mut self, max: usize) -> Self {
+        self.max_response_tokens = Some(max);
         self
     }
 }

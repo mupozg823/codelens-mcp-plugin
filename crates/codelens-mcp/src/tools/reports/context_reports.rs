@@ -189,10 +189,12 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
         &json!({"name": symbol, "file_path": file_path, "include_body": false, "exact_match": true, "max_matches": 5}),
     )?
     .0;
-    let callers =
-        crate::tools::graph::get_callers_tool(state, &json!({"function_name": symbol, "max_results": 10}))
-            .map(|out| out.0)
-            .unwrap_or_else(|_| json!({"callers": []}));
+    let callers = crate::tools::graph::get_callers_tool(
+        state,
+        &json!({"function_name": symbol, "max_results": 10}),
+    )
+    .map(|out| out.0)
+    .unwrap_or_else(|_| json!({"callers": []}));
     let callees = crate::tools::graph::get_callees_tool(
         state,
         &json!({"function_name": symbol, "file_path": file_path, "max_results": 10}),

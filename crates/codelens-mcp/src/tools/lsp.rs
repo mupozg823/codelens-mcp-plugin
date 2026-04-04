@@ -1,15 +1,15 @@
 use super::{
-    AppState, ToolResult, default_lsp_command_for_path, parse_lsp_args, required_string,
-    success_meta,
+    default_lsp_command_for_path, parse_lsp_args, required_string, success_meta, AppState,
+    ToolResult,
 };
 use crate::authority::{meta_degraded, meta_for_backend};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_core::{
-    LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspTypeHierarchyRequest,
-    LspWorkspaceSymbolRequest, check_lsp_status as core_check_lsp_status, extract_word_at_position,
+    check_lsp_status as core_check_lsp_status, extract_word_at_position,
     find_referencing_symbols_via_text, get_lsp_recipe as core_get_lsp_recipe,
-    get_type_hierarchy_native,
+    get_type_hierarchy_native, LspDiagnosticRequest, LspRenamePlanRequest, LspRequest,
+    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest,
 };
 use serde_json::json;
 
