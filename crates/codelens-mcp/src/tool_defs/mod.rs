@@ -6,8 +6,8 @@ mod presets;
 
 // Re-exports from presets
 pub(crate) use presets::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
-    is_tool_in_surface, tool_namespace,
+    default_budget_for_preset, default_budget_for_profile, is_tool_in_surface, tool_namespace,
+    ToolPreset, ToolProfile, ToolSurface,
 };
 
 // Re-exports from build
@@ -35,7 +35,7 @@ pub(crate) fn visible_namespaces(surface: ToolSurface) -> Vec<&'static str> {
 pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
     match surface {
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => {
-            vec!["reports", "symbols", "graph", "filesystem", "session"]
+            vec!["reports", "symbols", "graph", "session"]
         }
         ToolSurface::Profile(ToolProfile::BuilderMinimal) => {
             vec!["symbols", "filesystem", "session"]

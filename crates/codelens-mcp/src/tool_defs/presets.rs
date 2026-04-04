@@ -134,47 +134,30 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
 ];
 
 pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
+    // Session
     "activate_project",
     "get_current_config",
-    "get_capabilities",
     "set_profile",
     "set_preset",
     "get_tool_metrics",
-    "read_file",
-    "list_dir",
-    "find_file",
-    "search_for_pattern",
-    "find_annotations",
-    "find_tests",
-    "get_symbols_overview",
+    // Symbol exploration
     "find_symbol",
+    "get_symbols_overview",
     "get_ranked_context",
-    "refresh_symbol_index",
-    "get_project_structure",
     "find_referencing_symbols",
-    "get_changed_files",
+    // Graph / impact
     "get_impact_analysis",
-    "find_scoped_references",
-    "get_symbol_importance",
+    "get_changed_files",
     "onboard_project",
-    "summarize_file",
+    // Workflow composites
     "analyze_change_request",
     "verify_change_readiness",
     "find_minimal_context_for_change",
-    "summarize_symbol_impact",
-    "module_boundary_report",
-    "safe_rename_report",
-    "unresolved_reference_check",
-    "dead_code_report",
     "impact_report",
-    "refactor_safety_report",
-    "diff_aware_references",
+    // Async analysis
     "start_analysis_job",
     "get_analysis_job",
-    "cancel_analysis_job",
     "get_analysis_section",
-    "list_memories",
-    "read_memory",
 ];
 
 pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
@@ -204,109 +187,79 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
 ];
 
 pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
+    // Session
     "activate_project",
     "get_current_config",
-    "get_capabilities",
     "set_profile",
     "set_preset",
-    "get_tool_metrics",
-    "read_file",
-    "search_for_pattern",
-    "find_annotations",
-    "find_tests",
-    "get_symbols_overview",
+    // Symbol exploration
     "find_symbol",
+    "get_symbols_overview",
     "get_ranked_context",
     "find_referencing_symbols",
-    "get_type_hierarchy",
-    "get_file_diagnostics",
-    "get_changed_files",
-    "get_impact_analysis",
     "find_scoped_references",
-    "get_symbol_importance",
-    "find_dead_code",
-    "find_circular_dependencies",
-    "get_change_coupling",
-    "onboard_project",
-    "summarize_file",
-    "analyze_change_request",
-    "verify_change_readiness",
-    "find_minimal_context_for_change",
-    "summarize_symbol_impact",
-    "module_boundary_report",
-    "safe_rename_report",
-    "unresolved_reference_check",
-    "dead_code_report",
+    // Diagnostics
+    "get_file_diagnostics",
+    // Graph / impact
+    "get_impact_analysis",
+    "get_changed_files",
+    // Workflow composites
     "impact_report",
     "refactor_safety_report",
+    "verify_change_readiness",
+    "summarize_symbol_impact",
     "diff_aware_references",
+    // Async analysis
     "start_analysis_job",
     "get_analysis_job",
-    "cancel_analysis_job",
     "get_analysis_section",
-    "export_session_markdown",
 ];
 
 pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
+    // Session
     "activate_project",
     "get_current_config",
-    "get_capabilities",
     "set_profile",
     "set_preset",
     "get_tool_metrics",
-    "read_file",
-    "search_for_pattern",
-    "find_annotations",
-    "find_tests",
-    "get_symbols_overview",
+    // Symbol exploration
     "find_symbol",
+    "get_symbols_overview",
     "get_ranked_context",
     "find_referencing_symbols",
-    "get_type_hierarchy",
-    "get_file_diagnostics",
-    "get_changed_files",
-    "get_impact_analysis",
     "find_scoped_references",
-    "get_symbol_importance",
-    "find_dead_code",
-    "find_circular_dependencies",
-    "get_change_coupling",
-    "onboard_project",
-    "summarize_file",
-    "analyze_change_request",
-    "verify_change_readiness",
-    "find_minimal_context_for_change",
-    "summarize_symbol_impact",
-    "module_boundary_report",
-    "safe_rename_report",
-    "unresolved_reference_check",
-    "dead_code_report",
-    "impact_report",
-    "refactor_safety_report",
-    "diff_aware_references",
-    "start_analysis_job",
-    "get_analysis_job",
-    "cancel_analysis_job",
-    "get_analysis_section",
-    "prune_index_failures",
+    // Diagnostics
+    "get_file_diagnostics",
+    // Graph / impact
+    "get_impact_analysis",
+    "get_changed_files",
+    // Mutation (core)
     "plan_symbol_rename",
     "rename_symbol",
     "replace_symbol_body",
     "insert_content",
     "replace",
-    "replace_content",
-    "replace_lines",
-    "delete_lines",
-    "insert_at_line",
-    "insert_before_symbol",
-    "insert_after_symbol",
     "create_text_file",
     "analyze_missing_imports",
     "add_import",
+    // Refactoring
     "refactor_extract_function",
     "refactor_inline_function",
     "refactor_move_to_file",
     "refactor_change_signature",
+    // Workflow composites (preflight gate requires these)
+    "refactor_safety_report",
+    "safe_rename_report",
+    "unresolved_reference_check",
+    "verify_change_readiness",
+    "impact_report",
+    "diff_aware_references",
+    // Content mutation (used by preflight tests)
+    "replace_content",
+    // Async analysis
+    "start_analysis_job",
+    "get_analysis_job",
+    "get_analysis_section",
 ];
 
 pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
@@ -371,11 +324,11 @@ pub(crate) fn default_budget_for_preset(preset: ToolPreset) -> usize {
 
 pub(crate) fn default_budget_for_profile(profile: ToolProfile) -> usize {
     match profile {
-        ToolProfile::PlannerReadonly => 5000,
+        ToolProfile::PlannerReadonly => 2400,
         ToolProfile::BuilderMinimal => 2400,
-        ToolProfile::ReviewerGraph => 5000,
+        ToolProfile::ReviewerGraph => 2800,
         ToolProfile::EvaluatorCompact => 1600,
-        ToolProfile::RefactorFull => 8000,
+        ToolProfile::RefactorFull => 4000,
         ToolProfile::CiAudit => 3600,
     }
 }
