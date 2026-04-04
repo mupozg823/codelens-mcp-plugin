@@ -50,7 +50,7 @@ fn main() -> Result<()> {
                 .ok()
                 .map(|s| ToolPreset::from_str(&s))
         })
-        .unwrap_or(ToolPreset::Balanced);
+        .unwrap_or_else(|| state::ClientProfile::detect(None).default_preset());
     let profile = args
         .iter()
         .position(|a| a == "--profile")

@@ -37,7 +37,8 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         .unwrap_or(false);
     let frameworks = detect_frameworks(project.as_path());
 
-    // Auto-set role surface based on project size
+    // Auto-set role surface based on project size + client profile
+    let client = state.client_profile();
     let file_count = state
         .symbol_index()
         .stats()
@@ -46,19 +47,19 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
     let (auto_surface, auto_budget, auto_label) = if file_count < 50 {
         (
             ToolSurface::Profile(ToolProfile::BuilderMinimal),
-            default_budget_for_profile(ToolProfile::BuilderMinimal),
+            default_budget_for_profile(ToolProfile::BuilderMinimal).max(client.default_budget()),
             "builder-minimal",
         )
     } else if file_count > 500 {
         (
             ToolSurface::Profile(ToolProfile::ReviewerGraph),
-            default_budget_for_profile(ToolProfile::ReviewerGraph),
+            default_budget_for_profile(ToolProfile::ReviewerGraph).max(client.default_budget()),
             "reviewer-graph",
         )
     } else {
         (
             ToolSurface::Profile(ToolProfile::PlannerReadonly),
-            default_budget_for_profile(ToolProfile::PlannerReadonly),
+            default_budget_for_profile(ToolProfile::PlannerReadonly).max(client.default_budget()),
             "planner-readonly",
         )
     };

@@ -108,6 +108,72 @@ impl RuntimeDaemonMode {
     }
 }
 
+// ── Client profile (Codex vs Claude optimization) ─────────────────────
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ClientProfile {
+    /// Claude Code — tighter budget, balanced preset excludes builtins
+    Claude,
+    /// OpenAI Codex CLI — larger budget, minimal preset (has own builtins)
+    Codex,
+    /// Unknown or generic MCP client
+    Generic,
+}
+
+impl ClientProfile {
+    /// Detect client from name string (from MCP clientInfo or env).
+    pub(crate) fn detect(client_name: Option<&str>) -> Self {
+        match client_name {
+            Some(name) => {
+                let lower = name.to_ascii_lowercase();
+                if lower.contains("codex") {
+                    Self::Codex
+                } else if lower.contains("claude") {
+                    Self::Claude
+                } else {
+                    Self::Generic
+                }
+            }
+            None => {
+                // Fallback: check env vars
+                if std::env::var("CLAUDE_PROJECT_DIR").is_ok()
+                    || std::env::var("CLAUDE_CODE_ENTRYPOINT").is_ok()
+                {
+                    Self::Claude
+                } else if std::env::var("CODEX_SANDBOX_DIR").is_ok() {
+                    Self::Codex
+                } else {
+                    Self::Generic
+                }
+            }
+        }
+    }
+
+    pub(crate) fn default_budget(&self) -> usize {
+        match self {
+            Self::Codex => 6000,  // larger context, cheaper tokens
+            Self::Claude => 4000, // tighter context, pricier tokens
+            Self::Generic => 4000,
+        }
+    }
+
+    pub(crate) fn default_preset(&self) -> crate::tool_defs::ToolPreset {
+        match self {
+            Self::Codex => crate::tool_defs::ToolPreset::Minimal, // Codex has own file tools
+            Self::Claude => crate::tool_defs::ToolPreset::Balanced, // exclude overlap
+            Self::Generic => crate::tool_defs::ToolPreset::Balanced,
+        }
+    }
+
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Generic => "generic",
+        }
+    }
+}
+
 // ── Application state ──────────────────────────────────────────────────
 
 /// Holds project-specific resources that can be swapped at runtime.
@@ -233,6 +299,7 @@ pub(crate) struct AppState {
     lsp_pool: LspSessionPool,
     transport_mode: Mutex<RuntimeTransportMode>,
     daemon_mode: Mutex<RuntimeDaemonMode>,
+    client_profile: ClientProfile,
     surface: Mutex<ToolSurface>,
     /// Global token budget for response size control.
     /// Tools that produce variable-length output respect this limit.
@@ -654,6 +721,10 @@ impl AppState {
             .daemon_mode
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub(crate) fn client_profile(&self) -> ClientProfile {
+        self.client_profile
     }
 
     pub(crate) fn mutation_allowed_in_runtime(&self) -> bool {
@@ -1386,6 +1457,7 @@ impl AppState {
             lsp_pool: LspSessionPool::new(project),
             transport_mode: Mutex::new(self.transport_mode()),
             daemon_mode: Mutex::new(self.daemon_mode()),
+            client_profile: self.client_profile,
             surface: Mutex::new(*self.surface()),
             token_budget: std::sync::atomic::AtomicUsize::new(self.token_budget()),
             analysis_seq: std::sync::atomic::AtomicU64::new(0),
@@ -1446,6 +1518,7 @@ impl AppState {
             project_override: std::sync::RwLock::new(None),
             transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
             daemon_mode: Mutex::new(RuntimeDaemonMode::Standard),
+            client_profile: ClientProfile::detect(None),
             surface: Mutex::new(ToolSurface::Preset(preset)),
             token_budget: std::sync::atomic::AtomicUsize::new(
                 crate::tool_defs::default_budget_for_preset(preset),
