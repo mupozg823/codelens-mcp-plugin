@@ -1,46 +1,20 @@
-use crate::AppState;
 use crate::error::CodeLensError;
+use crate::session_context::SessionRequestContext;
 use crate::tool_defs::{
-    ToolSurface, is_content_mutation_tool, is_read_only_surface, is_tool_in_surface,
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
+    is_content_mutation_tool, is_read_only_surface, is_tool_in_surface, preferred_namespaces,
+    preferred_tier_labels, tool_namespace, tool_tier_label, ToolSurface,
 };
-
-fn session_loaded_namespaces(arguments: &serde_json::Value) -> Vec<&str> {
-    arguments
-        .get("_session_loaded_namespaces")
-        .and_then(|value| value.as_array())
-        .map(|values| values.iter().filter_map(|value| value.as_str()).collect())
-        .unwrap_or_default()
-}
-
-fn session_loaded_tiers(arguments: &serde_json::Value) -> Vec<&str> {
-    arguments
-        .get("_session_loaded_tiers")
-        .and_then(|value| value.as_array())
-        .map(|values| values.iter().filter_map(|value| value.as_str()).collect())
-        .unwrap_or_default()
-}
-
-fn session_full_tool_exposure(arguments: &serde_json::Value) -> bool {
-    arguments
-        .get("_session_full_tool_exposure")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false)
-}
+use crate::AppState;
 
 fn is_deferred_namespace_access_allowed(
     name: &str,
-    arguments: &serde_json::Value,
+    session: &SessionRequestContext,
     surface: ToolSurface,
 ) -> bool {
-    let deferred_requested = arguments
-        .get("_session_deferred_tool_loading")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    if !deferred_requested || crate::dispatch::logical_session_id(arguments) == "local" {
+    if !session.deferred_loading || session.is_local() {
         return true;
     }
-    if session_full_tool_exposure(arguments) {
+    if session.full_tool_exposure {
         return true;
     }
     let namespace = tool_namespace(name);
@@ -48,22 +22,21 @@ fn is_deferred_namespace_access_allowed(
     if preferred.contains(&namespace) {
         return true;
     }
-    session_loaded_namespaces(arguments).contains(&namespace)
+    session
+        .loaded_namespaces
+        .iter()
+        .any(|value| value == namespace)
 }
 
 fn is_deferred_tier_access_allowed(
     name: &str,
-    arguments: &serde_json::Value,
+    session: &SessionRequestContext,
     surface: ToolSurface,
 ) -> bool {
-    let deferred_requested = arguments
-        .get("_session_deferred_tool_loading")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    if !deferred_requested || crate::dispatch::logical_session_id(arguments) == "local" {
+    if !session.deferred_loading || session.is_local() {
         return true;
     }
-    if session_full_tool_exposure(arguments) {
+    if session.full_tool_exposure {
         return true;
     }
     let tier = tool_tier_label(name);
@@ -71,12 +44,12 @@ fn is_deferred_tier_access_allowed(
     if preferred.contains(&tier) {
         return true;
     }
-    session_loaded_tiers(arguments).contains(&tier)
+    session.loaded_tiers.iter().any(|value| value == tier)
 }
 
 pub(crate) fn validate_tool_access(
     name: &str,
-    arguments: &serde_json::Value,
+    session: &SessionRequestContext,
     surface: ToolSurface,
     state: &AppState,
 ) -> Result<(), CodeLensError> {
@@ -88,7 +61,7 @@ pub(crate) fn validate_tool_access(
         )));
     }
 
-    if !is_deferred_namespace_access_allowed(name, arguments, surface) {
+    if !is_deferred_namespace_access_allowed(name, session, surface) {
         state.metrics().record_deferred_hidden_tool_call_denied();
         return Err(CodeLensError::Validation(format!(
             "Tool `{name}` is hidden by deferred loading in namespace `{}`. Call `tools/list` with `{{\"namespace\":\"{}\"}}` or `{{\"full\":true}}` first.",
@@ -97,7 +70,7 @@ pub(crate) fn validate_tool_access(
         )));
     }
 
-    if !is_deferred_tier_access_allowed(name, arguments, surface) {
+    if !is_deferred_tier_access_allowed(name, session, surface) {
         state.metrics().record_deferred_hidden_tool_call_denied();
         return Err(CodeLensError::Validation(format!(
             "Tool `{name}` is hidden by deferred loading in tier `{}`. Call `tools/list` with `{{\"tier\":\"{}\"}}` or `{{\"full\":true}}` first.",
@@ -106,17 +79,12 @@ pub(crate) fn validate_tool_access(
         )));
     }
 
-    let session_trusted_client = arguments
-        .get("_session_trusted_client")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-
     if is_content_mutation_tool(name)
         && matches!(
             state.daemon_mode(),
             crate::state::RuntimeDaemonMode::MutationEnabled
         )
-        && !session_trusted_client
+        && !session.trusted_client
     {
         return Err(CodeLensError::Validation(format!(
             "Tool `{name}` requires a trusted HTTP client in daemon mode `{}`",

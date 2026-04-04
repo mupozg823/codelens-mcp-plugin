@@ -2,6 +2,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::error::CodeLensError;
+use crate::session_context::SessionRequestContext;
 
 /// Append a mutation audit event to `mutation-audit.jsonl` in the given audit directory.
 pub(crate) fn record_mutation_audit(
@@ -12,29 +13,10 @@ pub(crate) fn record_mutation_audit(
     surface: &str,
     tool: &str,
     arguments: &serde_json::Value,
+    session: &SessionRequestContext,
 ) -> Result<(), CodeLensError> {
     fs::create_dir_all(audit_dir)?;
     let path = audit_dir.join("mutation-audit.jsonl");
-
-    let session_id = arguments
-        .get("_session_id")
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned);
-    let session_trusted_client = arguments
-        .get("_session_trusted_client")
-        .and_then(|value| value.as_bool());
-    let session_requested_profile = arguments
-        .get("_session_requested_profile")
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned);
-    let session_client_name = arguments
-        .get("_session_client_name")
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned);
-    let session_client_version = arguments
-        .get("_session_client_version")
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned);
 
     let scrubbed_arguments = match arguments {
         serde_json::Value::Object(map) => serde_json::Value::Object(
@@ -54,11 +36,11 @@ pub(crate) fn record_mutation_audit(
         "tool": tool,
         "arguments": scrubbed_arguments,
         "session": {
-            "id": session_id,
-            "trusted_client": session_trusted_client,
-            "requested_profile": session_requested_profile,
-            "client_name": session_client_name,
-            "client_version": session_client_version,
+            "id": session.session_id,
+            "trusted_client": session.trusted_client,
+            "requested_profile": session.requested_profile,
+            "client_name": session.client_name,
+            "client_version": session.client_version,
         },
     });
 

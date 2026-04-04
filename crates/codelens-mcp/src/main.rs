@@ -17,6 +17,7 @@ mod resource_profiles;
 mod resources;
 mod runtime_types;
 mod server;
+mod session_context;
 mod session_metrics_payload;
 mod state;
 mod telemetry;

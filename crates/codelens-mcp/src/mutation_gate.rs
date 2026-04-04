@@ -103,8 +103,9 @@ fn mutation_gate_failure(
 pub(crate) fn evaluate_mutation_gate(
     state: &AppState,
     name: &str,
-    arguments: &serde_json::Value,
+    session: &crate::session_context::SessionRequestContext,
     surface: ToolSurface,
+    arguments: &serde_json::Value,
 ) -> Result<Option<MutationGateAllowance>, MutationGateFailure> {
     if !matches!(surface, ToolSurface::Profile(ToolProfile::RefactorFull))
         || !is_refactor_gated_mutation_tool(name)
@@ -112,7 +113,7 @@ pub(crate) fn evaluate_mutation_gate(
         return Ok(None);
     }
 
-    let logical_session = crate::dispatch::logical_session_id(arguments);
+    let logical_session = session.session_id.as_str();
     let Some(preflight) = state.recent_preflight(logical_session) else {
         return Err(mutation_gate_failure(
             name,

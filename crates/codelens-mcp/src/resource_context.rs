@@ -1,10 +1,10 @@
-use crate::AppState;
 use crate::protocol::Tool;
 use crate::tool_defs::{
-    ToolProfile, ToolSurface, preferred_namespaces, preferred_tier_labels, tool_namespace,
-    tool_tier_label, visible_namespaces, visible_tiers, visible_tools,
+    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
+    visible_namespaces, visible_tiers, visible_tools, ToolProfile, ToolSurface,
 };
-use serde_json::{Value, json};
+use crate::AppState;
+use serde_json::{json, Value};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ResourceRequestContext {
@@ -19,11 +19,14 @@ pub(crate) struct ResourceRequestContext {
 
 impl ResourceRequestContext {
     pub(crate) fn from_request(uri: &str, params: Option<&Value>) -> Self {
+        let session = params
+            .map(crate::session_context::SessionRequestContext::from_json)
+            .unwrap_or_default();
         Self {
-            deferred_loading_requested: bool_param(params, "_session_deferred_tool_loading"),
-            loaded_namespaces: string_array_param(params, "_session_loaded_namespaces"),
-            loaded_tiers: string_array_param(params, "_session_loaded_tiers"),
-            full_tool_exposure: bool_param(params, "_session_full_tool_exposure"),
+            deferred_loading_requested: session.deferred_loading,
+            loaded_namespaces: session.loaded_namespaces,
+            loaded_tiers: session.loaded_tiers,
+            full_tool_exposure: session.full_tool_exposure,
             requested_namespace: string_param(params, "namespace"),
             requested_tier: string_param(params, "tier"),
             full_listing: uri == "codelens://tools/list/full" || bool_param(params, "full"),
@@ -178,18 +181,4 @@ fn string_param(params: Option<&Value>, key: &str) -> Option<String> {
         .and_then(|params| params.get(key))
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned)
-}
-
-fn string_array_param(params: Option<&Value>, key: &str) -> Vec<String> {
-    params
-        .and_then(|params| params.get(key))
-        .and_then(|value| value.as_array())
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|value| value.as_str())
-                .map(ToOwned::to_owned)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
 }

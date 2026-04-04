@@ -28,6 +28,7 @@ thread_local! {
 pub(crate) struct ToolCallEnvelope {
     pub name: String,
     pub arguments: serde_json::Value,
+    pub session: crate::session_context::SessionRequestContext,
     pub budget: usize,
     pub compact: bool,
     pub harness_phase: Option<String>,
@@ -48,6 +49,7 @@ impl ToolCallEnvelope {
             .get("arguments")
             .cloned()
             .unwrap_or_else(|| json!({}));
+        let session = crate::session_context::SessionRequestContext::from_json(&arguments);
         let budget = arguments
             .get("_profile")
             .and_then(|v| v.as_str())
@@ -73,18 +75,12 @@ impl ToolCallEnvelope {
         Ok(Self {
             name,
             arguments,
+            session,
             budget,
             compact,
             harness_phase,
         })
     }
-}
-
-pub(crate) fn logical_session_id(arguments: &serde_json::Value) -> &str {
-    arguments
-        .get("_session_id")
-        .and_then(|value| value.as_str())
-        .unwrap_or("local")
 }
 
 // ── Semantic handlers (feature-gated) ──────────────────────────────────
@@ -276,6 +272,7 @@ pub(crate) fn dispatch_tool(
     };
     let name = envelope.name.as_str();
     let arguments = &envelope.arguments;
+    let session = &envelope.session;
     let compact = envelope.compact;
     let harness_phase = envelope.harness_phase;
     REQUEST_BUDGET.set(envelope.budget);
@@ -288,7 +285,7 @@ pub(crate) fn dispatch_tool(
     let active_surface = surface.as_label().to_owned();
 
     // 2. Validate tool access (surface, namespace, tier, daemon mode)
-    if let Err(access_err) = validate_tool_access(name, arguments, surface, state) {
+    if let Err(access_err) = validate_tool_access(name, session, surface, state) {
         return build_error_response(name, access_err, None, &active_surface, state, start, id);
     }
 
@@ -298,7 +295,7 @@ pub(crate) fn dispatch_tool(
 
     let result: ToolResult = if is_refactor_gated_mutation_tool(name) {
         state.metrics().record_mutation_preflight_checked();
-        match evaluate_mutation_gate(state, name, &arguments, surface) {
+        match evaluate_mutation_gate(state, name, session, surface, &arguments) {
             Ok(allowance) => {
                 gate_allowance = allowance;
                 match DISPATCH_TABLE.get(name) {
@@ -335,17 +332,14 @@ pub(crate) fn dispatch_tool(
     // 5. Post-mutation side effects (graph invalidation, audit)
     if result.is_ok() && is_content_mutation_tool(name) {
         state.graph_cache().invalidate();
-        if let Err(error) = state.record_mutation_audit(name, &active_surface, &arguments) {
+        if let Err(error) = state.record_mutation_audit(name, &active_surface, &arguments, session)
+        {
             warn!(tool = name, error = %error, "failed to write mutation audit event");
         }
-        let session_id = arguments
-            .get("_session_id")
-            .and_then(|value| value.as_str())
-            .unwrap_or_default();
-        if !session_id.is_empty() {
+        if !session.is_local() {
             tracing::info!(
                 tool = name,
-                session_id,
+                session_id = session.session_id.as_str(),
                 "mutation completed for trusted session"
             );
         }
@@ -370,7 +364,7 @@ pub(crate) fn dispatch_tool(
             surface,
             active_surface: &active_surface,
             arguments: &arguments,
-            logical_session_id: logical_session_id(&arguments),
+            logical_session_id: &session.session_id,
             gate_allowance: gate_allowance.as_ref(),
             compact,
             harness_phase: harness_phase.as_deref(),
