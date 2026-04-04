@@ -58,7 +58,9 @@ FULL=70 | BALANCED=39 (default) | MINIMAL=21
 <!-- CODELENS_REPO_CLAUDE_ROUTING_POLICY:BEGIN -->
 ## CodeLens Repo Routing Policy
 
-_Generated from `/Users/bagjaeseog/.codex/harness/reports/refreshes/2026-04-04-174536-routing-policy-refresh.json` on 2026-04-04T17:45:36 for `codelens-mcp-plugin`_
+_Generated from `/Users/bagjaeseog/.codex/harness/reports/refreshes/2026-04-04-231408-routing-policy-refresh-live.json` on 2026-04-04T23:14:08 for `codelens-mcp-plugin`_
+
+_Derived from the authoritative Claude policy JSON. This repo section is non-authoritative._
 
 Repo-specific routing rules:
 - no repo-specific exceptions; follow the global CodeLens routing policy.
@@ -68,6 +70,7 @@ Claude harness guidance:
 - keep simple point lookups native when the policy says native is preferred.
 - use CodeLens-aware exploration for multi-file or reviewer-heavy work.
 <!-- CODELENS_REPO_CLAUDE_ROUTING_POLICY:END -->
+
 
 
 

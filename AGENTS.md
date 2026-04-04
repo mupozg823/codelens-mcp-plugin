@@ -25,7 +25,9 @@ Before finishing, run:
 <!-- CODELENS_REPO_ROUTING_POLICY:BEGIN -->
 ## CodeLens Repo Routing Policy
 
-_Generated from `/Users/bagjaeseog/.codex/harness/reports/refreshes/2026-04-04-174536-routing-policy-refresh.json` on 2026-04-04T17:45:36 for `codelens-mcp-plugin`_
+_Generated from `/Users/bagjaeseog/.codex/harness/reports/refreshes/2026-04-04-231408-routing-policy-refresh-live.json` on 2026-04-04T23:14:08 for `codelens-mcp-plugin`_
+
+_Derived from the authoritative Codex policy JSON. This repo section is non-authoritative._
 
 Repo-specific routing rules:
 - no repo-specific exceptions; follow the global CodeLens routing policy.
@@ -35,6 +37,7 @@ Operational guidance:
 - keep simple point lookups on native rg/read/test when the repo rule says native is preferred.
 - use verifier-first CodeLens workflow for refactor/impact tasks only when the routing threshold is crossed.
 <!-- CODELENS_REPO_ROUTING_POLICY:END -->
+
 
 
 

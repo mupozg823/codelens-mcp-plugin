@@ -157,7 +157,9 @@ def agent_policy_divergence(shared_policy_path: Path, agent_policy_paths: dict[s
         for key in sorted(set(shared_globals) | set(agent_globals)):
             shared_row = shared_globals.get(key)
             agent_row = agent_globals.get(key)
-            if shared_row != agent_row:
+            shared_policy_value = None if shared_row is None else shared_row.get("recommended_policy")
+            agent_policy_value = None if agent_row is None else agent_row.get("recommended_policy")
+            if shared_policy_value != agent_policy_value:
                 global_changes.append(
                     {
                         "agent": agent,
@@ -169,7 +171,9 @@ def agent_policy_divergence(shared_policy_path: Path, agent_policy_paths: dict[s
         for key in sorted(set(shared_overrides) | set(agent_overrides)):
             shared_row = shared_overrides.get(key)
             agent_row = agent_overrides.get(key)
-            if shared_row != agent_row:
+            shared_policy_value = None if shared_row is None else shared_row.get("recommended_policy")
+            agent_policy_value = None if agent_row is None else agent_row.get("recommended_policy")
+            if shared_policy_value != agent_policy_value:
                 repo_override_changes.append(
                     {
                         "agent": agent,
