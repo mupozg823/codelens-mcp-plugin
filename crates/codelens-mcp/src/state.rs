@@ -10,6 +10,7 @@ use crate::analysis_queue::{
     analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
     STDIO_ANALYSIS_WORKER_COUNT,
 };
+use crate::artifact_store::AnalysisArtifactStore;
 use crate::error::CodeLensError;
 use crate::mutation_audit;
 use crate::preflight_store::RecentPreflightStore;
@@ -19,7 +20,6 @@ use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface};
 use serde_json::Value;
 use std::collections::VecDeque;
 
-const MAX_ANALYSIS_ARTIFACTS: usize = 64;
 const MAX_ANALYSIS_JOBS: usize = 128;
 const ANALYSIS_TTL_MS: u64 = 24 * 60 * 60 * 1000;
 const WATCHER_RECENT_FAILURE_WINDOW_SECS: i64 = 15 * 60;
@@ -71,7 +71,6 @@ pub(crate) struct AppState {
     default_symbol_index: Arc<SymbolIndex>,
     default_graph_cache: Arc<GraphCache>,
     default_memories_dir: PathBuf,
-    default_analysis_dir: PathBuf,
     default_audit_dir: PathBuf,
     // Runtime project override (set by activate_project)
     project_override: std::sync::RwLock<Option<ProjectOverride>>,
@@ -83,14 +82,12 @@ pub(crate) struct AppState {
     /// Global token budget for response size control.
     /// Tools that produce variable-length output respect this limit.
     pub(crate) token_budget: std::sync::atomic::AtomicUsize,
-    analysis_seq: std::sync::atomic::AtomicU64,
+    artifact_store: AnalysisArtifactStore,
     job_seq: std::sync::atomic::AtomicU64,
     pub(crate) metrics: Arc<ToolMetricsRegistry>,
     /// Recent tool call names for context-aware suggestions (max 5).
     recent_tools: Mutex<VecDeque<String>>,
     preflight_store: RecentPreflightStore,
-    analysis_order: Mutex<VecDeque<String>>,
-    analyses: Mutex<HashMap<String, AnalysisArtifact>>,
     job_order: Mutex<VecDeque<String>>,
     jobs: Mutex<HashMap<String, AnalysisJob>>,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
@@ -318,14 +315,11 @@ impl AppState {
 
     /// Get the active analysis cache directory.
     pub(crate) fn analysis_dir(&self) -> PathBuf {
-        let guard = self
-            .project_override
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
-        match guard.as_ref() {
-            Some(o) => o.analysis_dir.clone(),
-            None => self.default_analysis_dir.clone(),
-        }
+        self.artifact_store.analysis_dir().to_path_buf()
+    }
+
+    pub(crate) fn artifact_store(&self) -> &AnalysisArtifactStore {
+        &self.artifact_store
     }
 
     pub(crate) fn audit_dir(&self) -> PathBuf {
@@ -381,14 +375,15 @@ impl AppState {
             symbol_index,
             graph_cache,
             memories_dir,
-            analysis_dir,
+            analysis_dir: analysis_dir.clone(),
             audit_dir,
             watcher,
         });
-        self.clear_analysis_handles();
+        self.artifact_store.set_analysis_dir(analysis_dir);
+        self.artifact_store.clear();
         self.clear_analysis_jobs();
         self.clear_recent_preflights();
-        self.cleanup_stale_analysis_dirs(Self::now_ms());
+        self.artifact_store.cleanup_stale_dirs(Self::now_ms());
         self.cleanup_stale_job_files(Self::now_ms());
         Ok(name)
     }
@@ -400,7 +395,7 @@ impl AppState {
             .project_override
             .write()
             .unwrap_or_else(|p| p.into_inner()) = None;
-        self.clear_analysis_handles();
+        self.artifact_store.clear();
         self.clear_analysis_jobs();
         self.clear_recent_preflights();
     }
@@ -533,60 +528,8 @@ impl AppState {
             .collect()
     }
 
-    fn sanitize_section_name(section: &str) -> String {
-        section
-            .chars()
-            .map(|ch| {
-                if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-                    ch
-                } else {
-                    '_'
-                }
-            })
-            .collect()
-    }
-
-    fn analysis_artifact_dir(&self, analysis_id: &str) -> PathBuf {
-        self.analysis_dir().join(analysis_id)
-    }
-
     fn analysis_job_path(&self, job_id: &str) -> PathBuf {
         self.jobs_dir().join(format!("{job_id}.json"))
-    }
-
-    fn write_analysis_to_disk(
-        &self,
-        artifact: &AnalysisArtifact,
-        sections: &std::collections::BTreeMap<String, serde_json::Value>,
-    ) -> Result<(), CodeLensError> {
-        let artifact_dir = self.analysis_artifact_dir(&artifact.id);
-        fs::create_dir_all(&artifact_dir)?;
-        let summary_path = artifact_dir.join("summary.json");
-        let summary_bytes = serde_json::to_vec_pretty(artifact)
-            .map_err(|error| CodeLensError::Internal(error.into()))?;
-        fs::write(summary_path, summary_bytes)?;
-        for (section, value) in sections {
-            let section_path =
-                artifact_dir.join(format!("{}.json", Self::sanitize_section_name(section)));
-            let section_bytes = serde_json::to_vec_pretty(value)
-                .map_err(|error| CodeLensError::Internal(error.into()))?;
-            fs::write(section_path, section_bytes)?;
-        }
-        Ok(())
-    }
-
-    fn read_analysis_from_disk(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
-        let summary_path = self.analysis_artifact_dir(analysis_id).join("summary.json");
-        fs::read(summary_path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<AnalysisArtifact>(&bytes).ok())
-            .filter(|artifact| {
-                self.matches_current_project_scope(artifact.project_scope.as_deref())
-            })
-    }
-
-    fn remove_analysis_from_disk(&self, analysis_id: &str) {
-        let _ = fs::remove_dir_all(self.analysis_artifact_dir(analysis_id));
     }
 
     fn write_job_to_disk(&self, job: &AnalysisJob) -> Result<(), CodeLensError> {
@@ -603,60 +546,6 @@ impl AppState {
 
     fn remove_job_from_disk(&self, job_id: &str) {
         let _ = fs::remove_file(self.analysis_job_path(job_id));
-    }
-
-    fn cleanup_stale_analysis_dirs(&self, now_ms: u64) {
-        let entries = match fs::read_dir(self.analysis_dir()) {
-            Ok(entries) => entries,
-            Err(_) => return,
-        };
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if !path.is_dir() {
-                continue;
-            }
-            let is_system_dir = path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .map(|name| matches!(name, "jobs"))
-                .unwrap_or(false);
-            if is_system_dir {
-                continue;
-            }
-            let summary_path = path.join("summary.json");
-            let created_at_ms = fs::read(&summary_path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<AnalysisArtifact>(&bytes).ok())
-                .map(|artifact| artifact.created_at_ms);
-            match created_at_ms {
-                Some(created_at_ms) if Self::analysis_expired(created_at_ms, now_ms) => {
-                    let _ = fs::remove_dir_all(&path);
-                }
-                None => {
-                    let _ = fs::remove_dir_all(&path);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    fn list_analysis_ids_on_disk(&self) -> Vec<String> {
-        let entries = match fs::read_dir(self.analysis_dir()) {
-            Ok(entries) => entries,
-            Err(_) => return Vec::new(),
-        };
-        entries
-            .flatten()
-            .filter_map(|entry| {
-                let path = entry.path();
-                path.is_dir().then(|| {
-                    path.file_name()
-                        .map(|name| name.to_string_lossy().to_string())
-                        .unwrap_or_default()
-                })
-            })
-            .filter(|name| !name.is_empty() && name != "jobs")
-            .collect()
     }
 
     fn cleanup_stale_job_files(&self, now_ms: u64) {
@@ -684,51 +573,6 @@ impl AppState {
                 }
                 _ => {}
             }
-        }
-    }
-
-    fn prune_analysis_artifacts(&self, now_ms: u64) {
-        self.cleanup_stale_analysis_dirs(now_ms);
-
-        let expired_ids = {
-            let analyses = self.analyses.lock().unwrap_or_else(|p| p.into_inner());
-            analyses
-                .iter()
-                .filter_map(|(id, artifact)| {
-                    Self::analysis_expired(artifact.created_at_ms, now_ms).then(|| id.clone())
-                })
-                .collect::<Vec<_>>()
-        };
-
-        let mut evicted = expired_ids;
-        {
-            let mut order = self
-                .analysis_order
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if !evicted.is_empty() {
-                order.retain(|id| !evicted.contains(id));
-            }
-            while order.len() > MAX_ANALYSIS_ARTIFACTS {
-                if let Some(oldest) = order.pop_front() {
-                    evicted.push(oldest);
-                }
-            }
-        }
-
-        if evicted.is_empty() {
-            return;
-        }
-
-        evicted.sort();
-        evicted.dedup();
-        let mut analyses = self.analyses.lock().unwrap_or_else(|p| p.into_inner());
-        for analysis_id in &evicted {
-            analyses.remove(analysis_id);
-        }
-        drop(analyses);
-        for analysis_id in evicted {
-            self.remove_analysis_from_disk(&analysis_id);
         }
     }
 
@@ -771,17 +615,6 @@ impl AppState {
         for job_id in evicted {
             self.remove_job_from_disk(&job_id);
         }
-    }
-
-    fn clear_analysis_handles(&self) {
-        self.analyses
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
-        self.analysis_order
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
     }
 
     fn clear_analysis_jobs(&self) {
@@ -971,6 +804,8 @@ impl AppState {
         )
     }
 
+    // ── Artifact Store delegations ────────────────────────────────────────
+
     pub(crate) fn store_analysis(
         &self,
         tool_name: &str,
@@ -985,17 +820,10 @@ impl AppState {
         verifier_checks: Vec<AnalysisVerifierCheck>,
         sections: std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Result<AnalysisArtifact, CodeLensError> {
-        let available_sections = sections.keys().cloned().collect::<Vec<_>>();
-        let created_at_ms = Self::now_ms();
-        let seq = self
-            .analysis_seq
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let id = format!("analysis-{created_at_ms}-{seq}");
-        let artifact = AnalysisArtifact {
-            id: id.clone(),
-            tool_name: tool_name.to_owned(),
-            surface: self.surface().as_label().to_owned(),
-            project_scope: Some(self.current_project_scope()),
+        self.artifact_store.store(
+            tool_name,
+            &self.surface().as_label().to_owned(),
+            self.current_project_scope(),
             cache_key,
             summary,
             top_findings,
@@ -1005,23 +833,8 @@ impl AppState {
             blockers,
             readiness,
             verifier_checks,
-            available_sections,
-            created_at_ms,
-        };
-        self.write_analysis_to_disk(&artifact, &sections)?;
-        {
-            let mut analyses = self.analyses.lock().unwrap_or_else(|p| p.into_inner());
-            analyses.insert(id.clone(), artifact.clone());
-        }
-        {
-            let mut order = self
-                .analysis_order
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            order.push_back(id.clone());
-        }
-        self.prune_analysis_artifacts(created_at_ms);
-        Ok(artifact)
+            sections,
+        )
     }
 
     pub(crate) fn find_reusable_analysis(
@@ -1029,88 +842,23 @@ impl AppState {
         tool_name: &str,
         cache_key: &str,
     ) -> Option<AnalysisArtifact> {
-        self.prune_analysis_artifacts(Self::now_ms());
-        for analysis_id in self.list_analysis_ids_on_disk() {
-            let _ = self.get_analysis(&analysis_id);
-        }
-        let active_surface = self.surface().as_label().to_owned();
-        let order = self
-            .analysis_order
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter()
-            .rev()
-            .cloned()
-            .collect::<Vec<_>>();
-        let analyses = self.analyses.lock().unwrap_or_else(|p| p.into_inner());
-        order.into_iter().find_map(|id| {
-            let artifact = analyses.get(&id)?;
-            if artifact.tool_name == tool_name
-                && artifact.surface == active_surface
-                && self.matches_current_project_scope(artifact.project_scope.as_deref())
-                && artifact.cache_key.as_deref() == Some(cache_key)
-            {
-                Some(artifact.clone())
-            } else {
-                None
-            }
-        })
+        let scope = self.current_project_scope();
+        self.artifact_store.find_reusable(
+            tool_name,
+            cache_key,
+            &self.surface().as_label().to_owned(),
+            Some(&scope),
+        )
     }
 
     pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
-        self.prune_analysis_artifacts(Self::now_ms());
-        if let Some(artifact) = self
-            .analyses
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get(analysis_id)
-            .cloned()
-            .filter(|artifact| {
-                self.matches_current_project_scope(artifact.project_scope.as_deref())
-            })
-        {
-            return Some(artifact);
-        }
-        let artifact = self.read_analysis_from_disk(analysis_id)?;
-        self.analyses
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(analysis_id.to_owned(), artifact.clone());
-        let mut order = self
-            .analysis_order
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        if !order.iter().any(|existing| existing == analysis_id) {
-            order.push_back(analysis_id.to_owned());
-        }
-        Some(artifact)
+        let scope = self.current_project_scope();
+        self.artifact_store.get(analysis_id, Some(&scope))
     }
 
     pub(crate) fn list_analysis_summaries(&self) -> Vec<AnalysisSummary> {
-        self.prune_analysis_artifacts(Self::now_ms());
-        for analysis_id in self.list_analysis_ids_on_disk() {
-            let _ = self.get_analysis(&analysis_id);
-        }
-        let order = self
-            .analysis_order
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter()
-            .cloned()
-            .collect::<Vec<_>>();
-        let analyses = self.analyses.lock().unwrap_or_else(|p| p.into_inner());
-        order
-            .iter()
-            .rev()
-            .filter_map(|id| analyses.get(id))
-            .map(|artifact| AnalysisSummary {
-                id: artifact.id.clone(),
-                tool_name: artifact.tool_name.clone(),
-                summary: artifact.summary.clone(),
-                surface: artifact.surface.clone(),
-                created_at_ms: artifact.created_at_ms,
-            })
-            .collect()
+        let scope = self.current_project_scope();
+        self.artifact_store.list_summaries(Some(&scope))
     }
 
     pub(crate) fn get_analysis_section(
@@ -1118,13 +866,8 @@ impl AppState {
         analysis_id: &str,
         section: &str,
     ) -> Result<serde_json::Value, CodeLensError> {
-        self.prune_analysis_artifacts(Self::now_ms());
         self.metrics.record_analysis_read(true);
-        let section_path = self
-            .analysis_artifact_dir(analysis_id)
-            .join(format!("{}.json", Self::sanitize_section_name(section)));
-        let bytes = fs::read(&section_path)?;
-        serde_json::from_slice(&bytes).map_err(|error| CodeLensError::Internal(error.into()))
+        self.artifact_store.get_section(analysis_id, section)
     }
 
     /// Current global token budget.
@@ -1150,7 +893,6 @@ impl AppState {
             default_symbol_index: symbol_index,
             default_graph_cache: graph_cache,
             default_memories_dir: memories_dir,
-            default_analysis_dir: analysis_dir,
             default_audit_dir: audit_dir,
             project_override: std::sync::RwLock::new(None),
             lsp_pool: LspSessionPool::new(project),
@@ -1159,13 +901,11 @@ impl AppState {
             client_profile: self.client_profile,
             surface: Mutex::new(*self.surface()),
             token_budget: std::sync::atomic::AtomicUsize::new(self.token_budget()),
-            analysis_seq: std::sync::atomic::AtomicU64::new(0),
+            artifact_store: AnalysisArtifactStore::new(analysis_dir),
             job_seq: std::sync::atomic::AtomicU64::new(0),
             metrics: Arc::clone(&self.metrics),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
             preflight_store: RecentPreflightStore::new(),
-            analysis_order: Mutex::new(VecDeque::with_capacity(MAX_ANALYSIS_ARTIFACTS)),
-            analyses: Mutex::new(HashMap::new()),
             job_order: Mutex::new(VecDeque::with_capacity(MAX_ANALYSIS_JOBS)),
             jobs: Mutex::new(HashMap::new()),
             analysis_queue: OnceLock::new(),
@@ -1218,7 +958,7 @@ impl AppState {
             watcher,
         );
         state.configure_transport_mode("stdio");
-        state.cleanup_stale_analysis_dirs(Self::now_ms());
+        state.artifact_store.cleanup_stale_dirs(Self::now_ms());
         state.cleanup_stale_job_files(Self::now_ms());
         state
     }
@@ -1277,7 +1017,6 @@ impl AppState {
             lsp_pool,
             default_graph_cache: graph_cache,
             default_memories_dir: memories_dir,
-            default_analysis_dir: analysis_dir,
             default_audit_dir: audit_dir,
             project_override: std::sync::RwLock::new(None),
             transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
@@ -1287,13 +1026,11 @@ impl AppState {
             token_budget: std::sync::atomic::AtomicUsize::new(
                 crate::tool_defs::default_budget_for_preset(preset),
             ),
-            analysis_seq: std::sync::atomic::AtomicU64::new(0),
+            artifact_store: AnalysisArtifactStore::new(analysis_dir),
             job_seq: std::sync::atomic::AtomicU64::new(0),
             metrics: Arc::new(ToolMetricsRegistry::new()),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
             preflight_store: RecentPreflightStore::new(),
-            analysis_order: Mutex::new(VecDeque::with_capacity(MAX_ANALYSIS_ARTIFACTS)),
-            analyses: Mutex::new(HashMap::new()),
             job_order: Mutex::new(VecDeque::with_capacity(MAX_ANALYSIS_JOBS)),
             jobs: Mutex::new(HashMap::new()),
             analysis_queue: OnceLock::new(),
@@ -1420,22 +1157,8 @@ impl AppState {
         analysis_id: &str,
         created_at_ms: u64,
     ) -> Result<(), CodeLensError> {
-        if let Some(artifact) = self
-            .analyses
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .get_mut(analysis_id)
-        {
-            artifact.created_at_ms = created_at_ms;
-        }
-        let summary_path = self.analysis_artifact_dir(analysis_id).join("summary.json");
-        let bytes = fs::read(&summary_path)?;
-        let mut artifact: AnalysisArtifact = serde_json::from_slice(&bytes)
-            .map_err(|error| CodeLensError::Internal(error.into()))?;
-        artifact.created_at_ms = created_at_ms;
-        let updated = serde_json::to_vec_pretty(&artifact)
-            .map_err(|error| CodeLensError::Internal(error.into()))?;
-        fs::write(summary_path, updated)?;
-        Ok(())
+        self.artifact_store
+            .set_created_at_for_test(analysis_id, created_at_ms)
+            .map_err(|e| CodeLensError::Internal(e.into()))
     }
 }
