@@ -957,6 +957,7 @@ impl AppState {
         tool: &str,
         surface: &str,
         arguments: &serde_json::Value,
+        session: &crate::session_context::SessionRequestContext,
     ) -> Result<(), CodeLensError> {
         mutation_audit::record_mutation_audit(
             &self.audit_dir(),
@@ -966,6 +967,7 @@ impl AppState {
             surface,
             tool,
             arguments,
+            session,
         )
     }
 
@@ -1204,7 +1206,72 @@ impl AppState {
         )
         .ok();
 
-        let state = Self {
+        let state = Self::build(
+            project,
+            symbol_index,
+            lsp_pool,
+            graph_cache,
+            memories_dir,
+            analysis_dir,
+            audit_dir,
+            preset,
+            watcher,
+        );
+        state.configure_transport_mode("stdio");
+        state.cleanup_stale_analysis_dirs(Self::now_ms());
+        state.cleanup_stale_job_files(Self::now_ms());
+        state
+    }
+
+    /// Lightweight constructor that skips file watcher and stale-file cleanup.
+    /// Reduces thread/I/O pressure when many instances run in parallel (e.g. tests).
+    #[cfg(test)]
+    pub(crate) fn new_minimal(project: ProjectRoot, preset: ToolPreset) -> Self {
+        let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
+        if symbol_index
+            .stats()
+            .map(|s| s.indexed_files == 0)
+            .unwrap_or(true)
+        {
+            let _ = symbol_index.refresh_all();
+        }
+        let lsp_pool = LspSessionPool::new(project.clone());
+        let graph_cache = Arc::new(GraphCache::new(30));
+        let memories_dir = project.as_path().join(".codelens").join("memories");
+        let analysis_dir = project.as_path().join(".codelens").join("analysis-cache");
+        let audit_dir = project.as_path().join(".codelens").join("audit");
+        let _ = fs::create_dir_all(&memories_dir);
+        let _ = fs::create_dir_all(&analysis_dir);
+        let _ = fs::create_dir_all(analysis_dir.join("jobs"));
+        let _ = fs::create_dir_all(&audit_dir);
+
+        let state = Self::build(
+            project,
+            symbol_index,
+            lsp_pool,
+            graph_cache,
+            memories_dir,
+            analysis_dir,
+            audit_dir,
+            preset,
+            None,
+        );
+        state.configure_transport_mode("stdio");
+        state
+    }
+
+    fn build(
+        project: ProjectRoot,
+        symbol_index: Arc<SymbolIndex>,
+        lsp_pool: LspSessionPool,
+        graph_cache: Arc<GraphCache>,
+        memories_dir: PathBuf,
+        analysis_dir: PathBuf,
+        audit_dir: PathBuf,
+        preset: ToolPreset,
+        watcher: Option<FileWatcher>,
+    ) -> Self {
+        Self {
             default_project: project,
             default_symbol_index: symbol_index,
             lsp_pool,
@@ -1237,11 +1304,7 @@ impl AppState {
             embedding: std::sync::OnceLock::new(),
             #[cfg(feature = "http")]
             session_store: None,
-        };
-        state.configure_transport_mode("stdio");
-        state.cleanup_stale_analysis_dirs(Self::now_ms());
-        state.cleanup_stale_job_files(Self::now_ms());
-        state
+        }
     }
 
     /// Register a secondary project for cross-project queries.
