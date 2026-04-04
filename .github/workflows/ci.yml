@@ -50,6 +50,18 @@ jobs:
       - name: cargo test (mcp)
         run: cargo test -p codelens-mcp
 
+      - name: cargo test (mcp + http)
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test -p codelens-mcp --features http
+
+      - name: HTTP test stability (3x repeat)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          for i in 1 2 3; do
+            echo "=== HTTP stability run $i ==="
+            cargo test -p codelens-mcp --features http 2>&1 | tail -1
+          done
+
       - name: cargo clippy
         run: cargo clippy -- -W clippy::all
 

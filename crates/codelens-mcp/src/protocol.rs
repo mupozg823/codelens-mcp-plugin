@@ -111,6 +111,10 @@ pub struct ToolCallResponse {
     pub suggested_next_tools: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub budget_hint: Option<String>,
+    /// Routing hint for external callers: "sync" (safe to call inline),
+    /// "async" (use start_analysis_job), or "cached" (reused artifact).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub routing_hint: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
 }
@@ -312,6 +316,7 @@ impl ToolCallResponse {
             token_estimate: None,
             suggested_next_tools: None,
             budget_hint: None,
+            routing_hint: None,
             elapsed_ms: None,
         }
     }
@@ -331,6 +336,7 @@ impl ToolCallResponse {
             token_estimate: None,
             suggested_next_tools: None,
             budget_hint: None,
+            routing_hint: None,
             elapsed_ms: None,
         }
     }

@@ -10,7 +10,7 @@ import json
 import os
 import subprocess
 import time
-from statistics import mean
+from statistics import mean, median
 
 
 def parse_args():
@@ -40,7 +40,16 @@ BIN = os.path.abspath(ARGS.binary)
 
 
 def run_tool(cmd, args, timeout=120):
-    argv = [BIN, PROJECT, "--preset", ARGS.preset, "--cmd", cmd, "--args", json.dumps(args)]
+    argv = [
+        BIN,
+        PROJECT,
+        "--preset",
+        ARGS.preset,
+        "--cmd",
+        cmd,
+        "--args",
+        json.dumps(args),
+    ]
     t0 = time.perf_counter()
     result = subprocess.run(
         argv,
@@ -83,6 +92,13 @@ def collect():
     ]
     onboard_run = run_tool("onboard_project", {}, timeout=300)
 
+    def percentile(values, p):
+        s = sorted(values)
+        k = (len(s) - 1) * p / 100
+        f = int(k)
+        c = f + 1 if f + 1 < len(s) else f
+        return round(s[f] + (k - f) * (s[c] - s[f]), 2)
+
     def summarize_runs(runs):
         payloads = [run["payload"] or {} for run in runs]
         counts = [
@@ -91,11 +107,20 @@ def collect():
             or len(payload.get("data", {}).get("symbols", []))
             for payload in payloads
         ]
+        times = [run["elapsed_ms"] for run in runs]
         return {
             "runs": len(runs),
-            "elapsed_ms": [run["elapsed_ms"] for run in runs],
-            "avg_elapsed_ms": round(mean(run["elapsed_ms"] for run in runs), 2),
-            "max_elapsed_ms": max(run["elapsed_ms"] for run in runs),
+            "elapsed_ms": times,
+            "cold_ms": times[0] if times else None,
+            "warm_ms": times[1:] if len(times) > 1 else [],
+            "avg_elapsed_ms": round(mean(times), 2),
+            "p50_ms": round(median(times), 2),
+            "p95_ms": (
+                percentile(times, 95)
+                if len(times) >= 2
+                else times[0] if times else None
+            ),
+            "max_elapsed_ms": max(times),
             "result_counts": counts,
         }
 
@@ -103,9 +128,20 @@ def collect():
     onboard_data = (onboard_run["payload"] or {}).get("data", {})
     semantic_status = onboard_data.get("semantic", {})
 
+    build_profile = "release" if "/release/" in BIN else "debug"
+
+    # Measure artifact reuse: call find_reusable for a recent tool
+    reuse_run = run_tool("get_tool_metrics", {})
+    reuse_data = (reuse_run["payload"] or {}).get("data", {}).get("session", {})
+    cache_hits = reuse_data.get("analysis_cache_hits", 0)
+    cache_total = reuse_data.get("analysis_cache_hits", 0) + reuse_data.get(
+        "analysis_cache_misses", 0
+    )
+
     return {
         "project": PROJECT,
         "binary": BIN,
+        "build_profile": build_profile,
         "preset": ARGS.preset,
         "embedding_model": after_data.get("embedding_model"),
         "embeddings_loaded_before": (capabilities_before["payload"] or {})
@@ -129,6 +165,11 @@ def collect():
         "onboard_project": {
             "elapsed_ms": onboard_run["elapsed_ms"],
             "semantic": semantic_status,
+        },
+        "artifact_reuse": {
+            "cache_hits": cache_hits,
+            "cache_total": cache_total,
+            "hit_rate": round(cache_hits / cache_total, 3) if cache_total > 0 else None,
         },
     }
 

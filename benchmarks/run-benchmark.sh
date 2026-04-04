@@ -66,6 +66,7 @@ date: $DATE
 phase: $NAME
 project: $PROJECT
 binary: $BIN ($(uname -m)-$(uname -s | tr A-Z a-z))
+build_profile: $(echo "$BIN" | grep -q "/release/" && echo "release" || echo "debug")
 commit: $COMMIT
 ---
 
