@@ -134,13 +134,46 @@ pub(crate) struct AnalysisSummary {
     pub created_at_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum JobLifecycle {
+    Queued,
+    Running,
+    Completed,
+    Cancelled,
+    Error,
+}
+
+impl JobLifecycle {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Queued => "queued",
+            Self::Running => "running",
+            Self::Completed => "completed",
+            Self::Cancelled => "cancelled",
+            Self::Error => "error",
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn is_terminal(&self) -> bool {
+        matches!(self, Self::Completed | Self::Cancelled | Self::Error)
+    }
+}
+
+impl std::fmt::Display for JobLifecycle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 #[derive(Clone, Serialize, Deserialize)]
 pub(crate) struct AnalysisJob {
     pub id: String,
     pub kind: String,
     #[serde(default)]
     pub project_scope: Option<String>,
-    pub status: String,
+    pub status: JobLifecycle,
     pub progress: u8,
     pub current_step: Option<String>,
     pub profile_hint: Option<String>,

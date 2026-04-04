@@ -584,17 +584,18 @@ impl ToolMetricsRegistry {
 
     pub fn record_analysis_job_finished(
         &self,
-        status: &str,
+        status: crate::runtime_types::JobLifecycle,
         queue_depth: usize,
         weighted_depth: usize,
     ) {
+        use crate::runtime_types::JobLifecycle;
         let mut session = self
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match status {
-            "completed" => session.analysis_jobs_completed += 1,
-            "cancelled" => session.analysis_jobs_cancelled += 1,
+            JobLifecycle::Completed => session.analysis_jobs_completed += 1,
+            JobLifecycle::Cancelled => session.analysis_jobs_cancelled += 1,
             _ => session.analysis_jobs_failed += 1,
         }
         session.analysis_queue_depth = queue_depth as u64;
@@ -751,7 +752,7 @@ mod tests {
         reg.record_analysis_worker_pool(2, 3, "http");
         reg.record_analysis_job_enqueued(2, 4, true);
         reg.record_analysis_job_started(1, 3);
-        reg.record_analysis_job_finished("completed", 0, 0);
+        reg.record_analysis_job_finished(crate::runtime_types::JobLifecycle::Completed, 0, 0);
         reg.record_analysis_job_cancelled(0, 0);
 
         let session = reg.session_snapshot();

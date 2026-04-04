@@ -7,10 +7,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::analysis_queue::{
-    AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
-    STDIO_ANALYSIS_WORKER_COUNT, analysis_job_cost_units,
+    analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
+    STDIO_ANALYSIS_WORKER_COUNT,
 };
 use crate::error::CodeLensError;
+use crate::runtime_types::JobLifecycle;
 use crate::telemetry::ToolMetricsRegistry;
 use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface};
 use serde_json::Value;
@@ -851,7 +852,7 @@ impl AppState {
         kind: &str,
         profile_hint: Option<String>,
         estimated_sections: Vec<String>,
-        status: &str,
+        status: JobLifecycle,
         progress: u8,
         current_step: Option<String>,
         analysis_id: Option<String>,
@@ -866,7 +867,7 @@ impl AppState {
             id: id.clone(),
             kind: kind.to_owned(),
             project_scope: Some(self.current_project_scope()),
-            status: status.to_owned(),
+            status,
             progress,
             current_step,
             profile_hint,
@@ -919,13 +920,13 @@ impl AppState {
         let mut job = self
             .get_analysis_job(job_id)
             .ok_or_else(|| CodeLensError::NotFound(format!("Unknown job `{job_id}`")))?;
-        let previous_status = job.status.clone();
-        if job.status != "completed" {
-            job.status = "cancelled".to_owned();
+        let previous_status = job.status;
+        if job.status != JobLifecycle::Completed {
+            job.status = JobLifecycle::Cancelled;
             job.progress = 0;
             job.current_step = Some("cancelled".to_owned());
             job.updated_at_ms = Self::now_ms();
-            if previous_status == "queued" {
+            if previous_status == JobLifecycle::Queued {
                 self.metrics.record_analysis_job_cancelled(0, 0);
             }
         }
@@ -940,7 +941,7 @@ impl AppState {
     pub(crate) fn update_analysis_job(
         &self,
         job_id: &str,
-        status: Option<&str>,
+        status: Option<JobLifecycle>,
         progress: Option<u8>,
         current_step: Option<Option<String>>,
         estimated_sections: Option<Vec<String>>,
@@ -952,7 +953,7 @@ impl AppState {
             .get_analysis_job(job_id)
             .ok_or_else(|| CodeLensError::NotFound(format!("Unknown job `{job_id}`")))?;
         if let Some(status) = status {
-            job.status = status.to_owned();
+            job.status = status;
         }
         if let Some(progress) = progress {
             job.progress = progress;

@@ -1,8 +1,8 @@
 use super::report_utils::{extract_handle_fields, stable_cache_key, strings_from_array};
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -49,7 +49,7 @@ fn estimated_sections_for_kind(kind: &str) -> Vec<String> {
 fn patch_job_file(
     project_path: &str,
     job_id: &str,
-    status: Option<&str>,
+    status: Option<crate::runtime_types::JobLifecycle>,
     progress: Option<u8>,
     current_step: Option<Option<String>>,
     analysis_id: Option<Option<String>>,
@@ -67,7 +67,7 @@ fn patch_job_file(
         return;
     };
     if let Some(status) = status {
-        job.status = status.to_owned();
+        job.status = status;
     }
     if let Some(progress) = progress {
         job.progress = progress;
@@ -102,15 +102,15 @@ fn advance_job_progress(
     if state
         .get_analysis_job(job_id)
         .as_ref()
-        .map(|job| job.status.as_str())
-        == Some("cancelled")
+        .map(|job| job.status)
+        == Some(crate::runtime_types::JobLifecycle::Cancelled)
     {
         return Ok(false);
     }
     state
         .update_analysis_job(
             job_id,
-            Some("running"),
+            Some(crate::runtime_types::JobLifecycle::Running),
             Some(progress),
             Some(Some(current_step.to_owned())),
             None,
@@ -376,13 +376,11 @@ fn run_refactor_safety_report_job(
         0.9,
         vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()],
         sections,
-        vec![
-            arguments
-                .get("file_path")
-                .and_then(|value| value.as_str())
-                .unwrap_or(path)
-                .to_owned(),
-        ],
+        vec![arguments
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or(path)
+            .to_owned()],
         symbol.map(ToOwned::to_owned),
     )
     .map(|(payload, _meta)| payload)
@@ -394,7 +392,8 @@ pub(crate) fn run_analysis_job_from_queue(
     job_id: String,
     kind: String,
     arguments: Value,
-) -> &'static str {
+) -> crate::runtime_types::JobLifecycle {
+    use crate::runtime_types::JobLifecycle;
     let project_path = worker_state
         .project()
         .as_path()
@@ -403,42 +402,42 @@ pub(crate) fn run_analysis_job_from_queue(
     if worker_state
         .get_analysis_job(&job_id)
         .as_ref()
-        .map(|job| job.status.as_str())
-        == Some("cancelled")
+        .map(|job| job.status)
+        == Some(crate::runtime_types::JobLifecycle::Cancelled)
     {
-        return "cancelled";
+        return JobLifecycle::Cancelled;
     }
     patch_job_file(
         &project_path,
         &job_id,
-        Some("running"),
+        Some(crate::runtime_types::JobLifecycle::Running),
         Some(5),
         Some(Some("worker started".to_owned())),
         None,
         None,
     );
     let worker = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-        || -> Result<&'static str, String> {
+        || -> Result<JobLifecycle, String> {
             if worker_state
                 .get_analysis_job(&job_id)
                 .as_ref()
-                .map(|job| job.status.as_str())
-                == Some("cancelled")
+                .map(|job| job.status)
+                == Some(JobLifecycle::Cancelled)
             {
-                return Ok("cancelled");
+                return Ok(JobLifecycle::Cancelled);
             }
             let result = run_job_kind_with_progress(worker_state, &job_id, &kind, &arguments);
             match result {
                 Ok(payload) if payload.is_object() => {
                     let (analysis_id, estimated_sections) = extract_handle_fields(&payload);
                     let current = worker_state.get_analysis_job(&job_id);
-                    if current.as_ref().map(|job| job.status.as_str()) == Some("cancelled") {
-                        return Ok("cancelled");
+                    if current.as_ref().map(|job| job.status) == Some(JobLifecycle::Cancelled) {
+                        return Ok(JobLifecycle::Cancelled);
                     }
                     worker_state
                         .update_analysis_job(
                             &job_id,
-                            Some("completed"),
+                            Some(JobLifecycle::Completed),
                             Some(100),
                             Some(Some("completed".to_owned())),
                             Some(estimated_sections),
@@ -446,14 +445,14 @@ pub(crate) fn run_analysis_job_from_queue(
                             Some(None),
                         )
                         .map_err(|error| error.to_string())?;
-                    Ok("completed")
+                    Ok(JobLifecycle::Completed)
                 }
-                Ok(_) => Ok("failed"),
+                Ok(_) => Ok(JobLifecycle::Error),
                 Err(error) => {
                     worker_state
                         .update_analysis_job(
                             &job_id,
-                            Some("failed"),
+                            Some(JobLifecycle::Error),
                             Some(100),
                             Some(Some("failed".to_owned())),
                             None,
@@ -461,7 +460,7 @@ pub(crate) fn run_analysis_job_from_queue(
                             Some(Some(error.to_string())),
                         )
                         .map_err(|error| error.to_string())?;
-                    Ok("failed")
+                    Ok(JobLifecycle::Error)
                 }
             }
         },
@@ -478,25 +477,25 @@ pub(crate) fn run_analysis_job_from_queue(
             patch_job_file(
                 &project_path,
                 &job_id,
-                Some("failed"),
+                Some(JobLifecycle::Error),
                 Some(100),
                 Some(Some("failed".to_owned())),
                 Some(None),
                 Some(Some(message)),
             );
-            "failed"
+            JobLifecycle::Error
         }
         Ok(Err(message)) => {
             patch_job_file(
                 &project_path,
                 &job_id,
-                Some("failed"),
+                Some(JobLifecycle::Error),
                 Some(100),
                 Some(Some("failed".to_owned())),
                 Some(None),
                 Some(Some(message)),
             );
-            "failed"
+            JobLifecycle::Error
         }
         Ok(Ok(status)) => status,
     }
@@ -513,7 +512,7 @@ pub fn start_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
         &kind,
         profile_hint.clone(),
         estimated_sections.clone(),
-        "queued",
+        crate::runtime_types::JobLifecycle::Queued,
         0,
         Some("queued".to_owned()),
         None,
