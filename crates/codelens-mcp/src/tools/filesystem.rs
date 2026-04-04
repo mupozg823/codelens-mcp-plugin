@@ -21,6 +21,7 @@ pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> T
             "symbol_index": stats,
             "surface": surface.as_label(),
             "tool_count": crate::tool_defs::visible_tools(surface).len(),
+            "client_profile": state.client_profile().as_str(),
             "frameworks": frameworks,
             "workspace_packages": workspace_packages
         }),

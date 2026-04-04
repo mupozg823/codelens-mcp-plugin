@@ -18,6 +18,7 @@ pub struct FileWatcher {
     running: Arc<AtomicBool>,
     events_processed: Arc<AtomicU64>,
     files_reindexed: Arc<AtomicU64>,
+    lock_contention_batches: Arc<AtomicU64>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -25,6 +26,7 @@ pub struct WatcherStats {
     pub running: bool,
     pub events_processed: u64,
     pub files_reindexed: u64,
+    pub lock_contention_batches: u64,
     /// Number of files that failed to index (available when symbol index is queried).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub index_failures: Option<usize>,
@@ -42,10 +44,12 @@ impl FileWatcher {
         let running = Arc::new(AtomicBool::new(true));
         let events_processed = Arc::new(AtomicU64::new(0));
         let files_reindexed = Arc::new(AtomicU64::new(0));
+        let lock_contention_batches = Arc::new(AtomicU64::new(0));
 
         let running_clone = running.clone();
         let events_clone = events_processed.clone();
         let files_clone = files_reindexed.clone();
+        let contention_clone = lock_contention_batches.clone();
 
         let mut debouncer = new_debouncer(
             Duration::from_millis(300),
@@ -100,7 +104,7 @@ impl FileWatcher {
 
                 let mut reindexed = 0u64;
                 if !changed.is_empty() {
-                    match symbol_index.index_files(&changed) {
+                    match index_files_with_retry(&symbol_index, &changed) {
                         Ok(n) => {
                             reindexed += n as u64;
                             // Clear failures for successfully indexed files
@@ -111,6 +115,15 @@ impl FileWatcher {
                             }
                         }
                         Err(e) => {
+                            if is_lock_contention_error(&e) {
+                                contention_clone.fetch_add(1, Ordering::Relaxed);
+                                debug!(
+                                    error = %e,
+                                    count = changed.len(),
+                                    "index_files batch skipped after lock contention retries"
+                                );
+                                return;
+                            }
                             warn!(error = %e, count = changed.len(), "index_files batch failed");
                             // Record failure for each file in the batch
                             let db = symbol_index.db();
@@ -152,6 +165,7 @@ impl FileWatcher {
             running,
             events_processed,
             files_reindexed,
+            lock_contention_batches,
         })
     }
 
@@ -160,12 +174,74 @@ impl FileWatcher {
             running: self.running.load(Ordering::Relaxed),
             events_processed: self.events_processed.load(Ordering::Relaxed),
             files_reindexed: self.files_reindexed.load(Ordering::Relaxed),
+            lock_contention_batches: self.lock_contention_batches.load(Ordering::Relaxed),
             index_failures: None,
         }
     }
 
     pub fn stop(&self) {
         self.running.store(false, Ordering::Relaxed);
+    }
+}
+
+fn index_files_with_retry(symbol_index: &SymbolIndex, changed: &[PathBuf]) -> Result<usize> {
+    const RETRY_DELAYS_MS: [u64; 2] = [100, 250];
+
+    match symbol_index.index_files(changed) {
+        Ok(count) => Ok(count),
+        Err(error) if is_lock_contention_error(&error) => {
+            for delay_ms in RETRY_DELAYS_MS {
+                std::thread::sleep(Duration::from_millis(delay_ms));
+                match symbol_index.index_files(changed) {
+                    Ok(count) => return Ok(count),
+                    Err(retry_error) if is_lock_contention_error(&retry_error) => continue,
+                    Err(retry_error) => return Err(retry_error),
+                }
+            }
+            Err(error)
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn is_lock_contention_error(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<rusqlite::Error>()
+            .is_some_and(|sqlite_error| {
+                matches!(
+                    sqlite_error,
+                    rusqlite::Error::SqliteFailure(code, _)
+                        if matches!(
+                            code.code,
+                            rusqlite::ErrorCode::DatabaseBusy
+                                | rusqlite::ErrorCode::DatabaseLocked
+                        )
+                )
+            })
+    }) || error.to_string().contains("database is locked")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_lock_contention_error;
+
+    #[test]
+    fn detects_sqlite_lock_contention_errors() {
+        let error = anyhow::Error::new(rusqlite::Error::SqliteFailure(
+            rusqlite::ffi::Error {
+                code: rusqlite::ErrorCode::DatabaseLocked,
+                extended_code: rusqlite::ffi::SQLITE_LOCKED,
+            },
+            Some("database is locked".to_owned()),
+        ));
+        assert!(is_lock_contention_error(&error));
+    }
+
+    #[test]
+    fn ignores_non_lock_errors() {
+        let error = anyhow::anyhow!("some other indexing failure");
+        assert!(!is_lock_contention_error(&error));
     }
 }
 

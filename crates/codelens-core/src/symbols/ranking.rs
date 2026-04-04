@@ -183,7 +183,10 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
             "skip",
         ],
     );
-    let wants_fileish = mentions_any(query_lower, &["file", "files", "project structure", "key files"]);
+    let wants_fileish = mentions_any(
+        query_lower,
+        &["file", "files", "project structure", "key files"],
+    );
 
     let mut prior = 0.0;
     if is_action_query {
@@ -197,7 +200,10 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
                     -4.0
                 }
             }
-            SymbolKind::Class | SymbolKind::Interface | SymbolKind::Enum | SymbolKind::TypeAlias => -6.0,
+            SymbolKind::Class
+            | SymbolKind::Interface
+            | SymbolKind::Enum
+            | SymbolKind::TypeAlias => -6.0,
             SymbolKind::Variable | SymbolKind::Property => -2.0,
             SymbolKind::Unknown => 0.0,
         };
@@ -296,7 +302,9 @@ mod tests {
         };
 
         let query = "route an incoming tool request to the right handler";
-        assert!(symbol_kind_prior(query, &function_symbol) > symbol_kind_prior(query, &type_symbol));
+        assert!(
+            symbol_kind_prior(query, &function_symbol) > symbol_kind_prior(query, &type_symbol)
+        );
     }
 }
 

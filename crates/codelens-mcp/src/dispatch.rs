@@ -1,13 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
-use crate::AppState;
-use crate::error::CodeLensError;
-use crate::protocol::{JsonRpcResponse, ToolCallResponse};
-use crate::tool_defs::{
-    ToolProfile, default_budget_for_profile, is_content_mutation_tool, is_read_only_surface,
-    is_tool_in_surface,
+use crate::dispatch_access::validate_tool_access;
+use crate::dispatch_response::{
+    build_error_response, build_success_response, SuccessResponseInput,
 };
+use crate::error::CodeLensError;
+use crate::mutation_gate::{
+    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
+    MutationGateFailure,
+};
+use crate::protocol::JsonRpcResponse;
+use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
 use crate::tools::{self, ToolHandler, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -19,9 +24,63 @@ thread_local! {
     static REQUEST_BUDGET: std::cell::Cell<usize> = const { std::cell::Cell::new(4000) };
 }
 
-/// Get the per-request token budget (set by dispatch_tool).
-pub(crate) fn request_token_budget() -> usize {
-    REQUEST_BUDGET.get()
+/// Normalized tool call request — extracted from raw JSON-RPC params.
+pub(crate) struct ToolCallEnvelope {
+    pub name: String,
+    pub arguments: serde_json::Value,
+    pub session: crate::session_context::SessionRequestContext,
+    pub budget: usize,
+    pub compact: bool,
+    pub harness_phase: Option<String>,
+}
+
+impl ToolCallEnvelope {
+    /// Parse raw JSON-RPC params into a normalized envelope.
+    pub fn parse(
+        params: &serde_json::Value,
+        state: &AppState,
+    ) -> Result<Self, (&'static str, i64)> {
+        let name = params
+            .get("name")
+            .and_then(|v| v.as_str())
+            .ok_or(("Missing tool name", -32602i64))?
+            .to_owned();
+        let arguments = params
+            .get("arguments")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+        let session = crate::session_context::SessionRequestContext::from_json(&arguments);
+        let budget = arguments
+            .get("_profile")
+            .and_then(|v| v.as_str())
+            .map(|profile| {
+                ToolProfile::from_str(profile)
+                    .map(default_budget_for_profile)
+                    .unwrap_or_else(|| match profile {
+                        "fast_local" => 2000usize,
+                        "deep_semantic" => 16000,
+                        "safe_mutation" => 4000,
+                        _ => state.token_budget(),
+                    })
+            })
+            .unwrap_or_else(|| state.token_budget());
+        let compact = arguments
+            .get("_compact")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let harness_phase = arguments
+            .get("_harness_phase")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_owned());
+        Ok(Self {
+            name,
+            arguments,
+            session,
+            budget,
+            compact,
+            harness_phase,
+        })
+    }
 }
 
 // ── Semantic handlers (feature-gated) ──────────────────────────────────
@@ -177,37 +236,6 @@ fn find_misplaced_code_handler(state: &AppState, arguments: &serde_json::Value) 
     ))
 }
 
-// ── Budget hint (TALE-inspired) ────────────────────────────────────────
-
-fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> String {
-    // Overview/structure tools → always suggest drilling deeper
-    if matches!(
-        tool_name,
-        "get_project_structure" | "get_symbols_overview" | "get_current_config" | "onboard_project"
-    ) {
-        return "overview complete — drill into specific files or symbols".to_owned();
-    }
-    // Over budget → strongly suggest narrowing
-    if tokens > budget {
-        return format!(
-            "response ({tokens} tokens) exceeds budget ({budget}) — narrow with path filter or max_tokens"
-        );
-    }
-    // Large relative to budget → suggest narrowing
-    if tokens > budget * 3 / 4 {
-        return format!("near budget ({tokens}/{budget} tokens) — consider narrowing scope");
-    }
-    // Medium → sufficient
-    if tokens > 100 {
-        return "context sufficient — proceed to edit or analysis".to_owned();
-    }
-    // Small/empty → suggest broadening
-    if tokens < 50 {
-        return "minimal results — try broader query or different tool".to_owned();
-    }
-    "focused result — ready for next step".to_owned()
-}
-
 // ── Static dispatch table ──────────────────────────────────────────────
 
 static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> = LazyLock::new(|| {
@@ -237,31 +265,17 @@ pub(crate) fn dispatch_tool(
     id: Option<serde_json::Value>,
     params: serde_json::Value,
 ) -> JsonRpcResponse {
-    let Some(name) = params.get("name").and_then(|value| value.as_str()) else {
-        return JsonRpcResponse::error(id, -32602, "Missing tool name");
+    // 1. Parse and normalize request
+    let envelope = match ToolCallEnvelope::parse(&params, state) {
+        Ok(env) => env,
+        Err((msg, code)) => return JsonRpcResponse::error(id, code, msg),
     };
-    let arguments = params
-        .get("arguments")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
-
-    // Request-scoped profile: set per-request budget via thread-local
-    // (avoids race condition when multiple HTTP requests run concurrently)
-    let request_budget = arguments
-        .get("_profile")
-        .and_then(|v| v.as_str())
-        .map(|profile| {
-            ToolProfile::from_str(profile)
-                .map(default_budget_for_profile)
-                .unwrap_or_else(|| match profile {
-                    "fast_local" => 2000usize,
-                    "deep_semantic" => 16000,
-                    "safe_mutation" => 4000,
-                    _ => state.token_budget(),
-                })
-        })
-        .unwrap_or_else(|| state.token_budget());
-    REQUEST_BUDGET.set(request_budget);
+    let name = envelope.name.as_str();
+    let arguments = &envelope.arguments;
+    let session = &envelope.session;
+    let compact = envelope.compact;
+    let harness_phase = envelope.harness_phase;
+    REQUEST_BUDGET.set(envelope.budget);
 
     let span = info_span!("tool_call", tool = name);
     let _guard = span.enter();
@@ -269,36 +283,45 @@ pub(crate) fn dispatch_tool(
     state.push_recent_tool(name);
     let surface = *state.surface();
     let active_surface = surface.as_label().to_owned();
-    let session_trusted_client = arguments
-        .get("_session_trusted_client")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    let session_id = arguments
-        .get("_session_id")
-        .and_then(|value| value.as_str())
-        .unwrap_or_default();
 
-    let result: ToolResult = if !is_tool_in_surface(name, surface) {
-        Err(CodeLensError::Validation(format!(
-            "Tool `{name}` is not available in active surface `{active_surface}`"
-        )))
-    } else if is_content_mutation_tool(name)
-        && matches!(state.daemon_mode(), crate::state::RuntimeDaemonMode::MutationEnabled)
-        && !session_trusted_client
-    {
-        Err(CodeLensError::Validation(format!(
-            "Tool `{name}` requires a trusted HTTP client in daemon mode `{}`",
-            state.daemon_mode().as_str()
-        )))
-    } else if is_content_mutation_tool(name) && !state.mutation_allowed_in_runtime() {
-        Err(CodeLensError::Validation(format!(
-            "Tool `{name}` is blocked by daemon mode `{}`",
-            state.daemon_mode().as_str()
-        )))
-    } else if is_read_only_surface(surface) && is_content_mutation_tool(name) {
-        Err(CodeLensError::Validation(format!(
-            "Tool `{name}` is blocked in read-only surface `{active_surface}`"
-        )))
+    // 2. Validate tool access (surface, namespace, tier, daemon mode)
+    if let Err(access_err) = validate_tool_access(name, session, surface, state) {
+        return build_error_response(name, access_err, None, &active_surface, state, start, id);
+    }
+
+    // 3. Mutation gate check + 4. Execute tool via DISPATCH_TABLE
+    let mut gate_allowance: Option<MutationGateAllowance> = None;
+    let mut gate_failure: Option<MutationGateFailure> = None;
+
+    let result: ToolResult = if is_refactor_gated_mutation_tool(name) {
+        state.metrics().record_mutation_preflight_checked();
+        match evaluate_mutation_gate(state, name, session, surface, &arguments) {
+            Ok(allowance) => {
+                gate_allowance = allowance;
+                match DISPATCH_TABLE.get(name) {
+                    Some(handler) => handler(state, &arguments),
+                    None => Err(CodeLensError::ToolNotFound(name.to_owned())),
+                }
+            }
+            Err(failure) => {
+                if failure.missing_preflight || failure.stale {
+                    state.metrics().record_mutation_without_preflight();
+                }
+                if failure.rename_without_symbol_preflight {
+                    state.metrics().record_rename_without_symbol_preflight();
+                }
+                state
+                    .metrics()
+                    .record_mutation_preflight_gate_denied(failure.stale);
+                gate_failure = Some(failure);
+                Err(CodeLensError::Validation(
+                    gate_failure
+                        .as_ref()
+                        .map(|f| f.message.clone())
+                        .unwrap_or_else(|| "mutation preflight rejected".to_owned()),
+                ))
+            }
+        }
     } else {
         match DISPATCH_TABLE.get(name) {
             Some(handler) => handler(state, &arguments),
@@ -306,13 +329,19 @@ pub(crate) fn dispatch_tool(
         }
     };
 
+    // 5. Post-mutation side effects (graph invalidation, audit)
     if result.is_ok() && is_content_mutation_tool(name) {
         state.graph_cache().invalidate();
-        if let Err(error) = state.record_mutation_audit(name, &active_surface, &arguments) {
+        if let Err(error) = state.record_mutation_audit(name, &active_surface, &arguments, session)
+        {
             warn!(tool = name, error = %error, "failed to write mutation audit event");
         }
-        if !session_id.is_empty() {
-            tracing::info!(tool = name, session_id, "mutation completed for trusted session");
+        if !session.is_local() {
+            tracing::info!(
+                tool = name,
+                session_id = session.session_id.as_str(),
+                "mutation completed for trusted session"
+            );
         }
     }
 
@@ -325,104 +354,26 @@ pub(crate) fn dispatch_tool(
         );
     }
 
+    // 6. Build response
     match result {
-        Ok((payload, meta)) => {
-            let mut resp = ToolCallResponse::success(payload, meta);
-            resp.suggested_next_tools = tools::suggest_next_contextual(name, &state.recent_tools());
-            let payload_estimate = serde_json::to_string(&resp.data)
-                .map(|s| tools::estimate_tokens(&s))
-                .unwrap_or(0);
-            resp.token_estimate = Some(payload_estimate);
-            let budget = request_token_budget();
-            resp.budget_hint = Some(budget_hint(name, payload_estimate, budget));
-            resp.elapsed_ms = Some(elapsed_ms as u64);
-            let mut emitted_composite_guidance = false;
-            if let Some((guided_tools, guidance_hint)) =
-                tools::composite_guidance_for_chain(name, &state.recent_tools(), surface)
-            {
-                emitted_composite_guidance = true;
-                let mut suggestions = guided_tools;
-                if let Some(existing) = resp.suggested_next_tools.take() {
-                    for tool in existing {
-                        if suggestions.len() >= 3 {
-                            break;
-                        }
-                        if !suggestions.iter().any(|candidate| candidate == &tool) {
-                            suggestions.push(tool);
-                        }
-                    }
-                }
-                resp.suggested_next_tools = Some(suggestions);
-                resp.budget_hint = Some(match resp.budget_hint.take() {
-                    Some(existing) => format!("{existing} {guidance_hint}"),
-                    None => guidance_hint,
-                });
-            }
-
-            let mut text = serde_json::to_string(&resp).unwrap_or_else(|_| {
-                "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
-            });
-
-            // Global safety net: replace oversized responses with a valid JSON summary.
-            // This prevents any single tool from blowing up the context window.
-            let max_chars = budget * 8; // 2x budget in chars
-            let mut truncated = false;
-            if text.len() > max_chars {
-                truncated = true;
-                text = serde_json::to_string(&json!({
-                    "success": true,
-                    "truncated": true,
-                    "error": format!(
-                        "Response too large ({} tokens, budget {}). Narrow with path, max_tokens, or depth.",
-                        payload_estimate, budget
-                    ),
-                    "token_estimate": payload_estimate,
-                }))
-                .unwrap_or_else(|_| "{\"success\":false,\"truncated\":true}".to_owned());
-            }
-            state.metrics().record_call_with_tokens(
-                name,
-                elapsed_ms as u64,
-                true,
-                payload_estimate,
-                &active_surface,
-                truncated,
-            );
-            if emitted_composite_guidance {
-                state.metrics().record_composite_guidance_emitted();
-            }
-            JsonRpcResponse::result(
-                id,
-                json!({
-                    "content": [{ "type": "text", "text": text }]
-                }),
-            )
-        }
+        Ok((payload, meta)) => build_success_response(SuccessResponseInput {
+            name,
+            payload,
+            meta,
+            state,
+            surface,
+            active_surface: &active_surface,
+            arguments: &arguments,
+            logical_session_id: &session.session_id,
+            gate_allowance: gate_allowance.as_ref(),
+            compact,
+            harness_phase: harness_phase.as_deref(),
+            request_budget: envelope.budget,
+            start,
+            id,
+        }),
         Err(error) => {
-            state.metrics().record_call_with_tokens(
-                name,
-                elapsed_ms as u64,
-                false,
-                0,
-                &active_surface,
-                false,
-            );
-            // Protocol-level errors: return as JSON-RPC error response
-            if error.is_protocol_error() {
-                return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());
-            }
-            // Tool execution errors: return as MCP isError content
-            let resp = ToolCallResponse::error(error.to_string());
-            let text = serde_json::to_string(&resp).unwrap_or_else(|_| {
-                "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
-            });
-            JsonRpcResponse::result(
-                id,
-                json!({
-                    "content": [{ "type": "text", "text": text }],
-                    "isError": true
-                }),
-            )
+            build_error_response(name, error, gate_failure, &active_surface, state, start, id)
         }
     }
 }

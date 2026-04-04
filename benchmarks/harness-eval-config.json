@@ -1,0 +1,64 @@
+{
+  "version": 1,
+  "baseline_reference": {
+    "workflow_total_savings_pct": 63.8,
+    "low_level_chain_before": 8,
+    "low_level_chain_after": 0,
+    "codex_like_avg_bootstrap_tokens": 8351,
+    "codex_like_avg_overhead_vs_direct_pct": 1944.4,
+    "point_lookup_regression": "Context retrieval remains worse than native point lookup"
+  },
+  "representative_repos": [
+    {
+      "id": "codelens-mcp-plugin",
+      "label": "Rust MCP repo",
+      "path": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "stack": "rust",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "id": "stream-admin",
+      "label": "Next/Electron app",
+      "path": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+      "stack": "next-electron",
+      "verify_commands": [
+        "npm run lint",
+        "npm run test",
+        "npm run build"
+      ]
+    },
+    {
+      "id": "signature-studio",
+      "label": "Next.js app with AGENTS",
+      "path": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "stack": "nextjs",
+      "verify_commands": [
+        "npm run lint",
+        "npm run test",
+        "npm run build"
+      ]
+    }
+  ],
+  "task_kinds": [
+    {
+      "id": "onboarding/planning",
+      "routing_hypothesis": "prefer_codelens_after_bootstrap"
+    },
+    {
+      "id": "impact/reviewer",
+      "routing_hypothesis": "prefer_codelens_after_bootstrap"
+    },
+    {
+      "id": "refactor preflight",
+      "routing_hypothesis": "prefer_routed_codelens"
+    },
+    {
+      "id": "simple local lookup/edit",
+      "routing_hypothesis": "avoid_codelens_for_simple_local_lookup"
+    }
+  ]
+}

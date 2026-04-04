@@ -69,6 +69,17 @@ pub struct SessionMetrics {
     pub recommended_check_followthrough_count: u64,
     pub quality_focus_reuse_count: u64,
     pub performance_watchpoint_emit_count: u64,
+    pub verifier_contract_emitted_count: u64,
+    pub blocker_emit_count: u64,
+    pub verifier_followthrough_count: u64,
+    pub mutation_preflight_checked_count: u64,
+    pub mutation_without_preflight_count: u64,
+    pub mutation_preflight_gate_denied_count: u64,
+    pub stale_preflight_reject_count: u64,
+    pub mutation_with_caution_count: u64,
+    pub rename_without_symbol_preflight_count: u64,
+    pub deferred_namespace_expansion_count: u64,
+    pub deferred_hidden_tool_call_denied_count: u64,
     pub composite_calls: u64,
     pub low_level_calls: u64,
     pub stdio_session_count: u64,
@@ -96,6 +107,8 @@ pub struct SessionMetrics {
     pending_composite_guidance: bool,
     #[serde(skip_serializing)]
     pending_quality_contract: bool,
+    #[serde(skip_serializing)]
+    pending_verifier_contract: bool,
     /// Ordered tool invocation timeline (capped at 200 entries).
     pub timeline: Vec<ToolInvocation>,
 }
@@ -126,10 +139,12 @@ fn is_workflow_tool(name: &str) -> bool {
         "tools/list"
             | "onboard_project"
             | "analyze_change_request"
+            | "verify_change_readiness"
             | "find_minimal_context_for_change"
             | "summarize_symbol_impact"
             | "module_boundary_report"
             | "safe_rename_report"
+            | "unresolved_reference_check"
             | "dead_code_report"
             | "impact_report"
             | "refactor_safety_report"
@@ -254,6 +269,19 @@ impl ToolMetricsRegistry {
                 session.recommended_check_followthrough_count += 1;
                 session.pending_quality_contract = false;
             }
+            if name != "get_tool_metrics"
+                && session.pending_verifier_contract
+                && (name == "get_analysis_section"
+                    || name == "get_file_diagnostics"
+                    || name == "find_tests"
+                    || name == "safe_rename_report"
+                    || name == "verify_change_readiness"
+                    || name == "unresolved_reference_check"
+                    || crate::tool_defs::is_content_mutation_tool(name))
+            {
+                session.verifier_followthrough_count += 1;
+                session.pending_verifier_contract = false;
+            }
             if let Some(prev) = previous {
                 if prev.tool == name && !prev.success {
                     session.retry_count += 1;
@@ -365,6 +393,10 @@ impl ToolMetricsRegistry {
             session.recommended_check_followthrough_count += 1;
             session.pending_quality_contract = false;
         }
+        if session.pending_verifier_contract {
+            session.verifier_followthrough_count += 1;
+            session.pending_verifier_contract = false;
+        }
         if is_section {
             session.analysis_section_reads += 1;
         } else {
@@ -399,6 +431,81 @@ impl ToolMetricsRegistry {
         if quality_focus_count == 0 {
             session.pending_quality_contract = false;
         }
+    }
+
+    pub fn record_verifier_contract_emitted(
+        &self,
+        blocker_count: usize,
+        verifier_check_count: usize,
+    ) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.verifier_contract_emitted_count += 1;
+        if blocker_count > 0 {
+            session.blocker_emit_count += 1;
+        }
+        session.pending_verifier_contract = verifier_check_count > 0;
+    }
+
+    pub fn record_mutation_without_preflight(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.mutation_without_preflight_count += 1;
+    }
+
+    pub fn record_mutation_preflight_checked(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.mutation_preflight_checked_count += 1;
+    }
+
+    pub fn record_mutation_preflight_gate_denied(&self, stale: bool) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.mutation_preflight_gate_denied_count += 1;
+        if stale {
+            session.stale_preflight_reject_count += 1;
+        }
+    }
+
+    pub fn record_mutation_with_caution(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.mutation_with_caution_count += 1;
+    }
+
+    pub fn record_rename_without_symbol_preflight(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.rename_without_symbol_preflight_count += 1;
+    }
+
+    pub fn record_deferred_namespace_expansion(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.deferred_namespace_expansion_count += 1;
+    }
+
+    pub fn record_deferred_hidden_tool_call_denied(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.deferred_hidden_tool_call_denied_count += 1;
     }
 
     pub fn record_composite_guidance_emitted(&self) {
@@ -477,17 +584,18 @@ impl ToolMetricsRegistry {
 
     pub fn record_analysis_job_finished(
         &self,
-        status: &str,
+        status: crate::runtime_types::JobLifecycle,
         queue_depth: usize,
         weighted_depth: usize,
     ) {
+        use crate::runtime_types::JobLifecycle;
         let mut session = self
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         match status {
-            "completed" => session.analysis_jobs_completed += 1,
-            "cancelled" => session.analysis_jobs_cancelled += 1,
+            JobLifecycle::Completed => session.analysis_jobs_completed += 1,
+            JobLifecycle::Cancelled => session.analysis_jobs_cancelled += 1,
             _ => session.analysis_jobs_failed += 1,
         }
         session.analysis_queue_depth = queue_depth as u64;
@@ -644,7 +752,7 @@ mod tests {
         reg.record_analysis_worker_pool(2, 3, "http");
         reg.record_analysis_job_enqueued(2, 4, true);
         reg.record_analysis_job_started(1, 3);
-        reg.record_analysis_job_finished("completed", 0, 0);
+        reg.record_analysis_job_finished(crate::runtime_types::JobLifecycle::Completed, 0, 0);
         reg.record_analysis_job_cancelled(0, 0);
 
         let session = reg.session_snapshot();

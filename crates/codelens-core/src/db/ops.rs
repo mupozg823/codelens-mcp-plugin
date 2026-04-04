@@ -964,6 +964,58 @@ impl IndexDb {
         Ok(count as usize)
     }
 
+    /// Remove failure records for files that no longer exist on disk.
+    pub fn prune_missing_index_failures(&self, project_root: &std::path::Path) -> Result<usize> {
+        let mut stmt = self
+            .conn
+            .prepare_cached("SELECT file_path FROM index_failures ORDER BY file_path")?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        let mut missing = Vec::new();
+        for row in rows {
+            let relative_path = row?;
+            if !project_root.join(&relative_path).is_file() {
+                missing.push(relative_path);
+            }
+        }
+        for relative_path in &missing {
+            self.clear_index_failure(relative_path)?;
+        }
+        Ok(missing.len())
+    }
+
+    /// Summarize unresolved index failures by recency and persistence.
+    pub fn index_failure_summary(
+        &self,
+        recent_window_secs: i64,
+    ) -> Result<crate::db::IndexFailureSummary> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs() as i64;
+        let recent_cutoff = now.saturating_sub(recent_window_secs.max(0));
+
+        let total_failures: i64 =
+            self.conn
+                .query_row("SELECT COUNT(*) FROM index_failures", [], |row| row.get(0))?;
+        let recent_failures: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM index_failures WHERE failed_at >= ?1",
+            params![recent_cutoff],
+            |row| row.get(0),
+        )?;
+        let persistent_failures: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM index_failures WHERE retry_count >= 3",
+            [],
+            |row| row.get(0),
+        )?;
+
+        Ok(crate::db::IndexFailureSummary {
+            total_failures: total_failures as usize,
+            recent_failures: recent_failures as usize,
+            stale_failures: total_failures.saturating_sub(recent_failures) as usize,
+            persistent_failures: persistent_failures as usize,
+        })
+    }
+
     /// Get files that have failed more than `min_retries` times.
     pub fn get_persistent_failures(&self, min_retries: i64) -> Result<Vec<(String, String, i64)>> {
         let mut stmt = self.conn.prepare_cached(

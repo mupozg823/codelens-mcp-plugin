@@ -122,6 +122,7 @@ Run `python3 benchmarks/token-efficiency.py <project>` to reproduce.
 | `ci-audit` | machine-friendly review around diffs and risk | HTTP preferred |
 
 `ci-audit` composite reports use a fixed machine schema with `schema_version`, `report_kind`, `machine_summary`, and `evidence_handles` so CI can parse them without relying on prose.
+`refactor-full` now enforces preflight-first mutation: run `verify_change_readiness` before file mutations, and use `safe_rename_report` or `unresolved_reference_check` before `rename_symbol`.
 
 ## Why This Shape
 
@@ -131,7 +132,8 @@ CodeLens is no longer primarily a "more tools" MCP. It is a bounded-answer MCP.
 - Analysis handles let agents expand only one section at a time.
 - Durable analysis jobs let harnesses poll heavier reports without dumping raw intermediate output into the model.
 - Resources expose stable project/profile context without repeating long prompt instructions.
-- `tools/list` can now be filtered by namespace, and HTTP clients can opt into deferred loading during `initialize` with `{"deferredToolLoading": true}` so the default tool list only loads preferred namespaces first.
+- `tools/list` can now be filtered by namespace or tier, and HTTP clients can opt into deferred loading during `initialize` with `{"deferredToolLoading": true}` so the default tool list only loads preferred namespaces and tiers first. Once a client expands a namespace or tier, later default `tools/list` calls include it; hidden namespaces and primitive tiers can also gate `tools/call` until the client explicitly loads them.
+- The same deferred session state now applies to `codelens://tools/list` and `codelens://session/http` resources, so tool/resource discovery stays in sync.
 - Legacy presets still work, but profiles are the preferred public interface.
 
 ## Shared Daemon Patterns
@@ -145,6 +147,7 @@ codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-
 ```
 
 Use `7837`-style read-only endpoints as the default harness attachment. Reserve mutation-enabled daemons for explicit refactor passes.
+Mutation-enabled flows are gate-aware: recent matching verifier evidence is required before `refactor-full` content mutations execute.
 
 ## 25 Languages
 

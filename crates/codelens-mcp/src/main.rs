@@ -1,10 +1,26 @@
+mod analysis_queue;
+mod artifact_store;
 mod authority;
+mod job_store;
+mod client_profile;
 mod dispatch;
+mod dispatch_access;
+mod dispatch_response;
 mod error;
+mod mutation_audit;
+mod mutation_gate;
+mod preflight_store;
 mod prompts;
 mod protocol;
+mod resource_analysis;
+mod resource_catalog;
+mod resource_context;
+mod resource_profiles;
 mod resources;
+mod runtime_types;
 mod server;
+mod session_context;
+mod session_metrics_payload;
 mod state;
 mod telemetry;
 mod tool_defs;
@@ -48,7 +64,7 @@ fn main() -> Result<()> {
                 .ok()
                 .map(|s| ToolPreset::from_str(&s))
         })
-        .unwrap_or(ToolPreset::Balanced);
+        .unwrap_or_else(|| state::ClientProfile::detect(None).default_preset());
     let profile = args
         .iter()
         .position(|a| a == "--profile")

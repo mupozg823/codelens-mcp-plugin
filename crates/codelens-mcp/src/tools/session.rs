@@ -1,10 +1,11 @@
 use super::{AppState, ToolResult, success_meta};
 use crate::protocol::BackendKind;
+use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
     ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
 };
-use crate::tools::memory::list_memory_names;
 use codelens_core::detect_frameworks;
+use codelens_core::memory::list_memory_names;
 use serde_json::json;
 
 pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -37,7 +38,8 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         .unwrap_or(false);
     let frameworks = detect_frameworks(project.as_path());
 
-    // Auto-set role surface based on project size
+    // Auto-set role surface based on project size + client profile
+    let client = state.client_profile();
     let file_count = state
         .symbol_index()
         .stats()
@@ -46,19 +48,19 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
     let (auto_surface, auto_budget, auto_label) = if file_count < 50 {
         (
             ToolSurface::Profile(ToolProfile::BuilderMinimal),
-            default_budget_for_profile(ToolProfile::BuilderMinimal),
+            default_budget_for_profile(ToolProfile::BuilderMinimal).max(client.default_budget()),
             "builder-minimal",
         )
     } else if file_count > 500 {
         (
             ToolSurface::Profile(ToolProfile::ReviewerGraph),
-            default_budget_for_profile(ToolProfile::ReviewerGraph),
+            default_budget_for_profile(ToolProfile::ReviewerGraph).max(client.default_budget()),
             "reviewer-graph",
         )
     } else {
         (
             ToolSurface::Profile(ToolProfile::PlannerReadonly),
-            default_budget_for_profile(ToolProfile::PlannerReadonly),
+            default_budget_for_profile(ToolProfile::PlannerReadonly).max(client.default_budget()),
             "planner-readonly",
         )
     };
@@ -254,18 +256,68 @@ pub fn query_project(state: &AppState, arguments: &serde_json::Value) -> ToolRes
 }
 
 pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let failure_count = state.symbol_index().db().index_failure_count().unwrap_or(0);
+    let failure_health = state.watcher_failure_health();
     match &state.watcher {
         Some(watcher) => {
             let mut stats = watcher.stats();
-            stats.index_failures = Some(failure_count);
-            Ok((json!(stats), success_meta(BackendKind::Config, 1.0)))
+            stats.index_failures = Some(failure_health.recent_failures);
+            let mut payload = serde_json::to_value(stats).unwrap_or_else(|_| json!({}));
+            if let Some(map) = payload.as_object_mut() {
+                map.insert(
+                    "index_failures_total".to_owned(),
+                    json!(failure_health.total_failures),
+                );
+                map.insert(
+                    "stale_index_failures".to_owned(),
+                    json!(failure_health.stale_failures),
+                );
+                map.insert(
+                    "persistent_index_failures".to_owned(),
+                    json!(failure_health.persistent_failures),
+                );
+                map.insert(
+                    "pruned_missing_failures".to_owned(),
+                    json!(failure_health.pruned_missing_failures),
+                );
+                map.insert(
+                    "recent_failure_window_seconds".to_owned(),
+                    json!(failure_health.recent_window_seconds),
+                );
+            }
+            Ok((payload, success_meta(BackendKind::Config, 1.0)))
         }
         None => Ok((
-            json!({"running": false, "events_processed": 0, "files_reindexed": 0, "index_failures": failure_count, "note": "File watcher not started"}),
+            json!({
+                "running": false,
+                "events_processed": 0,
+                "files_reindexed": 0,
+                "lock_contention_batches": 0,
+                "index_failures": failure_health.recent_failures,
+                "index_failures_total": failure_health.total_failures,
+                "stale_index_failures": failure_health.stale_failures,
+                "persistent_index_failures": failure_health.persistent_failures,
+                "pruned_missing_failures": failure_health.pruned_missing_failures,
+                "recent_failure_window_seconds": failure_health.recent_window_seconds,
+                "note": "File watcher not started"
+            }),
             success_meta(BackendKind::Config, 1.0),
         )),
     }
+}
+
+pub fn prune_index_failures(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let failure_health = state.prune_index_failures()?;
+    Ok((
+        json!({
+            "pruned_missing_failures": failure_health.pruned_missing_failures,
+            "index_failures": failure_health.recent_failures,
+            "index_failures_total": failure_health.total_failures,
+            "stale_index_failures": failure_health.stale_failures,
+            "persistent_index_failures": failure_health.persistent_failures,
+            "recent_failure_window_seconds": failure_health.recent_window_seconds,
+        }),
+        success_meta(BackendKind::Session, 1.0),
+    ))
 }
 
 pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -380,7 +432,6 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
 pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let snapshot = state.metrics().snapshot();
     let surfaces = state.metrics().surface_snapshot();
-    let session = state.metrics().session_snapshot();
     let per_tool: Vec<serde_json::Value> = snapshot
         .into_iter()
         .map(|(name, m)| {
@@ -427,227 +478,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
             })
         })
         .collect::<Vec<_>>();
-    let handle_reads = session.analysis_summary_reads + session.analysis_section_reads;
-    let mut session_json = serde_json::Map::new();
-    session_json.insert("total_calls".to_owned(), json!(session.total_calls));
-    session_json.insert("success_count".to_owned(), json!(session.success_count));
-    session_json.insert("total_ms".to_owned(), json!(session.total_ms));
-    session_json.insert("total_tokens".to_owned(), json!(session.total_tokens));
-    session_json.insert("error_count".to_owned(), json!(session.error_count));
-    session_json.insert(
-        "tools_list_tokens".to_owned(),
-        json!(session.tools_list_tokens),
-    );
-    session_json.insert(
-        "analysis_summary_reads".to_owned(),
-        json!(session.analysis_summary_reads),
-    );
-    session_json.insert(
-        "analysis_section_reads".to_owned(),
-        json!(session.analysis_section_reads),
-    );
-    session_json.insert(
-        "active_http_sessions".to_owned(),
-        json!(state.active_session_count()),
-    );
-    session_json.insert(
-        "session_resume_supported".to_owned(),
-        json!(state.session_resume_supported()),
-    );
-    session_json.insert(
-        "session_timeout_seconds".to_owned(),
-        json!(state.session_timeout_seconds()),
-    );
-    session_json.insert("retry_count".to_owned(), json!(session.retry_count));
-    session_json.insert(
-        "analysis_cache_hit_count".to_owned(),
-        json!(session.analysis_cache_hit_count),
-    );
-    session_json.insert(
-        "truncated_response_count".to_owned(),
-        json!(session.truncated_response_count),
-    );
-    session_json.insert(
-        "truncation_followup_count".to_owned(),
-        json!(session.truncation_followup_count),
-    );
-    session_json.insert(
-        "truncation_same_tool_retry_count".to_owned(),
-        json!(session.truncation_same_tool_retry_count),
-    );
-    session_json.insert(
-        "truncation_handle_followup_count".to_owned(),
-        json!(session.truncation_handle_followup_count),
-    );
-    session_json.insert(
-        "handle_reuse_count".to_owned(),
-        json!(session.handle_reuse_count),
-    );
-    session_json.insert(
-        "repeated_low_level_chain_count".to_owned(),
-        json!(session.repeated_low_level_chain_count),
-    );
-    session_json.insert(
-        "composite_guidance_emitted_count".to_owned(),
-        json!(session.composite_guidance_emitted_count),
-    );
-    session_json.insert(
-        "composite_guidance_followed_count".to_owned(),
-        json!(session.composite_guidance_followed_count),
-    );
-    session_json.insert(
-        "quality_contract_emitted_count".to_owned(),
-        json!(session.quality_contract_emitted_count),
-    );
-    session_json.insert(
-        "recommended_checks_emitted_count".to_owned(),
-        json!(session.recommended_checks_emitted_count),
-    );
-    session_json.insert(
-        "recommended_check_followthrough_count".to_owned(),
-        json!(session.recommended_check_followthrough_count),
-    );
-    session_json.insert(
-        "quality_focus_reuse_count".to_owned(),
-        json!(session.quality_focus_reuse_count),
-    );
-    session_json.insert(
-        "performance_watchpoint_emit_count".to_owned(),
-        json!(session.performance_watchpoint_emit_count),
-    );
-    session_json.insert("composite_calls".to_owned(), json!(session.composite_calls));
-    session_json.insert("low_level_calls".to_owned(), json!(session.low_level_calls));
-    session_json.insert(
-        "stdio_session_count".to_owned(),
-        json!(session.stdio_session_count),
-    );
-    session_json.insert(
-        "http_session_count".to_owned(),
-        json!(session.http_session_count),
-    );
-    session_json.insert(
-        "analysis_jobs_enqueued".to_owned(),
-        json!(session.analysis_jobs_enqueued),
-    );
-    session_json.insert(
-        "analysis_jobs_started".to_owned(),
-        json!(session.analysis_jobs_started),
-    );
-    session_json.insert(
-        "analysis_jobs_completed".to_owned(),
-        json!(session.analysis_jobs_completed),
-    );
-    session_json.insert(
-        "analysis_jobs_failed".to_owned(),
-        json!(session.analysis_jobs_failed),
-    );
-    session_json.insert(
-        "analysis_jobs_cancelled".to_owned(),
-        json!(session.analysis_jobs_cancelled),
-    );
-    session_json.insert(
-        "analysis_queue_depth".to_owned(),
-        json!(session.analysis_queue_depth),
-    );
-    session_json.insert(
-        "analysis_queue_max_depth".to_owned(),
-        json!(session.analysis_queue_max_depth),
-    );
-    session_json.insert(
-        "analysis_queue_weighted_depth".to_owned(),
-        json!(session.analysis_queue_weighted_depth),
-    );
-    session_json.insert(
-        "analysis_queue_max_weighted_depth".to_owned(),
-        json!(session.analysis_queue_max_weighted_depth),
-    );
-    session_json.insert(
-        "analysis_queue_priority_promotions".to_owned(),
-        json!(session.analysis_queue_priority_promotions),
-    );
-    session_json.insert(
-        "active_analysis_workers".to_owned(),
-        json!(session.active_analysis_workers),
-    );
-    session_json.insert(
-        "peak_active_analysis_workers".to_owned(),
-        json!(session.peak_active_analysis_workers),
-    );
-    session_json.insert(
-        "analysis_worker_limit".to_owned(),
-        json!(session.analysis_worker_limit),
-    );
-    session_json.insert(
-        "analysis_cost_budget".to_owned(),
-        json!(session.analysis_cost_budget),
-    );
-    session_json.insert(
-        "analysis_transport_mode".to_owned(),
-        json!(session.analysis_transport_mode.clone()),
-    );
-    session_json.insert(
-        "daemon_mode".to_owned(),
-        json!(state.daemon_mode().as_str()),
-    );
-    session_json.insert(
-        "avg_ms_per_call".to_owned(),
-        json!(if session.total_calls > 0 {
-            session.total_ms / session.total_calls
-        } else {
-            0
-        }),
-    );
-    session_json.insert(
-        "avg_tool_output_tokens".to_owned(),
-        json!(if session.total_calls > 0 {
-            session.total_tokens / session.total_calls as usize
-        } else {
-            0
-        }),
-    );
-    session_json.insert(
-        "p95_tool_latency_ms".to_owned(),
-        json!(crate::telemetry::percentile_95(&session.latency_samples)),
-    );
-    session_json.insert("timeline_length".to_owned(), json!(session.timeline.len()));
-    let derived_kpis = json!({
-        "composite_ratio": if session.total_calls > 0 {
-            session.composite_calls as f64 / session.total_calls as f64
-        } else { 0.0 },
-        "surface_token_efficiency": if session.success_count > 0 {
-            session.total_tokens as f64 / session.success_count as f64
-        } else { 0.0 },
-        "low_level_chain_reduction": if session.low_level_calls > 0 {
-            1.0 - (session.repeated_low_level_chain_count as f64 / session.low_level_calls as f64)
-        } else { 1.0 },
-        "handle_reuse_rate": if handle_reads > 0 {
-            session.handle_reuse_count as f64 / handle_reads as f64
-        } else { 0.0 },
-        "analysis_cache_hit_rate": if session.composite_calls > 0 {
-            session.analysis_cache_hit_count as f64 / session.composite_calls as f64
-        } else { 0.0 },
-        "quality_contract_present_rate": if session.composite_calls > 0 {
-            session.quality_contract_emitted_count as f64 / session.composite_calls as f64
-        } else { 0.0 },
-        "recommended_check_followthrough_rate": if session.quality_contract_emitted_count > 0 {
-            session.recommended_check_followthrough_count as f64 / session.quality_contract_emitted_count as f64
-        } else { 0.0 },
-        "quality_focus_reuse_rate": if session.handle_reuse_count > 0 {
-            session.quality_focus_reuse_count as f64 / session.handle_reuse_count as f64
-        } else { 0.0 },
-        "performance_watchpoint_emit_rate": if session.quality_contract_emitted_count > 0 {
-            session.performance_watchpoint_emit_count as f64 / session.quality_contract_emitted_count as f64
-        } else { 0.0 },
-        "truncation_followup_rate": if session.truncated_response_count > 0 {
-            session.truncation_followup_count as f64 / session.truncated_response_count as f64
-        } else { 0.0 },
-        "composite_guidance_followthrough_rate": if session.composite_guidance_emitted_count > 0 {
-            session.composite_guidance_followed_count as f64 / session.composite_guidance_emitted_count as f64
-        } else { 0.0 },
-        "analysis_job_success_rate": if session.analysis_jobs_started > 0 {
-            session.analysis_jobs_completed as f64 / session.analysis_jobs_started as f64
-        } else { 0.0 }
-    });
+    let metrics_payload = build_session_metrics_payload(state);
     Ok((
         json!({
             "tools": per_tool.clone(),
@@ -655,8 +486,8 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
             "count": count,
             "surfaces": per_surface.clone(),
             "per_surface": per_surface,
-            "session": session_json,
-            "derived_kpis": derived_kpis
+            "session": metrics_payload.session,
+            "derived_kpis": metrics_payload.derived_kpis
         }),
         success_meta(BackendKind::Telemetry, 1.0),
     ))

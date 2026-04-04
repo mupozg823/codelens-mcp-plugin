@@ -1,0 +1,53 @@
+{
+  "schema_version": "codelens-routing-policy-v2",
+  "policy_scope": "agent",
+  "agent": "codex",
+  "generated_at": "2026-04-04T17:36:28",
+  "source_report": "2026-04-04T17:36:14",
+  "source_report_path": "/tmp/harness-eval-agent-split.json",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "global_rules": [
+    {
+      "task_kind": "impact/reviewer",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "consensus": "unanimous",
+      "repo_count": 3,
+      "vote_count": 3,
+      "explanation": "Use native exploration for the very first local step, then switch to CodeLens once the task becomes multi-file or reviewer-heavy."
+    },
+    {
+      "task_kind": "onboarding/planning",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "consensus": "unanimous",
+      "repo_count": 3,
+      "vote_count": 3,
+      "explanation": "Use native exploration for the very first local step, then switch to CodeLens once the task becomes multi-file or reviewer-heavy."
+    },
+    {
+      "task_kind": "refactor preflight",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "consensus": "unanimous",
+      "repo_count": 3,
+      "vote_count": 3,
+      "explanation": "Use native exploration for the very first local step, then switch to CodeLens once the task becomes multi-file or reviewer-heavy."
+    },
+    {
+      "task_kind": "simple local lookup/edit",
+      "recommended_policy": "native_or_naive_both_ok_but_default_native",
+      "consensus": "majority",
+      "repo_count": 3,
+      "vote_count": 2,
+      "explanation": "Native is the default, but an opportunistic direct CodeLens call is acceptable if it avoids extra manual search."
+    }
+  ],
+  "repo_overrides": [
+    {
+      "repo_id": "signature-studio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "simple local lookup/edit",
+      "recommended_policy": "avoid_codelens_for_simple_local_lookup",
+      "confidence": "medium",
+      "explanation": "Do not bootstrap CodeLens for point lookups or already-local single-file edits."
+    }
+  ]
+}

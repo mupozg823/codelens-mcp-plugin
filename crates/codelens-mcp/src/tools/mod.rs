@@ -4,6 +4,9 @@ pub mod graph;
 pub mod lsp;
 pub mod memory;
 pub mod mutation;
+mod report_contract;
+pub(crate) mod report_jobs;
+mod report_utils;
 pub mod reports;
 pub mod session;
 pub mod symbols;
@@ -105,6 +108,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "remove_queryable_project"     => session::remove_queryable_project,
         "query_project"                => session::query_project,
         "get_watch_status"             => session::get_watch_status,
+        "prune_index_failures"         => session::prune_index_failures,
         "set_preset"                   => session::set_preset,
         "set_profile"                  => session::set_profile,
         "get_capabilities"             => session::get_capabilities,
@@ -120,18 +124,20 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "onboard_project"              => composite::onboard_project,
         // ── Reports / compressed context ──
         "analyze_change_request"       => reports::analyze_change_request,
+        "verify_change_readiness"      => reports::verify_change_readiness,
         "find_minimal_context_for_change" => reports::find_minimal_context_for_change,
         "summarize_symbol_impact"      => reports::summarize_symbol_impact,
         "module_boundary_report"       => reports::module_boundary_report,
         "safe_rename_report"           => reports::safe_rename_report,
+        "unresolved_reference_check"   => reports::unresolved_reference_check,
         "dead_code_report"             => reports::dead_code_report,
         "impact_report"                => reports::impact_report,
         "refactor_safety_report"       => reports::refactor_safety_report,
         "diff_aware_references"        => reports::diff_aware_references,
-        "start_analysis_job"           => reports::start_analysis_job,
-        "get_analysis_job"             => reports::get_analysis_job,
-        "cancel_analysis_job"          => reports::cancel_analysis_job,
-        "get_analysis_section"         => reports::get_analysis_section,
+        "start_analysis_job"           => report_jobs::start_analysis_job,
+        "get_analysis_job"             => report_jobs::get_analysis_job,
+        "cancel_analysis_job"          => report_jobs::cancel_analysis_job,
+        "get_analysis_section"         => report_jobs::get_analysis_section,
     }
 }
 
@@ -232,6 +238,73 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
     }
 }
 
+/// Tools relevant during harness PLAN phase
+pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
+    "analyze_change_request",
+    "verify_change_readiness",
+    "find_minimal_context_for_change",
+    "onboard_project",
+    "get_ranked_context",
+    "get_symbols_overview",
+    "find_symbol",
+    "get_impact_analysis",
+    "impact_report",
+    "module_boundary_report",
+    "summarize_symbol_impact",
+    "get_changed_files",
+    "find_referencing_symbols",
+    "get_type_hierarchy",
+];
+
+/// Tools relevant during harness BUILD phase
+pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
+    "find_symbol",
+    "get_symbols_overview",
+    "get_ranked_context",
+    "find_referencing_symbols",
+    "get_file_diagnostics",
+    "replace_symbol_body",
+    "insert_content",
+    "replace",
+    "rename_symbol",
+    "create_text_file",
+    "add_import",
+    "analyze_missing_imports",
+    "find_tests",
+    "refresh_symbol_index",
+    "verify_change_readiness",
+];
+
+/// Tools relevant during harness REVIEW phase
+pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
+    "verify_change_readiness",
+    "get_file_diagnostics",
+    "get_impact_analysis",
+    "find_scoped_references",
+    "impact_report",
+    "refactor_safety_report",
+    "diff_aware_references",
+    "dead_code_report",
+    "find_dead_code",
+    "find_circular_dependencies",
+    "get_changed_files",
+    "find_tests",
+    "unresolved_reference_check",
+    "export_session_markdown",
+];
+
+/// Tools relevant during harness EVAL phase
+pub(crate) const EVAL_PHASE_TOOLS: &[&str] = &[
+    "verify_change_readiness",
+    "get_file_diagnostics",
+    "get_changed_files",
+    "find_tests",
+    "get_symbols_overview",
+    "find_symbol",
+    "read_file",
+    "get_analysis_section",
+];
+
 const MUTATION_TOOLS: &[&str] = &[
     "rename_symbol",
     "replace_symbol_body",
@@ -265,7 +338,11 @@ const EXPLORATION_TOOLS: &[&str] = &[
 ];
 
 /// Context-aware tool suggestions: overrides static suggestions based on recent workflow.
-pub fn suggest_next_contextual(tool_name: &str, recent_tools: &[String]) -> Option<Vec<String>> {
+pub fn suggest_next_contextual(
+    tool_name: &str,
+    recent_tools: &[String],
+    harness_phase: Option<&str>,
+) -> Option<Vec<String>> {
     let mut suggestions = suggest_next(tool_name)?;
 
     // After any mutation tool: always put get_file_diagnostics first
@@ -303,6 +380,22 @@ pub fn suggest_next_contextual(tool_name: &str, recent_tools: &[String]) -> Opti
         }
     }
 
+    // Filter suggestions by harness phase if specified
+    if let Some(phase) = harness_phase {
+        let phase_tools: &[&str] = match phase {
+            "plan" => PLAN_PHASE_TOOLS,
+            "build" => BUILD_PHASE_TOOLS,
+            "review" => REVIEW_PHASE_TOOLS,
+            "eval" => EVAL_PHASE_TOOLS,
+            _ => return Some(suggestions), // unknown phase, no filtering
+        };
+        suggestions.retain(|s| phase_tools.contains(&s.as_str()));
+        // Ensure we always have at least 1 suggestion
+        if suggestions.is_empty() {
+            suggestions = suggest_next(tool_name).unwrap_or_default();
+        }
+    }
+
     Some(suggestions)
 }
 
@@ -310,10 +403,12 @@ fn is_workflow_tool_name(name: &str) -> bool {
     matches!(
         name,
         "analyze_change_request"
+            | "verify_change_readiness"
             | "find_minimal_context_for_change"
             | "summarize_symbol_impact"
             | "module_boundary_report"
             | "safe_rename_report"
+            | "unresolved_reference_check"
             | "dead_code_report"
             | "impact_report"
             | "refactor_safety_report"
@@ -337,23 +432,32 @@ fn has_recent_low_level_chain(recent_tools: &[String]) -> bool {
 fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static str] {
     match surface {
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => &[
+            "verify_change_readiness",
             "find_minimal_context_for_change",
             "analyze_change_request",
             "impact_report",
         ],
         ToolSurface::Profile(ToolProfile::ReviewerGraph)
-        | ToolSurface::Profile(ToolProfile::CiAudit) => {
-            &["impact_report", "diff_aware_references", "dead_code_report"]
-        }
+        | ToolSurface::Profile(ToolProfile::CiAudit) => &[
+            "verify_change_readiness",
+            "impact_report",
+            "diff_aware_references",
+        ],
         ToolSurface::Profile(ToolProfile::RefactorFull) => &[
+            "verify_change_readiness",
             "refactor_safety_report",
             "safe_rename_report",
-            "summarize_symbol_impact",
+            "unresolved_reference_check",
+        ],
+        ToolSurface::Profile(ToolProfile::EvaluatorCompact) => &[
+            "verify_change_readiness",
+            "get_file_diagnostics",
+            "find_tests",
         ],
         ToolSurface::Profile(ToolProfile::BuilderMinimal) | ToolSurface::Preset(_) => &[
+            "verify_change_readiness",
             "find_minimal_context_for_change",
             "analyze_change_request",
-            "summarize_symbol_impact",
         ],
     }
 }
@@ -429,7 +533,11 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "find_tests" => &["get_symbols_overview"],
 
         // ── Mutation ─────────────────────────────────────────────────
-        "rename_symbol" => &["find_referencing_symbols", "get_file_diagnostics"],
+        "rename_symbol" => &[
+            "safe_rename_report",
+            "unresolved_reference_check",
+            "get_file_diagnostics",
+        ],
         "replace_symbol_body" => &["find_symbol", "get_file_diagnostics"],
         "replace_content" => &["get_file_diagnostics", "get_symbols_overview"],
         "replace_lines" => &["get_file_diagnostics"],
@@ -439,7 +547,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "insert_after_symbol" => &["get_file_diagnostics", "find_symbol"],
         "insert_content" => &["get_file_diagnostics", "find_symbol"],
         "replace" => &["get_file_diagnostics", "get_symbols_overview"],
-        "create_text_file" => &["get_symbols_overview"],
+        "create_text_file" => &["verify_change_readiness", "get_symbols_overview"],
         "add_import" => &["get_file_diagnostics", "analyze_missing_imports"],
         "analyze_missing_imports" => &["add_import"],
 
@@ -455,7 +563,8 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "get_capabilities",
         ],
         "onboard_project" => &["get_ranked_context", "find_symbol", "get_capabilities"],
-        "get_watch_status" => &["refresh_symbol_index"],
+        "get_watch_status" => &["refresh_symbol_index", "prune_index_failures"],
+        "prune_index_failures" => &["get_watch_status", "refresh_symbol_index"],
         "list_queryable_projects" => &["add_queryable_project", "query_project"],
         "add_queryable_project" => &["query_project", "list_queryable_projects"],
         "query_project" => &["find_symbol", "list_queryable_projects"],
@@ -488,20 +597,36 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "refactor_change_signature" => &["get_file_diagnostics", "find_referencing_symbols"],
         "analyze_change_request" => &[
             "get_analysis_section",
+            "verify_change_readiness",
             "impact_report",
             "refactor_safety_report",
+        ],
+        "verify_change_readiness" => &[
+            "get_analysis_section",
+            "safe_rename_report",
+            "unresolved_reference_check",
         ],
         "find_minimal_context_for_change" => &["get_analysis_section", "analyze_change_request"],
         "summarize_symbol_impact" => &["get_analysis_section", "safe_rename_report"],
         "module_boundary_report" => &["get_analysis_section", "impact_report", "dead_code_report"],
         "safe_rename_report" => &[
             "get_analysis_section",
+            "unresolved_reference_check",
             "rename_symbol",
             "refactor_safety_report",
         ],
+        "unresolved_reference_check" => &[
+            "get_analysis_section",
+            "safe_rename_report",
+            "find_referencing_symbols",
+        ],
         "dead_code_report" => &["get_analysis_section", "impact_report"],
         "impact_report" => &["get_analysis_section", "diff_aware_references"],
-        "refactor_safety_report" => &["get_analysis_section", "safe_rename_report"],
+        "refactor_safety_report" => &[
+            "get_analysis_section",
+            "verify_change_readiness",
+            "safe_rename_report",
+        ],
         "diff_aware_references" => &["get_analysis_section", "impact_report"],
         "start_analysis_job" => &["get_analysis_job"],
         "get_analysis_job" => &["get_analysis_section"],

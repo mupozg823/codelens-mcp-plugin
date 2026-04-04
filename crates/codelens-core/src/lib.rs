@@ -12,6 +12,7 @@ pub mod import_graph;
 pub(crate) mod lang_config;
 pub mod lang_registry;
 pub mod lsp;
+pub mod memory;
 pub mod project;
 pub mod rename;
 pub mod scope_analysis;
