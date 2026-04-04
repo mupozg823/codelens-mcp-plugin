@@ -157,204 +157,35 @@ async fn mcp_post_handler(
         }
     }
 
-    if !is_initialize && request.method == "tools/call" {
+    // Inject session metadata into request params based on method
+    if !is_initialize {
         if let Some(ref sid) = session_id {
             if let Some(store) = &state.session_store {
-                if let Some(session) = store.get(sid) {
-                    let metadata = session.client_metadata();
-                    if let Some(params) = request
-                        .params
-                        .as_mut()
-                        .and_then(|value| value.as_object_mut())
-                    {
-                        let arguments = params
-                            .entry("arguments".to_owned())
-                            .or_insert_with(|| serde_json::json!({}));
-                        if let Some(arguments_obj) = arguments.as_object_mut() {
-                            arguments_obj.insert("_session_id".to_owned(), serde_json::json!(sid));
-                            arguments_obj.insert(
-                                "_session_trusted_client".to_owned(),
-                                serde_json::json!(metadata.trusted_client),
-                            );
-                            arguments_obj.insert(
-                                "_session_requested_profile".to_owned(),
-                                serde_json::json!(metadata.requested_profile),
-                            );
-                            arguments_obj.insert(
-                                "_session_client_name".to_owned(),
-                                serde_json::json!(metadata.client_name),
-                            );
-                            arguments_obj.insert(
-                                "_session_client_version".to_owned(),
-                                serde_json::json!(metadata.client_version),
-                            );
-                            arguments_obj.insert(
-                                "_session_deferred_tool_loading".to_owned(),
-                                serde_json::json!(metadata.deferred_tool_loading),
-                            );
-                            arguments_obj.insert(
-                                "_session_loaded_namespaces".to_owned(),
-                                serde_json::json!(metadata.loaded_namespaces),
-                            );
-                            arguments_obj.insert(
-                                "_session_loaded_tiers".to_owned(),
-                                serde_json::json!(metadata.loaded_tiers),
-                            );
-                            arguments_obj.insert(
-                                "_session_full_tool_exposure".to_owned(),
-                                serde_json::json!(metadata.full_tool_exposure),
-                            );
-                        }
+                match request.method.as_str() {
+                    "tools/call" => {
+                        super::session_injection::inject_tool_call_session(
+                            &mut request,
+                            sid,
+                            store,
+                        );
                     }
-                }
-            }
-        }
-    }
-
-    if !is_initialize && request.method == "tools/list" {
-        if let Some(ref sid) = session_id {
-            if let Some(store) = &state.session_store {
-                if let Some(session) = store.get(sid) {
-                    let requested_namespace = request
-                        .params
-                        .as_ref()
-                        .and_then(|value| value.get("namespace"))
-                        .and_then(|value| value.as_str());
-                    let requested_tier = request
-                        .params
-                        .as_ref()
-                        .and_then(|value| value.get("tier"))
-                        .and_then(|value| value.as_str());
-                    let full_listing = request
-                        .params
-                        .as_ref()
-                        .and_then(|value| value.get("full"))
-                        .and_then(|value| value.as_bool())
-                        .unwrap_or(false);
-                    if full_listing {
-                        session.enable_full_tool_exposure();
-                    } else if let Some(namespace) = requested_namespace {
-                        if crate::tool_defs::visible_namespaces(*state.surface())
-                            .contains(&namespace)
-                        {
-                            session.record_loaded_namespace(namespace);
-                        }
+                    "tools/list" => {
+                        super::session_injection::inject_tools_list_session(
+                            &mut request,
+                            sid,
+                            store,
+                            &state,
+                        );
                     }
-                    if !full_listing
-                        && let Some(tier) = requested_tier
-                        && crate::tool_defs::parse_tier_label(tier).is_some()
-                    {
-                        session.record_loaded_tier(tier);
+                    "resources/read" => {
+                        super::session_injection::inject_resources_read_session(
+                            &mut request,
+                            sid,
+                            store,
+                            &state,
+                        );
                     }
-                    let metadata = session.client_metadata();
-                    if let Some(params) = request
-                        .params
-                        .as_mut()
-                        .and_then(|value| value.as_object_mut())
-                    {
-                        params.insert(
-                            "_session_deferred_tool_loading".to_owned(),
-                            serde_json::json!(metadata.deferred_tool_loading),
-                        );
-                        params.insert(
-                            "_session_loaded_namespaces".to_owned(),
-                            serde_json::json!(metadata.loaded_namespaces),
-                        );
-                        params.insert(
-                            "_session_loaded_tiers".to_owned(),
-                            serde_json::json!(metadata.loaded_tiers),
-                        );
-                        params.insert(
-                            "_session_full_tool_exposure".to_owned(),
-                            serde_json::json!(metadata.full_tool_exposure),
-                        );
-                    } else {
-                        request.params = Some(serde_json::json!({
-                            "_session_deferred_tool_loading": metadata.deferred_tool_loading,
-                            "_session_loaded_namespaces": metadata.loaded_namespaces,
-                            "_session_loaded_tiers": metadata.loaded_tiers,
-                            "_session_full_tool_exposure": metadata.full_tool_exposure
-                        }));
-                    }
-                }
-            }
-        }
-    }
-
-    if !is_initialize && request.method == "resources/read" {
-        if let Some(ref sid) = session_id {
-            if let Some(store) = &state.session_store {
-                if let Some(session) = store.get(sid) {
-                    let uri = request
-                        .params
-                        .as_ref()
-                        .and_then(|value| value.get("uri"))
-                        .and_then(|value| value.as_str())
-                        .unwrap_or_default();
-                    if matches!(uri, "codelens://tools/list" | "codelens://tools/list/full") {
-                        let requested_namespace = request
-                            .params
-                            .as_ref()
-                            .and_then(|value| value.get("namespace"))
-                            .and_then(|value| value.as_str());
-                        let requested_tier = request
-                            .params
-                            .as_ref()
-                            .and_then(|value| value.get("tier"))
-                            .and_then(|value| value.as_str());
-                        let full_listing = uri == "codelens://tools/list/full"
-                            || request
-                                .params
-                                .as_ref()
-                                .and_then(|value| value.get("full"))
-                                .and_then(|value| value.as_bool())
-                                .unwrap_or(false);
-                        if full_listing {
-                            session.enable_full_tool_exposure();
-                        } else if let Some(namespace) = requested_namespace {
-                            if crate::tool_defs::visible_namespaces(*state.surface())
-                                .contains(&namespace)
-                            {
-                                session.record_loaded_namespace(namespace);
-                            }
-                        }
-                        if !full_listing
-                            && let Some(tier) = requested_tier
-                            && crate::tool_defs::parse_tier_label(tier).is_some()
-                        {
-                            session.record_loaded_tier(tier);
-                        }
-                    }
-                    let metadata = session.client_metadata();
-                    if let Some(params) = request
-                        .params
-                        .as_mut()
-                        .and_then(|value| value.as_object_mut())
-                    {
-                        params.insert(
-                            "_session_deferred_tool_loading".to_owned(),
-                            serde_json::json!(metadata.deferred_tool_loading),
-                        );
-                        params.insert(
-                            "_session_loaded_namespaces".to_owned(),
-                            serde_json::json!(metadata.loaded_namespaces),
-                        );
-                        params.insert(
-                            "_session_loaded_tiers".to_owned(),
-                            serde_json::json!(metadata.loaded_tiers),
-                        );
-                        params.insert(
-                            "_session_full_tool_exposure".to_owned(),
-                            serde_json::json!(metadata.full_tool_exposure),
-                        );
-                    } else {
-                        request.params = Some(serde_json::json!({
-                            "_session_deferred_tool_loading": metadata.deferred_tool_loading,
-                            "_session_loaded_namespaces": metadata.loaded_namespaces,
-                            "_session_loaded_tiers": metadata.loaded_tiers,
-                            "_session_full_tool_exposure": metadata.full_tool_exposure
-                        }));
-                    }
+                    _ => {}
                 }
             }
         }
