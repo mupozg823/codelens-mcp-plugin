@@ -183,6 +183,9 @@ fn inject_deferred_params(
 ) {
     let metadata = session.client_metadata();
     let deferred_fields = serde_json::json!({
+        "_session_requested_profile": metadata.requested_profile,
+        "_session_client_name": metadata.client_name,
+        "_session_client_version": metadata.client_version,
         "_session_deferred_tool_loading": metadata.deferred_tool_loading,
         "_session_loaded_namespaces": metadata.loaded_namespaces,
         "_session_loaded_tiers": metadata.loaded_tiers,

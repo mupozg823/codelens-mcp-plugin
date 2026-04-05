@@ -163,6 +163,64 @@ async fn initialize_persists_deferred_loading_preference() {
 }
 
 #[tokio::test]
+async fn initialize_codex_defaults_to_deferred_loading() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = resp
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    let metadata = session.client_metadata();
+    assert_eq!(metadata.deferred_tool_loading, Some(true));
+}
+
+#[tokio::test]
+async fn initialize_claude_defaults_to_full_contract() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"Claude Code","version":"1.0.0"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = resp
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    let metadata = session.client_metadata();
+    assert_eq!(metadata.deferred_tool_loading, Some(false));
+}
+
+#[tokio::test]
 async fn codex_session_client_name_affects_activate_project_budget() {
     let state = test_state();
     let app = build_router(state.clone());
@@ -188,6 +246,23 @@ async fn codex_session_client_name_affects_activate_project_budget() {
         .unwrap()
         .to_owned();
 
+    let primitive_list = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"tier":"primitive"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(primitive_list.status(), StatusCode::OK);
+
     let activate = app
         .oneshot(
             Request::builder()
@@ -196,7 +271,7 @@ async fn codex_session_client_name_affects_activate_project_budget() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"activate_project","arguments":{}}}"#,
+                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"activate_project","arguments":{}}}"#,
                 ))
                 .unwrap(),
         )
@@ -206,8 +281,107 @@ async fn codex_session_client_name_affects_activate_project_budget() {
     assert_eq!(activate.status(), StatusCode::OK);
     let payload = first_tool_payload(&body_string(activate).await);
     assert_eq!(payload["success"], serde_json::json!(true));
-    assert_eq!(payload["data"]["auto_surface"], serde_json::json!("builder-minimal"));
+    assert_eq!(
+        payload["data"]["auto_surface"],
+        serde_json::json!("builder-minimal")
+    );
     assert_eq!(payload["data"]["auto_budget"], serde_json::json!(6000));
+}
+
+#[tokio::test]
+async fn codex_session_uses_lean_tools_list_contract_by_default() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("\"client_profile\":\"codex\""));
+    assert!(body.contains("\"default_contract_mode\":\"lean\""));
+    assert!(body.contains("\"include_output_schema\":false"));
+    assert!(!body.contains("\"outputSchema\""));
+}
+
+#[tokio::test]
+async fn claude_session_uses_full_tools_list_contract_by_default() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"Claude Code","version":"1.0.0"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("\"client_profile\":\"claude\""));
+    assert!(body.contains("\"default_contract_mode\":\"full\""));
+    assert!(body.contains("\"include_output_schema\":true"));
+    assert!(body.contains("\"outputSchema\""));
 }
 
 #[tokio::test]
@@ -564,6 +738,8 @@ async fn deferred_resources_read_tracks_loaded_namespaces_for_session() {
     assert!(session_text.contains("\"full_tool_exposure\": false"));
     assert!(session_text.contains("\"preferred_tiers\": ["));
     assert!(session_text.contains("\"workflow\""));
+    assert!(session_text.contains("\"client_profile\": \"generic\""));
+    assert!(session_text.contains("\"default_tools_list_contract_mode\": \"full\""));
     assert!(session_text.contains("\"deferred_tier_gate\": true"));
     assert!(session_text.contains("\"requires_tier_listing_before_tool_call\": true"));
 }

@@ -44,11 +44,26 @@ impl ClientProfile {
         }
     }
 
+    pub(crate) fn default_deferred_tool_loading(&self) -> Option<bool> {
+        match self {
+            Self::Codex => Some(true),
+            Self::Claude => Some(false),
+            Self::Generic => None,
+        }
+    }
+
     pub(crate) fn default_preset(&self) -> crate::tool_defs::ToolPreset {
         match self {
             Self::Codex => crate::tool_defs::ToolPreset::Minimal,
             Self::Claude => crate::tool_defs::ToolPreset::Balanced,
             Self::Generic => crate::tool_defs::ToolPreset::Balanced,
+        }
+    }
+
+    pub(crate) fn default_tool_contract_mode(&self) -> &'static str {
+        match self {
+            Self::Codex => "lean",
+            Self::Claude | Self::Generic => "full",
         }
     }
 

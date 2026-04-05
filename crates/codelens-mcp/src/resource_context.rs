@@ -1,4 +1,5 @@
 use crate::AppState;
+use crate::client_profile::ClientProfile;
 use crate::protocol::Tool;
 use crate::tool_defs::{
     ToolProfile, ToolSurface, preferred_namespaces, preferred_tier_labels, tool_namespace,
@@ -6,7 +7,7 @@ use crate::tool_defs::{
 };
 use serde_json::{Value, json};
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub(crate) struct ResourceRequestContext {
     pub(crate) deferred_loading_requested: bool,
     pub(crate) loaded_namespaces: Vec<String>,
@@ -15,6 +16,24 @@ pub(crate) struct ResourceRequestContext {
     pub(crate) requested_namespace: Option<String>,
     pub(crate) requested_tier: Option<String>,
     pub(crate) full_listing: bool,
+    pub(crate) client_profile: ClientProfile,
+    pub(crate) client_name: Option<String>,
+}
+
+impl Default for ResourceRequestContext {
+    fn default() -> Self {
+        Self {
+            deferred_loading_requested: false,
+            loaded_namespaces: Vec::new(),
+            loaded_tiers: Vec::new(),
+            full_tool_exposure: false,
+            requested_namespace: None,
+            requested_tier: None,
+            full_listing: false,
+            client_profile: ClientProfile::Generic,
+            client_name: None,
+        }
+    }
 }
 
 impl ResourceRequestContext {
@@ -22,14 +41,26 @@ impl ResourceRequestContext {
         let session = params
             .map(crate::session_context::SessionRequestContext::from_json)
             .unwrap_or_default();
+        let client_profile = session
+            .client_name
+            .as_deref()
+            .map(|name| ClientProfile::detect(Some(name)))
+            .unwrap_or(ClientProfile::Generic);
+        let deferred_loading_requested = params
+            .and_then(|value| value.get("_session_deferred_tool_loading"))
+            .and_then(|value| value.as_bool())
+            .or_else(|| client_profile.default_deferred_tool_loading())
+            .unwrap_or(false);
         Self {
-            deferred_loading_requested: session.deferred_loading,
+            deferred_loading_requested,
             loaded_namespaces: session.loaded_namespaces,
             loaded_tiers: session.loaded_tiers,
             full_tool_exposure: session.full_tool_exposure,
             requested_namespace: string_param(params, "namespace"),
             requested_tier: string_param(params, "tier"),
             full_listing: uri == "codelens://tools/list/full" || bool_param(params, "full"),
+            client_profile,
+            client_name: session.client_name,
         }
     }
 
@@ -144,8 +175,12 @@ pub(crate) fn build_http_session_payload(
         "timeout_seconds": state.session_timeout_seconds(),
         "resume_supported": state.session_resume_supported(),
         "daemon_mode": state.daemon_mode().as_str(),
+        "client_profile": request.client_profile.as_str(),
+        "client_name": request.client_name,
         "active_surface": surface.as_label(),
         "deferred_loading_supported": true,
+        "default_deferred_tool_loading": request.client_profile.default_deferred_tool_loading(),
+        "default_tools_list_contract_mode": request.client_profile.default_tool_contract_mode(),
         "loaded_namespaces": request.loaded_namespaces,
         "loaded_tiers": request.loaded_tiers,
         "full_tool_exposure": request.full_tool_exposure,

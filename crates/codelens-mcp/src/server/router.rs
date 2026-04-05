@@ -1,4 +1,5 @@
 use crate::AppState;
+use crate::client_profile::ClientProfile;
 use crate::dispatch::dispatch_tool;
 use crate::prompts::{get_prompt, prompts};
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
@@ -41,6 +42,14 @@ fn list_param_bool(request: &JsonRpcRequest, camel: &str, snake: &str) -> Option
         .as_ref()
         .and_then(|params| params.get(camel).or_else(|| params.get(snake)))
         .and_then(|value| value.as_bool())
+}
+
+fn list_param_str<'a>(request: &'a JsonRpcRequest, key: &str) -> Option<&'a str> {
+    request
+        .params
+        .as_ref()
+        .and_then(|params| params.get(key))
+        .and_then(|value| value.as_str())
 }
 
 pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcResponse> {
@@ -140,7 +149,12 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 .params
                 .as_ref()
                 .and_then(|params| params.get("_session_deferred_tool_loading"))
-                .and_then(|value| value.as_bool())
+                .and_then(|value| value.as_bool());
+            let client_profile = list_param_str(&request, "_session_client_name")
+                .map(|name| ClientProfile::detect(Some(name)))
+                .unwrap_or(ClientProfile::Generic);
+            let deferred_loading_requested = deferred_loading_requested
+                .or_else(|| client_profile.default_deferred_tool_loading())
                 .unwrap_or(false);
             let loaded_namespaces = request
                 .params
@@ -239,6 +253,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             Some(JsonRpcResponse::result(
                 request.id,
                 json!({
+                    "client_profile": client_profile.as_str(),
                     "active_surface": surface.as_label(),
                     "visible_namespaces": all_namespaces,
                     "visible_tiers": all_tiers,
@@ -252,6 +267,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     "selected_tier": requested_tier,
                     "deferred_loading_active": deferred_loading_active,
                     "include_output_schema": include_output_schema,
+                    "default_contract_mode": client_profile.default_tool_contract_mode(),
                     "full_listing": full_listing,
                     "full_tool_exposure": full_tool_exposure,
                     "tool_count": response_tools.len(),

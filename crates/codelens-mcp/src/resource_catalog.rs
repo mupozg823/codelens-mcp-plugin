@@ -72,7 +72,9 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
         })
         .collect::<Vec<_>>();
     json!({
+        "client_profile": context_request_client_profile(&request),
         "active_surface": surface.as_label(),
+        "default_contract_mode": request.client_profile.default_tool_contract_mode(),
         "tool_count": context.tools.len(),
         "tool_count_total": context.total_tool_count,
         "visible_namespaces": namespace_counts,
@@ -111,7 +113,9 @@ pub(crate) fn visible_tool_details(state: &AppState, uri: &str, params: Option<&
         })
         .collect::<Vec<_>>();
     json!({
+        "client_profile": context_request_client_profile(&request),
         "active_surface": surface.as_label(),
+        "default_contract_mode": request.client_profile.default_tool_contract_mode(),
         "tool_count": tools.len(),
         "tool_count_total": context.total_tool_count,
         "all_namespaces": context.all_namespaces,
@@ -128,4 +132,10 @@ pub(crate) fn visible_tool_details(state: &AppState, uri: &str, params: Option<&
         "full_tool_exposure": context.full_tool_exposure,
         "tools": tools
     })
+}
+
+fn context_request_client_profile(
+    request: &crate::resource_context::ResourceRequestContext,
+) -> &'static str {
+    request.client_profile.as_str()
 }

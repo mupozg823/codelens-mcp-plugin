@@ -1,6 +1,7 @@
 #![cfg(feature = "http")]
 
 use super::session::{SessionClientMetadata, SessionStore};
+use crate::client_profile::ClientProfile;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
@@ -56,6 +57,9 @@ pub(crate) fn extract_initialize_metadata(
         .get("x-codelens-trusted-client")
         .and_then(|value| value.to_str().ok())
         .and_then(parse_bool_header);
+    let client_profile = client_name
+        .as_deref()
+        .map(|name| ClientProfile::detect(Some(name)));
     let deferred_tool_loading = params
         .get("deferredToolLoading")
         .and_then(|value| value.as_bool())
@@ -70,7 +74,8 @@ pub(crate) fn extract_initialize_metadata(
                 .get("x-codelens-deferred-tool-loading")
                 .and_then(|value| value.to_str().ok())
                 .and_then(parse_bool_header)
-        });
+        })
+        .or_else(|| client_profile.and_then(|profile| profile.default_deferred_tool_loading()));
 
     if client_name.is_none()
         && client_version.is_none()

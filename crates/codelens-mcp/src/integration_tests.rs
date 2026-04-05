@@ -209,6 +209,62 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
 }
 
 #[test]
+fn codex_client_name_enables_lean_tools_list_contract() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "_session_client_name": "CodexHarness",
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let encoded = serde_json::to_string(&response).expect("serialize");
+    assert!(encoded.contains("\"client_profile\":\"codex\""));
+    assert!(encoded.contains("\"default_contract_mode\":\"lean\""));
+    assert!(encoded.contains("\"include_output_schema\":false"));
+    assert!(!encoded.contains("\"outputSchema\""));
+}
+
+#[test]
+fn claude_client_name_keeps_full_tools_list_contract() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "_session_client_name": "Claude Code",
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let encoded = serde_json::to_string(&response).expect("serialize");
+    assert!(encoded.contains("\"client_profile\":\"claude\""));
+    assert!(encoded.contains("\"default_contract_mode\":\"full\""));
+    assert!(encoded.contains("\"include_output_schema\":true"));
+    assert!(encoded.contains("\"outputSchema\""));
+}
+
+#[test]
 fn deferred_tools_list_omits_output_schema_by_default() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -1748,6 +1804,8 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(session_resource_body.contains("rename_requires_symbol_preflight"));
     assert!(session_resource_body.contains("requires_namespace_listing_before_tool_call"));
     assert!(session_resource_body.contains("requires_tier_listing_before_tool_call"));
+    assert!(session_resource_body.contains("client_profile"));
+    assert!(session_resource_body.contains("default_tools_list_contract_mode"));
 
     let profile_summary = handle_request(
         &state,
