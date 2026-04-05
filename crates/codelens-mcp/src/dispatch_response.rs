@@ -1,13 +1,13 @@
-use crate::AppState;
 use crate::dispatch_response_support::{
     apply_contextual_guidance, bounded_result_payload, budget_hint, compact_response_payload,
     effective_budget_for_tool, routing_hint_for_payload, success_jsonrpc_response,
 };
 use crate::error::CodeLensError;
-use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
+use crate::mutation_gate::{is_verifier_source_tool, MutationGateAllowance, MutationGateFailure};
 use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};
-use crate::tool_defs::{ToolSurface, tool_definition};
+use crate::tool_defs::{tool_definition, ToolSurface};
 use crate::tools;
+use crate::AppState;
 use serde_json::json;
 
 pub(crate) struct SuccessResponseInput<'a> {
@@ -60,9 +60,13 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         );
     }
 
-    if gate_allowance.map(|a| a.caution) == Some(true) {
+    let had_caution = gate_allowance.map(|a| a.caution) == Some(true);
+    if had_caution {
         state.metrics().record_mutation_with_caution();
     }
+
+    // Mutation allowed with caution = no fresh preflight was found
+    let missing_preflight = had_caution;
 
     let has_output_schema = tool_definition(name)
         .and_then(|tool| tool.output_schema.as_ref())
@@ -74,8 +78,12 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     let payload_estimate = serde_json::to_string(&resp.data)
         .map(|s| tools::estimate_tokens(&s))
         .unwrap_or(0);
+    let mut hint = budget_hint(name, payload_estimate, effective_budget);
+    if missing_preflight {
+        hint = format!("{hint} Tip: run verify_change_readiness before mutations for safer edits.");
+    }
     resp.token_estimate = Some(payload_estimate);
-    resp.budget_hint = Some(budget_hint(name, payload_estimate, effective_budget));
+    resp.budget_hint = Some(hint);
     resp.elapsed_ms = Some(elapsed_ms as u64);
     resp.routing_hint = Some(routing_hint_for_payload(&resp));
 
