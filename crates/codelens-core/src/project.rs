@@ -111,6 +111,9 @@ pub const EXCLUDED_DIRS: &[&str] = &[
     "target",
     ".next",
     ".venv",
+    "venv",
+    ".tox",
+    "env",
 ];
 
 /// Returns `true` if any component of `path` matches an excluded directory.
