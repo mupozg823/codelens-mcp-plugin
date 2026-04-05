@@ -203,14 +203,17 @@ fn find_word_matches_in_files(
 ) -> Result<Vec<(String, usize, usize)>> {
     let word_re = Regex::new(&format!(r"\b{}\b", regex::escape(symbol_name)))?;
     let mut results = Vec::new();
+    let mut non_code_cache: HashMap<std::path::PathBuf, Vec<(usize, usize)>> = HashMap::new();
     for rel in files {
         let abs = project.as_path().join(rel);
         let content = match fs::read_to_string(&abs) {
             Ok(c) => c,
             Err(_) => continue,
         };
-        // Build non-code byte ranges (comments + strings) via tree-sitter
-        let non_code = build_non_code_ranges(&abs, content.as_bytes());
+        // Build non-code byte ranges with per-file cache
+        let non_code = non_code_cache
+            .entry(abs.clone())
+            .or_insert_with(|| build_non_code_ranges(&abs, content.as_bytes()));
 
         let mut byte_offset = 0usize;
         for (line_idx, line) in content.lines().enumerate() {
@@ -270,9 +273,18 @@ fn collect_non_code_ranges(node: &tree_sitter::Node, ranges: &mut Vec<(usize, us
 }
 
 fn is_in_ranges(ranges: &[(usize, usize)], offset: usize) -> bool {
+    // Binary search: ranges are sorted by start_byte from tree-sitter DFS
     ranges
-        .iter()
-        .any(|&(start, end)| offset >= start && offset < end)
+        .binary_search_by(|&(start, end)| {
+            if offset < start {
+                std::cmp::Ordering::Greater
+            } else if offset >= end {
+                std::cmp::Ordering::Less
+            } else {
+                std::cmp::Ordering::Equal
+            }
+        })
+        .is_ok()
 }
 
 /// Fallback: full WalkDir scan when no index exists.
