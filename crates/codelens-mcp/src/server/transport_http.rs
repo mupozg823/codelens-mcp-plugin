@@ -8,12 +8,15 @@
 #![cfg(feature = "http")]
 
 use super::router::handle_request;
-use super::session::{SessionClientMetadata, SseEvent};
+use super::session::SseEvent;
+use super::transport_http_support::{
+    create_initialize_session, extract_initialize_metadata, into_mcp_response,
+};
 use crate::AppState;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use anyhow::Result;
 use axum::extract::State;
-use axum::http::{HeaderMap, HeaderValue, StatusCode};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
 use axum::{Router, routing};
@@ -47,7 +50,7 @@ async fn server_card_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
         "name": "codelens-mcp",
         "version": env!("CARGO_PKG_VERSION"),
         "description": format!(
-            "Compressed context runtime for agent harnesses ({daemon_mode} daemon)"
+            "Compressed context and verification tool for agent harnesses ({daemon_mode} daemon)"
         ),
         "transport": ["stdio", "streamable-http"],
         "capabilities": {
@@ -134,7 +137,7 @@ async fn mcp_post_handler(
         Ok(req) => req,
         Err(error) => {
             let resp = JsonRpcResponse::error(None, -32700, format!("Parse error: {error}"));
-            return json_response(resp, None);
+            return into_mcp_response(resp, accept, None, state.daemon_mode().as_str());
         }
     };
 
@@ -205,18 +208,11 @@ async fn mcp_post_handler(
 
     // Create session on initialize
     let initialize_session = if is_initialize {
-        state.session_store.as_ref().map(|store| {
-            let (session, resumed) = store.create_or_resume(session_id.as_deref());
-            if let Some(metadata) = initialize_metadata {
-                session.set_client_metadata(metadata);
-            }
-            (
-                session.id.clone(),
-                resumed,
-                store.len(),
-                store.timeout_secs(),
-            )
-        })
+        create_initialize_session(
+            state.session_store.as_ref(),
+            session_id.as_deref(),
+            initialize_metadata,
+        )
     } else {
         None
     };
@@ -226,208 +222,12 @@ async fn mcp_post_handler(
         return StatusCode::NO_CONTENT.into_response();
     };
 
-    // Check if client wants SSE
-    let resp = if let Some((ref sid, resumed, active_sessions, timeout_secs)) = initialize_session {
-        annotate_initialize_response(
-            resp,
-            sid,
-            resumed,
-            active_sessions,
-            timeout_secs,
-            state.daemon_mode().as_str(),
-        )
-    } else {
-        resp
-    };
-
-    if accept.contains("text/event-stream") {
-        return sse_single_response(
-            resp,
-            initialize_session
-                .as_ref()
-                .map(|(sid, resumed, _, _)| (sid.clone(), *resumed)),
-        );
-    }
-
-    json_response(
+    into_mcp_response(
         resp,
-        initialize_session
-            .as_ref()
-            .map(|(sid, resumed, _, _)| (sid.clone(), *resumed)),
+        accept,
+        initialize_session.as_ref(),
+        state.daemon_mode().as_str(),
     )
-}
-
-fn extract_initialize_metadata(
-    request: &JsonRpcRequest,
-    headers: &HeaderMap,
-) -> Option<SessionClientMetadata> {
-    let params = request.params.as_ref()?;
-    let client_info = params.get("clientInfo");
-    let client_name = client_info
-        .and_then(|info| info.get("name"))
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            headers
-                .get("x-codelens-client")
-                .and_then(|value| value.to_str().ok())
-                .map(ToOwned::to_owned)
-        });
-    let client_version = client_info
-        .and_then(|info| info.get("version"))
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            headers
-                .get("x-codelens-client-version")
-                .and_then(|value| value.to_str().ok())
-                .map(ToOwned::to_owned)
-        });
-    let requested_profile = params
-        .get("profile")
-        .and_then(|value| value.as_str())
-        .map(ToOwned::to_owned)
-        .or_else(|| {
-            headers
-                .get("x-codelens-profile")
-                .and_then(|value| value.to_str().ok())
-                .map(ToOwned::to_owned)
-        });
-    let trusted_client = headers
-        .get("x-codelens-trusted-client")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| match value {
-            "1" | "true" | "yes" => Some(true),
-            "0" | "false" | "no" => Some(false),
-            _ => None,
-        });
-    let deferred_tool_loading = params
-        .get("deferredToolLoading")
-        .and_then(|value| value.as_bool())
-        .or_else(|| {
-            params
-                .get("clientCapabilities")
-                .and_then(|value| value.get("deferredToolLoading"))
-                .and_then(|value| value.as_bool())
-        })
-        .or_else(|| {
-            headers
-                .get("x-codelens-deferred-tool-loading")
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| match value {
-                    "1" | "true" | "yes" => Some(true),
-                    "0" | "false" | "no" => Some(false),
-                    _ => None,
-                })
-        });
-
-    if client_name.is_none()
-        && client_version.is_none()
-        && requested_profile.is_none()
-        && trusted_client.is_none()
-        && deferred_tool_loading.is_none()
-    {
-        None
-    } else {
-        Some(SessionClientMetadata {
-            client_name,
-            client_version,
-            requested_profile,
-            trusted_client,
-            deferred_tool_loading,
-            loaded_namespaces: Vec::new(),
-            loaded_tiers: Vec::new(),
-            full_tool_exposure: None,
-        })
-    }
-}
-
-/// Build a standard JSON response with optional Mcp-Session-Id header.
-fn annotate_initialize_response(
-    mut resp: JsonRpcResponse,
-    session_id: &str,
-    resumed: bool,
-    active_sessions: usize,
-    timeout_secs: u64,
-    daemon_mode: &str,
-) -> JsonRpcResponse {
-    if let Some(result) = resp.result.as_mut() {
-        if let Some(obj) = result.as_object_mut() {
-            obj.insert(
-                "session".to_owned(),
-                serde_json::json!({
-                    "id": session_id,
-                    "resumed": resumed,
-                    "active_sessions": active_sessions,
-                    "timeout_seconds": timeout_secs,
-                    "daemon_mode": daemon_mode
-                }),
-            );
-        }
-    }
-    resp
-}
-
-fn json_response(resp: JsonRpcResponse, session: Option<(String, bool)>) -> Response {
-    let json = match serde_json::to_string(&resp) {
-        Ok(j) => j,
-        Err(e) => {
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!(r#"{{"error":"{}"}}"#, e),
-            )
-                .into_response();
-        }
-    };
-
-    let mut response =
-        (StatusCode::OK, [("content-type", "application/json")], json).into_response();
-
-    if let Some((sid, resumed)) = session {
-        if let Ok(val) = HeaderValue::from_str(&sid) {
-            response.headers_mut().insert("mcp-session-id", val);
-        }
-        let resumed_header = if resumed { "true" } else { "false" };
-        if let Ok(val) = HeaderValue::from_str(resumed_header) {
-            response
-                .headers_mut()
-                .insert("x-codelens-session-resumed", val);
-        }
-    }
-
-    response
-}
-
-/// Build an SSE response wrapping a single JSON-RPC response.
-fn sse_single_response(resp: JsonRpcResponse, session: Option<(String, bool)>) -> Response {
-    let json =
-        serde_json::to_string(&resp).unwrap_or_else(|_| r#"{"error":"serialization"}"#.to_owned());
-
-    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(2);
-    tokio::spawn(async move {
-        let event = Event::default().event("message").data(json);
-        let _ = tx.send(Ok(event)).await;
-        // Channel drops after single event, ending the stream
-    });
-
-    let stream = ReceiverStream::new(rx);
-    let mut response = Sse::new(stream)
-        .keep_alive(KeepAlive::default())
-        .into_response();
-
-    if let Some((sid, resumed)) = session {
-        if let Ok(val) = HeaderValue::from_str(&sid) {
-            response.headers_mut().insert("mcp-session-id", val);
-        }
-        let resumed_header = if resumed { "true" } else { "false" };
-        if let Ok(val) = HeaderValue::from_str(resumed_header) {
-            response
-                .headers_mut()
-                .insert("x-codelens-session-resumed", val);
-        }
-    }
-
-    response
 }
 
 // ── GET /mcp (persistent SSE stream) ──────────────────────────────────

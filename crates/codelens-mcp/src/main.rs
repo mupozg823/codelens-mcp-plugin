@@ -1,12 +1,13 @@
 mod analysis_queue;
 mod artifact_store;
 mod authority;
-mod job_store;
 mod client_profile;
 mod dispatch;
 mod dispatch_access;
 mod dispatch_response;
+mod dispatch_response_support;
 mod error;
+mod job_store;
 mod mutation_audit;
 mod mutation_gate;
 mod preflight_store;
