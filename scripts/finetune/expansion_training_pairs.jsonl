@@ -1,0 +1,38 @@
+{"query": "how to build embedding text", "positive": "function build_embedding_text in crates/codelens-core/src/embedding.rs"}
+{"query": "how to build embedding text how_to", "positive": "function build_embedding_text in crates/codelens-core/src/embedding.rs"}
+{"query": "how to build embedding text to_build", "positive": "function build_embedding_text in crates/codelens-core/src/embedding.rs"}
+{"query": "how to build embedding text build_embedding", "positive": "function build_embedding_text in crates/codelens-core/src/embedding.rs"}
+{"query": "how to build embedding text embedding_text", "positive": "function build_embedding_text in crates/codelens-core/src/embedding.rs"}
+{"query": "mutation gate preflight", "positive": "function evaluate_mutation_gate in crates/codelens-mcp/src/mutation_gate.rs"}
+{"query": "mutation gate preflight mutation_gate", "positive": "function evaluate_mutation_gate in crates/codelens-mcp/src/mutation_gate.rs"}
+{"query": "mutation gate preflight gate_preflight", "positive": "function evaluate_mutation_gate in crates/codelens-mcp/src/mutation_gate.rs"}
+{"query": "cosine similarity calculation", "positive": "function cosine_similarity in crates/codelens-core/src/embedding.rs"}
+{"query": "cosine similarity calculation cosine_similarity", "positive": "function cosine_similarity in crates/codelens-core/src/embedding.rs"}
+{"query": "cosine similarity calculation similarity_calculation", "positive": "function cosine_similarity in crates/codelens-core/src/embedding.rs"}
+{"query": "dispatch tool routing", "positive": "function dispatch_tool in crates/codelens-mcp/src/dispatch.rs"}
+{"query": "dispatch tool routing dispatch_tool", "positive": "function dispatch_tool in crates/codelens-mcp/src/dispatch.rs"}
+{"query": "dispatch tool routing tool_routing", "positive": "function dispatch_tool in crates/codelens-mcp/src/dispatch.rs"}
+{"query": "record file access", "positive": "function record_file_access in crates/codelens-mcp/src/state.rs"}
+{"query": "record file access record_file", "positive": "function record_file_access in crates/codelens-mcp/src/state.rs"}
+{"query": "record file access file_access", "positive": "function record_file_access in crates/codelens-mcp/src/state.rs"}
+{"query": "client profile detect", "positive": "function detect in crates/codelens-mcp/src/client_profile.rs"}
+{"query": "client profile detect client_profile", "positive": "function detect in crates/codelens-mcp/src/client_profile.rs"}
+{"query": "client profile detect profile_detect", "positive": "function detect in crates/codelens-mcp/src/client_profile.rs"}
+{"query": "bounded result payload", "positive": "function bounded_result_payload in crates/codelens-mcp/src/dispatch_response_support.rs"}
+{"query": "bounded result payload bounded_result", "positive": "function bounded_result_payload in crates/codelens-mcp/src/dispatch_response_support.rs"}
+{"query": "bounded result payload result_payload", "positive": "function bounded_result_payload in crates/codelens-mcp/src/dispatch_response_support.rs"}
+{"query": "donation ranking data", "positive": "function getDonationRankings"}
+{"query": "donation ranking data donation_ranking", "positive": "function getDonationRankings"}
+{"query": "donation ranking data ranking_data", "positive": "function getDonationRankings"}
+{"query": "vip reward message", "positive": "function getVipRewards"}
+{"query": "vip reward message vip_reward", "positive": "function getVipRewards"}
+{"query": "vip reward message reward_message", "positive": "function getVipRewards"}
+{"query": "live broadcast status", "positive": "variable liveStatuses"}
+{"query": "live broadcast status live_broadcast", "positive": "variable liveStatuses"}
+{"query": "live broadcast status broadcast_status", "positive": "variable liveStatuses"}
+{"query": "upload video stream", "positive": "function CloudflareVideoUpload"}
+{"query": "upload video stream upload_video", "positive": "function CloudflareVideoUpload"}
+{"query": "upload video stream video_stream", "positive": "function CloudflareVideoUpload"}
+{"query": "admin permission check", "positive": "function isAdmin"}
+{"query": "admin permission check admin_permission", "positive": "function isAdmin"}
+{"query": "admin permission check permission_check", "positive": "function isAdmin"}

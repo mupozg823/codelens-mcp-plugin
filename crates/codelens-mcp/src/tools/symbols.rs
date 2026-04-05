@@ -42,8 +42,17 @@ fn expanded_query_for_retrieval(query: &str) -> String {
         }
     };
 
-    // Note: dynamic NL→snake_case expansion was tested but hurts hybrid MRR
-    // by introducing noise. Static alias groups are more precise.
+    // Dynamic expansion: convert NL query words to snake_case symbol candidates
+    // This improves cross-project generalization. The embedding model needs
+    // training data with these patterns to rank them properly.
+    let words: Vec<&str> = lowered.split_whitespace()
+        .filter(|w| w.len() > 2)
+        .collect();
+    if words.len() >= 2 && words.len() <= 6 {
+        for window in words.windows(2) {
+            push_unique(&format!("{}_{}", window[0], window[1]));
+        }
+    }
 
     let alias_groups: &[(&[&str], &[&str])] = &[
         (
