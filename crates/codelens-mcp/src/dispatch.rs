@@ -338,9 +338,19 @@ pub(crate) fn dispatch_tool(
         }
     };
 
-    // 5. Post-mutation side effects (graph invalidation, audit)
+    // 5. Post-mutation side effects (graph invalidation, audit, incremental reindex)
     if result.is_ok() && is_content_mutation_tool(name) {
         state.graph_cache().invalidate();
+        // Incremental reindex: refresh symbol DB for the mutated file
+        if let Some(fp) = arguments
+            .get("file_path")
+            .or_else(|| arguments.get("relative_path"))
+            .and_then(|v| v.as_str())
+        {
+            if let Err(e) = state.symbol_index().refresh_file(fp) {
+                tracing::debug!(file = fp, error = %e, "incremental reindex failed");
+            }
+        }
         if let Err(error) = state.record_mutation_audit(name, &active_surface, arguments, session) {
             warn!(tool = name, error = %error, "failed to write mutation audit event");
         }
