@@ -60,7 +60,7 @@ fn expanded_query_for_retrieval(query: &str) -> String {
         (&["stdin", "line by line"], &["run_stdio", "stdio", "stdin"]),
         (
             &["parse", "ast"],
-            &["parse_symbols_recursive", "parser", "ast"],
+            &["parse_symbols", "parser", "ast", "tree_sitter"],
         ),
         (
             &["embedding", "vectors"],
@@ -80,7 +80,7 @@ fn expanded_query_for_retrieval(query: &str) -> String {
         ),
         (
             &["watch", "filesystem", "file changes"],
-            &["start_watching", "watcher", "invalidate"],
+            &["FileWatcher", "watcher", "notify", "watch"],
         ),
         (
             &["extract", "new function"],
@@ -97,6 +97,26 @@ fn expanded_query_for_retrieval(query: &str) -> String {
         (
             &["route", "handler", "tool request"],
             &["dispatch_tool", "dispatch", "handler"],
+        ),
+        (
+            &["mutation", "gate", "preflight"],
+            &["evaluate_mutation_gate", "mutation_gate", "preflight"],
+        ),
+        (
+            &["truncat", "budget", "payload"],
+            &["bounded_result_payload", "truncate", "budget_hint"],
+        ),
+        (
+            &["recently accessed", "recent files"],
+            &["record_file_access", "recent_files", "recent"],
+        ),
+        (
+            &["client", "detect", "codex", "claude"],
+            &["detect", "ClientProfile", "client_profile"],
+        ),
+        (
+            &["exclude", "ignore", "node_modules"],
+            &["is_excluded", "EXCLUDED_DIRS", "excluded"],
         ),
     ];
 

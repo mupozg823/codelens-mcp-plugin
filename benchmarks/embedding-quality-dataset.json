@@ -9,7 +9,7 @@
     "query": "find where a symbol is defined in a file",
     "query_type": "natural_language",
     "expected_symbol": "find_symbol_range",
-    "expected_file_suffix": "crates/codelens-core/src/symbols/reader.rs"
+    "expected_file_suffix": "crates/codelens-core/src/symbols/mod.rs"
   },
   {
     "query": "apply text edits to multiple files",
@@ -62,7 +62,7 @@
   {
     "query": "parse source code into an AST",
     "query_type": "natural_language",
-    "expected_symbol": "parse_symbols_recursive",
+    "expected_symbol": "parse_symbols",
     "expected_file_suffix": "crates/codelens-core/src/symbols/parser.rs"
   },
   {
@@ -92,20 +92,20 @@
   {
     "query": "watch filesystem for file changes",
     "query_type": "natural_language",
-    "expected_symbol": "start_watching",
+    "expected_symbol": "FileWatcher",
     "expected_file_suffix": "crates/codelens-core/src/watcher.rs"
   },
   {
     "query": "extract lines of code into a new function",
     "query_type": "natural_language",
     "expected_symbol": "refactor_extract_function",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/composite.rs"
   },
   {
     "query": "skip comments and string literals during search",
     "query_type": "natural_language",
     "expected_symbol": "build_non_code_ranges",
-    "expected_file_suffix": "crates/codelens-core/src/scope_analysis.rs"
+    "expected_file_suffix": "crates/codelens-core/src/rename.rs"
   },
   {
     "query": "compute similarity between two vectors",
@@ -142,5 +142,53 @@
     "query_type": "identifier",
     "expected_symbol": "find_circular_dependencies",
     "expected_file_suffix": "crates/codelens-core/src/circular.rs"
+  },
+  {
+    "query": "how to build embedding text from a symbol",
+    "query_type": "natural_language",
+    "expected_symbol": "build_embedding_text",
+    "expected_file_suffix": "crates/codelens-core/src/embedding.rs"
+  },
+  {
+    "query": "mutation gate preflight check before editing",
+    "query_type": "natural_language",
+    "expected_symbol": "evaluate_mutation_gate",
+    "expected_file_suffix": "crates/codelens-mcp/src/mutation_gate.rs"
+  },
+  {
+    "query": "detect if client is Claude Code or Codex",
+    "query_type": "natural_language",
+    "expected_symbol": "detect",
+    "expected_file_suffix": "crates/codelens-mcp/src/client_profile.rs"
+  },
+  {
+    "query": "exclude directories from indexing",
+    "query_type": "short_phrase",
+    "expected_symbol": "is_excluded",
+    "expected_file_suffix": "crates/codelens-core/src/project.rs"
+  },
+  {
+    "query": "truncate response when too large",
+    "query_type": "natural_language",
+    "expected_symbol": "bounded_result_payload",
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch_response_support.rs"
+  },
+  {
+    "query": "record which files were recently accessed",
+    "query_type": "natural_language",
+    "expected_symbol": "record_file_access",
+    "expected_file_suffix": "crates/codelens-mcp/src/state.rs"
+  },
+  {
+    "query": "AppState",
+    "query_type": "identifier",
+    "expected_symbol": "AppState",
+    "expected_file_suffix": "crates/codelens-mcp/src/state.rs"
+  },
+  {
+    "query": "EmbeddingEngine",
+    "query_type": "identifier",
+    "expected_symbol": "EmbeddingEngine",
+    "expected_file_suffix": "crates/codelens-core/src/embedding.rs"
   }
 ]
