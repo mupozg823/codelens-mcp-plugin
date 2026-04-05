@@ -895,6 +895,45 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
 /// appended. Disabled by default because the bundled CodeSearchNet-INT8 model
 /// is optimized for code signatures and dilutes on natural language text.
 /// Enable when switching to a hybrid code+text model (E5-large, BGE-base, etc).
+/// Split CamelCase/snake_case into space-separated words for embedding matching.
+/// "getDonationRankings" → "get Donation Rankings"
+/// "build_non_code_ranges" → "build non code ranges"
+fn split_identifier(name: &str) -> String {
+    // Only split if name is CamelCase or snake_case with multiple segments
+    if !name.contains('_') && !name.chars().any(|c| c.is_uppercase()) {
+        return name.to_string();
+    }
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let chars: Vec<char> = name.chars().collect();
+    for (i, &ch) in chars.iter().enumerate() {
+        if ch == '_' {
+            if !current.is_empty() {
+                words.push(current.clone());
+                current.clear();
+            }
+        } else if ch.is_uppercase()
+            && !current.is_empty()
+            && (current.chars().last().map(|c| c.is_lowercase()).unwrap_or(false)
+                || chars.get(i + 1).map(|c| c.is_lowercase()).unwrap_or(false))
+        {
+            // Split at CamelCase boundary, but not for ALL_CAPS
+            words.push(current.clone());
+            current.clear();
+            current.push(ch);
+        } else {
+            current.push(ch);
+        }
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    if words.len() <= 1 {
+        return name.to_string(); // No meaningful split
+    }
+    words.join(" ")
+}
+
 fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> String {
     let file_ctx = if sym.file_path.is_empty() {
         String::new()
@@ -902,10 +941,19 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         format!(" in {}", sym.file_path)
     };
 
-    let base = if sym.signature.is_empty() {
-        format!("{} {}{}", sym.kind, sym.name, file_ctx)
+    // Include split identifier words for better NL matching
+    // e.g. "getDonationRankings" → "get Donation Rankings"
+    let split_name = split_identifier(&sym.name);
+    let name_with_split = if split_name != sym.name {
+        format!("{} ({})", sym.name, split_name)
     } else {
-        format!("{} {}{}: {}", sym.kind, sym.name, file_ctx, sym.signature)
+        sym.name.clone()
+    };
+
+    let base = if sym.signature.is_empty() {
+        format!("{} {}{}", sym.kind, name_with_split, file_ctx)
+    } else {
+        format!("{} {}{}: {}", sym.kind, name_with_split, file_ctx, sym.signature)
     };
 
     let docstrings_enabled = std::env::var("CODELENS_EMBED_DOCSTRINGS")
@@ -1094,7 +1142,7 @@ mod tests {
             end_byte: 50,
         };
         let text = build_embedding_text(&sym, None);
-        assert_eq!(text, "class MyClass in app.py: class MyClass:");
+        assert_eq!(text, "class MyClass (My Class) in app.py: class MyClass:");
     }
 
     #[test]
