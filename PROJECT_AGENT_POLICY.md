@@ -11,7 +11,10 @@
 - Prefer existing modules over new wrappers.
 - Use verifier-first flow for risky mutations.
 - Keep fast paths fast; do not add heavy analysis to every turn.
-- Treat CodeLens as an external coprocessor, not embedded runtime logic.
+- Treat CodeLens as an external harness optimization tool, not embedded runtime logic.
+- Keep transports thin and normalize request metadata once.
+- Keep heavyweight analysis on handle/job paths instead of making it mandatory sync work.
+- Prefer bounded, machine-readable outputs over large freeform responses.
 
 ## Routing
 

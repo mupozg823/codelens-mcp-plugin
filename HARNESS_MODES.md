@@ -50,3 +50,10 @@ Preferred workflow:
 - `start_analysis_job`
 - `get_analysis_job`
 - `get_analysis_section`
+
+## Structural Rules
+
+- Keep Mode A fast and default for trivial work.
+- Use Mode B only after the task crosses a multi-file or reviewer-heavy threshold.
+- Use Mode C before risky mutation, not after it.
+- Use Mode D for heavyweight or repeatable analysis instead of inflating synchronous responses.

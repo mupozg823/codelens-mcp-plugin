@@ -25,17 +25,12 @@ jobs:
             target
           key: ${{ runner.os }}-cargo-v2-${{ hashFiles('Cargo.lock') }}
 
-      - name: Test (core)
-        run: cargo test -p codelens-core
-
-      - name: Test (mcp)
-        run: cargo test -p codelens-mcp -- --skip returns_lsp_diagnostics --skip returns_workspace_symbols --skip returns_rename_plan
+      - name: repo-local build gate
+        shell: bash
+        run: ./scripts/quality-gate.sh --mode build
 
       - name: Benchmark
         run: cargo bench --bench indexing -- --output-format bencher | tee bench-output.txt
-
-      - name: Build Release
-        run: cargo build --release
 
       - name: Upload Binary
         uses: actions/upload-artifact@v4

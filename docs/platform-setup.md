@@ -1,6 +1,6 @@
 # CodeLens MCP — Platform Setup Guide
 
-> One binary, compressed context runtime for planner/reviewer/refactor harnesses.
+> One binary, compressed context and verification tool for planner/reviewer/refactor harnesses.
 
 ## Quick Install
 

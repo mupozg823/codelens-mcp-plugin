@@ -8,6 +8,8 @@ Global defaults still come from `~/.codex/AGENTS.md`.
 - `PROJECT_AGENT_POLICY.md` — shared agent roles, routing, and non-goals
 - `EVAL_CONTRACT.md` — verification and benchmark interpretation
 - `HARNESS_MODES.md` — native vs CodeLens vs verifier vs async job paths
+- `DEVELOPMENT_PIPELINE.md` — local, build, CI, and release flow
+- `HARNESS_ARCHITECTURE.md` — harness optimization structure and architectural target
 
 ## Stack
 
@@ -35,9 +37,6 @@ Operational guidance:
 - keep simple point lookups on native rg/read/test when the repo rule says native is preferred.
 - use verifier-first CodeLens workflow for refactor/impact tasks only when the routing threshold is crossed.
 <!-- CODELENS_REPO_ROUTING_POLICY:END -->
-
-
-
 
 
 

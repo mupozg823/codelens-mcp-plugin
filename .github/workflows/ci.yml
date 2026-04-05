@@ -44,11 +44,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-target-v2-
 
-      - name: cargo test (core)
-        run: cargo test -p codelens-core
-
-      - name: cargo test (mcp)
-        run: cargo test -p codelens-mcp
+      - name: repo-local quality gate
+        shell: bash
+        run: ./scripts/quality-gate.sh --mode ci
 
       - name: cargo test (mcp + http)
         if: matrix.os == 'ubuntu-latest'
@@ -61,15 +59,6 @@ jobs:
             echo "=== HTTP stability run $i ==="
             cargo test -p codelens-mcp --features http 2>&1 | tail -1
           done
-
-      - name: cargo clippy
-        run: cargo clippy -- -W clippy::all
-
-      - name: cargo build --release (stdio-only, no default features)
-        run: cargo build --release --no-default-features
-
-      - name: cargo build --release (with semantic feature)
-        run: cargo build --release
 
       - name: cargo build --release (http for benchmark gate)
         if: matrix.os == 'ubuntu-latest'

@@ -17,6 +17,12 @@
 - `cargo build --release`
 - `cargo build --release --features http`
 
+## Build Workflow Gate
+
+- `cargo test -p codelens-core`
+- `cargo test -p codelens-mcp -- --skip returns_lsp_diagnostics --skip returns_workspace_symbols --skip returns_rename_plan`
+- `cargo build --release`
+
 ## CI-Only Benchmark Gates
 
 - `python3 benchmarks/token-efficiency.py ... --check`

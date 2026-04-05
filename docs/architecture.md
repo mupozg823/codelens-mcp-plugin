@@ -1,6 +1,6 @@
 # CodeLens MCP — Architecture & Project Overview
 
-> Pure Rust MCP Server for Code Intelligence
+> Pure Rust MCP server and harness optimization tool for code intelligence
 > 63 tools | 25 languages | tree-sitter-first | ~22K LOC
 
 ---
@@ -9,7 +9,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                        AI Agent Layer                               │
+│                 Agent Runtime / Harness Layer                        │
 │  Claude Code / OpenAI Agents / LangGraph / Custom Agent SDK         │
 ├───────────────────────┬─────────────────────────────────────────────┤
 │    A2A (future)       │              MCP Protocol                   │
@@ -17,7 +17,7 @@
 ├───────────────────────┴─────────────────────────────────────────────┤
 │                                                                     │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │                   codelens-mcp (Server)                       │  │
+│  │          codelens-mcp (Harness Optimization Server)          │  │
 │  │                                                               │  │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐ │  │
 │  │  │ Dispatch │→ │  Tools   │→ │  State   │→ │  Telemetry   │ │  │
@@ -55,6 +55,17 @@
 ```
 
 ---
+
+CodeLens is not the interactive agent runtime.
+It is the bounded MCP tool that optimizes harnesses by compressing context, producing verifier evidence, and reusing heavy analysis through handles and stored artifacts.
+
+Use repo-local contracts alongside this document:
+
+- `PROJECT_AGENT_POLICY.md`
+- `EVAL_CONTRACT.md`
+- `HARNESS_MODES.md`
+- `DEVELOPMENT_PIPELINE.md`
+- `HARNESS_ARCHITECTURE.md`
 
 ## 2. Project Directory Structure
 

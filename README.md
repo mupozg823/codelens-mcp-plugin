@@ -1,6 +1,6 @@
 # CodeLens MCP
 
-**The compressed context provider for planner, reviewer, and refactor agent harnesses.**
+**The compressed context and verification tool for planner, reviewer, and refactor agent harnesses.**
 
 Pure Rust MCP server with role-based tool surfaces, composite workflow tools, analysis handles, and tree-sitter-first code intelligence.
 
@@ -13,7 +13,7 @@ Multi-agent coding harnesses fail when every agent sees too many tools, too much
 
 ## The Solution
 
-CodeLens maintains a **live, indexed understanding** of your codebase and exposes it as a compressed context layer. The goal is not to show the model more code. The goal is to let the model ask a precise question and get a bounded answer with a handle for deeper expansion only when needed.
+CodeLens maintains a **live, indexed understanding** of your codebase and exposes it as a harness optimization layer. The goal is not to show the model more code. The goal is to let the model ask a precise question and get a bounded answer with a handle for deeper expansion only when needed.
 
 ```
 Without CodeLens: Read file + grep references → 4,600 tokens
@@ -238,6 +238,8 @@ cargo build --release --features http         # add HTTP transport
 # Tests (209+)
 cargo test -p codelens-core && cargo test -p codelens-mcp
 ```
+
+For the repo-local development flow, see `DEVELOPMENT_PIPELINE.md`.
 
 ## Agentic Architecture
 

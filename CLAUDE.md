@@ -7,6 +7,8 @@ Use repo-local contract docs as the authoritative source for project-specific be
 - `PROJECT_AGENT_POLICY.md`
 - `EVAL_CONTRACT.md`
 - `HARNESS_MODES.md`
+- `DEVELOPMENT_PIPELINE.md`
+- `HARNESS_ARCHITECTURE.md`
 
 ## Tool Routing — PREFER CodeLens over Read/Grep for code tasks
 
@@ -37,7 +39,7 @@ See `EVAL_CONTRACT.md` for minimum and extended verification gates.
 
 - Keep simple point lookups native when the routing policy says native is preferred.
 - Use CodeLens workflow tools for multi-file review, impact, and refactor preflight.
-- Treat CodeLens as an external coprocessor for harnesses, not as embedded runtime logic.
+- Treat CodeLens as a harness optimization tool, not as embedded runtime logic.
 
 <!-- CODELENS_REPO_CLAUDE_ROUTING_POLICY:BEGIN -->
 ## CodeLens Repo Routing Policy
@@ -54,10 +56,6 @@ Claude harness guidance:
 - keep simple point lookups native when the policy says native is preferred.
 - use CodeLens-aware exploration for multi-file or reviewer-heavy work.
 <!-- CODELENS_REPO_CLAUDE_ROUTING_POLICY:END -->
-
-
-
-
 
 
 

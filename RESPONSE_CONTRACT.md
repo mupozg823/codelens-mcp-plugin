@@ -1,6 +1,7 @@
 # Response Contract
 
 External callers (agent harnesses, IDE plugins, CI scripts) should rely on these guarantees.
+CodeLens is a harness optimization tool, so its response contract is optimized for bounded context, verifier evidence, and reusable analysis handles rather than open-ended runtime transcripts.
 
 ## Response Envelope
 
@@ -24,6 +25,12 @@ Every tool response includes:
 | `sync`   | Fast, bounded response   | Safe to call inline                                     |
 | `async`  | Heavy computation        | Use `start_analysis_job` + poll with `get_analysis_job` |
 | `cached` | Reused a stored artifact | No new computation cost, safe to call frequently        |
+
+Callers should treat these hints as harness optimization guidance:
+
+- `sync` keeps the fast path fast
+- `async` avoids inflating a synchronous turn with heavyweight analysis
+- `cached` favors analysis reuse over recomputation
 
 ## Per-Tool Response Caps
 
