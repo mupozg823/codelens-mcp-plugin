@@ -144,6 +144,16 @@ def render_prompt(brief: dict, global_instruction_label: str, mcp_preflight: dic
             lines.append(
                 f"- CodeLens MCP reachable; active surface={mcp_preflight.get('auto_surface') or 'unknown'}, budget={mcp_preflight.get('auto_budget') or 'unknown'}."
             )
+            if mcp_preflight.get("tools_list_contract_mode") == "lean":
+                lines.append(
+                    "- Deferred tools/list is lean by default. If you need output schemas for mutation, verifier, or tool-shape ambiguity, retry tools/list with includeOutputSchema=true and narrow by namespace/tier first."
+                )
+            elif mcp_preflight.get("tools_list_contract_mode") == "full":
+                lines.append("- Deferred tools/list already includes output schemas.")
+            if mcp_preflight.get("richer_contract_prefetched"):
+                lines.append(
+                    f"- Richer tool contract prefetched for {mcp_preflight.get('richer_contract_scope') or 'targeted'} scope; visible tools={mcp_preflight.get('richer_contract_tool_count') or 'unknown'}."
+                )
             if mcp_preflight.get("embedding_indexed") is not None:
                 lines.append(
                     f"- Semantic index ready={mcp_preflight.get('embedding_indexed')}, indexed_symbols={mcp_preflight.get('embedding_indexed_symbols', 0)}."
@@ -273,6 +283,53 @@ def is_hidden_by_deferred_loading(payload: dict) -> bool:
     return "hidden by deferred loading" in error
 
 
+def should_prefetch_richer_tools_contract(brief: dict) -> bool:
+    task_kind = str(brief.get("task_kind") or "").strip().lower()
+    if task_kind == "refactor preflight":
+        return True
+
+    task_text = str(brief.get("task") or "").lower()
+    mutation_markers = ("refactor", "rename", "mutation", "verifier", "preflight")
+    return any(marker in task_text for marker in mutation_markers)
+
+
+def fetch_richer_tools_contract(base_url: str, session_id: str | None, request_id: int):
+    headers = {"mcp-session-id": session_id} if session_id else None
+    workflow_result = mcp_http_call(
+        base_url,
+        "tools/list",
+        {"tier": "workflow", "includeOutputSchema": True},
+        request_id=request_id,
+        headers=headers,
+    )
+    workflow_payload = workflow_result.get("result", {}) if isinstance(workflow_result, dict) else {}
+    tools = workflow_payload.get("tools", [])
+    if tools:
+        return {
+            "prefetched": True,
+            "scope": "workflow",
+            "tool_count": workflow_payload.get("tool_count", len(tools)),
+            "include_output_schema": workflow_payload.get("include_output_schema"),
+            "full_tool_exposure": workflow_payload.get("full_tool_exposure"),
+        }
+
+    full_result = mcp_http_call(
+        base_url,
+        "tools/list",
+        {"includeOutputSchema": True},
+        request_id=request_id + 1,
+        headers=headers,
+    )
+    full_payload = full_result.get("result", {}) if isinstance(full_result, dict) else {}
+    return {
+        "prefetched": True,
+        "scope": "full",
+        "tool_count": full_payload.get("tool_count", len(full_payload.get("tools", []))),
+        "include_output_schema": full_payload.get("include_output_schema"),
+        "full_tool_exposure": full_payload.get("full_tool_exposure"),
+    }
+
+
 def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base: int = 9000):
     preferred_entrypoints = list(brief.get("preferred_entrypoints") or [])
     fallback_to_native = brief.get("recommended_policy") in {
@@ -345,6 +402,17 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
         )
         caps_data = caps_payload.get("data", {}) if isinstance(caps_payload, dict) else {}
         activate_data = activate_payload.get("data", {}) if isinstance(activate_payload, dict) else {}
+        include_output_schema = bool(list_result.get("include_output_schema", True))
+        tools_list_contract_mode = "full" if include_output_schema else "lean"
+        schema_recovery_hint = None
+        if not include_output_schema:
+            schema_recovery_hint = (
+                "Retry tools/list with includeOutputSchema=true only when output shapes matter; "
+                "prefer narrowing by namespace or tier before requesting a full contract."
+            )
+        richer_contract = None
+        if tools_list_contract_mode == "lean" and should_prefetch_richer_tools_contract(brief):
+            richer_contract = fetch_richer_tools_contract(base_url, session_id, request_id_base + 7)
         return {
             "available": True,
             "session_id": session_id,
@@ -356,6 +424,13 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
             "effective_namespaces": list_result.get("effective_namespaces", []),
             "preferred_namespaces": list_result.get("preferred_namespaces", []),
             "loaded_tiers": primitive_result.get("loaded_tiers", list_result.get("loaded_tiers", [])),
+            "deferred_loading_active": list_result.get("deferred_loading_active"),
+            "include_output_schema": include_output_schema,
+            "tools_list_contract_mode": tools_list_contract_mode,
+            "schema_recovery_hint": schema_recovery_hint,
+            "richer_contract_prefetched": bool(richer_contract and richer_contract.get("prefetched")),
+            "richer_contract_scope": None if not richer_contract else richer_contract.get("scope"),
+            "richer_contract_tool_count": None if not richer_contract else richer_contract.get("tool_count"),
             "auto_surface": activate_data.get("auto_surface"),
             "auto_budget": activate_data.get("auto_budget"),
             "indexed_files": activate_data.get("indexed_files"),

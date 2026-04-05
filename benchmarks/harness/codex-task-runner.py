@@ -150,6 +150,11 @@ def main():
             "indexed_files": mcp_preflight.get("indexed_files"),
             "embedding_indexed": mcp_preflight.get("embedding_indexed"),
             "embedding_indexed_symbols": mcp_preflight.get("embedding_indexed_symbols"),
+            "tools_list_contract_mode": mcp_preflight.get("tools_list_contract_mode"),
+            "schema_recovery_hint": mcp_preflight.get("schema_recovery_hint"),
+            "richer_contract_prefetched": mcp_preflight.get("richer_contract_prefetched", False),
+            "richer_contract_scope": mcp_preflight.get("richer_contract_scope"),
+            "richer_contract_tool_count": mcp_preflight.get("richer_contract_tool_count"),
             "fallback_to_native": mcp_preflight.get("fallback_to_native", False),
         }
     if workspace_alias:
