@@ -17,11 +17,12 @@ use tower::ServiceExt;
 
 fn test_state() -> Arc<AppState> {
     let dir = std::env::temp_dir().join(format!(
-        "codelens-http-test-{}",
+        "codelens-http-test-{}-{:?}",
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
-            .as_nanos()
+            .as_nanos(),
+        std::thread::current().id(),
     ));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("hello.txt"), "world\n").unwrap();
@@ -569,7 +570,8 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
         crate::tool_defs::ToolProfile::ReviewerGraph,
     ));
     let app = build_router(state.clone());
-    let file_path = state.project().as_path().join("deferred-open.py");
+    let unique_name = format!("deferred-open-{}.py", std::process::id());
+    let file_path = state.project().as_path().join(&unique_name);
     std::fs::write(&file_path, "def beta():\n    return 2\n").unwrap();
 
     let init = app
@@ -657,7 +659,10 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
 
     assert_eq!(allowed.status(), StatusCode::OK);
     let allowed_body = body_string(allowed).await;
-    assert!(allowed_body.contains("\\\"success\\\":true"));
+    assert!(
+        allowed_body.contains("\\\"success\\\":true"),
+        "deferred_namespace body: {allowed_body}"
+    );
 }
 
 #[tokio::test]
