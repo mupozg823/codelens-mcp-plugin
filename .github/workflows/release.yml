@@ -17,7 +17,7 @@ jobs:
             name: darwin-arm64
             ext: ""
           - target: x86_64-apple-darwin
-            os: macos-14
+            os: macos-latest
             name: darwin-x86_64
             ext: ""
           - target: x86_64-unknown-linux-gnu
@@ -43,6 +43,10 @@ jobs:
       - name: Install cross (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: cargo install cross --locked
+
+      - name: Add Rust target (cross-compile)
+        if: matrix.target == 'x86_64-apple-darwin'
+        run: rustup target add x86_64-apple-darwin
 
       - name: Build
         shell: bash
