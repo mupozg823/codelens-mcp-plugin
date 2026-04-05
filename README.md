@@ -132,7 +132,7 @@ CodeLens is no longer primarily a "more tools" MCP. It is a bounded-answer MCP.
 - Analysis handles let agents expand only one section at a time.
 - Durable analysis jobs let harnesses poll heavier reports without dumping raw intermediate output into the model.
 - Resources expose stable project/profile context without repeating long prompt instructions.
-- `tools/list` can now be filtered by namespace or tier, and HTTP clients can opt into deferred loading during `initialize` with `{"deferredToolLoading": true}` so the default tool list only loads preferred namespaces and tiers first. Once a client expands a namespace or tier, later default `tools/list` calls include it; hidden namespaces and primitive tiers can also gate `tools/call` until the client explicitly loads them.
+- `tools/list` can now be filtered by namespace or tier, and HTTP clients can opt into deferred loading during `initialize` with `{"deferredToolLoading": true}` so the default tool list only loads preferred namespaces and tiers first. In deferred bootstrap mode, `tools/list` omits `outputSchema` by default to reduce token overhead; clients can opt back in with `{"includeOutputSchema": true}`. Once a client expands a namespace or tier, later default `tools/list` calls include it; hidden namespaces and primitive tiers can also gate `tools/call` until the client explicitly loads them.
 - The same deferred session state now applies to `codelens://tools/list` and `codelens://session/http` resources, so tool/resource discovery stays in sync.
 - Legacy presets still work, but profiles are the preferred public interface.
 

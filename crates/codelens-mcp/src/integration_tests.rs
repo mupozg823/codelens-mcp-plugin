@@ -209,6 +209,65 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
 }
 
 #[test]
+fn deferred_tools_list_omits_output_schema_by_default() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "_session_deferred_tool_loading": true,
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let encoded = serde_json::to_string(&response).expect("serialize");
+    assert!(encoded.contains("\"include_output_schema\":false"));
+    assert!(
+        !encoded.contains("\"outputSchema\""),
+        "deferred bootstrap should omit outputSchema by default"
+    );
+}
+
+#[test]
+fn deferred_tools_list_can_restore_output_schema_explicitly() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "_session_deferred_tool_loading": true,
+                "includeOutputSchema": true,
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let encoded = serde_json::to_string(&response).expect("serialize");
+    assert!(encoded.contains("\"include_output_schema\":true"));
+    assert!(
+        encoded.contains("\"outputSchema\""),
+        "explicit includeOutputSchema should preserve output schemas"
+    );
+}
+
+#[test]
 fn refactor_profile_limits_surface_to_approved_mutations() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);

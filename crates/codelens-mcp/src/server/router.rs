@@ -35,6 +35,14 @@ fn merged_string_set<'a>(base: impl IntoIterator<Item = &'a str>, extra: &[&str]
     merged.into_iter().collect()
 }
 
+fn list_param_bool(request: &JsonRpcRequest, camel: &str, snake: &str) -> Option<bool> {
+    request
+        .params
+        .as_ref()
+        .and_then(|params| params.get(camel).or_else(|| params.get(snake)))
+        .and_then(|value| value.as_bool())
+}
+
 pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcResponse> {
     if request.jsonrpc != "2.0" {
         return Some(JsonRpcResponse::error(
@@ -171,6 +179,9 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 && requested_tier.is_none()
                 && !full_listing
                 && !full_tool_exposure;
+            let include_output_schema =
+                list_param_bool(&request, "includeOutputSchema", "include_output_schema")
+                    .unwrap_or(!deferred_loading_active);
             let filtered = all_tools
                 .iter()
                 .copied()
@@ -192,10 +203,26 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     None => true,
                 })
                 .collect::<Vec<_>>();
+            let response_tools = filtered
+                .iter()
+                .map(|tool| {
+                    let mut tool = (*tool).clone();
+                    if !include_output_schema {
+                        tool.output_schema = None;
+                    }
+                    tool
+                })
+                .collect::<Vec<_>>();
             let effective_namespaces =
                 merged_string_set(preferred_namespaces.iter().copied(), &loaded_namespaces);
             let effective_tiers = merged_string_set(preferred_tiers.iter().copied(), &loaded_tiers);
-            let token_estimate = filtered.iter().map(|tool| tool.estimated_tokens).sum();
+            let token_estimate = if include_output_schema {
+                filtered.iter().map(|tool| tool.estimated_tokens).sum()
+            } else {
+                serde_json::to_string(&response_tools)
+                    .map(|body| body.len() / 4)
+                    .unwrap_or(0)
+            };
             if deferred_loading_requested
                 && (requested_namespace.is_some() || requested_tier.is_some())
             {
@@ -224,11 +251,12 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     "selected_namespace": requested_namespace,
                     "selected_tier": requested_tier,
                     "deferred_loading_active": deferred_loading_active,
+                    "include_output_schema": include_output_schema,
                     "full_listing": full_listing,
                     "full_tool_exposure": full_tool_exposure,
-                    "tool_count": filtered.len(),
+                    "tool_count": response_tools.len(),
                     "tool_count_total": all_tools.len(),
-                    "tools": filtered
+                    "tools": response_tools
                 }),
             ))
         }
