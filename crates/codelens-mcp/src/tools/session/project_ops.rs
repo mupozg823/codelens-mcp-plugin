@@ -1,6 +1,6 @@
 use crate::protocol::BackendKind;
-use crate::tool_defs::{ToolProfile, ToolSurface, default_budget_for_profile};
-use crate::tools::{AppState, ToolResult, success_meta};
+use crate::tool_defs::{default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface};
+use crate::tools::{success_meta, AppState, ToolResult};
 use codelens_core::detect_frameworks;
 use codelens_core::memory::list_memory_names;
 use serde_json::json;
@@ -42,25 +42,36 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         .stats()
         .map(|s| s.indexed_files)
         .unwrap_or(0);
-    let (auto_surface, auto_budget, auto_label) = if file_count < 50 {
-        (
-            ToolSurface::Profile(ToolProfile::BuilderMinimal),
-            default_budget_for_profile(ToolProfile::BuilderMinimal).max(client.default_budget()),
-            "builder-minimal",
-        )
-    } else if file_count > 500 {
-        (
-            ToolSurface::Profile(ToolProfile::ReviewerGraph),
-            default_budget_for_profile(ToolProfile::ReviewerGraph).max(client.default_budget()),
-            "reviewer-graph",
-        )
-    } else {
-        (
-            ToolSurface::Profile(ToolProfile::PlannerReadonly),
-            default_budget_for_profile(ToolProfile::PlannerReadonly).max(client.default_budget()),
-            "planner-readonly",
-        )
-    };
+    // For Claude Code clients, keep Balanced preset (all tools accessible).
+    // Profile auto-selection only applies to Codex/generic clients.
+    let (auto_surface, auto_budget, auto_label) =
+        if matches!(client, crate::client_profile::ClientProfile::Claude) {
+            (
+                ToolSurface::Preset(ToolPreset::Balanced),
+                client.default_budget(),
+                "balanced",
+            )
+        } else if file_count < 50 {
+            (
+                ToolSurface::Profile(ToolProfile::BuilderMinimal),
+                default_budget_for_profile(ToolProfile::BuilderMinimal)
+                    .max(client.default_budget()),
+                "builder-minimal",
+            )
+        } else if file_count > 500 {
+            (
+                ToolSurface::Profile(ToolProfile::ReviewerGraph),
+                default_budget_for_profile(ToolProfile::ReviewerGraph).max(client.default_budget()),
+                "reviewer-graph",
+            )
+        } else {
+            (
+                ToolSurface::Profile(ToolProfile::PlannerReadonly),
+                default_budget_for_profile(ToolProfile::PlannerReadonly)
+                    .max(client.default_budget()),
+                "planner-readonly",
+            )
+        };
     state.set_surface(auto_surface);
     state.set_token_budget(auto_budget);
 
