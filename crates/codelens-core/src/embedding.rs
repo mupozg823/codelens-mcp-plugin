@@ -401,7 +401,7 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
 }
 
 pub fn configured_embedding_model_name() -> String {
-    CODESEARCH_MODEL_NAME.to_string()
+    std::env::var("CODELENS_EMBED_MODEL").unwrap_or_else(|_| CODESEARCH_MODEL_NAME.to_string())
 }
 
 impl EmbeddingEngine {
