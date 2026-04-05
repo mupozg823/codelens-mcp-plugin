@@ -1,5 +1,5 @@
 use crate::AppState;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 
 pub(crate) struct SessionMetricsPayload {
     pub(crate) session: Map<String, Value>,
@@ -219,39 +219,31 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
     );
     session_json.insert(
         "watcher_running".to_owned(),
-        json!(
-            watcher_stats
-                .as_ref()
-                .map(|stats| stats.running)
-                .unwrap_or(false)
-        ),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.running)
+            .unwrap_or(false)),
     );
     session_json.insert(
         "watcher_events_processed".to_owned(),
-        json!(
-            watcher_stats
-                .as_ref()
-                .map(|stats| stats.events_processed)
-                .unwrap_or(0)
-        ),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.events_processed)
+            .unwrap_or(0)),
     );
     session_json.insert(
         "watcher_files_reindexed".to_owned(),
-        json!(
-            watcher_stats
-                .as_ref()
-                .map(|stats| stats.files_reindexed)
-                .unwrap_or(0)
-        ),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.files_reindexed)
+            .unwrap_or(0)),
     );
     session_json.insert(
         "watcher_lock_contention_batches".to_owned(),
-        json!(
-            watcher_stats
-                .as_ref()
-                .map(|stats| stats.lock_contention_batches)
-                .unwrap_or(0)
-        ),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.lock_contention_batches)
+            .unwrap_or(0)),
     );
     session_json.insert(
         "watcher_index_failures".to_owned(),
@@ -370,8 +362,73 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
         } else { 0.0 }
     });
 
+    // Infer session type from tool usage patterns
+    let session_type = infer_session_type(&session.timeline);
+    let mut kpis = derived_kpis.as_object().cloned().unwrap_or_default();
+    kpis.insert("inferred_session_type".to_owned(), json!(session_type));
+    let derived_kpis = Value::Object(kpis);
+
     SessionMetricsPayload {
         session: session_json,
         derived_kpis,
+    }
+}
+
+/// Classify the session based on tool call patterns in the timeline.
+fn infer_session_type(timeline: &[crate::telemetry::ToolInvocation]) -> &'static str {
+    let mut mutation_count = 0u32;
+    let mut review_count = 0u32;
+    let mut exploration_count = 0u32;
+    let mut refactor_count = 0u32;
+
+    for entry in timeline {
+        match entry.tool.as_str() {
+            "rename_symbol"
+            | "replace_symbol_body"
+            | "replace_content"
+            | "replace_lines"
+            | "delete_lines"
+            | "insert_content"
+            | "insert_at_line"
+            | "create_text_file"
+            | "add_import"
+            | "refactor_extract_function"
+            | "refactor_inline_function"
+            | "refactor_move_to_file"
+            | "refactor_change_signature" => mutation_count += 1,
+
+            "get_changed_files"
+            | "get_impact_analysis"
+            | "diff_aware_references"
+            | "impact_report"
+            | "verify_change_readiness" => review_count += 1,
+
+            "onboard_project"
+            | "get_project_structure"
+            | "get_symbols_overview"
+            | "get_current_config"
+            | "activate_project" => exploration_count += 1,
+
+            "safe_rename_report"
+            | "refactor_safety_report"
+            | "unresolved_reference_check"
+            | "find_scoped_references" => refactor_count += 1,
+
+            _ => {}
+        }
+    }
+
+    if refactor_count >= 2 || (mutation_count >= 1 && refactor_count >= 1) {
+        "refactoring"
+    } else if review_count >= 2 {
+        "code_review"
+    } else if mutation_count >= 2 {
+        "code_modification"
+    } else if exploration_count >= 2 {
+        "onboarding"
+    } else if timeline.len() < 5 {
+        "brief"
+    } else {
+        "mixed"
     }
 }
