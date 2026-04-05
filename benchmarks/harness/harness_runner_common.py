@@ -162,6 +162,18 @@ def render_prompt(brief: dict, global_instruction_label: str, mcp_preflight: dic
                 lines.append(
                     f"- Suggested bootstrap entrypoints: {', '.join(mcp_preflight['preferred_entrypoints'])}."
                 )
+            if mcp_preflight.get("recommended_entrypoint"):
+                lines.append(
+                    f"- Recommended next CodeLens entrypoint: {mcp_preflight['recommended_entrypoint']} ({mcp_preflight.get('recommendation_source', 'preflight')})."
+                )
+            if mcp_preflight.get("recommended_contract_action"):
+                lines.append(
+                    f"- Contract action: {mcp_preflight['recommended_contract_action']}."
+                )
+            if mcp_preflight.get("recommended_followup_tools"):
+                lines.append(
+                    f"- Follow-up tools after the first entrypoint: {', '.join(mcp_preflight['recommended_followup_tools'])}."
+                )
             if mcp_preflight.get("fallback_to_native"):
                 lines.append("- Even though MCP is reachable, stay native first and escalate only after the initial local boundary check.")
         else:
@@ -311,6 +323,7 @@ def fetch_richer_tools_contract(base_url: str, session_id: str | None, request_i
             "tool_count": workflow_payload.get("tool_count", len(tools)),
             "include_output_schema": workflow_payload.get("include_output_schema"),
             "full_tool_exposure": workflow_payload.get("full_tool_exposure"),
+            "tools": tools,
         }
 
     full_result = mcp_http_call(
@@ -327,6 +340,75 @@ def fetch_richer_tools_contract(base_url: str, session_id: str | None, request_i
         "tool_count": full_payload.get("tool_count", len(full_payload.get("tools", []))),
         "include_output_schema": full_payload.get("include_output_schema"),
         "full_tool_exposure": full_payload.get("full_tool_exposure"),
+        "tools": full_payload.get("tools", []),
+    }
+
+
+def extract_tool_names(payload: dict) -> list[str]:
+    tools = payload.get("tools", []) if isinstance(payload, dict) else []
+    names = []
+    for tool in tools:
+        if isinstance(tool, dict):
+            name = tool.get("name")
+            if isinstance(name, str):
+                names.append(name)
+    return names
+
+
+def build_codex_routing_recommendation(
+    brief: dict,
+    tool_list_result: dict,
+    primitive_result: dict,
+    richer_contract: dict | None,
+    tools_list_contract_mode: str,
+):
+    preferred_entrypoints = list(brief.get("preferred_entrypoints") or [])
+    visible_tool_names = set(extract_tool_names(tool_list_result))
+    primitive_tool_names = set(extract_tool_names(primitive_result))
+    richer_tool_names = set(extract_tool_names(richer_contract or {}))
+
+    recommended_entrypoint = None
+    recommendation_source = "preferred_entrypoints"
+    for candidate in preferred_entrypoints:
+        if candidate in visible_tool_names:
+            recommended_entrypoint = candidate
+            recommendation_source = "default_contract"
+            break
+    if recommended_entrypoint is None:
+        for candidate in preferred_entrypoints:
+            if candidate in richer_tool_names:
+                recommended_entrypoint = candidate
+                recommendation_source = "prefetched_contract"
+                break
+
+    contract_action = "stay_on_default_contract"
+    if tools_list_contract_mode == "lean" and should_prefetch_richer_tools_contract(brief):
+        contract_action = (
+            "use_prefetched_workflow_contract" if richer_contract else "request_workflow_contract"
+        )
+    elif tools_list_contract_mode == "lean":
+        contract_action = "stay_lean_until_shape_needed"
+    elif recommended_entrypoint is None and primitive_tool_names:
+        contract_action = "open_primitive_tier"
+
+    followup_tools = []
+    for candidate in preferred_entrypoints:
+        if candidate == recommended_entrypoint:
+            continue
+        if candidate in visible_tool_names or candidate in richer_tool_names:
+            followup_tools.append(candidate)
+
+    return {
+        "recommended_entrypoint": recommended_entrypoint,
+        "recommendation_source": recommendation_source,
+        "recommended_contract_action": contract_action,
+        "recommended_followup_tools": followup_tools[:3],
+        "preferred_entrypoints_visible": [
+            tool for tool in preferred_entrypoints if tool in visible_tool_names
+        ],
+        "preferred_entrypoints_in_prefetched_contract": [
+            tool for tool in preferred_entrypoints if tool in richer_tool_names
+        ],
     }
 
 
@@ -413,6 +495,13 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
         richer_contract = None
         if tools_list_contract_mode == "lean" and should_prefetch_richer_tools_contract(brief):
             richer_contract = fetch_richer_tools_contract(base_url, session_id, request_id_base + 7)
+        routing_recommendation = build_codex_routing_recommendation(
+            brief,
+            list_result,
+            primitive_result,
+            richer_contract,
+            tools_list_contract_mode,
+        )
         return {
             "available": True,
             "session_id": session_id,
@@ -431,6 +520,14 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
             "richer_contract_prefetched": bool(richer_contract and richer_contract.get("prefetched")),
             "richer_contract_scope": None if not richer_contract else richer_contract.get("scope"),
             "richer_contract_tool_count": None if not richer_contract else richer_contract.get("tool_count"),
+            "recommended_entrypoint": routing_recommendation.get("recommended_entrypoint"),
+            "recommendation_source": routing_recommendation.get("recommendation_source"),
+            "recommended_contract_action": routing_recommendation.get("recommended_contract_action"),
+            "recommended_followup_tools": routing_recommendation.get("recommended_followup_tools"),
+            "preferred_entrypoints_visible": routing_recommendation.get("preferred_entrypoints_visible"),
+            "preferred_entrypoints_in_prefetched_contract": routing_recommendation.get(
+                "preferred_entrypoints_in_prefetched_contract"
+            ),
             "auto_surface": activate_data.get("auto_surface"),
             "auto_budget": activate_data.get("auto_budget"),
             "indexed_files": activate_data.get("indexed_files"),

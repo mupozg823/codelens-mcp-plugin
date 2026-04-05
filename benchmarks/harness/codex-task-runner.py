@@ -155,6 +155,14 @@ def main():
             "richer_contract_prefetched": mcp_preflight.get("richer_contract_prefetched", False),
             "richer_contract_scope": mcp_preflight.get("richer_contract_scope"),
             "richer_contract_tool_count": mcp_preflight.get("richer_contract_tool_count"),
+            "recommended_entrypoint": mcp_preflight.get("recommended_entrypoint"),
+            "recommendation_source": mcp_preflight.get("recommendation_source"),
+            "recommended_contract_action": mcp_preflight.get("recommended_contract_action"),
+            "recommended_followup_tools": mcp_preflight.get("recommended_followup_tools"),
+            "preferred_entrypoints_visible": mcp_preflight.get("preferred_entrypoints_visible"),
+            "preferred_entrypoints_in_prefetched_contract": mcp_preflight.get(
+                "preferred_entrypoints_in_prefetched_contract"
+            ),
             "fallback_to_native": mcp_preflight.get("fallback_to_native", False),
         }
     if workspace_alias:
