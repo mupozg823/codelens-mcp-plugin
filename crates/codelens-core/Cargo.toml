@@ -55,6 +55,7 @@ walkdir.workspace = true
 libc.workspace = true
 tracing.workspace = true
 fastembed = { workspace = true, optional = true }
+ort = { version = "2.0.0-rc.11", default-features = false, optional = true }
 sqlite-vec = { workspace = true, optional = true }
 oxc_allocator.workspace = true
 oxc_parser.workspace = true
@@ -63,7 +64,7 @@ oxc_span.workspace = true
 
 [features]
 default = ["semantic"]
-semantic = ["dep:fastembed", "dep:sqlite-vec"]
+semantic = ["dep:fastembed", "dep:ort", "dep:sqlite-vec"]
 
 [dev-dependencies]
 criterion.workspace = true

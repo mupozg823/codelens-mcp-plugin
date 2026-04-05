@@ -390,7 +390,17 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
         },
     );
 
-    let model = TextEmbedding::try_new_from_user_defined(user_model, InitOptionsUserDefined::new())
+    // Try CoreML EP on macOS for Apple Neural Engine acceleration; silently falls back to CPU
+    let init_opts = if cfg!(target_os = "macos") {
+        let coreml_ep: fastembed::ExecutionProviderDispatch =
+            ort::ep::CoreML::default().into();
+        InitOptionsUserDefined::new()
+            .with_execution_providers(vec![coreml_ep.fail_silently()])
+    } else {
+        InitOptionsUserDefined::new()
+    };
+
+    let model = TextEmbedding::try_new_from_user_defined(user_model, init_opts)
         .context("failed to load CodeSearchNet embedding model")?;
 
     Ok((

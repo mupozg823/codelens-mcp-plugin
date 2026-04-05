@@ -275,6 +275,7 @@ dependencies = [
  "libc",
  "notify",
  "notify-debouncer-mini",
+ "ort",
  "oxc_allocator",
  "oxc_parser",
  "oxc_semantic",
