@@ -48,6 +48,19 @@ fn first_resource_text(body: &str) -> String {
         .unwrap_or_default()
 }
 
+fn first_tool_payload(body: &str) -> serde_json::Value {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| value.get("result").cloned())
+        .and_then(|result| result.get("content").cloned())
+        .and_then(|contents| contents.as_array().cloned())
+        .and_then(|contents| contents.first().cloned())
+        .and_then(|content| content.get("text").cloned())
+        .and_then(|text| text.as_str().map(ToOwned::to_owned))
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .unwrap_or_default()
+}
+
 // ── POST /mcp ────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -147,6 +160,54 @@ async fn initialize_persists_deferred_loading_preference() {
     assert!(metadata.loaded_namespaces.is_empty());
     assert!(metadata.loaded_tiers.is_empty());
     assert_eq!(metadata.full_tool_exposure, None);
+}
+
+#[tokio::test]
+async fn codex_session_client_name_affects_activate_project_budget() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let activate = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"activate_project","arguments":{}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(activate.status(), StatusCode::OK);
+    let payload = first_tool_payload(&body_string(activate).await);
+    assert_eq!(payload["success"], serde_json::json!(true));
+    assert_eq!(payload["data"]["auto_surface"], serde_json::json!("builder-minimal"));
+    assert_eq!(payload["data"]["auto_budget"], serde_json::json!(6000));
 }
 
 #[tokio::test]

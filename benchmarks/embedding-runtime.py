@@ -8,8 +8,11 @@ configured default model. Results are workload- and hardware-specific.
 import argparse
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 import time
+from pathlib import Path
 from statistics import mean, median
 
 
@@ -30,12 +33,15 @@ def parse_args():
     parser.add_argument("--ranked-query", default="embedding model and semantic search")
     parser.add_argument("--search-runs", type=int, default=3)
     parser.add_argument("--ranked-runs", type=int, default=3)
+    parser.add_argument("--isolated-copy", action="store_true")
+    parser.add_argument("--keep-isolated-copy", action="store_true")
     parser.add_argument("--output", default="")
     return parser.parse_args()
 
 
 ARGS = parse_args()
-PROJECT = os.path.abspath(ARGS.project_path)
+SOURCE_PROJECT = os.path.abspath(ARGS.project_path)
+PROJECT = SOURCE_PROJECT
 BIN = os.path.abspath(ARGS.binary)
 
 
@@ -74,23 +80,99 @@ def run_tool(cmd, args, timeout=120):
     }
 
 
-def collect():
-    capabilities_before = run_tool("get_capabilities", {})
-    index_result = run_tool("index_embeddings", {}, timeout=1800)
-    capabilities_after = run_tool("get_capabilities", {})
+def tool_succeeded(result):
+    payload = result.get("payload")
+    return (
+        result.get("returncode") == 0
+        and isinstance(payload, dict)
+        and payload.get("success") is True
+    )
 
-    semantic_runs = [
-        run_tool("semantic_search", {"query": ARGS.query, "max_results": 5})
-        for _ in range(ARGS.search_runs)
-    ]
-    ranked_runs = [
-        run_tool(
-            "get_ranked_context",
-            {"query": ARGS.ranked_query, "max_tokens": 800, "include_body": False},
+
+def require_tool_success(name, result, context=""):
+    if tool_succeeded(result):
+        return result
+    message = [f"{name} failed"]
+    if context:
+        message.append(f"context={context}")
+    message.append(f"returncode={result.get('returncode')}")
+    payload = result.get("payload")
+    if payload is not None:
+        message.append(f"payload={json.dumps(payload, ensure_ascii=False)}")
+    stderr = result.get("stderr")
+    if stderr:
+        message.append(f"stderr={stderr}")
+    raise SystemExit(" | ".join(message))
+
+
+def copy_project_for_benchmark(source_project: str) -> str:
+    source = Path(source_project).resolve()
+    temp_root = Path(tempfile.mkdtemp(prefix="codelens-embed-bench-"))
+    bench_project = temp_root / source.name
+    shutil.copytree(
+        source,
+        bench_project,
+        symlinks=True,
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".codelens",
+            "target",
+            "node_modules",
+            ".next",
+            "dist",
+            "coverage",
+            "__pycache__",
+            ".venv",
+            "venv",
+            ".pytest_cache",
+        ),
+    )
+    return str(bench_project)
+
+
+def collect():
+    capabilities_before = require_tool_success(
+        "get_capabilities",
+        run_tool("get_capabilities", {}),
+        context="before index_embeddings",
+    )
+    index_result = require_tool_success(
+        "index_embeddings",
+        run_tool("index_embeddings", {}, timeout=1800),
+    )
+    capabilities_after = require_tool_success(
+        "get_capabilities",
+        run_tool("get_capabilities", {}),
+        context="after index_embeddings",
+    )
+
+    semantic_runs = []
+    for index in range(ARGS.search_runs):
+        semantic_runs.append(
+            require_tool_success(
+                "semantic_search",
+                run_tool("semantic_search", {"query": ARGS.query, "max_results": 5}),
+                context=f"run={index + 1}",
+            )
         )
-        for _ in range(ARGS.ranked_runs)
-    ]
-    onboard_run = run_tool("onboard_project", {}, timeout=300)
+
+    ranked_runs = []
+    for index in range(ARGS.ranked_runs):
+        ranked_runs.append(
+            require_tool_success(
+                "get_ranked_context",
+                run_tool(
+                    "get_ranked_context",
+                    {"query": ARGS.ranked_query, "max_tokens": 800, "include_body": False},
+                ),
+                context=f"run={index + 1}",
+            )
+        )
+
+    onboard_run = require_tool_success(
+        "onboard_project",
+        run_tool("onboard_project", {}, timeout=300),
+    )
 
     def percentile(values, p):
         s = sorted(values)
@@ -132,14 +214,28 @@ def collect():
 
     # Measure artifact reuse: call find_reusable for a recent tool
     reuse_run = run_tool("get_tool_metrics", {})
-    reuse_data = (reuse_run["payload"] or {}).get("data", {}).get("session", {})
-    cache_hits = reuse_data.get("analysis_cache_hits", 0)
-    cache_total = reuse_data.get("analysis_cache_hits", 0) + reuse_data.get(
-        "analysis_cache_misses", 0
-    )
+    if tool_succeeded(reuse_run):
+        reuse_data = (reuse_run["payload"] or {}).get("data", {}).get("session", {})
+        cache_hits = reuse_data.get("analysis_cache_hits", 0)
+        cache_total = reuse_data.get("analysis_cache_hits", 0) + reuse_data.get(
+            "analysis_cache_misses", 0
+        )
+        artifact_reuse = {
+            "available": True,
+            "cache_hits": cache_hits,
+            "cache_total": cache_total,
+            "hit_rate": round(cache_hits / cache_total, 3) if cache_total > 0 else None,
+        }
+    else:
+        artifact_reuse = {
+            "available": False,
+            "error": (reuse_run.get("payload") or {}).get("error") or reuse_run.get("stderr"),
+        }
 
     return {
-        "project": PROJECT,
+        "project": SOURCE_PROJECT,
+        "benchmark_project": PROJECT,
+        "isolated_copy": bool(ARGS.isolated_copy),
         "binary": BIN,
         "build_profile": build_profile,
         "preset": ARGS.preset,
@@ -166,21 +262,26 @@ def collect():
             "elapsed_ms": onboard_run["elapsed_ms"],
             "semantic": semantic_status,
         },
-        "artifact_reuse": {
-            "cache_hits": cache_hits,
-            "cache_total": cache_total,
-            "hit_rate": round(cache_hits / cache_total, 3) if cache_total > 0 else None,
-        },
+        "artifact_reuse": artifact_reuse,
     }
 
 
 def main():
-    result = collect()
-    text = json.dumps(result, ensure_ascii=False, indent=2)
-    print(text)
-    if ARGS.output:
-        with open(ARGS.output, "w", encoding="utf-8") as handle:
-            handle.write(text + "\n")
+    global PROJECT
+    cleanup_dir = None
+    if ARGS.isolated_copy:
+        PROJECT = copy_project_for_benchmark(SOURCE_PROJECT)
+        cleanup_dir = str(Path(PROJECT).parent)
+    try:
+        result = collect()
+        text = json.dumps(result, ensure_ascii=False, indent=2)
+        print(text)
+        if ARGS.output:
+            with open(ARGS.output, "w", encoding="utf-8") as handle:
+                handle.write(text + "\n")
+    finally:
+        if cleanup_dir and not ARGS.keep_isolated_copy:
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

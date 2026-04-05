@@ -5,7 +5,9 @@ import argparse
 import collections
 import json
 import os
+import shutil
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -32,11 +34,14 @@ def parse_args():
     parser.add_argument("--output", default="benchmarks/embedding-quality-results.json")
     parser.add_argument("--markdown-output", default="")
     parser.add_argument("--max-results", type=int, default=10)
+    parser.add_argument("--isolated-copy", action="store_true")
+    parser.add_argument("--keep-isolated-copy", action="store_true")
     return parser.parse_args()
 
 
 ARGS = parse_args()
-PROJECT = os.path.abspath(ARGS.project_path)
+SOURCE_PROJECT = os.path.abspath(ARGS.project_path)
+PROJECT = SOURCE_PROJECT
 BIN = os.path.abspath(ARGS.binary)
 DATASET = os.path.abspath(ARGS.dataset)
 
@@ -65,6 +70,56 @@ def run_tool(cmd, args, timeout=120):
         "payload": payload,
         "stderr": result.stderr.strip(),
     }
+
+
+def tool_succeeded(result):
+    payload = result.get("payload")
+    return (
+        result.get("returncode") == 0
+        and isinstance(payload, dict)
+        and payload.get("success") is True
+    )
+
+
+def require_tool_success(name, result, context=""):
+    if tool_succeeded(result):
+        return result
+    message = [f"{name} failed"]
+    if context:
+        message.append(f"context={context}")
+    message.append(f"returncode={result.get('returncode')}")
+    payload = result.get("payload")
+    if payload is not None:
+        message.append(f"payload={json.dumps(payload, ensure_ascii=False)}")
+    stderr = result.get("stderr")
+    if stderr:
+        message.append(f"stderr={stderr}")
+    raise SystemExit(" | ".join(message))
+
+
+def copy_project_for_benchmark(source_project: str) -> str:
+    source = Path(source_project).resolve()
+    temp_root = Path(tempfile.mkdtemp(prefix="codelens-embed-quality-"))
+    bench_project = temp_root / source.name
+    shutil.copytree(
+        source,
+        bench_project,
+        symlinks=True,
+        ignore=shutil.ignore_patterns(
+            ".git",
+            ".codelens",
+            "target",
+            "node_modules",
+            ".next",
+            "dist",
+            "coverage",
+            "__pycache__",
+            ".venv",
+            "venv",
+            ".pytest_cache",
+        ),
+    )
+    return str(bench_project)
 
 
 def load_dataset():
@@ -113,7 +168,11 @@ def acc_at(rank, k):
 def evaluate_method(name, dataset, tool_name, args_factory):
     rows = []
     for item in dataset:
-        tool_result = run_tool(tool_name, args_factory(item), timeout=180)
+        tool_result = require_tool_success(
+            tool_name,
+            run_tool(tool_name, args_factory(item), timeout=180),
+            context=item["query"],
+        )
         payload = tool_result.get("payload") or {}
         candidates = candidate_rows(name, payload)
         rank = find_rank(
@@ -230,12 +289,12 @@ def render_markdown(result):
 
 def main():
     dataset = load_dataset()
-    capabilities = run_tool("get_capabilities", {})
+    capabilities = require_tool_success("get_capabilities", run_tool("get_capabilities", {}))
     embedding_model = ((capabilities.get("payload") or {}).get("data") or {}).get(
         "embedding_model"
     )
 
-    run_tool("index_embeddings", {}, timeout=1800)
+    require_tool_success("index_embeddings", run_tool("index_embeddings", {}, timeout=1800))
 
     methods = []
     methods.append(
@@ -289,7 +348,9 @@ def main():
         }
 
     result = {
-        "project": PROJECT,
+        "project": SOURCE_PROJECT,
+        "benchmark_project": PROJECT,
+        "isolated_copy": bool(ARGS.isolated_copy),
         "binary": BIN,
         "embedding_model": embedding_model,
         "dataset_path": DATASET,
@@ -315,4 +376,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    cleanup_dir = None
+    if ARGS.isolated_copy:
+        PROJECT = copy_project_for_benchmark(SOURCE_PROJECT)
+        cleanup_dir = str(Path(PROJECT).parent)
+    try:
+        main()
+    finally:
+        if cleanup_dir and not ARGS.keep_isolated_copy:
+            shutil.rmtree(cleanup_dir, ignore_errors=True)

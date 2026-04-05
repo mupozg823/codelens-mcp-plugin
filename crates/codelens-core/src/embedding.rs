@@ -956,6 +956,9 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         format!("{} {}{}: {}", sym.kind, name_with_split, file_ctx, sym.signature)
     };
 
+    // Docstring inclusion tested with v6 model: semantic +0.017 but hybrid -0.054.
+    // Docstring text dilutes the lexical signal that hybrid ranking relies on.
+    // Kept off by default; enable via CODELENS_EMBED_DOCSTRINGS=1 for semantic-only use.
     let docstrings_enabled = std::env::var("CODELENS_EMBED_DOCSTRINGS")
         .map(|v| v == "1" || v == "true")
         .unwrap_or(false);
@@ -971,10 +974,12 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
     if docstring.is_empty() {
         base
     } else {
-        let truncated = if docstring.len() > 200 {
-            format!("{}...", &docstring[..200])
+        let first_line = docstring.lines().next().unwrap_or(&docstring);
+        let truncated = if first_line.chars().count() > 60 {
+            let s: String = first_line.chars().take(60).collect();
+            format!("{s}...")
         } else {
-            docstring
+            first_line.to_string()
         };
         format!("{} — {}", base, truncated)
     }

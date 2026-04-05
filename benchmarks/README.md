@@ -67,8 +67,8 @@ python3 benchmarks/render-summary.py --output benchmarks/token-efficiency-summar
 ### 1-2. 임베드 런타임 benchmark (embedding-runtime.py)
 
 ```bash
-python3 benchmarks/embedding-runtime.py .
-python3 benchmarks/embedding-runtime.py . --output benchmarks/embedding-runtime-results.json
+python3 benchmarks/embedding-runtime.py . --isolated-copy
+python3 benchmarks/embedding-runtime.py . --isolated-copy --output benchmarks/embedding-runtime-results.json
 ```
 
 측정 항목:
@@ -84,12 +84,15 @@ python3 benchmarks/embedding-runtime.py . --output benchmarks/embedding-runtime-
 
 - 하드웨어와 프로젝트 크기에 따라 숫자가 크게 달라진다
 - 이 스크립트 결과를 README의 고정 성능 수치보다 우선한다
+- 재현 가능한 Codex 평가용 런은 `--isolated-copy`를 권장한다. 이 모드는 `.codelens/index` 충돌을 피하기 위해 임시 워크스페이스에서 인덱싱한다.
+- `index_embeddings` 또는 측정 대상 tool call이 실패하면 즉시 종료한다. 부분 결과를 정상 벤치로 취급하지 않는다.
 
 ### 1-3. 임베드 품질 benchmark (embedding-quality.py)
 
 ```bash
-python3 benchmarks/embedding-quality.py .
+python3 benchmarks/embedding-quality.py . --isolated-copy
 python3 benchmarks/embedding-quality.py . \
+  --isolated-copy \
   --output benchmarks/embedding-quality-results.json \
   --markdown-output benchmarks/embedding-quality-summary.md
 ```
@@ -101,12 +104,12 @@ python3 benchmarks/embedding-quality.py . \
 - `get_ranked_context disable_semantic=true` 대비 hybrid uplift
 - query별 miss / wrong-top-hit
 
-현재 로컬 기준선 (`embedding-quality-results.json`):
+현재 재현 가능한 로컬 기준선 (`embedding-quality-results.json`, sequential + `--isolated-copy`):
 
-- `semantic_search`: `MRR 0.364`, `Acc@1 29%`, `Acc@3 38%`, `Acc@5 46%`
-- `get_ranked_context` lexical-only: `MRR 0.263`, `Acc@1 17%`, `Acc@3 33%`, `Acc@5 38%`
-- `get_ranked_context` hybrid: `MRR 0.399`, `Acc@1 33%`, `Acc@3 42%`, `Acc@5 50%`
-- overall uplift: `+0.135 MRR`, `+17% Acc@1`, `+8% Acc@3`, `+12% Acc@5`
+- `semantic_search`: `MRR 0.502`, `Acc@1 44%`, `Acc@3 56%`, `Acc@5 62%`
+- `get_ranked_context` lexical-only: `MRR 0.407`, `Acc@1 28%`, `Acc@3 47%`, `Acc@5 53%`
+- `get_ranked_context` hybrid: `MRR 0.654`, `Acc@1 53%`, `Acc@3 69%`, `Acc@5 78%`
+- overall uplift: `+0.246 MRR`, `+25% Acc@1`, `+22% Acc@3`, `+25% Acc@5`
 - identifier-like queries: neutral uplift by design (`get_ranked_context` lexical-first)
 
 데이터셋:
@@ -352,6 +355,8 @@ python3 benchmarks/codex-task-runner.py \
 
 - bootstrap brief를 갱신하고
 - Codex에 전달할 prompt markdown을 `~/.codex/harness/bootstrap/prompts/` 아래 생성하고
+- 가능하면 MCP preflight를 수행해 `run_dir/mcp-preflight.json`에 현재 surface / index 상태를 기록하고
+- MCP가 불안하면 prompt에 native fallback 지침을 같이 넣고
 - 실제 `codex exec` 명령 배열을 JSON으로 출력한다
 
 Claude 실행용 prompt와 command를 만들려면:

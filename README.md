@@ -178,13 +178,13 @@ CodeLens defaults to a **bundled MiniLM-L12 CodeSearchNet model** (ONNX INT8) an
 Measure current runtime latency, indexing cost, and indexed symbol counts on your machine:
 
 ```bash
-python3 benchmarks/embedding-runtime.py .
+python3 benchmarks/embedding-runtime.py . --isolated-copy
 ```
 
 Measure search quality and hybrid uplift on the current runtime:
 
 ```bash
-python3 benchmarks/embedding-quality.py .
+python3 benchmarks/embedding-quality.py . --isolated-copy
 ```
 
 The quality report now breaks results down by query type:
@@ -198,13 +198,14 @@ The quality report now breaks results down by query type:
 - identifier-like queries stay lexical-first
 - short phrases and natural-language queries keep hybrid semantic blending
 
-Current local quality snapshot (`benchmarks/embedding-quality-results.json`):
+Current reproducible local quality snapshot (`benchmarks/embedding-quality-results.json`, sequential run with `--isolated-copy`):
 
-- `semantic_search`: `MRR 0.364`, `Acc@1 29%`, `Acc@3 38%`, `Acc@5 46%`
-- `get_ranked_context` lexical-only: `MRR 0.263`, `Acc@1 17%`, `Acc@3 33%`, `Acc@5 38%`
-- `get_ranked_context` hybrid: `MRR 0.399`, `Acc@1 33%`, `Acc@3 42%`, `Acc@5 50%`
-- Hybrid uplift over lexical-only: `+0.135 MRR`, `+17% Acc@1`, `+8% Acc@3`, `+12% Acc@5`
+- `semantic_search`: `MRR 0.502`, `Acc@1 44%`, `Acc@3 56%`, `Acc@5 62%`
+- `get_ranked_context` lexical-only: `MRR 0.407`, `Acc@1 28%`, `Acc@3 47%`, `Acc@5 53%`
+- `get_ranked_context` hybrid: `MRR 0.654`, `Acc@1 53%`, `Acc@3 69%`, `Acc@5 78%`
+- Hybrid uplift over lexical-only: `+0.246 MRR`, `+25% Acc@1`, `+22% Acc@3`, `+25% Acc@5`
 - Identifier queries: hybrid uplift is neutral because `get_ranked_context` now stays lexical-first for identifier-like queries
+- The benchmark scripts now fail fast if `index_embeddings` or any measured tool call fails, so stale partial outputs are no longer treated as valid results.
 
 ## vs Serena
 

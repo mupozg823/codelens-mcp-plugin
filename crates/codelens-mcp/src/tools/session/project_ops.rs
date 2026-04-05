@@ -36,7 +36,12 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
     let frameworks = detect_frameworks(project.as_path());
 
     // Auto-set role surface based on project size + client profile
-    let client = state.client_profile();
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    let client = session
+        .client_name
+        .as_deref()
+        .map(crate::client_profile::ClientProfile::detect)
+        .unwrap_or_else(|| state.client_profile());
     let file_count = state
         .symbol_index()
         .stats()

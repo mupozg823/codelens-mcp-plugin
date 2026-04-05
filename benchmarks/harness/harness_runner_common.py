@@ -9,6 +9,7 @@ import importlib.util
 import json
 import subprocess
 import urllib.request
+from urllib.error import URLError
 from datetime import datetime
 from pathlib import Path
 
@@ -80,7 +81,7 @@ def resolve_execution_repo_path(repo_path: Path, repo_id: str = "", alias_dir: P
     return repo_path, None
 
 
-def render_prompt(brief: dict, global_instruction_label: str) -> str:
+def render_prompt(brief: dict, global_instruction_label: str, mcp_preflight: dict | None = None) -> str:
     lines = [
         f"Task kind: {brief['task_kind']}",
         f"Routing policy: {brief['recommended_policy']} ({brief['policy_source']}, confidence={brief['confidence']})",
@@ -137,6 +138,28 @@ def render_prompt(brief: dict, global_instruction_label: str) -> str:
             ]
         )
 
+    if mcp_preflight:
+        lines.extend(["", "MCP preflight:"])
+        if mcp_preflight.get("available"):
+            lines.append(
+                f"- CodeLens MCP reachable; active surface={mcp_preflight.get('auto_surface') or 'unknown'}, budget={mcp_preflight.get('auto_budget') or 'unknown'}."
+            )
+            if mcp_preflight.get("embedding_indexed") is not None:
+                lines.append(
+                    f"- Semantic index ready={mcp_preflight.get('embedding_indexed')}, indexed_symbols={mcp_preflight.get('embedding_indexed_symbols', 0)}."
+                )
+            if mcp_preflight.get("preferred_entrypoints"):
+                lines.append(
+                    f"- Suggested bootstrap entrypoints: {', '.join(mcp_preflight['preferred_entrypoints'])}."
+                )
+            if mcp_preflight.get("fallback_to_native"):
+                lines.append("- Even though MCP is reachable, stay native first and escalate only after the initial local boundary check.")
+        else:
+            lines.append("- CodeLens MCP preflight failed; treat CodeLens as unavailable for this run.")
+            lines.append("- Stay on the native path and do not assume workflow tools are available.")
+            if mcp_preflight.get("error"):
+                lines.append(f"- Preflight error: {mcp_preflight['error']}")
+
     lines.extend(["", "Task:", brief.get("task", "").strip(), ""])
     if brief.get("evaluation_mode") == "read-only-eval":
         lines.append("Verification guidance:")
@@ -164,7 +187,37 @@ def render_prompt(brief: dict, global_instruction_label: str) -> str:
     return "\n".join(lines)
 
 
-def mcp_http_tool_call(base_url: str, name: str, arguments: dict, request_id: int = 1):
+def mcp_http_call(
+    base_url: str,
+    method: str,
+    params: dict | None = None,
+    request_id: int = 1,
+    headers: dict | None = None,
+    include_headers: bool = False,
+):
+    payload = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": method,
+    }
+    if params is not None:
+        payload["params"] = params
+    request_headers = {"Content-Type": "application/json"}
+    if headers:
+        request_headers.update(headers)
+    req = urllib.request.Request(
+        base_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers=request_headers,
+    )
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        parsed = json.loads(resp.read().decode("utf-8"))
+        if include_headers:
+            return parsed, {key.lower(): value for key, value in resp.headers.items()}
+        return parsed
+
+
+def mcp_http_tool_call(base_url: str, name: str, arguments: dict, request_id: int = 1, session_id: str | None = None):
     payload = {
         "jsonrpc": "2.0",
         "id": request_id,
@@ -174,13 +227,161 @@ def mcp_http_tool_call(base_url: str, name: str, arguments: dict, request_id: in
             "arguments": arguments,
         },
     }
-    req = urllib.request.Request(
+    request_headers = {"Content-Type": "application/json"}
+    if session_id:
+        request_headers["mcp-session-id"] = session_id
+    return mcp_http_call(
         base_url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        "tools/call",
+        {"name": name, "arguments": arguments},
+        request_id=request_id,
+        headers=request_headers,
     )
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+
+
+def extract_tool_payload(response):
+    if not isinstance(response, dict):
+        return {}
+    result = response.get("result")
+    if isinstance(result, dict):
+        content = result.get("content")
+        if isinstance(content, list) and content:
+            text = content[0].get("text", "{}")
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    return parsed
+            except Exception:
+                pass
+        if "data" in result or "success" in result or "error" in result:
+            return result
+    error = response.get("error")
+    if isinstance(error, dict):
+        return {"success": False, "error": error.get("message", "unknown error")}
+    return {}
+
+
+def safe_capture_metrics_snapshot(base_url: str, request_id: int):
+    try:
+        return capture_metrics_snapshot(base_url, request_id=request_id), None
+    except Exception as exc:
+        return None, str(exc)
+
+
+def is_hidden_by_deferred_loading(payload: dict) -> bool:
+    error = str((payload or {}).get("error") or "")
+    return "hidden by deferred loading" in error
+
+
+def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base: int = 9000):
+    preferred_entrypoints = list(brief.get("preferred_entrypoints") or [])
+    fallback_to_native = brief.get("recommended_policy") in {
+        "prefer_codelens_after_bootstrap",
+        "native_or_naive_both_ok_but_default_native",
+        "avoid_codelens_for_simple_local_lookup",
+        "prefer_native_for_simple_local_lookup",
+    }
+    try:
+        init_response, response_headers = mcp_http_call(
+            base_url,
+            "initialize",
+            {
+                "clientInfo": {"name": "CodexHarness", "version": "1.0.0"},
+                "deferredToolLoading": True,
+            },
+            request_id=request_id_base,
+            headers={},
+            include_headers=True,
+        )
+        session_id = response_headers.get("mcp-session-id")
+        tool_list = mcp_http_call(
+            f"{base_url}",
+            "tools/list",
+            request_id=request_id_base + 1,
+            headers={"mcp-session-id": session_id} if session_id else None,
+        )
+        tool_list_primitive = mcp_http_call(
+            f"{base_url}",
+            "tools/list",
+            {"tier": "primitive"},
+            request_id=request_id_base + 2,
+            headers={"mcp-session-id": session_id} if session_id else None,
+        )
+        activate = mcp_http_tool_call(
+            base_url,
+            "activate_project",
+            {"project": str(repo_path)},
+            request_id=request_id_base + 3,
+            session_id=session_id,
+        )
+        activate_payload = extract_tool_payload(activate)
+        if is_hidden_by_deferred_loading(activate_payload):
+            tool_list_primitive = mcp_http_call(
+                f"{base_url}",
+                "tools/list",
+                {"tier": "primitive"},
+                request_id=request_id_base + 4,
+                headers={"mcp-session-id": session_id} if session_id else None,
+            )
+            activate = mcp_http_tool_call(
+                base_url,
+                "activate_project",
+                {"project": str(repo_path)},
+                request_id=request_id_base + 5,
+                session_id=session_id,
+            )
+            activate_payload = extract_tool_payload(activate)
+        capabilities = mcp_http_tool_call(
+            base_url,
+            "get_capabilities",
+            {},
+            request_id=request_id_base + 6,
+            session_id=session_id,
+        )
+        caps_payload = extract_tool_payload(capabilities)
+        list_result = tool_list.get("result", {}) if isinstance(tool_list, dict) else {}
+        primitive_result = (
+            tool_list_primitive.get("result", {}) if isinstance(tool_list_primitive, dict) else {}
+        )
+        caps_data = caps_payload.get("data", {}) if isinstance(caps_payload, dict) else {}
+        activate_data = activate_payload.get("data", {}) if isinstance(activate_payload, dict) else {}
+        return {
+            "available": True,
+            "session_id": session_id,
+            "tool_count": list_result.get("tool_count", len(list_result.get("tools", []))),
+            "tool_count_total": list_result.get(
+                "tool_count_total",
+                list_result.get("tool_count", len(list_result.get("tools", []))),
+            ),
+            "effective_namespaces": list_result.get("effective_namespaces", []),
+            "preferred_namespaces": list_result.get("preferred_namespaces", []),
+            "loaded_tiers": primitive_result.get("loaded_tiers", list_result.get("loaded_tiers", [])),
+            "auto_surface": activate_data.get("auto_surface"),
+            "auto_budget": activate_data.get("auto_budget"),
+            "indexed_files": activate_data.get("indexed_files"),
+            "frameworks": activate_data.get("frameworks", []),
+            "embedding_model": caps_data.get("embedding_model"),
+            "embedding_indexed": caps_data.get("embedding_indexed"),
+            "embedding_indexed_symbols": caps_data.get("embedding_indexed_symbols"),
+            "activate_project_error": activate_payload.get("error"),
+            "preferred_entrypoints": preferred_entrypoints,
+            "fallback_to_native": fallback_to_native,
+            "init_response": init_response,
+        }
+    except URLError as exc:
+        return {
+            "available": False,
+            "error": str(exc),
+            "preferred_entrypoints": preferred_entrypoints,
+            "fallback_to_native": True,
+        }
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": str(exc),
+            "preferred_entrypoints": preferred_entrypoints,
+            "fallback_to_native": True,
+        }
 
 
 def capture_metrics_snapshot(base_url: str, request_id: int):

@@ -50,6 +50,7 @@ def main():
     parser.add_argument("--agent", default="codex")
     parser.add_argument("--mode", default="")
     parser.add_argument("--mcp-url", default=DEFAULT_MCP_URL)
+    parser.add_argument("--skip-mcp-preflight", action="store_true")
     parser.add_argument("--capture-eval", action="store_true")
     parser.add_argument("--run-dir", default="")
     parser.add_argument("--session-entry-json", default="")
@@ -117,9 +118,15 @@ def main():
     bootstrap_md.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
 
+    mcp_preflight = None
+    mcp_preflight_file = run_dir / "mcp-preflight.json"
+    if not args.skip_mcp_preflight:
+        mcp_preflight = common.probe_codex_mcp(args.mcp_url, repo_path, brief)
+        mcp_preflight_file.write_text(json.dumps(mcp_preflight, ensure_ascii=False, indent=2) + "\n")
+
     bootstrap_json.write_text(json.dumps(brief, ensure_ascii=False, indent=2) + "\n")
     bootstrap_md.write_text(bootstrap.render_markdown(brief))
-    prompt = common.render_prompt(brief, "~/.codex/AGENTS.md")
+    prompt = common.render_prompt(brief, "~/.codex/AGENTS.md", mcp_preflight=mcp_preflight)
     prompt_file.write_text(prompt)
 
     result = {
@@ -134,6 +141,15 @@ def main():
         "prompt_file": str(prompt_file),
         "run_dir": str(run_dir),
     }
+    if mcp_preflight is not None:
+        result["mcp_preflight_file"] = str(mcp_preflight_file)
+        result["mcp_preflight"] = {
+            "available": bool(mcp_preflight.get("available")),
+            "auto_surface": mcp_preflight.get("auto_surface"),
+            "embedding_indexed": mcp_preflight.get("embedding_indexed"),
+            "embedding_indexed_symbols": mcp_preflight.get("embedding_indexed_symbols"),
+            "fallback_to_native": mcp_preflight.get("fallback_to_native", False),
+        }
     if workspace_alias:
         result["workspace_alias"] = workspace_alias
 
@@ -162,9 +178,12 @@ def main():
     after_metrics_file = run_dir / "metrics-after.json"
     delta_metrics_file = run_dir / "metrics-delta.json"
     if args.capture_eval:
-        before_metrics = common.capture_metrics_snapshot(args.mcp_url, request_id=9101)
-        before_metrics_file.write_text(json.dumps(before_metrics, ensure_ascii=False, indent=2) + "\n")
-        result["metrics_before_file"] = str(before_metrics_file)
+        before_metrics, before_error = common.safe_capture_metrics_snapshot(args.mcp_url, request_id=9101)
+        if before_metrics is not None:
+            before_metrics_file.write_text(json.dumps(before_metrics, ensure_ascii=False, indent=2) + "\n")
+            result["metrics_before_file"] = str(before_metrics_file)
+        elif before_error:
+            result["metrics_before_error"] = before_error
 
     if not args.exec:
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -175,63 +194,67 @@ def main():
         raise SystemExit(proc.returncode)
 
     if args.capture_eval and before_metrics is not None:
-        after_metrics = common.capture_metrics_snapshot(args.mcp_url, request_id=9102)
-        after_metrics_file.write_text(json.dumps(after_metrics, ensure_ascii=False, indent=2) + "\n")
-        result["metrics_after_file"] = str(after_metrics_file)
-        delta_payload = common.build_metrics_delta(session_eval, before_metrics, after_metrics)
-        delta_metrics_file.write_text(json.dumps(delta_payload, ensure_ascii=False, indent=2) + "\n")
-        result["metrics_delta_file"] = str(delta_metrics_file)
+        after_metrics, after_error = common.safe_capture_metrics_snapshot(args.mcp_url, request_id=9102)
+        if after_metrics is None:
+            if after_error:
+                result["metrics_after_error"] = after_error
+        else:
+            after_metrics_file.write_text(json.dumps(after_metrics, ensure_ascii=False, indent=2) + "\n")
+            result["metrics_after_file"] = str(after_metrics_file)
+            delta_payload = common.build_metrics_delta(session_eval, before_metrics, after_metrics)
+            delta_metrics_file.write_text(json.dumps(delta_payload, ensure_ascii=False, indent=2) + "\n")
+            result["metrics_delta_file"] = str(delta_metrics_file)
 
-        entry_args = common.build_entry_args(
-            repo_path=repo_path,
-            repo=repo,
-            scenario=scenario,
-            task_kind=args.task_kind,
-            mode=args.mode or common.infer_mode_from_policy(brief["recommended_policy"]),
-            agent=args.agent,
-            session_eval=session_eval,
-            acceptance_passed=args.acceptance_passed,
-            verify_passed=args.verify_passed,
-            quality_score=args.quality_score,
-            recommended_policy=brief["recommended_policy"],
-            notes=args.notes,
-        )
-        session_entry = session_eval.build_entry(entry_args, delta_payload)
-        session_entry["repo_label"] = repo.get("label", session_entry.get("repo_label", repo["id"]))
-        artifact_paths = common.write_session_entry_artifacts(
-            session_eval=session_eval,
-            session_entry=session_entry,
-            run_dir=run_dir,
-            session_entry_json_path=args.session_entry_json,
-            session_entry_md_path=args.session_entry_md,
-            archive_suffix="",
-            repo_id=repo["id"],
-            task_kind=args.task_kind,
-            mode=entry_args.mode,
-        )
-        result.update({k: v for k, v in artifact_paths.items() if not k.endswith("_path")})
+            entry_args = common.build_entry_args(
+                repo_path=repo_path,
+                repo=repo,
+                scenario=scenario,
+                task_kind=args.task_kind,
+                mode=args.mode or common.infer_mode_from_policy(brief["recommended_policy"]),
+                agent=args.agent,
+                session_eval=session_eval,
+                acceptance_passed=args.acceptance_passed,
+                verify_passed=args.verify_passed,
+                quality_score=args.quality_score,
+                recommended_policy=brief["recommended_policy"],
+                notes=args.notes,
+            )
+            session_entry = session_eval.build_entry(entry_args, delta_payload)
+            session_entry["repo_label"] = repo.get("label", session_entry.get("repo_label", repo["id"]))
+            artifact_paths = common.write_session_entry_artifacts(
+                session_eval=session_eval,
+                session_entry=session_entry,
+                run_dir=run_dir,
+                session_entry_json_path=args.session_entry_json,
+                session_entry_md_path=args.session_entry_md,
+                archive_suffix="",
+                repo_id=repo["id"],
+                task_kind=args.task_kind,
+                mode=entry_args.mode,
+            )
+            result.update({k: v for k, v in artifact_paths.items() if not k.endswith("_path")})
 
-        harness_eval_json = Path(args.harness_eval_json).expanduser() if args.harness_eval_json else run_dir / "harness-eval.json"
-        harness_eval_md = Path(args.harness_eval_md).expanduser() if args.harness_eval_md else run_dir / "harness-eval.md"
-        result["harness_eval_result"] = common.run_harness_eval(
-            HARNESS_EVAL_SCRIPT,
-            repo_path=repo_path,
-            archive_entry_json=artifact_paths["archive_entry_json_path"],
-            output_json=harness_eval_json,
-            output_md=harness_eval_md,
-            label=f"live-{repo['id']}-{common.slugify(args.task_kind)}",
-            base_report_path=policy.get("source_report_path", ""),
-        )
-        result["harness_eval_json"] = str(harness_eval_json)
-        result["harness_eval_markdown"] = str(harness_eval_md)
+            harness_eval_json = Path(args.harness_eval_json).expanduser() if args.harness_eval_json else run_dir / "harness-eval.json"
+            harness_eval_md = Path(args.harness_eval_md).expanduser() if args.harness_eval_md else run_dir / "harness-eval.md"
+            result["harness_eval_result"] = common.run_harness_eval(
+                HARNESS_EVAL_SCRIPT,
+                repo_path=repo_path,
+                archive_entry_json=artifact_paths["archive_entry_json_path"],
+                output_json=harness_eval_json,
+                output_md=harness_eval_md,
+                label=f"live-{repo['id']}-{common.slugify(args.task_kind)}",
+                base_report_path=policy.get("source_report_path", ""),
+            )
+            result["harness_eval_json"] = str(harness_eval_json)
+            result["harness_eval_markdown"] = str(harness_eval_md)
 
-        refresh_result_file = run_dir / "routing-policy-refresh.json"
-        result["routing_policy_refresh"] = common.run_refresh(
-            REFRESH_POLICY_SCRIPT,
-            label=f"post-session-{repo['id']}-{common.slugify(args.task_kind)}",
-            output_json=refresh_result_file,
-        )
-        result["routing_policy_refresh_json"] = str(refresh_result_file)
+            refresh_result_file = run_dir / "routing-policy-refresh.json"
+            result["routing_policy_refresh"] = common.run_refresh(
+                REFRESH_POLICY_SCRIPT,
+                label=f"post-session-{repo['id']}-{common.slugify(args.task_kind)}",
+                output_json=refresh_result_file,
+            )
+            result["routing_policy_refresh_json"] = str(refresh_result_file)
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 
