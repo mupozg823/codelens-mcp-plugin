@@ -1,0 +1,10 @@
+{"query": "how to build embedding text from a symbol for indexing", "positive": "function build_embedding_text in crates/codelens-core/src/embedding.rs: fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> String {"}
+{"query": "mutation gate preflight verification before code changes", "positive": "function evaluate_mutation_gate in crates/codelens-mcp/src/mutation_gate.rs: pub(crate) fn evaluate_mutation_gate("}
+{"query": "cosine similarity calculation between embedding vectors", "positive": "function cosine_similarity in crates/codelens-core/src/embedding.rs: fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {"}
+{"query": "add execution provider for GPU acceleration on macOS", "positive": "function load_codesearch_model in crates/codelens-core/src/embedding.rs: fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {"}
+{"query": "how does the tool dispatch routing work", "positive": "function dispatch_tool in crates/codelens-mcp/src/dispatch.rs: pub(crate) fn dispatch_tool("}
+{"query": "response truncation when payload exceeds budget", "positive": "function bounded_result_payload in crates/codelens-mcp/src/dispatch_response_support.rs: pub(crate) fn bounded_result_payload("}
+{"query": "session aware ranking boost for recently accessed files", "positive": "function record_file_access in crates/codelens-mcp/src/state.rs: pub(crate) fn record_file_access(&self, path: &str) {"}
+{"query": "how to detect if client is Claude Code or Codex", "positive": "function detect in crates/codelens-mcp/src/client_profile.rs: pub(crate) fn detect(client_name: Option<&str>) -> Self {"}
+{"query": "exclude directories from file indexing like node_modules", "positive": "variable EXCLUDED_DIRS in crates/codelens-core/src/project.rs: pub const EXCLUDED_DIRS"}
+{"query": "incremental reindex after code mutation", "positive": "function refresh_file in crates/codelens-core/src/symbols/writer.rs: pub fn refresh_file(&self, relative_path: &str) -> Result<usize> {"}

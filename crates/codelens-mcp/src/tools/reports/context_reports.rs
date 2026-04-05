@@ -1,7 +1,7 @@
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use crate::tools::{AppState, ToolResult, required_string};
-use serde_json::{Value, json};
+use crate::tools::{required_string, AppState, ToolResult};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult {
@@ -41,6 +41,21 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
         .unwrap_or_default();
     let ranked_files = ranked_symbols
         .iter()
+        .filter(|entry| {
+            let file = entry
+                .get("file")
+                .or_else(|| entry.get("file_path"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            // Exclude non-source files from workflow recommendations
+            !file.starts_with("benchmarks/")
+                && !file.starts_with("scripts/")
+                && !file.starts_with("tests/")
+                && !file.ends_with("_test.rs")
+                && !file.ends_with(".test.ts")
+                && !file.ends_with(".test.tsx")
+                && !file.ends_with(".spec.ts")
+        })
         .take(5)
         .map(|entry| {
             json!({
