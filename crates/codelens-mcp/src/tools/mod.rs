@@ -11,10 +11,10 @@ pub mod reports;
 pub mod session;
 pub mod symbols;
 
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::protocol::{AnalysisSource, BackendKind, Freshness, ToolResponseMeta};
 use crate::tool_defs::{ToolProfile, ToolSurface};
-use crate::AppState;
 use std::collections::HashMap;
 
 /// Tool handler result type — every handler returns this.

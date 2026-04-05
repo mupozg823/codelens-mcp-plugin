@@ -167,9 +167,9 @@ fn detect_root(start: &Path) -> Option<PathBuf> {
 }
 
 fn dirs_fallback() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(PathBuf::from).map(|path| {
-        path.canonicalize().unwrap_or(path)
-    })
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .map(|path| path.canonicalize().unwrap_or(path))
 }
 
 // ── Framework detection ─────────────────────────────────────────────────
@@ -425,7 +425,10 @@ fn normalize_path(path: &Path) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::ProjectRoot;
-    use std::{env, fs, sync::{Mutex, OnceLock}};
+    use std::{
+        env, fs,
+        sync::{Mutex, OnceLock},
+    };
 
     #[test]
     fn rejects_path_escape() {
@@ -482,8 +485,11 @@ mod tests {
         let nested = project_root.join("src/features");
         fs::create_dir_all(home.join(".codelens")).expect("mkdir global codelens");
         fs::create_dir_all(&nested).expect("mkdir nested");
-        fs::write(project_root.join("Cargo.toml"), "[package]\nname = \"demo\"\n")
-            .expect("write cargo");
+        fs::write(
+            project_root.join("Cargo.toml"),
+            "[package]\nname = \"demo\"\n",
+        )
+        .expect("write cargo");
 
         let previous_home = env::var_os("HOME");
         unsafe {

@@ -1,8 +1,8 @@
 use super::report_utils::{extract_handle_fields, stable_cache_key, strings_from_array};
-use super::{required_string, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -376,11 +376,13 @@ fn run_refactor_safety_report_job(
         0.9,
         vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()],
         sections,
-        vec![arguments
-            .get("file_path")
-            .and_then(|value| value.as_str())
-            .unwrap_or(path)
-            .to_owned()],
+        vec![
+            arguments
+                .get("file_path")
+                .and_then(|value| value.as_str())
+                .unwrap_or(path)
+                .to_owned(),
+        ],
         symbol.map(ToOwned::to_owned),
     )
     .map(|(payload, _meta)| payload)

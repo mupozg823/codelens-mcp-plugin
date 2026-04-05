@@ -1,7 +1,7 @@
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use crate::tools::{required_string, AppState, ToolResult};
-use serde_json::{json, Value};
+use crate::tools::{AppState, ToolResult, required_string};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult {
@@ -253,11 +253,13 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         0.9,
         vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()],
         sections,
-        vec![arguments
-            .get("file_path")
-            .and_then(|value| value.as_str())
-            .unwrap_or(path)
-            .to_owned()],
+        vec![
+            arguments
+                .get("file_path")
+                .and_then(|value| value.as_str())
+                .unwrap_or(path)
+                .to_owned(),
+        ],
         symbol.map(ToOwned::to_owned),
     )
 }

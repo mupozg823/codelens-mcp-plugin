@@ -1,9 +1,9 @@
-use super::{required_string, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_core::{
-    read_file, search_symbols_hybrid_with_semantic, RankedContextResult, SemanticMatch, SymbolInfo,
-    SymbolKind,
+    RankedContextResult, SemanticMatch, SymbolInfo, SymbolKind, read_file,
+    search_symbols_hybrid_with_semantic,
 };
 use serde_json::json;
 
@@ -716,14 +716,18 @@ mod tests {
             8,
         );
 
-        assert!(result
-            .symbols
-            .iter()
-            .any(|entry| entry.name == "apply_signature_change"));
-        assert!(!result
-            .symbols
-            .iter()
-            .any(|entry| entry.name == "rewrite_call_arguments"));
+        assert!(
+            result
+                .symbols
+                .iter()
+                .any(|entry| entry.name == "apply_signature_change")
+        );
+        assert!(
+            !result
+                .symbols
+                .iter()
+                .any(|entry| entry.name == "rewrite_call_arguments")
+        );
     }
 
     #[test]

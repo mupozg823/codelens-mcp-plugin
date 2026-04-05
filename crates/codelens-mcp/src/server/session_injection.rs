@@ -4,9 +4,9 @@
 //! into tool call arguments, tools/list params, and resources/read params.
 //! This centralizes the 3 injection paths that were duplicated in transport_http.rs.
 
+use crate::AppState;
 use crate::protocol::JsonRpcRequest;
 use crate::server::session::SessionStore;
-use crate::AppState;
 use std::sync::Arc;
 
 /// Inject session metadata into a tools/call request's arguments.

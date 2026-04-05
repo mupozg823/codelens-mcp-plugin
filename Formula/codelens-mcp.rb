@@ -11,13 +11,9 @@ class CodelensMcp < Formula
   end
 
   on_linux do
-    if Hardware::CPU.arm?
-      url "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/v#{version}/codelens-mcp-linux-arm64.tar.gz"
-      sha256 "RELEASE_SHA256_LINUX_ARM64"
-    else
-      url "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/v#{version}/codelens-mcp-linux-x86_64.tar.gz"
-      sha256 "RELEASE_SHA256_LINUX_X86_64"
-    end
+    # x86_64 only — ARM64 Linux not yet supported (ort cross-compile issue)
+    url "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/v#{version}/codelens-mcp-linux-x86_64.tar.gz"
+    sha256 "RELEASE_SHA256_LINUX_X86_64"
   end
 
   def install

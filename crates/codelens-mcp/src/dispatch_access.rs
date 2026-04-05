@@ -1,10 +1,10 @@
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 use crate::tool_defs::{
-    is_content_mutation_tool, is_read_only_surface, is_tool_in_surface, preferred_namespaces,
-    preferred_tier_labels, tool_namespace, tool_tier_label, ToolSurface,
+    ToolSurface, is_content_mutation_tool, is_read_only_surface, is_tool_in_surface,
+    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
 };
-use crate::AppState;
 
 fn is_deferred_namespace_access_allowed(
     name: &str,

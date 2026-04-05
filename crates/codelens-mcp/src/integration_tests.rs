@@ -196,8 +196,10 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(encoded
-        .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
+    assert!(
+        encoded
+            .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]")
+    );
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"impact_report\""));
@@ -246,10 +248,12 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("blocked by daemon mode"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("blocked by daemon mode")
+    );
 }
 
 #[test]
@@ -268,10 +272,12 @@ fn hidden_tools_are_blocked_at_call_time() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("not available in active surface"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not available in active surface")
+    );
 }
 
 #[test]
@@ -296,9 +302,11 @@ fn watch_status_reports_lock_contention_field() {
     assert!(payload["data"].get("stale_index_failures").is_some());
     assert!(payload["data"].get("persistent_index_failures").is_some());
     assert!(payload["data"].get("pruned_missing_failures").is_some());
-    assert!(payload["data"]
-        .get("recent_failure_window_seconds")
-        .is_some());
+    assert!(
+        payload["data"]
+            .get("recent_failure_window_seconds")
+            .is_some()
+    );
 }
 
 #[test]
@@ -1086,11 +1094,13 @@ fn analyze_change_request_returns_handle_and_section() {
     );
     assert_eq!(section["success"], json!(true));
     assert_eq!(section["data"]["analysis_id"], json!(analysis_id));
-    assert!(state
-        .analysis_dir()
-        .join(analysis_id)
-        .join("ranked_files.json")
-        .exists());
+    assert!(
+        state
+            .analysis_dir()
+            .join(analysis_id)
+            .join("ranked_files.json")
+            .exists()
+    );
 }
 
 #[test]
@@ -2022,9 +2032,11 @@ fn oversized_analysis_handle_keeps_structured_content_schema_shape() {
         json!(true)
     );
     assert_eq!(value["result"]["structuredContent"].get("truncated"), None);
-    assert!(value["result"]["structuredContent"]["analysis_id"]
-        .as_str()
-        .is_some());
+    assert!(
+        value["result"]["structuredContent"]["analysis_id"]
+            .as_str()
+            .is_some()
+    );
     assert!(
         value["result"]["structuredContent"]["readiness"]["mutation_ready"]
             .as_str()
@@ -2190,9 +2202,11 @@ fn foreign_project_scoped_analysis_is_ignored_for_reuse() {
     .unwrap();
 
     assert!(state.get_analysis(analysis_id).is_none());
-    assert!(state
-        .find_reusable_analysis("analyze_change_request", &cache_key)
-        .is_none());
+    assert!(
+        state
+            .find_reusable_analysis("analyze_change_request", &cache_key)
+            .is_none()
+    );
 }
 
 #[test]
@@ -2268,10 +2282,12 @@ fn analysis_artifacts_expire_by_ttl() {
 
     assert!(state.get_analysis(&analysis_id).is_none());
     assert!(!state.analysis_dir().join(&analysis_id).exists());
-    assert!(state
-        .list_analysis_summaries()
-        .into_iter()
-        .all(|summary| summary.id != analysis_id));
+    assert!(
+        state
+            .list_analysis_summaries()
+            .into_iter()
+            .all(|summary| summary.id != analysis_id)
+    );
 }
 
 #[test]
@@ -2457,10 +2473,12 @@ fn refactor_surface_requires_preflight_before_create_text_file() {
         json!({"relative_path": "mutated.txt", "content": "hello"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("requires a fresh preflight"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("requires a fresh preflight")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2508,9 +2526,11 @@ fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
         }),
     );
     assert_eq!(payload["success"], json!(true));
-    assert!(fs::read_to_string(project.as_path().join("gated.py"))
-        .unwrap()
-        .contains("new"));
+    assert!(
+        fs::read_to_string(project.as_path().join("gated.py"))
+            .unwrap()
+            .contains("new")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2558,10 +2578,12 @@ fn safe_rename_report_blocked_preflight_blocks_rename_symbol() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("blocked by verifier readiness"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("blocked by verifier readiness")
+    );
 }
 
 #[test]
@@ -2596,10 +2618,12 @@ fn rename_symbol_requires_symbol_aware_preflight() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("symbol-aware preflight"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("symbol-aware preflight")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2678,10 +2702,12 @@ fn session_scoped_preflight_does_not_cross_sessions() {
         "session-b",
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("requires a fresh preflight"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("requires a fresh preflight")
+    );
 }
 
 #[test]

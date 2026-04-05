@@ -1,6 +1,6 @@
 use crate::protocol::BackendKind;
-use crate::tool_defs::{default_budget_for_profile, ToolProfile, ToolSurface};
-use crate::tools::{success_meta, AppState, ToolResult};
+use crate::tool_defs::{ToolProfile, ToolSurface, default_budget_for_profile};
+use crate::tools::{AppState, ToolResult, success_meta};
 use codelens_core::detect_frameworks;
 use codelens_core::memory::list_memory_names;
 use serde_json::json;

@@ -1,0 +1,73 @@
+{
+  "project": "/Users/bagjaeseog/codelens-mcp-plugin",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "preset": "balanced",
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "embeddings_loaded_before": false,
+  "embedding_indexed_before": true,
+  "embedding_indexed_symbols_before": 3330,
+  "index_embeddings": {
+    "elapsed_ms": 13335.24,
+    "payload": {
+      "success": true,
+      "backend_used": "semantic",
+      "confidence": 0.95,
+      "source": "native",
+      "freshness": "live",
+      "data": {
+        "indexed_symbols": 3330,
+        "status": "ok"
+      },
+      "token_estimate": 9,
+      "suggested_next_tools": [
+        "semantic_search",
+        "find_code_duplicates",
+        "find_misplaced_code"
+      ],
+      "budget_hint": "minimal results — try broader query or different tool",
+      "elapsed_ms": 13302
+    }
+  },
+  "embeddings_loaded_after": false,
+  "embedding_indexed_after": true,
+  "embedding_indexed_symbols_after": 3330,
+  "semantic_search": {
+    "runs": 3,
+    "elapsed_ms": [
+      135.2,
+      114.93,
+      111.82
+    ],
+    "avg_elapsed_ms": 120.65,
+    "max_elapsed_ms": 135.2,
+    "result_counts": [
+      5,
+      5,
+      5
+    ]
+  },
+  "get_ranked_context": {
+    "runs": 3,
+    "elapsed_ms": [
+      118.25,
+      122.72,
+      122.18
+    ],
+    "avg_elapsed_ms": 121.05,
+    "max_elapsed_ms": 122.72,
+    "result_counts": [
+      17,
+      17,
+      17
+    ]
+  },
+  "onboard_project": {
+    "elapsed_ms": 19.97,
+    "semantic": {
+      "indexed_symbols": 3330,
+      "loaded": false,
+      "model": "MiniLM-L12-CodeSearchNet-INT8",
+      "status": "ready"
+    }
+  }
+}

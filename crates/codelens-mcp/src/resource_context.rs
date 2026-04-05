@@ -1,10 +1,10 @@
+use crate::AppState;
 use crate::protocol::Tool;
 use crate::tool_defs::{
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
-    visible_namespaces, visible_tiers, visible_tools, ToolProfile, ToolSurface,
+    ToolProfile, ToolSurface, preferred_namespaces, preferred_tier_labels, tool_namespace,
+    tool_tier_label, visible_namespaces, visible_tiers, visible_tools,
 };
-use crate::AppState;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct ResourceRequestContext {
