@@ -64,25 +64,23 @@ impl ProjectRoot {
             );
         }
         // If the path exists, verify the real (symlink-resolved) path also stays within root
-        if normalized.exists() {
-            if let Ok(real) = normalized.canonicalize() {
-                if !real.starts_with(&self.root) {
-                    bail!(
-                        "symlink escapes project root: {} → {} (root: {})",
-                        normalized.display(),
-                        real.display(),
-                        self.root.display()
-                    );
-                }
-            }
+        if normalized.exists()
+            && let Ok(real) = normalized.canonicalize()
+            && !real.starts_with(&self.root)
+        {
+            bail!(
+                "symlink escapes project root: {} → {} (root: {})",
+                normalized.display(),
+                real.display(),
+                self.root.display()
+            );
         }
         // Resolve symlinks so the returned path matches what's stored in the index.
-        if normalized.exists() {
-            if let Ok(real) = normalized.canonicalize() {
-                if real.starts_with(&self.root) {
-                    return Ok(real);
-                }
-            }
+        if normalized.exists()
+            && let Ok(real) = normalized.canonicalize()
+            && real.starts_with(&self.root)
+        {
+            return Ok(real);
         }
         Ok(normalized)
     }
@@ -240,16 +238,16 @@ fn read_file_text(path: &Path) -> Option<String> {
 
 fn has_dependency(project: &Path, name: &str) -> bool {
     let req = project.join("requirements.txt");
-    if let Some(text) = read_file_text(&req) {
-        if text.contains(name) {
-            return true;
-        }
+    if let Some(text) = read_file_text(&req)
+        && text.contains(name)
+    {
+        return true;
     }
     let pyproject = project.join("pyproject.toml");
-    if let Some(text) = read_file_text(&pyproject) {
-        if text.contains(name) {
-            return true;
-        }
+    if let Some(text) = read_file_text(&pyproject)
+        && text.contains(name)
+    {
+        return true;
     }
     false
 }
@@ -280,10 +278,10 @@ fn has_go_dependency(project: &Path, name: &str) -> bool {
 
 fn has_gradle_or_maven_dependency(project: &Path, name: &str) -> bool {
     for file in &["build.gradle", "build.gradle.kts", "pom.xml"] {
-        if let Some(text) = read_file_text(&project.join(file)) {
-            if text.contains(name) {
-                return true;
-            }
+        if let Some(text) = read_file_text(&project.join(file))
+            && text.contains(name)
+        {
+            return true;
         }
     }
     false
@@ -303,64 +301,20 @@ pub fn detect_workspace_packages(project: &Path) -> Vec<WorkspacePackage> {
 
     // Cargo workspace
     let cargo_toml = project.join("Cargo.toml");
-    if cargo_toml.is_file() {
-        if let Ok(content) = std::fs::read_to_string(&cargo_toml) {
-            if content.contains("[workspace]") {
-                for line in content.lines() {
-                    let trimmed = line.trim().trim_matches('"').trim_matches(',');
-                    if trimmed.contains("crates/") || trimmed.contains("packages/") {
-                        let pattern = trimmed.trim_matches('"').trim_matches(',').trim();
-                        if let Some(stripped) = pattern.strip_suffix("/*") {
-                            // Glob pattern: "crates/*" → scan directory
-                            let dir = project.join(stripped);
-                            if dir.is_dir() {
-                                for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten()
-                                {
-                                    if entry.path().join("Cargo.toml").is_file() {
-                                        packages.push(WorkspacePackage {
-                                            name: entry.file_name().to_string_lossy().to_string(),
-                                            path: entry
-                                                .path()
-                                                .strip_prefix(project)
-                                                .unwrap_or(&entry.path())
-                                                .to_string_lossy()
-                                                .to_string(),
-                                            package_type: "cargo".to_string(),
-                                        });
-                                    }
-                                }
-                            }
-                        } else {
-                            // Explicit path: "crates/codelens-core"
-                            let dir = project.join(pattern);
-                            if dir.join("Cargo.toml").is_file() {
-                                packages.push(WorkspacePackage {
-                                    name: dir
-                                        .file_name()
-                                        .unwrap_or_default()
-                                        .to_string_lossy()
-                                        .to_string(),
-                                    path: pattern.to_string(),
-                                    package_type: "cargo".to_string(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // npm workspace (package.json with "workspaces")
-    let pkg_json = project.join("package.json");
-    if pkg_json.is_file() {
-        if let Ok(content) = std::fs::read_to_string(&pkg_json) {
-            if content.contains("\"workspaces\"") {
-                for dir_name in &["packages", "apps", "libs"] {
-                    let dir = project.join(dir_name);
+    if cargo_toml.is_file()
+        && let Ok(content) = std::fs::read_to_string(&cargo_toml)
+        && content.contains("[workspace]")
+    {
+        for line in content.lines() {
+            let trimmed = line.trim().trim_matches('"').trim_matches(',');
+            if trimmed.contains("crates/") || trimmed.contains("packages/") {
+                let pattern = trimmed.trim_matches('"').trim_matches(',').trim();
+                if let Some(stripped) = pattern.strip_suffix("/*") {
+                    // Glob pattern: "crates/*" → scan directory
+                    let dir = project.join(stripped);
                     if dir.is_dir() {
                         for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
-                            if entry.path().join("package.json").is_file() {
+                            if entry.path().join("Cargo.toml").is_file() {
                                 packages.push(WorkspacePackage {
                                     name: entry.file_name().to_string_lossy().to_string(),
                                     path: entry
@@ -369,10 +323,51 @@ pub fn detect_workspace_packages(project: &Path) -> Vec<WorkspacePackage> {
                                         .unwrap_or(&entry.path())
                                         .to_string_lossy()
                                         .to_string(),
-                                    package_type: "npm".to_string(),
+                                    package_type: "cargo".to_string(),
                                 });
                             }
                         }
+                    }
+                } else {
+                    // Explicit path: "crates/codelens-core"
+                    let dir = project.join(pattern);
+                    if dir.join("Cargo.toml").is_file() {
+                        packages.push(WorkspacePackage {
+                            name: dir
+                                .file_name()
+                                .unwrap_or_default()
+                                .to_string_lossy()
+                                .to_string(),
+                            path: pattern.to_string(),
+                            package_type: "cargo".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // npm workspace (package.json with "workspaces")
+    let pkg_json = project.join("package.json");
+    if pkg_json.is_file()
+        && let Ok(content) = std::fs::read_to_string(&pkg_json)
+        && content.contains("\"workspaces\"")
+    {
+        for dir_name in &["packages", "apps", "libs"] {
+            let dir = project.join(dir_name);
+            if dir.is_dir() {
+                for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+                    if entry.path().join("package.json").is_file() {
+                        packages.push(WorkspacePackage {
+                            name: entry.file_name().to_string_lossy().to_string(),
+                            path: entry
+                                .path()
+                                .strip_prefix(project)
+                                .unwrap_or(&entry.path())
+                                .to_string_lossy()
+                                .to_string(),
+                            package_type: "npm".to_string(),
+                        });
                     }
                 }
             }
@@ -381,25 +376,25 @@ pub fn detect_workspace_packages(project: &Path) -> Vec<WorkspacePackage> {
 
     // Go workspace (go.work)
     let go_work = project.join("go.work");
-    if go_work.is_file() {
-        if let Ok(content) = std::fs::read_to_string(&go_work) {
-            for line in content.lines() {
-                let trimmed = line.trim();
-                if !trimmed.starts_with("use")
-                    && !trimmed.starts_with("go")
-                    && !trimmed.starts_with("//")
-                    && !trimmed.is_empty()
-                    && trimmed != "("
-                    && trimmed != ")"
-                {
-                    let dir = project.join(trimmed);
-                    if dir.join("go.mod").is_file() {
-                        packages.push(WorkspacePackage {
-                            name: trimmed.to_string(),
-                            path: trimmed.to_string(),
-                            package_type: "go".to_string(),
-                        });
-                    }
+    if go_work.is_file()
+        && let Ok(content) = std::fs::read_to_string(&go_work)
+    {
+        for line in content.lines() {
+            let trimmed = line.trim();
+            if !trimmed.starts_with("use")
+                && !trimmed.starts_with("go")
+                && !trimmed.starts_with("//")
+                && !trimmed.is_empty()
+                && trimmed != "("
+                && trimmed != ")"
+            {
+                let dir = project.join(trimmed);
+                if dir.join("go.mod").is_file() {
+                    packages.push(WorkspacePackage {
+                        name: trimmed.to_string(),
+                        path: trimmed.to_string(),
+                        package_type: "go".to_string(),
+                    });
                 }
             }
         }

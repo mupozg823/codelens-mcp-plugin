@@ -90,26 +90,26 @@ pub(crate) fn routing_hint_for_payload(resp: &ToolCallResponse) -> RoutingHint {
 }
 
 pub(crate) fn compact_response_payload(resp: &mut ToolCallResponse) {
-    if let Some(ref mut data) = resp.data {
-        if let Some(obj) = data.as_object_mut() {
-            obj.remove("quality_focus");
-            obj.remove("recommended_checks");
-            obj.remove("performance_watchpoints");
-            obj.remove("available_sections");
-            obj.remove("evidence_handles");
-            obj.remove("schema_version");
-            obj.remove("report_kind");
-            obj.remove("profile");
-            obj.remove("next_actions");
-            obj.remove("machine_summary");
-            if let Some(checks) = obj.get_mut("verifier_checks") {
-                if let Some(arr) = checks.as_array_mut() {
-                    for check in arr.iter_mut() {
-                        if let Some(check_obj) = check.as_object_mut() {
-                            check_obj.remove("summary");
-                            check_obj.remove("evidence_section");
-                        }
-                    }
+    if let Some(ref mut data) = resp.data
+        && let Some(obj) = data.as_object_mut()
+    {
+        obj.remove("quality_focus");
+        obj.remove("recommended_checks");
+        obj.remove("performance_watchpoints");
+        obj.remove("available_sections");
+        obj.remove("evidence_handles");
+        obj.remove("schema_version");
+        obj.remove("report_kind");
+        obj.remove("profile");
+        obj.remove("next_actions");
+        obj.remove("machine_summary");
+        if let Some(checks) = obj.get_mut("verifier_checks")
+            && let Some(arr) = checks.as_array_mut()
+        {
+            for check in arr.iter_mut() {
+                if let Some(check_obj) = check.as_object_mut() {
+                    check_obj.remove("summary");
+                    check_obj.remove("evidence_section");
                 }
             }
         }

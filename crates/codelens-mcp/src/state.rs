@@ -641,7 +641,7 @@ impl AppState {
     ) -> Result<AnalysisArtifact, CodeLensError> {
         self.artifact_store.store(
             tool_name,
-            &self.surface().as_label().to_owned(),
+            self.surface().as_label(),
             self.current_project_scope(),
             cache_key,
             summary,
@@ -665,7 +665,7 @@ impl AppState {
         self.artifact_store.find_reusable(
             tool_name,
             cache_key,
-            &self.surface().as_label().to_owned(),
+            self.surface().as_label(),
             Some(&scope),
         )
     }

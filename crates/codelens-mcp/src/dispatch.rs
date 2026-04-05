@@ -244,13 +244,13 @@ static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> = LazyLock::
     let mut m = m;
     #[cfg(feature = "semantic")]
     {
-        m.insert("semantic_search", |s, a| semantic_search_handler(s, a));
-        m.insert("index_embeddings", |s, a| index_embeddings_handler(s, a));
-        m.insert("find_similar_code", |s, a| find_similar_code_handler(s, a));
+        m.insert("semantic_search", semantic_search_handler);
+        m.insert("index_embeddings", index_embeddings_handler);
+        m.insert("find_similar_code", find_similar_code_handler);
         m.insert("find_code_duplicates", |s, a| {
             find_code_duplicates_handler(s, a)
         });
-        m.insert("classify_symbol", |s, a| classify_symbol_handler(s, a));
+        m.insert("classify_symbol", classify_symbol_handler);
         m.insert("find_misplaced_code", |s, a| {
             find_misplaced_code_handler(s, a)
         });
@@ -295,11 +295,11 @@ pub(crate) fn dispatch_tool(
 
     let result: ToolResult = if is_refactor_gated_mutation_tool(name) {
         state.metrics().record_mutation_preflight_checked();
-        match evaluate_mutation_gate(state, name, session, surface, &arguments) {
+        match evaluate_mutation_gate(state, name, session, surface, arguments) {
             Ok(allowance) => {
                 gate_allowance = allowance;
                 match DISPATCH_TABLE.get(name) {
-                    Some(handler) => handler(state, &arguments),
+                    Some(handler) => handler(state, arguments),
                     None => Err(CodeLensError::ToolNotFound(name.to_owned())),
                 }
             }
@@ -324,7 +324,7 @@ pub(crate) fn dispatch_tool(
         }
     } else {
         match DISPATCH_TABLE.get(name) {
-            Some(handler) => handler(state, &arguments),
+            Some(handler) => handler(state, arguments),
             None => Err(CodeLensError::ToolNotFound(name.to_owned())),
         }
     };
@@ -332,8 +332,7 @@ pub(crate) fn dispatch_tool(
     // 5. Post-mutation side effects (graph invalidation, audit)
     if result.is_ok() && is_content_mutation_tool(name) {
         state.graph_cache().invalidate();
-        if let Err(error) = state.record_mutation_audit(name, &active_surface, &arguments, session)
-        {
+        if let Err(error) = state.record_mutation_audit(name, &active_surface, arguments, session) {
             warn!(tool = name, error = %error, "failed to write mutation audit event");
         }
         if !session.is_local() {
@@ -363,7 +362,7 @@ pub(crate) fn dispatch_tool(
             state,
             surface,
             active_surface: &active_surface,
-            arguments: &arguments,
+            arguments: arguments,
             logical_session_id: &session.session_id,
             gate_allowance: gate_allowance.as_ref(),
             compact,

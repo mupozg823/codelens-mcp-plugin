@@ -131,7 +131,7 @@ fn estimate_end_line(symbol: &crate::symbols::SymbolInfo) -> usize {
         symbol
             .children
             .iter()
-            .map(|c| estimate_end_line(c))
+            .map(estimate_end_line)
             .max()
             .unwrap_or(symbol.line + 10)
     } else {
@@ -210,18 +210,19 @@ pub fn find_referencing_symbols_via_text(
         if results.len() >= max_results {
             break;
         }
-        if let Some(decl) = declaration_file {
-            if file_path != decl && shadow_files.contains(file_path) {
-                continue;
-            }
+        if let Some(decl) = declaration_file
+            && file_path != decl
+            && shadow_files.contains(file_path)
+        {
+            continue;
         }
 
         let line_content = read_line_at(project, file_path, *line).unwrap_or_default();
 
-        if !symbol_cache.contains_key(file_path) {
-            if let Ok(symbols) = get_symbols_overview(project, file_path, 3) {
-                symbol_cache.insert(file_path.clone(), flatten_to_ranges(&symbols));
-            }
+        if !symbol_cache.contains_key(file_path)
+            && let Ok(symbols) = get_symbols_overview(project, file_path, 3)
+        {
+            symbol_cache.insert(file_path.clone(), flatten_to_ranges(&symbols));
         }
         let enclosing = symbol_cache
             .get(file_path)
@@ -318,10 +319,10 @@ fn find_shadowing_files_for_refs(
         if declaration_file.map(|d| d == fp).unwrap_or(false) {
             continue;
         }
-        if let Ok(symbols) = get_symbols_overview(project, fp, 3) {
-            if has_declaration_recursive(&symbols, symbol_name) {
-                shadow_files.insert(fp.clone());
-            }
+        if let Ok(symbols) = get_symbols_overview(project, fp, 3)
+            && has_declaration_recursive(&symbols, symbol_name)
+        {
+            shadow_files.insert(fp.clone());
         }
     }
     Ok(shadow_files)

@@ -143,14 +143,12 @@ impl SymbolIndex {
         }
 
         // Resolve file_path (handles symlinks → canonical relative path)
-        let resolved_fp = file_path
-            .map(|fp| {
-                self.project
-                    .resolve(fp)
-                    .ok()
-                    .map(|abs| self.project.to_relative(&abs))
-            })
-            .flatten();
+        let resolved_fp = file_path.and_then(|fp| {
+            self.project
+                .resolve(fp)
+                .ok()
+                .map(|abs| self.project.to_relative(&abs))
+        });
         let fp_ref = resolved_fp.as_deref().or(file_path);
 
         let db_rows = db.find_symbols_by_name(name, fp_ref, exact_match, max_matches)?;

@@ -323,12 +323,12 @@ fn resolve_model_dir() -> Result<std::path::PathBuf> {
     }
 
     // Next to executable
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            let p = exe_dir.join("models").join("codesearch");
-            if p.join("model.onnx").exists() {
-                return Ok(p);
-            }
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(exe_dir) = exe.parent()
+    {
+        let p = exe_dir.join("models").join("codesearch");
+        if p.join("model.onnx").exists() {
+            return Ok(p);
         }
     }
 
@@ -742,7 +742,7 @@ impl EmbeddingEngine {
             .model
             .lock()
             .map_err(|_| anyhow::anyhow!("model lock"))?;
-        let cat_refs: Vec<&str> = categories.iter().copied().collect();
+        let cat_refs: Vec<&str> = categories.to_vec();
         let cat_embeddings = model
             .embed(cat_refs, None)
             .context("category embedding failed")?;

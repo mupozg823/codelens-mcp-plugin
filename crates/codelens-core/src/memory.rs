@@ -31,15 +31,15 @@ fn collect_memory_files(base: &Path, dir: &Path, names: &mut Vec<String>) {
         let path = entry.path();
         if path.is_dir() {
             collect_memory_files(base, &path, names);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            if let Ok(rel) = path.strip_prefix(base) {
-                let name = rel
-                    .to_string_lossy()
-                    .replace('\\', "/")
-                    .trim_end_matches(".md")
-                    .to_string();
-                names.push(name);
-            }
+        } else if path.extension().and_then(|e| e.to_str()) == Some("md")
+            && let Ok(rel) = path.strip_prefix(base)
+        {
+            let name = rel
+                .to_string_lossy()
+                .replace('\\', "/")
+                .trim_end_matches(".md")
+                .to_string();
+            names.push(name);
         }
     }
 }

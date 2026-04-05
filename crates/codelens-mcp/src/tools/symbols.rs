@@ -126,10 +126,10 @@ fn semantic_results_for_query(
     let engine_opt = state
         .embedding
         .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
-    if let Some(engine) = engine_opt {
-        if engine.is_indexed() {
-            return engine.search(query, limit).unwrap_or_default();
-        }
+    if let Some(engine) = engine_opt
+        && engine.is_indexed()
+    {
+        return engine.search(query, limit).unwrap_or_default();
     }
     Vec::new()
 }
@@ -154,7 +154,7 @@ fn semantic_scores_for_query(
     for r in semantic_results_for_query(state, query, limit, disable_semantic) {
         if r.score > 0.05 {
             let key = format!("{}:{}", r.file_path, r.symbol_name);
-            scores.insert(key, r.score as f64);
+            scores.insert(key, r.score);
         }
     }
     scores
@@ -397,7 +397,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     let semantic_scores = semantic_results
         .iter()
         .filter(|r| r.score > 0.05)
-        .map(|r| (format!("{}:{}", r.file_path, r.symbol_name), r.score as f64))
+        .map(|r| (format!("{}:{}", r.file_path, r.symbol_name), r.score))
         .collect();
 
     let mut result = state.symbol_index().get_ranked_context_cached(
@@ -554,7 +554,7 @@ pub fn search_symbols_fuzzy(state: &AppState, arguments: &serde_json::Value) -> 
 
 pub fn flatten_symbols(symbols: &[SymbolInfo]) -> Vec<SymbolInfo> {
     let mut flat = Vec::new();
-    let mut stack = symbols.iter().cloned().collect::<Vec<_>>();
+    let mut stack = symbols.to_vec();
     while let Some(mut symbol) = stack.pop() {
         let children = std::mem::take(&mut symbol.children);
         flat.push(symbol);

@@ -184,12 +184,11 @@ pub fn find_all_word_matches(
 ) -> Result<Vec<(String, usize, usize)>> {
     // Fast path: use indexed file list from DB to avoid scanning non-code files.
     let db_path = crate::db::index_db_path(project.as_path());
-    if db_path.exists() {
-        if let Ok(db) = crate::db::IndexDb::open(&db_path) {
-            if let Ok(indexed_files) = db.all_file_paths() {
-                return find_word_matches_in_files(project, symbol_name, &indexed_files);
-            }
-        }
+    if db_path.exists()
+        && let Ok(db) = crate::db::IndexDb::open(&db_path)
+        && let Ok(indexed_files) = db.all_file_paths()
+    {
+        return find_word_matches_in_files(project, symbol_name, &indexed_files);
     }
     // Fallback: full WalkDir scan (cold start, no index yet)
     find_word_matches_walkdir(project, symbol_name)
@@ -322,10 +321,10 @@ fn find_shadowing_files(
         if fp == declaration_file {
             continue;
         }
-        if let Ok(symbols) = get_symbols_overview(project, fp, 3) {
-            if has_declaration(&symbols, symbol_name) {
-                shadow_files.insert(fp.clone());
-            }
+        if let Ok(symbols) = get_symbols_overview(project, fp, 3)
+            && has_declaration(&symbols, symbol_name)
+        {
+            shadow_files.insert(fp.clone());
         }
     }
 
@@ -365,8 +364,8 @@ fn find_symbol_line_range(
                     crate::symbols::find_symbol_range(project, file_path, symbol_name, name_path)?;
                 let resolved = project.resolve(file_path)?;
                 let source = fs::read_to_string(&resolved)?;
-                let end_line = source[..end_byte].lines().count();
-                end_line
+
+                source[..end_byte].lines().count()
             };
             Ok((sym.line, end_line))
         }
@@ -412,7 +411,7 @@ pub fn apply_edits(project: &ProjectRoot, edits: &[RenameEdit]) -> Result<()> {
             let line = &mut lines[line_idx];
             let col_idx = edit.column - 1;
             let old_len = edit.old_text.len();
-            if col_idx + old_len <= line.len() && &line[col_idx..col_idx + old_len] == edit.old_text
+            if col_idx + old_len <= line.len() && line[col_idx..col_idx + old_len] == edit.old_text
             {
                 line.replace_range(col_idx..col_idx + old_len, &edit.new_text);
             }

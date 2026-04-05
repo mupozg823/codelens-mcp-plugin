@@ -105,7 +105,7 @@ impl AnalysisArtifactStore {
     }
 
     fn list_ids_on_disk(&self) -> Vec<String> {
-        let entries = match fs::read_dir(&self.analysis_dir()) {
+        let entries = match fs::read_dir(self.analysis_dir()) {
             Ok(e) => e,
             Err(_) => return Vec::new(),
         };
@@ -126,7 +126,7 @@ impl AnalysisArtifactStore {
     // ── Cleanup / Prune ─────────────────────────────────────────────────
 
     pub fn cleanup_stale_dirs(&self, now_ms: u64) {
-        let entries = match fs::read_dir(&self.analysis_dir()) {
+        let entries = match fs::read_dir(self.analysis_dir()) {
             Ok(e) => e,
             Err(_) => return,
         };
@@ -158,7 +158,8 @@ impl AnalysisArtifactStore {
         let expired = {
             let arts = self.artifacts.lock().unwrap_or_else(|p| p.into_inner());
             arts.iter()
-                .filter_map(|(id, a)| Self::expired(a.created_at_ms, now_ms).then(|| id.clone()))
+                .filter(|&(id, a)| Self::expired(a.created_at_ms, now_ms))
+                .map(|(id, a)| id.clone())
                 .collect::<Vec<_>>()
         };
 

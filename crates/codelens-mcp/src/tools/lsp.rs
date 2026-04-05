@@ -137,29 +137,26 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
 
         // JS/TS: use oxc_semantic for precise scope-aware reference resolution
         let resolved = state.project().resolve(&file_path)?;
-        if codelens_core::oxc_analysis::is_js_ts(&resolved) {
-            if let Ok(source) = std::fs::read_to_string(&resolved) {
-                if let Ok(refs) = codelens_core::oxc_analysis::find_references_precise(
-                    &source, &file_path, sym_name,
-                ) {
-                    if !refs.is_empty() {
-                        let refs_limited: Vec<_> = refs.into_iter().take(max_results).collect();
-                        let count = refs_limited.len();
-                        return Ok((
-                            json!({
-                                "references": refs_limited,
-                                "count": count,
-                                "returned_count": count,
-                                "sampled": false,
-                                "backend": "oxc_semantic"
-                            }),
-                            meta_for_backend("oxc_semantic", 0.95),
-                        ));
-                    }
-                }
-            }
-            // oxc failed or empty — fall through to tree-sitter
+        if codelens_core::oxc_analysis::is_js_ts(&resolved)
+            && let Ok(source) = std::fs::read_to_string(&resolved)
+            && let Ok(refs) =
+                codelens_core::oxc_analysis::find_references_precise(&source, &file_path, sym_name)
+            && !refs.is_empty()
+        {
+            let refs_limited: Vec<_> = refs.into_iter().take(max_results).collect();
+            let count = refs_limited.len();
+            return Ok((
+                json!({
+                    "references": refs_limited,
+                    "count": count,
+                    "returned_count": count,
+                    "sampled": false,
+                    "backend": "oxc_semantic"
+                }),
+                meta_for_backend("oxc_semantic", 0.95),
+            ));
         }
+        // oxc failed or empty — fall through to tree-sitter
 
         return Ok(find_referencing_symbols_via_text(
             &state.project(),
@@ -290,7 +287,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
         .unwrap_or(200) as usize;
 
     let command_ref = command.clone();
-    Ok(state
+    state
         .lsp_pool()
         .get_diagnostics(&LspDiagnosticRequest {
             command,
@@ -304,7 +301,7 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
                 json!({ "diagnostics": value, "count": value.len() }),
                 success_meta(BackendKind::Lsp, 0.9),
             )
-        })?)
+        })
 }
 
 pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -317,7 +314,7 @@ pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value)
         .unwrap_or(50) as usize;
 
     let command_ref = command.clone();
-    Ok(state
+    state
         .lsp_pool()
         .search_workspace_symbols(&LspWorkspaceSymbolRequest {
             command,
@@ -331,7 +328,7 @@ pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value)
                 json!({ "symbols": value, "count": value.len() }),
                 success_meta(BackendKind::Lsp, 0.88),
             )
-        })?)
+        })
 }
 
 pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -434,7 +431,7 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
     let args = parse_lsp_args(arguments, &command);
 
     let command_ref = command.clone();
-    Ok(state
+    state
         .lsp_pool()
         .get_rename_plan(&LspRenamePlanRequest {
             command,
@@ -445,7 +442,7 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
             new_name,
         })
         .map_err(|e| enhance_lsp_error(e, &command_ref))
-        .map(|value| (json!(value), success_meta(BackendKind::Lsp, 0.86)))?)
+        .map(|value| (json!(value), success_meta(BackendKind::Lsp, 0.86)))
 }
 
 pub fn check_lsp_status(_state: &AppState, _arguments: &serde_json::Value) -> ToolResult {

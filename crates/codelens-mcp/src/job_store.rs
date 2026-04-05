@@ -102,9 +102,8 @@ impl AnalysisJobStore {
         let expired = {
             let jobs = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
             jobs.iter()
-                .filter_map(|(id, job)| {
-                    Self::expired(job.updated_at_ms, now_ms).then(|| id.clone())
-                })
+                .filter(|&(id, job)| Self::expired(job.updated_at_ms, now_ms))
+                .map(|(id, job)| id.clone())
                 .collect::<Vec<_>>()
         };
 

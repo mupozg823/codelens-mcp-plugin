@@ -8,6 +8,12 @@ use std::sync::LazyLock;
 
 static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_tools);
 
+fn estimate_serialized_tokens(tool: &Tool) -> usize {
+    serde_json::to_string(tool)
+        .map(|body| body.len() / 4)
+        .unwrap_or(0)
+}
+
 pub(crate) fn tools() -> &'static [Tool] {
     &TOOLS
 }
@@ -153,6 +159,7 @@ fn build_tools() -> Vec<Tool> {
             .unwrap_or_else(crate::protocol::ToolAnnotations::read_only)
             .with_namespace(tool_namespace(tool.name));
         tool.annotations = Some(annotations);
+        tool.estimated_tokens = estimate_serialized_tokens(tool);
     }
 
     tools

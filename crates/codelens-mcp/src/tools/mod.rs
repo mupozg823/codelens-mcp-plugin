@@ -375,11 +375,12 @@ pub fn suggest_next_contextual(
     let recent_has_review = recent_tools
         .iter()
         .any(|t| REVIEW_TOOLS.contains(&t.as_str()));
-    if recent_has_review && !MUTATION_TOOLS.contains(&tool_name) {
-        if !suggestions.contains(&"get_impact_analysis".to_owned()) {
-            suggestions.push("get_impact_analysis".to_owned());
-            suggestions.truncate(3);
-        }
+    if recent_has_review
+        && !MUTATION_TOOLS.contains(&tool_name)
+        && !suggestions.contains(&"get_impact_analysis".to_owned())
+    {
+        suggestions.push("get_impact_analysis".to_owned());
+        suggestions.truncate(3);
     }
 
     // During exploration: boost deeper exploration tools
@@ -389,11 +390,10 @@ pub fn suggest_next_contextual(
     if recent_has_exploration
         && !MUTATION_TOOLS.contains(&tool_name)
         && !REVIEW_TOOLS.contains(&tool_name)
+        && !suggestions.contains(&"get_ranked_context".to_owned())
     {
-        if !suggestions.contains(&"get_ranked_context".to_owned()) {
-            suggestions.push("get_ranked_context".to_owned());
-            suggestions.truncate(3);
-        }
+        suggestions.push("get_ranked_context".to_owned());
+        suggestions.truncate(3);
     }
 
     // Filter suggestions by harness phase if specified

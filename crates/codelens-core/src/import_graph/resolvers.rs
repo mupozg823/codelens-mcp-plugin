@@ -296,7 +296,7 @@ fn resolve_go_module(project: &ProjectRoot, module: &str) -> Option<String> {
         vec![rel]
     } else {
         // Fallback: try full path and last segment
-        let last = module.split('/').last().unwrap_or(module);
+        let last = module.split('/').next_back().unwrap_or(module);
         vec![module, last]
     };
 

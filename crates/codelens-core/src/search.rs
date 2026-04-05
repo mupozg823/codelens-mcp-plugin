@@ -125,14 +125,13 @@ pub fn search_symbols_hybrid_with_semantic(
             let key = (name.clone(), file_path.clone(), line);
             if seen.contains(&key) {
                 let sem_key = format!("{file_path}:{name}");
-                if let Some(&sem_score) = scores.get(&sem_key) {
-                    if sem_score > 0.3 {
-                        if let Some(existing) = results.iter_mut().find(|r| {
-                            r.name == name && r.file == file_path && r.line == line as usize
-                        }) {
-                            existing.score += sem_score * 15.0;
-                        }
-                    }
+                if let Some(&sem_score) = scores.get(&sem_key)
+                    && sem_score > 0.3
+                    && let Some(existing) = results
+                        .iter_mut()
+                        .find(|r| r.name == name && r.file == file_path && r.line == line as usize)
+                {
+                    existing.score += sem_score * 15.0;
                 }
                 continue;
             }

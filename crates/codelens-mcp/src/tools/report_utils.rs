@@ -32,10 +32,10 @@ pub(super) fn stable_cache_key(
 ) -> Option<String> {
     let mut fields = BTreeMap::new();
     for key in keys {
-        if let Some(value) = arguments.get(*key) {
-            if !value.is_null() {
-                fields.insert((*key).to_owned(), value.clone());
-            }
+        if let Some(value) = arguments.get(*key)
+            && !value.is_null()
+        {
+            fields.insert((*key).to_owned(), value.clone());
         }
     }
     if fields.is_empty() {

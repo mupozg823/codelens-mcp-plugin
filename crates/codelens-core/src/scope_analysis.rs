@@ -387,12 +387,11 @@ fn classify_reference(node: Node) -> ReferenceKind {
         // Write detection
         if WRITE_PARENTS.contains(&parent_type) {
             // Left side of assignment
-            if let Some(first_child) = parent.child(0) {
-                if first_child.id() == node.id()
-                    || (first_child.kind() != "identifier" && contains_node(first_child, node))
-                {
-                    return ReferenceKind::Write;
-                }
+            if let Some(first_child) = parent.child(0)
+                && (first_child.id() == node.id()
+                    || (first_child.kind() != "identifier" && contains_node(first_child, node)))
+            {
+                return ReferenceKind::Write;
             }
         }
     }
@@ -408,10 +407,10 @@ fn is_name_child(node: Node, parent: Node) -> bool {
     }
     // Fallback: first identifier child
     for i in 0..parent.child_count() {
-        if let Some(child) = parent.child(i) {
-            if is_identifier_node(child.kind()) {
-                return child.id() == node.id();
-            }
+        if let Some(child) = parent.child(i)
+            && is_identifier_node(child.kind())
+        {
+            return child.id() == node.id();
         }
     }
     false
@@ -451,10 +450,10 @@ fn contains_node(haystack: Node, needle: Node) -> bool {
         return true;
     }
     for i in 0..haystack.child_count() {
-        if let Some(child) = haystack.child(i) {
-            if contains_node(child, needle) {
-                return true;
-            }
+        if let Some(child) = haystack.child(i)
+            && contains_node(child, needle)
+        {
+            return true;
         }
     }
     false

@@ -102,16 +102,16 @@ pub fn get_changed_files(
     }
 
     // Untracked files
-    if include_untracked {
-        if let Ok(output) = run_git(project, &["ls-files", "--others", "--exclude-standard"]) {
-            for line in output.lines() {
-                let file = line.trim().to_owned();
-                if !file.is_empty() {
-                    all_files.push(ChangedFile {
-                        file,
-                        status: "?".to_owned(),
-                    });
-                }
+    if include_untracked
+        && let Ok(output) = run_git(project, &["ls-files", "--others", "--exclude-standard"])
+    {
+        for line in output.lines() {
+            let file = line.trim().to_owned();
+            if !file.is_empty() {
+                all_files.push(ChangedFile {
+                    file,
+                    status: "?".to_owned(),
+                });
             }
         }
     }

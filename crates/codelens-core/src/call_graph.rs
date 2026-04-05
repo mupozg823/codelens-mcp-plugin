@@ -100,7 +100,7 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
     if parser.set_language(&config.language).is_err() {
         return Vec::new();
     }
-    let Some(tree) = parser.parse(&source, None) else {
+    let Some(tree) = parser.parse(source, None) else {
         return Vec::new();
     };
     let source_bytes = source.as_bytes();
@@ -128,10 +128,10 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                     .map(|s| s.trim().to_owned());
             }
         }
-        if let (Some((s, e)), Some(name)) = (def_range, func_name) {
-            if !name.is_empty() {
-                func_ranges.push((s, e, name));
-            }
+        if let (Some((s, e)), Some(name)) = (def_range, func_name)
+            && !name.is_empty()
+        {
+            func_ranges.push((s, e, name));
         }
     }
 

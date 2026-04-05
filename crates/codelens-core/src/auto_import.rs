@@ -53,7 +53,7 @@ pub fn analyze_missing_imports(
     // Step 2: Collect locally defined symbols
     let local_symbols: HashSet<String> = get_symbols_overview(project, file_path, 0)?
         .into_iter()
-        .flat_map(|s| flatten_names(s))
+        .flat_map(flatten_names)
         .collect();
 
     // Step 3: Collect already-imported symbols

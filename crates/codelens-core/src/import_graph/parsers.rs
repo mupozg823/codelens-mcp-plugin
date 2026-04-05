@@ -134,7 +134,7 @@ pub(super) fn extract_python_imports(content: &str) -> Vec<String> {
             continue;
         };
         for module in modules.as_str().split(',') {
-            let module = module.trim().split_whitespace().next().unwrap_or_default();
+            let module = module.split_whitespace().next().unwrap_or_default();
             if !module.is_empty() {
                 imports.push(module.to_owned());
             }

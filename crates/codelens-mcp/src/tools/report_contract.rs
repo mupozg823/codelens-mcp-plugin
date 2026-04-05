@@ -345,10 +345,10 @@ fn build_verifier_contract(
             }));
         }
     }
-    if related_tests.is_empty() {
-        if let Some(existing) = sections.get("related_tests") {
-            related_tests.push(existing.clone());
-        }
+    if related_tests.is_empty()
+        && let Some(existing) = sections.get("related_tests")
+    {
+        related_tests.push(existing.clone());
     }
     let sensitive = browser_or_ssr_sensitive(&touched_files, summary, top_findings, next_actions);
     let related_test_count = related_tests
@@ -446,47 +446,47 @@ pub(super) fn make_handle_response(
         &touched_files,
         symbol_hint.as_deref(),
     );
-    if let Some(cache_key) = cache_key.as_deref() {
-        if let Some(artifact) = state.find_reusable_analysis(tool_name, cache_key) {
-            state.metrics().record_analysis_cache_hit();
-            let data = build_handle_payload(
-                tool_name,
-                &artifact.id,
-                &artifact.summary,
-                &artifact.top_findings,
-                &artifact.risk_level,
-                artifact.confidence,
-                &artifact.next_actions,
-                &artifact.blockers,
-                &artifact.readiness,
-                &artifact.verifier_checks,
-                &artifact.available_sections,
-                true,
-                ci_audit,
-            );
-            state.metrics().record_quality_contract_emitted(
-                data["quality_focus"]
-                    .as_array()
-                    .map(|v| v.len())
-                    .unwrap_or(0),
-                data["recommended_checks"]
-                    .as_array()
-                    .map(|v| v.len())
-                    .unwrap_or(0),
-                data["performance_watchpoints"]
-                    .as_array()
-                    .map(|v| v.len())
-                    .unwrap_or(0),
-            );
-            state.metrics().record_verifier_contract_emitted(
-                data["blockers"].as_array().map(|v| v.len()).unwrap_or(0),
-                data["verifier_checks"]
-                    .as_array()
-                    .map(|v| v.len())
-                    .unwrap_or(0),
-            );
-            return Ok((data, success_meta(BackendKind::Hybrid, artifact.confidence)));
-        }
+    if let Some(cache_key) = cache_key.as_deref()
+        && let Some(artifact) = state.find_reusable_analysis(tool_name, cache_key)
+    {
+        state.metrics().record_analysis_cache_hit();
+        let data = build_handle_payload(
+            tool_name,
+            &artifact.id,
+            &artifact.summary,
+            &artifact.top_findings,
+            &artifact.risk_level,
+            artifact.confidence,
+            &artifact.next_actions,
+            &artifact.blockers,
+            &artifact.readiness,
+            &artifact.verifier_checks,
+            &artifact.available_sections,
+            true,
+            ci_audit,
+        );
+        state.metrics().record_quality_contract_emitted(
+            data["quality_focus"]
+                .as_array()
+                .map(|v| v.len())
+                .unwrap_or(0),
+            data["recommended_checks"]
+                .as_array()
+                .map(|v| v.len())
+                .unwrap_or(0),
+            data["performance_watchpoints"]
+                .as_array()
+                .map(|v| v.len())
+                .unwrap_or(0),
+        );
+        state.metrics().record_verifier_contract_emitted(
+            data["blockers"].as_array().map(|v| v.len()).unwrap_or(0),
+            data["verifier_checks"]
+                .as_array()
+                .map(|v| v.len())
+                .unwrap_or(0),
+        );
+        return Ok((data, success_meta(BackendKind::Hybrid, artifact.confidence)));
     }
     let artifact = state.store_analysis(
         tool_name,

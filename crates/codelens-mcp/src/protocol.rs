@@ -44,6 +44,9 @@ pub struct Tool {
     /// None means use the global request_budget.
     #[serde(skip)]
     pub max_response_tokens: Option<usize>,
+    /// Rough serialized token estimate for `tools/list` metrics.
+    #[serde(skip)]
+    pub estimated_tokens: usize,
 }
 
 /// Tool complexity tier — guides agent tool selection strategy.
@@ -239,6 +242,7 @@ impl Tool {
             output_schema: None,
             annotations: None,
             max_response_tokens: None,
+            estimated_tokens: 0,
         }
     }
 

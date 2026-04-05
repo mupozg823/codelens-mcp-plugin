@@ -282,17 +282,18 @@ impl ToolMetricsRegistry {
                 session.verifier_followthrough_count += 1;
                 session.pending_verifier_contract = false;
             }
-            if let Some(prev) = previous {
-                if prev.tool == name && !prev.success {
-                    session.retry_count += 1;
-                }
+            if let Some(prev) = previous
+                && prev.tool == name
+                && !prev.success
+            {
+                session.retry_count += 1;
             }
-            if name != "get_tool_metrics" {
-                if let Some(prev_tool) = session.pending_truncation_tool.take() {
-                    session.truncation_followup_count += 1;
-                    if prev_tool == name {
-                        session.truncation_same_tool_retry_count += 1;
-                    }
+            if name != "get_tool_metrics"
+                && let Some(prev_tool) = session.pending_truncation_tool.take()
+            {
+                session.truncation_followup_count += 1;
+                if prev_tool == name {
+                    session.truncation_same_tool_retry_count += 1;
                 }
             }
             push_latency_sample(&mut session.latency_samples, elapsed_ms);

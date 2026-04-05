@@ -207,7 +207,7 @@ fn file_path_to_module(path: &str, ext: &str) -> String {
     let without_ext = path.strip_suffix(&format!(".{}", ext)).unwrap_or(path);
 
     match ext {
-        "py" => without_ext.replace('/', ".").replace('\\', "."),
+        "py" => without_ext.replace(['/', '\\'], "."),
         "js" | "ts" | "tsx" | "jsx" => {
             let clean = without_ext.strip_suffix("/index").unwrap_or(without_ext);
             format!("./{}", clean)
@@ -219,8 +219,8 @@ fn file_path_to_module(path: &str, ext: &str) -> String {
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|| ".".to_string())
         }
-        "java" | "kt" | "scala" => without_ext.replace('/', ".").replace('\\', "."),
-        _ => without_ext.replace('/', ".").replace('\\', "."),
+        "java" | "kt" | "scala" => without_ext.replace(['/', '\\'], "."),
+        _ => without_ext.replace(['/', '\\'], "."),
     }
 }
 

@@ -227,10 +227,10 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
     if query_lower.contains("dispatch") && symbol.file_path.contains("dispatch.rs") {
         prior += 10.0;
     }
-    if query_lower.contains("parser") || query_lower.contains("ast") {
-        if symbol.file_path.contains("symbols/parser.rs") {
-            prior += 10.0;
-        }
+    if (query_lower.contains("parser") || query_lower.contains("ast"))
+        && symbol.file_path.contains("symbols/parser.rs")
+    {
+        prior += 10.0;
     }
 
     prior

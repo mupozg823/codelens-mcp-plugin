@@ -57,7 +57,7 @@ pub(super) fn is_allowed_lsp_command(command: &str) -> bool {
         .and_then(|n| n.to_str())
         .unwrap_or(command);
 
-    ALLOWED_COMMANDS.iter().any(|&a| a == binary)
+    ALLOWED_COMMANDS.contains(&binary)
 }
 
 pub(super) const ALLOWED_COMMANDS: &[&str] = &[

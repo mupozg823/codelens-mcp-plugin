@@ -4,10 +4,36 @@ use crate::prompts::{get_prompt, prompts};
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::resources::{read_resource, resources};
 use crate::tool_defs::{
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
-    visible_namespaces, visible_tiers, visible_tools,
+    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label, visible_tools,
 };
 use serde_json::json;
+use std::collections::BTreeSet;
+
+fn visible_axes_from_tools(
+    tools: &[&'static crate::protocol::Tool],
+) -> (Vec<&'static str>, Vec<&'static str>) {
+    let mut namespaces = BTreeSet::new();
+    let mut tiers = BTreeSet::new();
+    for tool in tools {
+        namespaces.insert(tool_namespace(tool.name));
+        tiers.insert(tool_tier_label(tool.name));
+    }
+    (
+        namespaces.into_iter().collect(),
+        tiers.into_iter().collect(),
+    )
+}
+
+fn merged_string_set<'a>(base: impl IntoIterator<Item = &'a str>, extra: &[&str]) -> Vec<String> {
+    let mut merged = base
+        .into_iter()
+        .map(ToOwned::to_owned)
+        .collect::<BTreeSet<_>>();
+    for value in extra {
+        merged.insert((*value).to_owned());
+    }
+    merged.into_iter().collect()
+}
 
 pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcResponse> {
     if request.jsonrpc != "2.0" {
@@ -85,8 +111,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
         "tools/list" => {
             let surface = *state.surface();
             let all_tools = visible_tools(surface);
-            let all_namespaces = visible_namespaces(surface);
-            let all_tiers = visible_tiers(surface);
+            let (all_namespaces, all_tiers) = visible_axes_from_tools(&all_tools);
             let requested_namespace = request
                 .params
                 .as_ref()
@@ -141,12 +166,17 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 .unwrap_or(false);
             let preferred_namespaces = preferred_namespaces(surface);
             let preferred_tiers = preferred_tier_labels(surface);
+            let deferred_loading_active = deferred_loading_requested
+                && requested_namespace.is_none()
+                && requested_tier.is_none()
+                && !full_listing
+                && !full_tool_exposure;
             let filtered = all_tools
                 .iter()
                 .copied()
                 .filter(|tool| match requested_namespace {
                     Some(namespace) => tool_namespace(tool.name) == namespace,
-                    None if deferred_loading_requested && !full_listing && !full_tool_exposure => {
+                    None if deferred_loading_active => {
                         let namespace = tool_namespace(tool.name);
                         preferred_namespaces.contains(&namespace)
                             || loaded_namespaces.contains(&namespace)
@@ -155,33 +185,17 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 })
                 .filter(|tool| match requested_tier {
                     Some(tier) => tool_tier_label(tool.name) == tier,
-                    None if deferred_loading_requested && !full_listing && !full_tool_exposure => {
+                    None if deferred_loading_active => {
                         let tier = tool_tier_label(tool.name);
                         preferred_tiers.contains(&tier) || loaded_tiers.contains(&tier)
                     }
                     None => true,
                 })
                 .collect::<Vec<_>>();
-            let mut effective_namespaces = preferred_namespaces.clone();
-            for namespace in &loaded_namespaces {
-                if !effective_namespaces.contains(namespace) {
-                    effective_namespaces.push(namespace);
-                }
-            }
-            effective_namespaces.sort_unstable();
-            let mut effective_tiers = preferred_tiers
-                .iter()
-                .map(|tier| (*tier).to_owned())
-                .collect::<Vec<_>>();
-            for tier in &loaded_tiers {
-                if !effective_tiers.iter().any(|value| value == tier) {
-                    effective_tiers.push((*tier).to_owned());
-                }
-            }
-            effective_tiers.sort_unstable();
-            let token_estimate = serde_json::to_string(&filtered)
-                .map(|body| crate::tools::estimate_tokens(&body))
-                .unwrap_or(0);
+            let effective_namespaces =
+                merged_string_set(preferred_namespaces.iter().copied(), &loaded_namespaces);
+            let effective_tiers = merged_string_set(preferred_tiers.iter().copied(), &loaded_tiers);
+            let token_estimate = filtered.iter().map(|tool| tool.estimated_tokens).sum();
             if deferred_loading_requested
                 && (requested_namespace.is_some() || requested_tier.is_some())
             {
@@ -209,7 +223,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     "effective_tiers": effective_tiers,
                     "selected_namespace": requested_namespace,
                     "selected_tier": requested_tier,
-                    "deferred_loading_active": deferred_loading_requested && requested_namespace.is_none() && requested_tier.is_none() && !full_listing && !full_tool_exposure,
+                    "deferred_loading_active": deferred_loading_active,
                     "full_listing": full_listing,
                     "full_tool_exposure": full_tool_exposure,
                     "tool_count": filtered.len(),

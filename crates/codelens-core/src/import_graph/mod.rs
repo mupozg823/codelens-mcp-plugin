@@ -88,10 +88,10 @@ impl GraphCache {
             .inner
             .lock()
             .map_err(|_| anyhow::anyhow!("graph cache lock poisoned"))?;
-        if let Some(graph) = &inner.graph {
-            if inner.built_generation == current_gen {
-                return Ok(Arc::clone(graph));
-            }
+        if let Some(graph) = &inner.graph
+            && inner.built_generation == current_gen
+        {
+            return Ok(Arc::clone(graph));
         }
         let graph = Arc::new(build_graph(project)?);
         inner.graph = Some(Arc::clone(&graph));
@@ -265,12 +265,11 @@ pub(crate) fn build_graph_pub(
 fn build_graph(project: &ProjectRoot) -> Result<HashMap<String, FileNode>> {
     // Try to load from SQLite first
     let db_path = index_db_path(project.as_path());
-    if db_path.is_file() {
-        if let Ok(db) = IndexDb::open(&db_path) {
-            if db.file_count()? > 0 {
-                return build_graph_from_db(&db);
-            }
-        }
+    if db_path.is_file()
+        && let Ok(db) = IndexDb::open(&db_path)
+        && db.file_count()? > 0
+    {
+        return build_graph_from_db(&db);
     }
 
     // Fallback: scan files directly

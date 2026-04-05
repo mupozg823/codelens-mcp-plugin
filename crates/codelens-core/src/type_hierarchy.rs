@@ -249,10 +249,10 @@ fn extract_types_from_node(
             if let Some((trait_node, type_node)) = by_field {
                 let struct_name = node_text(type_node, source).to_string();
                 let trait_name = node_text(trait_node, source).to_string();
-                if let Some(existing) = map.get_mut(&struct_name) {
-                    if !existing.supertypes.contains(&trait_name) {
-                        existing.supertypes.push(trait_name);
-                    }
+                if let Some(existing) = map.get_mut(&struct_name)
+                    && !existing.supertypes.contains(&trait_name)
+                {
+                    existing.supertypes.push(trait_name);
                 }
             } else {
                 // Fallback: scan child type_identifiers — pattern: impl TRAIT for TYPE
@@ -271,10 +271,10 @@ fn extract_types_from_node(
                 if has_for && type_ids.len() >= 2 {
                     let trait_name = &type_ids[0];
                     let struct_name = &type_ids[1];
-                    if let Some(existing) = map.get_mut(struct_name) {
-                        if !existing.supertypes.contains(trait_name) {
-                            existing.supertypes.push(trait_name.clone());
-                        }
+                    if let Some(existing) = map.get_mut(struct_name)
+                        && !existing.supertypes.contains(trait_name)
+                    {
+                        existing.supertypes.push(trait_name.clone());
                     }
                 }
             }
@@ -372,16 +372,15 @@ fn extract_go_embedded_types(type_node: Node, source: &[u8]) -> Vec<String> {
         };
         if child.kind() == "struct_type" || child.kind() == "field_declaration_list" {
             for j in 0..child.child_count() {
-                if let Some(field) = child.child(j) {
-                    if field.kind() == "field_declaration"
-                        || field.kind() == "field_declaration_list"
+                if let Some(field) = child.child(j)
+                    && (field.kind() == "field_declaration"
+                        || field.kind() == "field_declaration_list")
+                {
+                    // Embedded field: only type, no name
+                    if field.child_by_field_name("name").is_none()
+                        && let Some(type_child) = field.child_by_field_name("type")
                     {
-                        // Embedded field: only type, no name
-                        if field.child_by_field_name("name").is_none() {
-                            if let Some(type_child) = field.child_by_field_name("type") {
-                                supers.push(node_text(type_child, source).to_string());
-                            }
-                        }
+                        supers.push(node_text(type_child, source).to_string());
                     }
                 }
             }

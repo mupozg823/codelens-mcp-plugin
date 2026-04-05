@@ -85,7 +85,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
 
     // Check LSP availability
     let lsp_attached = file_path
-        .and_then(|fp| crate::tools::default_lsp_command_for_path(fp))
+        .and_then(crate::tools::default_lsp_command_for_path)
         .map(|cmd| {
             std::process::Command::new("which")
                 .arg(&cmd)
