@@ -400,6 +400,22 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         .map(|r| (format!("{}:{}", r.file_path, r.symbol_name), r.score))
         .collect();
 
+    // Boost scores for files recently accessed in this session
+    let recent_files = state.recent_file_paths();
+    let mut boosted_scores: std::collections::HashMap<String, f64> = if use_semantic_in_core {
+        semantic_scores
+    } else {
+        std::collections::HashMap::new()
+    };
+    if !recent_files.is_empty() {
+        let boost = 0.15_f64;
+        for (key, score) in boosted_scores.iter_mut() {
+            if recent_files.iter().any(|f| key.starts_with(f.as_str())) {
+                *score += boost;
+            }
+        }
+    }
+
     let mut result = state.symbol_index().get_ranked_context_cached(
         query,
         path,
@@ -407,11 +423,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         include_body,
         depth,
         Some(&state.graph_cache()),
-        if use_semantic_in_core {
-            semantic_scores
-        } else {
-            std::collections::HashMap::new()
-        },
+        boosted_scores,
     )?;
 
     if !effective_disable_semantic {

@@ -135,7 +135,14 @@ fn main() -> Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(7837);
 
-    let project = ProjectRoot::new(&effective_path)?;
+    let project = ProjectRoot::new(&effective_path).or_else(|_| {
+        // Fallback: try current working directory if explicit path fails
+        tracing::warn!("Failed to resolve project root '{}', falling back to cwd", effective_path);
+        let cwd = std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| ".".to_string());
+        ProjectRoot::new(&cwd)
+    })?;
     if !project_from_cli
         && project_from_claude.is_none()
         && project_from_mcp.is_none()

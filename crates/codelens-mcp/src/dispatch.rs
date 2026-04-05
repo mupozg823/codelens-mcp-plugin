@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
-use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    SuccessResponseInput, build_error_response, build_success_response,
+    build_error_response, build_success_response, SuccessResponseInput,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
-    is_refactor_gated_mutation_tool,
+    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
+    MutationGateFailure,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
+use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
 use crate::tools::{self, ToolHandler, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -281,6 +281,15 @@ pub(crate) fn dispatch_tool(
     let _guard = span.enter();
     let start = std::time::Instant::now();
     state.push_recent_tool(name);
+    // Track file access for session-aware ranking boost
+    if let Some(fp) = arguments
+        .get("file_path")
+        .or_else(|| arguments.get("path"))
+        .or_else(|| arguments.get("relative_path"))
+        .and_then(|v| v.as_str())
+    {
+        state.record_file_access(fp);
+    }
     let surface = *state.surface();
     let active_surface = surface.as_label().to_owned();
 

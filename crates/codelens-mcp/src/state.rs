@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::analysis_queue::{
-    AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
-    STDIO_ANALYSIS_WORKER_COUNT, analysis_job_cost_units,
+    analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
+    STDIO_ANALYSIS_WORKER_COUNT,
 };
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::error::CodeLensError;
@@ -86,6 +86,8 @@ pub(crate) struct AppState {
     pub(crate) metrics: Arc<ToolMetricsRegistry>,
     /// Recent tool call names for context-aware suggestions (max 5).
     recent_tools: Mutex<VecDeque<String>>,
+    /// Recent file paths accessed in this session (max 20) for ranking boost.
+    recent_files: Mutex<VecDeque<String>>,
     preflight_store: RecentPreflightStore,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
     pub(crate) watcher: Option<FileWatcher>,
@@ -514,6 +516,27 @@ impl AppState {
             .collect()
     }
 
+    /// Record a file path as recently accessed (for ranking boost).
+    pub(crate) fn record_file_access(&self, path: &str) {
+        let mut files = self.recent_files.lock().unwrap_or_else(|p| p.into_inner());
+        // Deduplicate: remove if already present, then push to back
+        files.retain(|f| f != path);
+        if files.len() >= 20 {
+            files.pop_front();
+        }
+        files.push_back(path.to_owned());
+    }
+
+    /// Get recently accessed file paths (most recent last).
+    pub(crate) fn recent_file_paths(&self) -> Vec<String> {
+        self.recent_files
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .cloned()
+            .collect()
+    }
+
     // ── Job Store delegations ────────────────────────────────────────────
 
     pub(crate) fn enqueue_analysis_job(
@@ -724,6 +747,7 @@ impl AppState {
             job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
             metrics: Arc::clone(&self.metrics),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
+            recent_files: Mutex::new(VecDeque::with_capacity(20)),
             preflight_store: RecentPreflightStore::new(),
             analysis_queue: OnceLock::new(),
             watcher: None,
@@ -850,6 +874,7 @@ impl AppState {
             job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
             metrics: Arc::new(ToolMetricsRegistry::new()),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
+            recent_files: Mutex::new(VecDeque::with_capacity(20)),
             preflight_store: RecentPreflightStore::new(),
             analysis_queue: OnceLock::new(),
             watcher,
