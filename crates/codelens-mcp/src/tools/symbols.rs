@@ -42,6 +42,9 @@ fn expanded_query_for_retrieval(query: &str) -> String {
         }
     };
 
+    // Note: dynamic NL→snake_case expansion was tested but hurts hybrid MRR
+    // by introducing noise. Static alias groups are more precise.
+
     let alias_groups: &[(&[&str], &[&str])] = &[
         (
             &["rename", "refactor"],
