@@ -41,3 +41,4 @@ scripts/finetune/output/
 # ONNX model files (downloaded at install time)
 *.onnx
 *.onnx.bak
+checkpoints/
