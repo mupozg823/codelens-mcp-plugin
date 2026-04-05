@@ -94,7 +94,9 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME}"
           VERSION="${TAG#v}"
-          curl -fsSL --retry 3 --retry-delay 5 \
+          # Wait for CDN propagation after release asset upload
+          sleep 15
+          curl -fsSL --retry 5 --retry-delay 10 \
             "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/${TAG}/checksums-sha256.txt" \
             -o checksums.txt
 
@@ -106,7 +108,6 @@ jobs:
         run: |
           sed -e "s/RELEASE_SHA256_DARWIN_ARM64/${SHA_DARWIN_ARM64}/" \
               -e "s/RELEASE_SHA256_LINUX_X86_64/${SHA_LINUX_X86_64}/" \
-              -e "s/RELEASE_SHA256_LINUX_ARM64/${SHA_LINUX_ARM64}/" \
               -e "s/version \".*\"/version \"${VERSION}\"/" \
               Formula/codelens-mcp.rb > codelens-mcp.rb
 
