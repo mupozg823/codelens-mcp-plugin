@@ -16,10 +16,7 @@ jobs:
             os: macos-latest
             name: darwin-arm64
             ext: ""
-          - target: x86_64-apple-darwin
-            os: macos-latest
-            name: darwin-x86_64
-            ext: ""
+          # x86_64-apple-darwin removed: ort-sys has no prebuilt binaries for this target
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             name: linux-x86_64
@@ -43,10 +40,6 @@ jobs:
       - name: Install cross (Linux ARM64)
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: cargo install cross --locked
-
-      - name: Add Rust target (cross-compile)
-        if: matrix.target == 'x86_64-apple-darwin'
-        run: rustup target add x86_64-apple-darwin
 
       - name: Build
         shell: bash
@@ -119,14 +112,12 @@ jobs:
 
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
           echo "SHA_DARWIN_ARM64=$(grep darwin-arm64 checksums.txt | awk '{print $1}')" >> $GITHUB_ENV
-          echo "SHA_DARWIN_X86_64=$(grep darwin-x86_64 checksums.txt | awk '{print $1}')" >> $GITHUB_ENV
           echo "SHA_LINUX_X86_64=$(grep linux-x86_64 checksums.txt | awk '{print $1}')" >> $GITHUB_ENV
           echo "SHA_LINUX_ARM64=$(grep linux-arm64 checksums.txt | awk '{print $1}')" >> $GITHUB_ENV
 
       - name: Generate formula with real checksums
         run: |
           sed -e "s/RELEASE_SHA256_DARWIN_ARM64/${SHA_DARWIN_ARM64}/" \
-              -e "s/RELEASE_SHA256_DARWIN_X86_64/${SHA_DARWIN_X86_64}/" \
               -e "s/RELEASE_SHA256_LINUX_X86_64/${SHA_LINUX_X86_64}/" \
               -e "s/RELEASE_SHA256_LINUX_ARM64/${SHA_LINUX_ARM64}/" \
               -e "s/version \".*\"/version \"${VERSION}\"/" \

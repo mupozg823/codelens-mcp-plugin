@@ -5,13 +5,9 @@ class CodelensMcp < Formula
   license "Apache-2.0"
 
   on_macos do
-    if Hardware::CPU.arm?
-      url "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/v#{version}/codelens-mcp-darwin-arm64.tar.gz"
-      sha256 "RELEASE_SHA256_DARWIN_ARM64"
-    else
-      url "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/v#{version}/codelens-mcp-darwin-x86_64.tar.gz"
-      sha256 "RELEASE_SHA256_DARWIN_X86_64"
-    end
+    # ARM64 only — Intel Macs can use Rosetta 2
+    url "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/v#{version}/codelens-mcp-darwin-arm64.tar.gz"
+    sha256 "RELEASE_SHA256_DARWIN_ARM64"
   end
 
   on_linux do
