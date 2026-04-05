@@ -146,6 +146,8 @@ def main():
         result["mcp_preflight"] = {
             "available": bool(mcp_preflight.get("available")),
             "auto_surface": mcp_preflight.get("auto_surface"),
+            "auto_budget": mcp_preflight.get("auto_budget"),
+            "indexed_files": mcp_preflight.get("indexed_files"),
             "embedding_indexed": mcp_preflight.get("embedding_indexed"),
             "embedding_indexed_symbols": mcp_preflight.get("embedding_indexed_symbols"),
             "fallback_to_native": mcp_preflight.get("fallback_to_native", False),

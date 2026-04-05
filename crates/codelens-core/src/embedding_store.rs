@@ -14,7 +14,10 @@ pub struct EmbeddingChunk {
     pub signature: String,
     pub name_path: String,
     pub text: String,
+    /// Primary embedding: code signature + identifier split
     pub embedding: Vec<f32>,
+    /// Optional secondary embedding: docstring/comment (for dual-vector search)
+    pub doc_embedding: Option<Vec<f32>>,
 }
 
 /// Result of a vector similarity search.
@@ -40,6 +43,19 @@ pub trait EmbeddingStore: Send + Sync {
 
     /// Search for chunks similar to the query embedding vector.
     fn search(&self, query_vec: &[f32], top_k: usize) -> Result<Vec<ScoredChunk>>;
+
+    /// Dual-vector search: blend code embedding score with doc embedding score.
+    /// `doc_weight` controls the balance (0.0 = code only, 1.0 = doc only).
+    fn search_dual(
+        &self,
+        query_vec: &[f32],
+        top_k: usize,
+        doc_weight: f64,
+    ) -> Result<Vec<ScoredChunk>> {
+        // Default: fallback to single-vector search
+        let _ = doc_weight;
+        self.search(query_vec, top_k)
+    }
 
     /// Delete all embeddings for files matching the given paths.
     fn delete_by_file(&self, file_paths: &[&str]) -> Result<usize>;

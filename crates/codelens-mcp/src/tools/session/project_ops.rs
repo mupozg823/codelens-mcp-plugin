@@ -40,7 +40,7 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
     let client = session
         .client_name
         .as_deref()
-        .map(crate::client_profile::ClientProfile::detect)
+        .map(|name| crate::client_profile::ClientProfile::detect(Some(name)))
         .unwrap_or_else(|| state.client_profile());
     let file_count = state
         .symbol_index()

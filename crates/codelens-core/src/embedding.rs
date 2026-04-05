@@ -279,6 +279,7 @@ impl EmbeddingStore for SqliteVecStore {
                 name_path,
                 text,
                 embedding,
+                doc_embedding: None,
             });
         }
         Ok(chunks)
@@ -523,6 +524,7 @@ impl EmbeddingEngine {
                 name_path: sym.name_path.clone(),
                 text: text.clone(),
                 embedding: emb,
+                doc_embedding: None,
             })
             .collect();
 
