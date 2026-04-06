@@ -1,4 +1,4 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::protocol::BackendKind;
 use crate::tools::symbols::flatten_symbols;
 use codelens_core::{
@@ -267,4 +267,25 @@ pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value)
             success_meta(BackendKind::Git, 0.85),
         )
     })?)
+}
+
+pub fn get_architecture_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let min_size = arguments
+        .get("min_community_size")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(2) as usize;
+
+    let graph = state.graph_cache().get_or_build(&state.project())?;
+    let overview = codelens_core::community::detect_communities(&graph, min_size)?;
+
+    Ok((
+        json!({
+            "communities": overview.communities,
+            "total_files": overview.total_files,
+            "total_edges": overview.total_edges,
+            "modularity": (overview.modularity * 1000.0).round() / 1000.0,
+            "community_count": overview.communities.len(),
+        }),
+        success_meta(BackendKind::Hybrid, 0.88),
+    ))
 }

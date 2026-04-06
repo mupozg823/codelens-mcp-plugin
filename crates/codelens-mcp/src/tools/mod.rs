@@ -77,6 +77,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "get_callees"                  => graph::get_callees_tool,
         "find_circular_dependencies"   => graph::find_circular_dependencies_tool,
         "get_change_coupling"          => graph::get_change_coupling_tool,
+        "get_architecture"             => graph::get_architecture_tool,
         // ── Edit (individual) ──
         "rename_symbol"                => mutation::rename_symbol,
         "create_text_file"             => mutation::create_text_file_tool,
