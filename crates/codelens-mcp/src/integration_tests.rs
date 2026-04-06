@@ -2996,6 +2996,9 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
                 results
                     .iter()
                     .all(|result| result["provenance"]["source"] == json!("semantic"))
+                    && results
+                        .iter()
+                        .all(|result| result["provenance"]["adjusted_score"].is_number())
                     && results.iter().any(|result| {
                         result.get("symbol_name") == Some(&json!("ember_archive_delta"))
                     })

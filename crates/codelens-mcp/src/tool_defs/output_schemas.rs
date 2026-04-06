@@ -113,7 +113,9 @@ pub(super) fn semantic_search_output_schema() -> serde_json::Value {
                             "type": "object",
                             "properties": {
                                 "source": {"type": "string", "enum": ["semantic"]},
-                                "retrieval_rank": {"type": "integer"}
+                                "retrieval_rank": {"type": "integer"},
+                                "prior_delta": {"type": "number"},
+                                "adjusted_score": {"type": "number"}
                             }
                         }
                     }

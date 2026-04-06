@@ -159,6 +159,15 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     prior
 }
 
+fn semantic_adjusted_score_with_lower(query_lower: &str, result: &SemanticMatch) -> (f64, f64) {
+    let prior = semantic_result_prior(query_lower, result);
+    (prior, result.score + prior)
+}
+
+pub(crate) fn semantic_adjusted_score_parts(query: &str, result: &SemanticMatch) -> (f64, f64) {
+    semantic_adjusted_score_with_lower(&query.to_ascii_lowercase(), result)
+}
+
 pub(crate) fn rerank_semantic_matches(
     query: &str,
     mut results: Vec<SemanticMatch>,
@@ -166,8 +175,8 @@ pub(crate) fn rerank_semantic_matches(
 ) -> Vec<SemanticMatch> {
     let query_lower = query.to_ascii_lowercase();
     results.sort_by(|a, b| {
-        let a_score = a.score + semantic_result_prior(&query_lower, a);
-        let b_score = b.score + semantic_result_prior(&query_lower, b);
+        let (_, a_score) = semantic_adjusted_score_with_lower(&query_lower, a);
+        let (_, b_score) = semantic_adjusted_score_with_lower(&query_lower, b);
         b_score
             .partial_cmp(&a_score)
             .unwrap_or(std::cmp::Ordering::Equal)
@@ -1079,7 +1088,8 @@ fn count_word_occurrences(line: &str, needle: &str) -> i32 {
 mod tests {
     use super::{
         annotate_ranked_context_provenance, merge_semantic_ranked_entries,
-        query_prefers_lexical_only, semantic_query_for_retrieval, truncate_body_preview,
+        query_prefers_lexical_only, semantic_adjusted_score_parts, semantic_query_for_retrieval,
+        truncate_body_preview,
     };
     use codelens_core::{RankedContextEntry, RankedContextResult, SemanticMatch};
     use serde_json::json;
@@ -1232,6 +1242,26 @@ mod tests {
         assert!(semantic.contains("change_signature"));
         assert!(semantic.contains("change signature"));
         assert!(!semantic.contains("run_stdio"));
+    }
+
+    #[test]
+    fn semantic_adjusted_score_exposes_positive_prior_for_dispatch_entrypoint() {
+        let match_ = SemanticMatch {
+            symbol_name: "dispatch_tool".to_owned(),
+            kind: "function".to_owned(),
+            file_path: "crates/codelens-mcp/src/dispatch.rs".to_owned(),
+            line: 42,
+            signature: "fn dispatch_tool".to_owned(),
+            name_path: "dispatch_tool".to_owned(),
+            score: 0.224,
+        };
+
+        let (prior, adjusted) = semantic_adjusted_score_parts(
+            "route an incoming tool request to the right handler",
+            &match_,
+        );
+        assert!(prior > 0.0);
+        assert!(adjusted > match_.score);
     }
 
     #[test]

@@ -119,6 +119,17 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
     let semantic_query = crate::tools::symbols::semantic_query_for_retrieval(query);
     let results =
         crate::tools::symbols::semantic_results_for_query(state, query, max_results, false);
+    let result_scores = results
+        .iter()
+        .map(|result| {
+            let (prior_delta, adjusted_score) =
+                crate::tools::symbols::semantic_adjusted_score_parts(query, result);
+            (
+                (prior_delta * 1000.0).round() / 1000.0,
+                (adjusted_score * 1000.0).round() / 1000.0,
+            )
+        })
+        .collect::<Vec<_>>();
     let mut payload = json!({
         "query": query,
         "results": results,
@@ -135,11 +146,15 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
     {
         for (idx, entry) in entries.iter_mut().enumerate() {
             if let Some(map) = entry.as_object_mut() {
+                let (prior_delta, adjusted_score) =
+                    result_scores.get(idx).copied().unwrap_or((0.0, 0.0));
                 map.insert(
                     "provenance".to_owned(),
                     json!({
                         "source": "semantic",
                         "retrieval_rank": idx + 1,
+                        "prior_delta": prior_delta,
+                        "adjusted_score": adjusted_score,
                     }),
                 );
             }
