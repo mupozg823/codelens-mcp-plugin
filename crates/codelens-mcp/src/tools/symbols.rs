@@ -5,7 +5,7 @@ use codelens_core::{
     RankedContextResult, SemanticMatch, SymbolInfo, SymbolKind, read_file,
     search_symbols_hybrid_with_semantic,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 fn query_prefers_lexical_only(query: &str) -> bool {
     let trimmed = query.trim();
@@ -145,14 +145,103 @@ pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
     terms.join(" ")
 }
 
-/// Returns true if the embedding engine is loaded and has an indexed corpus.
+#[cfg(feature = "semantic")]
+pub(crate) fn semantic_status(state: &AppState) -> Value {
+    let configured_model = codelens_core::configured_embedding_model_name();
+    if let Some(engine_opt) = state.embedding.get() {
+        return match engine_opt {
+            Some(engine) => {
+                let info = engine.index_info();
+                if info.indexed_symbols > 0 {
+                    json!({
+                        "status": "ready",
+                        "model": info.model_name,
+                        "indexed_symbols": info.indexed_symbols,
+                        "loaded": true,
+                    })
+                } else {
+                    json!({
+                        "status": "unavailable",
+                        "model": info.model_name,
+                        "indexed_symbols": info.indexed_symbols,
+                        "loaded": true,
+                        "reason": "embedding index is empty; call index_embeddings",
+                    })
+                }
+            }
+            None => json!({
+                "status": "failed",
+                "model": configured_model,
+                "loaded": false,
+                "reason": "embedding engine failed to initialize",
+            }),
+        };
+    }
+
+    match codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
+        .ok()
+        .flatten()
+    {
+        Some(info) if info.model_name == configured_model && info.indexed_symbols > 0 => json!({
+            "status": "ready",
+            "model": info.model_name,
+            "indexed_symbols": info.indexed_symbols,
+            "loaded": false,
+        }),
+        Some(info) if info.model_name != configured_model => json!({
+            "status": "unavailable",
+            "model": info.model_name,
+            "expected_model": configured_model,
+            "indexed_symbols": info.indexed_symbols,
+            "loaded": false,
+            "reason": "embedding index model mismatch; call index_embeddings to rebuild",
+        }),
+        Some(info) => json!({
+            "status": "unavailable",
+            "model": info.model_name,
+            "indexed_symbols": info.indexed_symbols,
+            "loaded": false,
+            "reason": "embedding index is empty; call index_embeddings",
+        }),
+        None => json!({
+            "status": "unavailable",
+            "model": configured_model,
+            "loaded": false,
+            "reason": "embedding index missing; call index_embeddings",
+        }),
+    }
+}
+
+#[cfg(not(feature = "semantic"))]
+pub(crate) fn semantic_status(state: &AppState) -> Value {
+    let configured_model = codelens_core::configured_embedding_model_name();
+    let indexed = codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
+        .ok()
+        .flatten();
+
+    match indexed {
+        Some(info) => json!({
+            "status": "not_compiled",
+            "model": info.model_name,
+            "indexed_symbols": info.indexed_symbols,
+            "loaded": false,
+            "reason": "semantic feature not compiled into this binary",
+        }),
+        None => json!({
+            "status": "not_compiled",
+            "model": configured_model,
+            "loaded": false,
+            "reason": "semantic feature not compiled into this binary",
+        }),
+    }
+}
+
 #[cfg(feature = "semantic")]
 pub(crate) fn is_semantic_available(state: &AppState) -> bool {
-    state
-        .embedding
-        .get()
-        .and_then(|opt| opt.as_ref())
-        .is_some_and(|e| e.is_indexed())
+    semantic_status(state)
+        .get("status")
+        .and_then(Value::as_str)
+        .is_some_and(|status| status == "ready")
 }
 
 #[cfg(not(feature = "semantic"))]

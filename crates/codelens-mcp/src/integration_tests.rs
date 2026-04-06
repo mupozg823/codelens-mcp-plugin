@@ -1124,6 +1124,99 @@ fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
 }
 
 #[test]
+fn impact_report_surfaces_unavailable_semantic_status() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("impact_semantic_missing.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "impact_report",
+        json!({"path": "impact_semantic_missing.py"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let analysis_id = payload["data"]["analysis_id"]
+        .as_str()
+        .expect("analysis_id should be present");
+    assert!(
+        payload["data"]["available_sections"]
+            .as_array()
+            .map(|sections| sections.iter().any(|section| section == "semantic_status"))
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["data"]["next_actions"]
+            .as_array()
+            .map(|actions| {
+                actions
+                    .iter()
+                    .filter_map(|value| value.as_str())
+                    .any(|value| value.contains("index_embeddings"))
+            })
+            .unwrap_or(false)
+    );
+
+    let section = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "semantic_status"}),
+    );
+    assert_eq!(section["success"], json!(true));
+    assert_eq!(section["data"]["content"]["status"], json!("unavailable"));
+    assert!(
+        section["data"]["content"]["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("index_embeddings")
+    );
+}
+
+#[test]
+fn impact_report_uses_existing_embedding_index_for_semantic_status() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("impact_semantic_ready.py"),
+        "def ember_archive_delta():\n    return 1\n",
+    )
+    .unwrap();
+    let _bootstrap = make_state(&project);
+
+    let engine = codelens_core::EmbeddingEngine::new(&project).unwrap();
+    let indexed = engine.index_from_project(&project).unwrap();
+    assert!(indexed > 0);
+    drop(engine);
+
+    let state = make_state(&project);
+    assert!(state.embedding.get().is_none());
+
+    let payload = call_tool(
+        &state,
+        "impact_report",
+        json!({"path": "impact_semantic_ready.py"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let analysis_id = payload["data"]["analysis_id"]
+        .as_str()
+        .expect("analysis_id should be present");
+
+    let section = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "semantic_status"}),
+    );
+    assert_eq!(section["success"], json!(true));
+    assert_eq!(section["data"]["content"]["status"], json!("ready"));
+    assert_eq!(
+        section["data"]["content"]["indexed_symbols"],
+        json!(indexed)
+    );
+}
+
+#[test]
 fn get_capabilities_returns_features() {
     let project = project_root();
     fs::write(project.as_path().join("check.py"), "x = 1\n").unwrap();
@@ -2843,6 +2936,53 @@ fn builder_minimal_mutation_behavior_unchanged() {
         }),
     );
     assert_eq!(payload["success"], json!(true));
+}
+
+#[test]
+fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("semantic_mutation.py"),
+        "def winter_orbit_launch():\n    return 1\n",
+    )
+    .unwrap();
+    let _bootstrap = make_state(&project);
+    let engine = codelens_core::EmbeddingEngine::new(&project).unwrap();
+    let indexed = engine.index_from_project(&project).unwrap();
+    assert!(indexed > 0);
+    drop(engine);
+
+    let state = make_state(&project);
+    assert!(state.embedding.get().is_none());
+
+    let payload = call_tool(
+        &state,
+        "replace_content",
+        json!({
+            "relative_path": "semantic_mutation.py",
+            "old_text": "winter_orbit_launch",
+            "new_text": "ember_archive_delta"
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert!(state.embedding.get().is_some());
+
+    let search = call_tool(
+        &state,
+        "semantic_search",
+        json!({"query": "ember archive delta", "max_results": 5}),
+    );
+    assert_eq!(search["success"], json!(true));
+    assert!(
+        search["data"]["results"]
+            .as_array()
+            .map(|results| {
+                results
+                    .iter()
+                    .any(|result| result.get("symbol_name") == Some(&json!("ember_archive_delta")))
+            })
+            .unwrap_or(false)
+    );
 }
 
 // ── Test helpers ─────────────────────────────────────────────────────

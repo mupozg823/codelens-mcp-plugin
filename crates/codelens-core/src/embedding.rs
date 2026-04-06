@@ -304,6 +304,7 @@ pub struct EmbeddingEngine {
     model: Mutex<TextEmbedding>,
     store: Box<dyn EmbeddingStore>,
     model_name: String,
+    indexing: std::sync::atomic::AtomicBool,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -506,6 +507,7 @@ impl EmbeddingEngine {
             model: Mutex::new(model),
             store: Box::new(store),
             model_name,
+            indexing: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -518,7 +520,36 @@ impl EmbeddingEngine {
     /// Uses streaming batches: prepare text → embed → upsert → drop per batch,
     /// so only one batch worth of data is in memory at a time.
     /// Caps at a configurable max to prevent runaway on huge projects.
+    /// Returns true if a full reindex is currently in progress.
+    pub fn is_indexing(&self) -> bool {
+        self.indexing.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
     pub fn index_from_project(&self, project: &ProjectRoot) -> Result<usize> {
+        // Guard against concurrent full reindex (14s+ operation)
+        if self
+            .indexing
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            anyhow::bail!(
+                "Embedding indexing already in progress — wait for the current run to complete before retrying."
+            );
+        }
+        // RAII guard to reset the flag on any exit path
+        struct IndexGuard<'a>(&'a std::sync::atomic::AtomicBool);
+        impl Drop for IndexGuard<'_> {
+            fn drop(&mut self) {
+                self.0.store(false, std::sync::atomic::Ordering::Release);
+            }
+        }
+        let _guard = IndexGuard(&self.indexing);
+
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
         let batch_size = embed_batch_size();

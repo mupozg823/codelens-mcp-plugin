@@ -1,21 +1,39 @@
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use crate::tools::symbols::{is_semantic_available, semantic_results_for_query};
-use crate::tools::{required_string, AppState, ToolResult};
-use serde_json::{json, Value};
+use crate::tools::symbols::{semantic_results_for_query, semantic_status};
+use crate::tools::{AppState, ToolResult, required_string};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// Insert a degraded-mode notice when semantic embedding is unavailable.
-fn insert_semantic_status(sections: &mut BTreeMap<String, Value>, state: &AppState) {
-    if !is_semantic_available(state) {
-        sections.insert(
-            "_semantic_status".to_owned(),
-            json!({
-                "available": false,
-                "note": "Semantic embedding not loaded — report uses structural analysis only. Call index_embeddings to enable semantic enrichment."
-            }),
-        );
+fn semantic_status_is_ready(status: &Value) -> bool {
+    status
+        .get("status")
+        .and_then(Value::as_str)
+        .is_some_and(|value| value == "ready")
+}
+
+fn push_unique(items: &mut Vec<String>, item: impl Into<String>) {
+    let item = item.into();
+    if !items.iter().any(|existing| existing == &item) {
+        items.push(item);
     }
+}
+
+fn semantic_degraded_note(status: &Value) -> Option<String> {
+    if semantic_status_is_ready(status) {
+        return None;
+    }
+    let reason = status
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or("semantic enrichment unavailable");
+    Some(format!(
+        "Semantic enrichment unavailable; report uses structural evidence only. {reason}."
+    ))
+}
+
+fn insert_semantic_status(sections: &mut BTreeMap<String, Value>, status: Value) {
+    sections.insert("semantic_status".to_owned(), status);
 }
 
 pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult {
@@ -91,7 +109,12 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         .trim_end_matches(".tsx")
         .trim_end_matches(".py")
         .replace('_', " ");
-    let sem_results = semantic_results_for_query(state, &module_name, 10, false);
+    let initial_semantic_status = semantic_status(state);
+    let sem_results = if semantic_status_is_ready(&initial_semantic_status) {
+        semantic_results_for_query(state, &module_name, 10, false)
+    } else {
+        Vec::new()
+    };
     let semantic_coupling: Vec<Value> = sem_results
         .into_iter()
         .filter(|r| r.score > 0.12 && !r.file_path.contains(path))
@@ -110,8 +133,16 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
             json!({"hint": "Semantically similar symbols outside this module — potential hidden coupling", "matches": semantic_coupling}),
         );
     }
-
-    insert_semantic_status(&mut sections, state);
+    let final_semantic_status = semantic_status(state);
+    insert_semantic_status(&mut sections, final_semantic_status.clone());
+    let mut next_actions = vec!["Check cycle hits before moving ownership boundaries".to_owned()];
+    if let Some(note) = semantic_degraded_note(&final_semantic_status) {
+        push_unique(
+            &mut next_actions,
+            "Run index_embeddings before trusting semantic-only coupling hints",
+        );
+        push_unique(&mut next_actions, note);
+    }
     make_handle_response(
         state,
         "module_boundary_report",
@@ -119,7 +150,7 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         format!("Module boundary report for `{path}` with inbound/outbound and structural risk."),
         top_findings,
         0.87,
-        vec!["Check cycle hits before moving ownership boundaries".to_owned()],
+        next_actions,
         sections,
         vec![path.to_owned()],
         None,
@@ -148,34 +179,39 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
         .collect::<Vec<_>>();
     // Semantic enrichment: for each dead code candidate, find similar live symbols
     // to help verify it's truly unused (not just unreferenced by a different name).
-    let semantic_hints: Vec<Value> = candidates
-        .iter()
-        .filter_map(|entry| {
-            let name = entry
-                .get("name")
-                .or_else(|| entry.get("symbol"))
-                .and_then(|v| v.as_str())?;
-            let results = semantic_results_for_query(state, name, 3, false);
-            if results.is_empty() {
-                return None;
-            }
-            let similar: Vec<Value> = results
-                .into_iter()
-                .filter(|r| r.score > 0.15)
-                .map(|r| {
-                    json!({
-                        "symbol": r.symbol_name,
-                        "file": r.file_path,
-                        "score": (r.score * 1000.0).round() / 1000.0,
+    let initial_semantic_status = semantic_status(state);
+    let semantic_hints: Vec<Value> = if semantic_status_is_ready(&initial_semantic_status) {
+        candidates
+            .iter()
+            .filter_map(|entry| {
+                let name = entry
+                    .get("name")
+                    .or_else(|| entry.get("symbol"))
+                    .and_then(|v| v.as_str())?;
+                let results = semantic_results_for_query(state, name, 3, false);
+                if results.is_empty() {
+                    return None;
+                }
+                let similar: Vec<Value> = results
+                    .into_iter()
+                    .filter(|r| r.score > 0.15)
+                    .map(|r| {
+                        json!({
+                            "symbol": r.symbol_name,
+                            "file": r.file_path,
+                            "score": (r.score * 1000.0).round() / 1000.0,
+                        })
                     })
-                })
-                .collect();
-            if similar.is_empty() {
-                return None;
-            }
-            Some(json!({"dead_symbol": name, "similar_live_symbols": similar}))
-        })
-        .collect();
+                    .collect();
+                if similar.is_empty() {
+                    return None;
+                }
+                Some(json!({"dead_symbol": name, "similar_live_symbols": similar}))
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let top_findings = strings_from_array(Some(&candidates), "file", 3);
     let mut sections = BTreeMap::new();
@@ -190,7 +226,17 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
         );
     }
     sections.insert("raw_dead_code".to_owned(), dead_code);
-    insert_semantic_status(&mut sections, state);
+    let final_semantic_status = semantic_status(state);
+    insert_semantic_status(&mut sections, final_semantic_status.clone());
+    let mut next_actions =
+        vec!["Validate runtime entry points before deleting candidates".to_owned()];
+    if let Some(note) = semantic_degraded_note(&final_semantic_status) {
+        push_unique(
+            &mut next_actions,
+            "Run index_embeddings before trusting semantic duplicate or similarity evidence",
+        );
+        push_unique(&mut next_actions, note);
+    }
     make_handle_response(
         state,
         "dead_code_report",
@@ -198,7 +244,7 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
         format!("Bounded dead-code audit for scope `{scope}`."),
         top_findings,
         0.84,
-        vec!["Validate runtime entry points before deleting candidates".to_owned()],
+        next_actions,
         sections,
         if scope == "." {
             Vec::new()
@@ -281,33 +327,38 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         })
         .collect();
 
-    let semantic_related: Vec<Value> = target_files
-        .iter()
-        .take(3)
-        .flat_map(|path| {
-            let query = path
-                .rsplit('/')
-                .next()
-                .unwrap_or(path)
-                .trim_end_matches(".rs")
-                .trim_end_matches(".ts")
-                .trim_end_matches(".tsx")
-                .trim_end_matches(".py")
-                .replace('_', " ");
-            semantic_results_for_query(state, &query, 5, false)
-                .into_iter()
-                .filter(|r| r.score > 0.12 && !graph_files.contains(&r.file_path))
-                .map(|r| {
-                    json!({
-                        "source": path,
-                        "related_file": r.file_path,
-                        "related_symbol": r.symbol_name,
-                        "semantic_score": (r.score * 1000.0).round() / 1000.0,
+    let initial_semantic_status = semantic_status(state);
+    let semantic_related: Vec<Value> = if semantic_status_is_ready(&initial_semantic_status) {
+        target_files
+            .iter()
+            .take(3)
+            .flat_map(|path| {
+                let query = path
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or(path)
+                    .trim_end_matches(".rs")
+                    .trim_end_matches(".ts")
+                    .trim_end_matches(".tsx")
+                    .trim_end_matches(".py")
+                    .replace('_', " ");
+                semantic_results_for_query(state, &query, 5, false)
+                    .into_iter()
+                    .filter(|r| r.score > 0.12 && !graph_files.contains(&r.file_path))
+                    .map(|r| {
+                        json!({
+                            "source": path,
+                            "related_file": r.file_path,
+                            "related_symbol": r.symbol_name,
+                            "semantic_score": (r.score * 1000.0).round() / 1000.0,
+                        })
                     })
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect();
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let mut sections = BTreeMap::new();
     sections.insert(
@@ -320,7 +371,17 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
             json!({"hint": "Files semantically related but not in import graph", "matches": semantic_related}),
         );
     }
-    insert_semantic_status(&mut sections, state);
+    let final_semantic_status = semantic_status(state);
+    insert_semantic_status(&mut sections, final_semantic_status.clone());
+    let mut next_actions =
+        vec!["Expand only the highest-impact file before deeper review".to_owned()];
+    if let Some(note) = semantic_degraded_note(&final_semantic_status) {
+        push_unique(
+            &mut next_actions,
+            "Run index_embeddings before trusting semantic-only related-file hints",
+        );
+        push_unique(&mut next_actions, note);
+    }
     make_handle_response(
         state,
         "impact_report",
@@ -328,7 +389,7 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         "Diff-aware impact report with bounded blast radius and importer evidence.".to_owned(),
         top_findings,
         0.88,
-        vec!["Expand only the highest-impact file before deeper review".to_owned()],
+        next_actions,
         sections,
         target_files,
         None,
@@ -383,7 +444,17 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
     sections.insert("symbol_impact".to_owned(), symbol_impact);
     sections.insert("change_request".to_owned(), change_request);
     sections.insert("related_tests".to_owned(), tests);
-    insert_semantic_status(&mut sections, state);
+    let status = semantic_status(state);
+    insert_semantic_status(&mut sections, status.clone());
+    let mut next_actions =
+        vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()];
+    if let Some(note) = semantic_degraded_note(&status) {
+        push_unique(
+            &mut next_actions,
+            "Run index_embeddings before trusting semantic-enriched report sections",
+        );
+        push_unique(&mut next_actions, note);
+    }
     make_handle_response(
         state,
         "refactor_safety_report",
@@ -395,13 +466,15 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         format!("Preview-first refactor safety report for `{path}`."),
         top_findings,
         0.9,
-        vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()],
+        next_actions,
         sections,
-        vec![arguments
-            .get("file_path")
-            .and_then(|value| value.as_str())
-            .unwrap_or(path)
-            .to_owned()],
+        vec![
+            arguments
+                .get("file_path")
+                .and_then(|value| value.as_str())
+                .unwrap_or(path)
+                .to_owned(),
+        ],
         symbol.map(ToOwned::to_owned),
     )
 }

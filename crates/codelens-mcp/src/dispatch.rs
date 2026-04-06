@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
+use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    build_error_response, build_success_response, SuccessResponseInput,
+    SuccessResponseInput, build_error_response, build_success_response,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
-    MutationGateFailure,
+    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
+    is_refactor_gated_mutation_tool,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
+use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
 use crate::tools::{self, ToolHandler, ToolResult};
-use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -452,12 +452,40 @@ pub(crate) fn dispatch_tool(
             if let Err(e) = state.symbol_index().refresh_file(fp) {
                 tracing::debug!(file = fp, error = %e, "incremental symbol reindex failed");
             }
-            // Refresh embedding index if loaded — prevents stale semantic results
+            // Refresh embedding index if it is active or an on-disk index already exists.
             #[cfg(feature = "semantic")]
-            if let Some(Some(engine)) = state.embedding.get() {
+            {
                 let project = state.project();
-                if let Err(e) = engine.index_changed_files(&project, &[fp]) {
-                    tracing::debug!(file = fp, error = %e, "incremental embedding reindex failed");
+                let configured_model = codelens_core::configured_embedding_model_name();
+                let embeddings_active = state
+                    .embedding
+                    .get()
+                    .and_then(|engine| engine.as_ref())
+                    .is_some_and(|engine| engine.is_indexed());
+                let on_disk_index_exists = EmbeddingEngine::inspect_existing_index(&project)
+                    .ok()
+                    .flatten()
+                    .is_some_and(|info| {
+                        info.model_name == configured_model && info.indexed_symbols > 0
+                    });
+                if embeddings_active || on_disk_index_exists {
+                    if let Some(engine) = state
+                        .embedding
+                        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+                    {
+                        if let Err(e) = engine.index_changed_files(&project, &[fp]) {
+                            tracing::debug!(
+                                file = fp,
+                                error = %e,
+                                "incremental embedding reindex failed"
+                            );
+                        }
+                    } else {
+                        tracing::debug!(
+                            file = fp,
+                            "embedding engine unavailable for incremental reindex"
+                        );
+                    }
                 }
             }
         }
