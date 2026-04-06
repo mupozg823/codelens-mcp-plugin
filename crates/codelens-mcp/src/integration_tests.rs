@@ -574,6 +574,14 @@ fn returns_ranked_context_via_tool_call() {
         json!({ "query": "search users" }),
     );
     assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["retrieval"]["semantic_query"],
+        json!("search users")
+    );
+    assert_eq!(
+        payload["data"]["retrieval"]["lexical_query"],
+        json!("search users")
+    );
 }
 
 #[test]
@@ -591,6 +599,10 @@ fn returns_ranked_context_without_semantic_when_requested() {
         json!({ "query": "search users", "disable_semantic": true }),
     );
     assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["retrieval"]["semantic_enabled"],
+        json!(false)
+    );
 }
 
 #[test]

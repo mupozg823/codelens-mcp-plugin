@@ -588,6 +588,33 @@ fn merge_semantic_ranked_entries(
     result.count = result.symbols.len();
 }
 
+fn compact_semantic_evidence(
+    result: &RankedContextResult,
+    semantic_results: &[SemanticMatch],
+    limit: usize,
+) -> Vec<Value> {
+    let mut final_ranks = std::collections::HashMap::new();
+    for (idx, entry) in result.symbols.iter().enumerate() {
+        final_ranks.insert(format!("{}:{}", entry.file, entry.name), idx + 1);
+    }
+
+    semantic_results
+        .iter()
+        .take(limit)
+        .map(|item| {
+            let key = format!("{}:{}", item.file_path, item.symbol_name);
+            let final_rank = final_ranks.get(&key).copied();
+            json!({
+                "symbol": item.symbol_name,
+                "file": item.file_path,
+                "score": (item.score * 1000.0).round() / 1000.0,
+                "selected": final_rank.is_some(),
+                "final_rank": final_rank,
+            })
+        })
+        .collect()
+}
+
 fn truncate_body_preview(body: &str, max_lines: usize, max_chars: usize) -> (String, bool) {
     let mut truncated = false;
     let lines = body.lines().take(max_lines).collect::<Vec<_>>();
@@ -731,6 +758,7 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
 pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = required_string(arguments, "query")?;
     let expanded_query = expanded_query_for_retrieval(query);
+    let semantic_query = semantic_query_for_retrieval(query);
     let path = arguments.get("path").and_then(|v| v.as_str());
     let max_tokens = arguments
         .get("max_tokens")
@@ -784,7 +812,28 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     )?;
 
     if !effective_disable_semantic {
-        merge_semantic_ranked_entries(query, &mut result, semantic_results, 8);
+        merge_semantic_ranked_entries(query, &mut result, semantic_results.clone(), 8);
+    }
+
+    let semantic_evidence = if effective_disable_semantic {
+        Vec::new()
+    } else {
+        compact_semantic_evidence(&result, &semantic_results, 5)
+    };
+    let mut payload = serde_json::to_value(&result).map_err(|e| CodeLensError::Internal(e.into()))?;
+    if let Some(map) = payload.as_object_mut() {
+        map.insert(
+            "retrieval".to_owned(),
+            json!({
+                "semantic_enabled": !effective_disable_semantic,
+                "semantic_used_in_core": use_semantic_in_core,
+                "lexical_query": expanded_query,
+                "semantic_query": semantic_query,
+            }),
+        );
+        if !semantic_evidence.is_empty() {
+            map.insert("semantic_evidence".to_owned(), json!(semantic_evidence));
+        }
     }
 
     let backend = if result.symbols.iter().any(|s| s.relevance_score > 0) {
@@ -792,7 +841,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     } else {
         BackendKind::Semantic
     };
-    Ok((json!(result), success_meta(backend, 0.91)))
+    Ok((payload, success_meta(backend, 0.91)))
 }
 
 pub fn refresh_symbol_index(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
