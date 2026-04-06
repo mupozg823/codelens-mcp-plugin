@@ -1,7 +1,8 @@
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use crate::tools::{AppState, ToolResult, required_string};
-use serde_json::{Value, json};
+use crate::tools::symbols::semantic_results_for_query;
+use crate::tools::{required_string, AppState, ToolResult};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult {
@@ -65,6 +66,38 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         json!({ "path": path, "couplings": coupling_hits }),
     );
     sections.insert("symbols".to_owned(), symbols);
+
+    // Semantic coupling: find symbols in other modules that are semantically similar
+    // to this module's symbols — hidden coupling the import graph doesn't show.
+    let module_name = path
+        .rsplit('/')
+        .next()
+        .unwrap_or(path)
+        .trim_end_matches(".rs")
+        .trim_end_matches(".ts")
+        .trim_end_matches(".tsx")
+        .trim_end_matches(".py")
+        .replace('_', " ");
+    let sem_results = semantic_results_for_query(state, &module_name, 10, false);
+    let semantic_coupling: Vec<Value> = sem_results
+        .into_iter()
+        .filter(|r| r.score > 0.12 && !r.file_path.contains(path))
+        .take(5)
+        .map(|r| {
+            json!({
+                "external_symbol": r.symbol_name,
+                "external_file": r.file_path,
+                "semantic_score": (r.score * 1000.0).round() / 1000.0,
+            })
+        })
+        .collect();
+    if !semantic_coupling.is_empty() {
+        sections.insert(
+            "semantic_coupling".to_owned(),
+            json!({"hint": "Semantically similar symbols outside this module — potential hidden coupling", "matches": semantic_coupling}),
+        );
+    }
+
     make_handle_response(
         state,
         "module_boundary_report",
@@ -99,12 +132,49 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
         .filter(|entry| entry.to_string().contains(scope))
         .take(10)
         .collect::<Vec<_>>();
+    // Semantic enrichment: for each dead code candidate, find similar live symbols
+    // to help verify it's truly unused (not just unreferenced by a different name).
+    let semantic_hints: Vec<Value> = candidates
+        .iter()
+        .filter_map(|entry| {
+            let name = entry
+                .get("name")
+                .or_else(|| entry.get("symbol"))
+                .and_then(|v| v.as_str())?;
+            let results = semantic_results_for_query(state, name, 3, false);
+            if results.is_empty() {
+                return None;
+            }
+            let similar: Vec<Value> = results
+                .into_iter()
+                .filter(|r| r.score > 0.15)
+                .map(|r| {
+                    json!({
+                        "symbol": r.symbol_name,
+                        "file": r.file_path,
+                        "score": (r.score * 1000.0).round() / 1000.0,
+                    })
+                })
+                .collect();
+            if similar.is_empty() {
+                return None;
+            }
+            Some(json!({"dead_symbol": name, "similar_live_symbols": similar}))
+        })
+        .collect();
+
     let top_findings = strings_from_array(Some(&candidates), "file", 3);
     let mut sections = BTreeMap::new();
     sections.insert(
         "candidates".to_owned(),
         json!({"scope": scope, "dead_code": candidates}),
     );
+    if !semantic_hints.is_empty() {
+        sections.insert(
+            "semantic_similar_live".to_owned(),
+            json!({"hint": "Dead symbols with similar live code — verify before deleting", "matches": semantic_hints}),
+        );
+    }
     sections.insert("raw_dead_code".to_owned(), dead_code);
     make_handle_response(
         state,
@@ -173,11 +243,68 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         }));
     }
 
+    // Semantic enrichment: find files semantically related to changed files
+    // that the import graph might miss (e.g., similar patterns, shared concepts).
+    let graph_files: std::collections::HashSet<String> = impact_rows
+        .iter()
+        .flat_map(|row| {
+            let mut files = Vec::new();
+            if let Some(path) = row.get("path").and_then(|v| v.as_str()) {
+                files.push(path.to_owned());
+            }
+            if let Some(importers) = row.get("direct_importers").and_then(|v| v.as_array()) {
+                for imp in importers {
+                    if let Some(f) = imp
+                        .as_str()
+                        .or_else(|| imp.get("file").and_then(|v| v.as_str()))
+                    {
+                        files.push(f.to_owned());
+                    }
+                }
+            }
+            files
+        })
+        .collect();
+
+    let semantic_related: Vec<Value> = target_files
+        .iter()
+        .take(3)
+        .flat_map(|path| {
+            let query = path
+                .rsplit('/')
+                .next()
+                .unwrap_or(path)
+                .trim_end_matches(".rs")
+                .trim_end_matches(".ts")
+                .trim_end_matches(".tsx")
+                .trim_end_matches(".py")
+                .replace('_', " ");
+            semantic_results_for_query(state, &query, 5, false)
+                .into_iter()
+                .filter(|r| r.score > 0.12 && !graph_files.contains(&r.file_path))
+                .map(|r| {
+                    json!({
+                        "source": path,
+                        "related_file": r.file_path,
+                        "related_symbol": r.symbol_name,
+                        "semantic_score": (r.score * 1000.0).round() / 1000.0,
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+
     let mut sections = BTreeMap::new();
     sections.insert(
         "impact_rows".to_owned(),
         json!({"files": target_files, "impacts": impact_rows}),
     );
+    if !semantic_related.is_empty() {
+        sections.insert(
+            "semantic_related".to_owned(),
+            json!({"hint": "Files semantically related but not in import graph", "matches": semantic_related}),
+        );
+    }
     make_handle_response(
         state,
         "impact_report",
@@ -253,13 +380,11 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         0.9,
         vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()],
         sections,
-        vec![
-            arguments
-                .get("file_path")
-                .and_then(|value| value.as_str())
-                .unwrap_or(path)
-                .to_owned(),
-        ],
+        vec![arguments
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or(path)
+            .to_owned()],
         symbol.map(ToOwned::to_owned),
     )
 }

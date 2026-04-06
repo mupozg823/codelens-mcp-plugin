@@ -146,7 +146,7 @@ pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
 }
 
 #[cfg(feature = "semantic")]
-fn semantic_results_for_query(
+pub(crate) fn semantic_results_for_query(
     state: &AppState,
     query: &str,
     limit: usize,
@@ -169,7 +169,7 @@ fn semantic_results_for_query(
 }
 
 #[cfg(not(feature = "semantic"))]
-fn semantic_results_for_query(
+pub(crate) fn semantic_results_for_query(
     _state: &AppState,
     _query: &str,
     _limit: usize,
