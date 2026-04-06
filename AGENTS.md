@@ -1,0 +1,47 @@
+# CodeLens MCP — Codex Repo Notes
+
+## Verify
+
+```bash
+cargo check
+cargo test -p codelens-core
+cargo test -p codelens-mcp
+# Extended:
+cargo test -p codelens-mcp --features http
+cargo clippy -- -W clippy::all
+```
+
+## Routing
+
+- Simple local lookup/edit: native first.
+- Multi-file impact, review, or refactor work: prefer CodeLens MCP entrypoints over repeated read/grep.
+- Heavy analysis: use async handle/job flow (`start_analysis_job` -> `get_analysis_job` -> `get_analysis_section`).
+- CodeLens timeout or attach failure: fall back to native tools.
+
+## Preferred CodeLens Entry Points
+
+- Find symbols: `find_symbol` with `include_body=true` when needed.
+- File structure: `get_symbols_overview`.
+- References and callers: `find_referencing_symbols`, `get_callers`, `get_callees`.
+- Ranked context for a task: `get_ranked_context`.
+- First project pass: `onboard_project`.
+- Safe rename or refactor planning: `safe_rename_report`, `verify_change_readiness`.
+
+## Mutation Gate Protocol
+
+Before any CodeLens mutation tool in `refactor-full` (`rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`, `delete_lines`, `add_import`, `refactor_*`):
+
+1. Run `verify_change_readiness` with the target file path(s).
+2. Check `mutation_ready`:
+   - `ready`: proceed.
+   - `caution`: proceed, then run `get_file_diagnostics`.
+   - `blocked`: stop and resolve blockers first.
+3. For `rename_symbol`, run `safe_rename_report` or `unresolved_reference_check` instead of generic preflight.
+
+The server enforces this gate in `refactor-full`. Missing or stale preflight evidence is rejected at runtime.
+
+## Embedding Defaults
+
+- Default embedding model: `MiniLM-L12-CodeSearchNet-INT8`.
+- Override only when benchmarking via `CODELENS_EMBED_MODEL`.
+- Cross-encoder reranking is opt-in via `CODELENS_RERANK=1`; keep it off unless you are explicitly measuring it.

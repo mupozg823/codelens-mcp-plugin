@@ -134,6 +134,21 @@ url = "http://127.0.0.1:7837/mcp"
 codex --mcp-server "http://127.0.0.1:7837/mcp"
 ```
 
+**Profiles (preferred):**
+
+- `planner-readonly` — bounded planning/report surface
+- `builder-minimal` — implementation with minimal symbol/edit tools
+- `reviewer-graph` — graph-aware review and risk analysis
+- `refactor-full` — preview-first refactoring surface
+
+For `refactor-full`, use a preflight-first path:
+1. `verify_change_readiness`
+2. `safe_rename_report` or `unresolved_reference_check` for rename-heavy changes
+3. `get_analysis_section` for extra evidence
+4. mutation execution
+
+Recent matching preflight is required before `refactor-full` content mutations execute.
+
 ---
 
 ### 4. VS Code (Copilot / Continue / Cline)
