@@ -329,6 +329,43 @@ impl EmbeddingStore for SqliteVecStore {
         }
     }
 
+    fn embeddings_for_scored_chunks(&self, chunks: &[ScoredChunk]) -> Result<Vec<EmbeddingChunk>> {
+        if chunks.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let clauses = std::iter::repeat_n(
+            "(s.file_path = ? AND s.symbol_name = ? AND s.line = ? AND s.signature = ? AND s.name_path = ?)",
+            chunks.len(),
+        )
+        .collect::<Vec<_>>()
+        .join(" OR ");
+        let sql = format!(
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
+             FROM symbols s
+             JOIN vec_symbols v ON s.id = v.rowid
+             WHERE {clauses}
+             ORDER BY s.file_path, s.symbol_name, s.line"
+        );
+        let mut stmt = db.prepare(&sql)?;
+        let mut params: Vec<rusqlite::types::Value> = Vec::with_capacity(chunks.len() * 5);
+        for chunk in chunks {
+            params.push(rusqlite::types::Value::from(chunk.file_path.clone()));
+            params.push(rusqlite::types::Value::from(chunk.symbol_name.clone()));
+            params.push(rusqlite::types::Value::from(chunk.line as i64));
+            params.push(rusqlite::types::Value::from(chunk.signature.clone()));
+            params.push(rusqlite::types::Value::from(chunk.name_path.clone()));
+        }
+
+        let mut rows = stmt.query(rusqlite::params_from_iter(params))?;
+        let mut resolved = Vec::new();
+        while let Some(row) = rows.next()? {
+            resolved.push(Self::chunk_from_row(row)?);
+        }
+        Ok(resolved)
+    }
+
     fn all_with_embeddings(&self) -> Result<Vec<EmbeddingChunk>> {
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
         let mut stmt = db.prepare(
@@ -428,26 +465,46 @@ impl EmbeddingStore for SqliteVecStore {
             return Ok(());
         }
 
-        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
-        let mut stmt = db.prepare(
-            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
-             FROM symbols s
-             JOIN vec_symbols v ON s.id = v.rowid
-             ORDER BY s.id",
-        )?;
-        let mut rows = stmt.query([])?;
-        let mut batch = Vec::with_capacity(batch_size);
+        let mut last_seen_id = 0i64;
 
-        while let Some(row) = rows.next()? {
-            batch.push(Self::chunk_from_row(row)?);
-            if batch.len() >= batch_size {
-                visitor(std::mem::take(&mut batch))?;
-                batch = Vec::with_capacity(batch_size);
+        loop {
+            let batch = {
+                let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+                let mut stmt = db.prepare(
+                    "SELECT s.id, s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
+                     FROM symbols s
+                     JOIN vec_symbols v ON s.id = v.rowid
+                     WHERE s.id > ?1
+                     ORDER BY s.id
+                     LIMIT ?2",
+                )?;
+                let mut rows = stmt.query(rusqlite::params![last_seen_id, batch_size as i64])?;
+                let mut batch = Vec::with_capacity(batch_size);
+
+                while let Some(row) = rows.next()? {
+                    last_seen_id = row.get(0)?;
+                    batch.push(EmbeddingChunk {
+                        file_path: row.get(1)?,
+                        symbol_name: row.get(2)?,
+                        kind: row.get(3)?,
+                        line: row.get::<_, i64>(4)? as usize,
+                        signature: row.get(5)?,
+                        name_path: row.get(6)?,
+                        text: row.get(7)?,
+                        embedding: Self::decode_embedding_bytes(&row.get::<_, Vec<u8>>(8)?),
+                        doc_embedding: None,
+                    });
+                }
+
+                batch
+            };
+
+            if batch.is_empty() {
+                break;
             }
-        }
-        if !batch.is_empty() {
             visitor(batch)?;
         }
+
         Ok(())
     }
 }
@@ -1594,7 +1651,7 @@ impl EmbeddingEngine {
     pub fn find_duplicates(&self, threshold: f64, max_pairs: usize) -> Result<Vec<DuplicatePair>> {
         let mut pairs = Vec::new();
         let mut seen_pairs = HashSet::new();
-        let mut embedding_cache: HashMap<(String, String), Arc<EmbeddingChunk>> = HashMap::new();
+        let mut embedding_cache: HashMap<StoredChunkKey, Arc<EmbeddingChunk>> = HashMap::new();
         let candidate_limit = duplicate_candidate_limit(max_pairs);
         let mut done = false;
 
@@ -1604,20 +1661,59 @@ impl EmbeddingEngine {
                     return Ok(());
                 }
 
-                for chunk in batch {
+                let mut candidate_lists = Vec::with_capacity(batch.len());
+                let mut missing_candidates = Vec::new();
+                let mut missing_keys = HashSet::new();
+
+                for chunk in &batch {
                     if pairs.len() >= max_pairs {
                         done = true;
                         break;
                     }
 
-                    let candidates = self.store.search(&chunk.embedding, candidate_limit)?;
-                    for candidate in candidates {
-                        if chunk.file_path == candidate.file_path
-                            && chunk.symbol_name == candidate.symbol_name
-                        {
-                            continue;
-                        }
+                    let filtered: Vec<ScoredChunk> = self
+                        .store
+                        .search(&chunk.embedding, candidate_limit)?
+                        .into_iter()
+                        .filter(|candidate| {
+                            !(chunk.file_path == candidate.file_path
+                                && chunk.symbol_name == candidate.symbol_name
+                                && chunk.line == candidate.line
+                                && chunk.signature == candidate.signature
+                                && chunk.name_path == candidate.name_path)
+                        })
+                        .collect();
 
+                    for candidate in &filtered {
+                        let cache_key = stored_chunk_key_for_score(candidate);
+                        if !embedding_cache.contains_key(&cache_key)
+                            && missing_keys.insert(cache_key)
+                        {
+                            missing_candidates.push(candidate.clone());
+                        }
+                    }
+
+                    candidate_lists.push(filtered);
+                }
+
+                if !missing_candidates.is_empty() {
+                    for candidate_chunk in self
+                        .store
+                        .embeddings_for_scored_chunks(&missing_candidates)?
+                    {
+                        embedding_cache
+                            .entry(stored_chunk_key(&candidate_chunk))
+                            .or_insert_with(|| Arc::new(candidate_chunk));
+                    }
+                }
+
+                for (chunk, candidates) in batch.iter().zip(candidate_lists.iter()) {
+                    if pairs.len() >= max_pairs {
+                        done = true;
+                        break;
+                    }
+
+                    for candidate in candidates {
                         let pair_key = duplicate_pair_key(
                             &chunk.file_path,
                             &chunk.symbol_name,
@@ -1628,22 +1724,11 @@ impl EmbeddingEngine {
                             continue;
                         }
 
-                        let cache_key =
-                            (candidate.file_path.clone(), candidate.symbol_name.clone());
-                        let candidate_chunk =
-                            if let Some(existing) = embedding_cache.get(&cache_key) {
-                                Arc::clone(existing)
-                            } else {
-                                let Some(loaded) = self
-                                    .store
-                                    .get_embedding(&candidate.file_path, &candidate.symbol_name)?
-                                else {
-                                    continue;
-                                };
-                                let loaded = Arc::new(loaded);
-                                embedding_cache.insert(cache_key, Arc::clone(&loaded));
-                                loaded
-                            };
+                        let Some(candidate_chunk) =
+                            embedding_cache.get(&stored_chunk_key_for_score(candidate))
+                        else {
+                            continue;
+                        };
 
                         let sim = cosine_similarity(&chunk.embedding, &candidate_chunk.embedding);
                         if sim < threshold {
@@ -1697,6 +1782,28 @@ fn duplicate_pair_key(
     } else {
         (right, left)
     }
+}
+
+type StoredChunkKey = (String, String, usize, String, String);
+
+fn stored_chunk_key(chunk: &EmbeddingChunk) -> StoredChunkKey {
+    (
+        chunk.file_path.clone(),
+        chunk.symbol_name.clone(),
+        chunk.line,
+        chunk.signature.clone(),
+        chunk.name_path.clone(),
+    )
+}
+
+fn stored_chunk_key_for_score(chunk: &ScoredChunk) -> StoredChunkKey {
+    (
+        chunk.file_path.clone(),
+        chunk.symbol_name.clone(),
+        chunk.line,
+        chunk.signature.clone(),
+        chunk.name_path.clone(),
+    )
 }
 
 impl EmbeddingEngine {
@@ -2567,6 +2674,26 @@ mod tests {
     }
 
     #[test]
+    fn store_fetches_embeddings_for_scored_chunks() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        let scored = engine.search_scored("hello world function", 2).unwrap();
+        let chunks = engine.store.embeddings_for_scored_chunks(&scored).unwrap();
+
+        assert_eq!(chunks.len(), scored.len());
+        assert!(scored.iter().all(|candidate| chunks.iter().any(|chunk| {
+            chunk.file_path == candidate.file_path
+                && chunk.symbol_name == candidate.symbol_name
+                && chunk.line == candidate.line
+                && chunk.signature == candidate.signature
+                && chunk.name_path == candidate.name_path
+        })));
+    }
+
+    #[test]
     fn find_misplaced_code_returns_per_file_outliers() {
         let _lock = MODEL_LOCK.lock().unwrap();
         let (_dir, project) = make_project_with_source();
@@ -2576,6 +2703,27 @@ mod tests {
         let outliers = engine.find_misplaced_code(5).unwrap();
         assert_eq!(outliers.len(), 2);
         assert!(outliers.iter().all(|item| item.file_path == "main.py"));
+    }
+
+    #[test]
+    fn find_duplicates_uses_batched_candidate_embeddings() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        replace_file_embeddings_with_sentinels(
+            &engine,
+            "main.py",
+            &[("hello", 5.0), ("world", 5.0)],
+        );
+
+        let duplicates = engine.find_duplicates(0.99, 4).unwrap();
+        assert!(!duplicates.is_empty());
+        assert!(duplicates.iter().any(|pair| {
+            (pair.symbol_a == "main.py:hello" && pair.symbol_b == "main.py:world")
+                || (pair.symbol_a == "main.py:world" && pair.symbol_b == "main.py:hello")
+        }));
     }
 
     #[test]

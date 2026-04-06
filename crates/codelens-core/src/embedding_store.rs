@@ -76,6 +76,18 @@ pub trait EmbeddingStore: Send + Sync {
         Ok(None)
     }
 
+    /// Retrieve stored chunks matching previously ranked search results so
+    /// callers can batch exact-vector follow-up work without per-result lookups.
+    fn embeddings_for_scored_chunks(&self, chunks: &[ScoredChunk]) -> Result<Vec<EmbeddingChunk>> {
+        let mut resolved = Vec::with_capacity(chunks.len());
+        for chunk in chunks {
+            if let Some(embedding) = self.get_embedding(&chunk.file_path, &chunk.symbol_name)? {
+                resolved.push(embedding);
+            }
+        }
+        Ok(resolved)
+    }
+
     /// Retrieve all stored chunks with their embeddings for batch analysis.
     fn all_with_embeddings(&self) -> Result<Vec<EmbeddingChunk>> {
         Ok(Vec::new()) // Default: not supported
