@@ -243,6 +243,39 @@ python3 benchmarks/harness-eval.py \
   --session-entry-glob '~/.codex/harness/reports/session-entries/*.json'
 ```
 
+### 2-2. 논문용 대표 지표 집계 (paper-benchmark.py)
+
+하네스/에이전트 논문 기준의 대표 숫자는 `retrieval-only`가 아니라 아래 조합으로 본다.
+
+- 주 지표: `Task Success Rate`
+- 보조 retrieval 지표: `get_ranked_context MRR@10` (또는 현재 `embedding-quality.py` cutoff)
+- 운영 지표:
+  - `Tokens per Successful Task`
+  - `Latency per Successful Task`
+
+실행:
+
+```bash
+python3 benchmarks/paper-benchmark.py \
+  --harness-report ~/.codex/harness/reports/<report>.json \
+  --retrieval-report benchmarks/embedding-quality-results.json
+```
+
+기본 정책:
+
+- 하네스 코호트는 `mode=routed-on`
+- `real-session` entry가 있으면 그것을 우선 사용
+- real-session이 없으면 `synthetic` entry로 대체
+- retrieval 보조 지표는 `embedding-quality.py`의 `get_ranked_context` 결과를 사용
+
+출력:
+
+- JSON: `benchmarks/paper-benchmark-results.json`
+- Markdown: `benchmarks/paper-benchmark-summary.md`
+
+이 스크립트는 기존 `harness-eval.py`와 `embedding-quality.py`를 대체하지 않는다.
+둘의 결과를 논문/발표용 대표 지표로 정렬해 주는 얇은 집계 레이어다.
+
 routing policy export:
 
 ```bash

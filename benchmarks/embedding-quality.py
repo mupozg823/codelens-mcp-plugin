@@ -228,10 +228,11 @@ def render_markdown(result):
     a(f"- Binary: `{result['binary']}`")
     a(f"- Embedding model: `{result['embedding_model']}`")
     a(f"- Dataset size: {result['dataset_size']}")
+    a(f"- Ranking cutoff: top-{result['ranking_cutoff']}")
     a("")
     a("## Metrics")
     a("")
-    a("| Method | MRR | Acc@1 | Acc@3 | Acc@5 | Avg ms |")
+    a(f"| Method | MRR@{result['ranking_cutoff']} | Acc@1 | Acc@3 | Acc@5 | Avg ms |")
     a("|---|---:|---:|---:|---:|---:|")
     for method in result["methods"]:
         a(
@@ -355,6 +356,13 @@ def main():
         "embedding_model": embedding_model,
         "dataset_path": DATASET,
         "dataset_size": len(dataset),
+        "ranking_cutoff": ARGS.max_results,
+        "metric_labels": {
+            "mrr": f"MRR@{ARGS.max_results}",
+            "acc1": "Acc@1",
+            "acc3": "Acc@3",
+            "acc5": "Acc@5",
+        },
         "methods": methods,
         "hybrid_uplift": {
             "mrr_delta": hybrid["mrr"] - lexical["mrr"],
