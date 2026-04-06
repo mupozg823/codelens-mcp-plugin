@@ -35,7 +35,10 @@ LEGACY_RUNTIME_INPUTS = [
     SCRIPT_DIR / "training_pairs_camelcase.jsonl",
     SCRIPT_DIR / "feedback_pairs_clean.jsonl",
 ]
-DEFAULT_BENCH_HOLDOUT = ROOT / "benchmarks" / "embedding-quality-dataset.json"
+DEFAULT_BENCH_HOLDOUTS = (
+    ROOT / "benchmarks" / "embedding-quality-dataset.json",
+    ROOT / "benchmarks" / "csn-test-benchmark.jsonl",
+)
 TARGET_LANGUAGES = [
     "python",
     "javascript",
@@ -137,7 +140,12 @@ def parse_args():
         action="store_true",
         help="Include legacy local runtime inputs. Disabled by default to keep the pipeline clean-by-default.",
     )
-    parser.add_argument("--holdout-benchmark", default=str(DEFAULT_BENCH_HOLDOUT))
+    parser.add_argument(
+        "--holdout-benchmark",
+        action="append",
+        default=[],
+        help="Holdout benchmark file to exclude from training. Can be passed multiple times. Defaults to product + external retrieval holdouts.",
+    )
     parser.add_argument("--max-csn-per-lang", type=int, default=8000)
     parser.add_argument("--validation-ratio", type=float, default=0.08)
     parser.add_argument("--distill-query-ratio", type=float, default=0.35)
@@ -304,6 +312,13 @@ def benchmark_holdout_queries(path: Path) -> set[str]:
                     queries.add(normalize_query(item["query"]).lower())
             except json.JSONDecodeError:
                 continue
+    return queries
+
+
+def benchmark_holdout_queries_from_paths(paths: list[Path]) -> set[str]:
+    queries = set()
+    for path in paths:
+        queries.update(benchmark_holdout_queries(path))
     return queries
 
 
@@ -852,6 +867,11 @@ def main():
 
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    holdout_benchmarks = (
+        [Path(path) for path in args.holdout_benchmark]
+        if args.holdout_benchmark
+        else list(DEFAULT_BENCH_HOLDOUTS)
+    )
 
     runtime_inputs = []
     if args.include_legacy_runtime_inputs:
@@ -859,7 +879,7 @@ def main():
     runtime_inputs.extend(Path(path) for path in args.runtime_input)
     codexglue_inputs = [Path(path) for path in args.codexglue_input]
 
-    holdout_queries = benchmark_holdout_queries(Path(args.holdout_benchmark))
+    holdout_queries = benchmark_holdout_queries_from_paths(holdout_benchmarks)
 
     all_pairs = []
     all_pairs.extend(
@@ -903,6 +923,7 @@ def main():
     stats = {
         "total_pairs": len(all_pairs),
         "holdout_overlap_excluded": overlap_excluded,
+        "holdout_query_count": len(holdout_queries),
         "train_base": summarize_pairs(train_base_pairs),
         "train": summarize_pairs(train_pairs),
         "validation": summarize_pairs(validation_pairs),
@@ -927,7 +948,7 @@ def main():
         "validation_path": str(validation_path),
         "distill_texts_path": str(distill_path),
         "hard_negatives_path": str(hard_negatives_path),
-        "holdout_benchmark_path": str(Path(args.holdout_benchmark)),
+        "holdout_benchmark_paths": [str(path) for path in holdout_benchmarks],
         "stats_path": str(stats_path),
         "stats": {
             "total_pairs": stats["total_pairs"],
@@ -937,6 +958,7 @@ def main():
             "distill_count": stats["distill_texts"]["count"],
             "hard_negative_rows": stats["hard_negatives"]["rows"],
             "holdout_overlap_excluded": overlap_excluded,
+            "holdout_query_count": len(holdout_queries),
             "train_languages": counter_to_json(stats["train"]["languages"]),
             "validation_languages": counter_to_json(stats["validation"]["languages"]),
             "warnings": stats["warnings"],

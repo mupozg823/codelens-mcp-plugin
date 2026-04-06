@@ -27,6 +27,7 @@
 
 - `python3 benchmarks/token-efficiency.py ... --check`
 - `python3 benchmarks/embedding-quality.py ...`
+- `python3 scripts/finetune/promotion_gate.py ...` for any candidate embedding model
 
 ## Benchmark Interpretation
 
@@ -34,6 +35,9 @@
 - Separate warm and cold measurements.
 - Record p50 and p95 where applicable.
 - Do not attribute release-vs-debug differences to refactor wins.
+- Internal training validation is not a promotion gate for embedding models.
+- Candidate embedding models must be compared against the currently deployed runtime model on fresh product retrieval benchmarks.
+- Synthetic-only harness summaries are useful for smoke checks, but they are not sufficient evidence for paper claims or deployment decisions.
 
 ## Flake Policy
 

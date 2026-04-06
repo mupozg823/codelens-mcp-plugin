@@ -276,6 +276,29 @@ python3 benchmarks/paper-benchmark.py \
 이 스크립트는 기존 `harness-eval.py`와 `embedding-quality.py`를 대체하지 않는다.
 둘의 결과를 논문/발표용 대표 지표로 정렬해 주는 얇은 집계 레이어다.
 
+### 2-3. 모델 승격 게이트 (promotion_gate.py)
+
+임베드 모델 승격은 내부 validation 점수로 결정하지 않는다.
+반드시 현재 배포 모델과 같은 바이너리/같은 프로젝트에서 fresh A/B를 돌린다.
+
+```bash
+python3 scripts/finetune/promotion_gate.py \
+  --candidate-onnx-dir scripts/finetune/output/<candidate>/onnx \
+  --candidate-label <candidate>
+```
+
+기본 하드 게이트:
+
+- `semantic_search` MRR non-regression
+- `get_ranked_context` MRR non-regression
+- `get_ranked_context` Acc@1 non-regression
+- harness task success non-regression
+
+주의:
+
+- 기본 harness 코호트가 synthetic-only면 smoke check로는 유효하지만, paper claim이나 배포 승격의 강한 근거로 취급하면 안 된다.
+- fresh `real-session` harness가 없으면 retrieval benchmark를 주 게이트로 보고, harness는 보조 근거로만 사용한다.
+
 routing policy export:
 
 ```bash

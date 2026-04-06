@@ -2,7 +2,7 @@
 """Collect training data for embedding fine-tuning from session telemetry and quality datasets.
 
 Two data sources:
-1. Quality dataset (benchmarks/embedding-quality-dataset.json) — curated query-symbol pairs
+1. Explicit quality dataset — curated query-symbol pairs
 2. Session telemetry (benchmarks/results/*.json) — implicit feedback from tool call chains
 
 Output: scripts/finetune/training_pairs.jsonl
@@ -36,12 +36,33 @@ def parse_args():
     )
     parser.add_argument("--output", default=str(OUTPUT))
     parser.add_argument(
+        "--quality-dataset",
+        default=str(QUALITY_DATASET),
+        help="Curated query-symbol dataset. The benchmark holdout path requires explicit opt-in.",
+    )
+    parser.add_argument(
+        "--allow-benchmark-training",
+        action="store_true",
+        help="Allow using the benchmark quality dataset for training. Disabled by default to avoid contamination.",
+    )
+    parser.add_argument(
         "--negatives-per-positive",
         type=int,
         default=5,
         help="Hard negatives per positive pair",
     )
     return parser.parse_args()
+
+
+def resolve_quality_dataset(path_arg: str, *, allow_benchmark_training: bool) -> Path:
+    path = Path(path_arg).expanduser().resolve()
+    benchmark_path = QUALITY_DATASET.resolve()
+    if path == benchmark_path and not allow_benchmark_training:
+        raise SystemExit(
+            "Refusing to use the benchmark holdout dataset for training by default.\n"
+            f"Pass --quality-dataset <non-benchmark file> or rerun with --allow-benchmark-training if you intentionally want {benchmark_path}."
+        )
+    return path
 
 
 def run_tool(binary, project, cmd, args, timeout=30):
@@ -103,13 +124,13 @@ def build_symbol_text(sym):
     return f"{kind} {name}{file_ctx}"
 
 
-def pairs_from_quality_dataset(binary, project, negatives_per_positive):
+def pairs_from_quality_dataset(binary, project, negatives_per_positive, quality_dataset: Path):
     """Generate training pairs from the curated quality dataset."""
-    if not QUALITY_DATASET.exists():
-        print(f"Quality dataset not found: {QUALITY_DATASET}")
+    if not quality_dataset.exists():
+        print(f"Quality dataset not found: {quality_dataset}")
         return []
 
-    with open(QUALITY_DATASET) as f:
+    with open(quality_dataset) as f:
         queries = json.load(f)
 
     print(f"Loading {len(queries)} queries from quality dataset...")
@@ -177,12 +198,20 @@ def main():
     args = parse_args()
     print(f"Project: {args.project}")
     print(f"Binary: {args.binary}")
+    quality_dataset = resolve_quality_dataset(
+        args.quality_dataset,
+        allow_benchmark_training=args.allow_benchmark_training,
+    )
+    print(f"Quality dataset: {quality_dataset}")
 
     all_pairs = []
 
     # Source 1: Quality dataset
     quality_pairs = pairs_from_quality_dataset(
-        args.binary, args.project, args.negatives_per_positive
+        args.binary,
+        args.project,
+        args.negatives_per_positive,
+        quality_dataset,
     )
     all_pairs.extend(quality_pairs)
     print(f"Quality dataset: {len(quality_pairs)} triplets")

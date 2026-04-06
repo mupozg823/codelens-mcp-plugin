@@ -60,6 +60,11 @@ def parse_args():
     )
     parser.add_argument("--finetune-input", default="")
     parser.add_argument(
+        "--allow-legacy-default-inputs",
+        action="store_true",
+        help="Allow legacy default Stage 2 inputs when --finetune-input/--pipeline-manifest is omitted.",
+    )
+    parser.add_argument(
         "--pipeline-manifest",
         default="",
         help="Manifest from build_runtime_training_pipeline.py",
@@ -179,12 +184,22 @@ def parse_args():
     return parser.parse_args()
 
 
-def resolve_finetune_input(profile: str, explicit_input: str) -> Path:
+def resolve_finetune_input(
+    profile: str,
+    explicit_input: str,
+    *,
+    allow_legacy_defaults: bool,
+) -> Path:
     if explicit_input:
         return Path(explicit_input)
-    if profile == "codex":
-        return DEFAULT_CODEX_INPUT
-    return DEFAULT_GENERAL_INPUT
+    default_input = DEFAULT_CODEX_INPUT if profile == "codex" else DEFAULT_GENERAL_INPUT
+    if not allow_legacy_defaults:
+        raise SystemExit(
+            "Refusing to use legacy default fine-tune inputs without an explicit clean dataset.\n"
+            "Pass --pipeline-manifest <clean manifest> or --finetune-input <jsonl>.\n"
+            f"If you intentionally want the legacy dataset, rerun with --allow-legacy-default-inputs ({default_input})."
+        )
+    return default_input
 
 
 def resolve_output(profile: str, explicit_output: str) -> Path:
@@ -1301,8 +1316,13 @@ def export_onnx(model_path, output_dir):
 
 def main():
     args = parse_args()
+    explicit_finetune_input = bool(args.finetune_input)
     manifest = resolve_pipeline_inputs(args)
-    finetune_input = resolve_finetune_input(args.profile, args.finetune_input)
+    finetune_input = resolve_finetune_input(
+        args.profile,
+        args.finetune_input,
+        allow_legacy_defaults=args.allow_legacy_default_inputs,
+    )
     output_dir = resolve_output(args.profile, args.output)
     args._resource_profile, topology = resolve_resource_profile(args.resource_profile)
     args._topology = topology
@@ -1351,6 +1371,11 @@ def main():
             "max_train_rows": args.max_train_rows,
             "max_validation_rows": args.max_validation_rows,
             "pipeline_manifest": manifest.get("_manifest_path") if manifest else None,
+            "allow_legacy_default_inputs": args.allow_legacy_default_inputs,
+            "legacy_default_input_used": (
+                not explicit_finetune_input
+                and manifest is None
+            ),
             "resource_profile_requested": args.resource_profile,
             "resource_profile": args._resource_profile,
             "seed": args.seed,
@@ -1510,6 +1535,14 @@ def main():
         )
         print(
             f"  CODELENS_MODEL_DIR=/tmp/codelens-distill python3 benchmarks/embedding-quality.py ."
+        )
+        print(f"\nPromotion gate:")
+        print(
+            "  python3 "
+            f"{SCRIPT_DIR}/promotion_gate.py "
+            f"--candidate-onnx-dir {args.output}/onnx "
+            f"--candidate-label {Path(args.output).name} "
+            f"--binary {ROOT / 'target' / 'release' / 'codelens-mcp'}"
         )
 
 
