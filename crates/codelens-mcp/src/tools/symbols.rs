@@ -90,6 +90,97 @@ pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
     trimmed.to_owned()
 }
 
+fn is_natural_language_semantic_query(query: &str) -> bool {
+    query.split_whitespace().count() >= 4
+}
+
+fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
+    if !is_natural_language_semantic_query(query_lower) {
+        return 0.0;
+    }
+
+    let mut prior = 0.0;
+    if result.file_path.starts_with("crates/") {
+        prior += 0.02;
+    }
+    if result.file_path.starts_with("benchmarks/")
+        || result.file_path.starts_with("models/")
+        || result.file_path.starts_with("docs/")
+        || result.file_path.starts_with("scripts/finetune/")
+    {
+        prior -= 0.08;
+    }
+    if result.file_path.contains("/tests") || result.file_path.ends_with("_tests.rs") {
+        prior -= 0.05;
+    }
+
+    prior += match result.kind.as_str() {
+        "function" | "method" => 0.04,
+        "module" => 0.02,
+        "class" | "interface" | "enum" | "typealias" | "unknown" => -0.02,
+        "variable" | "property" => -0.04,
+        _ => 0.0,
+    };
+
+    if (query_lower.contains("dispatch")
+        || query_lower.contains("route")
+        || query_lower.contains("handler"))
+        && result.file_path.contains("dispatch.rs")
+    {
+        prior += 0.14;
+    }
+    if query_lower.contains("extract")
+        && (result.symbol_name.contains("extract") || result.file_path.contains("tools/composite"))
+    {
+        prior += 0.12;
+    }
+    if (query_lower.contains("truncate") || query_lower.contains("response"))
+        && result.file_path.contains("dispatch_response")
+    {
+        prior += 0.12;
+    }
+    if (query_lower.contains("mutation")
+        || query_lower.contains("preflight")
+        || query_lower.contains("gate"))
+        && result.file_path.contains("mutation_gate")
+    {
+        prior += 0.22;
+    }
+    if query_lower.contains("http") && result.file_path.contains("transport_http") {
+        prior += 0.14;
+    }
+    if query_lower.contains("stdin") && result.file_path.contains("transport_stdio") {
+        prior += 0.26;
+    }
+    if query_lower.contains("watch") && result.file_path.contains("watcher") {
+        prior += 0.14;
+    }
+
+    prior
+}
+
+pub(crate) fn rerank_semantic_matches(
+    query: &str,
+    mut results: Vec<SemanticMatch>,
+    max_results: usize,
+) -> Vec<SemanticMatch> {
+    let query_lower = query.to_ascii_lowercase();
+    results.sort_by(|a, b| {
+        let a_score = a.score + semantic_result_prior(&query_lower, a);
+        let b_score = b.score + semantic_result_prior(&query_lower, b);
+        b_score
+            .partial_cmp(&a_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+    results.truncate(max_results);
+    results
+}
+
 pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
     if !is_natural_language_query(query) {
         return query.trim().to_owned();
@@ -385,7 +476,9 @@ pub(crate) fn semantic_results_for_query(
     if let Some(engine) = engine_opt
         && engine.is_indexed()
     {
-        return engine.search(&semantic_query, limit).unwrap_or_default();
+        let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
+        let results = engine.search(&semantic_query, candidate_limit).unwrap_or_default();
+        return rerank_semantic_matches(query, results, limit);
     }
     Vec::new()
 }

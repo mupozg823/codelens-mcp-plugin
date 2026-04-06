@@ -87,107 +87,10 @@ impl ToolCallEnvelope {
 
 #[cfg(feature = "semantic")]
 use codelens_core::EmbeddingEngine;
-#[cfg(feature = "semantic")]
-use codelens_core::SemanticMatch;
-
-#[cfg(feature = "semantic")]
-fn is_natural_language_semantic_query(query: &str) -> bool {
-    query.split_whitespace().count() >= 4
-}
-
-#[cfg(feature = "semantic")]
-fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
-    if !is_natural_language_semantic_query(query_lower) {
-        return 0.0;
-    }
-
-    let mut prior = 0.0;
-    if result.file_path.starts_with("crates/") {
-        prior += 0.02;
-    }
-    if result.file_path.starts_with("benchmarks/")
-        || result.file_path.starts_with("models/")
-        || result.file_path.starts_with("docs/")
-        || result.file_path.starts_with("scripts/finetune/")
-    {
-        prior -= 0.08;
-    }
-    if result.file_path.contains("/tests") || result.file_path.ends_with("_tests.rs") {
-        prior -= 0.05;
-    }
-
-    prior += match result.kind.as_str() {
-        "function" | "method" => 0.04,
-        "module" => 0.02,
-        "class" | "interface" | "enum" | "typealias" | "unknown" => -0.02,
-        "variable" | "property" => -0.04,
-        _ => 0.0,
-    };
-
-    if (query_lower.contains("dispatch")
-        || query_lower.contains("route")
-        || query_lower.contains("handler"))
-        && result.file_path.contains("dispatch.rs")
-    {
-        prior += 0.14;
-    }
-    if query_lower.contains("extract")
-        && (result.symbol_name.contains("extract") || result.file_path.contains("tools/composite"))
-    {
-        prior += 0.12;
-    }
-    if (query_lower.contains("truncate") || query_lower.contains("response"))
-        && result.file_path.contains("dispatch_response")
-    {
-        prior += 0.12;
-    }
-    if (query_lower.contains("mutation")
-        || query_lower.contains("preflight")
-        || query_lower.contains("gate"))
-        && result.file_path.contains("mutation_gate")
-    {
-        prior += 0.22;
-    }
-    if query_lower.contains("http") && result.file_path.contains("transport_http") {
-        prior += 0.14;
-    }
-    if query_lower.contains("stdin") && result.file_path.contains("transport_stdio") {
-        prior += 0.26;
-    }
-    if query_lower.contains("watch") && result.file_path.contains("watcher") {
-        prior += 0.14;
-    }
-
-    prior
-}
-
-#[cfg(feature = "semantic")]
-fn rerank_semantic_matches(
-    query: &str,
-    mut results: Vec<SemanticMatch>,
-    max_results: usize,
-) -> Vec<SemanticMatch> {
-    let query_lower = query.to_ascii_lowercase();
-    results.sort_by(|a, b| {
-        let a_score = a.score + semantic_result_prior(&query_lower, a);
-        let b_score = b.score + semantic_result_prior(&query_lower, b);
-        b_score
-            .partial_cmp(&a_score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                b.score
-                    .partial_cmp(&a.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-    });
-    results.truncate(max_results);
-    results
-}
 
 #[cfg(feature = "semantic")]
 fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = tools::required_string(arguments, "query")?;
-    let semantic_query = crate::tools::symbols::semantic_query_for_retrieval(query);
     let max_results = arguments
         .get("max_results")
         .and_then(|v| v.as_u64())
@@ -213,12 +116,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         ));
     }
 
-    let candidate_limit = max_results.saturating_mul(8).clamp(max_results, 96);
-    let results = rerank_semantic_matches(
-        query,
-        engine.search(&semantic_query, candidate_limit)?,
-        max_results,
-    );
+    let results = crate::tools::symbols::semantic_results_for_query(state, query, max_results, false);
     Ok((
         json!({"query": query, "results": results, "count": results.len()}),
         tools::success_meta(crate::protocol::BackendKind::Semantic, 0.85),
@@ -555,7 +453,7 @@ pub(crate) fn dispatch_tool(
 
 #[cfg(all(test, feature = "semantic"))]
 mod semantic_tests {
-    use super::rerank_semantic_matches;
+    use crate::tools::symbols::rerank_semantic_matches;
     use codelens_core::SemanticMatch;
 
     fn semantic_match(file_path: &str, symbol_name: &str, kind: &str, score: f64) -> SemanticMatch {
