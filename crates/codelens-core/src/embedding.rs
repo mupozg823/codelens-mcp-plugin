@@ -12,7 +12,7 @@ use fastembed::{
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Mutex, Once};
+use std::sync::{Arc, Mutex, Once};
 use std::thread::available_parallelism;
 use tracing::debug;
 
@@ -158,18 +158,16 @@ impl SqliteVecStore {
 
         for (i, chunk) in chunks.iter().enumerate() {
             let id = start_id + i as i64;
-            symbol_stmt.execute(
-                rusqlite::params![
-                    id,
-                    chunk.file_path,
-                    chunk.symbol_name,
-                    chunk.kind,
-                    chunk.line as i64,
-                    chunk.signature,
-                    chunk.name_path,
-                    chunk.text,
-                ],
-            )?;
+            symbol_stmt.execute(rusqlite::params![
+                id,
+                chunk.file_path,
+                chunk.symbol_name,
+                chunk.kind,
+                chunk.line as i64,
+                chunk.signature,
+                chunk.name_path,
+                chunk.text,
+            ])?;
             let emb_bytes = embedding_to_bytes(&chunk.embedding);
             vec_stmt.execute(rusqlite::params![id, emb_bytes])?;
         }
@@ -177,9 +175,24 @@ impl SqliteVecStore {
     }
 
     fn decode_embedding_bytes(bytes: &[u8]) -> Vec<f32> {
-        bytes.chunks_exact(4)
+        bytes
+            .chunks_exact(4)
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect()
+    }
+
+    fn chunk_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<EmbeddingChunk> {
+        Ok(EmbeddingChunk {
+            file_path: row.get(0)?,
+            symbol_name: row.get(1)?,
+            kind: row.get(2)?,
+            line: row.get::<_, i64>(3)? as usize,
+            signature: row.get(4)?,
+            name_path: row.get(5)?,
+            text: row.get(6)?,
+            embedding: Self::decode_embedding_bytes(&row.get::<_, Vec<u8>>(7)?),
+            doc_embedding: None,
+        })
     }
 }
 
@@ -240,8 +253,7 @@ impl EmbeddingStore for SqliteVecStore {
         let delete_vec_sql = format!(
             "DELETE FROM vec_symbols WHERE rowid IN (SELECT id FROM symbols WHERE file_path IN ({placeholders}))"
         );
-        let delete_symbols_sql =
-            format!("DELETE FROM symbols WHERE file_path IN ({placeholders})");
+        let delete_symbols_sql = format!("DELETE FROM symbols WHERE file_path IN ({placeholders})");
 
         let tx = db.transaction()?;
         let total: i64 = tx.query_row(
@@ -325,34 +337,10 @@ impl EmbeddingStore for SqliteVecStore {
              JOIN vec_symbols v ON s.id = v.rowid
              ORDER BY s.id",
         )?;
-        let rows: Vec<(String, String, String, i64, String, String, String, Vec<u8>)> = stmt
-            .query_map([], |row| {
-                Ok((
-                    row.get(0)?,
-                    row.get(1)?,
-                    row.get(2)?,
-                    row.get(3)?,
-                    row.get(4)?,
-                    row.get(5)?,
-                    row.get(6)?,
-                    row.get(7)?,
-                ))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
-
-        let mut chunks = Vec::with_capacity(rows.len());
-        for (file_path, symbol_name, kind, line, signature, name_path, text, emb_bytes) in rows {
-            chunks.push(EmbeddingChunk {
-                file_path,
-                symbol_name,
-                kind,
-                line: line as usize,
-                signature,
-                name_path,
-                text,
-                embedding: Self::decode_embedding_bytes(&emb_bytes),
-                doc_embedding: None,
-            });
+        let mut rows = stmt.query([])?;
+        let mut chunks = Vec::new();
+        while let Some(row) = rows.next()? {
+            chunks.push(Self::chunk_from_row(row)?);
         }
         Ok(chunks)
     }
@@ -417,55 +405,24 @@ impl EmbeddingStore for SqliteVecStore {
             return Ok(());
         }
 
-        let mut offset = 0usize;
-        loop {
-            let batch = {
-                let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
-                let mut stmt = db.prepare(
-                    "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
-                     FROM symbols s
-                     JOIN vec_symbols v ON s.id = v.rowid
-                     ORDER BY s.id
-                     LIMIT ?1 OFFSET ?2",
-                )?;
-                let rows: Vec<(String, String, String, i64, String, String, String, Vec<u8>)> =
-                    stmt.query_map(rusqlite::params![batch_size as i64, offset as i64], |row| {
-                        Ok((
-                            row.get(0)?,
-                            row.get(1)?,
-                            row.get(2)?,
-                            row.get(3)?,
-                            row.get(4)?,
-                            row.get(5)?,
-                            row.get(6)?,
-                            row.get(7)?,
-                        ))
-                    })?
-                    .collect::<std::result::Result<Vec<_>, _>>()?;
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let mut stmt = db.prepare(
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
+             FROM symbols s
+             JOIN vec_symbols v ON s.id = v.rowid
+             ORDER BY s.id",
+        )?;
+        let mut rows = stmt.query([])?;
+        let mut batch = Vec::with_capacity(batch_size);
 
-                rows.into_iter()
-                    .map(
-                        |(file_path, symbol_name, kind, line, signature, name_path, text, emb)| {
-                            EmbeddingChunk {
-                                file_path,
-                                symbol_name,
-                                kind,
-                                line: line as usize,
-                                signature,
-                                name_path,
-                                text,
-                                embedding: Self::decode_embedding_bytes(&emb),
-                                doc_embedding: None,
-                            }
-                        },
-                    )
-                    .collect::<Vec<_>>()
-            };
-
-            if batch.is_empty() {
-                break;
+        while let Some(row) = rows.next()? {
+            batch.push(Self::chunk_from_row(row)?);
+            if batch.len() >= batch_size {
+                visitor(std::mem::take(&mut batch))?;
+                batch = Vec::with_capacity(batch_size);
             }
-            offset += batch.len();
+        }
+        if !batch.is_empty() {
             visitor(batch)?;
         }
         Ok(())
@@ -1012,7 +969,8 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, EmbeddingRun
                 );
                 let model = TextEmbedding::try_new_from_user_defined(
                     user_model,
-                    InitOptionsUserDefined::new().with_max_length(configured_embedding_max_length()),
+                    InitOptionsUserDefined::new()
+                        .with_max_length(configured_embedding_max_length()),
                 )
                 .context("failed to load CodeSearchNet embedding model")?;
                 let runtime_info = coreml_runtime_info(runtime_preference.clone(), Some(reason));
@@ -1042,7 +1000,7 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, EmbeddingRun
         user_model,
         InitOptionsUserDefined::new().with_max_length(configured_embedding_max_length()),
     )
-        .context("failed to load CodeSearchNet embedding model")?;
+    .context("failed to load CodeSearchNet embedding model")?;
     let runtime_info = cpu_runtime_info(runtime_preference.clone(), None);
 
     debug!(
@@ -1426,7 +1384,7 @@ impl EmbeddingEngine {
     pub fn find_duplicates(&self, threshold: f64, max_pairs: usize) -> Result<Vec<DuplicatePair>> {
         let mut pairs = Vec::new();
         let mut seen_pairs = HashSet::new();
-        let mut embedding_cache: HashMap<(String, String), EmbeddingChunk> = HashMap::new();
+        let mut embedding_cache: HashMap<(String, String), Arc<EmbeddingChunk>> = HashMap::new();
         let candidate_limit = duplicate_candidate_limit(max_pairs);
         let mut done = false;
 
@@ -1460,20 +1418,22 @@ impl EmbeddingEngine {
                             continue;
                         }
 
-                        let cache_key = (candidate.file_path.clone(), candidate.symbol_name.clone());
-                        let candidate_chunk = if let Some(existing) = embedding_cache.get(&cache_key)
-                        {
-                            existing.clone()
-                        } else {
-                            let Some(loaded) = self
-                                .store
-                                .get_embedding(&candidate.file_path, &candidate.symbol_name)?
-                            else {
-                                continue;
+                        let cache_key =
+                            (candidate.file_path.clone(), candidate.symbol_name.clone());
+                        let candidate_chunk =
+                            if let Some(existing) = embedding_cache.get(&cache_key) {
+                                Arc::clone(existing)
+                            } else {
+                                let Some(loaded) = self
+                                    .store
+                                    .get_embedding(&candidate.file_path, &candidate.symbol_name)?
+                                else {
+                                    continue;
+                                };
+                                let loaded = Arc::new(loaded);
+                                embedding_cache.insert(cache_key, Arc::clone(&loaded));
+                                loaded
                             };
-                            embedding_cache.insert(cache_key, loaded.clone());
-                            loaded
-                        };
 
                         let sim = cosine_similarity(&chunk.embedding, &candidate_chunk.embedding);
                         if sim < threshold {
@@ -1570,34 +1530,35 @@ impl EmbeddingEngine {
     pub fn find_misplaced_code(&self, max_results: usize) -> Result<Vec<OutlierSymbol>> {
         let mut outliers = Vec::new();
 
-        self.store.for_each_file_embeddings(&mut |file_path, chunks| {
-            if chunks.len() < 2 {
-                return Ok(());
-            }
+        self.store
+            .for_each_file_embeddings(&mut |file_path, chunks| {
+                if chunks.len() < 2 {
+                    return Ok(());
+                }
 
-            for (idx, chunk) in chunks.iter().enumerate() {
-                let mut sim_sum = 0.0;
-                let mut count = 0;
-                for (other_idx, other_chunk) in chunks.iter().enumerate() {
-                    if other_idx == idx {
-                        continue;
+                for (idx, chunk) in chunks.iter().enumerate() {
+                    let mut sim_sum = 0.0;
+                    let mut count = 0;
+                    for (other_idx, other_chunk) in chunks.iter().enumerate() {
+                        if other_idx == idx {
+                            continue;
+                        }
+                        sim_sum += cosine_similarity(&chunk.embedding, &other_chunk.embedding);
+                        count += 1;
                     }
-                    sim_sum += cosine_similarity(&chunk.embedding, &other_chunk.embedding);
-                    count += 1;
+                    if count > 0 {
+                        let avg_sim = sim_sum / count as f64; // Lower means more misplaced.
+                        outliers.push(OutlierSymbol {
+                            file_path: file_path.clone(),
+                            symbol_name: chunk.symbol_name.clone(),
+                            kind: chunk.kind.clone(),
+                            line: chunk.line,
+                            avg_similarity_to_file: avg_sim,
+                        });
+                    }
                 }
-                if count > 0 {
-                    let avg_sim = sim_sum / count as f64; // Lower means more misplaced.
-                    outliers.push(OutlierSymbol {
-                        file_path: file_path.clone(),
-                        symbol_name: chunk.symbol_name.clone(),
-                        kind: chunk.kind.clone(),
-                        line: chunk.line,
-                        avg_similarity_to_file: avg_sim,
-                    });
-                }
-            }
-            Ok(())
-        })?;
+                Ok(())
+            })?;
 
         outliers.sort_by(|a, b| {
             a.avg_similarity_to_file
