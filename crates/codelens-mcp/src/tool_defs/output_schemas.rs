@@ -32,6 +32,66 @@ pub(super) fn symbol_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn ranked_context_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "symbols": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "file": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "signature": {"type": "string"},
+                        "body": {"type": ["string", "null"]},
+                        "relevance_score": {"type": "integer"},
+                        "provenance": {
+                            "type": "object",
+                            "properties": {
+                                "source": {
+                                    "type": "string",
+                                    "enum": ["structural", "semantic_boosted", "semantic_added"]
+                                },
+                                "structural_candidate": {"type": "boolean"},
+                                "semantic_score": {"type": ["number", "null"]}
+                            }
+                        }
+                    }
+                }
+            },
+            "count": {"type": "integer"},
+            "token_budget": {"type": "integer"},
+            "chars_used": {"type": "integer"},
+            "retrieval": {
+                "type": "object",
+                "properties": {
+                    "semantic_enabled": {"type": "boolean"},
+                    "semantic_used_in_core": {"type": "boolean"},
+                    "lexical_query": {"type": "string"},
+                    "semantic_query": {"type": "string"}
+                }
+            },
+            "semantic_evidence": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string"},
+                        "file": {"type": "string"},
+                        "score": {"type": "number"},
+                        "selected": {"type": "boolean"},
+                        "final_rank": {"type": ["integer", "null"]}
+                    }
+                }
+            }
+        }
+    })
+}
+
 pub(super) fn references_output_schema() -> serde_json::Value {
     json!({
         "type": "object",

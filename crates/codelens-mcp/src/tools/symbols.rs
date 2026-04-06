@@ -477,7 +477,9 @@ pub(crate) fn semantic_results_for_query(
         && engine.is_indexed()
     {
         let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
-        let results = engine.search(&semantic_query, candidate_limit).unwrap_or_default();
+        let results = engine
+            .search(&semantic_query, candidate_limit)
+            .unwrap_or_default();
         return rerank_semantic_matches(query, results, limit);
     }
     Vec::new()
@@ -613,6 +615,55 @@ fn compact_semantic_evidence(
             })
         })
         .collect()
+}
+
+fn annotate_ranked_context_provenance(
+    payload: &mut Value,
+    structural_keys: &std::collections::HashSet<String>,
+    semantic_results: &[SemanticMatch],
+) {
+    let semantic_scores = semantic_results
+        .iter()
+        .map(|item| {
+            (
+                format!("{}:{}", item.file_path, item.symbol_name),
+                (item.score * 1000.0).round() / 1000.0,
+            )
+        })
+        .collect::<std::collections::HashMap<_, _>>();
+
+    let Some(symbols) = payload.get_mut("symbols").and_then(Value::as_array_mut) else {
+        return;
+    };
+
+    for entry in symbols {
+        let Some(map) = entry.as_object_mut() else {
+            continue;
+        };
+        let Some(file) = map.get("file").and_then(Value::as_str) else {
+            continue;
+        };
+        let Some(name) = map.get("name").and_then(Value::as_str) else {
+            continue;
+        };
+
+        let key = format!("{file}:{name}");
+        let semantic_score = semantic_scores.get(&key).copied();
+        let structural_candidate = structural_keys.contains(&key);
+        let source = match (semantic_score, structural_candidate) {
+            (Some(_), true) => "semantic_boosted",
+            (Some(_), false) => "semantic_added",
+            (None, _) => "structural",
+        };
+        map.insert(
+            "provenance".to_owned(),
+            json!({
+                "source": source,
+                "structural_candidate": structural_candidate,
+                "semantic_score": semantic_score,
+            }),
+        );
+    }
 }
 
 fn truncate_body_preview(body: &str, max_lines: usize, max_chars: usize) -> (String, bool) {
@@ -810,6 +861,11 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         Some(&state.graph_cache()),
         boosted_scores,
     )?;
+    let structural_keys = result
+        .symbols
+        .iter()
+        .map(|entry| format!("{}:{}", entry.file, entry.name))
+        .collect::<std::collections::HashSet<_>>();
 
     if !effective_disable_semantic {
         merge_semantic_ranked_entries(query, &mut result, semantic_results.clone(), 8);
@@ -820,7 +876,9 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     } else {
         compact_semantic_evidence(&result, &semantic_results, 5)
     };
-    let mut payload = serde_json::to_value(&result).map_err(|e| CodeLensError::Internal(e.into()))?;
+    let mut payload =
+        serde_json::to_value(&result).map_err(|e| CodeLensError::Internal(e.into()))?;
+    annotate_ranked_context_provenance(&mut payload, &structural_keys, &semantic_results);
     if let Some(map) = payload.as_object_mut() {
         map.insert(
             "retrieval".to_owned(),
@@ -1020,10 +1078,11 @@ fn count_word_occurrences(line: &str, needle: &str) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        merge_semantic_ranked_entries, query_prefers_lexical_only, semantic_query_for_retrieval,
-        truncate_body_preview,
+        annotate_ranked_context_provenance, merge_semantic_ranked_entries,
+        query_prefers_lexical_only, semantic_query_for_retrieval, truncate_body_preview,
     };
     use codelens_core::{RankedContextEntry, RankedContextResult, SemanticMatch};
+    use serde_json::json;
 
     #[test]
     fn identifier_queries_prefer_lexical_only() {
@@ -1173,6 +1232,71 @@ mod tests {
         assert!(semantic.contains("change_signature"));
         assert!(semantic.contains("change signature"));
         assert!(!semantic.contains("run_stdio"));
+    }
+
+    #[test]
+    fn annotate_ranked_context_provenance_marks_structural_and_semantic_entries() {
+        let result = RankedContextResult {
+            query: "rename across project".to_owned(),
+            count: 2,
+            token_budget: 1200,
+            chars_used: 128,
+            symbols: vec![
+                RankedContextEntry {
+                    name: "project_scope_renames_across_files".to_owned(),
+                    kind: "function".to_owned(),
+                    file: "crates/codelens-core/src/rename.rs".to_owned(),
+                    line: 10,
+                    signature: "fn project_scope_renames_across_files".to_owned(),
+                    body: None,
+                    relevance_score: 64,
+                },
+                RankedContextEntry {
+                    name: "rename_symbol".to_owned(),
+                    kind: "function".to_owned(),
+                    file: "crates/codelens-core/src/rename.rs".to_owned(),
+                    line: 42,
+                    signature: "fn rename_symbol".to_owned(),
+                    body: None,
+                    relevance_score: 91,
+                },
+            ],
+        };
+        let structural_keys = std::collections::HashSet::from([format!(
+            "{}:{}",
+            "crates/codelens-core/src/rename.rs", "project_scope_renames_across_files"
+        )]);
+        let semantic_results = vec![
+            SemanticMatch {
+                symbol_name: "project_scope_renames_across_files".to_owned(),
+                kind: "function".to_owned(),
+                file_path: "crates/codelens-core/src/rename.rs".to_owned(),
+                line: 10,
+                signature: "fn project_scope_renames_across_files".to_owned(),
+                name_path: "project_scope_renames_across_files".to_owned(),
+                score: 0.411,
+            },
+            SemanticMatch {
+                symbol_name: "rename_symbol".to_owned(),
+                kind: "function".to_owned(),
+                file_path: "crates/codelens-core/src/rename.rs".to_owned(),
+                line: 42,
+                signature: "fn rename_symbol".to_owned(),
+                name_path: "rename_symbol".to_owned(),
+                score: 0.933,
+            },
+        ];
+
+        let mut payload = json!(result);
+        annotate_ranked_context_provenance(&mut payload, &structural_keys, &semantic_results);
+
+        let symbols = payload["symbols"].as_array().unwrap();
+        assert_eq!(
+            symbols[0]["provenance"]["source"],
+            json!("semantic_boosted")
+        );
+        assert_eq!(symbols[1]["provenance"]["source"], json!("semantic_added"));
+        assert_eq!(symbols[1]["provenance"]["semantic_score"], json!(0.933));
     }
 }
 
