@@ -33,6 +33,14 @@ pub struct CallEdge {
     pub caller_name: String,
     pub callee_name: String,
     pub line: usize,
+    /// Resolved file where the callee is defined (None if unresolved).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_file: Option<String>,
+    /// Confidence of the resolution (0.0–1.0). Higher = more certain.
+    pub confidence: f64,
+    /// Which resolution strategy succeeded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution_strategy: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -40,12 +48,21 @@ pub struct CallerEntry {
     pub file: String,
     pub function: String,
     pub line: usize,
+    /// Confidence that this caller actually calls the target (0.0–1.0).
+    pub confidence: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 pub struct CalleeEntry {
     pub name: String,
     pub line: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolved_file: Option<String>,
+    pub confidence: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<&'static str>,
 }
 
 struct CallLanguageConfig {
@@ -175,6 +192,9 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 caller_name,
                 callee_name,
                 line,
+                resolved_file: None,
+                confidence: 0.0,
+                resolution_strategy: None,
             });
         }
     }
@@ -182,46 +202,177 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
     edges
 }
 
+// ── 6-stage call resolution cascade ──────────────────────────────────────
+
+/// Resolve callee names to their definition files using a 6-stage confidence cascade.
+/// Mutates edges in-place, setting resolved_file, confidence, and resolution_strategy.
+pub fn resolve_call_edges(
+    edges: &mut [CallEdge],
+    project: &ProjectRoot,
+    import_graph: Option<&HashMap<String, crate::import_graph::FileNode>>,
+) {
+    // Build a name→files index from the symbol DB for stages 3-5
+    let db_path = crate::db::index_db_path(project.as_path());
+    let symbol_index: HashMap<String, Vec<String>> = crate::db::IndexDb::open(&db_path)
+        .and_then(|db| {
+            let all = db.all_symbol_names()?;
+            let mut map: HashMap<String, Vec<String>> = HashMap::new();
+            for (name, _kind, _sig, _line, _name_path, file) in all {
+                map.entry(name).or_default().push(file);
+            }
+            Ok(map)
+        })
+        .unwrap_or_default();
+
+    for edge in edges.iter_mut() {
+        if edge.confidence > 0.0 {
+            continue; // already resolved
+        }
+
+        let callee = &edge.callee_name;
+        let caller_file = &edge.caller_file;
+
+        // Stage 1: Import map — callee's prefix matches an import in caller file (0.95)
+        if let Some(graph) = import_graph {
+            if let Some(node) = graph.get(caller_file) {
+                for imported_file in &node.imports {
+                    // Check if imported file defines callee
+                    if let Some(defs) = symbol_index.get(callee) {
+                        if defs.iter().any(|f| f == imported_file) {
+                            edge.resolved_file = Some(imported_file.clone());
+                            edge.confidence = 0.95;
+                            edge.resolution_strategy = Some("import_map");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if edge.confidence > 0.0 {
+            continue;
+        }
+
+        // Stage 2: Same file — callee defined in the same file (0.90)
+        if let Some(defs) = symbol_index.get(callee) {
+            if defs.iter().any(|f| f == caller_file) {
+                edge.resolved_file = Some(caller_file.clone());
+                edge.confidence = 0.90;
+                edge.resolution_strategy = Some("same_file");
+                continue;
+            }
+        }
+
+        // Stage 3: Unique name — only one definition exists project-wide (0.75)
+        if let Some(defs) = symbol_index.get(callee) {
+            if defs.len() == 1 {
+                edge.resolved_file = Some(defs[0].clone());
+                edge.confidence = 0.75;
+                edge.resolution_strategy = Some("unique_name");
+                continue;
+            }
+        }
+
+        // Stage 4: Import suffix — callee matches suffix of an imported module (0.60)
+        if let Some(graph) = import_graph {
+            if let Some(node) = graph.get(caller_file) {
+                if let Some(defs) = symbol_index.get(callee) {
+                    // Pick the candidate that is also imported (transitively)
+                    for def_file in defs {
+                        if node.imports.iter().any(|imp| {
+                            def_file.ends_with(imp.rsplit('/').next().unwrap_or(imp))
+                        }) {
+                            edge.resolved_file = Some(def_file.clone());
+                            edge.confidence = 0.60;
+                            edge.resolution_strategy = Some("import_suffix");
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if edge.confidence > 0.0 {
+            continue;
+        }
+
+        // Stage 5: Multiple candidates — pick closest by path similarity (0.40)
+        if let Some(defs) = symbol_index.get(callee) {
+            if !defs.is_empty() {
+                // Pick the one with the most shared path prefix with caller_file
+                let best = defs
+                    .iter()
+                    .max_by_key(|f| {
+                        f.chars()
+                            .zip(caller_file.chars())
+                            .take_while(|(a, b)| a == b)
+                            .count()
+                    })
+                    .cloned();
+                if let Some(f) = best {
+                    edge.resolved_file = Some(f);
+                    edge.confidence = 0.40;
+                    edge.resolution_strategy = Some("path_proximity");
+                    continue;
+                }
+            }
+        }
+
+        // Stage 6: Unresolved — callee not found in symbol DB (0.10)
+        edge.confidence = 0.10;
+        edge.resolution_strategy = Some("unresolved");
+    }
+}
+
 /// Find all functions that call `function_name` across the project.
+/// Edges are resolved via the 6-stage confidence cascade when an import graph is available.
 pub fn get_callers(
     project: &ProjectRoot,
     function_name: &str,
     max_results: usize,
 ) -> Result<Vec<CallerEntry>> {
     let files = collect_candidate_files(project.as_path())?;
+    let mut all_edges: Vec<CallEdge> = Vec::new();
+
+    for file in &files {
+        let mut edges = extract_calls(file);
+        // Relativize caller_file paths
+        for edge in &mut edges {
+            edge.caller_file = project.to_relative(file);
+        }
+        all_edges.extend(edges);
+    }
+
+    // Resolve callee targets (best-effort, no import graph in this path)
+    resolve_call_edges(&mut all_edges, project, None);
+
+    // Filter to edges calling our target
+    let mut seen = std::collections::HashSet::new();
     let mut results = Vec::new();
 
-    // Deduplicate by (file, function, line)
-    let mut seen = std::collections::HashSet::new();
-
-    'outer: for file in &files {
-        let edges = extract_calls(file);
-        for edge in edges {
-            if edge.callee_name == function_name {
-                let key = (
-                    edge.caller_file.clone(),
-                    edge.caller_name.clone(),
-                    edge.line,
-                );
-                if seen.insert(key) {
-                    let relative = project.to_relative(file);
-                    results.push(CallerEntry {
-                        file: relative,
-                        function: edge.caller_name,
-                        line: edge.line,
-                    });
-                    if max_results > 0 && results.len() >= max_results {
-                        break 'outer;
-                    }
+    for edge in all_edges {
+        if edge.callee_name == function_name {
+            let key = (edge.caller_file.clone(), edge.caller_name.clone(), edge.line);
+            if seen.insert(key) {
+                results.push(CallerEntry {
+                    file: edge.caller_file,
+                    function: edge.caller_name,
+                    line: edge.line,
+                    confidence: edge.confidence,
+                    resolution: edge.resolution_strategy,
+                });
+                if max_results > 0 && results.len() >= max_results {
+                    break;
                 }
             }
         }
     }
 
+    // Sort by confidence descending
+    results.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
     Ok(results)
 }
 
 /// Find all functions called by `function_name` (optionally restricted to a file).
+/// Callee names are resolved to their definition files via the 6-stage cascade.
 pub fn get_callees(
     project: &ProjectRoot,
     function_name: &str,
@@ -235,28 +386,39 @@ pub fn get_callees(
         collect_candidate_files(project.as_path())?
     };
 
-    // Collect all call edges from functions named `function_name`
+    let mut all_edges: Vec<CallEdge> = Vec::new();
+    for file in &files {
+        let mut edges = extract_calls(file);
+        for edge in &mut edges {
+            edge.caller_file = project.to_relative(file);
+        }
+        all_edges.extend(edges);
+    }
+
+    resolve_call_edges(&mut all_edges, project, None);
+
     let mut seen: HashMap<(String, usize), ()> = HashMap::new();
     let mut results = Vec::new();
 
-    'outer: for file in &files {
-        let edges = extract_calls(file);
-        for edge in edges {
-            if edge.caller_name == function_name {
-                let key = (edge.callee_name.clone(), edge.line);
-                if seen.insert(key, ()).is_none() {
-                    results.push(CalleeEntry {
-                        name: edge.callee_name,
-                        line: edge.line,
-                    });
-                    if max_results > 0 && results.len() >= max_results {
-                        break 'outer;
-                    }
+    for edge in all_edges {
+        if edge.caller_name == function_name {
+            let key = (edge.callee_name.clone(), edge.line);
+            if seen.insert(key, ()).is_none() {
+                results.push(CalleeEntry {
+                    name: edge.callee_name,
+                    line: edge.line,
+                    resolved_file: edge.resolved_file,
+                    confidence: edge.confidence,
+                    resolution: edge.resolution_strategy,
+                });
+                if max_results > 0 && results.len() >= max_results {
+                    break;
                 }
             }
         }
     }
 
+    results.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
     Ok(results)
 }
 
