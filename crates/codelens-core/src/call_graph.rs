@@ -75,6 +75,58 @@ struct CallLanguageConfig {
 
 /// Resolve call graph config via the unified language registry.
 /// Only a subset of languages have call graph queries defined.
+/// Filter out common std/builtin method calls that add noise to the call graph.
+fn is_noise_callee(name: &str) -> bool {
+    matches!(
+        name,
+        "get"
+            | "set"
+            | "push"
+            | "pop"
+            | "len"
+            | "is_empty"
+            | "to_string"
+            | "to_owned"
+            | "clone"
+            | "into"
+            | "from"
+            | "as_str"
+            | "as_ref"
+            | "unwrap"
+            | "expect"
+            | "ok"
+            | "err"
+            | "map"
+            | "and_then"
+            | "or_else"
+            | "unwrap_or"
+            | "unwrap_or_else"
+            | "unwrap_or_default"
+            | "filter"
+            | "collect"
+            | "iter"
+            | "into_iter"
+            | "next"
+            | "take"
+            | "skip"
+            | "format"
+            | "println"
+            | "print"
+            | "eprintln"
+            | "write"
+            | "read"
+            | "insert"
+            | "remove"
+            | "contains"
+            | "new"
+            | "default"
+            | "drop"
+            | "enter"
+            | "lock"
+            | "cloned"
+    )
+}
+
 fn call_language_for_path(path: &Path) -> Option<CallLanguageConfig> {
     let lang_config = crate::lang_config::language_for_path(path)?;
     // Map canonical extension to call graph queries (not all languages support this)
@@ -173,7 +225,7 @@ pub fn extract_calls_from_source(path: &Path, source: &str) -> Vec<CallEdge> {
                 continue;
             };
             let callee_name = callee_name.trim().to_owned();
-            if callee_name.is_empty() {
+            if callee_name.is_empty() || is_noise_callee(&callee_name) {
                 continue;
             }
             let line = cap.node.start_position().row + 1;
