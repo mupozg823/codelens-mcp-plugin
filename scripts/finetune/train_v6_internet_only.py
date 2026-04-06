@@ -23,7 +23,8 @@ SCRIPT_DIR = Path(__file__).parent
 ROOT = SCRIPT_DIR.parent.parent
 INPUT = SCRIPT_DIR / "csn_runtime_format.jsonl"
 OUTPUT_DIR = SCRIPT_DIR / "output" / "v6-internet"
-MAX_SEQ_LENGTH = 256
+MAX_SEQ_LENGTH = 128
+DEFAULT_MPS_PADDING_BUCKETS = (64, 96, 128, 160, 192, 224, 256, 320, 384, 448, 512)
 
 
 def apple_cpu_topology() -> dict:
@@ -136,11 +137,7 @@ def recommended_teacher_batch_size(teacher_providers: list[str]) -> int:
 
 
 def effective_train_batch_size(requested_batch_size: int, pair_count: int, train_device: str) -> int:
-    if train_device != "mps":
-        return requested_batch_size
-    if pair_count >= 100_000:
-        return min(requested_batch_size, 16)
-    return min(requested_batch_size, 32)
+    return requested_batch_size
 
 
 def gradient_accumulation_steps(requested_batch_size: int, effective_batch_size: int) -> int:
@@ -164,11 +161,66 @@ def resolved_tokenizer_cache_size(train_device: str, loader_workers: int) -> int
 
 
 def use_static_padding(train_device: str) -> bool:
-    return train_device == "mps"
+    return False
 
 
 def pad_to_multiple_of(train_device: str) -> int | None:
     return 8 if train_device == "mps" else None
+
+
+def padding_buckets(train_device: str, max_length: int) -> tuple[int, ...]:
+    if train_device != "mps":
+        return ()
+    buckets = [bucket for bucket in DEFAULT_MPS_PADDING_BUCKETS if bucket < max_length]
+    buckets.append(max_length)
+    return tuple(sorted(set(max(32, bucket) for bucket in buckets)))
+
+
+def tokenize_rows(tokenizer, texts: list[str], *, max_length: int) -> list[dict]:
+    encoded = tokenizer(
+        texts,
+        padding=False,
+        truncation=True,
+        max_length=max_length,
+    )
+    return [
+        {key: value[index] for key, value in encoded.items()}
+        for index in range(len(texts))
+    ]
+
+
+def pad_token_rows(
+    tokenizer,
+    token_rows: list[dict],
+    *,
+    max_length: int,
+    train_device: str,
+    pad_multiple: int | None,
+) -> tuple[dict, int | None]:
+    buckets = padding_buckets(train_device, max_length)
+    if buckets:
+        batch_max = max((len(row.get("input_ids", [])) for row in token_rows), default=0)
+        target_length = next((bucket for bucket in buckets if batch_max <= bucket), max_length)
+        return (
+            tokenizer.pad(
+                token_rows,
+                padding="max_length",
+                max_length=target_length,
+                pad_to_multiple_of=pad_multiple,
+                return_tensors="pt",
+            ),
+            target_length,
+        )
+    return (
+        tokenizer.pad(
+            token_rows,
+            padding=True,
+            max_length=max_length,
+            pad_to_multiple_of=pad_multiple,
+            return_tensors="pt",
+        ),
+        None,
+    )
 
 
 def optimizer_steps_per_epoch(
@@ -181,40 +233,50 @@ def optimizer_steps_per_epoch(
 
 
 class CachedSentenceDataCollator:
-    """Tokenizer-caching collator for stable-shape MPS batches."""
+    """Tokenizer-caching collator with bucketed padding for MPS."""
 
     def __init__(self, tokenizer, *, max_length: int, train_device: str, cache_size: int):
         self.tokenizer = tokenizer
         self.max_length = max_length
         self.static_padding = use_static_padding(train_device)
         self.pad_to_multiple = pad_to_multiple_of(train_device)
+        self.padding_buckets = padding_buckets(train_device, max_length)
+        self.bucketed_padding = bool(self.padding_buckets)
         self.cache_size = max(0, cache_size)
-        self._cache: OrderedDict[str, dict] = OrderedDict()
+        self._cache: OrderedDict[str, dict[str, list[int]]] = OrderedDict()
         self.valid_label_columns = ["label", "labels", "score", "scores"]
 
-    def _tokenize_batch(self, texts: list[str]):
-        return self.tokenizer(
+    def _tokenize_rows(self, texts: list[str]) -> list[dict[str, list[int]]]:
+        return tokenize_rows(
+            self.tokenizer,
             texts,
-            padding="max_length" if self.static_padding else True,
-            truncation=True,
             max_length=self.max_length,
-            pad_to_multiple_of=self.pad_to_multiple,
-            return_tensors="pt",
         )
 
-    def _remember(self, text: str, encoded_row: dict) -> None:
+    def _pad_rows(self, rows: list[dict[str, list[int]]]):
+        padded, _target_length = pad_token_rows(
+            self.tokenizer,
+            rows,
+            max_length=self.max_length,
+            train_device="mps" if self.bucketed_padding else "cpu",
+            pad_multiple=self.pad_to_multiple,
+        )
+        return padded
+
+    def _remember(self, text: str, encoded_row: dict[str, list[int]]) -> None:
         if self.cache_size <= 0:
             return
-        self._cache[text] = encoded_row
+        self._cache[text] = {
+            key: list(value)
+            for key, value in encoded_row.items()
+        }
         self._cache.move_to_end(text)
         while len(self._cache) > self.cache_size:
             self._cache.popitem(last=False)
 
     def _encode_texts(self, texts: list[str]) -> dict:
-        import torch
-
         if self.cache_size <= 0:
-            return self._tokenize_batch(texts)
+            return self._pad_rows(self._tokenize_rows(texts))
 
         misses = []
         seen_misses = set()
@@ -227,19 +289,11 @@ class CachedSentenceDataCollator:
                 seen_misses.add(text)
 
         if misses:
-            tokenized_misses = self._tokenize_batch(misses)
-            for row_index, text in enumerate(misses):
-                encoded_row = {
-                    key: value[row_index].clone()
-                    for key, value in tokenized_misses.items()
-                }
+            tokenized_misses = self._tokenize_rows(misses)
+            for text, encoded_row in zip(misses, tokenized_misses, strict=False):
                 self._remember(text, encoded_row)
 
-        keys = next(iter(self._cache.values())).keys()
-        return {
-            key: torch.stack([self._cache[text][key] for text in texts], dim=0)
-            for key in keys
-        }
+        return self._pad_rows([self._cache[text] for text in texts])
 
     def __call__(self, features: list[dict]) -> dict:
         import torch
@@ -276,16 +330,19 @@ def pretokenized_batches(
 ) -> list[dict]:
     batches = []
     for i in range(0, len(texts), batch_size):
-        batches.append(
-            tokenizer(
-                texts[i : i + batch_size],
-                padding="max_length" if use_static_padding(train_device) else True,
-                truncation=True,
-                max_length=max_length,
-                pad_to_multiple_of=pad_to_multiple_of(train_device),
-                return_tensors="pt",
-            )
+        token_rows = tokenize_rows(
+            tokenizer,
+            texts[i : i + batch_size],
+            max_length=max_length,
         )
+        padded, _target_length = pad_token_rows(
+            tokenizer,
+            token_rows,
+            max_length=max_length,
+            train_device=train_device,
+            pad_multiple=pad_to_multiple_of(train_device),
+        )
+        batches.append(padded)
     return batches
 
 
@@ -534,6 +591,8 @@ def stage2_mnrl(student, pairs_path, pair_count, batch_size=32, epochs=5):
     print(
         "  Tokenization path: "
         f"static_padding={collator.static_padding} "
+        f"bucketed_padding={collator.bucketed_padding} "
+        f"padding_buckets={list(collator.padding_buckets)} "
         f"pad_to_multiple_of={collator.pad_to_multiple} "
         f"cache_size={collator.cache_size}"
     )

@@ -27,6 +27,7 @@ SCRIPT_DIR = Path(__file__).parent
 ROOT = SCRIPT_DIR.parent.parent
 DEFAULT_GENERAL_INPUT = SCRIPT_DIR / "training_pairs_augmented.jsonl"
 DEFAULT_CODEX_INPUT = SCRIPT_DIR / "training_pairs_codex.jsonl"
+DEFAULT_MPS_PADDING_BUCKETS = (64, 96, 128, 160, 192, 224, 256, 320, 384, 448, 512)
 
 
 def parse_args():
@@ -78,8 +79,8 @@ def parse_args():
     parser.add_argument(
         "--max-seq-length",
         type=int,
-        default=256,
-        help="Max token length for runtime-aligned texts (default: 256 for CodeLens symbol/search strings)",
+        default=128,
+        help="Max token length for runtime-aligned texts (data p95: query=82, positive=95, negative=98)",
     )
     parser.add_argument(
         "--stage",
@@ -244,7 +245,11 @@ def default_torch_threads(profile_name: str) -> int:
 
 
 def configure_process_runtime(profile_name: str, requested_threads: int) -> int:
-    threads = requested_threads if requested_threads > 0 else default_torch_threads(profile_name)
+    threads = (
+        requested_threads
+        if requested_threads > 0
+        else default_torch_threads(profile_name)
+    )
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.environ.setdefault("OMP_NUM_THREADS", str(threads))
     if sys.platform == "darwin":
@@ -277,11 +282,71 @@ def resolved_tokenizer_cache_size(train_device: str, loader_workers: int) -> int
 
 
 def use_static_padding(train_device: str) -> bool:
-    return train_device == "mps"
+    # MPS benefits from stable tensor shapes, but padding to max_length wastes
+    # compute when data is short (avg ~50 tokens vs max_length 256).
+    # Use dynamic padding with pad_to_multiple_of instead — gives MPS shape
+    # stability without the full max_length waste.
+    return False
 
 
 def pad_to_multiple_of(train_device: str) -> int | None:
+    # Pad to multiple of 8 on MPS for stable kernel shapes without full max_length waste.
     return 8 if train_device == "mps" else None
+
+
+def padding_buckets(train_device: str, max_length: int) -> tuple[int, ...]:
+    if train_device != "mps":
+        return ()
+    buckets = [bucket for bucket in DEFAULT_MPS_PADDING_BUCKETS if bucket < max_length]
+    buckets.append(max_length)
+    return tuple(sorted(set(max(32, bucket) for bucket in buckets)))
+
+
+def tokenize_rows(tokenizer, texts: list[str], *, max_length: int) -> list[dict]:
+    encoded = tokenizer(
+        texts,
+        padding=False,
+        truncation=True,
+        max_length=max_length,
+    )
+    return [
+        {key: value[index] for key, value in encoded.items()}
+        for index in range(len(texts))
+    ]
+
+
+def pad_token_rows(
+    tokenizer,
+    token_rows: list[dict],
+    *,
+    max_length: int,
+    train_device: str,
+    pad_multiple: int | None,
+) -> tuple[dict, int | None]:
+    buckets = padding_buckets(train_device, max_length)
+    if buckets:
+        batch_max = max((len(row.get("input_ids", [])) for row in token_rows), default=0)
+        target_length = next((bucket for bucket in buckets if batch_max <= bucket), max_length)
+        return (
+            tokenizer.pad(
+                token_rows,
+                padding="max_length",
+                max_length=target_length,
+                pad_to_multiple_of=pad_multiple,
+                return_tensors="pt",
+            ),
+            target_length,
+        )
+    return (
+        tokenizer.pad(
+            token_rows,
+            padding=True,
+            max_length=max_length,
+            pad_to_multiple_of=pad_multiple,
+            return_tensors="pt",
+        ),
+        None,
+    )
 
 
 def effective_train_batch_size(
@@ -290,15 +355,10 @@ def effective_train_batch_size(
     train_device: str,
     num_examples: int,
 ) -> int:
-    if train_device != "mps":
-        return requested_batch_size
-
-    # PyTorch MPS on Apple Silicon is GPU-backed, but the large-batch path in this repo
-    # has proven unstable on full fine-tune runs. Keep the requested effective batch via
-    # gradient accumulation while using a device-local micro-batch that fits M4 Pro more reliably.
-    if num_examples >= 100_000:
-        return min(requested_batch_size, 16)
-    return min(requested_batch_size, 32)
+    # Do NOT force micro-batch reduction on MPS.  MNRL uses in-batch negatives:
+    # batch 64 → 127 candidate docs (with hard negatives), micro 16 → only 31.
+    # Gradient accumulation does NOT pool negatives across micro-batches.
+    return requested_batch_size
 
 
 def gradient_accumulation_steps(
@@ -307,7 +367,9 @@ def gradient_accumulation_steps(
 ) -> int:
     if effective_batch_size <= 0:
         return 1
-    return max(1, (requested_batch_size + effective_batch_size - 1) // effective_batch_size)
+    return max(
+        1, (requested_batch_size + effective_batch_size - 1) // effective_batch_size
+    )
 
 
 def optimizer_steps_per_epoch(
@@ -335,7 +397,9 @@ def resolve_training_device(device_name: str, *, strict: bool = True) -> str:
         import torch
     except ModuleNotFoundError:
         if strict:
-            raise SystemExit("torch is required to resolve the requested training device")
+            raise SystemExit(
+                "torch is required to resolve the requested training device"
+            )
         if device_name in {"cpu", "mps"}:
             return device_name
         return "auto"
@@ -383,7 +447,9 @@ def resolve_teacher_providers(provider_name: str, *, strict: bool = True) -> lis
         import onnxruntime as ort
     except ModuleNotFoundError:
         if strict:
-            raise SystemExit("onnxruntime is required to resolve the requested teacher provider")
+            raise SystemExit(
+                "onnxruntime is required to resolve the requested teacher provider"
+            )
         if provider_name == "coreml":
             return ["CoreMLExecutionProvider", "CPUExecutionProvider"]
         if provider_name == "cpu":
@@ -395,7 +461,9 @@ def resolve_teacher_providers(provider_name: str, *, strict: bool = True) -> lis
         return ["CPUExecutionProvider"]
     if provider_name == "coreml":
         if "CoreMLExecutionProvider" not in available:
-            raise SystemExit("Requested --teacher-provider coreml, but CoreMLExecutionProvider is unavailable")
+            raise SystemExit(
+                "Requested --teacher-provider coreml, but CoreMLExecutionProvider is unavailable"
+            )
         return ["CoreMLExecutionProvider", "CPUExecutionProvider"]
     # Measured on Apple Silicon for the bundled teacher model:
     # CPU EP loads faster and runs small-batch inference faster than partial CoreML partitioning.
@@ -426,7 +494,7 @@ def recommended_teacher_batch_size(teacher_providers: list[str]) -> int:
 
 
 class CachedSentenceDataCollator:
-    """Tokenizer-caching collator for stable-shape MPS batches."""
+    """Tokenizer-caching collator with bucketed padding for MPS."""
 
     def __init__(
         self,
@@ -440,33 +508,43 @@ class CachedSentenceDataCollator:
         self.max_length = max_length
         self.static_padding = use_static_padding(train_device)
         self.pad_to_multiple = pad_to_multiple_of(train_device)
+        self.padding_buckets = padding_buckets(train_device, max_length)
+        self.bucketed_padding = bool(self.padding_buckets)
         self.cache_size = max(0, cache_size)
-        self._cache: OrderedDict[str, dict] = OrderedDict()
+        self._cache: OrderedDict[str, dict[str, list[int]]] = OrderedDict()
         self.valid_label_columns = ["label", "labels", "score", "scores"]
 
-    def _tokenize_batch(self, texts: list[str]):
-        return self.tokenizer(
+    def _tokenize_rows(self, texts: list[str]) -> list[dict[str, list[int]]]:
+        return tokenize_rows(
+            self.tokenizer,
             texts,
-            padding="max_length" if self.static_padding else True,
-            truncation=True,
             max_length=self.max_length,
-            pad_to_multiple_of=self.pad_to_multiple,
-            return_tensors="pt",
         )
 
-    def _remember(self, text: str, encoded_row: dict) -> None:
+    def _pad_rows(self, rows: list[dict[str, list[int]]]):
+        padded, _target_length = pad_token_rows(
+            self.tokenizer,
+            rows,
+            max_length=self.max_length,
+            train_device="mps" if self.bucketed_padding else "cpu",
+            pad_multiple=self.pad_to_multiple,
+        )
+        return padded
+
+    def _remember(self, text: str, encoded_row: dict[str, list[int]]) -> None:
         if self.cache_size <= 0:
             return
-        self._cache[text] = encoded_row
+        self._cache[text] = {
+            key: list(value)
+            for key, value in encoded_row.items()
+        }
         self._cache.move_to_end(text)
         while len(self._cache) > self.cache_size:
             self._cache.popitem(last=False)
 
     def _encode_texts(self, texts: list[str]) -> dict:
-        import torch
-
         if self.cache_size <= 0:
-            return self._tokenize_batch(texts)
+            return self._pad_rows(self._tokenize_rows(texts))
 
         misses: list[str] = []
         seen_misses: set[str] = set()
@@ -479,19 +557,11 @@ class CachedSentenceDataCollator:
                 seen_misses.add(text)
 
         if misses:
-            tokenized_misses = self._tokenize_batch(misses)
-            for row_index, text in enumerate(misses):
-                encoded_row = {
-                    key: value[row_index].clone()
-                    for key, value in tokenized_misses.items()
-                }
+            tokenized_misses = self._tokenize_rows(misses)
+            for text, encoded_row in zip(misses, tokenized_misses, strict=False):
                 self._remember(text, encoded_row)
 
-        keys = next(iter(self._cache.values())).keys()
-        return {
-            key: torch.stack([self._cache[text][key] for text in texts], dim=0)
-            for key in keys
-        }
+        return self._pad_rows([self._cache[text] for text in texts])
 
     def __call__(self, features: list[dict]) -> dict:
         import torch
@@ -528,16 +598,19 @@ def pretokenized_batches(
 ) -> list[dict]:
     batches = []
     for i in range(0, len(texts), batch_size):
-        batches.append(
-            tokenizer(
-                texts[i : i + batch_size],
-                padding="max_length" if use_static_padding(train_device) else True,
-                truncation=True,
-                max_length=max_length,
-                pad_to_multiple_of=pad_to_multiple_of(train_device),
-                return_tensors="pt",
-            )
+        token_rows = tokenize_rows(
+            tokenizer,
+            texts[i : i + batch_size],
+            max_length=max_length,
         )
+        padded, _target_length = pad_token_rows(
+            tokenizer,
+            token_rows,
+            max_length=max_length,
+            train_device=train_device,
+            pad_multiple=pad_to_multiple_of(train_device),
+        )
+        batches.append(padded)
     return batches
 
 
@@ -592,7 +665,7 @@ def teacher_cache_path(
     return cache_dir / f"teacher-embeddings-{key.hexdigest()[:16]}.npy"
 
 
-def teacher_embed(model, tokenizer, texts, batch_size: int):
+def teacher_embed(model, tokenizer, texts, batch_size: int, max_seq_length: int = 128):
     """Generate embeddings from teacher model."""
     import numpy as np
 
@@ -618,7 +691,7 @@ def teacher_embed(model, tokenizer, texts, batch_size: int):
             batch,
             padding=True,
             truncation=True,
-            max_length=resolved_max_seq_length(args.max_seq_length),
+            max_length=resolved_max_seq_length(max_seq_length),
             return_tensors="np",
         )
         outputs = model(**{k: v for k, v in inputs.items()})
@@ -643,7 +716,9 @@ def load_or_compute_teacher_embeddings(
 ):
     import numpy as np
 
-    cache_path = teacher_cache_path(args.output, texts, args.teacher_dir, teacher_providers)
+    cache_path = teacher_cache_path(
+        args.output, texts, args.teacher_dir, teacher_providers
+    )
     if cache_path.exists():
         embeddings = np.load(cache_path, allow_pickle=False, mmap_mode="r")
         print(f"  Teacher cache hit: {cache_path}")
@@ -658,7 +733,13 @@ def load_or_compute_teacher_embeddings(
 
     teacher_batch_size = recommended_teacher_batch_size(teacher_providers)
     print(f"  Teacher batch size: {teacher_batch_size}")
-    embeddings = teacher_embed(model, tokenizer, texts, batch_size=teacher_batch_size)
+    embeddings = teacher_embed(
+        model,
+        tokenizer,
+        texts,
+        batch_size=teacher_batch_size,
+        max_seq_length=args.max_seq_length,
+    )
     np.save(cache_path, embeddings, allow_pickle=False)
     print(f"  Teacher cache saved: {cache_path}")
     return embeddings
@@ -757,7 +838,9 @@ def stage1_distill(student, texts, args, teacher_providers):
         total_loss = 0.0
         batches = 0
         for batch_index, i in enumerate(range(0, len(texts), distill_batch_size)):
-            batch_targets = torch.from_numpy(teacher_embeddings[i : i + distill_batch_size]).to(
+            batch_targets = torch.from_numpy(
+                teacher_embeddings[i : i + distill_batch_size]
+            ).to(
                 device=device,
                 dtype=torch.float32,
             )
@@ -838,7 +921,9 @@ def subset_jsonl_path(path: str, max_rows: int, output_dir: str, tag: str) -> st
     if subset.exists():
         return str(subset)
 
-    with source.open(encoding="utf-8") as src, subset.open("w", encoding="utf-8") as dst:
+    with source.open(encoding="utf-8") as src, subset.open(
+        "w", encoding="utf-8"
+    ) as dst:
         kept = 0
         for line in src:
             obj = json.loads(line.strip())
@@ -853,10 +938,14 @@ def subset_jsonl_path(path: str, max_rows: int, output_dir: str, tag: str) -> st
     return str(subset)
 
 
-def load_retrieval_dataset(path: str, *, max_rows: int = 0, output_dir: str = "", tag: str = "train"):
+def load_retrieval_dataset(
+    path: str, *, max_rows: int = 0, output_dir: str = "", tag: str = "train"
+):
     from datasets import Dataset
 
-    dataset_path = subset_jsonl_path(path, max_rows, output_dir or str(ROOT / "scripts" / "finetune" / "output"), tag)
+    dataset_path = subset_jsonl_path(
+        path, max_rows, output_dir or str(ROOT / "scripts" / "finetune" / "output"), tag
+    )
     dataset = Dataset.from_json(dataset_path, keep_in_memory=False)
     keep_columns = ["query", "positive"]
     negative_columns = sorted(
@@ -868,7 +957,9 @@ def load_retrieval_dataset(path: str, *, max_rows: int = 0, output_dir: str = ""
         key=lambda name: (0 if name == "negative" else int(name.split("_")[1])),
     )
     keep_columns.extend(negative_columns)
-    drop_columns = [name for name in dataset.column_names if name not in set(keep_columns)]
+    drop_columns = [
+        name for name in dataset.column_names if name not in set(keep_columns)
+    ]
     if drop_columns:
         dataset = dataset.remove_columns(drop_columns)
     dataset = dataset.rename_column("query", "sentence_0")
@@ -878,7 +969,9 @@ def load_retrieval_dataset(path: str, *, max_rows: int = 0, output_dir: str = ""
     return dataset
 
 
-def build_validation_evaluator(validation_input: str, batch_size: int, *, max_rows: int = 0):
+def build_validation_evaluator(
+    validation_input: str, batch_size: int, *, max_rows: int = 0
+):
     if not validation_input:
         return None
     path = Path(validation_input)
@@ -892,7 +985,9 @@ def build_validation_evaluator(validation_input: str, batch_size: int, *, max_ro
     relevant_docs = {}
     positive_to_doc_id = {}
 
-    for idx, (query, positive) in enumerate(iter_retrieval_pairs(str(path), max_rows=max_rows)):
+    for idx, (query, positive) in enumerate(
+        iter_retrieval_pairs(str(path), max_rows=max_rows)
+    ):
         qid = f"q{idx}"
         if positive not in positive_to_doc_id:
             positive_to_doc_id[positive] = f"d{len(positive_to_doc_id)}"
@@ -929,7 +1024,10 @@ def stage2_finetune(student, triplets_path, args):
     """
     from sentence_transformers import losses
     from sentence_transformers.trainer import SentenceTransformerTrainer
-    from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
+    from sentence_transformers.training_args import (
+        BatchSamplers,
+        SentenceTransformerTrainingArguments,
+    )
 
     print(f"\n=== Stage 2: MNRL Fine-tuning ({args.finetune_epochs} epochs) ===")
 
@@ -978,13 +1076,17 @@ def stage2_finetune(student, triplets_path, args):
     print(
         "  Tokenization path: "
         f"static_padding={collator.static_padding} "
+        f"bucketed_padding={collator.bucketed_padding} "
+        f"padding_buckets={list(collator.padding_buckets)} "
         f"pad_to_multiple_of={collator.pad_to_multiple} "
         f"cache_size={collator.cache_size}"
     )
 
     use_cached_mnrl = args.use_cached_mnrl and train_device != "mps"
     if args.use_cached_mnrl and train_device == "mps":
-        print("  Loss: CachedMNRL requested but disabled on MPS due to torch.mps incompatibility")
+        print(
+            "  Loss: CachedMNRL requested but disabled on MPS due to torch.mps incompatibility"
+        )
 
     if use_cached_mnrl:
         loss = losses.CachedMultipleNegativesRankingLoss(
@@ -1027,7 +1129,9 @@ def stage2_finetune(student, triplets_path, args):
         learning_rate=1e-5,
         save_strategy="no",
         eval_strategy="steps" if evaluator and args.evaluation_steps > 0 else "no",
-        eval_steps=args.evaluation_steps if evaluator and args.evaluation_steps > 0 else None,
+        eval_steps=(
+            args.evaluation_steps if evaluator and args.evaluation_steps > 0 else None
+        ),
         dataloader_num_workers=loader_workers,
         dataloader_persistent_workers=loader_workers > 0,
         dataloader_prefetch_factor=2 if loader_workers > 0 else None,
@@ -1074,7 +1178,9 @@ def main():
     output_dir = resolve_output(args.profile, args.output)
     args._resource_profile, topology = resolve_resource_profile(args.resource_profile)
     args._topology = topology
-    args._torch_threads = configure_process_runtime(args._resource_profile, args.torch_threads)
+    args._torch_threads = configure_process_runtime(
+        args._resource_profile, args.torch_threads
+    )
 
     if not finetune_input.exists():
         if args.profile == "codex":
@@ -1131,6 +1237,18 @@ def main():
             ),
             "max_seq_length": resolved_max_seq_length(args.max_seq_length),
             "tokenizer_static_padding": use_static_padding(resolved_train_device),
+            "tokenizer_bucketed_padding": bool(
+                padding_buckets(
+                    resolved_train_device,
+                    resolved_max_seq_length(args.max_seq_length),
+                )
+            ),
+            "tokenizer_padding_buckets": list(
+                padding_buckets(
+                    resolved_train_device,
+                    resolved_max_seq_length(args.max_seq_length),
+                )
+            ),
             "tokenizer_pad_to_multiple_of": pad_to_multiple_of(resolved_train_device),
             "tokenizer_cache_size": resolved_tokenizer_cache_size(
                 resolved_train_device,
@@ -1171,12 +1289,14 @@ def main():
                 args.finetune_input,
                 max_rows=args.max_train_rows,
             ),
-            "validation_pairs": count_retrieval_pairs(
-                args.validation_input,
-                max_rows=args.max_validation_rows,
-            )
-            if args.validation_input
-            else 0,
+            "validation_pairs": (
+                count_retrieval_pairs(
+                    args.validation_input,
+                    max_rows=args.max_validation_rows,
+                )
+                if args.validation_input
+                else 0
+            ),
         }
         print(json.dumps(summary, indent=2, ensure_ascii=False))
         return
