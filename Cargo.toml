@@ -61,6 +61,7 @@ tree-sitter-html = "0.23"
 tree-sitter-toml-updated = "0.20"
 tree-sitter-yaml = "0.7"
 tree-sitter-clojure = "0.1"
+# dockerfile, make, vim, fsharp — deferred: tree-sitter version conflict
 # tree-sitter-perl requires tree-sitter 0.26 — deferred until tree-sitter upgrade
 fastembed = { version = "5", default-features = false, features = ["ort-download-binaries-native-tls"] }
 sqlite-vec = "0.1.8-alpha.1"

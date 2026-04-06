@@ -42,14 +42,79 @@ pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
         }
     };
 
-    // Dynamic expansion: convert NL query words to snake_case symbol candidates
-    // This improves cross-project generalization. The embedding model needs
-    // training data with these patterns to rank them properly.
+    // Dynamic expansion: bidirectional snake_case ↔ CamelCase conversion
+    // The distill-v2 model learned identifier splitting, so both forms help retrieval.
     let words: Vec<&str> = lowered.split_whitespace().filter(|w| w.len() > 2).collect();
     if words.len() >= 2 && words.len() <= 6 {
+        // NL → snake_case: "fetch profile" → "fetch_profile"
         for window in words.windows(2) {
             push_unique(&format!("{}_{}", window[0], window[1]));
         }
+        // NL → CamelCase: "fetch profile" → "fetchProfile"
+        let camel: String = words
+            .iter()
+            .enumerate()
+            .map(|(i, w)| {
+                if i == 0 {
+                    w.to_string()
+                } else {
+                    let mut c = w.chars();
+                    match c.next() {
+                        None => String::new(),
+                        Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                    }
+                }
+            })
+            .collect();
+        push_unique(&camel);
+        // NL → PascalCase: "fetch profile" → "FetchProfile"
+        if words.len() >= 2 {
+            let pascal: String = words
+                .iter()
+                .map(|w| {
+                    let mut c = w.chars();
+                    match c.next() {
+                        None => String::new(),
+                        Some(f) => f.to_uppercase().to_string() + c.as_str(),
+                    }
+                })
+                .collect();
+            push_unique(&pascal);
+        }
+    }
+    // If query IS a snake_case identifier, also expand to CamelCase
+    if query.contains('_') && !query.contains(' ') {
+        let parts: Vec<&str> = query.split('_').filter(|p| !p.is_empty()).collect();
+        let camel: String = parts
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                if i == 0 {
+                    p.to_lowercase()
+                } else {
+                    let mut c = p.chars();
+                    match c.next() {
+                        None => String::new(),
+                        Some(f) => f.to_uppercase().to_string() + &c.as_str().to_lowercase(),
+                    }
+                }
+            })
+            .collect();
+        push_unique(&camel);
+    }
+    // If query IS CamelCase, also expand to snake_case
+    if query.chars().any(|c| c.is_uppercase()) && !query.contains(' ') {
+        let snake = query
+            .chars()
+            .enumerate()
+            .fold(String::new(), |mut acc, (i, c)| {
+                if c.is_uppercase() && i > 0 {
+                    acc.push('_');
+                }
+                acc.push(c.to_ascii_lowercase());
+                acc
+            });
+        push_unique(&snake);
     }
 
     let alias_groups: &[(&[&str], &[&str])] = &[

@@ -317,6 +317,7 @@ static EXTENSIONS: &[ExtEntry] = &[
         supports_imports: false,
         canonical: "clj",
     },
+    // dockerfile, make, vim, fsharp — deferred: tree-sitter version conflict
     // Perl deferred until tree-sitter 0.26 upgrade
 ];
 

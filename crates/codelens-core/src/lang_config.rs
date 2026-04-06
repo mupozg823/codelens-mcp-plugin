@@ -69,6 +69,7 @@ fn config_for_canonical(canonical: &str) -> Option<LanguageConfig> {
         ),
         "yaml" => ("yaml", tree_sitter_yaml::LANGUAGE.into(), YAML_QUERY),
         "clj" => ("clj", tree_sitter_clojure::LANGUAGE.into(), CLOJURE_QUERY),
+        // dockerfile, make, vim, fsharp — deferred: tree-sitter version conflict
         // "pl" => perl deferred until tree-sitter 0.26 upgrade
         _ => return None,
     };
@@ -527,3 +528,5 @@ const YAML_QUERY: &str = r#"
 const CLOJURE_QUERY: &str = r#"
     (list_lit (sym_lit) @func.name) @func.def
 "#;
+
+// Dockerfile, Makefile, Vim, F# queries — deferred until tree-sitter version alignment
