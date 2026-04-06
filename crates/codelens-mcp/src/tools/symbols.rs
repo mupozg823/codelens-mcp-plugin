@@ -99,7 +99,7 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
         return 0.0;
     }
 
-    let mut prior = 0.0;
+    let mut prior: f64 = 0.0;
     if result.file_path.starts_with("crates/") {
         prior += 0.02;
     }
@@ -156,7 +156,8 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
         prior += 0.14;
     }
 
-    prior
+    // Keep heuristics as a bounded bias so embedding similarity remains primary.
+    prior.clamp(-0.10_f64, 0.19_f64)
 }
 
 fn semantic_adjusted_score_with_lower(query_lower: &str, result: &SemanticMatch) -> (f64, f64) {
@@ -1262,6 +1263,26 @@ mod tests {
         );
         assert!(prior > 0.0);
         assert!(adjusted > match_.score);
+    }
+
+    #[test]
+    fn semantic_prior_is_bounded_for_high_bonus_entrypoints() {
+        let match_ = SemanticMatch {
+            symbol_name: "run_stdio".to_owned(),
+            kind: "function".to_owned(),
+            file_path: "crates/codelens-mcp/src/server/transport_stdio.rs".to_owned(),
+            line: 9,
+            signature: "fn run_stdio".to_owned(),
+            name_path: "run_stdio".to_owned(),
+            score: 0.148,
+        };
+
+        let (prior, _) = semantic_adjusted_score_parts(
+            "read input from stdin line by line run_stdio stdio stdin",
+            &match_,
+        );
+        assert!(prior <= 0.19);
+        assert!(prior >= -0.10);
     }
 
     #[test]
