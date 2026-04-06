@@ -56,6 +56,11 @@ tree-sitter-erlang = "0.15"
 tree-sitter-r = "1.2"
 tree-sitter-bash = "0.25"
 tree-sitter-julia = "0.23"
+tree-sitter-css = "0.25"
+tree-sitter-html = "0.23"
+tree-sitter-toml-updated = "0.20"
+tree-sitter-yaml = "0.7"
+tree-sitter-clojure = "0.1"
 # tree-sitter-perl requires tree-sitter 0.26 — deferred until tree-sitter upgrade
 fastembed = { version = "5", default-features = false, features = ["ort-download-binaries-native-tls"] }
 sqlite-vec = "0.1.8-alpha.1"

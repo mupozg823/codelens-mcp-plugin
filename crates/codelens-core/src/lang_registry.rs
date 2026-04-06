@@ -268,6 +268,55 @@ static EXTENSIONS: &[ExtEntry] = &[
         supports_imports: false,
         canonical: "jl",
     },
+    // Phase 3 additions
+    ExtEntry {
+        ext: "css",
+        language_id: "css",
+        supports_imports: false,
+        canonical: "css",
+    },
+    ExtEntry {
+        ext: "html",
+        language_id: "html",
+        supports_imports: false,
+        canonical: "html",
+    },
+    ExtEntry {
+        ext: "htm",
+        language_id: "html",
+        supports_imports: false,
+        canonical: "html",
+    },
+    ExtEntry {
+        ext: "toml",
+        language_id: "toml",
+        supports_imports: false,
+        canonical: "toml",
+    },
+    ExtEntry {
+        ext: "yaml",
+        language_id: "yaml",
+        supports_imports: false,
+        canonical: "yaml",
+    },
+    ExtEntry {
+        ext: "yml",
+        language_id: "yaml",
+        supports_imports: false,
+        canonical: "yaml",
+    },
+    ExtEntry {
+        ext: "clj",
+        language_id: "clojure",
+        supports_imports: false,
+        canonical: "clj",
+    },
+    ExtEntry {
+        ext: "cljs",
+        language_id: "clojurescript",
+        supports_imports: false,
+        canonical: "clj",
+    },
     // Perl deferred until tree-sitter 0.26 upgrade
 ];
 

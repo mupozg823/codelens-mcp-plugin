@@ -60,6 +60,15 @@ fn config_for_canonical(canonical: &str) -> Option<LanguageConfig> {
         "r" => ("r", tree_sitter_r::LANGUAGE.into(), R_QUERY),
         "sh" => ("sh", tree_sitter_bash::LANGUAGE.into(), BASH_QUERY),
         "jl" => ("jl", tree_sitter_julia::LANGUAGE.into(), JULIA_QUERY),
+        "css" => ("css", tree_sitter_css::LANGUAGE.into(), CSS_QUERY),
+        "html" => ("html", tree_sitter_html::LANGUAGE.into(), HTML_QUERY),
+        "toml" => (
+            "toml",
+            tree_sitter_toml_updated::language().into(),
+            TOML_QUERY,
+        ),
+        "yaml" => ("yaml", tree_sitter_yaml::LANGUAGE.into(), YAML_QUERY),
+        "clj" => ("clj", tree_sitter_clojure::LANGUAGE.into(), CLOJURE_QUERY),
         // "pl" => perl deferred until tree-sitter 0.26 upgrade
         _ => return None,
     };
@@ -495,3 +504,26 @@ mod tests {
         );
     }
 }
+
+// ── Phase 3: new languages ────────────────────────────────────────────────
+
+const CSS_QUERY: &str = r#"
+    (rule_set (selectors (class_selector (class_name) @class.name)) @class.def)
+    (rule_set (selectors (id_selector (id_name) @class.name)) @class.def)
+"#;
+
+const HTML_QUERY: &str = r#"
+    (element (start_tag (tag_name) @class.name)) @class.def
+"#;
+
+const TOML_QUERY: &str = r#"
+    (table (bare_key) @class.name) @class.def
+"#;
+
+const YAML_QUERY: &str = r#"
+    (block_mapping_pair key: (flow_node) @class.name) @class.def
+"#;
+
+const CLOJURE_QUERY: &str = r#"
+    (list_lit (sym_lit) @func.name) @func.def
+"#;

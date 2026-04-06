@@ -237,19 +237,6 @@ pub(crate) fn semantic_status(state: &AppState) -> Value {
 }
 
 #[cfg(feature = "semantic")]
-pub(crate) fn is_semantic_available(state: &AppState) -> bool {
-    semantic_status(state)
-        .get("status")
-        .and_then(Value::as_str)
-        .is_some_and(|status| status == "ready")
-}
-
-#[cfg(not(feature = "semantic"))]
-pub(crate) fn is_semantic_available(_state: &AppState) -> bool {
-    false
-}
-
-#[cfg(feature = "semantic")]
 pub(crate) fn semantic_results_for_query(
     state: &AppState,
     query: &str,
