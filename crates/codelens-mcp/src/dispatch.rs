@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
-use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    SuccessResponseInput, build_error_response, build_success_response,
+    build_error_response, build_success_response, SuccessResponseInput,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
-    is_refactor_gated_mutation_tool,
+    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
+    MutationGateFailure,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
+use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
 use crate::tools::{self, ToolHandler, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -383,6 +383,16 @@ pub(crate) fn dispatch_tool(
     let _guard = span.enter();
     let start = std::time::Instant::now();
     state.push_recent_tool(name);
+
+    // Doom-loop detection: hash arguments, check consecutive repeat count
+    let args_hash = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        arguments.to_string().hash(&mut hasher);
+        hasher.finish()
+    };
+    let doom_count = state.doom_loop_count(name, args_hash);
+
     // Track file access for session-aware ranking boost
     if let Some(fp) = arguments
         .get("file_path")
@@ -511,8 +521,17 @@ pub(crate) fn dispatch_tool(
     }
 
     // 6. Build response
+    if doom_count >= 3 {
+        tracing::warn!(
+            tool = name,
+            repeat_count = doom_count,
+            "doom-loop detected: same tool+args called {} times consecutively",
+            doom_count
+        );
+    }
     match result {
         Ok((payload, meta)) => build_success_response(SuccessResponseInput {
+            doom_loop_count: doom_count,
             name,
             payload,
             meta,

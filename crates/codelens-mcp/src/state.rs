@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::analysis_queue::{
-    AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
-    STDIO_ANALYSIS_WORKER_COUNT, analysis_job_cost_units,
+    analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
+    STDIO_ANALYSIS_WORKER_COUNT,
 };
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::error::CodeLensError;
@@ -88,6 +88,8 @@ pub(crate) struct AppState {
     recent_tools: Mutex<VecDeque<String>>,
     /// Recent file paths accessed in this session (max 20) for ranking boost.
     recent_files: Mutex<VecDeque<String>>,
+    /// Doom-loop detection: (tool_name, args_hash, consecutive_count)
+    doom_loop_counter: Mutex<(String, u64, usize)>,
     preflight_store: RecentPreflightStore,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
     pub(crate) watcher: Option<FileWatcher>,
@@ -506,6 +508,21 @@ impl AppState {
         q.push_back(name.to_owned());
     }
 
+    /// Doom-loop detection: returns the repeat count if the same tool+args_hash
+    /// has been called consecutively. Threshold of 3 triggers a warning.
+    pub(crate) fn doom_loop_count(&self, name: &str, args_hash: u64) -> usize {
+        let mut counter = self
+            .doom_loop_counter
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if counter.0 == name && counter.1 == args_hash {
+            counter.2 += 1;
+        } else {
+            *counter = (name.to_owned(), args_hash, 1);
+        }
+        counter.2
+    }
+
     /// Get the recent tool call names (up to 5).
     pub(crate) fn recent_tools(&self) -> Vec<String> {
         self.recent_tools
@@ -747,6 +764,7 @@ impl AppState {
             job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
             metrics: Arc::clone(&self.metrics),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
+            doom_loop_counter: Mutex::new((String::new(), 0, 0)),
             recent_files: Mutex::new(VecDeque::with_capacity(20)),
             preflight_store: RecentPreflightStore::new(),
             analysis_queue: OnceLock::new(),
@@ -874,6 +892,7 @@ impl AppState {
             job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
             metrics: Arc::new(ToolMetricsRegistry::new()),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
+            doom_loop_counter: Mutex::new((String::new(), 0, 0)),
             recent_files: Mutex::new(VecDeque::with_capacity(20)),
             preflight_store: RecentPreflightStore::new(),
             analysis_queue: OnceLock::new(),

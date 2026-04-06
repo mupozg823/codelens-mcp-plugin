@@ -1,13 +1,13 @@
-use crate::AppState;
 use crate::dispatch_response_support::{
     apply_contextual_guidance, bounded_result_payload, budget_hint, compact_response_payload,
     effective_budget_for_tool, routing_hint_for_payload, success_jsonrpc_response,
 };
 use crate::error::CodeLensError;
-use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
+use crate::mutation_gate::{is_verifier_source_tool, MutationGateAllowance, MutationGateFailure};
 use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};
-use crate::tool_defs::{ToolSurface, tool_definition};
+use crate::tool_defs::{tool_definition, ToolSurface};
 use crate::tools;
+use crate::AppState;
 use serde_json::json;
 
 pub(crate) struct SuccessResponseInput<'a> {
@@ -25,6 +25,8 @@ pub(crate) struct SuccessResponseInput<'a> {
     pub request_budget: usize,
     pub start: std::time::Instant,
     pub id: Option<serde_json::Value>,
+    /// Consecutive same-tool+args call count for doom-loop detection.
+    pub doom_loop_count: usize,
 }
 
 pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpcResponse {
@@ -43,6 +45,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         request_budget,
         start,
         id,
+        doom_loop_count,
     } = input;
 
     let elapsed_ms = start.elapsed().as_millis();
@@ -82,6 +85,11 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     if missing_preflight {
         hint = format!("{hint} Tip: run verify_change_readiness before mutations for safer edits.");
     }
+    if doom_loop_count >= 3 {
+        hint = format!(
+            "{hint} Repeated low-level chain detected. Prefer verify_change_readiness, find_minimal_context_for_change, analyze_change_request for compressed context before continuing."
+        );
+    }
     resp.token_estimate = Some(payload_estimate);
     resp.budget_hint = Some(hint);
     resp.elapsed_ms = Some(elapsed_ms as u64);
@@ -94,6 +102,15 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         harness_phase,
         surface,
     );
+
+    // Self-evolution: when doom-loop detected, override suggestions with alternative tools
+    if doom_loop_count >= 3 {
+        resp.suggested_next_tools = Some(vec![
+            "verify_change_readiness".to_owned(),
+            "find_minimal_context_for_change".to_owned(),
+            "analyze_change_request".to_owned(),
+        ]);
+    }
 
     if compact {
         compact_response_payload(&mut resp);
