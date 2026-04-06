@@ -1,9 +1,22 @@
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use crate::tools::symbols::semantic_results_for_query;
+use crate::tools::symbols::{is_semantic_available, semantic_results_for_query};
 use crate::tools::{required_string, AppState, ToolResult};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+
+/// Insert a degraded-mode notice when semantic embedding is unavailable.
+fn insert_semantic_status(sections: &mut BTreeMap<String, Value>, state: &AppState) {
+    if !is_semantic_available(state) {
+        sections.insert(
+            "_semantic_status".to_owned(),
+            json!({
+                "available": false,
+                "note": "Semantic embedding not loaded — report uses structural analysis only. Call index_embeddings to enable semantic enrichment."
+            }),
+        );
+    }
+}
 
 pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
@@ -98,6 +111,7 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         );
     }
 
+    insert_semantic_status(&mut sections, state);
     make_handle_response(
         state,
         "module_boundary_report",
@@ -176,6 +190,7 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
         );
     }
     sections.insert("raw_dead_code".to_owned(), dead_code);
+    insert_semantic_status(&mut sections, state);
     make_handle_response(
         state,
         "dead_code_report",
@@ -305,6 +320,7 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
             json!({"hint": "Files semantically related but not in import graph", "matches": semantic_related}),
         );
     }
+    insert_semantic_status(&mut sections, state);
     make_handle_response(
         state,
         "impact_report",
@@ -367,6 +383,7 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
     sections.insert("symbol_impact".to_owned(), symbol_impact);
     sections.insert("change_request".to_owned(), change_request);
     sections.insert("related_tests".to_owned(), tests);
+    insert_semantic_status(&mut sections, state);
     make_handle_response(
         state,
         "refactor_safety_report",

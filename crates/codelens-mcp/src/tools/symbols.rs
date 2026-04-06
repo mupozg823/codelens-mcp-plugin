@@ -145,6 +145,21 @@ pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
     terms.join(" ")
 }
 
+/// Returns true if the embedding engine is loaded and has an indexed corpus.
+#[cfg(feature = "semantic")]
+pub(crate) fn is_semantic_available(state: &AppState) -> bool {
+    state
+        .embedding
+        .get()
+        .and_then(|opt| opt.as_ref())
+        .is_some_and(|e| e.is_indexed())
+}
+
+#[cfg(not(feature = "semantic"))]
+pub(crate) fn is_semantic_available(_state: &AppState) -> bool {
+    false
+}
+
 #[cfg(feature = "semantic")]
 pub(crate) fn semantic_results_for_query(
     state: &AppState,

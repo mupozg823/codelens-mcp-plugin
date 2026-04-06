@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
-use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    SuccessResponseInput, build_error_response, build_success_response,
+    build_error_response, build_success_response, SuccessResponseInput,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
-    is_refactor_gated_mutation_tool,
+    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
+    MutationGateFailure,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
+use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
 use crate::tools::{self, ToolHandler, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -443,14 +443,22 @@ pub(crate) fn dispatch_tool(
     // 5. Post-mutation side effects (graph invalidation, audit, incremental reindex)
     if result.is_ok() && is_content_mutation_tool(name) {
         state.graph_cache().invalidate();
-        // Incremental reindex: refresh symbol DB for the mutated file
+        // Incremental reindex: refresh symbol DB + embedding index for the mutated file
         if let Some(fp) = arguments
             .get("file_path")
             .or_else(|| arguments.get("relative_path"))
             .and_then(|v| v.as_str())
         {
             if let Err(e) = state.symbol_index().refresh_file(fp) {
-                tracing::debug!(file = fp, error = %e, "incremental reindex failed");
+                tracing::debug!(file = fp, error = %e, "incremental symbol reindex failed");
+            }
+            // Refresh embedding index if loaded — prevents stale semantic results
+            #[cfg(feature = "semantic")]
+            if let Some(Some(engine)) = state.embedding.get() {
+                let project = state.project();
+                if let Err(e) = engine.index_changed_files(&project, &[fp]) {
+                    tracing::debug!(file = fp, error = %e, "incremental embedding reindex failed");
+                }
             }
         }
         if let Err(error) = state.record_mutation_audit(name, &active_surface, arguments, session) {
