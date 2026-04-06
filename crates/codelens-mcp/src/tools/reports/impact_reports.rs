@@ -1,8 +1,8 @@
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use crate::tools::symbols::{semantic_results_for_query, semantic_status};
-use crate::tools::{required_string, AppState, ToolResult};
-use serde_json::{json, Value};
+use crate::tools::symbols::{semantic_query_for_retrieval, semantic_results_for_query, semantic_status};
+use crate::tools::{AppState, ToolResult, required_string};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 fn semantic_status_is_ready(status: &Value) -> bool {
@@ -34,6 +34,53 @@ fn semantic_degraded_note(status: &Value) -> Option<String> {
 
 fn insert_semantic_status(sections: &mut BTreeMap<String, Value>, status: Value) {
     sections.insert("semantic_status".to_owned(), status);
+}
+
+fn path_hint(path: &str) -> String {
+    path.rsplit('/')
+        .next()
+        .unwrap_or(path)
+        .trim_end_matches(".rs")
+        .trim_end_matches(".ts")
+        .trim_end_matches(".tsx")
+        .trim_end_matches(".js")
+        .trim_end_matches(".jsx")
+        .trim_end_matches(".py")
+        .trim_end_matches(".go")
+        .replace(['_', '-'], " ")
+}
+
+fn build_module_semantic_query(path: &str, symbol_names: &[String]) -> String {
+    let hint = path_hint(path);
+    let query = if symbol_names.is_empty() {
+        format!("module boundary responsibilities {hint}")
+    } else {
+        format!(
+            "module boundary responsibilities {hint} {}",
+            symbol_names.join(" ")
+        )
+    };
+    semantic_query_for_retrieval(&query)
+}
+
+fn build_dead_code_semantic_query(name: &str, file: Option<&str>) -> String {
+    let query = match file {
+        Some(file) if !file.is_empty() => {
+            format!("similar live code for {name} in {}", path_hint(file))
+        }
+        _ => format!("similar live code for {name}"),
+    };
+    semantic_query_for_retrieval(&query)
+}
+
+fn build_impact_semantic_query(path: &str, symbol_names: &[String]) -> String {
+    let hint = path_hint(path);
+    let query = if symbol_names.is_empty() {
+        format!("code related to {hint}")
+    } else {
+        format!("code related to {hint} {}", symbol_names.join(" "))
+    };
+    semantic_query_for_retrieval(&query)
 }
 
 pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult {
@@ -109,18 +156,7 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         .unwrap_or_default();
     sections.insert("symbols".to_owned(), symbols);
 
-    let module_query = if symbol_names.is_empty() {
-        path.rsplit('/')
-            .next()
-            .unwrap_or(path)
-            .trim_end_matches(".rs")
-            .trim_end_matches(".ts")
-            .trim_end_matches(".tsx")
-            .trim_end_matches(".py")
-            .replace('_', " ")
-    } else {
-        symbol_names.join(" ")
-    };
+    let module_query = build_module_semantic_query(path, &symbol_names);
     let sem_results = semantic_results_for_query(state, &module_query, 10, false);
     let semantic_coupling: Vec<Value> = sem_results
         .into_iter()
@@ -194,7 +230,12 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
                 .get("name")
                 .or_else(|| entry.get("symbol"))
                 .and_then(|v| v.as_str())?;
-            let results = semantic_results_for_query(state, name, 3, false);
+            let file = entry
+                .get("file")
+                .or_else(|| entry.get("file_path"))
+                .and_then(|v| v.as_str());
+            let query = build_dead_code_semantic_query(name, file);
+            let results = semantic_results_for_query(state, &query, 3, false);
             if results.is_empty() {
                 return None;
             }
@@ -336,7 +377,7 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         .take(3)
         .flat_map(|path| {
             // Build a richer query from the file's top symbol names (via symbol DB)
-            let sym_query = crate::tools::symbols::get_symbols_overview(
+            let symbol_names: Vec<String> = crate::tools::symbols::get_symbols_overview(
                 state,
                 &json!({"path": path, "depth": 1}),
             )
@@ -346,20 +387,12 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
                     arr.iter()
                         .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
                         .take(5)
+                        .map(ToOwned::to_owned)
                         .collect::<Vec<_>>()
-                        .join(" ")
                 })
             })
-            .unwrap_or_else(|| {
-                path.rsplit('/')
-                    .next()
-                    .unwrap_or(path)
-                    .trim_end_matches(".rs")
-                    .trim_end_matches(".ts")
-                    .trim_end_matches(".tsx")
-                    .trim_end_matches(".py")
-                    .replace('_', " ")
-            });
+            .unwrap_or_default();
+            let sym_query = build_impact_semantic_query(path, &symbol_names);
             semantic_results_for_query(state, &sym_query, 5, false)
                 .into_iter()
                 .filter(|r| r.score > 0.12 && !graph_files.contains(&r.file_path))
@@ -409,6 +442,43 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         target_files,
         None,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        build_dead_code_semantic_query, build_impact_semantic_query, build_module_semantic_query,
+    };
+
+    #[test]
+    fn module_semantic_query_keeps_module_intent() {
+        let query = build_module_semantic_query(
+            "crates/codelens-mcp/src/dispatch.rs",
+            &["dispatch_tool".to_string(), "semantic_search".to_string()],
+        );
+        assert!(query.contains("module boundary responsibilities"));
+        assert!(query.contains("dispatch"));
+        assert!(query.contains("dispatch_tool"));
+    }
+
+    #[test]
+    fn dead_code_semantic_query_uses_symbol_and_file_hint() {
+        let query = build_dead_code_semantic_query("rename_symbol", Some("src/rename.rs"));
+        assert!(query.contains("similar live code for"));
+        assert!(query.contains("rename_symbol"));
+        assert!(query.contains("rename"));
+    }
+
+    #[test]
+    fn impact_semantic_query_uses_related_to_intent() {
+        let query = build_impact_semantic_query(
+            "crates/codelens-core/src/watcher.rs",
+            &["watch_files".to_string()],
+        );
+        assert!(query.contains("code related to"));
+        assert!(query.contains("watcher"));
+        assert!(query.contains("watch_files"));
+    }
 }
 
 pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult {
@@ -483,11 +553,13 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         0.9,
         next_actions,
         sections,
-        vec![arguments
-            .get("file_path")
-            .and_then(|value| value.as_str())
-            .unwrap_or(path)
-            .to_owned()],
+        vec![
+            arguments
+                .get("file_path")
+                .and_then(|value| value.as_str())
+                .unwrap_or(path)
+                .to_owned(),
+        ],
         symbol.map(ToOwned::to_owned),
     )
 }
