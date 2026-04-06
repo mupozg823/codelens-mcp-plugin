@@ -232,6 +232,45 @@ def optimizer_steps_per_epoch(
     return max(1, math.ceil(num_examples / effective_batch))
 
 
+def resolved_save_steps(steps_per_epoch: int) -> int:
+    raw = os.environ.get("CODELENS_CHECKPOINT_SAVE_STEPS", "").strip()
+    if raw:
+        try:
+            return max(1, int(raw))
+        except ValueError:
+            pass
+    return max(250, min(1000, steps_per_epoch))
+
+
+def latest_checkpoint_dir(checkpoints_dir: Path) -> Path | None:
+    latest_step = -1
+    latest_path = None
+    for checkpoint_dir in checkpoints_dir.glob("checkpoint-*"):
+        if not checkpoint_dir.is_dir():
+            continue
+        try:
+            step = int(checkpoint_dir.name.rsplit("-", 1)[1])
+        except (IndexError, ValueError):
+            continue
+        if step > latest_step:
+            latest_step = step
+            latest_path = checkpoint_dir
+    return latest_path
+
+
+def resolve_resume_checkpoint(checkpoints_dir: Path) -> Path | None:
+    raw = os.environ.get("CODELENS_RESUME_CHECKPOINT", "auto").strip()
+    if not raw or raw.lower() == "none":
+        return None
+    if raw.lower() == "auto":
+        return latest_checkpoint_dir(checkpoints_dir)
+
+    resume_path = Path(raw)
+    if not resume_path.exists():
+        raise SystemExit(f"Checkpoint not found: {resume_path}")
+    return resume_path
+
+
 class CachedSentenceDataCollator:
     """Tokenizer-caching collator with bucketed padding for MPS."""
 
@@ -607,8 +646,17 @@ def stage2_mnrl(student, pairs_path, pair_count, batch_size=32, epochs=5):
         grad_accum_steps,
     )
     warmup = int(steps_per_epoch * epochs * 0.1)
+    checkpoints_dir = OUTPUT_DIR / "checkpoints"
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+    save_steps = resolved_save_steps(steps_per_epoch)
+    resume_checkpoint = resolve_resume_checkpoint(checkpoints_dir)
+    print(
+        "  Checkpoint policy: "
+        f"save_steps={save_steps} "
+        f"resume_from={resume_checkpoint if resume_checkpoint else 'none'}"
+    )
     training_args = SentenceTransformerTrainingArguments(
-        output_dir=str(OUTPUT_DIR / "checkpoints"),
+        output_dir=str(checkpoints_dir),
         per_device_train_batch_size=micro_batch_size,
         per_device_eval_batch_size=micro_batch_size,
         batch_sampler=BatchSamplers.NO_DUPLICATES,
@@ -616,7 +664,9 @@ def stage2_mnrl(student, pairs_path, pair_count, batch_size=32, epochs=5):
         gradient_accumulation_steps=grad_accum_steps,
         warmup_steps=warmup,
         learning_rate=1e-5,
-        save_strategy="no",
+        save_strategy="steps",
+        save_steps=save_steps,
+        save_total_limit=2,
         dataloader_num_workers=loader_workers,
         dataloader_persistent_workers=loader_workers > 0,
         dataloader_prefetch_factor=2 if loader_workers > 0 else None,
@@ -634,7 +684,9 @@ def stage2_mnrl(student, pairs_path, pair_count, batch_size=32, epochs=5):
         loss=loss,
         data_collator=collator,
     )
-    trainer.train()
+    trainer.train(
+        resume_from_checkpoint=str(resume_checkpoint) if resume_checkpoint else None
+    )
     trainer.save_model(str(model_output))
     print(f"Stage 2 complete → {model_output}")
     return model_output

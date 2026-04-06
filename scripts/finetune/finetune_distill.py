@@ -148,6 +148,17 @@ def parse_args():
         help="Fall back to a plain DataLoader instead of NoDuplicatesDataLoader",
     )
     parser.add_argument(
+        "--save-steps",
+        type=int,
+        default=0,
+        help="Checkpoint every N optimization steps (0 = auto).",
+    )
+    parser.add_argument(
+        "--resume-from-checkpoint",
+        default="auto",
+        help="Checkpoint path, 'auto' for latest checkpoint in output/checkpoints, or 'none'.",
+    )
+    parser.add_argument(
         "--dry-run",
         action="store_true",
         help="Validate inputs and print resolved pipeline without starting training",
@@ -379,6 +390,41 @@ def optimizer_steps_per_epoch(
 ) -> int:
     effective_batch = max(1, micro_batch_size * max(1, grad_accum_steps))
     return max(1, math.ceil(num_examples / effective_batch))
+
+
+def resolved_save_steps(requested_save_steps: int, steps_per_epoch: int) -> int:
+    if requested_save_steps > 0:
+        return requested_save_steps
+    return max(250, min(1000, steps_per_epoch))
+
+
+def latest_checkpoint_dir(checkpoints_dir: Path) -> Path | None:
+    latest_step = -1
+    latest_path = None
+    for checkpoint_dir in checkpoints_dir.glob("checkpoint-*"):
+        if not checkpoint_dir.is_dir():
+            continue
+        try:
+            step = int(checkpoint_dir.name.rsplit("-", 1)[1])
+        except (IndexError, ValueError):
+            continue
+        if step > latest_step:
+            latest_step = step
+            latest_path = checkpoint_dir
+    return latest_path
+
+
+def resolve_resume_checkpoint(value: str, checkpoints_dir: Path) -> Path | None:
+    normalized = value.strip()
+    if not normalized or normalized.lower() == "none":
+        return None
+    if normalized.lower() == "auto":
+        return latest_checkpoint_dir(checkpoints_dir)
+
+    resume_path = Path(normalized)
+    if not resume_path.exists():
+        raise SystemExit(f"Checkpoint not found: {resume_path}")
+    return resume_path
 
 
 def effective_distill_batch_size(
@@ -1118,8 +1164,21 @@ def stage2_finetune(student, triplets_path, args):
             max_rows=args.max_validation_rows,
         )
 
+    checkpoints_dir = Path(args.output) / "checkpoints"
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+    save_steps = resolved_save_steps(args.save_steps, steps_per_epoch)
+    resume_checkpoint = resolve_resume_checkpoint(
+        args.resume_from_checkpoint,
+        checkpoints_dir,
+    )
+    print(
+        "  Checkpoint policy: "
+        f"save_steps={save_steps} "
+        f"resume_from={resume_checkpoint if resume_checkpoint else 'none'}"
+    )
+
     training_args = SentenceTransformerTrainingArguments(
-        output_dir=str(Path(args.output) / "checkpoints"),
+        output_dir=str(checkpoints_dir),
         per_device_train_batch_size=train_batch_size,
         per_device_eval_batch_size=train_batch_size,
         batch_sampler=batch_sampler,
@@ -1127,7 +1186,9 @@ def stage2_finetune(student, triplets_path, args):
         gradient_accumulation_steps=grad_accum_steps,
         warmup_steps=warmup,
         learning_rate=1e-5,
-        save_strategy="no",
+        save_strategy="steps",
+        save_steps=save_steps,
+        save_total_limit=2,
         eval_strategy="steps" if evaluator and args.evaluation_steps > 0 else "no",
         eval_steps=(
             args.evaluation_steps if evaluator and args.evaluation_steps > 0 else None
@@ -1150,7 +1211,9 @@ def stage2_finetune(student, triplets_path, args):
         evaluator=evaluator,
         data_collator=collator,
     )
-    trainer.train()
+    trainer.train(
+        resume_from_checkpoint=str(resume_checkpoint) if resume_checkpoint else None
+    )
     trainer.save_model(str(model_output))
     print(f"Stage 2 complete. Model saved to {model_output}")
     return model_output
@@ -1208,6 +1271,10 @@ def main():
             args._resource_profile,
             resolved_train_device,
             dry_run_train_pairs,
+        )
+        dry_run_resume_checkpoint = resolve_resume_checkpoint(
+            args.resume_from_checkpoint,
+            Path(args.output) / "checkpoints",
         )
         summary = {
             "finetune_input": args.finetune_input,
@@ -1278,6 +1345,20 @@ def main():
                     args.batch_size,
                     effective_train_micro_batch,
                 ),
+            ),
+            "checkpoint_save_steps": resolved_save_steps(
+                args.save_steps,
+                optimizer_steps_per_epoch(
+                    dry_run_train_pairs,
+                    effective_train_micro_batch,
+                    gradient_accumulation_steps(
+                        args.batch_size,
+                        effective_train_micro_batch,
+                    ),
+                ),
+            ),
+            "checkpoint_resume_from": (
+                str(dry_run_resume_checkpoint) if dry_run_resume_checkpoint else None
             ),
             "effective_distill_batch_size": effective_distill_batch_size(
                 args.distill_batch_size or args.batch_size,
