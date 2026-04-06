@@ -2985,13 +2985,20 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
         json!({"query": "ember archive delta", "max_results": 5}),
     );
     assert_eq!(search["success"], json!(true));
+    assert_eq!(
+        search["data"]["retrieval"]["semantic_query"],
+        json!("ember archive delta")
+    );
     assert!(
         search["data"]["results"]
             .as_array()
             .map(|results| {
                 results
                     .iter()
-                    .any(|result| result.get("symbol_name") == Some(&json!("ember_archive_delta")))
+                    .all(|result| result["provenance"]["source"] == json!("semantic"))
+                    && results.iter().any(|result| {
+                        result.get("symbol_name") == Some(&json!("ember_archive_delta"))
+                    })
             })
             .unwrap_or(false)
     );

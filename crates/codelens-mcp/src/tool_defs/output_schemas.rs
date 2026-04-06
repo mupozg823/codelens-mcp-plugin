@@ -92,6 +92,46 @@ pub(super) fn ranked_context_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn semantic_search_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "query": {"type": "string"},
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "symbol_name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "file_path": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "signature": {"type": "string"},
+                        "name_path": {"type": "string"},
+                        "score": {"type": "number"},
+                        "provenance": {
+                            "type": "object",
+                            "properties": {
+                                "source": {"type": "string", "enum": ["semantic"]},
+                                "retrieval_rank": {"type": "integer"}
+                            }
+                        }
+                    }
+                }
+            },
+            "count": {"type": "integer"},
+            "retrieval": {
+                "type": "object",
+                "properties": {
+                    "semantic_enabled": {"type": "boolean"},
+                    "requested_query": {"type": "string"},
+                    "semantic_query": {"type": "string"}
+                }
+            }
+        }
+    })
+}
+
 pub(super) fn references_output_schema() -> serde_json::Value {
     json!({
         "type": "object",

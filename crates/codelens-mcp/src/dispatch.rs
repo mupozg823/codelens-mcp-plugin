@@ -116,9 +116,37 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         ));
     }
 
-    let results = crate::tools::symbols::semantic_results_for_query(state, query, max_results, false);
+    let semantic_query = crate::tools::symbols::semantic_query_for_retrieval(query);
+    let results =
+        crate::tools::symbols::semantic_results_for_query(state, query, max_results, false);
+    let mut payload = json!({
+        "query": query,
+        "results": results,
+        "count": results.len(),
+        "retrieval": {
+            "semantic_enabled": true,
+            "requested_query": query,
+            "semantic_query": semantic_query,
+        }
+    });
+    if let Some(entries) = payload
+        .get_mut("results")
+        .and_then(serde_json::Value::as_array_mut)
+    {
+        for (idx, entry) in entries.iter_mut().enumerate() {
+            if let Some(map) = entry.as_object_mut() {
+                map.insert(
+                    "provenance".to_owned(),
+                    json!({
+                        "source": "semantic",
+                        "retrieval_rank": idx + 1,
+                    }),
+                );
+            }
+        }
+    }
     Ok((
-        json!({"query": query, "results": results, "count": results.len()}),
+        payload,
         tools::success_meta(crate::protocol::BackendKind::Semantic, 0.85),
     ))
 }
