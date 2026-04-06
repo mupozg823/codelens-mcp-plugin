@@ -56,9 +56,37 @@ DEFAULT_VIEW_PROFILES = (
     ("no_doc", 0.35),
     ("short", 0.15),
 )
+PRODUCT_VIEW_PROFILES = (
+    ("full", 1.0),
+    ("no_path", 0.12),
+    ("no_doc", 0.1),
+)
 MAX_MINING_TOKENS = 8
 MAX_CANDIDATES_PER_TOKEN = 256
 MIN_NEGATIVE_SHARED_TOKENS = 2
+MIN_PRODUCT_VALIDATION_ROWS = 48
+GENERIC_PRODUCT_RATIO = 4
+MIN_GENERIC_FLOOR = 24000
+PRODUCT_SOURCE_HINTS = {
+    "feedback_pairs_clean",
+    "major_langs_extra",
+    "training_pairs_rust_codelens",
+    "training_pairs_rgfamily",
+}
+PRODUCT_FILE_HINTS = (
+    "crates/codelens-core/",
+    "crates/codelens-mcp/",
+    "benchmarks/harness/",
+    "scripts/finetune/",
+    "utils/",
+    "bridge/",
+)
+QUERY_TYPE_PRIORITY = {
+    "natural_language": 0,
+    "short_phrase": 1,
+    "mixed_natural_language": 2,
+    "identifier": 3,
+}
 NOISE_TOKENS = {
     "function",
     "class",
@@ -261,8 +289,17 @@ def is_quality_query(query: str) -> bool:
             "fixme:",
             "deprecated",
             "@override",
+            "request syntax with placeholder values",
         )
     ):
+        return False
+    if re.search(r"^//\s*set[a-z0-9_]+\s+sets\s+the\s+.+field'?s value\.?$", low):
+        return False
+    if re.search(r"^//\s*get[a-z0-9_]+\s+returns\s+the\s+.+field'?s value\.?$", low):
+        return False
+    if low.startswith("returns the value associated to the passed property"):
+        return False
+    if low.count("@param") >= 4 and ("custom_headers" in low or "request syntax" in low):
         return False
     if q.startswith(("def ", "func ", "fn ", "function ")):
         return False
@@ -427,6 +464,23 @@ def build_pair(
     }
 
 
+def is_product_pair(pair: dict) -> bool:
+    source = (pair.get("source") or "").lower()
+    if source in PRODUCT_SOURCE_HINTS or "codelens" in source:
+        return True
+
+    parsed = parse_runtime_positive(pair["positive"]) or {}
+    file_path = (parsed.get("file") or "").strip()
+    if any(file_path.startswith(prefix) for prefix in PRODUCT_FILE_HINTS):
+        return True
+
+    return (
+        pair.get("language") in {"rust", "typescript"}
+        and pair.get("has_real_path", False)
+        and pair.get("query_type") != "identifier"
+    )
+
+
 def load_codesearchnet_pairs(path: Path, max_per_lang: int) -> list[dict]:
     if not path.exists():
         return []
@@ -582,6 +636,68 @@ def split_pairs(
     return train, validation
 
 
+def annotate_product_focus(rows: list[dict]) -> list[dict]:
+    annotated = []
+    for row in rows:
+        updated = dict(row)
+        updated["product_focus"] = is_product_pair(updated)
+        annotated.append(updated)
+    return annotated
+
+
+def sample_balanced_generic_pairs(
+    rows: list[dict], target_count: int, seed: int
+) -> list[dict]:
+    if len(rows) <= target_count:
+        return sorted(rows, key=lambda item: item["id"])
+
+    buckets: dict[str, list[dict]] = defaultdict(list)
+    for row in rows:
+        buckets[row["language"]].append(row)
+
+    for language, bucket in buckets.items():
+        bucket.sort(
+            key=lambda item: (
+                QUERY_TYPE_PRIORITY.get(item["query_type"], 99),
+                deterministic_float(seed, f"{language}:{item['id']}"),
+            )
+        )
+
+    selections: list[dict] = []
+    languages = sorted(buckets.keys())
+    while len(selections) < target_count:
+        made_progress = False
+        for language in languages:
+            bucket = buckets[language]
+            if not bucket:
+                continue
+            selections.append(bucket.pop(0))
+            made_progress = True
+            if len(selections) >= target_count:
+                break
+        if not made_progress:
+            break
+
+    return sorted(selections, key=lambda item: item["id"])
+
+
+def rebalance_train_base_pairs(train_pairs: list[dict], seed: int) -> list[dict]:
+    annotated = annotate_product_focus(train_pairs)
+    product_pairs = [row for row in annotated if row["product_focus"]]
+    generic_pairs = [row for row in annotated if not row["product_focus"]]
+    if not product_pairs:
+        return annotated
+
+    generic_target = min(
+        len(generic_pairs),
+        max(MIN_GENERIC_FLOOR, len(product_pairs) * GENERIC_PRODUCT_RATIO),
+    )
+    generic_selected = sample_balanced_generic_pairs(generic_pairs, generic_target, seed)
+    rebalanced = product_pairs + generic_selected
+    rebalanced.sort(key=lambda item: item["id"])
+    return rebalanced
+
+
 def expand_train_views(train_pairs: list[dict], seed: int) -> list[dict]:
     expanded = []
     for pair in train_pairs:
@@ -591,7 +707,10 @@ def expand_train_views(train_pairs: list[dict], seed: int) -> list[dict]:
             continue
 
         seen_positive = set()
-        for view_name, probability in DEFAULT_VIEW_PROFILES:
+        view_profiles = (
+            PRODUCT_VIEW_PROFILES if pair.get("product_focus") else DEFAULT_VIEW_PROFILES
+        )
+        for view_name, probability in view_profiles:
             if view_name != "full":
                 key = f"{pair['base_id']}:{view_name}"
                 if deterministic_float(seed, key) >= probability:
@@ -615,6 +734,43 @@ def expand_train_views(train_pairs: list[dict], seed: int) -> list[dict]:
 
     expanded.sort(key=lambda item: item["id"])
     return expanded
+
+
+def build_product_polish_rows(
+    train_base_pairs: list[dict],
+    validation_pairs: list[dict],
+    negatives_per_query: int,
+    seed: int,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    product_train = []
+    for pair in train_base_pairs:
+        if not pair.get("product_focus"):
+            continue
+        if pair["query_type"] == "identifier":
+            continue
+        metadata = parse_runtime_positive(pair["positive"])
+        variant = dict(pair)
+        if metadata:
+            variant["positive"] = render_positive_view(metadata, "full")
+        variant["view"] = "full"
+        variant["id"] = fingerprint(f"{pair['base_id']}\nproduct-polish")
+        product_train.append(variant)
+
+    product_train = dedupe_pairs(product_train)
+    product_train.sort(key=lambda item: item["id"])
+    product_train, product_negative_rows = attach_hard_negatives(
+        product_train,
+        negatives_per_query,
+        seed + 101,
+    )
+
+    product_validation = [
+        dict(pair)
+        for pair in validation_pairs
+        if pair.get("product_focus") and pair["query_type"] != "identifier"
+    ]
+    product_validation.sort(key=lambda item: item["id"])
+    return product_train, product_validation, product_negative_rows
 
 
 def mining_tokens_for_pair(pair: dict) -> list[str]:
@@ -817,6 +973,7 @@ def summarize_pairs(rows: list[dict]) -> dict:
         "sources": Counter(row["source"] for row in rows),
         "query_types": Counter(row["query_type"] for row in rows),
         "views": Counter(row.get("view", "full") for row in rows),
+        "product_focus": sum(1 for row in rows if row.get("product_focus")),
         "with_real_path": sum(1 for row in rows if row["has_real_path"]),
         "with_doc_hint": sum(1 for row in rows if row["has_doc_hint"]),
         "with_hard_negative": sum(1 for row in rows if row.get("negative")),
@@ -858,6 +1015,18 @@ def build_coverage_warnings(stats: dict) -> list[str]:
             f"low hard-negative coverage: {hard_negative_ratio:.1%} of train rows received mined negatives"
         )
 
+    product_ratio = train["product_focus"] / train_count
+    if product_ratio < 0.12:
+        warnings.append(
+            f"low product-focus ratio: {product_ratio:.1%} of train rows are product-aligned"
+        )
+
+    product_validation_count = stats.get("product_validation", {}).get("count", 0)
+    if product_validation_count < MIN_PRODUCT_VALIDATION_ROWS:
+        warnings.append(
+            f"low product validation coverage: {product_validation_count} rows (< {MIN_PRODUCT_VALIDATION_ROWS})"
+        )
+
     return warnings
 
 
@@ -895,6 +1064,8 @@ def main():
     train_base_pairs, validation_pairs = split_pairs(
         all_pairs, args.validation_ratio, args.seed
     )
+    train_base_pairs = rebalance_train_base_pairs(train_base_pairs, args.seed)
+    validation_pairs = annotate_product_focus(validation_pairs)
     if args.no_multi_view:
         train_pairs = list(train_base_pairs)
     else:
@@ -907,11 +1078,22 @@ def main():
     distill_texts = build_distill_texts(
         train_pairs, args.distill_query_ratio, args.distill_max_texts
     )
+    product_polish_pairs, product_validation_pairs, product_negative_rows = (
+        build_product_polish_rows(
+            train_base_pairs,
+            validation_pairs,
+            args.hard_negatives_per_query,
+            args.seed,
+        )
+    )
 
     train_path = output_dir / "train.jsonl"
     validation_path = output_dir / "validation.jsonl"
     distill_path = output_dir / "distill_texts.jsonl"
     hard_negatives_path = output_dir / "hard_negatives.jsonl"
+    product_polish_path = output_dir / "product_polish.jsonl"
+    product_validation_path = output_dir / "product_validation.jsonl"
+    product_negatives_path = output_dir / "product_polish_hard_negatives.jsonl"
     stats_path = output_dir / "stats.json"
     manifest_path = output_dir / "manifest.json"
 
@@ -919,6 +1101,9 @@ def main():
     write_jsonl(validation_path, validation_pairs)
     write_jsonl(distill_path, distill_texts)
     write_jsonl(hard_negatives_path, hard_negative_rows)
+    write_jsonl(product_polish_path, product_polish_pairs)
+    write_jsonl(product_validation_path, product_validation_pairs)
+    write_jsonl(product_negatives_path, product_negative_rows)
 
     stats = {
         "total_pairs": len(all_pairs),
@@ -927,8 +1112,14 @@ def main():
         "train_base": summarize_pairs(train_base_pairs),
         "train": summarize_pairs(train_pairs),
         "validation": summarize_pairs(validation_pairs),
+        "product_polish": summarize_pairs(product_polish_pairs),
+        "product_validation": summarize_pairs(product_validation_pairs),
         "hard_negatives": {
             "rows": len(hard_negative_rows),
+            "per_query": args.hard_negatives_per_query,
+        },
+        "product_hard_negatives": {
+            "rows": len(product_negative_rows),
             "per_query": args.hard_negatives_per_query,
         },
         "distill_texts": {
@@ -948,6 +1139,9 @@ def main():
         "validation_path": str(validation_path),
         "distill_texts_path": str(distill_path),
         "hard_negatives_path": str(hard_negatives_path),
+        "product_polish_path": str(product_polish_path),
+        "product_validation_path": str(product_validation_path),
+        "product_hard_negatives_path": str(product_negatives_path),
         "holdout_benchmark_paths": [str(path) for path in holdout_benchmarks],
         "stats_path": str(stats_path),
         "stats": {
@@ -955,8 +1149,11 @@ def main():
             "train_base_count": stats["train_base"]["count"],
             "train_count": stats["train"]["count"],
             "validation_count": stats["validation"]["count"],
+            "product_polish_count": stats["product_polish"]["count"],
+            "product_validation_count": stats["product_validation"]["count"],
             "distill_count": stats["distill_texts"]["count"],
             "hard_negative_rows": stats["hard_negatives"]["rows"],
+            "product_hard_negative_rows": stats["product_hard_negatives"]["rows"],
             "holdout_overlap_excluded": overlap_excluded,
             "holdout_query_count": len(holdout_queries),
             "train_languages": counter_to_json(stats["train"]["languages"]),

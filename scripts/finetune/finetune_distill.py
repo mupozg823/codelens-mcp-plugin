@@ -75,11 +75,27 @@ def parse_args():
         help="Optional held-out retrieval pairs for evaluator",
     )
     parser.add_argument(
+        "--product-polish-input",
+        default="",
+        help="Optional product-aligned retrieval rows for a final polish stage.",
+    )
+    parser.add_argument(
+        "--product-validation-input",
+        default="",
+        help="Optional product-aligned validation pairs for the final polish stage.",
+    )
+    parser.add_argument(
         "--distill-input",
         default="",
         help="Optional JSONL file with {'text': ...} rows for Stage 1 distillation",
     )
     parser.add_argument("--finetune-epochs", type=int, default=5)
+    parser.add_argument(
+        "--polish-epochs",
+        type=float,
+        default=1.0,
+        help="Final product-polish epochs after generic Stage 2.",
+    )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument(
         "--eval-batch-size",
@@ -180,6 +196,11 @@ def parse_args():
         action="store_true",
         help="Validate inputs and print resolved pipeline without starting training",
     )
+    parser.add_argument(
+        "--skip-product-polish",
+        action="store_true",
+        help="Skip the final product-polish stage even if inputs are available.",
+    )
     parser.add_argument("--skip-onnx", action="store_true")
     return parser.parse_args()
 
@@ -228,6 +249,10 @@ def resolve_pipeline_inputs(args):
         args.finetune_input = manifest["train_path"]
         if not args.validation_input:
             args.validation_input = manifest.get("validation_path", "")
+        if not args.product_polish_input:
+            args.product_polish_input = manifest.get("product_polish_path", "")
+        if not args.product_validation_input:
+            args.product_validation_input = manifest.get("product_validation_path", "")
         if not args.distill_input:
             args.distill_input = manifest.get("distill_texts_path", "")
     return manifest
@@ -1130,16 +1155,20 @@ def build_validation_evaluator(
     )
 
 
-def stage2_finetune(student, triplets_path, args):
-    """Fine-tune with MultipleNegativesRankingLoss (MNRL).
-
-    SPENCER correction: The paper's "no contrastive in distillation" refers to the
-    teacher→student alignment stage (Stage 1 MSE), NOT the fine-tuning stage.
-    Stage 2 fine-tuning NEEDS contrastive loss (MNRL) for discriminative power.
-
-    Verified: CosineSimilarityLoss alone → loss 0.0, MRR 0.094 (model loses all
-    discriminative ability). MNRL → loss 0.057, MRR 0.620 (correct).
-    """
+def run_mnrl_phase(
+    student,
+    triplets_path: str,
+    args,
+    *,
+    phase_name: str,
+    epochs: float,
+    learning_rate: float,
+    validation_input: str = "",
+    max_train_rows: int = 0,
+    max_validation_rows: int = 0,
+    checkpoint_subdir: str = "checkpoints",
+    save_total_limit: int = 2,
+):
     from sentence_transformers import losses
     from sentence_transformers.trainer import SentenceTransformerTrainer
     from sentence_transformers.training_args import (
@@ -1147,13 +1176,13 @@ def stage2_finetune(student, triplets_path, args):
         SentenceTransformerTrainingArguments,
     )
 
-    print(f"\n=== Stage 2: MNRL Fine-tuning ({args.finetune_epochs} epochs) ===")
+    print(f"\n=== {phase_name}: MNRL Fine-tuning ({epochs} epochs) ===")
 
     train_dataset = load_retrieval_dataset(
         triplets_path,
-        max_rows=args.max_train_rows,
+        max_rows=max_train_rows,
         output_dir=args.output,
-        tag="train",
+        tag=checkpoint_subdir.replace("/", "-"),
     )
     pair_count = len(train_dataset)
 
@@ -1233,21 +1262,24 @@ def stage2_finetune(student, triplets_path, args):
         train_batch_size,
         grad_accum_steps,
     )
-    warmup = int(steps_per_epoch * args.finetune_epochs * 0.1)
+    warmup = int(steps_per_epoch * epochs * 0.1)
     evaluator = None
-    if args.validation_input and args.evaluation_steps > 0:
+    effective_eval_steps = None
+    if validation_input and args.evaluation_steps > 0:
         evaluator = build_validation_evaluator(
-            args.validation_input,
+            validation_input,
             eval_batch_size,
-            max_rows=args.max_validation_rows,
+            max_rows=max_validation_rows,
         )
+        effective_eval_steps = max(1, min(args.evaluation_steps, steps_per_epoch))
 
-    checkpoints_dir = Path(args.output) / "checkpoints"
+    checkpoints_dir = Path(args.output) / checkpoint_subdir
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
     save_steps = resolved_save_steps(args.save_steps, steps_per_epoch)
-    resume_checkpoint = resolve_resume_checkpoint(
-        args.resume_from_checkpoint,
-        checkpoints_dir,
+    resume_checkpoint = (
+        resolve_resume_checkpoint(args.resume_from_checkpoint, checkpoints_dir)
+        if checkpoint_subdir == "checkpoints"
+        else None
     )
     print(
         "  Checkpoint policy: "
@@ -1260,17 +1292,15 @@ def stage2_finetune(student, triplets_path, args):
         per_device_train_batch_size=train_batch_size,
         per_device_eval_batch_size=eval_batch_size,
         batch_sampler=batch_sampler,
-        num_train_epochs=args.finetune_epochs,
+        num_train_epochs=epochs,
         gradient_accumulation_steps=grad_accum_steps,
         warmup_steps=warmup,
-        learning_rate=1e-5,
+        learning_rate=learning_rate,
         save_strategy="steps",
         save_steps=save_steps,
-        save_total_limit=2,
+        save_total_limit=save_total_limit,
         eval_strategy="steps" if evaluator and args.evaluation_steps > 0 else "no",
-        eval_steps=(
-            args.evaluation_steps if evaluator and args.evaluation_steps > 0 else None
-        ),
+        eval_steps=effective_eval_steps,
         dataloader_num_workers=loader_workers,
         dataloader_persistent_workers=loader_workers > 0,
         dataloader_prefetch_factor=2 if loader_workers > 0 else None,
@@ -1295,8 +1325,42 @@ def stage2_finetune(student, triplets_path, args):
         resume_from_checkpoint=str(resume_checkpoint) if resume_checkpoint else None
     )
     trainer.save_model(str(model_output))
-    print(f"Stage 2 complete. Model saved to {model_output}")
+    print(f"{phase_name} complete. Model saved to {model_output}")
     return model_output
+
+
+def stage2_finetune(student, triplets_path, args):
+    """Stage 2 generic retrieval fine-tuning with MNRL."""
+    return run_mnrl_phase(
+        student,
+        triplets_path,
+        args,
+        phase_name="Stage 2",
+        epochs=args.finetune_epochs,
+        learning_rate=1e-5,
+        validation_input=args.validation_input,
+        max_train_rows=args.max_train_rows,
+        max_validation_rows=args.max_validation_rows,
+        checkpoint_subdir="checkpoints",
+        save_total_limit=2,
+    )
+
+
+def stage3_product_polish(student, triplets_path: str, args):
+    """Final short product-aligned polish stage for agent-facing retrieval."""
+    return run_mnrl_phase(
+        student,
+        triplets_path,
+        args,
+        phase_name="Stage 3 product polish",
+        epochs=args.polish_epochs,
+        learning_rate=3e-6,
+        validation_input=args.product_validation_input or args.validation_input,
+        max_train_rows=0,
+        max_validation_rows=args.max_validation_rows,
+        checkpoint_subdir="product-polish-checkpoints",
+        save_total_limit=1,
+    )
 
 
 def export_onnx(model_path, output_dir):
@@ -1343,6 +1407,10 @@ def main():
 
     if args.validation_input:
         args.validation_input = str(Path(args.validation_input))
+    if args.product_validation_input:
+        args.product_validation_input = str(Path(args.product_validation_input))
+    if args.product_polish_input:
+        args.product_polish_input = str(Path(args.product_polish_input))
     if args.distill_input:
         args.distill_input = str(Path(args.distill_input))
 
@@ -1365,11 +1433,15 @@ def main():
         summary = {
             "finetune_input": args.finetune_input,
             "validation_input": args.validation_input,
+            "product_validation_input": args.product_validation_input,
+            "product_polish_input": args.product_polish_input,
             "distill_input": args.distill_input,
             "output": args.output,
             "stage": args.stage,
             "max_train_rows": args.max_train_rows,
             "max_validation_rows": args.max_validation_rows,
+            "polish_epochs": args.polish_epochs,
+            "skip_product_polish": args.skip_product_polish,
             "pipeline_manifest": manifest.get("_manifest_path") if manifest else None,
             "allow_legacy_default_inputs": args.allow_legacy_default_inputs,
             "legacy_default_input_used": (
@@ -1475,6 +1547,19 @@ def main():
                 if args.validation_input
                 else 0
             ),
+            "product_validation_pairs": (
+                count_retrieval_pairs(
+                    args.product_validation_input,
+                    max_rows=args.max_validation_rows,
+                )
+                if args.product_validation_input
+                else 0
+            ),
+            "product_polish_pairs": (
+                count_retrieval_pairs(args.product_polish_input)
+                if args.product_polish_input
+                else 0
+            ),
         }
         print(json.dumps(summary, indent=2, ensure_ascii=False))
         return
@@ -1524,6 +1609,13 @@ def main():
         if args.stage == "finetune":
             print("Skipping Stage 1 distillation (--stage finetune)")
         model_path = stage2_finetune(student, args.finetune_input, args)
+        if (
+            args.stage == "all"
+            and not args.skip_product_polish
+            and args.product_polish_input
+            and Path(args.product_polish_input).exists()
+        ):
+            model_path = stage3_product_polish(student, args.product_polish_input, args)
 
     # Export ONNX
     if model_path is not None and not args.skip_onnx:
