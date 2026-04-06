@@ -5,10 +5,7 @@ use crate::db::IndexDb;
 use crate::embedding_store::{EmbeddingChunk, EmbeddingStore, ScoredChunk};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
-use fastembed::{
-    InitOptionsUserDefined, RerankInitOptions, RerankerModel, TextEmbedding, TextRerank,
-    TokenizerFiles, UserDefinedEmbeddingModel,
-};
+use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
 use rusqlite::Connection;
 use serde::Serialize;
 use std::sync::{Mutex, Once};
@@ -293,7 +290,7 @@ impl EmbeddingStore for SqliteVecStore {
 // ── EmbeddingEngine (facade) ──────────────────────────────────────────
 
 const DEFAULT_EMBED_BATCH_SIZE: usize = 128;
-const DEFAULT_MACOS_EMBED_BATCH_SIZE: usize = 64;
+const DEFAULT_MACOS_EMBED_BATCH_SIZE: usize = 128;
 const CODESEARCH_DIMENSION: usize = 384;
 const DEFAULT_MAX_EMBED_SYMBOLS: usize = 50_000;
 const CHANGED_FILE_QUERY_CHUNK: usize = 128;
@@ -307,7 +304,6 @@ pub struct EmbeddingEngine {
     model: Mutex<TextEmbedding>,
     store: Box<dyn EmbeddingStore>,
     model_name: String,
-    reranker: Option<Mutex<TextRerank>>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -492,17 +488,6 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
     ))
 }
 
-/// Load the cross-encoder reranker model (JINA Reranker V1 Turbo, ~33M params).
-/// Returns None if download/init fails — the system degrades gracefully to bi-encoder only.
-fn load_reranker() -> Result<Mutex<TextRerank>> {
-    configure_embedding_runtime();
-    let reranker =
-        TextRerank::try_new(RerankInitOptions::new(RerankerModel::JINARerankerV1TurboEn))
-            .context("failed to load reranker model")?;
-    tracing::info!("cross-encoder reranker loaded (JINA-Reranker-V1-Turbo-En)");
-    Ok(Mutex::new(reranker))
-}
-
 pub fn configured_embedding_model_name() -> String {
     std::env::var("CODELENS_EMBED_MODEL").unwrap_or_else(|_| CODESEARCH_MODEL_NAME.to_string())
 }
@@ -517,23 +502,10 @@ impl EmbeddingEngine {
 
         let store = SqliteVecStore::new(&db_path, dimension, &model_name)?;
 
-        // Cross-encoder reranker: opt-in via CODELENS_RERANK=1.
-        // Tested: JINA-Reranker-V1-Turbo hurts code search (ranked_context -0.231, latency 5x).
-        // Keep disabled until a code-specific reranker is available.
-        let reranker = if std::env::var("CODELENS_RERANK")
-            .map(|v| v == "1" || v == "true")
-            .unwrap_or(false)
-        {
-            load_reranker().ok()
-        } else {
-            None
-        };
-
         Ok(Self {
             model: Mutex::new(model),
             store: Box::new(store),
             model_name,
-            reranker,
         })
     }
 
@@ -660,50 +632,7 @@ impl EmbeddingEngine {
             return Ok(Vec::new());
         }
 
-        // Fetch more candidates when reranker is available
-        let fetch_k = if self.reranker.is_some() {
-            max_results * 3
-        } else {
-            max_results
-        };
-        let mut candidates = self.store.search(&query_embedding[0], fetch_k)?;
-
-        // Cross-encoder reranking: score each (query, document) pair
-        if let Some(ref reranker_mutex) = self.reranker {
-            if candidates.len() > max_results {
-                if let Ok(ref mut reranker) = reranker_mutex.lock() {
-                    let documents: Vec<String> = candidates
-                        .iter()
-                        .map(|c| {
-                            format!(
-                                "{} {} in {}: {}",
-                                c.kind, c.symbol_name, c.file_path, c.signature
-                            )
-                        })
-                        .collect();
-                    let doc_refs: Vec<&str> = documents.iter().map(|s| s.as_str()).collect();
-                    match reranker.rerank(query, &doc_refs, false, None) {
-                        Ok(reranked) => {
-                            let mut reordered = Vec::with_capacity(max_results);
-                            for result in reranked.into_iter().take(max_results) {
-                                if let Some(chunk) = candidates.get(result.index) {
-                                    let mut reordered_chunk = chunk.clone();
-                                    reordered_chunk.score = result.score as f64;
-                                    reordered.push(reordered_chunk);
-                                }
-                            }
-                            return Ok(reordered);
-                        }
-                        Err(e) => {
-                            tracing::warn!("reranker failed, falling back to bi-encoder: {e}");
-                        }
-                    }
-                }
-            }
-        }
-
-        candidates.truncate(max_results);
-        Ok(candidates)
+        self.store.search(&query_embedding[0], max_results)
     }
 
     /// Incrementally re-index only the given files.
