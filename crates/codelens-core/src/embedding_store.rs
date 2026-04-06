@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use serde::Serialize;
+use std::collections::BTreeMap;
 
 /// A single embedding chunk ready for storage.
 #[derive(Debug, Clone)]
@@ -66,8 +67,47 @@ pub trait EmbeddingStore: Send + Sync {
     /// Number of stored chunks.
     fn count(&self) -> Result<usize>;
 
+    /// Retrieve a single stored chunk and embedding by symbol identity.
+    fn get_embedding(&self, _file_path: &str, _symbol_name: &str) -> Result<Option<EmbeddingChunk>> {
+        Ok(None)
+    }
+
     /// Retrieve all stored chunks with their embeddings for batch analysis.
     fn all_with_embeddings(&self) -> Result<Vec<EmbeddingChunk>> {
         Ok(Vec::new()) // Default: not supported
+    }
+
+    /// Stream stored chunks in bounded batches so callers can avoid loading the
+    /// entire embedding index into memory.
+    fn for_each_embedding_batch(
+        &self,
+        batch_size: usize,
+        visitor: &mut dyn FnMut(Vec<EmbeddingChunk>) -> Result<()>,
+    ) -> Result<()> {
+        if batch_size == 0 {
+            return Ok(());
+        }
+
+        let all = self.all_with_embeddings()?;
+        for chunk_batch in all.chunks(batch_size) {
+            visitor(chunk_batch.to_vec())?;
+        }
+        Ok(())
+    }
+
+    /// Stream stored chunks grouped by file path for per-file analysis without
+    /// requiring callers to materialize the entire index first.
+    fn for_each_file_embeddings(
+        &self,
+        visitor: &mut dyn FnMut(String, Vec<EmbeddingChunk>) -> Result<()>,
+    ) -> Result<()> {
+        let mut by_file: BTreeMap<String, Vec<EmbeddingChunk>> = BTreeMap::new();
+        for chunk in self.all_with_embeddings()? {
+            by_file.entry(chunk.file_path.clone()).or_default().push(chunk);
+        }
+        for (file_path, chunks) in by_file {
+            visitor(file_path, chunks)?;
+        }
+        Ok(())
     }
 }

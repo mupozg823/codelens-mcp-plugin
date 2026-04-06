@@ -5,9 +5,13 @@ use crate::db::IndexDb;
 use crate::embedding_store::{EmbeddingChunk, EmbeddingStore, ScoredChunk};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
-use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
+use fastembed::{
+    ExecutionProviderDispatch, InitOptionsUserDefined, TextEmbedding, TokenizerFiles,
+    UserDefinedEmbeddingModel,
+};
 use rusqlite::Connection;
 use serde::Serialize;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Mutex, Once};
 use std::thread::available_parallelism;
 use tracing::debug;
@@ -145,11 +149,16 @@ impl SqliteVecStore {
     }
 
     fn insert_batch(db: &Connection, chunks: &[EmbeddingChunk], start_id: i64) -> Result<usize> {
+        let mut symbol_stmt = db.prepare(
+            "INSERT OR REPLACE INTO symbols (id, file_path, symbol_name, kind, line, signature, name_path, text)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        )?;
+        let mut vec_stmt =
+            db.prepare("INSERT OR REPLACE INTO vec_symbols (rowid, embedding) VALUES (?1, ?2)")?;
+
         for (i, chunk) in chunks.iter().enumerate() {
             let id = start_id + i as i64;
-            db.execute(
-                "INSERT OR REPLACE INTO symbols (id, file_path, symbol_name, kind, line, signature, name_path, text)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            symbol_stmt.execute(
                 rusqlite::params![
                     id,
                     chunk.file_path,
@@ -162,23 +171,29 @@ impl SqliteVecStore {
                 ],
             )?;
             let emb_bytes = embedding_to_bytes(&chunk.embedding);
-            db.execute(
-                "INSERT OR REPLACE INTO vec_symbols (rowid, embedding) VALUES (?1, ?2)",
-                rusqlite::params![id, emb_bytes],
-            )?;
+            vec_stmt.execute(rusqlite::params![id, emb_bytes])?;
         }
         Ok(chunks.len())
+    }
+
+    fn decode_embedding_bytes(bytes: &[u8]) -> Vec<f32> {
+        bytes.chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect()
     }
 }
 
 impl EmbeddingStore for SqliteVecStore {
     fn upsert(&self, chunks: &[EmbeddingChunk]) -> Result<usize> {
-        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let mut db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let tx = db.transaction()?;
         let start_id: i64 =
-            db.query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM symbols", [], |row| {
+            tx.query_row("SELECT COALESCE(MAX(id), 0) + 1 FROM symbols", [], |row| {
                 row.get(0)
             })?;
-        Self::insert_batch(&db, chunks, start_id)
+        let inserted = Self::insert_batch(&tx, chunks, start_id)?;
+        tx.commit()?;
+        Ok(inserted)
     }
 
     fn insert(&self, chunks: &[EmbeddingChunk]) -> Result<usize> {
@@ -215,27 +230,35 @@ impl EmbeddingStore for SqliteVecStore {
     }
 
     fn delete_by_file(&self, file_paths: &[&str]) -> Result<usize> {
-        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
-        let mut total = 0usize;
-        for path in file_paths {
-            let mut stmt = db.prepare("SELECT id FROM symbols WHERE file_path = ?1")?;
-            let ids: Vec<i64> = stmt
-                .query_map(rusqlite::params![path], |row| row.get(0))?
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(|e| anyhow::anyhow!("delete_by_file query: {e}"))?;
-            for id in &ids {
-                db.execute(
-                    "DELETE FROM vec_symbols WHERE rowid = ?1",
-                    rusqlite::params![id],
-                )?;
-            }
-            let deleted = db.execute(
-                "DELETE FROM symbols WHERE file_path = ?1",
-                rusqlite::params![path],
-            )?;
-            total += deleted;
+        if file_paths.is_empty() {
+            return Ok(0);
         }
-        Ok(total)
+
+        let mut db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let placeholders = vec!["?"; file_paths.len()].join(", ");
+        let count_sql = format!("SELECT COUNT(*) FROM symbols WHERE file_path IN ({placeholders})");
+        let delete_vec_sql = format!(
+            "DELETE FROM vec_symbols WHERE rowid IN (SELECT id FROM symbols WHERE file_path IN ({placeholders}))"
+        );
+        let delete_symbols_sql =
+            format!("DELETE FROM symbols WHERE file_path IN ({placeholders})");
+
+        let tx = db.transaction()?;
+        let total: i64 = tx.query_row(
+            &count_sql,
+            rusqlite::params_from_iter(file_paths.iter().copied()),
+            |row| row.get(0),
+        )?;
+        tx.execute(
+            &delete_vec_sql,
+            rusqlite::params_from_iter(file_paths.iter().copied()),
+        )?;
+        tx.execute(
+            &delete_symbols_sql,
+            rusqlite::params_from_iter(file_paths.iter().copied()),
+        )?;
+        tx.commit()?;
+        Ok(total.max(0) as usize)
     }
 
     fn clear(&self) -> Result<()> {
@@ -251,13 +274,58 @@ impl EmbeddingStore for SqliteVecStore {
         Ok(count as usize)
     }
 
+    fn get_embedding(&self, file_path: &str, symbol_name: &str) -> Result<Option<EmbeddingChunk>> {
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let row = db.query_row(
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
+             FROM symbols s
+             JOIN vec_symbols v ON s.id = v.rowid
+             WHERE s.file_path = ?1 AND s.symbol_name = ?2
+             LIMIT 1",
+            rusqlite::params![file_path, symbol_name],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, Vec<u8>>(7)?,
+                ))
+            },
+        );
+
+        match row {
+            Ok((file_path, symbol_name, kind, line, signature, name_path, text, emb_bytes)) => {
+                let embedding = Self::decode_embedding_bytes(&emb_bytes);
+                Ok(Some(EmbeddingChunk {
+                    file_path,
+                    symbol_name,
+                    kind,
+                    line: line as usize,
+                    signature,
+                    name_path,
+                    text,
+                    embedding,
+                    doc_embedding: None,
+                }))
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(err) => Err(anyhow::anyhow!("get_embedding query: {err}")),
+        }
+    }
+
     fn all_with_embeddings(&self) -> Result<Vec<EmbeddingChunk>> {
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
         let mut stmt = db.prepare(
-            "SELECT s.id, s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text
-             FROM symbols s ORDER BY s.id",
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
+             FROM symbols s
+             JOIN vec_symbols v ON s.id = v.rowid
+             ORDER BY s.id",
         )?;
-        let rows: Vec<(i64, String, String, String, i64, String, String, String)> = stmt
+        let rows: Vec<(String, String, String, i64, String, String, String, Vec<u8>)> = stmt
             .query_map([], |row| {
                 Ok((
                     row.get(0)?,
@@ -273,21 +341,7 @@ impl EmbeddingStore for SqliteVecStore {
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
         let mut chunks = Vec::with_capacity(rows.len());
-        for (id, file_path, symbol_name, kind, line, signature, name_path, text) in rows {
-            // Read embedding vector from vec_symbols
-            let emb_bytes: Vec<u8> = match db.query_row(
-                "SELECT embedding FROM vec_symbols WHERE rowid = ?1",
-                rusqlite::params![id],
-                |row| row.get(0),
-            ) {
-                Ok(b) => b,
-                Err(_) => continue,
-            };
-            let embedding: Vec<f32> = emb_bytes
-                .chunks_exact(4)
-                .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
-                .collect();
-
+        for (file_path, symbol_name, kind, line, signature, name_path, text, emb_bytes) in rows {
             chunks.push(EmbeddingChunk {
                 file_path,
                 symbol_name,
@@ -296,11 +350,125 @@ impl EmbeddingStore for SqliteVecStore {
                 signature,
                 name_path,
                 text,
-                embedding,
+                embedding: Self::decode_embedding_bytes(&emb_bytes),
                 doc_embedding: None,
             });
         }
         Ok(chunks)
+    }
+
+    fn for_each_file_embeddings(
+        &self,
+        visitor: &mut dyn FnMut(String, Vec<EmbeddingChunk>) -> Result<()>,
+    ) -> Result<()> {
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let mut stmt = db.prepare(
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
+             FROM symbols s
+             JOIN vec_symbols v ON s.id = v.rowid
+             ORDER BY s.file_path, s.id",
+        )?;
+        let mut rows = stmt.query([])?;
+
+        let mut current_file: Option<String> = None;
+        let mut current_chunks: Vec<EmbeddingChunk> = Vec::new();
+
+        while let Some(row) = rows.next()? {
+            let file_path: String = row.get(0)?;
+            if current_file.as_deref() != Some(file_path.as_str()) {
+                if let Some(previous_file) = current_file.replace(file_path.clone()) {
+                    visitor(previous_file, std::mem::take(&mut current_chunks))?;
+                }
+            }
+
+            let symbol_name: String = row.get(1)?;
+            let kind: String = row.get(2)?;
+            let line: i64 = row.get(3)?;
+            let signature: String = row.get(4)?;
+            let name_path: String = row.get(5)?;
+            let text: String = row.get(6)?;
+            let embedding: Vec<u8> = row.get(7)?;
+
+            current_chunks.push(EmbeddingChunk {
+                file_path,
+                symbol_name,
+                kind,
+                line: line as usize,
+                signature,
+                name_path,
+                text,
+                embedding: Self::decode_embedding_bytes(&embedding),
+                doc_embedding: None,
+            });
+        }
+
+        if let Some(file_path) = current_file {
+            visitor(file_path, current_chunks)?;
+        }
+        Ok(())
+    }
+
+    fn for_each_embedding_batch(
+        &self,
+        batch_size: usize,
+        visitor: &mut dyn FnMut(Vec<EmbeddingChunk>) -> Result<()>,
+    ) -> Result<()> {
+        if batch_size == 0 {
+            return Ok(());
+        }
+
+        let mut offset = 0usize;
+        loop {
+            let batch = {
+                let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+                let mut stmt = db.prepare(
+                    "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
+                     FROM symbols s
+                     JOIN vec_symbols v ON s.id = v.rowid
+                     ORDER BY s.id
+                     LIMIT ?1 OFFSET ?2",
+                )?;
+                let rows: Vec<(String, String, String, i64, String, String, String, Vec<u8>)> =
+                    stmt.query_map(rusqlite::params![batch_size as i64, offset as i64], |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                        ))
+                    })?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+
+                rows.into_iter()
+                    .map(
+                        |(file_path, symbol_name, kind, line, signature, name_path, text, emb)| {
+                            EmbeddingChunk {
+                                file_path,
+                                symbol_name,
+                                kind,
+                                line: line as usize,
+                                signature,
+                                name_path,
+                                text,
+                                embedding: Self::decode_embedding_bytes(&emb),
+                                doc_embedding: None,
+                            }
+                        },
+                    )
+                    .collect::<Vec<_>>()
+            };
+
+            if batch.is_empty() {
+                break;
+            }
+            offset += batch.len();
+            visitor(batch)?;
+        }
+        Ok(())
     }
 }
 
@@ -308,9 +476,12 @@ impl EmbeddingStore for SqliteVecStore {
 
 const DEFAULT_EMBED_BATCH_SIZE: usize = 128;
 const DEFAULT_MACOS_EMBED_BATCH_SIZE: usize = 128;
+const DEFAULT_TEXT_EMBED_CACHE_SIZE: usize = 256;
+const DEFAULT_MACOS_TEXT_EMBED_CACHE_SIZE: usize = 1024;
 const CODESEARCH_DIMENSION: usize = 384;
 const DEFAULT_MAX_EMBED_SYMBOLS: usize = 50_000;
 const CHANGED_FILE_QUERY_CHUNK: usize = 128;
+const DEFAULT_DUPLICATE_SCAN_BATCH_SIZE: usize = 128;
 static ORT_ENV_INIT: Once = Once::new();
 
 /// Default: CodeSearchNet (MiniLM-L12 fine-tuned on code, bundled ONNX INT8).
@@ -321,6 +492,8 @@ pub struct EmbeddingEngine {
     model: Mutex<TextEmbedding>,
     store: Box<dyn EmbeddingStore>,
     model_name: String,
+    runtime_info: EmbeddingRuntimeInfo,
+    text_embed_cache: Mutex<TextEmbeddingCache>,
     indexing: std::sync::atomic::AtomicBool,
 }
 
@@ -328,6 +501,67 @@ pub struct EmbeddingEngine {
 pub struct EmbeddingIndexInfo {
     pub model_name: String,
     pub indexed_symbols: usize,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct EmbeddingRuntimeInfo {
+    pub runtime_preference: String,
+    pub backend: String,
+    pub threads: usize,
+    pub max_length: usize,
+    pub coreml_model_format: Option<String>,
+    pub coreml_compute_units: Option<String>,
+    pub coreml_static_input_shapes: Option<bool>,
+    pub coreml_profile_compute_plan: Option<bool>,
+    pub coreml_specialization_strategy: Option<String>,
+    pub coreml_model_cache_dir: Option<String>,
+    pub fallback_reason: Option<String>,
+}
+
+struct TextEmbeddingCache {
+    capacity: usize,
+    order: VecDeque<String>,
+    entries: HashMap<String, Vec<f32>>,
+}
+
+impl TextEmbeddingCache {
+    fn new(capacity: usize) -> Self {
+        Self {
+            capacity,
+            order: VecDeque::new(),
+            entries: HashMap::new(),
+        }
+    }
+
+    fn get(&mut self, key: &str) -> Option<Vec<f32>> {
+        let value = self.entries.get(key)?.clone();
+        self.touch(key);
+        Some(value)
+    }
+
+    fn insert(&mut self, key: String, value: Vec<f32>) {
+        if self.capacity == 0 {
+            return;
+        }
+
+        self.entries.insert(key.clone(), value);
+        self.touch(&key);
+
+        while self.entries.len() > self.capacity {
+            if let Some(oldest) = self.order.pop_front() {
+                self.entries.remove(&oldest);
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn touch(&mut self, key: &str) {
+        if let Some(position) = self.order.iter().position(|existing| existing == key) {
+            self.order.remove(position);
+        }
+        self.order.push_back(key.to_owned());
+    }
 }
 
 /// Resolve the sidecar model directory.
@@ -396,6 +630,17 @@ fn parse_usize_env(name: &str) -> Option<usize> {
         .filter(|v| *v > 0)
 }
 
+fn parse_bool_env(name: &str) -> Option<bool> {
+    std::env::var(name).ok().and_then(|value| {
+        let normalized = value.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "1" | "true" | "yes" | "on" => Some(true),
+            "0" | "false" | "no" | "off" => Some(false),
+            _ => None,
+        }
+    })
+}
+
 #[cfg(target_os = "macos")]
 fn apple_perf_cores() -> Option<usize> {
     ffi::sysctl_usize(b"hw.perflevel0.physicalcpu\0")
@@ -426,6 +671,87 @@ pub fn configured_embedding_threads() -> usize {
     recommended_embed_threads()
 }
 
+fn configured_embedding_max_length() -> usize {
+    parse_usize_env("CODELENS_EMBED_MAX_LENGTH")
+        .unwrap_or(256)
+        .clamp(32, 512)
+}
+
+fn configured_embedding_text_cache_size() -> usize {
+    std::env::var("CODELENS_EMBED_TEXT_CACHE_SIZE")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or_else(|| {
+            if cfg!(target_os = "macos") {
+                DEFAULT_MACOS_TEXT_EMBED_CACHE_SIZE
+            } else {
+                DEFAULT_TEXT_EMBED_CACHE_SIZE
+            }
+        })
+        .min(8192)
+}
+
+#[cfg(target_os = "macos")]
+fn configured_coreml_compute_units_name() -> String {
+    match std::env::var("CODELENS_EMBED_COREML_COMPUTE_UNITS")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("all") => "all".to_string(),
+        Some("cpu") | Some("cpu_only") => "cpu_only".to_string(),
+        Some("gpu") | Some("cpu_and_gpu") => "cpu_and_gpu".to_string(),
+        Some("ane") | Some("neural_engine") | Some("cpu_and_neural_engine") => {
+            "cpu_and_neural_engine".to_string()
+        }
+        _ => "cpu_and_neural_engine".to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn configured_coreml_model_format_name() -> String {
+    match std::env::var("CODELENS_EMBED_COREML_MODEL_FORMAT")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("neuralnetwork") | Some("neural_network") => "neural_network".to_string(),
+        _ => "mlprogram".to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn configured_coreml_profile_compute_plan() -> bool {
+    parse_bool_env("CODELENS_EMBED_COREML_PROFILE_PLAN").unwrap_or(false)
+}
+
+#[cfg(target_os = "macos")]
+fn configured_coreml_static_input_shapes() -> bool {
+    parse_bool_env("CODELENS_EMBED_COREML_STATIC_INPUT_SHAPES").unwrap_or(true)
+}
+
+#[cfg(target_os = "macos")]
+fn configured_coreml_specialization_strategy_name() -> String {
+    match std::env::var("CODELENS_EMBED_COREML_SPECIALIZATION")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("default") => "default".to_string(),
+        _ => "fast_prediction".to_string(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn configured_coreml_model_cache_dir() -> std::path::PathBuf {
+    dirs_fallback()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(".cache")
+        .join("codelens")
+        .join("coreml-cache")
+        .join("codesearch")
+}
+
 fn recommended_embed_threads() -> usize {
     if let Some(explicit) = parse_usize_env("CODELENS_EMBED_THREADS") {
         return explicit.max(1);
@@ -433,7 +759,10 @@ fn recommended_embed_threads() -> usize {
 
     let available = available_parallelism().map(|n| n.get()).unwrap_or(1);
     if cfg!(target_os = "macos") {
-        apple_perf_cores().unwrap_or(available).min(available).clamp(1, 8)
+        apple_perf_cores()
+            .unwrap_or(available)
+            .min(available)
+            .clamp(1, 8)
     } else {
         available.div_ceil(2).clamp(1, 8)
     }
@@ -499,8 +828,129 @@ fn configure_embedding_runtime() {
     );
 }
 
+pub fn configured_embedding_runtime_info() -> EmbeddingRuntimeInfo {
+    let runtime_preference = configured_embedding_runtime_preference();
+    let threads = configured_embedding_threads();
+
+    #[cfg(target_os = "macos")]
+    {
+        let coreml_enabled = runtime_preference != "cpu";
+        return EmbeddingRuntimeInfo {
+            runtime_preference,
+            backend: "not_loaded".to_string(),
+            threads,
+            max_length: configured_embedding_max_length(),
+            coreml_model_format: coreml_enabled.then(configured_coreml_model_format_name),
+            coreml_compute_units: coreml_enabled.then(configured_coreml_compute_units_name),
+            coreml_static_input_shapes: coreml_enabled.then(configured_coreml_static_input_shapes),
+            coreml_profile_compute_plan: coreml_enabled
+                .then(configured_coreml_profile_compute_plan),
+            coreml_specialization_strategy: coreml_enabled
+                .then(configured_coreml_specialization_strategy_name),
+            coreml_model_cache_dir: coreml_enabled
+                .then(|| configured_coreml_model_cache_dir().display().to_string()),
+            fallback_reason: None,
+        };
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        EmbeddingRuntimeInfo {
+            runtime_preference,
+            backend: "not_loaded".to_string(),
+            threads,
+            max_length: configured_embedding_max_length(),
+            coreml_model_format: None,
+            coreml_compute_units: None,
+            coreml_static_input_shapes: None,
+            coreml_profile_compute_plan: None,
+            coreml_specialization_strategy: None,
+            coreml_model_cache_dir: None,
+            fallback_reason: None,
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn build_coreml_execution_provider() -> ExecutionProviderDispatch {
+    use ort::ep::{
+        CoreML,
+        coreml::{ComputeUnits, ModelFormat, SpecializationStrategy},
+    };
+
+    let compute_units = match configured_coreml_compute_units_name().as_str() {
+        "all" => ComputeUnits::All,
+        "cpu_only" => ComputeUnits::CPUOnly,
+        "cpu_and_gpu" => ComputeUnits::CPUAndGPU,
+        _ => ComputeUnits::CPUAndNeuralEngine,
+    };
+    let model_format = match configured_coreml_model_format_name().as_str() {
+        "neural_network" => ModelFormat::NeuralNetwork,
+        _ => ModelFormat::MLProgram,
+    };
+    let specialization = match configured_coreml_specialization_strategy_name().as_str() {
+        "default" => SpecializationStrategy::Default,
+        _ => SpecializationStrategy::FastPrediction,
+    };
+    let cache_dir = configured_coreml_model_cache_dir();
+    let _ = std::fs::create_dir_all(&cache_dir);
+
+    CoreML::default()
+        .with_model_format(model_format)
+        .with_compute_units(compute_units)
+        .with_static_input_shapes(configured_coreml_static_input_shapes())
+        .with_specialization_strategy(specialization)
+        .with_profile_compute_plan(configured_coreml_profile_compute_plan())
+        .with_model_cache_dir(cache_dir.display().to_string())
+        .build()
+        .error_on_failure()
+}
+
+fn cpu_runtime_info(
+    runtime_preference: String,
+    fallback_reason: Option<String>,
+) -> EmbeddingRuntimeInfo {
+    EmbeddingRuntimeInfo {
+        runtime_preference,
+        backend: "cpu".to_string(),
+        threads: configured_embedding_threads(),
+        max_length: configured_embedding_max_length(),
+        coreml_model_format: None,
+        coreml_compute_units: None,
+        coreml_static_input_shapes: None,
+        coreml_profile_compute_plan: None,
+        coreml_specialization_strategy: None,
+        coreml_model_cache_dir: None,
+        fallback_reason,
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn coreml_runtime_info(
+    runtime_preference: String,
+    fallback_reason: Option<String>,
+) -> EmbeddingRuntimeInfo {
+    EmbeddingRuntimeInfo {
+        runtime_preference,
+        backend: if fallback_reason.is_some() {
+            "cpu".to_string()
+        } else {
+            "coreml".to_string()
+        },
+        threads: configured_embedding_threads(),
+        max_length: configured_embedding_max_length(),
+        coreml_model_format: Some(configured_coreml_model_format_name()),
+        coreml_compute_units: Some(configured_coreml_compute_units_name()),
+        coreml_static_input_shapes: Some(configured_coreml_static_input_shapes()),
+        coreml_profile_compute_plan: Some(configured_coreml_profile_compute_plan()),
+        coreml_specialization_strategy: Some(configured_coreml_specialization_strategy_name()),
+        coreml_model_cache_dir: Some(configured_coreml_model_cache_dir().display().to_string()),
+        fallback_reason,
+    }
+}
+
 /// Load the CodeSearchNet model from sidecar files (MiniLM-L12 fine-tuned, ONNX INT8).
-fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
+fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, EmbeddingRuntimeInfo)> {
     configure_embedding_runtime();
     let model_dir = resolve_model_dir()?;
 
@@ -526,22 +976,79 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
     );
 
     let runtime_preference = configured_embedding_runtime_preference();
-    // Try CoreML EP on macOS for Apple Neural Engine acceleration; silently falls back to CPU.
-    let init_opts = match runtime_preference.as_str() {
-        "cpu" => InitOptionsUserDefined::new(),
-        _ if cfg!(target_os = "macos") => {
-            let coreml_ep: fastembed::ExecutionProviderDispatch = ort::ep::CoreML::default().into();
-            InitOptionsUserDefined::new().with_execution_providers(vec![coreml_ep.fail_silently()])
-        }
-        _ => InitOptionsUserDefined::new(),
-    };
 
-    let model = TextEmbedding::try_new_from_user_defined(user_model, init_opts)
+    #[cfg(target_os = "macos")]
+    if runtime_preference != "cpu" {
+        let init_opts = InitOptionsUserDefined::new()
+            .with_max_length(configured_embedding_max_length())
+            .with_execution_providers(vec![build_coreml_execution_provider()]);
+        match TextEmbedding::try_new_from_user_defined(user_model.clone(), init_opts) {
+            Ok(model) => {
+                let runtime_info = coreml_runtime_info(runtime_preference.clone(), None);
+                debug!(
+                    threads = runtime_info.threads,
+                    runtime_preference = %runtime_info.runtime_preference,
+                    backend = %runtime_info.backend,
+                    coreml_compute_units = ?runtime_info.coreml_compute_units,
+                    coreml_static_input_shapes = ?runtime_info.coreml_static_input_shapes,
+                    coreml_profile_compute_plan = ?runtime_info.coreml_profile_compute_plan,
+                    coreml_specialization_strategy = ?runtime_info.coreml_specialization_strategy,
+                    coreml_model_cache_dir = ?runtime_info.coreml_model_cache_dir,
+                    "loaded CodeSearchNet embedding model"
+                );
+                return Ok((
+                    model,
+                    CODESEARCH_DIMENSION,
+                    CODESEARCH_MODEL_NAME.to_string(),
+                    runtime_info,
+                ));
+            }
+            Err(err) => {
+                let reason = err.to_string();
+                debug!(
+                    runtime_preference = %runtime_preference,
+                    fallback_reason = %reason,
+                    "CoreML embedding load failed; falling back to CPU"
+                );
+                let model = TextEmbedding::try_new_from_user_defined(
+                    user_model,
+                    InitOptionsUserDefined::new().with_max_length(configured_embedding_max_length()),
+                )
+                .context("failed to load CodeSearchNet embedding model")?;
+                let runtime_info = coreml_runtime_info(runtime_preference.clone(), Some(reason));
+                debug!(
+                    threads = runtime_info.threads,
+                    runtime_preference = %runtime_info.runtime_preference,
+                    backend = %runtime_info.backend,
+                    coreml_compute_units = ?runtime_info.coreml_compute_units,
+                    coreml_static_input_shapes = ?runtime_info.coreml_static_input_shapes,
+                    coreml_profile_compute_plan = ?runtime_info.coreml_profile_compute_plan,
+                    coreml_specialization_strategy = ?runtime_info.coreml_specialization_strategy,
+                    coreml_model_cache_dir = ?runtime_info.coreml_model_cache_dir,
+                    fallback_reason = ?runtime_info.fallback_reason,
+                    "loaded CodeSearchNet embedding model"
+                );
+                return Ok((
+                    model,
+                    CODESEARCH_DIMENSION,
+                    CODESEARCH_MODEL_NAME.to_string(),
+                    runtime_info,
+                ));
+            }
+        }
+    }
+
+    let model = TextEmbedding::try_new_from_user_defined(
+        user_model,
+        InitOptionsUserDefined::new().with_max_length(configured_embedding_max_length()),
+    )
         .context("failed to load CodeSearchNet embedding model")?;
+    let runtime_info = cpu_runtime_info(runtime_preference.clone(), None);
 
     debug!(
-        threads = configured_embedding_threads(),
-        runtime_preference = %runtime_preference,
+        threads = runtime_info.threads,
+        runtime_preference = %runtime_info.runtime_preference,
+        backend = %runtime_info.backend,
         "loaded CodeSearchNet embedding model"
     );
 
@@ -549,6 +1056,7 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
         model,
         CODESEARCH_DIMENSION,
         CODESEARCH_MODEL_NAME.to_string(),
+        runtime_info,
     ))
 }
 
@@ -557,8 +1065,64 @@ pub fn configured_embedding_model_name() -> String {
 }
 
 impl EmbeddingEngine {
+    fn embed_texts_cached(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut resolved: Vec<Option<Vec<f32>>> = vec![None; texts.len()];
+        let mut missing_order: Vec<String> = Vec::new();
+        let mut missing_positions: HashMap<String, Vec<usize>> = HashMap::new();
+
+        {
+            let mut cache = self
+                .text_embed_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("text embedding cache lock"))?;
+            for (index, text) in texts.iter().enumerate() {
+                if let Some(cached) = cache.get(text) {
+                    resolved[index] = Some(cached);
+                } else {
+                    let key = (*text).to_owned();
+                    if !missing_positions.contains_key(&key) {
+                        missing_order.push(key.clone());
+                    }
+                    missing_positions.entry(key).or_default().push(index);
+                }
+            }
+        }
+
+        if !missing_order.is_empty() {
+            let missing_refs: Vec<&str> = missing_order.iter().map(String::as_str).collect();
+            let embeddings = self
+                .model
+                .lock()
+                .map_err(|_| anyhow::anyhow!("model lock"))?
+                .embed(missing_refs, None)
+                .context("text embedding failed")?;
+
+            let mut cache = self
+                .text_embed_cache
+                .lock()
+                .map_err(|_| anyhow::anyhow!("text embedding cache lock"))?;
+            for (text, embedding) in missing_order.into_iter().zip(embeddings.into_iter()) {
+                cache.insert(text.clone(), embedding.clone());
+                if let Some(indices) = missing_positions.remove(&text) {
+                    for index in indices {
+                        resolved[index] = Some(embedding.clone());
+                    }
+                }
+            }
+        }
+
+        resolved
+            .into_iter()
+            .map(|item| item.ok_or_else(|| anyhow::anyhow!("missing embedding cache entry")))
+            .collect()
+    }
+
     pub fn new(project: &ProjectRoot) -> Result<Self> {
-        let (model, dimension, model_name) = load_codesearch_model()?;
+        let (model, dimension, model_name, runtime_info) = load_codesearch_model()?;
 
         let db_dir = project.as_path().join(".codelens/index");
         std::fs::create_dir_all(&db_dir)?;
@@ -570,12 +1134,20 @@ impl EmbeddingEngine {
             model: Mutex::new(model),
             store: Box::new(store),
             model_name,
+            runtime_info,
+            text_embed_cache: Mutex::new(TextEmbeddingCache::new(
+                configured_embedding_text_cache_size(),
+            )),
             indexing: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
     pub fn model_name(&self) -> &str {
         &self.model_name
+    }
+
+    pub fn runtime_info(&self) -> &EmbeddingRuntimeInfo {
+        &self.runtime_info
     }
 
     /// Index all symbols from the project's symbol database into the embedding index.
@@ -715,12 +1287,7 @@ impl EmbeddingEngine {
     /// When a cross-encoder reranker is loaded, fetches 3× candidates from
     /// the bi-encoder and reranks to return the top `max_results`.
     pub fn search_scored(&self, query: &str, max_results: usize) -> Result<Vec<ScoredChunk>> {
-        let query_embedding = self
-            .model
-            .lock()
-            .map_err(|_| anyhow::anyhow!("model lock"))?
-            .embed(vec![query], None)
-            .context("query embedding failed")?;
+        let query_embedding = self.embed_texts_cached(&[query])?;
 
         if query_embedding.is_empty() {
             return Ok(Vec::new());
@@ -837,69 +1404,102 @@ impl EmbeddingEngine {
         symbol_name: &str,
         max_results: usize,
     ) -> Result<Vec<SemanticMatch>> {
-        let all = self.store.all_with_embeddings()?;
-        let target = all
-            .iter()
-            .find(|c| c.file_path == file_path && c.symbol_name == symbol_name)
+        let target = self
+            .store
+            .get_embedding(file_path, symbol_name)?
             .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found in index", symbol_name))?;
 
-        let mut scored: Vec<ScoredChunk> = all
-            .iter()
+        let oversample = max_results.saturating_add(8).max(1);
+        let scored = self
+            .store
+            .search(&target.embedding, oversample)?
+            .into_iter()
             .filter(|c| !(c.file_path == file_path && c.symbol_name == symbol_name))
-            .map(|c| ScoredChunk {
-                file_path: c.file_path.clone(),
-                symbol_name: c.symbol_name.clone(),
-                kind: c.kind.clone(),
-                line: c.line,
-                signature: c.signature.clone(),
-                name_path: c.name_path.clone(),
-                score: cosine_similarity(&target.embedding, &c.embedding),
-            })
+            .take(max_results)
+            .map(SemanticMatch::from)
             .collect();
-
-        scored.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        scored.truncate(max_results);
-        Ok(scored.into_iter().map(SemanticMatch::from).collect())
+        Ok(scored)
     }
 
     /// Find near-duplicate code pairs across the codebase.
     /// Returns pairs with cosine similarity above the threshold (default 0.85).
     pub fn find_duplicates(&self, threshold: f64, max_pairs: usize) -> Result<Vec<DuplicatePair>> {
-        let all = self.store.all_with_embeddings()?;
-        let n = all.len();
         let mut pairs = Vec::new();
+        let mut seen_pairs = HashSet::new();
+        let mut embedding_cache: HashMap<(String, String), EmbeddingChunk> = HashMap::new();
+        let candidate_limit = duplicate_candidate_limit(max_pairs);
+        let mut done = false;
 
-        for i in 0..n {
-            if pairs.len() >= max_pairs {
-                break;
-            }
-            for j in (i + 1)..n {
-                // Skip same-file same-symbol
-                if all[i].file_path == all[j].file_path && all[i].symbol_name == all[j].symbol_name
-                {
-                    continue;
+        self.store
+            .for_each_embedding_batch(DEFAULT_DUPLICATE_SCAN_BATCH_SIZE, &mut |batch| {
+                if done {
+                    return Ok(());
                 }
-                let sim = cosine_similarity(&all[i].embedding, &all[j].embedding);
-                if sim >= threshold {
-                    pairs.push(DuplicatePair {
-                        symbol_a: format!("{}:{}", all[i].file_path, all[i].symbol_name),
-                        symbol_b: format!("{}:{}", all[j].file_path, all[j].symbol_name),
-                        file_a: all[i].file_path.clone(),
-                        file_b: all[j].file_path.clone(),
-                        line_a: all[i].line,
-                        line_b: all[j].line,
-                        similarity: sim,
-                    });
+
+                for chunk in batch {
                     if pairs.len() >= max_pairs {
+                        done = true;
                         break;
                     }
+
+                    let candidates = self.store.search(&chunk.embedding, candidate_limit)?;
+                    for candidate in candidates {
+                        if chunk.file_path == candidate.file_path
+                            && chunk.symbol_name == candidate.symbol_name
+                        {
+                            continue;
+                        }
+
+                        let pair_key = duplicate_pair_key(
+                            &chunk.file_path,
+                            &chunk.symbol_name,
+                            &candidate.file_path,
+                            &candidate.symbol_name,
+                        );
+                        if !seen_pairs.insert(pair_key) {
+                            continue;
+                        }
+
+                        let cache_key = (candidate.file_path.clone(), candidate.symbol_name.clone());
+                        let candidate_chunk = if let Some(existing) = embedding_cache.get(&cache_key)
+                        {
+                            existing.clone()
+                        } else {
+                            let Some(loaded) = self
+                                .store
+                                .get_embedding(&candidate.file_path, &candidate.symbol_name)?
+                            else {
+                                continue;
+                            };
+                            embedding_cache.insert(cache_key, loaded.clone());
+                            loaded
+                        };
+
+                        let sim = cosine_similarity(&chunk.embedding, &candidate_chunk.embedding);
+                        if sim < threshold {
+                            continue;
+                        }
+
+                        pairs.push(DuplicatePair {
+                            symbol_a: format!("{}:{}", chunk.file_path, chunk.symbol_name),
+                            symbol_b: format!(
+                                "{}:{}",
+                                candidate_chunk.file_path, candidate_chunk.symbol_name
+                            ),
+                            file_a: chunk.file_path.clone(),
+                            file_b: candidate_chunk.file_path.clone(),
+                            line_a: chunk.line,
+                            line_b: candidate_chunk.line,
+                            similarity: sim,
+                        });
+                        if pairs.len() >= max_pairs {
+                            done = true;
+                            break;
+                        }
+                    }
                 }
-            }
-        }
+                Ok(())
+            })?;
 
         pairs.sort_by(|a, b| {
             b.similarity
@@ -908,7 +1508,28 @@ impl EmbeddingEngine {
         });
         Ok(pairs)
     }
+}
 
+fn duplicate_candidate_limit(max_pairs: usize) -> usize {
+    max_pairs.saturating_mul(4).clamp(32, 128)
+}
+
+fn duplicate_pair_key(
+    file_a: &str,
+    symbol_a: &str,
+    file_b: &str,
+    symbol_b: &str,
+) -> ((String, String), (String, String)) {
+    let left = (file_a.to_owned(), symbol_a.to_owned());
+    let right = (file_b.to_owned(), symbol_b.to_owned());
+    if left <= right {
+        (left, right)
+    } else {
+        (right, left)
+    }
+}
+
+impl EmbeddingEngine {
     /// Classify a code symbol into one of the given categories using zero-shot embedding similarity.
     pub fn classify_symbol(
         &self,
@@ -916,24 +1537,21 @@ impl EmbeddingEngine {
         symbol_name: &str,
         categories: &[&str],
     ) -> Result<Vec<CategoryScore>> {
-        let all = self.store.all_with_embeddings()?;
-        let target = all
-            .iter()
-            .find(|c| c.file_path == file_path && c.symbol_name == symbol_name)
-            .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found in index", symbol_name))?;
+        let target = match self.store.get_embedding(file_path, symbol_name)? {
+            Some(target) => target,
+            None => self
+                .store
+                .all_with_embeddings()?
+                .into_iter()
+                .find(|c| c.file_path == file_path && c.symbol_name == symbol_name)
+                .ok_or_else(|| anyhow::anyhow!("Symbol '{}' not found in index", symbol_name))?,
+        };
 
-        let mut model = self
-            .model
-            .lock()
-            .map_err(|_| anyhow::anyhow!("model lock"))?;
-        let cat_refs: Vec<&str> = categories.to_vec();
-        let cat_embeddings = model
-            .embed(cat_refs, None)
-            .context("category embedding failed")?;
+        let embeddings = self.embed_texts_cached(categories)?;
 
         let mut scores: Vec<CategoryScore> = categories
             .iter()
-            .zip(cat_embeddings.iter())
+            .zip(embeddings.iter())
             .map(|(cat, emb)| CategoryScore {
                 category: cat.to_string(),
                 score: cosine_similarity(&target.embedding, emb),
@@ -950,50 +1568,37 @@ impl EmbeddingEngine {
 
     /// Find symbols that are outliers — semantically distant from their file's other symbols.
     pub fn find_misplaced_code(&self, max_results: usize) -> Result<Vec<OutlierSymbol>> {
-        let all = self.store.all_with_embeddings()?;
-        if all.len() < 3 {
-            return Ok(Vec::new());
-        }
-
-        // Group by file
-        let mut by_file: std::collections::HashMap<&str, Vec<usize>> =
-            std::collections::HashMap::new();
-        for (i, chunk) in all.iter().enumerate() {
-            by_file.entry(&chunk.file_path).or_default().push(i);
-        }
-
         let mut outliers = Vec::new();
 
-        for (file, indices) in &by_file {
-            if indices.len() < 2 {
-                continue;
+        self.store.for_each_file_embeddings(&mut |file_path, chunks| {
+            if chunks.len() < 2 {
+                return Ok(());
             }
-            // For each symbol in the file, compute average similarity to other symbols in same file
-            for &idx in indices {
+
+            for (idx, chunk) in chunks.iter().enumerate() {
                 let mut sim_sum = 0.0;
                 let mut count = 0;
-                for &other in indices {
-                    if other == idx {
+                for (other_idx, other_chunk) in chunks.iter().enumerate() {
+                    if other_idx == idx {
                         continue;
                     }
-                    sim_sum += cosine_similarity(&all[idx].embedding, &all[other].embedding);
+                    sim_sum += cosine_similarity(&chunk.embedding, &other_chunk.embedding);
                     count += 1;
                 }
                 if count > 0 {
-                    let avg_sim = sim_sum / count as f64;
-                    // Low average similarity = potential outlier
+                    let avg_sim = sim_sum / count as f64; // Lower means more misplaced.
                     outliers.push(OutlierSymbol {
-                        file_path: file.to_string(),
-                        symbol_name: all[idx].symbol_name.clone(),
-                        kind: all[idx].kind.clone(),
-                        line: all[idx].line,
+                        file_path: file_path.clone(),
+                        symbol_name: chunk.symbol_name.clone(),
+                        kind: chunk.kind.clone(),
+                        line: chunk.line,
                         avg_similarity_to_file: avg_sim,
                     });
                 }
             }
-        }
+            Ok(())
+        })?;
 
-        // Sort by lowest similarity (most misplaced)
         outliers.sort_by(|a, b| {
             a.avg_similarity_to_file
                 .partial_cmp(&b.avg_similarity_to_file)
@@ -1459,6 +2064,33 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_pair_key_is_order_independent() {
+        let a = duplicate_pair_key("a.py", "foo", "b.py", "bar");
+        let b = duplicate_pair_key("b.py", "bar", "a.py", "foo");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn text_embedding_cache_updates_recency() {
+        let mut cache = TextEmbeddingCache::new(2);
+        cache.insert("a".into(), vec![1.0]);
+        cache.insert("b".into(), vec![2.0]);
+        assert_eq!(cache.get("a"), Some(vec![1.0]));
+        cache.insert("c".into(), vec![3.0]);
+
+        assert_eq!(cache.get("a"), Some(vec![1.0]));
+        assert_eq!(cache.get("b"), None);
+        assert_eq!(cache.get("c"), Some(vec![3.0]));
+    }
+
+    #[test]
+    fn text_embedding_cache_can_be_disabled() {
+        let mut cache = TextEmbeddingCache::new(0);
+        cache.insert("a".into(), vec![1.0]);
+        assert_eq!(cache.get("a"), None);
+    }
+
+    #[test]
     fn engine_new_and_index() {
         let _lock = MODEL_LOCK.lock().unwrap();
         let (_dir, project) = make_project_with_source();
@@ -1544,6 +2176,82 @@ mod tests {
             .expect("index info should exist");
         assert_eq!(info.model_name, engine.model_name());
         assert_eq!(info.indexed_symbols, 2);
+    }
+
+    #[test]
+    fn store_can_fetch_single_embedding_without_loading_all() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        let chunk = engine
+            .store
+            .get_embedding("main.py", "hello")
+            .unwrap()
+            .expect("embedding should exist");
+        assert_eq!(chunk.file_path, "main.py");
+        assert_eq!(chunk.symbol_name, "hello");
+        assert!(!chunk.embedding.is_empty());
+    }
+
+    #[test]
+    fn find_similar_code_uses_index_and_excludes_target_symbol() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        let matches = engine.find_similar_code("main.py", "hello", 5).unwrap();
+        assert!(!matches.is_empty());
+        assert!(
+            matches
+                .iter()
+                .all(|m| !(m.file_path == "main.py" && m.symbol_name == "hello"))
+        );
+    }
+
+    #[test]
+    fn delete_by_file_removes_rows_in_one_batch() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        let deleted = engine.store.delete_by_file(&["main.py"]).unwrap();
+        assert_eq!(deleted, 2);
+        assert_eq!(engine.store.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn store_streams_embeddings_grouped_by_file() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        let mut groups = Vec::new();
+        engine
+            .store
+            .for_each_file_embeddings(&mut |file_path, chunks| {
+                groups.push((file_path, chunks.len()));
+                Ok(())
+            })
+            .unwrap();
+
+        assert_eq!(groups, vec![("main.py".to_string(), 2)]);
+    }
+
+    #[test]
+    fn find_misplaced_code_returns_per_file_outliers() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        let outliers = engine.find_misplaced_code(5).unwrap();
+        assert_eq!(outliers.len(), 2);
+        assert!(outliers.iter().all(|item| item.file_path == "main.py"));
     }
 
     #[test]

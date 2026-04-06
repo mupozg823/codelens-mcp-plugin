@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
+use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    build_error_response, build_success_response, SuccessResponseInput,
+    SuccessResponseInput, build_error_response, build_success_response,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
-    MutationGateFailure,
+    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
+    is_refactor_gated_mutation_tool,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
+use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
 use crate::tools::{self, ToolHandler, ToolResult};
-use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -103,24 +103,24 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
 
     let mut prior = 0.0;
     if result.file_path.starts_with("crates/") {
-        prior += 0.10;
+        prior += 0.02;
     }
     if result.file_path.starts_with("benchmarks/")
         || result.file_path.starts_with("models/")
         || result.file_path.starts_with("docs/")
         || result.file_path.starts_with("scripts/finetune/")
     {
-        prior -= 0.20;
+        prior -= 0.08;
     }
     if result.file_path.contains("/tests") || result.file_path.ends_with("_tests.rs") {
-        prior -= 0.10;
+        prior -= 0.05;
     }
 
     prior += match result.kind.as_str() {
-        "function" | "method" => 0.18,
-        "module" => 0.10,
-        "class" | "interface" | "enum" | "typealias" | "unknown" => -0.08,
-        "variable" | "property" => -0.14,
+        "function" | "method" => 0.04,
+        "module" => 0.02,
+        "class" | "interface" | "enum" | "typealias" | "unknown" => -0.02,
+        "variable" | "property" => -0.04,
         _ => 0.0,
     };
 
@@ -129,7 +129,7 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
         || query_lower.contains("handler"))
         && result.file_path.contains("dispatch.rs")
     {
-        prior += 0.12;
+        prior += 0.14;
     }
     if query_lower.contains("extract")
         && (result.symbol_name.contains("extract") || result.file_path.contains("tools/composite"))
@@ -146,16 +146,16 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
         || query_lower.contains("gate"))
         && result.file_path.contains("mutation_gate")
     {
-        prior += 0.18;
+        prior += 0.22;
     }
     if query_lower.contains("http") && result.file_path.contains("transport_http") {
-        prior += 0.12;
+        prior += 0.14;
     }
     if query_lower.contains("stdin") && result.file_path.contains("transport_stdio") {
-        prior += 0.40;
+        prior += 0.26;
     }
     if query_lower.contains("watch") && result.file_path.contains("watcher") {
-        prior += 0.12;
+        prior += 0.14;
     }
 
     prior
@@ -187,7 +187,7 @@ fn rerank_semantic_matches(
 #[cfg(feature = "semantic")]
 fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = tools::required_string(arguments, "query")?;
-    let expanded_query = crate::tools::symbols::expanded_query_for_retrieval(query);
+    let semantic_query = crate::tools::symbols::semantic_query_for_retrieval(query);
     let max_results = arguments
         .get("max_results")
         .and_then(|v| v.as_u64())
@@ -213,10 +213,10 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         ));
     }
 
-    let candidate_limit = max_results.saturating_mul(5).clamp(max_results, 50);
+    let candidate_limit = max_results.saturating_mul(8).clamp(max_results, 96);
     let results = rerank_semantic_matches(
-        &expanded_query,
-        engine.search(&expanded_query, candidate_limit)?,
+        query,
+        engine.search(&semantic_query, candidate_limit)?,
         max_results,
     );
     Ok((

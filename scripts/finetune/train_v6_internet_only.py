@@ -11,16 +11,19 @@ NO local data. Internet high-quality data ONLY.
 import ctypes
 import hashlib
 import json
+import math
 import os
 import sys
 import random
 import numpy as np
+from collections import OrderedDict
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
 ROOT = SCRIPT_DIR.parent.parent
 INPUT = SCRIPT_DIR / "csn_runtime_format.jsonl"
 OUTPUT_DIR = SCRIPT_DIR / "output" / "v6-internet"
+MAX_SEQ_LENGTH = 256
 
 
 def apple_cpu_topology() -> dict:
@@ -61,6 +64,8 @@ def configure_process_runtime() -> dict:
     os.environ.setdefault("OMP_NUM_THREADS", str(torch_threads))
     if sys.platform == "darwin":
         os.environ.setdefault("VECLIB_MAXIMUM_THREADS", str(torch_threads))
+        os.environ.setdefault("PYTORCH_MPS_FAST_MATH", "1")
+        os.environ.setdefault("PYTORCH_MPS_PREFER_METAL", "1")
 
     try:
         import torch
@@ -88,6 +93,8 @@ def resolve_training_device() -> str:
 
 
 def recommended_loader_workers(num_examples: int) -> int:
+    if resolve_training_device() == "mps":
+        return 0
     cpu_count = os.cpu_count() or 1
     if num_examples < 20_000:
         return 0
@@ -126,6 +133,160 @@ def recommended_teacher_batch_size(teacher_providers: list[str]) -> int:
     if teacher_providers == ["CPUExecutionProvider"]:
         return 16
     return 32
+
+
+def effective_train_batch_size(requested_batch_size: int, pair_count: int, train_device: str) -> int:
+    if train_device != "mps":
+        return requested_batch_size
+    if pair_count >= 100_000:
+        return min(requested_batch_size, 16)
+    return min(requested_batch_size, 32)
+
+
+def gradient_accumulation_steps(requested_batch_size: int, effective_batch_size: int) -> int:
+    if effective_batch_size <= 0:
+        return 1
+    return max(1, (requested_batch_size + effective_batch_size - 1) // effective_batch_size)
+
+
+def resolved_max_seq_length() -> int:
+    return max(32, min(512, int(os.environ.get("CODELENS_FINETUNE_MAX_SEQ_LENGTH", MAX_SEQ_LENGTH))))
+
+
+def resolved_tokenizer_cache_size(train_device: str, loader_workers: int) -> int:
+    raw = os.environ.get("CODELENS_TOKENIZER_CACHE_SIZE", "").strip()
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            pass
+    return 0
+
+
+def use_static_padding(train_device: str) -> bool:
+    return train_device == "mps"
+
+
+def pad_to_multiple_of(train_device: str) -> int | None:
+    return 8 if train_device == "mps" else None
+
+
+def optimizer_steps_per_epoch(
+    num_examples: int,
+    micro_batch_size: int,
+    grad_accum_steps: int,
+) -> int:
+    effective_batch = max(1, micro_batch_size * max(1, grad_accum_steps))
+    return max(1, math.ceil(num_examples / effective_batch))
+
+
+class CachedSentenceDataCollator:
+    """Tokenizer-caching collator for stable-shape MPS batches."""
+
+    def __init__(self, tokenizer, *, max_length: int, train_device: str, cache_size: int):
+        self.tokenizer = tokenizer
+        self.max_length = max_length
+        self.static_padding = use_static_padding(train_device)
+        self.pad_to_multiple = pad_to_multiple_of(train_device)
+        self.cache_size = max(0, cache_size)
+        self._cache: OrderedDict[str, dict] = OrderedDict()
+        self.valid_label_columns = ["label", "labels", "score", "scores"]
+
+    def _tokenize_batch(self, texts: list[str]):
+        return self.tokenizer(
+            texts,
+            padding="max_length" if self.static_padding else True,
+            truncation=True,
+            max_length=self.max_length,
+            pad_to_multiple_of=self.pad_to_multiple,
+            return_tensors="pt",
+        )
+
+    def _remember(self, text: str, encoded_row: dict) -> None:
+        if self.cache_size <= 0:
+            return
+        self._cache[text] = encoded_row
+        self._cache.move_to_end(text)
+        while len(self._cache) > self.cache_size:
+            self._cache.popitem(last=False)
+
+    def _encode_texts(self, texts: list[str]) -> dict:
+        import torch
+
+        if self.cache_size <= 0:
+            return self._tokenize_batch(texts)
+
+        misses = []
+        seen_misses = set()
+        for text in texts:
+            if text in self._cache:
+                self._cache.move_to_end(text)
+                continue
+            if text not in seen_misses:
+                misses.append(text)
+                seen_misses.add(text)
+
+        if misses:
+            tokenized_misses = self._tokenize_batch(misses)
+            for row_index, text in enumerate(misses):
+                encoded_row = {
+                    key: value[row_index].clone()
+                    for key, value in tokenized_misses.items()
+                }
+                self._remember(text, encoded_row)
+
+        keys = next(iter(self._cache.values())).keys()
+        return {
+            key: torch.stack([self._cache[text][key] for text in texts], dim=0)
+            for key in keys
+        }
+
+    def __call__(self, features: list[dict]) -> dict:
+        import torch
+
+        if not features:
+            return {}
+
+        batch = {}
+        column_names = list(features[0].keys())
+        for label_column in self.valid_label_columns:
+            if label_column in column_names:
+                batch["label"] = torch.tensor([row[label_column] for row in features])
+                column_names.remove(label_column)
+                break
+
+        sentence_columns = sorted(
+            [name for name in column_names if name.startswith("sentence_")],
+            key=lambda name: int(name.split("_", 1)[1]),
+        )
+        for column_name in sentence_columns:
+            encoded = self._encode_texts([row[column_name] for row in features])
+            for key, value in encoded.items():
+                batch[f"{column_name}_{key}"] = value
+        return batch
+
+
+def pretokenized_batches(
+    tokenizer,
+    texts: list[str],
+    *,
+    batch_size: int,
+    max_length: int,
+    train_device: str,
+) -> list[dict]:
+    batches = []
+    for i in range(0, len(texts), batch_size):
+        batches.append(
+            tokenizer(
+                texts[i : i + batch_size],
+                padding="max_length" if use_static_padding(train_device) else True,
+                truncation=True,
+                max_length=max_length,
+                pad_to_multiple_of=pad_to_multiple_of(train_device),
+                return_tensors="pt",
+            )
+        )
+    return batches
 
 
 def iter_retrieval_pairs(path: str):
@@ -229,7 +390,11 @@ def teacher_embed(model, tokenizer, texts, batch_size: int):
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
         inputs = tokenizer(
-            batch, padding=True, truncation=True, max_length=512, return_tensors="np"
+            batch,
+            padding=True,
+            truncation=True,
+            max_length=resolved_max_seq_length(),
+            return_tensors="np",
         )
         outputs = model(**{k: v for k, v in inputs.items()})
         pooled = pool_teacher_batch(outputs.last_hidden_state, inputs["attention_mask"])
@@ -295,24 +460,26 @@ def stage1_distill(
 
     optimizer = torch.optim.AdamW(student_model.parameters(), lr=2e-5)
     mse_loss = torch.nn.MSELoss()
+    tokenized_batches = pretokenized_batches(
+        student_tokenizer,
+        texts,
+        batch_size=batch_size,
+        max_length=resolved_max_seq_length(),
+        train_device=device.type,
+    )
 
     for epoch in range(epochs):
         total_loss = 0.0
         batches = 0
-        for i in range(0, len(texts), batch_size):
-            batch_texts = texts[i : i + batch_size]
+        for batch_index, i in enumerate(range(0, len(texts), batch_size)):
             batch_targets = torch.from_numpy(teacher_embeddings[i : i + batch_size]).to(
                 device=device,
                 dtype=torch.float32,
             )
-
-            inputs = student_tokenizer(
-                batch_texts,
-                padding=True,
-                truncation=True,
-                max_length=512,
-                return_tensors="pt",
-            ).to(device)
+            inputs = {
+                key: value.to(device)
+                for key, value in tokenized_batches[batch_index].items()
+            }
 
             outputs = student_model(**inputs)
             token_embs = outputs.last_hidden_state
@@ -349,24 +516,45 @@ def stage2_mnrl(student, pairs_path, pair_count, batch_size=32, epochs=5):
     print(f"  Device: {train_device}")
 
     train_dataset = load_retrieval_dataset(pairs_path)
+    micro_batch_size = effective_train_batch_size(batch_size, pair_count, train_device)
+    grad_accum_steps = gradient_accumulation_steps(batch_size, micro_batch_size)
     loader_workers = recommended_loader_workers(pair_count)
     print(
         "  Trainer dataloading: "
-        f"batch_sampler={BatchSamplers.NO_DUPLICATES.value} workers={loader_workers} batch_size={batch_size}"
+        f"batch_sampler={BatchSamplers.NO_DUPLICATES.value} workers={loader_workers} "
+        f"micro_batch={micro_batch_size} grad_accum={grad_accum_steps} "
+        f"effective_batch={micro_batch_size * grad_accum_steps}"
+    )
+    collator = CachedSentenceDataCollator(
+        student.tokenizer,
+        max_length=resolved_max_seq_length(),
+        train_device=train_device,
+        cache_size=resolved_tokenizer_cache_size(train_device, loader_workers),
+    )
+    print(
+        "  Tokenization path: "
+        f"static_padding={collator.static_padding} "
+        f"pad_to_multiple_of={collator.pad_to_multiple} "
+        f"cache_size={collator.cache_size}"
     )
     loss = losses.MultipleNegativesRankingLoss(model=student)
 
     model_output = OUTPUT_DIR / "model"
     model_output.mkdir(parents=True, exist_ok=True)
 
-    steps_per_epoch = max(1, len(train_dataset) // batch_size)
+    steps_per_epoch = optimizer_steps_per_epoch(
+        len(train_dataset),
+        micro_batch_size,
+        grad_accum_steps,
+    )
     warmup = int(steps_per_epoch * epochs * 0.1)
     training_args = SentenceTransformerTrainingArguments(
         output_dir=str(OUTPUT_DIR / "checkpoints"),
-        per_device_train_batch_size=batch_size,
-        per_device_eval_batch_size=batch_size,
+        per_device_train_batch_size=micro_batch_size,
+        per_device_eval_batch_size=micro_batch_size,
         batch_sampler=BatchSamplers.NO_DUPLICATES,
         num_train_epochs=epochs,
+        gradient_accumulation_steps=grad_accum_steps,
         warmup_steps=warmup,
         learning_rate=1e-5,
         save_strategy="no",
@@ -385,6 +573,7 @@ def stage2_mnrl(student, pairs_path, pair_count, batch_size=32, epochs=5):
         args=training_args,
         train_dataset=train_dataset,
         loss=loss,
+        data_collator=collator,
     )
     trainer.train()
     trainer.save_model(str(model_output))
@@ -426,6 +615,8 @@ def main():
     # Load student
     print("Loading student (all-MiniLM-L12-v2)...")
     student = SentenceTransformer("sentence-transformers/all-MiniLM-L12-v2")
+    student.max_seq_length = resolved_max_seq_length()
+    print(f"Student max_seq_length: {student.max_seq_length}")
 
     # Stage 1: Distillation
     student = stage1_distill(

@@ -102,8 +102,11 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     let embeddings_loaded = false;
 
     let configured_embedding_model = codelens_core::configured_embedding_model_name();
-    let embedding_runtime_preference = codelens_core::configured_embedding_runtime_preference();
-    let embedding_threads = codelens_core::configured_embedding_threads();
+    let embedding_runtime = state
+        .embedding
+        .get()
+        .and_then(|engine| engine.as_ref().map(|engine| engine.runtime_info().clone()))
+        .unwrap_or_else(codelens_core::configured_embedding_runtime_info);
 
     #[cfg(feature = "semantic")]
     let embedding_index_info = state
@@ -171,8 +174,17 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "lsp_attached": lsp_attached,
             "embeddings_loaded": embeddings_loaded,
             "embedding_model": configured_embedding_model,
-            "embedding_runtime_preference": embedding_runtime_preference,
-            "embedding_threads": embedding_threads,
+            "embedding_runtime_preference": embedding_runtime.runtime_preference,
+            "embedding_runtime_backend": embedding_runtime.backend,
+            "embedding_threads": embedding_runtime.threads,
+            "embedding_max_length": embedding_runtime.max_length,
+            "embedding_coreml_model_format": embedding_runtime.coreml_model_format,
+            "embedding_coreml_compute_units": embedding_runtime.coreml_compute_units,
+            "embedding_coreml_static_input_shapes": embedding_runtime.coreml_static_input_shapes,
+            "embedding_coreml_profile_compute_plan": embedding_runtime.coreml_profile_compute_plan,
+            "embedding_coreml_specialization_strategy": embedding_runtime.coreml_specialization_strategy,
+            "embedding_coreml_model_cache_dir": embedding_runtime.coreml_model_cache_dir,
+            "embedding_runtime_fallback_reason": embedding_runtime.fallback_reason,
             "embedding_indexed": embedding_index_info.as_ref().map(|info| info.indexed_symbols > 0).unwrap_or(false),
             "embedding_indexed_symbols": embedding_index_info.as_ref().map(|info| info.indexed_symbols).unwrap_or(0),
             "index_fresh": index_fresh,

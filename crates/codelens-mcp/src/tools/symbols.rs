@@ -29,6 +29,67 @@ fn is_natural_language_query(query: &str) -> bool {
         && trimmed.split_whitespace().count() >= 3
 }
 
+fn split_identifier_terms(query: &str) -> Option<String> {
+    let trimmed = query.trim();
+    if trimmed.is_empty()
+        || trimmed.contains(char::is_whitespace)
+        || trimmed.contains('/')
+        || trimmed.contains('\\')
+        || trimmed.contains("::")
+    {
+        return None;
+    }
+
+    let mut words = Vec::new();
+    let mut current = String::new();
+    let chars: Vec<char> = trimmed.chars().collect();
+    for (i, &ch) in chars.iter().enumerate() {
+        if ch == '_' || ch == '-' {
+            if !current.is_empty() {
+                words.push(current.clone());
+                current.clear();
+            }
+            continue;
+        }
+        if ch.is_uppercase()
+            && !current.is_empty()
+            && (current
+                .chars()
+                .last()
+                .map(|c| c.is_lowercase())
+                .unwrap_or(false)
+                || chars.get(i + 1).map(|c| c.is_lowercase()).unwrap_or(false))
+        {
+            words.push(current.clone());
+            current.clear();
+        }
+        current.push(ch.to_ascii_lowercase());
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    (words.len() > 1).then(|| words.join(" "))
+}
+
+pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    if is_natural_language_query(trimmed) {
+        return trimmed.to_owned();
+    }
+
+    if let Some(split) = split_identifier_terms(trimmed)
+        && split != trimmed
+    {
+        return format!("{trimmed} {split}");
+    }
+
+    trimmed.to_owned()
+}
+
 pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
     if !is_natural_language_query(query) {
         return query.trim().to_owned();
@@ -312,6 +373,11 @@ pub(crate) fn semantic_results_for_query(
         return Vec::new();
     }
 
+    let semantic_query = semantic_query_for_retrieval(query);
+    if semantic_query.is_empty() {
+        return Vec::new();
+    }
+
     let project = state.project();
     let engine_opt = state
         .embedding
@@ -319,7 +385,7 @@ pub(crate) fn semantic_results_for_query(
     if let Some(engine) = engine_opt
         && engine.is_indexed()
     {
-        return engine.search(query, limit).unwrap_or_default();
+        return engine.search(&semantic_query, limit).unwrap_or_default();
     }
     Vec::new()
 }
@@ -578,12 +644,10 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
     let effective_disable_semantic = disable_semantic || query_prefers_lexical_only(query);
-    let query_word_count = query.split_whitespace().count();
-    let use_semantic_in_core = !effective_disable_semantic && !(2..4).contains(&query_word_count);
+    let use_semantic_in_core = !effective_disable_semantic;
     // Build semantic scores for hybrid ranking if embeddings are available.
     // The default model is the bundled CodeSearchNet MiniLM-L12 INT8 variant.
-    let semantic_results =
-        semantic_results_for_query(state, &expanded_query, 50, effective_disable_semantic);
+    let semantic_results = semantic_results_for_query(state, query, 50, effective_disable_semantic);
     let semantic_scores = semantic_results
         .iter()
         .filter(|r| r.score > 0.05)
@@ -607,7 +671,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     }
 
     let mut result = state.symbol_index().get_ranked_context_cached(
-        query,
+        &expanded_query,
         path,
         max_tokens,
         include_body,
@@ -803,7 +867,10 @@ fn count_word_occurrences(line: &str, needle: &str) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_semantic_ranked_entries, query_prefers_lexical_only, truncate_body_preview};
+    use super::{
+        merge_semantic_ranked_entries, query_prefers_lexical_only, semantic_query_for_retrieval,
+        truncate_body_preview,
+    };
     use codelens_core::{RankedContextEntry, RankedContextResult, SemanticMatch};
 
     #[test]
@@ -939,6 +1006,21 @@ mod tests {
         assert!(truncated);
         assert!(preview.starts_with("가"));
         assert!(!preview.starts_with("가나"));
+    }
+
+    #[test]
+    fn semantic_query_keeps_natural_language_clean() {
+        let query = "route an incoming tool request to the right handler";
+        assert_eq!(semantic_query_for_retrieval(query), query);
+    }
+
+    #[test]
+    fn semantic_query_splits_identifier_terms_without_alias_injection() {
+        let query = "change_signature";
+        let semantic = semantic_query_for_retrieval(query);
+        assert!(semantic.contains("change_signature"));
+        assert!(semantic.contains("change signature"));
+        assert!(!semantic.contains("run_stdio"));
     }
 }
 

@@ -62,7 +62,8 @@ pub mod move_symbol;
 pub mod oxc_analysis;
 #[cfg(feature = "semantic")]
 pub use embedding::{
-    EmbeddingEngine, EmbeddingIndexInfo, SemanticMatch, configured_embedding_model_name,
+    EmbeddingEngine, EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch,
+    configured_embedding_model_name, configured_embedding_runtime_info,
     configured_embedding_runtime_preference, configured_embedding_threads,
 };
 pub use scope_analysis::{
