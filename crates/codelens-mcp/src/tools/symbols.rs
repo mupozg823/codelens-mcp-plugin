@@ -526,17 +526,25 @@ fn merge_semantic_ranked_entries(
 
     let query_word_count = query.split_whitespace().count();
     let is_short_phrase = (2..4).contains(&query_word_count);
-    let (semantic_base, decay_per_rank, semantic_strength, effective_limit) =
-        if query_word_count >= 4 {
-            (150, 16, 60.0, max_semantic_entries.min(6))
-        } else if query_word_count >= 2 {
-            // Short phrases benefit from a strong semantic top hit, but semantic-only
-            // tails quickly crowd out good lexical candidates. Limit the tail and only
-            // allow a new semantic-only insertion for the top, high-confidence match.
-            (115, 35, 60.0, max_semantic_entries.min(2))
-        } else {
-            (120, 24, 50.0, max_semantic_entries.min(3))
-        };
+    let effective_limit = if query_word_count >= 4 {
+        max_semantic_entries.min(6)
+    } else if query_word_count >= 2 {
+        max_semantic_entries.min(2)
+    } else {
+        max_semantic_entries.min(3)
+    };
+    let semantic_max = semantic_results
+        .iter()
+        .map(|sem| sem.score)
+        .fold(0.0_f64, f64::max)
+        .max(0.05);
+    let insertion_floor = if query_word_count >= 4 {
+        0.10
+    } else if is_short_phrase {
+        0.18
+    } else {
+        0.12
+    };
 
     for (rank_idx, sem) in semantic_results
         .into_iter()
@@ -547,15 +555,17 @@ fn merge_semantic_ranked_entries(
             continue;
         }
         let key = format!("{}:{}", sem.file_path, sem.symbol_name);
-        let semantic_score = (semantic_base - (rank_idx as i32 * decay_per_rank)
-            + (sem.score * semantic_strength) as i32)
-            .clamp(1, 220);
+        let normalized_semantic = ((sem.score / semantic_max) * 100.0).clamp(1.0, 100.0) as i32;
+        let semantic_score = (normalized_semantic - (rank_idx as i32 * 8)).clamp(1, 100);
         if let Some(idx) = index_by_key.get(&key).copied() {
             result.symbols[idx].relevance_score =
                 result.symbols[idx].relevance_score.max(semantic_score);
             continue;
         }
-        if is_short_phrase && (rank_idx > 0 || sem.score < 0.18) {
+        if sem.score < insertion_floor {
+            continue;
+        }
+        if is_short_phrase && rank_idx > 0 {
             continue;
         }
 
@@ -1023,14 +1033,14 @@ mod tests {
 
         assert_eq!(result.symbols[0].name, "rename_symbol");
         assert!(result.symbols[0].relevance_score >= 90);
-        assert_eq!(
+        assert!(
             result
                 .symbols
                 .iter()
                 .find(|entry| entry.name == "project_scope_renames_across_files")
                 .unwrap()
-                .relevance_score,
-            174
+                .relevance_score
+                > 32
         );
     }
 
