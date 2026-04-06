@@ -116,15 +116,46 @@ pub(crate) fn compact_response_payload(resp: &mut ToolCallResponse) {
     }
 }
 
+/// Adaptive compression based on OpenDev 5-stage strategy (arxiv:2603.05344).
+/// Stage 1: <75% budget → pass through
+/// Stage 2: 75-85% → summarize structured content (depth=1)
+/// Stage 3: 85-95% → aggressive summarize (depth=0)
+/// Stage 4: 95-100% → drop structured content entirely
+/// Stage 5: >100% → hard truncation to error payload
 pub(crate) fn bounded_result_payload(
     mut text: String,
     mut structured_content: Option<Value>,
     payload_estimate: usize,
     effective_budget: usize,
 ) -> (String, Option<Value>, bool) {
+    let usage_pct = if effective_budget > 0 {
+        payload_estimate * 100 / effective_budget
+    } else {
+        100
+    };
     let max_chars = effective_budget * 8;
     let mut truncated = false;
-    if text.len() > max_chars {
+
+    if usage_pct <= 75 {
+        // Stage 1: pass through
+    } else if usage_pct <= 85 {
+        // Stage 2: light summarization
+        if let Some(existing) = structured_content.as_ref() {
+            structured_content = Some(summarize_structured_content(existing, 1));
+        }
+    } else if usage_pct <= 95 {
+        // Stage 3: aggressive summarization
+        if let Some(existing) = structured_content.as_ref() {
+            structured_content = Some(summarize_structured_content(existing, 0));
+        }
+    } else if text.len() <= max_chars {
+        // Stage 4: aggressive summarize structured, keep text
+        if let Some(existing) = structured_content.as_ref() {
+            structured_content = Some(summarize_structured_content(existing, 0));
+        }
+        truncated = true;
+    } else {
+        // Stage 5: hard truncation — summarize structured to minimal skeleton
         truncated = true;
         if let Some(existing) = structured_content.as_ref() {
             structured_content = Some(summarize_structured_content(existing, 0));
@@ -132,6 +163,7 @@ pub(crate) fn bounded_result_payload(
         text = serde_json::to_string(&json!({
             "success": true,
             "truncated": true,
+            "compression_stage": 5,
             "error": format!(
                 "Response too large ({} tokens, budget {}). Narrow with path, max_tokens, or depth.",
                 payload_estimate, effective_budget

@@ -21,7 +21,16 @@ use serde_json::Value;
 use std::collections::VecDeque;
 
 const WATCHER_RECENT_FAILURE_WINDOW_SECS: i64 = 15 * 60;
-pub(crate) const PREFLIGHT_TTL_MS: u64 = 10 * 60 * 1000;
+/// Default preflight TTL: 10 minutes. Override via CODELENS_PREFLIGHT_TTL_SECS.
+/// NLAH (arxiv:2603.25723): overly strict verifiers hurt performance by -0.8~-8.4%.
+/// Making TTL configurable lets agents tune verification overhead vs safety.
+pub(crate) fn preflight_ttl_ms() -> u64 {
+    std::env::var("CODELENS_PREFLIGHT_TTL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|secs| secs * 1000)
+        .unwrap_or(10 * 60 * 1000) // default 10 min
+}
 
 pub(crate) use crate::client_profile::ClientProfile;
 pub(crate) use crate::runtime_types::{
@@ -121,7 +130,7 @@ impl AppState {
     }
 
     pub(crate) fn preflight_ttl_seconds(&self) -> u64 {
-        PREFLIGHT_TTL_MS / 1000
+        preflight_ttl_ms() / 1000
     }
 
     fn preflight_key(&self, logical_session: &str) -> String {

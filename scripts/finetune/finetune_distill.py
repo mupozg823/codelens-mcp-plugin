@@ -207,11 +207,22 @@ def stage1_distill(student, teacher_model, teacher_tokenizer, texts, args):
 
 
 def stage2_finetune(student, triplets_path, args):
-    """Fine-tune with MultipleNegativesRankingLoss."""
+    """Fine-tune with SPENCER-style distillation losses (NOT contrastive/MNRL).
+
+    SPENCER (arxiv:2508.00546) finding: contrastive loss during distillation
+    HURTS performance by -8.6%. Use only:
+    - CosineSimilarityLoss (dual-modality: preserve query-code similarity)
+    - MSELoss via teacher alignment is already done in Stage 1.
+
+    Previous version used MNRL here — that was the anti-pattern SPENCER warned about.
+    """
     from sentence_transformers import InputExample, losses
     from torch.utils.data import DataLoader
 
-    print(f"\n=== Stage 2: MNRL Fine-tuning ({args.finetune_epochs} epochs) ===")
+    print(
+        f"\n=== Stage 2: CosineSimilarity Fine-tuning ({args.finetune_epochs} epochs) ==="
+    )
+    print("  (SPENCER: contrastive/MNRL removed — uses cosine similarity only)")
 
     pairs = []
     with open(triplets_path) as f:
@@ -222,9 +233,10 @@ def stage2_finetune(student, triplets_path, args):
 
     print(f"  Loaded {len(pairs)} query-positive pairs")
 
-    examples = [InputExample(texts=[q, p]) for q, p in pairs]
+    # SPENCER dual-modality loss: CosineSimilarityLoss with label=1.0 (positive pairs)
+    examples = [InputExample(texts=[q, p], label=1.0) for q, p in pairs]
     dataloader = DataLoader(examples, shuffle=True, batch_size=args.batch_size)
-    loss = losses.MultipleNegativesRankingLoss(model=student)
+    loss = losses.CosineSimilarityLoss(model=student)
 
     model_output = Path(args.output) / "model"
     model_output.mkdir(parents=True, exist_ok=True)

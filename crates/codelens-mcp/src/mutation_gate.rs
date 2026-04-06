@@ -146,7 +146,7 @@ pub(crate) fn evaluate_mutation_gate(
         ));
     };
 
-    if now_ms().saturating_sub(preflight.timestamp_ms) > crate::state::PREFLIGHT_TTL_MS {
+    if now_ms().saturating_sub(preflight.timestamp_ms) > crate::state::preflight_ttl_ms() {
         return Err(mutation_gate_failure(
             name,
             format!("Tool `{name}` is blocked because the last `{}` preflight from surface `{}` is stale. Re-run verifier tools within {} seconds before mutating.",
