@@ -1178,8 +1178,8 @@ impl EmbeddingEngine {
 
     /// Index all symbols from the project's symbol database into the embedding index.
     ///
-    /// Uses streaming batches: prepare text → embed → upsert → drop per batch,
-    /// so only one batch worth of data is in memory at a time.
+    /// Reconciles the embedding store file-by-file so unchanged symbols can
+    /// reuse their existing vectors and only changed/new symbols are re-embedded.
     /// Caps at a configurable max to prevent runaway on huge projects.
     /// Returns true if a full reindex is currently in progress.
     pub fn is_indexing(&self) -> bool {
@@ -1215,75 +1215,160 @@ impl EmbeddingEngine {
         let symbol_db = IndexDb::open(&db_path)?;
         let batch_size = embed_batch_size();
         let max_symbols = max_embed_symbols();
-
-        // Full reindex: clear existing data first
-        self.store.clear()?;
-
-        let mut model = self
-            .model
-            .lock()
-            .map_err(|_| anyhow::anyhow!("model lock"))?;
-
         let mut total_indexed = 0usize;
         let mut total_seen = 0usize;
-        let mut batch_texts: Vec<String> = Vec::with_capacity(batch_size);
-        let mut batch_meta: Vec<crate::db::SymbolWithFile> = Vec::with_capacity(batch_size);
+        let mut model = None;
+        let mut existing_embeddings: HashMap<
+            String,
+            HashMap<ReusableEmbeddingKey, EmbeddingChunk>,
+        > = HashMap::new();
+        let mut current_db_files = HashSet::new();
+        let mut capped = false;
 
-        // File source cache: read once per file, shared across symbols in that file
-        let mut current_file = String::new();
-        let mut current_source: Option<String> = None;
+        self.store
+            .for_each_file_embeddings(&mut |file_path, chunks| {
+                existing_embeddings.insert(
+                    file_path,
+                    chunks
+                        .into_iter()
+                        .map(|chunk| (reusable_embedding_key_for_chunk(&chunk), chunk))
+                        .collect(),
+                );
+                Ok(())
+            })?;
 
-        // Stream symbols from DB via callback — no Vec<SymbolWithFile> allocation
-        symbol_db.for_each_symbol_with_bytes(|sym| {
-            // Cache file source per-file group
-            if sym.file_path != current_file {
-                current_file = sym.file_path.clone();
-                current_source =
-                    std::fs::read_to_string(project.as_path().join(&current_file)).ok();
-            }
-
-            if is_test_only_symbol(&sym, current_source.as_deref()) {
+        symbol_db.for_each_file_symbols_with_bytes(|file_path, symbols| {
+            current_db_files.insert(file_path.clone());
+            if capped {
                 return Ok(());
             }
 
-            total_seen += 1;
-            if total_seen > max_symbols {
-                return Ok(()); // skip remaining, will flush what we have
+            let source = std::fs::read_to_string(project.as_path().join(&file_path)).ok();
+            let relevant_symbols: Vec<_> = symbols
+                .into_iter()
+                .filter(|sym| !is_test_only_symbol(sym, source.as_deref()))
+                .collect();
+
+            if relevant_symbols.is_empty() {
+                self.store.delete_by_file(&[file_path.as_str()])?;
+                existing_embeddings.remove(&file_path);
+                return Ok(());
             }
 
-            batch_texts.push(build_embedding_text(&sym, current_source.as_deref()));
-            batch_meta.push(sym);
-
-            if batch_texts.len() >= batch_size {
-                total_indexed +=
-                    Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
-                batch_texts.clear();
-                batch_meta.clear();
+            if total_seen + relevant_symbols.len() > max_symbols {
+                capped = true;
+                return Ok(());
             }
+            total_seen += relevant_symbols.len();
+
+            let existing_for_file = existing_embeddings.remove(&file_path).unwrap_or_default();
+            total_indexed += self.reconcile_file_embeddings(
+                &file_path,
+                relevant_symbols,
+                source.as_deref(),
+                existing_for_file,
+                batch_size,
+                &mut model,
+            )?;
             Ok(())
         })?;
 
-        // Flush remaining
-        if !batch_texts.is_empty() {
-            total_indexed +=
-                Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
+        let removed_files: Vec<String> = existing_embeddings
+            .into_keys()
+            .filter(|file_path| !current_db_files.contains(file_path))
+            .collect();
+        if !removed_files.is_empty() {
+            let removed_refs: Vec<&str> = removed_files.iter().map(String::as_str).collect();
+            self.store.delete_by_file(&removed_refs)?;
         }
 
-        drop(model);
         Ok(total_indexed)
     }
 
-    /// Embed one batch of texts and upsert immediately, then the caller drops the batch.
-    fn flush_batch(
+    fn reconcile_file_embeddings<'a>(
+        &'a self,
+        file_path: &str,
+        symbols: Vec<crate::db::SymbolWithFile>,
+        source: Option<&str>,
+        mut existing_embeddings: HashMap<ReusableEmbeddingKey, EmbeddingChunk>,
+        batch_size: usize,
+        model: &mut Option<std::sync::MutexGuard<'a, TextEmbedding>>,
+    ) -> Result<usize> {
+        let mut reconciled_chunks = Vec::with_capacity(symbols.len());
+        let mut batch_texts: Vec<String> = Vec::with_capacity(batch_size);
+        let mut batch_meta: Vec<crate::db::SymbolWithFile> = Vec::with_capacity(batch_size);
+
+        for sym in symbols {
+            let text = build_embedding_text(&sym, source);
+            if let Some(existing) =
+                existing_embeddings.remove(&reusable_embedding_key_for_symbol(&sym, &text))
+            {
+                reconciled_chunks.push(EmbeddingChunk {
+                    file_path: sym.file_path.clone(),
+                    symbol_name: sym.name.clone(),
+                    kind: sym.kind.clone(),
+                    line: sym.line as usize,
+                    signature: sym.signature.clone(),
+                    name_path: sym.name_path.clone(),
+                    text,
+                    embedding: existing.embedding,
+                    doc_embedding: existing.doc_embedding,
+                });
+                continue;
+            }
+
+            batch_texts.push(text);
+            batch_meta.push(sym);
+
+            if batch_texts.len() >= batch_size {
+                if model.is_none() {
+                    *model = Some(
+                        self.model
+                            .lock()
+                            .map_err(|_| anyhow::anyhow!("model lock"))?,
+                    );
+                }
+                reconciled_chunks.extend(Self::embed_chunks(
+                    model.as_mut().expect("model lock initialized"),
+                    &batch_texts,
+                    &batch_meta,
+                )?);
+                batch_texts.clear();
+                batch_meta.clear();
+            }
+        }
+
+        if !batch_texts.is_empty() {
+            if model.is_none() {
+                *model = Some(
+                    self.model
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("model lock"))?,
+                );
+            }
+            reconciled_chunks.extend(Self::embed_chunks(
+                model.as_mut().expect("model lock initialized"),
+                &batch_texts,
+                &batch_meta,
+            )?);
+        }
+
+        self.store.delete_by_file(&[file_path])?;
+        if reconciled_chunks.is_empty() {
+            return Ok(0);
+        }
+        self.store.insert(&reconciled_chunks)
+    }
+
+    fn embed_chunks(
         model: &mut TextEmbedding,
-        store: &dyn EmbeddingStore,
         texts: &[String],
         meta: &[crate::db::SymbolWithFile],
-    ) -> Result<usize> {
+    ) -> Result<Vec<EmbeddingChunk>> {
         let batch_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
         let embeddings = model.embed(batch_refs, None).context("embedding failed")?;
 
-        let chunks: Vec<EmbeddingChunk> = meta
+        Ok(meta
             .iter()
             .zip(embeddings)
             .zip(texts.iter())
@@ -1298,8 +1383,17 @@ impl EmbeddingEngine {
                 embedding: emb,
                 doc_embedding: None,
             })
-            .collect();
+            .collect())
+    }
 
+    /// Embed one batch of texts and upsert immediately, then the caller drops the batch.
+    fn flush_batch(
+        model: &mut TextEmbedding,
+        store: &dyn EmbeddingStore,
+        texts: &[String],
+        meta: &[crate::db::SymbolWithFile],
+    ) -> Result<usize> {
+        let chunks = Self::embed_chunks(model, texts, meta)?;
         store.insert(&chunks)
     }
 
@@ -1982,45 +2076,80 @@ mod tests {
 
         // Write a source file so body extraction works
         let source = "def hello():\n    print('hi')\n\ndef world():\n    return 42\n";
-        std::fs::write(root.join("main.py"), source).unwrap();
-
-        // Seed the symbol DB
-        let db_path = crate::db::index_db_path(root);
-        let db = IndexDb::open(&db_path).unwrap();
-        let fid = db
-            .upsert_file("main.py", 100, "hash1", source.len() as i64, Some("py"))
-            .unwrap();
-        db.insert_symbols(
-            fid,
+        write_python_file_with_symbols(
+            root,
+            "main.py",
+            source,
+            "hash1",
             &[
-                NewSymbol {
-                    name: "hello",
-                    kind: "function",
-                    line: 1,
-                    column_num: 0,
-                    start_byte: 0,
-                    end_byte: 29,
-                    signature: "def hello():",
-                    name_path: "hello",
-                    parent_id: None,
-                },
-                NewSymbol {
-                    name: "world",
-                    kind: "function",
-                    line: 4,
-                    column_num: 0,
-                    start_byte: 30,
-                    end_byte: 55,
-                    signature: "def world():",
-                    name_path: "world",
-                    parent_id: None,
-                },
+                ("hello", "def hello():", "hello"),
+                ("world", "def world():", "world"),
             ],
-        )
-        .unwrap();
+        );
 
         let project = ProjectRoot::new_exact(root).unwrap();
         (dir, project)
+    }
+
+    fn write_python_file_with_symbols(
+        root: &std::path::Path,
+        relative_path: &str,
+        source: &str,
+        hash: &str,
+        symbols: &[(&str, &str, &str)],
+    ) {
+        std::fs::write(root.join(relative_path), source).unwrap();
+        let db_path = crate::db::index_db_path(root);
+        let db = IndexDb::open(&db_path).unwrap();
+        let file_id = db
+            .upsert_file(relative_path, 100, hash, source.len() as i64, Some("py"))
+            .unwrap();
+
+        let new_symbols: Vec<NewSymbol<'_>> = symbols
+            .iter()
+            .map(|(name, signature, name_path)| {
+                let start = source.find(signature).unwrap() as i64;
+                let end = source[start as usize..]
+                    .find("\n\ndef ")
+                    .map(|offset| start + offset as i64)
+                    .unwrap_or(source.len() as i64);
+                let line = source[..start as usize]
+                    .bytes()
+                    .filter(|&b| b == b'\n')
+                    .count() as i64
+                    + 1;
+                NewSymbol {
+                    name,
+                    kind: "function",
+                    line,
+                    column_num: 0,
+                    start_byte: start,
+                    end_byte: end,
+                    signature,
+                    name_path,
+                    parent_id: None,
+                }
+            })
+            .collect();
+        db.insert_symbols(file_id, &new_symbols).unwrap();
+    }
+
+    fn replace_file_embeddings_with_sentinels(
+        engine: &EmbeddingEngine,
+        file_path: &str,
+        sentinels: &[(&str, f32)],
+    ) {
+        let mut chunks = engine.store.embeddings_for_files(&[file_path]).unwrap();
+        for chunk in &mut chunks {
+            if let Some((_, value)) = sentinels
+                .iter()
+                .find(|(symbol_name, _)| *symbol_name == chunk.symbol_name)
+            {
+                chunk.embedding = vec![*value; chunk.embedding.len()];
+            }
+        }
+        engine.store.delete_by_file(&[file_path]).unwrap();
+        engine.store.insert(&chunks).unwrap();
     }
 
     #[test]
@@ -2212,17 +2341,123 @@ mod tests {
     }
 
     #[test]
-    fn engine_reindex_clears_old_data() {
+    fn engine_reindex_preserves_symbol_count() {
         let _lock = MODEL_LOCK.lock().unwrap();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
         assert_eq!(engine.store.count().unwrap(), 2);
 
-        // Full reindex should clear and rebuild
         let count = engine.index_from_project(&project).unwrap();
         assert_eq!(count, 2);
         assert_eq!(engine.store.count().unwrap(), 2);
+    }
+
+    #[test]
+    fn full_reindex_reuses_unchanged_embeddings() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        replace_file_embeddings_with_sentinels(
+            &engine,
+            "main.py",
+            &[("hello", 11.0), ("world", 22.0)],
+        );
+
+        let count = engine.index_from_project(&project).unwrap();
+        assert_eq!(count, 2);
+
+        let hello = engine
+            .store
+            .get_embedding("main.py", "hello")
+            .unwrap()
+            .expect("hello should exist");
+        let world = engine
+            .store
+            .get_embedding("main.py", "world")
+            .unwrap()
+            .expect("world should exist");
+        assert!(hello.embedding.iter().all(|value| *value == 11.0));
+        assert!(world.embedding.iter().all(|value| *value == 22.0));
+    }
+
+    #[test]
+    fn full_reindex_reuses_unchanged_sibling_after_edit() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        replace_file_embeddings_with_sentinels(
+            &engine,
+            "main.py",
+            &[("hello", 11.0), ("world", 22.0)],
+        );
+
+        let updated_source =
+            "def hello():\n    print('hi')\n\ndef world(name):\n    return name.upper()\n";
+        write_python_file_with_symbols(
+            dir.path(),
+            "main.py",
+            updated_source,
+            "hash2",
+            &[
+                ("hello", "def hello():", "hello"),
+                ("world", "def world(name):", "world"),
+            ],
+        );
+
+        let count = engine.index_from_project(&project).unwrap();
+        assert_eq!(count, 2);
+
+        let hello = engine
+            .store
+            .get_embedding("main.py", "hello")
+            .unwrap()
+            .expect("hello should exist");
+        let world = engine
+            .store
+            .get_embedding("main.py", "world")
+            .unwrap()
+            .expect("world should exist");
+        assert!(hello.embedding.iter().all(|value| *value == 11.0));
+        assert!(world.embedding.iter().any(|value| *value != 22.0));
+        assert_eq!(engine.store.count().unwrap(), 2);
+    }
+
+    #[test]
+    fn full_reindex_removes_deleted_files() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (dir, project) = make_project_with_source();
+        write_python_file_with_symbols(
+            dir.path(),
+            "extra.py",
+            "def bonus():\n    return 7\n",
+            "hash-extra",
+            &[("bonus", "def bonus():", "bonus")],
+        );
+
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+        assert_eq!(engine.store.count().unwrap(), 3);
+
+        std::fs::remove_file(dir.path().join("extra.py")).unwrap();
+        let db_path = crate::db::index_db_path(dir.path());
+        let db = IndexDb::open(&db_path).unwrap();
+        db.delete_file("extra.py").unwrap();
+
+        let count = engine.index_from_project(&project).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(engine.store.count().unwrap(), 2);
+        assert!(
+            engine
+                .store
+                .embeddings_for_files(&["extra.py"])
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

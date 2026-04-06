@@ -112,6 +112,7 @@ pub trait EmbeddingStore: Send + Sync {
 
     /// Stream stored chunks grouped by file path for per-file analysis without
     /// requiring callers to materialize the entire index first.
+    /// Full and incremental reindex reconciliation rely on this grouping.
     fn for_each_file_embeddings(
         &self,
         visitor: &mut dyn FnMut(String, Vec<EmbeddingChunk>) -> Result<()>,

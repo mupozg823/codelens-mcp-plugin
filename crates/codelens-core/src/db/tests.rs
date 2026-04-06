@@ -106,6 +106,83 @@ fn upsert_file_clears_old_symbols() {
 }
 
 #[test]
+fn streams_symbols_grouped_by_file_in_path_order() {
+    let db = IndexDb::open_memory().unwrap();
+    let b_file_id = db.upsert_file("b.py", 100, "hb", 10, Some("py")).unwrap();
+    let a_file_id = db.upsert_file("a.py", 100, "ha", 10, Some("py")).unwrap();
+
+    db.insert_symbols(
+        b_file_id,
+        &[
+            NewSymbol {
+                name: "b_second",
+                kind: "function",
+                line: 2,
+                column_num: 0,
+                start_byte: 20,
+                end_byte: 30,
+                signature: "def b_second():",
+                name_path: "b_second",
+                parent_id: None,
+            },
+            NewSymbol {
+                name: "b_first",
+                kind: "function",
+                line: 1,
+                column_num: 0,
+                start_byte: 0,
+                end_byte: 10,
+                signature: "def b_first():",
+                name_path: "b_first",
+                parent_id: None,
+            },
+        ],
+    )
+    .unwrap();
+    db.insert_symbols(
+        a_file_id,
+        &[NewSymbol {
+            name: "a_only",
+            kind: "function",
+            line: 1,
+            column_num: 0,
+            start_byte: 0,
+            end_byte: 10,
+            signature: "def a_only():",
+            name_path: "a_only",
+            parent_id: None,
+        }],
+    )
+    .unwrap();
+
+    let mut groups = Vec::new();
+    let count = db
+        .for_each_file_symbols_with_bytes(|file_path, symbols| {
+            groups.push((
+                file_path,
+                symbols
+                    .into_iter()
+                    .map(|symbol| symbol.name)
+                    .collect::<Vec<_>>(),
+            ));
+            Ok(())
+        })
+        .unwrap();
+
+    assert_eq!(count, 3);
+    assert_eq!(
+        groups,
+        vec![
+            ("a.py".to_string(), vec!["a_only".to_string()]),
+            (
+                "b.py".to_string(),
+                vec!["b_first".to_string(), "b_second".to_string()]
+            ),
+        ]
+    );
+}
+
+#[test]
 fn import_graph_operations() {
     let db = IndexDb::open_memory().unwrap();
     let main_id = db
