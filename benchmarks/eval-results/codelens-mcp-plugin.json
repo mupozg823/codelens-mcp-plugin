@@ -1,0 +1,24 @@
+{
+  "repo": "codelens-mcp-plugin",
+  "path": "/Users/bagjaeseog/codelens-mcp-plugin",
+  "symbol_resolution": {
+    "score": 0,
+    "reason": "no symbols"
+  },
+  "semantic_search": {
+    "mrr": 1.0,
+    "indexed": 3480
+  },
+  "call_graph": {
+    "score": 0
+  },
+  "architecture": {
+    "modularity": 0.142,
+    "communities": 12,
+    "files": 182
+  },
+  "latency": {
+    "p50_ms": 19.829988479614258,
+    "p95_ms": 20.889997482299805
+  }
+}

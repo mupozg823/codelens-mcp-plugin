@@ -52,7 +52,7 @@ tree-sitter-html.workspace = true
 tree-sitter-toml-updated.workspace = true
 tree-sitter-yaml.workspace = true
 tree-sitter-clojure.workspace = true
-# tree-sitter-perl deferred until tree-sitter 0.26 upgrade
+# make/dockerfile/vim/fsharp/perl need tree-sitter 0.26
 notify.workspace = true
 notify-debouncer-mini.workspace = true
 url.workspace = true

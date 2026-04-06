@@ -1,0 +1,7 @@
+{
+  "total_repos": 1,
+  "avg_symbol_resolution": 0.0,
+  "avg_semantic_mrr": 1.0,
+  "avg_modularity": 0.142,
+  "avg_p50_ms": 19.829988479614258
+}
