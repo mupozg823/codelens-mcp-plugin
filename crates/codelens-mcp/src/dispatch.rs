@@ -141,6 +141,13 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     {
         prior += 0.12;
     }
+    if (query_lower.contains("mutation")
+        || query_lower.contains("preflight")
+        || query_lower.contains("gate"))
+        && result.file_path.contains("mutation_gate")
+    {
+        prior += 0.18;
+    }
     if query_lower.contains("http") && result.file_path.contains("transport_http") {
         prior += 0.12;
     }
@@ -596,6 +603,36 @@ mod semantic_tests {
         );
 
         assert_eq!(reranked[0].symbol_name, "run_stdio");
+    }
+
+    #[test]
+    fn prefers_mutation_gate_entrypoint_over_telemetry_helpers() {
+        let reranked = rerank_semantic_matches(
+            "mutation gate preflight check before editing evaluate_mutation_gate mutation_gate preflight",
+            vec![
+                semantic_match(
+                    "crates/codelens-mcp/src/telemetry.rs",
+                    "record_mutation_preflight_checked",
+                    "function",
+                    0.402,
+                ),
+                semantic_match(
+                    "crates/codelens-mcp/src/telemetry.rs",
+                    "record_mutation_preflight_gate_denied",
+                    "function",
+                    0.314,
+                ),
+                semantic_match(
+                    "crates/codelens-mcp/src/mutation_gate.rs",
+                    "evaluate_mutation_gate",
+                    "function",
+                    0.280,
+                ),
+            ],
+            3,
+        );
+
+        assert_eq!(reranked[0].symbol_name, "evaluate_mutation_gate");
     }
 
     #[test]

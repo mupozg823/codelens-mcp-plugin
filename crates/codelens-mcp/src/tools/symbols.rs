@@ -26,7 +26,7 @@ fn is_natural_language_query(query: &str) -> bool {
     let trimmed = query.trim();
     !trimmed.is_empty()
         && !query_prefers_lexical_only(trimmed)
-        && trimmed.split_whitespace().count() >= 4
+        && trimmed.split_whitespace().count() >= 3
 }
 
 pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
