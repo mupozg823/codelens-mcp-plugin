@@ -1,6 +1,8 @@
 [target.aarch64-apple-darwin]
 linker = "hooks/clang-linker.sh"
-rustflags = ["-C", "target-cpu=apple-m1"]
+# Local Apple Silicon builds should use the host CPU instead of pinning to M1.
+# Override with custom RUSTFLAGS when building portable release artifacts.
+rustflags = ["-C", "target-cpu=native"]
 
 [target.x86_64-apple-darwin]
 linker = "hooks/clang-linker.sh"

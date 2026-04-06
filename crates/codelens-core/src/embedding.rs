@@ -10,6 +10,7 @@ use rusqlite::Connection;
 use serde::Serialize;
 use std::sync::{Mutex, Once};
 use std::thread::available_parallelism;
+use tracing::debug;
 
 /// Isolated unsafe FFI — the only module allowed to use `unsafe`.
 mod ffi {
@@ -25,6 +26,22 @@ mod ffi {
             anyhow::bail!("failed to register sqlite-vec extension (SQLite error code: {rc})");
         }
         Ok(())
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn sysctl_usize(name: &[u8]) -> Option<usize> {
+        let mut value: libc::c_uint = 0;
+        let mut size = std::mem::size_of::<libc::c_uint>();
+        let rc = unsafe {
+            libc::sysctlbyname(
+                name.as_ptr().cast(),
+                (&mut value as *mut libc::c_uint).cast(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        (rc == 0 && size == std::mem::size_of::<libc::c_uint>()).then_some(value as usize)
     }
 }
 
@@ -379,6 +396,36 @@ fn parse_usize_env(name: &str) -> Option<usize> {
         .filter(|v| *v > 0)
 }
 
+#[cfg(target_os = "macos")]
+fn apple_perf_cores() -> Option<usize> {
+    ffi::sysctl_usize(b"hw.perflevel0.physicalcpu\0")
+        .filter(|value| *value > 0)
+        .or_else(|| ffi::sysctl_usize(b"hw.physicalcpu\0").filter(|value| *value > 0))
+}
+
+#[cfg(not(target_os = "macos"))]
+fn apple_perf_cores() -> Option<usize> {
+    None
+}
+
+pub fn configured_embedding_runtime_preference() -> String {
+    let requested = std::env::var("CODELENS_EMBED_PROVIDER")
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase());
+
+    match requested.as_deref() {
+        Some("cpu") => "cpu".to_string(),
+        Some("coreml") if cfg!(target_os = "macos") => "coreml".to_string(),
+        Some("coreml") => "cpu".to_string(),
+        _ if cfg!(target_os = "macos") => "coreml_preferred".to_string(),
+        _ => "cpu".to_string(),
+    }
+}
+
+pub fn configured_embedding_threads() -> usize {
+    recommended_embed_threads()
+}
+
 fn recommended_embed_threads() -> usize {
     if let Some(explicit) = parse_usize_env("CODELENS_EMBED_THREADS") {
         return explicit.max(1);
@@ -386,7 +433,7 @@ fn recommended_embed_threads() -> usize {
 
     let available = available_parallelism().map(|n| n.get()).unwrap_or(1);
     if cfg!(target_os = "macos") {
-        available.min(4).max(1)
+        apple_perf_cores().unwrap_or(available).min(available).clamp(1, 8)
     } else {
         available.div_ceil(2).clamp(1, 8)
     }
@@ -418,6 +465,7 @@ fn set_env_if_unset(name: &str, value: impl Into<String>) {
 
 fn configure_embedding_runtime() {
     let threads = recommended_embed_threads();
+    let runtime_preference = configured_embedding_runtime_preference();
 
     // OpenMP-backed ORT builds ignore SessionBuilder::with_intra_threads, so set
     // the process knobs as well. Keep these best-effort and only fill defaults.
@@ -443,6 +491,12 @@ fn configure_embedding_runtime() {
                 .commit();
         }
     });
+
+    debug!(
+        threads,
+        runtime_preference = %runtime_preference,
+        "configured embedding runtime"
+    );
 }
 
 /// Load the CodeSearchNet model from sidecar files (MiniLM-L12 fine-tuned, ONNX INT8).
@@ -471,16 +525,25 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
         },
     );
 
-    // Try CoreML EP on macOS for Apple Neural Engine acceleration; silently falls back to CPU
-    let init_opts = if cfg!(target_os = "macos") {
-        let coreml_ep: fastembed::ExecutionProviderDispatch = ort::ep::CoreML::default().into();
-        InitOptionsUserDefined::new().with_execution_providers(vec![coreml_ep.fail_silently()])
-    } else {
-        InitOptionsUserDefined::new()
+    let runtime_preference = configured_embedding_runtime_preference();
+    // Try CoreML EP on macOS for Apple Neural Engine acceleration; silently falls back to CPU.
+    let init_opts = match runtime_preference.as_str() {
+        "cpu" => InitOptionsUserDefined::new(),
+        _ if cfg!(target_os = "macos") => {
+            let coreml_ep: fastembed::ExecutionProviderDispatch = ort::ep::CoreML::default().into();
+            InitOptionsUserDefined::new().with_execution_providers(vec![coreml_ep.fail_silently()])
+        }
+        _ => InitOptionsUserDefined::new(),
     };
 
     let model = TextEmbedding::try_new_from_user_defined(user_model, init_opts)
         .context("failed to load CodeSearchNet embedding model")?;
+
+    debug!(
+        threads = configured_embedding_threads(),
+        runtime_preference = %runtime_preference,
+        "loaded CodeSearchNet embedding model"
+    );
 
     Ok((
         model,
@@ -1508,7 +1571,7 @@ mod tests {
         let threads = recommended_embed_threads();
         assert!(threads >= 1);
         if cfg!(target_os = "macos") {
-            assert!(threads <= 4);
+            assert!(threads <= 8);
         } else {
             assert!(threads <= 8);
         }

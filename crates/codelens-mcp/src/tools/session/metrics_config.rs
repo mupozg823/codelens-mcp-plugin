@@ -102,6 +102,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     let embeddings_loaded = false;
 
     let configured_embedding_model = codelens_core::configured_embedding_model_name();
+    let embedding_runtime_preference = codelens_core::configured_embedding_runtime_preference();
+    let embedding_threads = codelens_core::configured_embedding_threads();
 
     #[cfg(feature = "semantic")]
     let embedding_index_info = state
@@ -169,6 +171,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "lsp_attached": lsp_attached,
             "embeddings_loaded": embeddings_loaded,
             "embedding_model": configured_embedding_model,
+            "embedding_runtime_preference": embedding_runtime_preference,
+            "embedding_threads": embedding_threads,
             "embedding_indexed": embedding_index_info.as_ref().map(|info| info.indexed_symbols > 0).unwrap_or(false),
             "embedding_indexed_symbols": embedding_index_info.as_ref().map(|info| info.indexed_symbols).unwrap_or(0),
             "index_fresh": index_fresh,

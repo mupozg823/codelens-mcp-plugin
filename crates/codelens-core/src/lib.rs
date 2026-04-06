@@ -63,6 +63,7 @@ pub mod oxc_analysis;
 #[cfg(feature = "semantic")]
 pub use embedding::{
     EmbeddingEngine, EmbeddingIndexInfo, SemanticMatch, configured_embedding_model_name,
+    configured_embedding_runtime_preference, configured_embedding_threads,
 };
 pub use scope_analysis::{
     ReferenceKind, ScopedReference, find_scoped_references, find_scoped_references_in_file,
