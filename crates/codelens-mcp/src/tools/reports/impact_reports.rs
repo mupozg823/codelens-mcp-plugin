@@ -1,8 +1,8 @@
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use crate::tools::symbols::{semantic_results_for_query, semantic_status};
-use crate::tools::{AppState, ToolResult, required_string};
-use serde_json::{Value, json};
+use crate::tools::{required_string, AppState, ToolResult};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 fn semantic_status_is_ready(status: &Value) -> bool {
@@ -109,12 +109,8 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         .trim_end_matches(".tsx")
         .trim_end_matches(".py")
         .replace('_', " ");
-    let initial_semantic_status = semantic_status(state);
-    let sem_results = if semantic_status_is_ready(&initial_semantic_status) {
-        semantic_results_for_query(state, &module_name, 10, false)
-    } else {
-        Vec::new()
-    };
+    // Always attempt semantic query — get_or_init will lazy-load the embedding engine
+    let sem_results = semantic_results_for_query(state, &module_name, 10, false);
     let semantic_coupling: Vec<Value> = sem_results
         .into_iter()
         .filter(|r| r.score > 0.12 && !r.file_path.contains(path))
@@ -179,39 +175,35 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
         .collect::<Vec<_>>();
     // Semantic enrichment: for each dead code candidate, find similar live symbols
     // to help verify it's truly unused (not just unreferenced by a different name).
-    let initial_semantic_status = semantic_status(state);
-    let semantic_hints: Vec<Value> = if semantic_status_is_ready(&initial_semantic_status) {
-        candidates
-            .iter()
-            .filter_map(|entry| {
-                let name = entry
-                    .get("name")
-                    .or_else(|| entry.get("symbol"))
-                    .and_then(|v| v.as_str())?;
-                let results = semantic_results_for_query(state, name, 3, false);
-                if results.is_empty() {
-                    return None;
-                }
-                let similar: Vec<Value> = results
-                    .into_iter()
-                    .filter(|r| r.score > 0.15)
-                    .map(|r| {
-                        json!({
-                            "symbol": r.symbol_name,
-                            "file": r.file_path,
-                            "score": (r.score * 1000.0).round() / 1000.0,
-                        })
+    // Always attempt semantic query — lazy-loads embedding engine via get_or_init
+    let semantic_hints: Vec<Value> = candidates
+        .iter()
+        .filter_map(|entry| {
+            let name = entry
+                .get("name")
+                .or_else(|| entry.get("symbol"))
+                .and_then(|v| v.as_str())?;
+            let results = semantic_results_for_query(state, name, 3, false);
+            if results.is_empty() {
+                return None;
+            }
+            let similar: Vec<Value> = results
+                .into_iter()
+                .filter(|r| r.score > 0.15)
+                .map(|r| {
+                    json!({
+                        "symbol": r.symbol_name,
+                        "file": r.file_path,
+                        "score": (r.score * 1000.0).round() / 1000.0,
                     })
-                    .collect();
-                if similar.is_empty() {
-                    return None;
-                }
-                Some(json!({"dead_symbol": name, "similar_live_symbols": similar}))
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+                })
+                .collect();
+            if similar.is_empty() {
+                return None;
+            }
+            Some(json!({"dead_symbol": name, "similar_live_symbols": similar}))
+        })
+        .collect();
 
     let top_findings = strings_from_array(Some(&candidates), "file", 3);
     let mut sections = BTreeMap::new();
@@ -327,38 +319,34 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         })
         .collect();
 
-    let initial_semantic_status = semantic_status(state);
-    let semantic_related: Vec<Value> = if semantic_status_is_ready(&initial_semantic_status) {
-        target_files
-            .iter()
-            .take(3)
-            .flat_map(|path| {
-                let query = path
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(path)
-                    .trim_end_matches(".rs")
-                    .trim_end_matches(".ts")
-                    .trim_end_matches(".tsx")
-                    .trim_end_matches(".py")
-                    .replace('_', " ");
-                semantic_results_for_query(state, &query, 5, false)
-                    .into_iter()
-                    .filter(|r| r.score > 0.12 && !graph_files.contains(&r.file_path))
-                    .map(|r| {
-                        json!({
-                            "source": path,
-                            "related_file": r.file_path,
-                            "related_symbol": r.symbol_name,
-                            "semantic_score": (r.score * 1000.0).round() / 1000.0,
-                        })
+    // Always attempt — get_or_init lazy-loads embedding engine
+    let semantic_related: Vec<Value> = target_files
+        .iter()
+        .take(3)
+        .flat_map(|path| {
+            let query = path
+                .rsplit('/')
+                .next()
+                .unwrap_or(path)
+                .trim_end_matches(".rs")
+                .trim_end_matches(".ts")
+                .trim_end_matches(".tsx")
+                .trim_end_matches(".py")
+                .replace('_', " ");
+            semantic_results_for_query(state, &query, 5, false)
+                .into_iter()
+                .filter(|r| r.score > 0.12 && !graph_files.contains(&r.file_path))
+                .map(|r| {
+                    json!({
+                        "source": path,
+                        "related_file": r.file_path,
+                        "related_symbol": r.symbol_name,
+                        "semantic_score": (r.score * 1000.0).round() / 1000.0,
                     })
-                    .collect::<Vec<_>>()
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
 
     let mut sections = BTreeMap::new();
     sections.insert(
@@ -468,13 +456,11 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         0.9,
         next_actions,
         sections,
-        vec![
-            arguments
-                .get("file_path")
-                .and_then(|value| value.as_str())
-                .unwrap_or(path)
-                .to_owned(),
-        ],
+        vec![arguments
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or(path)
+            .to_owned()],
         symbol.map(ToOwned::to_owned),
     )
 }
