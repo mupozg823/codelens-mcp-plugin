@@ -5,58 +5,58 @@
   "token_counter": "tiktoken cl100k_base",
   "results": [
     {
-      "task": "Find symbol 'main'",
-      "baseline_method": "rg -n 'main' (30 lines)",
-      "baseline_tokens": 817,
+      "task": "Find symbol 'dispatch_tool'",
+      "baseline_method": "rg -n 'dispatch_tool' (30 lines)",
+      "baseline_tokens": 415,
       "baseline_ms": 22,
       "codelens_method": "find_symbol include_body=true",
-      "codelens_tokens": 13,
-      "codelens_ms": 89
+      "codelens_tokens": 311,
+      "codelens_ms": 18
     },
     {
       "task": "Understand file structure",
-      "baseline_method": "Read entire crates/codelens-core/tests/snapshot_golden.rs",
-      "baseline_tokens": 669,
+      "baseline_method": "Read entire crates/codelens-mcp/src/dispatch.rs",
+      "baseline_tokens": 3239,
       "baseline_ms": 0,
       "codelens_method": "get_symbols_overview",
-      "codelens_tokens": 550,
-      "codelens_ms": 89
+      "codelens_tokens": 911,
+      "codelens_ms": 17
     },
     {
       "task": "Impact analysis",
       "baseline_method": "Read crates/codelens-core/src/project.rs + rg references",
-      "baseline_tokens": 5177,
-      "baseline_ms": 9,
+      "baseline_tokens": 5169,
+      "baseline_ms": 10,
       "codelens_method": "get_impact_analysis",
-      "codelens_tokens": 1506,
-      "codelens_ms": 96
+      "codelens_tokens": 1578,
+      "codelens_ms": 22
     },
     {
       "task": "Find references",
-      "baseline_method": "rg -n 'main' (50 lines)",
-      "baseline_tokens": 1366,
+      "baseline_method": "rg -n 'dispatch_tool' (50 lines)",
+      "baseline_tokens": 415,
       "baseline_ms": 8,
       "codelens_method": "find_referencing_symbols",
-      "codelens_tokens": 274,
-      "codelens_ms": 240
+      "codelens_tokens": 240,
+      "codelens_ms": 173
     },
     {
       "task": "Project onboarding",
       "baseline_method": "Read manifest + entry + README(80L) + file list",
-      "baseline_tokens": 2577,
+      "baseline_tokens": 5147,
       "baseline_ms": 0,
       "codelens_method": "onboard_project",
-      "codelens_tokens": 720,
-      "codelens_ms": 90
+      "codelens_tokens": 885,
+      "codelens_ms": 20
     },
     {
       "task": "Context retrieval",
-      "baseline_method": "rg 'main' + read 2 files",
-      "baseline_tokens": 27884,
-      "baseline_ms": 8,
+      "baseline_method": "rg 'dispatch_tool' + read 2 files",
+      "baseline_tokens": 3845,
+      "baseline_ms": 9,
       "codelens_method": "get_ranked_context max_tokens=8000",
-      "codelens_tokens": 331,
-      "codelens_ms": 201
+      "codelens_tokens": 6421,
+      "codelens_ms": 129
     }
   ],
   "workflow_results": [
@@ -66,77 +66,237 @@
         "label": "Planner change request baseline",
         "tool_call_count": 2,
         "low_level_chain_count": 2,
-        "total_tokens": 554,
-        "total_ms": 303,
+        "total_tokens": 2274,
+        "total_ms": 174,
         "retry_count": 0,
-        "p95_latency_ms": 186,
+        "p95_latency_ms": 124,
         "steps": [
           {
             "tool": "get_ranked_context",
             "surface": "preset:balanced",
-            "elapsed_ms": 186,
-            "tokens": 335,
+            "elapsed_ms": 124,
+            "tokens": 1541,
             "success": true,
             "data": {
-              "chars_used": 145,
-              "count": 7,
-              "query": "understand where to implement changes around main",
+              "chars_used": 4605,
+              "count": 27,
+              "query": "understand where to implement changes around dispatch_tool",
               "symbols": [
                 {
-                  "file": "models/benchmark.py",
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
                   "kind": "function",
-                  "line": 149,
-                  "name": "main",
-                  "relevance_score": 168,
-                  "signature": "def main():"
+                  "line": 263,
+                  "name": "dispatch_tool",
+                  "relevance_score": 164,
+                  "signature": "pub(crate) fn dispatch_tool("
                 },
                 {
-                  "file": "models/benchmark_hard.py",
+                  "file": "crates/codelens-mcp/src/tools/graph.rs",
                   "kind": "function",
-                  "line": 133,
-                  "name": "main",
-                  "relevance_score": 149,
-                  "signature": "def main():"
+                  "line": 11,
+                  "name": "get_changed_files_tool",
+                  "relevance_score": 148,
+                  "signature": "pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {"
                 },
                 {
-                  "file": "benchmarks/embedding-quality.py",
+                  "file": "crates/codelens-mcp/src/integration_tests.rs",
                   "kind": "function",
-                  "line": 231,
-                  "name": "main",
-                  "relevance_score": 133,
-                  "signature": "def main():"
+                  "line": 654,
+                  "name": "returns_changed_files_via_tool_call",
+                  "relevance_score": 131,
+                  "signature": "fn returns_changed_files_via_tool_call() {"
                 },
                 {
-                  "file": "benchmarks/render-summary.py",
+                  "file": "crates/codelens-mcp/src/tools/graph.rs",
                   "kind": "function",
-                  "line": 239,
-                  "name": "main",
-                  "relevance_score": 116,
-                  "signature": "def main():"
+                  "line": 240,
+                  "name": "get_change_coupling_tool",
+                  "relevance_score": 115,
+                  "signature": "pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {"
                 },
                 {
-                  "file": "benchmarks/embedding-runtime.py",
+                  "file": "crates/codelens-mcp/src/integration_tests.rs",
                   "kind": "function",
-                  "line": 136,
-                  "name": "main",
-                  "relevance_score": 100,
-                  "signature": "def main():"
+                  "line": 2865,
+                  "name": "tool_defs_and_dispatch_are_consistent",
+                  "relevance_score": 96,
+                  "signature": "fn tool_defs_and_dispatch_are_consistent() {"
                 },
                 {
-                  "file": "models/benchmark_full.py",
-                  "kind": "function",
-                  "line": 275,
-                  "name": "main",
-                  "relevance_score": 84,
-                  "signature": "def main():"
+                  "file": "benchmarks/harness/apply-routing-policy.py",
+                  "kind": "variable",
+                  "line": 124,
+                  "name": "updated",
+                  "relevance_score": 79,
+                  "signature": "updated = existing[:start].rstrip() + \"\\n\\n\" + new_section + existing[end:]"
                 },
                 {
-                  "file": "crates/codelens-mcp/src/main.rs",
+                  "file": "crates/codelens-mcp/src/tools/session/project_ops.rs",
                   "kind": "function",
-                  "line": 31,
-                  "name": "main",
-                  "relevance_score": 57,
-                  "signature": "fn main() -> Result<()> {"
+                  "line": 187,
+                  "name": "summarize_changes",
+                  "relevance_score": 65,
+                  "signature": "pub fn summarize_changes(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tool_defs/presets.rs",
+                  "kind": "function",
+                  "line": 349,
+                  "name": "is_tool_in_surface",
+                  "relevance_score": 63,
+                  "signature": "pub(crate) fn is_tool_in_surface(name: &str, surface: ToolSurface) -> bool {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tool_defs/mod.rs",
+                  "kind": "function",
+                  "line": 104,
+                  "name": "tool_tier",
+                  "relevance_score": 59,
+                  "signature": "pub(crate) fn tool_tier(name: &str) -> ToolTier {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/composite.rs",
+                  "kind": "function",
+                  "line": 258,
+                  "name": "refactor_change_signature",
+                  "relevance_score": 56,
+                  "signature": "pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value) -> ToolResult {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
+                  "kind": "class",
+                  "line": 28,
+                  "name": "ToolCallEnvelope",
+                  "relevance_score": 55,
+                  "signature": "pub(crate) struct ToolCallEnvelope {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch_response_support.rs",
+                  "kind": "function",
+                  "line": 6,
+                  "name": "effective_budget_for_tool",
+                  "relevance_score": 51,
+                  "signature": "pub(crate) fn effective_budget_for_tool(name: &str, request_budget: usize) -> usize {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/protocol.rs",
+                  "kind": "enum",
+                  "line": 55,
+                  "name": "ToolTier",
+                  "relevance_score": 50,
+                  "signature": "pub enum ToolTier {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/integration_tests.rs",
+                  "kind": "function",
+                  "line": 60,
+                  "name": "set_preset_changes_tools_list",
+                  "relevance_score": 50,
+                  "signature": "fn set_preset_changes_tools_list() {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tool_defs/build.rs",
+                  "kind": "function",
+                  "line": 17,
+                  "name": "tools",
+                  "relevance_score": 50,
+                  "signature": "pub(crate) fn tools() -> &'static [Tool] {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tool_defs/presets.rs",
+                  "kind": "enum",
+                  "line": 56,
+                  "name": "ToolSurface",
+                  "relevance_score": 40,
+                  "signature": "pub(crate) enum ToolSurface {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/protocol.rs",
+                  "kind": "class",
+                  "line": 32,
+                  "name": "Tool",
+                  "relevance_score": 40,
+                  "signature": "pub struct Tool {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tool_defs/build.rs",
+                  "kind": "variable",
+                  "line": 9,
+                  "name": "TOOLS",
+                  "relevance_score": 36,
+                  "signature": "static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_tools);"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tool_defs/presets.rs",
+                  "kind": "enum",
+                  "line": 21,
+                  "name": "ToolProfile",
+                  "relevance_score": 34,
+                  "signature": "pub(crate) enum ToolProfile {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
+                  "kind": "function",
+                  "line": 195,
+                  "name": "classify_symbol_handler",
+                  "relevance_score": 33,
+                  "signature": "fn classify_symbol_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
+                  "kind": "function",
+                  "line": 170,
+                  "name": "find_code_duplicates_handler",
+                  "relevance_score": 33,
+                  "signature": "fn find_code_duplicates_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
+                  "kind": "function",
+                  "line": 147,
+                  "name": "find_similar_code_handler",
+                  "relevance_score": 33,
+                  "signature": "fn find_similar_code_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {"
+                },
+                {
+                  "file": "benchmarks/harness/refresh-routing-policy.py",
+                  "kind": "variable",
+                  "line": 129,
+                  "name": "override_changes",
+                  "relevance_score": 33,
+                  "signature": "override_changes = []"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
+                  "kind": "function",
+                  "line": 127,
+                  "name": "index_embeddings_handler",
+                  "relevance_score": 33,
+                  "signature": "fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
+                  "kind": "function",
+                  "line": 92,
+                  "name": "semantic_search_handler",
+                  "relevance_score": 33,
+                  "signature": "fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
+                  "kind": "function",
+                  "line": 219,
+                  "name": "find_misplaced_code_handler",
+                  "relevance_score": 33,
+                  "signature": "fn find_misplaced_code_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
+                  "kind": "function",
+                  "line": 39,
+                  "name": "parse",
+                  "relevance_score": 31,
+                  "signature": "pub fn parse("
                 }
               ],
               "token_budget": 1200
@@ -145,42 +305,146 @@
           {
             "tool": "get_changed_files",
             "surface": "preset:balanced",
-            "elapsed_ms": 117,
-            "tokens": 219,
+            "elapsed_ms": 50,
+            "tokens": 733,
             "success": true,
             "data": {
-              "count": 8,
+              "count": 34,
               "files": [
                 {
-                  "file": "benchmarks/harness/tests/test_policy_integrity.py",
+                  "file": "crates/codelens-core/src/embedding.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-core/src/symbols/writer.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/artifact_store.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/job_store.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/main.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/server/http_tests.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/session_metrics_payload.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/state.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/composite.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/reports/context_reports.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/session/metrics_config.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/session/project_ops.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/symbols.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "scripts/finetune/finetune_distill.py",
+                  "status": "M"
+                },
+                {
+                  "file": "scripts/finetune/finetune_embedding.py",
+                  "status": "M"
+                },
+                {
+                  "file": "scripts/finetune/finetune_v2.py",
+                  "status": "M"
+                },
+                {
+                  "file": "scripts/quality-gate.sh",
+                  "status": "M"
+                },
+                {
+                  "file": "benchmarks/embedding-pressure.py",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared-claude.json",
+                  "file": "benchmarks/embedding-quality-results-deployed-v2.json",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared-claude.md",
+                  "file": "benchmarks/embedding-quality-results-distill-v2-int8.json",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared-codex.json",
+                  "file": "benchmarks/embedding-quality-results-distill-v2.json",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared-codex.md",
+                  "file": "scripts/finetune/build_codex_dataset.py",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared.json",
+                  "file": "scripts/finetune/codesearchnet_codelens_format.jsonl",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared.md",
+                  "file": "scripts/finetune/codesearchnet_codelens_v2.jsonl",
                   "status": "?"
                 },
                 {
-                  "file": "scripts/artifact_maintenance.py",
+                  "file": "scripts/finetune/codesearchnet_pairs.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/collect_camelcase_data.py",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/convert_csn_codelens_v2.py",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_10k.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_10k_v2.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_camelcase.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_csn.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_ultimate.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_ultimate_v2.jsonl",
                   "status": "?"
                 }
               ],
@@ -193,19 +457,19 @@
         "label": "Planner change request compressed",
         "tool_call_count": 1,
         "low_level_chain_count": 0,
-        "total_tokens": 462,
-        "total_ms": 300,
+        "total_tokens": 467,
+        "total_ms": 610,
         "retry_count": 0,
-        "p95_latency_ms": 300,
+        "p95_latency_ms": 610,
         "steps": [
           {
             "tool": "analyze_change_request",
             "surface": "planner-readonly",
-            "elapsed_ms": 300,
-            "tokens": 462,
+            "elapsed_ms": 610,
+            "tokens": 467,
             "success": true,
             "data": {
-              "analysis_id": "analysis-1775311937540-0",
+              "analysis_id": "analysis-1775434476497-0",
               "available_sections": [
                 "changed_files",
                 "ranked_files",
@@ -221,13 +485,10 @@
                 "Expand the ranked files before editing",
                 "Compare the request against the current diff"
               ],
-              "performance_watchpoints": [
-                "watch ranking quality, latency, and cache-hit behavior on search paths"
-              ],
+              "performance_watchpoints": [],
               "quality_focus": [
                 "correctness",
-                "regression_safety",
-                "performance"
+                "regression_safety"
               ],
               "readiness": {
                 "diagnostics_ready": "ready",
@@ -238,16 +499,15 @@
               "readiness_score": 1.0,
               "recommended_checks": [
                 "run targeted tests for affected files or symbols",
-                "run diagnostics or lint on touched files before finalizing",
-                "compare hot-path latency or throughput before and after the change"
+                "run diagnostics or lint on touched files before finalizing"
               ],
-              "reused": true,
+              "reused": false,
               "risk_level": "medium",
-              "summary": "Compressed change plan for `understand where to implement changes around main` tuned for `planner-readonly`.",
+              "summary": "Compressed change plan for `understand where to implement changes around dispatch_tool` tuned for `planner-readonly`.",
               "top_findings": [
-                "main: start in models/benchmark.py",
-                "main: start in models/benchmark_hard.py",
-                "main: start in benchmarks/embedding-quality.py"
+                "dispatch_tool: start in crates/codelens-mcp/src/dispatch.rs",
+                "get_changed_files_tool: start in crates/codelens-mcp/src/tools/graph.rs",
+                "returns_changed_files_via_tool_call: start in crates/codelens-mcp/src/integration_tests.rs"
               ],
               "verifier_checks": [
                 {
@@ -279,7 +539,7 @@
           }
         ]
       },
-      "savings_pct": 16.6
+      "savings_pct": 79.5
     },
     {
       "scenario": "Reviewer impact analysis",
@@ -287,50 +547,154 @@
         "label": "Reviewer impact analysis baseline",
         "tool_call_count": 3,
         "low_level_chain_count": 3,
-        "total_tokens": 1976,
-        "total_ms": 440,
+        "total_tokens": 2500,
+        "total_ms": 234,
         "retry_count": 0,
-        "p95_latency_ms": 242,
+        "p95_latency_ms": 167,
         "steps": [
           {
             "tool": "get_changed_files",
             "surface": "preset:balanced",
-            "elapsed_ms": 111,
-            "tokens": 219,
+            "elapsed_ms": 46,
+            "tokens": 733,
             "success": true,
             "data": {
-              "count": 8,
+              "count": 34,
               "files": [
                 {
-                  "file": "benchmarks/harness/tests/test_policy_integrity.py",
+                  "file": "crates/codelens-core/src/embedding.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-core/src/symbols/writer.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/artifact_store.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/dispatch.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/job_store.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/main.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/server/http_tests.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/session_metrics_payload.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/state.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/composite.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/reports/context_reports.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/session/metrics_config.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/session/project_ops.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "crates/codelens-mcp/src/tools/symbols.rs",
+                  "status": "M"
+                },
+                {
+                  "file": "scripts/finetune/finetune_distill.py",
+                  "status": "M"
+                },
+                {
+                  "file": "scripts/finetune/finetune_embedding.py",
+                  "status": "M"
+                },
+                {
+                  "file": "scripts/finetune/finetune_v2.py",
+                  "status": "M"
+                },
+                {
+                  "file": "scripts/quality-gate.sh",
+                  "status": "M"
+                },
+                {
+                  "file": "benchmarks/embedding-pressure.py",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared-claude.json",
+                  "file": "benchmarks/embedding-quality-results-deployed-v2.json",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared-claude.md",
+                  "file": "benchmarks/embedding-quality-results-distill-v2-int8.json",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared-codex.json",
+                  "file": "benchmarks/embedding-quality-results-distill-v2.json",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared-codex.md",
+                  "file": "scripts/finetune/build_codex_dataset.py",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared.json",
+                  "file": "scripts/finetune/codesearchnet_codelens_format.jsonl",
                   "status": "?"
                 },
                 {
-                  "file": "benchmarks/results/codelens-routing-policy-shared.md",
+                  "file": "scripts/finetune/codesearchnet_codelens_v2.jsonl",
                   "status": "?"
                 },
                 {
-                  "file": "scripts/artifact_maintenance.py",
+                  "file": "scripts/finetune/codesearchnet_pairs.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/collect_camelcase_data.py",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/convert_csn_codelens_v2.py",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_10k.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_10k_v2.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_camelcase.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_csn.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_ultimate.jsonl",
+                  "status": "?"
+                },
+                {
+                  "file": "scripts/finetune/training_pairs_ultimate_v2.jsonl",
                   "status": "?"
                 }
               ],
@@ -340,8 +704,8 @@
           {
             "tool": "get_impact_analysis",
             "surface": "preset:balanced",
-            "elapsed_ms": 87,
-            "tokens": 1483,
+            "elapsed_ms": 21,
+            "tokens": 1555,
             "success": true,
             "data": {
               "blast_radius": [
@@ -373,7 +737,7 @@
                 {
                   "depth": 1,
                   "file": "crates/codelens-core/src/embedding.rs",
-                  "symbol_count": 0
+                  "symbol_count": 62
                 },
                 {
                   "depth": 1,
@@ -393,7 +757,7 @@
                 {
                   "depth": 1,
                   "file": "crates/codelens-core/src/git.rs",
-                  "symbol_count": 0
+                  "symbol_count": 12
                 },
                 {
                   "depth": 1,
@@ -403,7 +767,7 @@
                 {
                   "depth": 1,
                   "file": "crates/codelens-core/src/import_graph/mod.rs",
-                  "symbol_count": 0
+                  "symbol_count": 41
                 },
                 {
                   "depth": 1,
@@ -423,7 +787,7 @@
                 {
                   "depth": 1,
                   "file": "crates/codelens-core/src/lsp/mod.rs",
-                  "symbol_count": 0
+                  "symbol_count": 7
                 },
                 {
                   "depth": 1,
@@ -468,7 +832,7 @@
                 {
                   "depth": 1,
                   "file": "crates/codelens-core/src/symbols/writer.rs",
-                  "symbol_count": 7
+                  "symbol_count": 8
                 },
                 {
                   "depth": 1,
@@ -478,7 +842,7 @@
                 {
                   "depth": 1,
                   "file": "crates/codelens-core/src/vfs.rs",
-                  "symbol_count": 0
+                  "symbol_count": 8
                 },
                 {
                   "depth": 2,
@@ -503,12 +867,12 @@
                 {
                   "depth": 2,
                   "file": "crates/codelens-mcp/src/tools/composite.rs",
-                  "symbol_count": 0
+                  "symbol_count": 8
                 },
                 {
                   "depth": 2,
                   "file": "crates/codelens-mcp/src/tools/mutation.rs",
-                  "symbol_count": 0
+                  "symbol_count": 13
                 }
               ],
               "direct_importers": [
@@ -574,101 +938,121 @@
                 }
               ],
               "file": "crates/codelens-core/src/project.rs",
-              "symbol_count": 25,
+              "symbol_count": 29,
               "symbols": [
                 {
                   "kind": "function",
-                  "line": 443,
+                  "line": 518,
                   "name": "tempfile_dir"
                 },
                 {
+                  "kind": "variable",
+                  "line": 514,
+                  "name": "LOCK"
+                },
+                {
                   "kind": "function",
-                  "line": 433,
+                  "line": 513,
+                  "name": "env_lock"
+                },
+                {
+                  "kind": "function",
+                  "line": 479,
+                  "name": "still_detects_project_root_before_home_directory"
+                },
+                {
+                  "kind": "function",
+                  "line": 453,
+                  "name": "does_not_promote_home_directory_from_global_codelens_marker"
+                },
+                {
+                  "kind": "function",
+                  "line": 442,
                   "name": "makes_relative_paths"
                 },
                 {
                   "kind": "function",
-                  "line": 423,
+                  "line": 432,
                   "name": "rejects_path_escape"
                 },
                 {
                   "kind": "function",
-                  "line": 403,
+                  "line": 409,
                   "name": "normalize_path"
                 },
                 {
                   "kind": "function",
-                  "line": 293,
+                  "line": 302,
                   "name": "detect_workspace_packages"
                 },
                 {
                   "kind": "class",
-                  "line": 287,
+                  "line": 296,
                   "name": "WorkspacePackage"
                 },
                 {
                   "kind": "function",
-                  "line": 273,
+                  "line": 282,
                   "name": "has_gradle_or_maven_dependency"
                 },
                 {
                   "kind": "function",
-                  "line": 265,
+                  "line": 274,
                   "name": "has_go_dependency"
                 },
                 {
                   "kind": "function",
-                  "line": 257,
+                  "line": 266,
                   "name": "has_cargo_dependency"
                 },
                 {
                   "kind": "function",
-                  "line": 249,
+                  "line": 258,
                   "name": "has_node_dependency"
                 },
                 {
                   "kind": "function",
-                  "line": 233,
+                  "line": 242,
                   "name": "has_dependency"
                 },
                 {
                   "kind": "function",
-                  "line": 229,
+                  "line": 238,
                   "name": "read_file_text"
                 },
                 {
                   "kind": "function",
-                  "line": 169,
+                  "line": 178,
                   "name": "detect_frameworks"
                 },
                 {
                   "kind": "function",
-                  "line": 163,
+                  "line": 170,
                   "name": "dirs_fallback"
                 },
                 {
                   "kind": "function",
-                  "line": 143,
+                  "line": 144,
                   "name": "detect_root"
                 },
                 {
                   "kind": "function",
-                  "line": 127,
+                  "line": 128,
                   "name": "collect_files"
                 },
                 {
                   "kind": "function",
-                  "line": 119,
+                  "line": 120,
                   "name": "is_excluded"
                 },
                 {
                   "kind": "variable",
-                  "line": 103,
+                  "line": 101,
                   "name": "EXCLUDED_DIRS"
                 },
                 {
                   "kind": "function",
-                  "line": 90,
+                  "line": 88,
                   "name": "to_relative"
                 },
                 {
@@ -708,63 +1092,39 @@
           {
             "tool": "find_referencing_symbols",
             "surface": "preset:balanced",
-            "elapsed_ms": 242,
-            "tokens": 274,
+            "elapsed_ms": 167,
+            "tokens": 212,
             "success": true,
             "data": {
-              "count": 8,
+              "count": 4,
               "include_context": false,
               "references": [
                 {
-                  "column": 39,
-                  "file_path": "benchmarks/bench.sh",
+                  "column": 22,
+                  "file_path": "crates/codelens-mcp/src/server/oneshot.rs",
                   "is_declaration": false,
-                  "line": 120
+                  "line": 2
                 },
                 {
-                  "column": 56,
-                  "file_path": "benchmarks/bench.sh",
+                  "column": 20,
+                  "file_path": "crates/codelens-mcp/src/server/oneshot.rs",
                   "is_declaration": false,
-                  "line": 124
+                  "line": 18
                 },
                 {
-                  "column": 75,
-                  "file_path": "benchmarks/run-benchmark.sh",
+                  "column": 22,
+                  "file_path": "crates/codelens-mcp/src/server/router.rs",
                   "is_declaration": false,
-                  "line": 94
+                  "line": 3
                 },
                 {
-                  "column": 90,
-                  "file_path": "benchmarks/run-benchmark.sh",
+                  "column": 34,
+                  "file_path": "crates/codelens-mcp/src/server/router.rs",
                   "is_declaration": false,
-                  "line": 96
-                },
-                {
-                  "column": 124,
-                  "file_path": "benchmarks/run-benchmark.sh",
-                  "is_declaration": false,
-                  "line": 98
-                },
-                {
-                  "column": 59,
-                  "file_path": "benchmarks/run-benchmark.sh",
-                  "is_declaration": false,
-                  "line": 134
-                },
-                {
-                  "column": 10,
-                  "file_path": "crates/codelens-mcp/src/server/transport_http.rs",
-                  "is_declaration": false,
-                  "line": 87
-                },
-                {
-                  "column": 35,
-                  "file_path": "models/test_efficiency.sh",
-                  "is_declaration": false,
-                  "line": 91
+                  "line": 280
                 }
               ],
-              "returned_count": 8,
+              "returned_count": 4,
               "sampled": false
             }
           }
@@ -774,19 +1134,19 @@
         "label": "Reviewer impact analysis compressed",
         "tool_call_count": 1,
         "low_level_chain_count": 0,
-        "total_tokens": 389,
-        "total_ms": 164,
+        "total_tokens": 394,
+        "total_ms": 169,
         "retry_count": 0,
-        "p95_latency_ms": 164,
+        "p95_latency_ms": 169,
         "steps": [
           {
             "tool": "impact_report",
             "surface": "reviewer-graph",
-            "elapsed_ms": 164,
-            "tokens": 389,
+            "elapsed_ms": 169,
+            "tokens": 394,
             "success": true,
             "data": {
-              "analysis_id": "analysis-1775290952399-0",
+              "analysis_id": "analysis-1775434476895-0",
               "available_sections": [
                 "impact_rows",
                 "verifier_diagnostics",
@@ -815,7 +1175,7 @@
                 "run targeted tests for affected files or symbols",
                 "run diagnostics or lint on touched files before finalizing"
               ],
-              "reused": true,
+              "reused": false,
               "risk_level": "medium",
               "summary": "Diff-aware impact report with bounded blast radius and importer evidence.",
               "top_findings": [
@@ -851,7 +1211,7 @@
           }
         ]
       },
-      "savings_pct": 80.3
+      "savings_pct": 84.2
     },
     {
       "scenario": "Refactor safety",
@@ -859,150 +1219,132 @@
         "label": "Refactor safety baseline",
         "tool_call_count": 3,
         "low_level_chain_count": 3,
-        "total_tokens": 1024,
-        "total_ms": 439,
+        "total_tokens": 957,
+        "total_ms": 297,
         "retry_count": 1,
-        "p95_latency_ms": 239,
+        "p95_latency_ms": 167,
         "steps": [
           {
             "tool": "find_referencing_symbols",
             "surface": "preset:balanced",
-            "elapsed_ms": 239,
-            "tokens": 274,
+            "elapsed_ms": 167,
+            "tokens": 240,
             "success": true,
             "data": {
-              "count": 8,
+              "count": 5,
               "include_context": false,
               "references": [
                 {
-                  "column": 39,
-                  "file_path": "benchmarks/bench.sh",
-                  "is_declaration": false,
-                  "line": 120
+                  "column": 15,
+                  "file_path": "crates/codelens-mcp/src/dispatch.rs",
+                  "is_declaration": true,
+                  "line": 263
                 },
                 {
-                  "column": 56,
-                  "file_path": "benchmarks/bench.sh",
+                  "column": 22,
+                  "file_path": "crates/codelens-mcp/src/server/oneshot.rs",
                   "is_declaration": false,
-                  "line": 124
+                  "line": 2
                 },
                 {
-                  "column": 75,
-                  "file_path": "benchmarks/run-benchmark.sh",
+                  "column": 20,
+                  "file_path": "crates/codelens-mcp/src/server/oneshot.rs",
                   "is_declaration": false,
-                  "line": 94
+                  "line": 18
                 },
                 {
-                  "column": 90,
-                  "file_path": "benchmarks/run-benchmark.sh",
+                  "column": 22,
+                  "file_path": "crates/codelens-mcp/src/server/router.rs",
                   "is_declaration": false,
-                  "line": 96
+                  "line": 3
                 },
                 {
-                  "column": 124,
-                  "file_path": "benchmarks/run-benchmark.sh",
+                  "column": 34,
+                  "file_path": "crates/codelens-mcp/src/server/router.rs",
                   "is_declaration": false,
-                  "line": 98
-                },
-                {
-                  "column": 59,
-                  "file_path": "benchmarks/run-benchmark.sh",
-                  "is_declaration": false,
-                  "line": 134
-                },
-                {
-                  "column": 10,
-                  "file_path": "crates/codelens-mcp/src/server/transport_http.rs",
-                  "is_declaration": false,
-                  "line": 87
-                },
-                {
-                  "column": 35,
-                  "file_path": "models/test_efficiency.sh",
-                  "is_declaration": false,
-                  "line": 91
+                  "line": 280
                 }
               ],
-              "returned_count": 8,
+              "returned_count": 5,
               "sampled": false
             }
           },
           {
             "tool": "find_tests",
             "surface": "preset:balanced",
-            "elapsed_ms": 111,
-            "tokens": 750,
+            "elapsed_ms": 115,
+            "tokens": 717,
             "success": true,
             "data": {
               "count": 10,
               "tests": [
                 {
-                  "column": 62,
-                  "file_path": ".codelens/analysis-cache/analysis-1775238527144-1/verifier_test_readiness.json",
-                  "line": 15,
-                  "line_content": "\"line_content\": \"\\\"line_content\\\": \\\"- name: cargo test (core)\\\",\",",
+                  "column": 42,
+                  "file_path": ".codelens/analysis-cache/analysis-1775434476497-0/verifier_test_readiness.json",
+                  "line": 18,
+                  "line_content": "\"line_content\": \"- name: cargo test (mcp + http)\",",
                   "matched_text": "test ("
                 },
                 {
                   "column": 28,
-                  "file_path": ".codelens/analysis-cache/analysis-1775238527144-1/verifier_test_readiness.json",
-                  "line": 16,
+                  "file_path": ".codelens/analysis-cache/analysis-1775434476497-0/verifier_test_readiness.json",
+                  "line": 19,
+                  "line_content": "\"matched_text\": \"test (\"",
+                  "matched_text": "test ("
+                },
+                {
+                  "column": 126,
+                  "file_path": ".codelens/analysis-cache/analysis-1775434476497-0/verifier_test_readiness.json",
+                  "line": 25,
+                  "line_content": "\"line_content\": \"\\\"line_content\\\": \\\"\\\\\\\"line_content\\\\\\\": \\\\\\\"\\\\\\\\\\\\\\\"line_content\\\\\\\\\\\\\\\": \\\\\\\\\\\\\\\"- name: cargo test (core)\\\\\\\\\\\\\\\",\\\\\\\",\\\",\",",
+                  "matched_text": "test ("
+                },
+                {
+                  "column": 28,
+                  "file_path": ".codelens/analysis-cache/analysis-1775434476497-0/verifier_test_readiness.json",
+                  "line": 26,
                   "line_content": "\"matched_text\": \"test (\"",
                   "matched_text": "test ("
                 },
                 {
                   "column": 48,
-                  "file_path": ".codelens/analysis-cache/analysis-1775238527144-1/verifier_test_readiness.json",
-                  "line": 22,
+                  "file_path": ".codelens/analysis-cache/analysis-1775434476497-0/verifier_test_readiness.json",
+                  "line": 32,
                   "line_content": "\"line_content\": \"\\\"matched_text\\\": \\\"test (\\\"\",",
                   "matched_text": "test ("
                 },
                 {
                   "column": 28,
-                  "file_path": ".codelens/analysis-cache/analysis-1775238527144-1/verifier_test_readiness.json",
-                  "line": 23,
+                  "file_path": ".codelens/analysis-cache/analysis-1775434476497-0/verifier_test_readiness.json",
+                  "line": 33,
                   "line_content": "\"matched_text\": \"test (\"",
                   "matched_text": "test ("
                 },
                 {
-                  "column": 62,
-                  "file_path": ".codelens/analysis-cache/analysis-1775238527144-1/verifier_test_readiness.json",
-                  "line": 29,
-                  "line_content": "\"line_content\": \"\\\"line_content\\\": \\\"- name: cargo test (mcp)\\\",\",",
+                  "column": 74,
+                  "file_path": ".codelens/analysis-cache/analysis-1775434476497-0/verifier_test_readiness.json",
+                  "line": 39,
+                  "line_content": "\"line_content\": \"\\\"line_content\\\": \\\"\\\\\\\"matched_text\\\\\\\": \\\\\\\"test (\\\\\\\"\\\",\",",
                   "matched_text": "test ("
                 },
                 {
                   "column": 28,
-                  "file_path": ".codelens/analysis-cache/analysis-1775238527144-1/verifier_test_readiness.json",
-                  "line": 30,
+                  "file_path": ".codelens/analysis-cache/analysis-1775434476497-0/verifier_test_readiness.json",
+                  "line": 40,
                   "line_content": "\"matched_text\": \"test (\"",
                   "matched_text": "test ("
                 },
                 {
                   "column": 48,
-                  "file_path": ".codelens/analysis-cache/analysis-1775238527144-1/verifier_test_readiness.json",
-                  "line": 36,
+                  "file_path": ".codelens/analysis-cache/analysis-1775434476497-0/verifier_test_readiness.json",
+                  "line": 46,
                   "line_content": "\"line_content\": \"\\\"matched_text\\\": \\\"test (\\\"\",",
                   "matched_text": "test ("
                 },
                 {
                   "column": 28,
-                  "file_path": ".codelens/analysis-cache/analysis-1775238527144-1/verifier_test_readiness.json",
-                  "line": 37,
-                  "line_content": "\"matched_text\": \"test (\"",
-                  "matched_text": "test ("
-                },
-                {
-                  "column": 188,
-                  "file_path": ".codelens/analysis-cache/analysis-1775238527144-1/verifier_test_readiness.json",
-                  "line": 43,
-                  "line_content": "\"line_content\": \"\\\"line_content\\\": \\\"\\\\\\\"line_content\\\\\\\": \\\\\\\"\\\\\\\\\\\\\\\"line_content\\\\\\\\\\\\\\\": \\\\\\\\\\\\\\\"\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"line_content\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\": \\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"- name: cargo test (core)\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\",\\\\\\\\\\\\\\\",\\\\\\\",\\\",\",",
-                  "matched_text": "test ("
-                },
-                {
-                  "column": 28,
-                  "file_path": ".codelens/analysis-cache/analysis-1775238527144-1/verifier_test_readiness.json",
-                  "line": 44,
+                  "file_path": ".codelens/analysis-cache/analysis-1775434476497-0/verifier_test_readiness.json",
+                  "line": 47,
                   "line_content": "\"matched_text\": \"test (\"",
                   "matched_text": "test ("
                 }
@@ -1012,7 +1354,7 @@
           {
             "tool": "get_type_hierarchy",
             "surface": "preset:balanced",
-            "elapsed_ms": 89,
+            "elapsed_ms": 15,
             "tokens": 0,
             "success": false,
             "data": {}
@@ -1023,19 +1365,19 @@
         "label": "Refactor safety compressed",
         "tool_call_count": 1,
         "low_level_chain_count": 0,
-        "total_tokens": 468,
-        "total_ms": 1231,
+        "total_tokens": 474,
+        "total_ms": 1506,
         "retry_count": 0,
-        "p95_latency_ms": 1231,
+        "p95_latency_ms": 1506,
         "steps": [
           {
             "tool": "refactor_safety_report",
             "surface": "refactor-full",
-            "elapsed_ms": 1231,
-            "tokens": 468,
+            "elapsed_ms": 1506,
+            "tokens": 474,
             "success": true,
             "data": {
-              "analysis_id": "analysis-1775311939697-1",
+              "analysis_id": "analysis-1775434478604-3",
               "available_sections": [
                 "change_request",
                 "module_boundary",
@@ -1070,13 +1412,13 @@
                 "expand related_tests and execute the highest-signal subset",
                 "verify references and call sites after the refactor preview"
               ],
-              "reused": true,
+              "reused": false,
               "risk_level": "high",
-              "summary": "Preview-first refactor safety report for `crates/codelens-core/tests/snapshot_golden.rs`.",
+              "summary": "Preview-first refactor safety report for `crates/codelens-mcp/src/dispatch.rs`.",
               "top_findings": [
-                "Validate symbol-level callers before refactoring `main`.",
-                "Keep the refactor aligned with `refactor main safely`.",
-                "Check tests around `crates/codelens-core/tests/snapshot_golden.rs` before applying broad edits."
+                "Validate symbol-level callers before refactoring `dispatch_tool`.",
+                "Keep the refactor aligned with `refactor dispatch_tool safely`.",
+                "Check tests around `crates/codelens-mcp/src/dispatch.rs` before applying broad edits."
               ],
               "verifier_checks": [
                 {
@@ -1108,25 +1450,81 @@
           }
         ]
       },
-      "savings_pct": 54.3
+      "savings_pct": 50.5
     }
   ],
   "queue_observability": {
-    "supported": false,
-    "reason": "http transport unavailable"
+    "supported": true,
+    "saw_running": true,
+    "saw_queued": true,
+    "session": {
+      "analysis_jobs_enqueued": 3,
+      "analysis_jobs_started": 3,
+      "analysis_jobs_completed": 3,
+      "analysis_jobs_failed": 0,
+      "analysis_jobs_cancelled": 0,
+      "analysis_queue_depth": 0,
+      "analysis_queue_max_depth": 1,
+      "analysis_queue_weighted_depth": 0,
+      "analysis_queue_max_weighted_depth": 3,
+      "analysis_queue_priority_promotions": 0,
+      "active_analysis_workers": 0,
+      "peak_active_analysis_workers": 2,
+      "analysis_worker_limit": 2,
+      "analysis_cost_budget": 3,
+      "analysis_transport_mode": "http"
+    },
+    "derived_kpis": {
+      "analysis_job_success_rate": 1.0
+    },
+    "checks": {
+      "min_queue_depth": 1,
+      "min_peak_workers": 2,
+      "min_queue_success_rate": 1.0,
+      "max_queue_failures": 0
+    },
+    "gate_passed": true,
+    "gate_failures": [],
+    "port": 63384
   },
   "watcher_observability": {
-    "supported": false,
-    "reason": "http transport unavailable"
+    "supported": true,
+    "session": {
+      "watcher_running": true,
+      "watcher_events_processed": 0,
+      "watcher_files_reindexed": 0,
+      "watcher_lock_contention_batches": 0,
+      "watcher_index_failures": 0,
+      "watcher_index_failures_total": 0,
+      "watcher_stale_index_failures": 0,
+      "watcher_persistent_index_failures": 0,
+      "watcher_pruned_missing_failures": 0
+    },
+    "watch_status": {
+      "running": true,
+      "events_processed": 0,
+      "files_reindexed": 0,
+      "lock_contention_batches": 0,
+      "index_failures": 0,
+      "index_failures_total": 0,
+      "stale_index_failures": 0,
+      "persistent_index_failures": 0,
+      "pruned_missing_failures": 0
+    },
+    "derived_kpis": {
+      "watcher_lock_contention_rate": 0.0,
+      "watcher_recent_failure_share": 0.0
+    },
+    "port": 63409
   },
   "quality_contract": {
     "scenarios": [
       {
         "scenario": "Planner change request",
         "has_quality_contract": true,
-        "quality_focus_count": 3,
-        "recommended_check_count": 3,
-        "performance_watchpoint_count": 1
+        "quality_focus_count": 2,
+        "recommended_check_count": 2,
+        "performance_watchpoint_count": 0
       },
       {
         "scenario": "Reviewer impact analysis",
@@ -1144,8 +1542,8 @@
       }
     ],
     "quality_contract_present_rate": 1.0,
-    "recommended_checks_total": 9,
-    "performance_watchpoints_total": 1
+    "recommended_checks_total": 8,
+    "performance_watchpoints_total": 0
   },
   "verifier_contract": {
     "scenarios": [
@@ -1187,34 +1585,65 @@
     "caution_test_readiness_scenarios": 0
   },
   "gate_observability": {
-    "supported": false,
-    "reason": "mutation=http transport unavailable, deferred=http transport unavailable",
+    "supported": true,
     "mutation_gate": {
-      "supported": false,
-      "reason": "http transport unavailable"
+      "supported": true,
+      "session": {
+        "mutation_without_preflight_count": 1,
+        "mutation_preflight_gate_denied_count": 2,
+        "stale_preflight_reject_count": 0,
+        "mutation_with_caution_count": 0,
+        "rename_without_symbol_preflight_count": 1
+      },
+      "derived_kpis": {
+        "mutation_preflight_gate_deny_rate": 0.6666666666666666
+      },
+      "checks": {
+        "missing_preflight_denied": true,
+        "preflight_mutation_allowed": true,
+        "rename_requires_symbol_preflight": true,
+        "preflight_mutation_ready": "ready",
+        "rename_generic_mutation_ready": "ready"
+      },
+      "port": 63414
     },
     "deferred_gate": {
-      "supported": false,
-      "reason": "http transport unavailable"
+      "supported": true,
+      "session": {
+        "deferred_namespace_expansion_count": 0,
+        "deferred_hidden_tool_call_denied_count": 0
+      },
+      "derived_kpis": {
+        "deferred_hidden_tool_call_deny_rate": 0.0
+      },
+      "checks": {
+        "hidden_namespace_denied": false,
+        "hidden_tier_denied": true,
+        "filesystem_namespace_loaded": true,
+        "primitive_tier_loaded": true,
+        "session_reports_loaded_namespace": false,
+        "session_reports_loaded_tier": true
+      },
+      "port": 63424
     }
   },
   "project_context": {
     "primary_ext": ".rs",
     "grep_include": "*.rs",
-    "test_symbol": "main",
-    "test_file": "crates/codelens-core/tests/snapshot_golden.rs",
+    "test_symbol": "dispatch_tool",
+    "test_file": "crates/codelens-mcp/src/dispatch.rs",
     "key_file": "crates/codelens-core/src/project.rs",
     "key_files_list": [
       "crates/codelens-core/src/project.rs",
+      "crates/codelens-mcp/src/protocol.rs",
       "benchmarks/_run_harness_wrapper.py",
       "crates/codelens-core/src/db/mod.rs",
-      "crates/codelens-mcp/src/protocol.rs",
-      "crates/codelens-core/src/symbols/types.rs"
+      "crates/codelens-mcp/src/tool_defs/mod.rs"
     ]
   },
   "totals": {
-    "baseline_tokens": 38490,
-    "codelens_tokens": 3394,
-    "savings_pct": 91.2
+    "baseline_tokens": 18230,
+    "codelens_tokens": 10346,
+    "savings_pct": 43.2
   }
 }

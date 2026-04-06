@@ -31,6 +31,21 @@ has_cmd() {
 	command -v "$1" >/dev/null 2>&1
 }
 
+configure_cargo_jobs() {
+	if [[ -n "${CARGO_BUILD_JOBS:-}" ]]; then
+		return
+	fi
+	if [[ -n "${CODELENS_CARGO_BUILD_JOBS:-}" ]]; then
+		export CARGO_BUILD_JOBS="$CODELENS_CARGO_BUILD_JOBS"
+		echo "[gate] using CODELENS_CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS"
+		return
+	fi
+	if [[ "$(uname -s)" == "Darwin" ]]; then
+		export CARGO_BUILD_JOBS=1
+		echo "[gate] defaulting CARGO_BUILD_JOBS=$CARGO_BUILD_JOBS on macOS to limit build memory pressure"
+	fi
+}
+
 changed_files() {
 	if ! has_cmd git || ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
 		return 0
@@ -132,6 +147,7 @@ if [[ "$RUN_RUST_GATE" -eq 1 ]]; then
 		echo "[gate] cargo not installed; cannot run Rust gate."
 		exit 0
 	fi
+	configure_cargo_jobs
 	if [[ "$MODE" == "ci" ]]; then
 		echo "[gate] running CI Rust gate from EVAL_CONTRACT.md"
 		cargo check

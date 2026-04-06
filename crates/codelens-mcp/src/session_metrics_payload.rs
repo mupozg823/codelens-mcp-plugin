@@ -1,5 +1,5 @@
 use crate::AppState;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 pub(crate) struct SessionMetricsPayload {
     pub(crate) session: Map<String, Value>,
@@ -219,31 +219,39 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
     );
     session_json.insert(
         "watcher_running".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.running)
-            .unwrap_or(false)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.running)
+                .unwrap_or(false)
+        ),
     );
     session_json.insert(
         "watcher_events_processed".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.events_processed)
-            .unwrap_or(0)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.events_processed)
+                .unwrap_or(0)
+        ),
     );
     session_json.insert(
         "watcher_files_reindexed".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.files_reindexed)
-            .unwrap_or(0)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.files_reindexed)
+                .unwrap_or(0)
+        ),
     );
     session_json.insert(
         "watcher_lock_contention_batches".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.lock_contention_batches)
-            .unwrap_or(0)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.lock_contention_batches)
+                .unwrap_or(0)
+        ),
     );
     session_json.insert(
         "watcher_index_failures".to_owned(),

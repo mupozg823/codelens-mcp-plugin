@@ -5,10 +5,14 @@ use crate::db::IndexDb;
 use crate::embedding_store::{EmbeddingChunk, EmbeddingStore, ScoredChunk};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
-use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
+use fastembed::{
+    InitOptionsUserDefined, RerankInitOptions, RerankerModel, TextEmbedding, TextRerank,
+    TokenizerFiles, UserDefinedEmbeddingModel,
+};
 use rusqlite::Connection;
 use serde::Serialize;
-use std::sync::Mutex;
+use std::sync::{Mutex, Once};
+use std::thread::available_parallelism;
 
 /// Isolated unsafe FFI — the only module allowed to use `unsafe`.
 mod ffi {
@@ -288,8 +292,12 @@ impl EmbeddingStore for SqliteVecStore {
 
 // ── EmbeddingEngine (facade) ──────────────────────────────────────────
 
-const EMBED_BATCH_SIZE: usize = 256;
+const DEFAULT_EMBED_BATCH_SIZE: usize = 128;
+const DEFAULT_MACOS_EMBED_BATCH_SIZE: usize = 64;
 const CODESEARCH_DIMENSION: usize = 384;
+const DEFAULT_MAX_EMBED_SYMBOLS: usize = 50_000;
+const CHANGED_FILE_QUERY_CHUNK: usize = 128;
+static ORT_ENV_INIT: Once = Once::new();
 
 /// Default: CodeSearchNet (MiniLM-L12 fine-tuned on code, bundled ONNX INT8).
 /// Override via `CODELENS_EMBED_MODEL` env var to use fastembed built-in models.
@@ -299,6 +307,7 @@ pub struct EmbeddingEngine {
     model: Mutex<TextEmbedding>,
     store: Box<dyn EmbeddingStore>,
     model_name: String,
+    reranker: Option<Mutex<TextRerank>>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -366,8 +375,82 @@ fn dirs_fallback() -> Option<std::path::PathBuf> {
     std::env::var_os("HOME").map(std::path::PathBuf::from)
 }
 
+fn parse_usize_env(name: &str) -> Option<usize> {
+    std::env::var(name)
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|v| *v > 0)
+}
+
+fn recommended_embed_threads() -> usize {
+    if let Some(explicit) = parse_usize_env("CODELENS_EMBED_THREADS") {
+        return explicit.max(1);
+    }
+
+    let available = available_parallelism().map(|n| n.get()).unwrap_or(1);
+    if cfg!(target_os = "macos") {
+        available.min(4).max(1)
+    } else {
+        available.div_ceil(2).clamp(1, 8)
+    }
+}
+
+fn embed_batch_size() -> usize {
+    parse_usize_env("CODELENS_EMBED_BATCH_SIZE").unwrap_or_else(|| {
+        if cfg!(target_os = "macos") {
+            DEFAULT_MACOS_EMBED_BATCH_SIZE
+        } else {
+            DEFAULT_EMBED_BATCH_SIZE
+        }
+    })
+}
+
+fn max_embed_symbols() -> usize {
+    parse_usize_env("CODELENS_MAX_EMBED_SYMBOLS").unwrap_or(DEFAULT_MAX_EMBED_SYMBOLS)
+}
+
+fn set_env_if_unset(name: &str, value: impl Into<String>) {
+    if std::env::var_os(name).is_none() {
+        // SAFETY: we only set process-wide runtime knobs during one-time startup,
+        // before the embedding session is initialized.
+        unsafe {
+            std::env::set_var(name, value.into());
+        }
+    }
+}
+
+fn configure_embedding_runtime() {
+    let threads = recommended_embed_threads();
+
+    // OpenMP-backed ORT builds ignore SessionBuilder::with_intra_threads, so set
+    // the process knobs as well. Keep these best-effort and only fill defaults.
+    set_env_if_unset("OMP_NUM_THREADS", threads.to_string());
+    set_env_if_unset("OMP_WAIT_POLICY", "PASSIVE");
+    set_env_if_unset("OMP_DYNAMIC", "FALSE");
+    set_env_if_unset("TOKENIZERS_PARALLELISM", "false");
+    if cfg!(target_os = "macos") {
+        set_env_if_unset("VECLIB_MAXIMUM_THREADS", threads.to_string());
+    }
+
+    ORT_ENV_INIT.call_once(|| {
+        let pool = ort::environment::GlobalThreadPoolOptions::default()
+            .with_intra_threads(threads)
+            .and_then(|pool| pool.with_inter_threads(1))
+            .and_then(|pool| pool.with_spin_control(false));
+
+        if let Ok(pool) = pool {
+            let _ = ort::init()
+                .with_name("codelens-embedding")
+                .with_telemetry(false)
+                .with_global_thread_pool(pool)
+                .commit();
+        }
+    });
+}
+
 /// Load the CodeSearchNet model from sidecar files (MiniLM-L12 fine-tuned, ONNX INT8).
 fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
+    configure_embedding_runtime();
     let model_dir = resolve_model_dir()?;
 
     let onnx_bytes =
@@ -393,10 +476,8 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
 
     // Try CoreML EP on macOS for Apple Neural Engine acceleration; silently falls back to CPU
     let init_opts = if cfg!(target_os = "macos") {
-        let coreml_ep: fastembed::ExecutionProviderDispatch =
-            ort::ep::CoreML::default().into();
-        InitOptionsUserDefined::new()
-            .with_execution_providers(vec![coreml_ep.fail_silently()])
+        let coreml_ep: fastembed::ExecutionProviderDispatch = ort::ep::CoreML::default().into();
+        InitOptionsUserDefined::new().with_execution_providers(vec![coreml_ep.fail_silently()])
     } else {
         InitOptionsUserDefined::new()
     };
@@ -409,6 +490,17 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String)> {
         CODESEARCH_DIMENSION,
         CODESEARCH_MODEL_NAME.to_string(),
     ))
+}
+
+/// Load the cross-encoder reranker model (JINA Reranker V1 Turbo, ~33M params).
+/// Returns None if download/init fails — the system degrades gracefully to bi-encoder only.
+fn load_reranker() -> Result<Mutex<TextRerank>> {
+    configure_embedding_runtime();
+    let reranker =
+        TextRerank::try_new(RerankInitOptions::new(RerankerModel::JINARerankerV1TurboEn))
+            .context("failed to load reranker model")?;
+    tracing::info!("cross-encoder reranker loaded (JINA-Reranker-V1-Turbo-En)");
+    Ok(Mutex::new(reranker))
 }
 
 pub fn configured_embedding_model_name() -> String {
@@ -425,10 +517,23 @@ impl EmbeddingEngine {
 
         let store = SqliteVecStore::new(&db_path, dimension, &model_name)?;
 
+        // Cross-encoder reranker: opt-in via CODELENS_RERANK=1.
+        // Tested: JINA-Reranker-V1-Turbo hurts code search (ranked_context -0.231, latency 5x).
+        // Keep disabled until a code-specific reranker is available.
+        let reranker = if std::env::var("CODELENS_RERANK")
+            .map(|v| v == "1" || v == "true")
+            .unwrap_or(false)
+        {
+            load_reranker().ok()
+        } else {
+            None
+        };
+
         Ok(Self {
             model: Mutex::new(model),
             store: Box::new(store),
             model_name,
+            reranker,
         })
     }
 
@@ -436,17 +541,16 @@ impl EmbeddingEngine {
         &self.model_name
     }
 
-    /// Maximum symbols to embed. Prevents runaway memory/CPU on huge projects.
-    const MAX_EMBED_SYMBOLS: usize = 50_000;
-
     /// Index all symbols from the project's symbol database into the embedding index.
     ///
     /// Uses streaming batches: prepare text → embed → upsert → drop per batch,
     /// so only one batch worth of data is in memory at a time.
-    /// Caps at MAX_EMBED_SYMBOLS to prevent runaway on huge projects.
+    /// Caps at a configurable max to prevent runaway on huge projects.
     pub fn index_from_project(&self, project: &ProjectRoot) -> Result<usize> {
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
+        let batch_size = embed_batch_size();
+        let max_symbols = max_embed_symbols();
 
         // Full reindex: clear existing data first
         self.store.clear()?;
@@ -458,8 +562,8 @@ impl EmbeddingEngine {
 
         let mut total_indexed = 0usize;
         let mut total_seen = 0usize;
-        let mut batch_texts: Vec<String> = Vec::with_capacity(EMBED_BATCH_SIZE);
-        let mut batch_meta: Vec<crate::db::SymbolWithFile> = Vec::with_capacity(EMBED_BATCH_SIZE);
+        let mut batch_texts: Vec<String> = Vec::with_capacity(batch_size);
+        let mut batch_meta: Vec<crate::db::SymbolWithFile> = Vec::with_capacity(batch_size);
 
         // File source cache: read once per file, shared across symbols in that file
         let mut current_file = String::new();
@@ -467,11 +571,6 @@ impl EmbeddingEngine {
 
         // Stream symbols from DB via callback — no Vec<SymbolWithFile> allocation
         symbol_db.for_each_symbol_with_bytes(|sym| {
-            total_seen += 1;
-            if total_seen > Self::MAX_EMBED_SYMBOLS {
-                return Ok(()); // skip remaining, will flush what we have
-            }
-
             // Cache file source per-file group
             if sym.file_path != current_file {
                 current_file = sym.file_path.clone();
@@ -479,10 +578,19 @@ impl EmbeddingEngine {
                     std::fs::read_to_string(project.as_path().join(&current_file)).ok();
             }
 
+            if is_test_only_symbol(&sym, current_source.as_deref()) {
+                return Ok(());
+            }
+
+            total_seen += 1;
+            if total_seen > max_symbols {
+                return Ok(()); // skip remaining, will flush what we have
+            }
+
             batch_texts.push(build_embedding_text(&sym, current_source.as_deref()));
             batch_meta.push(sym);
 
-            if batch_texts.len() >= EMBED_BATCH_SIZE {
+            if batch_texts.len() >= batch_size {
                 total_indexed +=
                     Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
                 batch_texts.clear();
@@ -538,6 +646,8 @@ impl EmbeddingEngine {
     }
 
     /// Search returning raw ScoredChunks (for ranking integration).
+    /// When a cross-encoder reranker is loaded, fetches 3× candidates from
+    /// the bi-encoder and reranks to return the top `max_results`.
     pub fn search_scored(&self, query: &str, max_results: usize) -> Result<Vec<ScoredChunk>> {
         let query_embedding = self
             .model
@@ -550,7 +660,50 @@ impl EmbeddingEngine {
             return Ok(Vec::new());
         }
 
-        self.store.search(&query_embedding[0], max_results)
+        // Fetch more candidates when reranker is available
+        let fetch_k = if self.reranker.is_some() {
+            max_results * 3
+        } else {
+            max_results
+        };
+        let mut candidates = self.store.search(&query_embedding[0], fetch_k)?;
+
+        // Cross-encoder reranking: score each (query, document) pair
+        if let Some(ref reranker_mutex) = self.reranker {
+            if candidates.len() > max_results {
+                if let Ok(ref mut reranker) = reranker_mutex.lock() {
+                    let documents: Vec<String> = candidates
+                        .iter()
+                        .map(|c| {
+                            format!(
+                                "{} {} in {}: {}",
+                                c.kind, c.symbol_name, c.file_path, c.signature
+                            )
+                        })
+                        .collect();
+                    let doc_refs: Vec<&str> = documents.iter().map(|s| s.as_str()).collect();
+                    match reranker.rerank(query, &doc_refs, false, None) {
+                        Ok(reranked) => {
+                            let mut reordered = Vec::with_capacity(max_results);
+                            for result in reranked.into_iter().take(max_results) {
+                                if let Some(chunk) = candidates.get(result.index) {
+                                    let mut reordered_chunk = chunk.clone();
+                                    reordered_chunk.score = result.score as f64;
+                                    reordered.push(reordered_chunk);
+                                }
+                            }
+                            return Ok(reordered);
+                        }
+                        Err(e) => {
+                            tracing::warn!("reranker failed, falling back to bi-encoder: {e}");
+                        }
+                    }
+                }
+            }
+        }
+
+        candidates.truncate(max_results);
+        Ok(candidates)
     }
 
     /// Incrementally re-index only the given files.
@@ -562,22 +715,12 @@ impl EmbeddingEngine {
         if changed_files.is_empty() {
             return Ok(0);
         }
+        let batch_size = embed_batch_size();
 
         self.store.delete_by_file(changed_files)?;
 
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
-        let all_symbols = symbol_db.all_symbols_with_bytes()?;
-
-        let file_set: std::collections::HashSet<&str> = changed_files.iter().copied().collect();
-        let relevant: Vec<_> = all_symbols
-            .into_iter()
-            .filter(|s| file_set.contains(s.file_path.as_str()))
-            .collect();
-
-        if relevant.is_empty() {
-            return Ok(0);
-        }
 
         let mut model = self
             .model
@@ -585,23 +728,29 @@ impl EmbeddingEngine {
             .map_err(|_| anyhow::anyhow!("model lock"))?;
 
         let mut total_indexed = 0usize;
-        let mut batch_texts: Vec<String> = Vec::with_capacity(EMBED_BATCH_SIZE);
-        let mut batch_meta: Vec<crate::db::SymbolWithFile> = Vec::with_capacity(EMBED_BATCH_SIZE);
+        let mut batch_texts: Vec<String> = Vec::with_capacity(batch_size);
+        let mut batch_meta: Vec<crate::db::SymbolWithFile> = Vec::with_capacity(batch_size);
         let mut file_cache: std::collections::HashMap<String, Option<String>> =
             std::collections::HashMap::new();
 
-        for sym in relevant {
-            let source = file_cache.entry(sym.file_path.clone()).or_insert_with(|| {
-                std::fs::read_to_string(project.as_path().join(&sym.file_path)).ok()
-            });
-            batch_texts.push(build_embedding_text(&sym, source.as_deref()));
-            batch_meta.push(sym);
+        for file_chunk in changed_files.chunks(CHANGED_FILE_QUERY_CHUNK) {
+            let relevant = symbol_db.symbols_for_files(file_chunk)?;
+            for sym in relevant {
+                let source = file_cache.entry(sym.file_path.clone()).or_insert_with(|| {
+                    std::fs::read_to_string(project.as_path().join(&sym.file_path)).ok()
+                });
+                if is_test_only_symbol(&sym, source.as_deref()) {
+                    continue;
+                }
+                batch_texts.push(build_embedding_text(&sym, source.as_deref()));
+                batch_meta.push(sym);
 
-            if batch_texts.len() >= EMBED_BATCH_SIZE {
-                total_indexed +=
-                    Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
-                batch_texts.clear();
-                batch_meta.clear();
+                if batch_texts.len() >= batch_size {
+                    total_indexed +=
+                        Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
+                    batch_texts.clear();
+                    batch_meta.clear();
+                }
             }
         }
 
@@ -916,7 +1065,11 @@ fn split_identifier(name: &str) -> String {
             }
         } else if ch.is_uppercase()
             && !current.is_empty()
-            && (current.chars().last().map(|c| c.is_lowercase()).unwrap_or(false)
+            && (current
+                .chars()
+                .last()
+                .map(|c| c.is_lowercase())
+                .unwrap_or(false)
                 || chars.get(i + 1).map(|c| c.is_lowercase()).unwrap_or(false))
         {
             // Split at CamelCase boundary, but not for ALL_CAPS
@@ -934,6 +1087,33 @@ fn split_identifier(name: &str) -> String {
         return name.to_string(); // No meaningful split
     }
     words.join(" ")
+}
+
+fn is_test_only_symbol(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> bool {
+    if sym.file_path.contains("/tests/") || sym.file_path.ends_with("_tests.rs") {
+        return true;
+    }
+    if sym.name_path.starts_with("tests::")
+        || sym.name_path.contains("::tests::")
+        || sym.name_path.starts_with("test::")
+        || sym.name_path.contains("::test::")
+    {
+        return true;
+    }
+
+    let Some(source) = source else {
+        return false;
+    };
+
+    let start = usize::try_from(sym.start_byte.max(0))
+        .unwrap_or(0)
+        .min(source.len());
+    let window_start = start.saturating_sub(2048);
+    let attrs = String::from_utf8_lossy(&source.as_bytes()[window_start..start]);
+    attrs.contains("#[test]")
+        || attrs.contains("#[tokio::test]")
+        || attrs.contains("#[cfg(test)]")
+        || attrs.contains("#[cfg(all(test")
 }
 
 fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> String {
@@ -955,17 +1135,20 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
     let base = if sym.signature.is_empty() {
         format!("{} {}{}", sym.kind, name_with_split, file_ctx)
     } else {
-        format!("{} {}{}: {}", sym.kind, name_with_split, file_ctx, sym.signature)
+        format!(
+            "{} {}{}: {}",
+            sym.kind, name_with_split, file_ctx, sym.signature
+        )
     };
 
-    // Docstring inclusion tested with v6 model: semantic +0.017 but hybrid -0.054.
-    // Docstring text dilutes the lexical signal that hybrid ranking relies on.
-    // Kept off by default; enable via CODELENS_EMBED_DOCSTRINGS=1 for semantic-only use.
-    let docstrings_enabled = std::env::var("CODELENS_EMBED_DOCSTRINGS")
-        .map(|v| v == "1" || v == "true")
+    // Docstring inclusion: v2 model improved NL understanding (+45%), enabling
+    // docstrings by default. Measured: ranked_context +0.020, semantic -0.003 (neutral).
+    // Disable via CODELENS_EMBED_DOCSTRINGS=0 if needed.
+    let docstrings_disabled = std::env::var("CODELENS_EMBED_DOCSTRINGS")
+        .map(|v| v == "0" || v == "false")
         .unwrap_or(false);
 
-    if !docstrings_enabled {
+    if docstrings_disabled {
         return base;
     }
 
@@ -993,7 +1176,22 @@ fn extract_leading_doc(source: &str, start: usize, end: usize) -> Option<String>
     if start >= source.len() || end > source.len() || start >= end {
         return None;
     }
-    let body = &source[start..end.min(source.len())];
+    // Clamp to nearest char boundary to avoid panicking on multi-byte UTF-8
+    let safe_start = if source.is_char_boundary(start) {
+        start
+    } else {
+        source.floor_char_boundary(start)
+    };
+    let safe_end = end.min(source.len());
+    let safe_end = if source.is_char_boundary(safe_end) {
+        safe_end
+    } else {
+        source.floor_char_boundary(safe_end)
+    };
+    if safe_start >= safe_end {
+        return None;
+    }
+    let body = &source[safe_start..safe_end];
     let lines: Vec<&str> = body.lines().skip(1).collect(); // skip the signature line
     if lines.is_empty() {
         return None;
@@ -1169,6 +1367,40 @@ mod tests {
     }
 
     #[test]
+    fn filters_direct_test_symbols_from_embedding_index() {
+        let source = "#[test]\nfn alias_case() {}\n";
+        let sym = crate::db::SymbolWithFile {
+            name: "alias_case".into(),
+            kind: "function".into(),
+            file_path: "src/lib.rs".into(),
+            line: 2,
+            signature: "fn alias_case() {}".into(),
+            name_path: "alias_case".into(),
+            start_byte: source.find("fn alias_case").unwrap() as i64,
+            end_byte: source.len() as i64,
+        };
+
+        assert!(is_test_only_symbol(&sym, Some(source)));
+    }
+
+    #[test]
+    fn filters_cfg_test_module_symbols_from_embedding_index() {
+        let source = "#[cfg(all(test, feature = \"semantic\"))]\nmod semantic_tests {\n    fn helper_case() {}\n}\n";
+        let sym = crate::db::SymbolWithFile {
+            name: "helper_case".into(),
+            kind: "function".into(),
+            file_path: "src/lib.rs".into(),
+            line: 3,
+            signature: "fn helper_case() {}".into(),
+            name_path: "helper_case".into(),
+            start_byte: source.find("fn helper_case").unwrap() as i64,
+            end_byte: source.len() as i64,
+        };
+
+        assert!(is_test_only_symbol(&sym, Some(source)));
+    }
+
+    #[test]
     fn extract_python_docstring() {
         let source =
             "def greet(name):\n    \"\"\"Say hello to a person.\"\"\"\n    print(f'hi {name}')\n";
@@ -1309,5 +1541,24 @@ mod tests {
     #[test]
     fn configured_embedding_model_name_defaults_to_codesearchnet() {
         assert_eq!(configured_embedding_model_name(), CODESEARCH_MODEL_NAME);
+    }
+
+    #[test]
+    fn recommended_embed_threads_caps_macos_style_load() {
+        let threads = recommended_embed_threads();
+        assert!(threads >= 1);
+        if cfg!(target_os = "macos") {
+            assert!(threads <= 4);
+        } else {
+            assert!(threads <= 8);
+        }
+    }
+
+    #[test]
+    fn embed_batch_size_has_safe_default_floor() {
+        assert!(embed_batch_size() >= 1);
+        if cfg!(target_os = "macos") {
+            assert!(embed_batch_size() <= DEFAULT_MACOS_EMBED_BATCH_SIZE);
+        }
     }
 }

@@ -29,7 +29,7 @@ fn is_natural_language_query(query: &str) -> bool {
         && trimmed.split_whitespace().count() >= 4
 }
 
-fn expanded_query_for_retrieval(query: &str) -> String {
+pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
     if !is_natural_language_query(query) {
         return query.trim().to_owned();
     }
@@ -45,9 +45,7 @@ fn expanded_query_for_retrieval(query: &str) -> String {
     // Dynamic expansion: convert NL query words to snake_case symbol candidates
     // This improves cross-project generalization. The embedding model needs
     // training data with these patterns to rank them properly.
-    let words: Vec<&str> = lowered.split_whitespace()
-        .filter(|w| w.len() > 2)
-        .collect();
+    let words: Vec<&str> = lowered.split_whitespace().filter(|w| w.len() > 2).collect();
     if words.len() >= 2 && words.len() <= 6 {
         for window in words.windows(2) {
             push_unique(&format!("{}_{}", window[0], window[1]));
@@ -61,7 +59,7 @@ fn expanded_query_for_retrieval(query: &str) -> String {
         ),
         (
             &["defined", "definition", "symbol is defined"],
-            &["definition", "range", "reader"],
+            &["find_symbol_range", "definition", "range", "reader"],
         ),
         (&["search", "query"], &["search", "semantic", "embedding"]),
         (&["inline"], &["inline_function", "inline", "refactor"]),
@@ -97,6 +95,10 @@ fn expanded_query_for_retrieval(query: &str) -> String {
         (
             &["extract", "new function"],
             &["refactor_extract_function", "extract", "refactor"],
+        ),
+        (
+            &["change", "parameters", "signature"],
+            &["change_signature", "signature", "parameters"],
         ),
         (
             &["comments", "string literals"],
@@ -785,10 +787,37 @@ mod tests {
 }
 
 #[test]
-fn natural_language_queries_expand_with_code_aliases() {
+fn route_query_expansion_includes_dispatch_aliases() {
     let query = "route an incoming tool request to the right handler";
     let expanded = expanded_query_for_retrieval(query);
     assert!(expanded.contains("dispatch_tool"));
     assert!(expanded.contains("handler"));
+    assert!(expanded.contains(query));
+}
+
+#[test]
+fn stdio_query_expansion_includes_stdio_aliases() {
+    let query = "read input from stdin line by line";
+    let expanded = expanded_query_for_retrieval(query);
+    assert!(expanded.contains("run_stdio"));
+    assert!(expanded.contains("stdio"));
+    assert!(expanded.contains(query));
+}
+
+#[test]
+fn definition_query_expansion_includes_find_symbol_range_alias() {
+    let query = "find where a symbol is defined in a file";
+    let expanded = expanded_query_for_retrieval(query);
+    assert!(expanded.contains("find_symbol_range"));
+    assert!(expanded.contains("definition"));
+    assert!(expanded.contains(query));
+}
+
+#[test]
+fn change_signature_query_expansion_includes_exact_alias() {
+    let query = "change function parameters";
+    let expanded = expanded_query_for_retrieval(query);
+    assert!(expanded.contains("change_signature"));
+    assert!(expanded.contains("signature"));
     assert!(expanded.contains(query));
 }

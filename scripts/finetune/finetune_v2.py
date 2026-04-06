@@ -16,10 +16,13 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
 ROOT = SCRIPT_DIR.parent.parent
+DEFAULT_GENERAL_STAGE2 = SCRIPT_DIR / "training_pairs_augmented.jsonl"
+DEFAULT_CODEX_STAGE2 = SCRIPT_DIR / "training_pairs_codex.jsonl"
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", choices=["general", "codex"], default="general")
     parser.add_argument(
         "--stage1-pairs",
         type=int,
@@ -27,19 +30,33 @@ def parse_args():
         help="Number of CodeSearchNet pairs for domain adaptation",
     )
     parser.add_argument("--stage1-epochs", type=int, default=1)
-    parser.add_argument(
-        "--stage2-input", default=str(SCRIPT_DIR / "training_pairs_augmented.jsonl")
-    )
+    parser.add_argument("--stage2-input", default="")
     parser.add_argument("--stage2-epochs", type=int, default=10)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--lr", type=float, default=2e-5)
-    parser.add_argument("--output", default=str(SCRIPT_DIR / "output" / "v2"))
+    parser.add_argument("--output", default="")
     parser.add_argument(
         "--base-model", default="sentence-transformers/all-MiniLM-L12-v2"
     )
     parser.add_argument("--skip-stage1", action="store_true")
     parser.add_argument("--skip-onnx", action="store_true")
     return parser.parse_args()
+
+
+def resolve_stage2_input(profile: str, explicit_input: str) -> Path:
+    if explicit_input:
+        return Path(explicit_input)
+    if profile == "codex":
+        return DEFAULT_CODEX_STAGE2
+    return DEFAULT_GENERAL_STAGE2
+
+
+def resolve_output(profile: str, explicit_output: str) -> Path:
+    if explicit_output:
+        return Path(explicit_output)
+    if profile == "codex":
+        return SCRIPT_DIR / "output" / "codex-v2"
+    return SCRIPT_DIR / "output" / "v2"
 
 
 def generate_code_pairs(n=5000):
@@ -196,6 +213,8 @@ def export_onnx(model_path, output_dir):
 
 def main():
     args = parse_args()
+    stage2_input = resolve_stage2_input(args.profile, args.stage2_input)
+    output_dir = resolve_output(args.profile, args.output)
 
     try:
         from sentence_transformers import SentenceTransformer
@@ -216,6 +235,16 @@ def main():
             print("No docstring pairs found, skipping stage 1")
 
     # Stage 2: Task-specific fine-tuning
+    if not stage2_input.exists():
+        if args.profile == "codex":
+            print(f"Codex dataset not found: {stage2_input}")
+            print(f"Build it first: python {SCRIPT_DIR}/build_codex_dataset.py")
+        else:
+            print(f"No triplets in {stage2_input}")
+        sys.exit(1)
+
+    args.stage2_input = str(stage2_input)
+    args.output = str(output_dir)
     triplets = load_triplets(args.stage2_input)
     if not triplets:
         print(f"No triplets in {args.stage2_input}")

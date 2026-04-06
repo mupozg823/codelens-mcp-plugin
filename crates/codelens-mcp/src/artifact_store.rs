@@ -158,8 +158,8 @@ impl AnalysisArtifactStore {
         let expired = {
             let arts = self.artifacts.lock().unwrap_or_else(|p| p.into_inner());
             arts.iter()
-                .filter(|&(id, a)| Self::expired(a.created_at_ms, now_ms))
-                .map(|(id, a)| id.clone())
+                .filter(|(_, a)| Self::expired(a.created_at_ms, now_ms))
+                .map(|(id, _)| id.clone())
                 .collect::<Vec<_>>()
         };
 

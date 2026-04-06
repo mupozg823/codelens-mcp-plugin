@@ -402,7 +402,27 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
         }
     };
     #[cfg(not(feature = "semantic"))]
-    let semantic_status = json!({"status": "not_compiled"});
+    let semantic_status = {
+        let configured_model = codelens_core::configured_embedding_model_name();
+        match codelens_core::EmbeddingEngine::inspect_existing_index(&project)
+            .ok()
+            .flatten()
+        {
+            Some(info) if info.model_name == configured_model && info.indexed_symbols > 0 => {
+                json!({
+                    "status": "ready",
+                    "model": info.model_name,
+                    "indexed_symbols": info.indexed_symbols,
+                    "loaded": false
+                })
+            }
+            _ => json!({
+                "status": "not_compiled",
+                "model": configured_model,
+                "loaded": false
+            }),
+        }
+    };
 
     Ok((
         json!({

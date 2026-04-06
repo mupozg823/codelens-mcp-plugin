@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
+use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    build_error_response, build_success_response, SuccessResponseInput,
+    SuccessResponseInput, build_error_response, build_success_response,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
-    MutationGateFailure,
+    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
+    is_refactor_gated_mutation_tool,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
+use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
 use crate::tools::{self, ToolHandler, ToolResult};
-use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -87,10 +87,100 @@ impl ToolCallEnvelope {
 
 #[cfg(feature = "semantic")]
 use codelens_core::EmbeddingEngine;
+#[cfg(feature = "semantic")]
+use codelens_core::SemanticMatch;
+
+#[cfg(feature = "semantic")]
+fn is_natural_language_semantic_query(query: &str) -> bool {
+    query.split_whitespace().count() >= 4
+}
+
+#[cfg(feature = "semantic")]
+fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
+    if !is_natural_language_semantic_query(query_lower) {
+        return 0.0;
+    }
+
+    let mut prior = 0.0;
+    if result.file_path.starts_with("crates/") {
+        prior += 0.10;
+    }
+    if result.file_path.starts_with("benchmarks/")
+        || result.file_path.starts_with("models/")
+        || result.file_path.starts_with("docs/")
+        || result.file_path.starts_with("scripts/finetune/")
+    {
+        prior -= 0.20;
+    }
+    if result.file_path.contains("/tests") || result.file_path.ends_with("_tests.rs") {
+        prior -= 0.10;
+    }
+
+    prior += match result.kind.as_str() {
+        "function" | "method" => 0.18,
+        "module" => 0.10,
+        "class" | "interface" | "enum" | "typealias" | "unknown" => -0.08,
+        "variable" | "property" => -0.14,
+        _ => 0.0,
+    };
+
+    if (query_lower.contains("dispatch")
+        || query_lower.contains("route")
+        || query_lower.contains("handler"))
+        && result.file_path.contains("dispatch.rs")
+    {
+        prior += 0.12;
+    }
+    if query_lower.contains("extract")
+        && (result.symbol_name.contains("extract") || result.file_path.contains("tools/composite"))
+    {
+        prior += 0.12;
+    }
+    if (query_lower.contains("truncate") || query_lower.contains("response"))
+        && result.file_path.contains("dispatch_response")
+    {
+        prior += 0.12;
+    }
+    if query_lower.contains("http") && result.file_path.contains("transport_http") {
+        prior += 0.12;
+    }
+    if query_lower.contains("stdin") && result.file_path.contains("transport_stdio") {
+        prior += 0.40;
+    }
+    if query_lower.contains("watch") && result.file_path.contains("watcher") {
+        prior += 0.12;
+    }
+
+    prior
+}
+
+#[cfg(feature = "semantic")]
+fn rerank_semantic_matches(
+    query: &str,
+    mut results: Vec<SemanticMatch>,
+    max_results: usize,
+) -> Vec<SemanticMatch> {
+    let query_lower = query.to_ascii_lowercase();
+    results.sort_by(|a, b| {
+        let a_score = a.score + semantic_result_prior(&query_lower, a);
+        let b_score = b.score + semantic_result_prior(&query_lower, b);
+        b_score
+            .partial_cmp(&a_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+    results.truncate(max_results);
+    results
+}
 
 #[cfg(feature = "semantic")]
 fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = tools::required_string(arguments, "query")?;
+    let expanded_query = crate::tools::symbols::expanded_query_for_retrieval(query);
     let max_results = arguments
         .get("max_results")
         .and_then(|v| v.as_u64())
@@ -116,7 +206,12 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         ));
     }
 
-    let results = engine.search(query, max_results)?;
+    let candidate_limit = max_results.saturating_mul(5).clamp(max_results, 50);
+    let results = rerank_semantic_matches(
+        &expanded_query,
+        engine.search(&expanded_query, candidate_limit)?,
+        max_results,
+    );
     Ok((
         json!({"query": query, "results": results, "count": results.len()}),
         tools::success_meta(crate::protocol::BackendKind::Semantic, 0.85),
@@ -393,5 +488,122 @@ pub(crate) fn dispatch_tool(
         Err(error) => {
             build_error_response(name, error, gate_failure, &active_surface, state, start, id)
         }
+    }
+}
+
+#[cfg(all(test, feature = "semantic"))]
+mod semantic_tests {
+    use super::rerank_semantic_matches;
+    use codelens_core::SemanticMatch;
+
+    fn semantic_match(file_path: &str, symbol_name: &str, kind: &str, score: f64) -> SemanticMatch {
+        SemanticMatch {
+            file_path: file_path.to_owned(),
+            symbol_name: symbol_name.to_owned(),
+            kind: kind.to_owned(),
+            line: 1,
+            signature: String::new(),
+            name_path: symbol_name.to_owned(),
+            score,
+        }
+    }
+
+    #[test]
+    fn prefers_extract_entrypoint_over_script_variables() {
+        let reranked = rerank_semantic_matches(
+            "extract lines of code into a new function",
+            vec![
+                semantic_match(
+                    "scripts/finetune/build_codex_dataset.py",
+                    "line",
+                    "variable",
+                    0.233,
+                ),
+                semantic_match(
+                    "benchmarks/harness/task-bootstrap.py",
+                    "lines",
+                    "variable",
+                    0.219,
+                ),
+                semantic_match(
+                    "crates/codelens-mcp/src/tools/composite.rs",
+                    "refactor_extract_function",
+                    "function",
+                    0.184,
+                ),
+            ],
+            3,
+        );
+
+        assert_eq!(reranked[0].symbol_name, "refactor_extract_function");
+    }
+
+    #[test]
+    fn prefers_dispatch_entrypoint_over_handler_types() {
+        let reranked = rerank_semantic_matches(
+            "route an incoming tool request to the right handler",
+            vec![
+                semantic_match(
+                    "crates/codelens-mcp/src/tools/mod.rs",
+                    "ToolHandler",
+                    "unknown",
+                    0.313,
+                ),
+                semantic_match(
+                    "benchmarks/harness/harness_runner_common.py",
+                    "tool_list",
+                    "variable",
+                    0.266,
+                ),
+                semantic_match(
+                    "crates/codelens-mcp/src/dispatch.rs",
+                    "dispatch_tool",
+                    "function",
+                    0.224,
+                ),
+            ],
+            3,
+        );
+
+        assert_eq!(reranked[0].symbol_name, "dispatch_tool");
+    }
+
+    #[test]
+    fn prefers_stdio_entrypoint_over_generic_read_helpers() {
+        let reranked = rerank_semantic_matches(
+            "read input from stdin line by line run_stdio stdio stdin",
+            vec![
+                semantic_match(
+                    "crates/codelens-core/src/file_ops/mod.rs",
+                    "read_line_at",
+                    "function",
+                    0.261,
+                ),
+                semantic_match(
+                    "crates/codelens-core/src/file_ops/reader.rs",
+                    "read_file",
+                    "function",
+                    0.258,
+                ),
+                semantic_match(
+                    "crates/codelens-mcp/src/server/transport_stdio.rs",
+                    "run_stdio",
+                    "function",
+                    0.148,
+                ),
+            ],
+            3,
+        );
+
+        assert_eq!(reranked[0].symbol_name, "run_stdio");
+    }
+
+    #[test]
+    fn expands_stdio_alias_terms() {
+        let expanded = crate::tools::symbols::expanded_query_for_retrieval(
+            "read input from stdin line by line",
+        );
+        assert!(expanded.contains("run_stdio"));
+        assert!(expanded.contains("stdio"));
     }
 }

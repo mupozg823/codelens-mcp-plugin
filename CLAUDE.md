@@ -47,3 +47,18 @@ cargo clippy -- -W clippy::all
 - **B: CodeLens Read-Only** — multi-file context, ranked symbols, impact review
 - **C: Verifier-First Mutation** — `verify_change_readiness` before rename/edit
 - **D: Async Analysis** — `start_analysis_job` → poll → `get_analysis_section`
+
+## Mutation Gate Protocol (Mode C)
+
+**Before ANY CodeLens mutation tool** (`rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`, `delete_lines`, `add_import`, `refactor_*`), you MUST:
+
+1. Run `verify_change_readiness` with the target file path(s)
+2. Check `mutation_ready` field in the response:
+   - `"ready"` → proceed with mutation
+   - `"caution"` → proceed but run `get_file_diagnostics` after
+   - `"blocked"` → resolve blockers before mutating
+3. For `rename_symbol` specifically: run `safe_rename_report` instead of `verify_change_readiness`
+
+**Why:** The mutation gate on the server enforces this in `refactor-full` profile. Skipping preflight returns an error, not a silent pass. Running preflight first avoids wasted tool calls.
+
+**After mutation:** always follow `suggested_next_tools` from the response (typically `get_file_diagnostics`).

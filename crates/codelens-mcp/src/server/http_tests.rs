@@ -807,8 +807,49 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
         crate::tool_defs::ToolProfile::ReviewerGraph,
     ));
     let app = build_router(state.clone());
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'textDocumentSync':1,'diagnosticProvider':{}}}})\n",
+        "    elif m == 'textDocument/diagnostic':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'kind':'full','items':[]}})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
     let unique_name = format!("deferred-open-{}.py", std::process::id());
     let file_path = state.project().as_path().join(&unique_name);
+    let mock_path = state.project().as_path().join("mock_lsp.py");
+    std::fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&mock_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
     std::fs::write(&file_path, "def beta():\n    return 2\n").unwrap();
 
     let init = app
@@ -877,7 +918,7 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
     assert!(ns_body.contains("\"selected_namespace\":\"lsp\""));
     assert!(ns_body.contains("\"get_file_diagnostics\""));
 
-    // Verify expanded tool call works
+    // Verify expanded namespace allows the tool call using a deterministic mock LSP.
     let allowed = app
         .oneshot(
             Request::builder()
@@ -886,8 +927,9 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(format!(
-                    r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"get_file_diagnostics","arguments":{{"file_path":"{}"}}}}}}"#,
-                    file_path.display()
+                    r#"{{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{{"name":"get_file_diagnostics","arguments":{{"file_path":"{}","command":"python3","args":["{}"]}}}}}}"#,
+                    file_path.display(),
+                    mock_path.display()
                 )))
                 .unwrap(),
         )

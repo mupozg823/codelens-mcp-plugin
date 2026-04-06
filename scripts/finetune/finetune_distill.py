@@ -22,10 +22,13 @@ from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
 ROOT = SCRIPT_DIR.parent.parent
+DEFAULT_GENERAL_INPUT = SCRIPT_DIR / "training_pairs_augmented.jsonl"
+DEFAULT_CODEX_INPUT = SCRIPT_DIR / "training_pairs_codex.jsonl"
 
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument("--profile", choices=["general", "codex"], default="general")
     parser.add_argument(
         "--student-model", default="sentence-transformers/all-MiniLM-L12-v2"
     )
@@ -39,14 +42,28 @@ def parse_args():
         help="Number of code texts for distillation alignment",
     )
     parser.add_argument("--distill-epochs", type=int, default=3)
-    parser.add_argument(
-        "--finetune-input", default=str(SCRIPT_DIR / "training_pairs_augmented.jsonl")
-    )
+    parser.add_argument("--finetune-input", default="")
     parser.add_argument("--finetune-epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=32)
-    parser.add_argument("--output", default=str(SCRIPT_DIR / "output" / "distill"))
+    parser.add_argument("--output", default="")
     parser.add_argument("--skip-onnx", action="store_true")
     return parser.parse_args()
+
+
+def resolve_finetune_input(profile: str, explicit_input: str) -> Path:
+    if explicit_input:
+        return Path(explicit_input)
+    if profile == "codex":
+        return DEFAULT_CODEX_INPUT
+    return DEFAULT_GENERAL_INPUT
+
+
+def resolve_output(profile: str, explicit_output: str) -> Path:
+    if explicit_output:
+        return Path(explicit_output)
+    if profile == "codex":
+        return SCRIPT_DIR / "output" / "codex-distill"
+    return SCRIPT_DIR / "output" / "distill"
 
 
 def load_teacher(teacher_dir):
@@ -242,8 +259,20 @@ def export_onnx(model_path, output_dir):
 
 def main():
     args = parse_args()
+    finetune_input = resolve_finetune_input(args.profile, args.finetune_input)
+    output_dir = resolve_output(args.profile, args.output)
 
     from sentence_transformers import SentenceTransformer
+
+    if not finetune_input.exists():
+        if args.profile == "codex":
+            raise SystemExit(
+                f"Codex dataset not found: {finetune_input}\nBuild it first: python {SCRIPT_DIR}/build_codex_dataset.py"
+            )
+        raise SystemExit(f"Fine-tune input not found: {finetune_input}")
+
+    args.finetune_input = str(finetune_input)
+    args.output = str(output_dir)
 
     # Load teacher (CodeSearchNet ONNX)
     print("Loading teacher (CodeSearchNet ONNX)...")

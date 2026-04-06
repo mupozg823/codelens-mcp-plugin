@@ -19,13 +19,15 @@ from pathlib import Path
 SCRIPT_DIR = Path(__file__).parent
 ROOT = SCRIPT_DIR.parent.parent
 TRAINING_DATA = SCRIPT_DIR / "training_pairs.jsonl"
+CODEX_TRAINING_DATA = SCRIPT_DIR / "training_pairs_codex.jsonl"
 OUTPUT_DIR = SCRIPT_DIR / "output"
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Fine-tune embedding model")
-    parser.add_argument("--input", default=str(TRAINING_DATA))
-    parser.add_argument("--output", default=str(OUTPUT_DIR))
+    parser.add_argument("--profile", choices=["general", "codex"], default="general")
+    parser.add_argument("--input", default="")
+    parser.add_argument("--output", default="")
     parser.add_argument(
         "--base-model", default="sentence-transformers/all-MiniLM-L12-v2"
     )
@@ -35,6 +37,22 @@ def parse_args():
     parser.add_argument("--lr", type=float, default=2e-5)
     parser.add_argument("--skip-onnx", action="store_true", help="Skip ONNX export")
     return parser.parse_args()
+
+
+def resolve_input(profile: str, explicit_input: str) -> Path:
+    if explicit_input:
+        return Path(explicit_input)
+    if profile == "codex":
+        return CODEX_TRAINING_DATA
+    return TRAINING_DATA
+
+
+def resolve_output(profile: str, explicit_output: str) -> Path:
+    if explicit_output:
+        return Path(explicit_output)
+    if profile == "codex":
+        return OUTPUT_DIR / "codex"
+    return OUTPUT_DIR
 
 
 def load_triplets(path):
@@ -161,14 +179,22 @@ def export_onnx(model_path, output_dir):
 
 def main():
     args = parse_args()
+    input_path = resolve_input(args.profile, args.input)
+    output_path = resolve_output(args.profile, args.output)
 
-    if not Path(args.input).exists():
-        print(f"Training data not found: {args.input}")
-        print("Run collect_training_data.py first:")
-        print(f"  python {SCRIPT_DIR}/collect_training_data.py")
+    if not input_path.exists():
+        print(f"Training data not found: {input_path}")
+        if args.profile == "codex":
+            print("Build the Codex-focused dataset first:")
+            print(f"  python {SCRIPT_DIR}/build_codex_dataset.py")
+        else:
+            print("Run collect_training_data.py first:")
+            print(f"  python {SCRIPT_DIR}/collect_training_data.py")
         sys.exit(1)
 
     # Train
+    args.input = str(input_path)
+    args.output = str(output_path)
     model_path = train(args)
 
     # Export ONNX

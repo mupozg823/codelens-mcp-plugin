@@ -42,3 +42,4 @@ scripts/finetune/output/
 *.onnx
 *.onnx.bak
 checkpoints/
+scripts/finetune/*.jsonl

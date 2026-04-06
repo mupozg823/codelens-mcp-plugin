@@ -101,10 +101,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     #[cfg(not(feature = "semantic"))]
     let embeddings_loaded = false;
 
-    #[cfg(feature = "semantic")]
     let configured_embedding_model = codelens_core::configured_embedding_model_name();
-    #[cfg(not(feature = "semantic"))]
-    let configured_embedding_model = String::from("not_compiled");
 
     #[cfg(feature = "semantic")]
     let embedding_index_info = state
@@ -117,7 +114,10 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
                 .flatten()
         });
     #[cfg(not(feature = "semantic"))]
-    let embedding_index_info: Option<codelens_core::EmbeddingIndexInfo> = None;
+    let embedding_index_info =
+        codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
+            .ok()
+            .flatten();
 
     // Check index freshness
     let index_stats = state.symbol_index().stats().ok();

@@ -137,7 +137,10 @@ fn main() -> Result<()> {
 
     let project = ProjectRoot::new(&effective_path).or_else(|_| {
         // Fallback: try current working directory if explicit path fails
-        tracing::warn!("Failed to resolve project root '{}', falling back to cwd", effective_path);
+        tracing::warn!(
+            "Failed to resolve project root '{}', falling back to cwd",
+            effective_path
+        );
         let cwd = std::env::current_dir()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| ".".to_string());
