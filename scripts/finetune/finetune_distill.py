@@ -77,6 +77,12 @@ def parse_args():
     parser.add_argument("--finetune-epochs", type=int, default=5)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument(
+        "--eval-batch-size",
+        type=int,
+        default=0,
+        help="Validation/evaluator batch size (0 = auto, separate from train batch).",
+    )
+    parser.add_argument(
         "--max-seq-length",
         type=int,
         default=128,
@@ -381,6 +387,18 @@ def gradient_accumulation_steps(
     return max(
         1, (requested_batch_size + effective_batch_size - 1) // effective_batch_size
     )
+
+
+def effective_eval_batch_size(
+    requested_eval_batch_size: int,
+    train_batch_size: int,
+    train_device: str,
+) -> int:
+    if requested_eval_batch_size > 0:
+        return requested_eval_batch_size
+    if train_device == "mps":
+        return max(1, min(train_batch_size, 32))
+    return max(1, train_batch_size)
 
 
 def optimizer_steps_per_epoch(
@@ -1113,6 +1131,12 @@ def stage2_finetune(student, triplets_path, args):
         f"micro_batch={train_batch_size} grad_accum={grad_accum_steps} "
         f"effective_batch={train_batch_size * grad_accum_steps}"
     )
+    eval_batch_size = effective_eval_batch_size(
+        args.eval_batch_size,
+        train_batch_size,
+        train_device,
+    )
+    print(f"  Eval batching: batch_size={eval_batch_size}")
     collator = CachedSentenceDataCollator(
         student.tokenizer,
         max_length=resolved_max_seq_length(args.max_seq_length),
@@ -1160,7 +1184,7 @@ def stage2_finetune(student, triplets_path, args):
     if args.validation_input and args.evaluation_steps > 0:
         evaluator = build_validation_evaluator(
             args.validation_input,
-            train_batch_size,
+            eval_batch_size,
             max_rows=args.max_validation_rows,
         )
 
@@ -1180,7 +1204,7 @@ def stage2_finetune(student, triplets_path, args):
     training_args = SentenceTransformerTrainingArguments(
         output_dir=str(checkpoints_dir),
         per_device_train_batch_size=train_batch_size,
-        per_device_eval_batch_size=train_batch_size,
+        per_device_eval_batch_size=eval_batch_size,
         batch_sampler=batch_sampler,
         num_train_epochs=args.finetune_epochs,
         gradient_accumulation_steps=grad_accum_steps,
@@ -1333,6 +1357,11 @@ def main():
                 args._resource_profile,
                 resolved_train_device,
                 dry_run_train_pairs,
+            ),
+            "effective_eval_batch_size": effective_eval_batch_size(
+                args.eval_batch_size,
+                effective_train_micro_batch,
+                resolved_train_device,
             ),
             "gradient_accumulation_steps": gradient_accumulation_steps(
                 args.batch_size,
