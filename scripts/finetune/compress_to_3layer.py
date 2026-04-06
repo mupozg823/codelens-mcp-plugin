@@ -20,8 +20,8 @@ from sentence_transformers import SentenceTransformer, InputExample, losses
 from torch.utils.data import DataLoader
 
 SCRIPT_DIR = Path(__file__).parent
-DEFAULT_TEACHER = SCRIPT_DIR / "output" / "distill-v3-spencer" / "model"
-DEFAULT_DATA = SCRIPT_DIR / "training_pairs_ultimate_v2.jsonl"
+DEFAULT_TEACHER = SCRIPT_DIR / "output" / "v6-internet" / "model"
+DEFAULT_DATA = SCRIPT_DIR / "csn_runtime_format.jsonl"
 DEFAULT_OUTPUT = SCRIPT_DIR / "output" / "compressed-3layer"
 
 
@@ -129,11 +129,11 @@ def distill_from_teacher(student, teacher, data_path, args):
 
     student[0].auto_model = student_auto.cpu()
 
-    # Stage B: CosineSimilarityLoss fine-tuning (dual-modality, SPENCER)
-    print("  Stage B: CosineSimilarity fine-tuning...")
-    examples = [InputExample(texts=[q, p], label=1.0) for q, p in pairs]
+    # Stage B: MNRL fine-tuning (NOT CosineSimilarityLoss — proven to destroy MRR)
+    print("  Stage B: MNRL fine-tuning...")
+    examples = [InputExample(texts=[q, p]) for q, p in pairs]
     dataloader = DataLoader(examples, shuffle=True, batch_size=args.batch_size)
-    loss_fn = losses.CosineSimilarityLoss(model=student)
+    loss_fn = losses.MultipleNegativesRankingLoss(model=student)
 
     model_output = Path(args.output) / "model"
     model_output.mkdir(parents=True, exist_ok=True)

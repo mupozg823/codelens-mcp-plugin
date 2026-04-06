@@ -433,7 +433,7 @@ def load_or_compute_teacher_embeddings(
 
     cache_path = teacher_cache_path(args.output, texts, args.teacher_dir, teacher_providers)
     if cache_path.exists():
-        embeddings = np.load(cache_path, allow_pickle=False)
+        embeddings = np.load(cache_path, allow_pickle=False, mmap_mode="r")
         print(f"  Teacher cache hit: {cache_path}")
         return embeddings
 
@@ -526,8 +526,6 @@ def stage1_distill(student, texts, args, teacher_providers):
     student_tokenizer = student.tokenizer
     print(f"  Student device: {device}")
 
-    target_tensor = torch.tensor(teacher_embeddings, dtype=torch.float32).to(device)
-
     optimizer = torch.optim.AdamW(student_model.parameters(), lr=2e-5)
     mse_loss = torch.nn.MSELoss()
 
@@ -540,7 +538,10 @@ def stage1_distill(student, texts, args, teacher_providers):
         )
         for i in range(0, len(texts), distill_batch_size):
             batch_texts = texts[i : i + distill_batch_size]
-            batch_targets = target_tensor[i : i + distill_batch_size]
+            batch_targets = torch.from_numpy(teacher_embeddings[i : i + distill_batch_size]).to(
+                device=device,
+                dtype=torch.float32,
+            )
 
             inputs = student_tokenizer(
                 batch_texts,
@@ -569,7 +570,6 @@ def stage1_distill(student, texts, args, teacher_providers):
         avg_loss = total_loss / max(batches, 1)
         print(f"  Epoch {epoch + 1}/{args.distill_epochs}: MSE loss = {avg_loss:.6f}")
 
-    del target_tensor
     del teacher_embeddings
     if device.type == "mps":
         torch.mps.empty_cache()
@@ -577,24 +577,30 @@ def stage1_distill(student, texts, args, teacher_providers):
     return student
 
 
-def load_retrieval_pairs(path: str) -> list[tuple[str, str]]:
-    pairs = []
+def iter_retrieval_pairs(path: str):
     with open(path, encoding="utf-8") as f:
         for line in f:
             obj = json.loads(line.strip())
             query = obj.get("query", "").strip()
             positive = obj.get("positive", "").strip()
             if query and positive:
-                pairs.append((query, positive))
-    return pairs
+                yield query, positive
 
 
-def build_retrieval_dataset(pairs: list[tuple[str, str]]):
+def count_retrieval_pairs(path: str) -> int:
+    return sum(1 for _ in iter_retrieval_pairs(path))
+
+
+def load_retrieval_dataset(path: str):
     from datasets import Dataset
 
-    sentence_0 = [query for query, _ in pairs]
-    sentence_1 = [positive for _, positive in pairs]
-    return Dataset.from_dict({"sentence_0": sentence_0, "sentence_1": sentence_1})
+    dataset = Dataset.from_json(path, keep_in_memory=False)
+    drop_columns = [name for name in dataset.column_names if name not in {"query", "positive"}]
+    if drop_columns:
+        dataset = dataset.remove_columns(drop_columns)
+    dataset = dataset.rename_column("query", "sentence_0")
+    dataset = dataset.rename_column("positive", "sentence_1")
+    return dataset
 
 
 def build_validation_evaluator(validation_input: str, batch_size: int):
@@ -611,7 +617,7 @@ def build_validation_evaluator(validation_input: str, batch_size: int):
     relevant_docs = {}
     positive_to_doc_id = {}
 
-    for idx, (query, positive) in enumerate(load_retrieval_pairs(str(path))):
+    for idx, (query, positive) in enumerate(iter_retrieval_pairs(str(path))):
         qid = f"q{idx}"
         if positive not in positive_to_doc_id:
             positive_to_doc_id[positive] = f"d{len(positive_to_doc_id)}"
@@ -652,17 +658,17 @@ def stage2_finetune(student, triplets_path, args):
 
     print(f"\n=== Stage 2: MNRL Fine-tuning ({args.finetune_epochs} epochs) ===")
 
-    pairs = load_retrieval_pairs(triplets_path)
+    train_dataset = load_retrieval_dataset(triplets_path)
+    pair_count = len(train_dataset)
 
-    print(f"  Loaded {len(pairs)} query-positive pairs")
+    print(f"  Loaded {pair_count} query-positive pairs")
     train_device = resolve_training_device(args.train_device)
     student = student.to(train_device)
     print(f"  Student device: {train_device}")
-    train_dataset = build_retrieval_dataset(pairs)
     train_batch_size = effective_train_batch_size(args.batch_size, args._resource_profile)
     loader_workers = effective_loader_workers(
         args.loader_workers,
-        len(pairs),
+        pair_count,
         args._resource_profile,
     )
     batch_sampler = (
@@ -800,8 +806,8 @@ def main():
                 args.distill_batch_size or args.batch_size,
                 args._resource_profile,
             ),
-            "train_pairs": len(load_retrieval_pairs(args.finetune_input)),
-            "validation_pairs": len(load_retrieval_pairs(args.validation_input))
+            "train_pairs": count_retrieval_pairs(args.finetune_input),
+            "validation_pairs": count_retrieval_pairs(args.validation_input)
             if args.validation_input
             else 0,
         }

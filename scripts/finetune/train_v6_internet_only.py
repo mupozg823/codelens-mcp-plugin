@@ -128,6 +128,42 @@ def recommended_teacher_batch_size(teacher_providers: list[str]) -> int:
     return 32
 
 
+def iter_retrieval_pairs(path: str):
+    with Path(path).open() as f:
+        for line in f:
+            obj = json.loads(line)
+            query = obj.get("query", "").strip()
+            positive = obj.get("positive", "").strip()
+            if query and positive:
+                yield query, positive
+
+
+def count_retrieval_pairs(path: str) -> int:
+    return sum(1 for _ in iter_retrieval_pairs(path))
+
+
+def collect_positive_texts(path: str, limit: int) -> list[str]:
+    texts = []
+    for _query, positive in iter_retrieval_pairs(path):
+        texts.append(positive)
+        if len(texts) >= limit:
+            break
+    random.shuffle(texts)
+    return texts
+
+
+def load_retrieval_dataset(path: str):
+    from datasets import Dataset
+
+    dataset = Dataset.from_json(path, keep_in_memory=False)
+    drop_columns = [name for name in dataset.column_names if name not in {"query", "positive"}]
+    if drop_columns:
+        dataset = dataset.remove_columns(drop_columns)
+    dataset = dataset.rename_column("query", "sentence_0")
+    dataset = dataset.rename_column("positive", "sentence_1")
+    return dataset
+
+
 def load_teacher(teacher_dir):
     """Load CodeSearchNet ONNX model as teacher."""
     import onnxruntime as ort
@@ -212,7 +248,7 @@ def load_or_compute_teacher_embeddings(model, tokenizer, texts, teacher_dir, tea
     cache_path = teacher_cache_path(texts, teacher_dir, teacher_providers)
     if cache_path.exists():
         print(f"  Teacher cache hit: {cache_path}")
-        return np.load(cache_path, allow_pickle=False)
+        return np.load(cache_path, allow_pickle=False, mmap_mode="r")
 
     if model is None or tokenizer is None:
         print("  Teacher cache miss: loading teacher ONNX...")
@@ -228,7 +264,7 @@ def load_or_compute_teacher_embeddings(model, tokenizer, texts, teacher_dir, tea
 
 def stage1_distill(
     student,
-    pairs,
+    pairs_path,
     teacher_dir,
     teacher_providers,
     batch_size=32,
@@ -238,8 +274,7 @@ def stage1_distill(
     import torch
 
     # Use positive texts for distillation alignment
-    texts = [p["positive"] for p in pairs[:3000]]
-    random.shuffle(texts)
+    texts = collect_positive_texts(pairs_path, limit=3000)
 
     print(f"\n=== Stage 1: Distillation ({len(texts)} texts, {epochs} epochs) ===")
     print("  Generating teacher embeddings...")
@@ -257,7 +292,6 @@ def stage1_distill(
     student = student.to(device)
     student_model = student[0].auto_model
     student_tokenizer = student.tokenizer
-    target_tensor = torch.tensor(teacher_embeddings, dtype=torch.float32).to(device)
 
     optimizer = torch.optim.AdamW(student_model.parameters(), lr=2e-5)
     mse_loss = torch.nn.MSELoss()
@@ -267,7 +301,10 @@ def stage1_distill(
         batches = 0
         for i in range(0, len(texts), batch_size):
             batch_texts = texts[i : i + batch_size]
-            batch_targets = target_tensor[i : i + batch_size]
+            batch_targets = torch.from_numpy(teacher_embeddings[i : i + batch_size]).to(
+                device=device,
+                dtype=torch.float32,
+            )
 
             inputs = student_tokenizer(
                 batch_texts,
@@ -294,32 +331,25 @@ def stage1_distill(
         avg = total_loss / max(batches, 1)
         print(f"  Epoch {epoch + 1}/{epochs}: MSE = {avg:.6f}")
 
-    del target_tensor
     del teacher_embeddings
     if device.type == "mps":
         torch.mps.empty_cache()
     return student
 
 
-def stage2_mnrl(student, pairs, batch_size=32, epochs=5):
+def stage2_mnrl(student, pairs_path, pair_count, batch_size=32, epochs=5):
     """Stage 2: MNRL fine-tuning. NEVER use CosineSimilarityLoss."""
-    from datasets import Dataset
     from sentence_transformers import losses
     from sentence_transformers.trainer import SentenceTransformerTrainer
     from sentence_transformers.training_args import BatchSamplers, SentenceTransformerTrainingArguments
 
-    print(f"\n=== Stage 2: MNRL Fine-tuning ({len(pairs)} pairs, {epochs} epochs) ===")
+    print(f"\n=== Stage 2: MNRL Fine-tuning ({pair_count} pairs, {epochs} epochs) ===")
     train_device = resolve_training_device()
     student = student.to(train_device)
     print(f"  Device: {train_device}")
 
-    train_dataset = Dataset.from_dict(
-        {
-            "sentence_0": [p["query"] for p in pairs],
-            "sentence_1": [p["positive"] for p in pairs],
-        }
-    )
-    loader_workers = recommended_loader_workers(len(pairs))
+    train_dataset = load_retrieval_dataset(pairs_path)
+    loader_workers = recommended_loader_workers(pair_count)
     print(
         "  Trainer dataloading: "
         f"batch_sampler={BatchSamplers.NO_DUPLICATES.value} workers={loader_workers} batch_size={batch_size}"
@@ -384,11 +414,8 @@ def main():
     print(f"Runtime placement: {runtime}")
 
     # Load data
-    pairs = []
-    with INPUT.open() as f:
-        for line in f:
-            pairs.append(json.loads(line))
-    print(f"Loaded {len(pairs)} pairs (internet-only)")
+    pair_count = count_retrieval_pairs(str(INPUT))
+    print(f"Loaded {pair_count} pairs (internet-only)")
 
     teacher_dir = str(ROOT / "models" / "codelens-code-search" / "arm64")
     teacher_providers = resolve_teacher_providers()
@@ -403,12 +430,12 @@ def main():
     # Stage 1: Distillation
     student = stage1_distill(
         student,
-        pairs,
+        str(INPUT),
         teacher_dir,
         teacher_providers,
     )
     # Stage 2: MNRL
-    model_path = stage2_mnrl(student, pairs)
+    model_path = stage2_mnrl(student, str(INPUT), pair_count)
 
     # Export ONNX
     export_onnx(model_path)
