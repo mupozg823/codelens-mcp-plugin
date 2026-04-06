@@ -101,11 +101,8 @@ def recommended_loader_workers(num_examples: int) -> int:
 
 
 def resolve_teacher_providers() -> list[str]:
-    import onnxruntime as ort
-
-    available = set(ort.get_available_providers())
-    if sys.platform == "darwin" and "CoreMLExecutionProvider" in available:
-        return ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+    # Measured on Apple Silicon for this teacher model:
+    # CPU EP has lower load time and lower single-batch latency than partial CoreML execution.
     return ["CPUExecutionProvider"]
 
 
@@ -123,6 +120,12 @@ def build_teacher_session_config() -> dict:
         "execution_mode": "ORT_SEQUENTIAL",
         "graph_optimization_level": "ORT_ENABLE_ALL",
     }
+
+
+def recommended_teacher_batch_size(teacher_providers: list[str]) -> int:
+    if teacher_providers == ["CPUExecutionProvider"]:
+        return 16
+    return 32
 
 
 def load_teacher(teacher_dir):
@@ -170,41 +173,61 @@ def teacher_cache_path(texts: list[str], teacher_dir: str, teacher_providers: li
     return cache_dir / f"teacher-embeddings-{key.hexdigest()[:16]}.npy"
 
 
-def teacher_embed(model, tokenizer, texts, batch_size=64):
-    all_embeddings = []
+def teacher_embed(model, tokenizer, texts, batch_size: int):
+    if not texts:
+        return np.empty((0, 0), dtype=np.float32)
+
+    def pool_teacher_batch(token_embeddings, attention_mask):
+        mask = attention_mask.astype(token_embeddings.dtype, copy=False)
+        pooled = np.einsum("bsd,bs->bd", token_embeddings, mask, optimize=True)
+        counts = mask.sum(axis=1, dtype=token_embeddings.dtype, keepdims=True)
+        np.maximum(counts, 1e-9, out=counts)
+        np.divide(pooled, counts, out=pooled)
+        norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+        np.maximum(norms, 1e-9, out=norms)
+        np.divide(pooled, norms, out=pooled)
+        return pooled
+
+    all_embeddings = None
+    offset = 0
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
         inputs = tokenizer(
             batch, padding=True, truncation=True, max_length=512, return_tensors="np"
         )
         outputs = model(**{k: v for k, v in inputs.items()})
-        token_embeddings = outputs.last_hidden_state
-        attention_mask = inputs["attention_mask"]
-        mask_expanded = np.expand_dims(attention_mask, -1)
-        summed = np.sum(token_embeddings * mask_expanded, axis=1)
-        counts = np.clip(np.sum(mask_expanded, axis=1), 1e-9, None)
-        embeddings = summed / counts
-        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-        embeddings = embeddings / np.clip(norms, 1e-9, None)
-        all_embeddings.append(embeddings)
-    return np.vstack(all_embeddings)
+        pooled = pool_teacher_batch(outputs.last_hidden_state, inputs["attention_mask"])
+        if all_embeddings is None:
+            all_embeddings = np.empty(
+                (len(texts), pooled.shape[1]),
+                dtype=pooled.dtype,
+            )
+        batch_len = pooled.shape[0]
+        all_embeddings[offset : offset + batch_len] = pooled
+        offset += batch_len
+    return all_embeddings
 
 
 def load_or_compute_teacher_embeddings(model, tokenizer, texts, teacher_dir, teacher_providers):
     cache_path = teacher_cache_path(texts, teacher_dir, teacher_providers)
     if cache_path.exists():
         print(f"  Teacher cache hit: {cache_path}")
-        return np.load(cache_path)
-    embeddings = teacher_embed(model, tokenizer, texts)
-    np.save(cache_path, embeddings)
+        return np.load(cache_path, allow_pickle=False)
+
+    if model is None or tokenizer is None:
+        print("  Teacher cache miss: loading teacher ONNX...")
+        model, tokenizer, _active, _session = load_teacher(teacher_dir)
+
+    teacher_batch_size = recommended_teacher_batch_size(teacher_providers)
+    print(f"  Teacher batch size: {teacher_batch_size}")
+    embeddings = teacher_embed(model, tokenizer, texts, batch_size=teacher_batch_size)
+    np.save(cache_path, embeddings, allow_pickle=False)
     print(f"  Teacher cache saved: {cache_path}")
     return embeddings
 
 
 def stage1_distill(
     student,
-    teacher_model,
-    teacher_tokenizer,
     pairs,
     teacher_dir,
     teacher_providers,
@@ -221,8 +244,8 @@ def stage1_distill(
     print(f"\n=== Stage 1: Distillation ({len(texts)} texts, {epochs} epochs) ===")
     print("  Generating teacher embeddings...")
     teacher_embeddings = load_or_compute_teacher_embeddings(
-        teacher_model,
-        teacher_tokenizer,
+        None,
+        None,
         texts,
         teacher_dir,
         teacher_providers,
@@ -367,10 +390,9 @@ def main():
             pairs.append(json.loads(line))
     print(f"Loaded {len(pairs)} pairs (internet-only)")
 
-    # Load teacher
     teacher_dir = str(ROOT / "models" / "codelens-code-search" / "arm64")
-    print("Loading teacher ONNX...")
-    teacher_model, teacher_tokenizer, teacher_providers, teacher_session = load_teacher(teacher_dir)
+    teacher_providers = resolve_teacher_providers()
+    teacher_session = build_teacher_session_config()
     print(f"Teacher providers: {teacher_providers}")
     print(f"Teacher session: {teacher_session}")
 
@@ -381,8 +403,6 @@ def main():
     # Stage 1: Distillation
     student = stage1_distill(
         student,
-        teacher_model,
-        teacher_tokenizer,
         pairs,
         teacher_dir,
         teacher_providers,

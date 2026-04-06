@@ -39,7 +39,7 @@ def parse_args():
         "--teacher-provider",
         choices=["auto", "cpu", "coreml"],
         default="auto",
-        help="Execution provider for ONNX teacher inference",
+        help="Execution provider for ONNX teacher inference (auto defaults to CPU for this model)",
     )
     parser.add_argument(
         "--distill-texts",
@@ -305,8 +305,9 @@ def resolve_teacher_providers(provider_name: str, *, strict: bool = True) -> lis
         if "CoreMLExecutionProvider" not in available:
             raise SystemExit("Requested --teacher-provider coreml, but CoreMLExecutionProvider is unavailable")
         return ["CoreMLExecutionProvider", "CPUExecutionProvider"]
-    if sys.platform == "darwin" and "CoreMLExecutionProvider" in available:
-        return ["CoreMLExecutionProvider", "CPUExecutionProvider"]
+    # Measured on Apple Silicon for the bundled teacher model:
+    # CPU EP loads faster and runs small-batch inference faster than partial CoreML partitioning.
+    # Keep CoreML available as an explicit opt-in, but default auto to CPU for stability.
     return ["CPUExecutionProvider"]
 
 
@@ -324,6 +325,12 @@ def build_teacher_session_config() -> dict:
         "execution_mode": "ORT_SEQUENTIAL",
         "graph_optimization_level": "ORT_ENABLE_ALL",
     }
+
+
+def recommended_teacher_batch_size(teacher_providers: list[str]) -> int:
+    if teacher_providers == ["CPUExecutionProvider"]:
+        return 16
+    return 32
 
 
 def load_teacher(teacher_dir, provider_name: str):
@@ -377,29 +384,42 @@ def teacher_cache_path(
     return cache_dir / f"teacher-embeddings-{key.hexdigest()[:16]}.npy"
 
 
-def teacher_embed(model, tokenizer, texts, batch_size=64):
+def teacher_embed(model, tokenizer, texts, batch_size: int):
     """Generate embeddings from teacher model."""
     import numpy as np
 
-    all_embeddings = []
+    if not texts:
+        return np.empty((0, 0), dtype=np.float32)
+
+    def pool_teacher_batch(token_embeddings, attention_mask):
+        mask = attention_mask.astype(token_embeddings.dtype, copy=False)
+        pooled = np.einsum("bsd,bs->bd", token_embeddings, mask, optimize=True)
+        counts = mask.sum(axis=1, dtype=token_embeddings.dtype, keepdims=True)
+        np.maximum(counts, 1e-9, out=counts)
+        np.divide(pooled, counts, out=pooled)
+        norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+        np.maximum(norms, 1e-9, out=norms)
+        np.divide(pooled, norms, out=pooled)
+        return pooled
+
+    all_embeddings = None
+    offset = 0
     for i in range(0, len(texts), batch_size):
         batch = texts[i : i + batch_size]
         inputs = tokenizer(
             batch, padding=True, truncation=True, max_length=512, return_tensors="np"
         )
         outputs = model(**{k: v for k, v in inputs.items()})
-        # Mean pooling
-        token_embeddings = outputs.last_hidden_state
-        attention_mask = inputs["attention_mask"]
-        mask_expanded = np.expand_dims(attention_mask, -1)
-        summed = np.sum(token_embeddings * mask_expanded, axis=1)
-        counts = np.clip(np.sum(mask_expanded, axis=1), 1e-9, None)
-        embeddings = summed / counts
-        # L2 normalize
-        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
-        embeddings = embeddings / np.clip(norms, 1e-9, None)
-        all_embeddings.append(embeddings)
-    return np.vstack(all_embeddings)
+        pooled = pool_teacher_batch(outputs.last_hidden_state, inputs["attention_mask"])
+        if all_embeddings is None:
+            all_embeddings = np.empty(
+                (len(texts), pooled.shape[1]),
+                dtype=pooled.dtype,
+            )
+        batch_len = pooled.shape[0]
+        all_embeddings[offset : offset + batch_len] = pooled
+        offset += batch_len
+    return all_embeddings
 
 
 def load_or_compute_teacher_embeddings(
@@ -413,12 +433,21 @@ def load_or_compute_teacher_embeddings(
 
     cache_path = teacher_cache_path(args.output, texts, args.teacher_dir, teacher_providers)
     if cache_path.exists():
-        embeddings = np.load(cache_path)
+        embeddings = np.load(cache_path, allow_pickle=False)
         print(f"  Teacher cache hit: {cache_path}")
         return embeddings
 
-    embeddings = teacher_embed(model, tokenizer, texts)
-    np.save(cache_path, embeddings)
+    if model is None or tokenizer is None:
+        print("  Teacher cache miss: loading teacher ONNX...")
+        model, tokenizer, _active, _session = load_teacher(
+            args.teacher_dir,
+            args.teacher_provider,
+        )
+
+    teacher_batch_size = recommended_teacher_batch_size(teacher_providers)
+    print(f"  Teacher batch size: {teacher_batch_size}")
+    embeddings = teacher_embed(model, tokenizer, texts, batch_size=teacher_batch_size)
+    np.save(cache_path, embeddings, allow_pickle=False)
     print(f"  Teacher cache saved: {cache_path}")
     return embeddings
 
@@ -471,7 +500,7 @@ def collect_code_texts(n=3000, distill_input: str = "", finetune_input: str = ""
     return texts[:n]
 
 
-def stage1_distill(student, teacher_model, teacher_tokenizer, texts, args, teacher_providers):
+def stage1_distill(student, texts, args, teacher_providers):
     """Align student embeddings with teacher via MSE loss."""
     import torch
 
@@ -482,8 +511,8 @@ def stage1_distill(student, teacher_model, teacher_tokenizer, texts, args, teach
     # Get teacher embeddings
     print("  Generating teacher embeddings...")
     teacher_embeddings = load_or_compute_teacher_embeddings(
-        teacher_model,
-        teacher_tokenizer,
+        None,
+        None,
         texts,
         args,
         teacher_providers,
@@ -757,6 +786,12 @@ def main():
                 strict=False,
             ),
             "teacher_session": build_teacher_session_config(),
+            "teacher_batch_size": recommended_teacher_batch_size(
+                resolve_teacher_providers(
+                    args.teacher_provider,
+                    strict=False,
+                )
+            ),
             "effective_train_batch_size": effective_train_batch_size(
                 args.batch_size,
                 args._resource_profile,
@@ -775,12 +810,8 @@ def main():
 
     from sentence_transformers import SentenceTransformer
 
-    # Load teacher (CodeSearchNet ONNX)
-    print("Loading teacher (CodeSearchNet ONNX)...")
-    teacher_model, teacher_tokenizer, teacher_providers, teacher_session = load_teacher(
-        args.teacher_dir,
-        args.teacher_provider,
-    )
+    teacher_providers = resolve_teacher_providers(args.teacher_provider)
+    teacher_session = build_teacher_session_config()
     print(
         "Resource profile: "
         f"{args._resource_profile} topology={json.dumps(topology, ensure_ascii=False)} "
@@ -802,8 +833,6 @@ def main():
     print(f"Collected {len(texts)} code texts for distillation")
     student = stage1_distill(
         student,
-        teacher_model,
-        teacher_tokenizer,
         texts,
         args,
         teacher_providers,
