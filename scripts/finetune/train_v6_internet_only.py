@@ -85,6 +85,27 @@ def configure_process_runtime() -> dict:
     }
 
 
+def configured_seed() -> int:
+    raw = os.environ.get("CODELENS_FINETUNE_SEED", "42").strip()
+    try:
+        return int(raw)
+    except ValueError:
+        return 42
+
+
+def configure_random_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    try:
+        import torch
+
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    except ModuleNotFoundError:
+        pass
+
+
 def resolve_training_device() -> str:
     import torch
 
@@ -405,7 +426,7 @@ def collect_positive_texts(path: str, limit: int) -> list[str]:
         texts.append(positive)
         if len(texts) >= limit:
             break
-    random.shuffle(texts)
+    random.Random(configured_seed()).shuffle(texts)
     return texts
 
 
@@ -449,10 +470,15 @@ def load_teacher(teacher_dir):
     return model, tokenizer, active, session_config
 
 
-def teacher_cache_path(texts: list[str], teacher_dir: str, teacher_providers: list[str]) -> Path:
+def teacher_cache_path(
+    texts: list[str],
+    teacher_dir: str,
+    teacher_providers: list[str],
+) -> Path:
     key = hashlib.sha256()
     key.update(str(Path(teacher_dir).resolve()).encode("utf-8"))
     key.update("|".join(teacher_providers).encode("utf-8"))
+    key.update(str(resolved_max_seq_length()).encode("utf-8"))
     model_file = Path(teacher_dir) / "onnx" / "model_qint8_arm64.onnx"
     if model_file.exists():
         stat = model_file.stat()
@@ -676,6 +702,8 @@ def stage2_mnrl(student, pairs_path, pair_count, batch_size=32, epochs=5):
         disable_tqdm=False,
         report_to=[],
         logging_steps=max(1, min(500, steps_per_epoch)),
+        seed=configured_seed(),
+        data_seed=configured_seed(),
     )
     trainer = SentenceTransformerTrainer(
         model=student,
@@ -711,6 +739,7 @@ def main():
     from sentence_transformers import SentenceTransformer
 
     runtime = configure_process_runtime()
+    configure_random_seed(configured_seed())
     print(f"Runtime placement: {runtime}")
 
     # Load data

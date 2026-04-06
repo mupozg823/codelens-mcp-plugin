@@ -130,6 +130,12 @@ def parse_args():
         default=-1,
         help="Torch/OpenMP thread count (-1 = auto from resource profile)",
     )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for distill text selection and trainer shuffles.",
+    )
     parser.add_argument("--output", default="")
     parser.add_argument(
         "--evaluation-steps",
@@ -286,6 +292,25 @@ def configure_process_runtime(profile_name: str, requested_threads: int) -> int:
         pass
 
     return threads
+
+
+def configure_random_seed(seed: int) -> None:
+    random.seed(seed)
+    try:
+        import numpy as np
+
+        np.random.seed(seed)
+    except ModuleNotFoundError:
+        pass
+
+    try:
+        import torch
+
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+    except ModuleNotFoundError:
+        pass
 
 
 def resolved_tokenizer_cache_size(train_device: str, loader_workers: int) -> int:
@@ -711,10 +736,13 @@ def teacher_cache_path(
     texts: list[str],
     teacher_dir: str,
     teacher_providers: list[str],
+    *,
+    max_seq_length: int,
 ) -> Path:
     key = hashlib.sha256()
     key.update(str(Path(teacher_dir).resolve()).encode("utf-8"))
     key.update("|".join(teacher_providers).encode("utf-8"))
+    key.update(str(resolved_max_seq_length(max_seq_length)).encode("utf-8"))
     model_file = Path(teacher_dir) / "onnx" / "model_qint8_arm64.onnx"
     if model_file.exists():
         stat = model_file.stat()
@@ -781,7 +809,11 @@ def load_or_compute_teacher_embeddings(
     import numpy as np
 
     cache_path = teacher_cache_path(
-        args.output, texts, args.teacher_dir, teacher_providers
+        args.output,
+        texts,
+        args.teacher_dir,
+        teacher_providers,
+        max_seq_length=args.max_seq_length,
     )
     if cache_path.exists():
         embeddings = np.load(cache_path, allow_pickle=False, mmap_mode="r")
@@ -809,8 +841,15 @@ def load_or_compute_teacher_embeddings(
     return embeddings
 
 
-def collect_code_texts(n=3000, distill_input: str = "", finetune_input: str = ""):
+def collect_code_texts(
+    n=3000,
+    distill_input: str = "",
+    finetune_input: str = "",
+    *,
+    seed: int = 42,
+):
     """Collect generic texts for teacher alignment without benchmark leakage."""
+    rng = random.Random(seed)
     if distill_input:
         rows = []
         with open(distill_input, encoding="utf-8") as f:
@@ -819,7 +858,7 @@ def collect_code_texts(n=3000, distill_input: str = "", finetune_input: str = ""
                 text = obj.get("text", "").strip()
                 if text:
                     rows.append(text)
-        random.shuffle(rows)
+        rng.shuffle(rows)
         return rows[:n]
 
     runtime_texts = []
@@ -834,7 +873,7 @@ def collect_code_texts(n=3000, distill_input: str = "", finetune_input: str = ""
                 if query:
                     runtime_texts.append(query)
     if runtime_texts:
-        random.shuffle(runtime_texts)
+        rng.shuffle(runtime_texts)
         return runtime_texts[:n]
 
     texts = []
@@ -853,7 +892,7 @@ def collect_code_texts(n=3000, distill_input: str = "", finetune_input: str = ""
         if len(texts) >= n * 3:
             break
 
-    random.shuffle(texts)
+    rng.shuffle(texts)
     return texts[:n]
 
 
@@ -1226,6 +1265,8 @@ def stage2_finetune(student, triplets_path, args):
         disable_tqdm=False,
         report_to=[],
         logging_steps=max(1, min(500, steps_per_epoch)),
+        seed=args.seed,
+        data_seed=args.seed,
     )
     trainer = SentenceTransformerTrainer(
         model=student,
@@ -1268,6 +1309,7 @@ def main():
     args._torch_threads = configure_process_runtime(
         args._resource_profile, args.torch_threads
     )
+    configure_random_seed(args.seed)
 
     if not finetune_input.exists():
         if args.profile == "codex":
@@ -1311,6 +1353,7 @@ def main():
             "pipeline_manifest": manifest.get("_manifest_path") if manifest else None,
             "resource_profile_requested": args.resource_profile,
             "resource_profile": args._resource_profile,
+            "seed": args.seed,
             "topology": topology,
             "torch_threads": args._torch_threads,
             "train_device_requested": args.train_device,
@@ -1436,6 +1479,7 @@ def main():
             args.distill_texts,
             distill_input=args.distill_input,
             finetune_input=args.finetune_input,
+            seed=args.seed,
         )
         print(f"Collected {len(texts)} code texts for distillation")
         student = stage1_distill(
