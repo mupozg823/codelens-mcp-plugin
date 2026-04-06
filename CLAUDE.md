@@ -62,3 +62,23 @@ cargo clippy -- -W clippy::all
 **Why:** The mutation gate on the server enforces this in `refactor-full` profile. Skipping preflight returns an error, not a silent pass. Running preflight first avoids wasted tool calls.
 
 **After mutation:** always follow `suggested_next_tools` from the response (typically `get_file_diagnostics`).
+
+**Preflight TTL:** Override via `CODELENS_PREFLIGHT_TTL_SECS` env var (default 600s). NLAH finding: overly strict verification hurts agent productivity by -0.8~-8.4%.
+
+## Doom-Loop Protection
+
+The server detects identical tool+args called 3+ times consecutively:
+
+- `budget_hint` warns about the repetition
+- `suggested_next_tools` switches to alternative high-level tools
+- Applies only in persistent MCP stdio mode (not CLI one-shot)
+
+## Adaptive Token Compression (OpenDev 5-Stage)
+
+Response payloads are compressed based on budget usage:
+
+- Stage 1 (<75%): pass through
+- Stage 2 (75-85%): light structured content summarization
+- Stage 3 (85-95%): aggressive summarization
+- Stage 4 (95-100%): minimal skeleton + truncated flag
+- Stage 5 (>100%): hard truncation with error payload
