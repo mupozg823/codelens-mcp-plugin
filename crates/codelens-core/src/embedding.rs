@@ -345,6 +345,29 @@ impl EmbeddingStore for SqliteVecStore {
         Ok(chunks)
     }
 
+    fn embeddings_for_files(&self, file_paths: &[&str]) -> Result<Vec<EmbeddingChunk>> {
+        if file_paths.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
+        let placeholders = vec!["?"; file_paths.len()].join(", ");
+        let sql = format!(
+            "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
+             FROM symbols s
+             JOIN vec_symbols v ON s.id = v.rowid
+             WHERE s.file_path IN ({placeholders})
+             ORDER BY s.file_path, s.id"
+        );
+        let mut stmt = db.prepare(&sql)?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(file_paths.iter().copied()))?;
+        let mut chunks = Vec::new();
+        while let Some(row) = rows.next()? {
+            chunks.push(Self::chunk_from_row(row)?);
+        }
+        Ok(chunks)
+    }
+
     fn for_each_file_embeddings(
         &self,
         visitor: &mut dyn FnMut(String, Vec<EmbeddingChunk>) -> Result<()>,
@@ -427,6 +450,51 @@ impl EmbeddingStore for SqliteVecStore {
         }
         Ok(())
     }
+}
+
+type ReusableEmbeddingKey = (String, String, String, String, String, String);
+
+fn reusable_embedding_key(
+    file_path: &str,
+    symbol_name: &str,
+    kind: &str,
+    signature: &str,
+    name_path: &str,
+    text: &str,
+) -> ReusableEmbeddingKey {
+    (
+        file_path.to_owned(),
+        symbol_name.to_owned(),
+        kind.to_owned(),
+        signature.to_owned(),
+        name_path.to_owned(),
+        text.to_owned(),
+    )
+}
+
+fn reusable_embedding_key_for_chunk(chunk: &EmbeddingChunk) -> ReusableEmbeddingKey {
+    reusable_embedding_key(
+        &chunk.file_path,
+        &chunk.symbol_name,
+        &chunk.kind,
+        &chunk.signature,
+        &chunk.name_path,
+        &chunk.text,
+    )
+}
+
+fn reusable_embedding_key_for_symbol(
+    sym: &crate::db::SymbolWithFile,
+    text: &str,
+) -> ReusableEmbeddingKey {
+    reusable_embedding_key(
+        &sym.file_path,
+        &sym.name,
+        &sym.kind,
+        &sym.signature,
+        &sym.name_path,
+        text,
+    )
 }
 
 // ── EmbeddingEngine (facade) ──────────────────────────────────────────
@@ -1264,22 +1332,24 @@ impl EmbeddingEngine {
             return Ok(0);
         }
         let batch_size = embed_batch_size();
-
+        let mut existing_embeddings: HashMap<ReusableEmbeddingKey, EmbeddingChunk> = HashMap::new();
+        for file_chunk in changed_files.chunks(CHANGED_FILE_QUERY_CHUNK) {
+            for chunk in self.store.embeddings_for_files(file_chunk)? {
+                existing_embeddings.insert(reusable_embedding_key_for_chunk(&chunk), chunk);
+            }
+        }
         self.store.delete_by_file(changed_files)?;
 
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
 
-        let mut model = self
-            .model
-            .lock()
-            .map_err(|_| anyhow::anyhow!("model lock"))?;
-
         let mut total_indexed = 0usize;
         let mut batch_texts: Vec<String> = Vec::with_capacity(batch_size);
         let mut batch_meta: Vec<crate::db::SymbolWithFile> = Vec::with_capacity(batch_size);
+        let mut batch_reused: Vec<EmbeddingChunk> = Vec::with_capacity(batch_size);
         let mut file_cache: std::collections::HashMap<String, Option<String>> =
             std::collections::HashMap::new();
+        let mut model = None;
 
         for file_chunk in changed_files.chunks(CHANGED_FILE_QUERY_CHUNK) {
             let relevant = symbol_db.symbols_for_files(file_chunk)?;
@@ -1290,24 +1360,70 @@ impl EmbeddingEngine {
                 if is_test_only_symbol(&sym, source.as_deref()) {
                     continue;
                 }
-                batch_texts.push(build_embedding_text(&sym, source.as_deref()));
+                let text = build_embedding_text(&sym, source.as_deref());
+                if let Some(existing) =
+                    existing_embeddings.remove(&reusable_embedding_key_for_symbol(&sym, &text))
+                {
+                    batch_reused.push(EmbeddingChunk {
+                        file_path: sym.file_path.clone(),
+                        symbol_name: sym.name.clone(),
+                        kind: sym.kind.clone(),
+                        line: sym.line as usize,
+                        signature: sym.signature.clone(),
+                        name_path: sym.name_path.clone(),
+                        text,
+                        embedding: existing.embedding,
+                        doc_embedding: existing.doc_embedding,
+                    });
+                    if batch_reused.len() >= batch_size {
+                        total_indexed += self.store.insert(&batch_reused)?;
+                        batch_reused.clear();
+                    }
+                    continue;
+                }
+                batch_texts.push(text);
                 batch_meta.push(sym);
 
                 if batch_texts.len() >= batch_size {
-                    total_indexed +=
-                        Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
+                    if model.is_none() {
+                        model = Some(
+                            self.model
+                                .lock()
+                                .map_err(|_| anyhow::anyhow!("model lock"))?,
+                        );
+                    }
+                    total_indexed += Self::flush_batch(
+                        model.as_mut().expect("model lock initialized"),
+                        &*self.store,
+                        &batch_texts,
+                        &batch_meta,
+                    )?;
                     batch_texts.clear();
                     batch_meta.clear();
                 }
             }
         }
 
-        if !batch_texts.is_empty() {
-            total_indexed +=
-                Self::flush_batch(&mut model, &*self.store, &batch_texts, &batch_meta)?;
+        if !batch_reused.is_empty() {
+            total_indexed += self.store.insert(&batch_reused)?;
         }
 
-        drop(model);
+        if !batch_texts.is_empty() {
+            if model.is_none() {
+                model = Some(
+                    self.model
+                        .lock()
+                        .map_err(|_| anyhow::anyhow!("model lock"))?,
+                );
+            }
+            total_indexed += Self::flush_batch(
+                model.as_mut().expect("model lock initialized"),
+                &*self.store,
+                &batch_texts,
+                &batch_meta,
+            )?;
+        }
+
         Ok(total_indexed)
     }
 
@@ -2201,6 +2317,18 @@ mod tests {
             .unwrap();
 
         assert_eq!(groups, vec![("main.py".to_string(), 2)]);
+    }
+
+    #[test]
+    fn store_fetches_embeddings_for_specific_files() {
+        let _lock = MODEL_LOCK.lock().unwrap();
+        let (_dir, project) = make_project_with_source();
+        let engine = EmbeddingEngine::new(&project).unwrap();
+        engine.index_from_project(&project).unwrap();
+
+        let chunks = engine.store.embeddings_for_files(&["main.py"]).unwrap();
+        assert_eq!(chunks.len(), 2);
+        assert!(chunks.iter().all(|chunk| chunk.file_path == "main.py"));
     }
 
     #[test]

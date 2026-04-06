@@ -68,13 +68,28 @@ pub trait EmbeddingStore: Send + Sync {
     fn count(&self) -> Result<usize>;
 
     /// Retrieve a single stored chunk and embedding by symbol identity.
-    fn get_embedding(&self, _file_path: &str, _symbol_name: &str) -> Result<Option<EmbeddingChunk>> {
+    fn get_embedding(
+        &self,
+        _file_path: &str,
+        _symbol_name: &str,
+    ) -> Result<Option<EmbeddingChunk>> {
         Ok(None)
     }
 
     /// Retrieve all stored chunks with their embeddings for batch analysis.
     fn all_with_embeddings(&self) -> Result<Vec<EmbeddingChunk>> {
         Ok(Vec::new()) // Default: not supported
+    }
+
+    /// Retrieve stored chunks for the given files so incremental indexing can
+    /// reuse unchanged embeddings without materializing the full index.
+    fn embeddings_for_files(&self, file_paths: &[&str]) -> Result<Vec<EmbeddingChunk>> {
+        let file_set: std::collections::BTreeSet<&str> = file_paths.iter().copied().collect();
+        Ok(self
+            .all_with_embeddings()?
+            .into_iter()
+            .filter(|chunk| file_set.contains(chunk.file_path.as_str()))
+            .collect())
     }
 
     /// Stream stored chunks in bounded batches so callers can avoid loading the
@@ -103,7 +118,10 @@ pub trait EmbeddingStore: Send + Sync {
     ) -> Result<()> {
         let mut by_file: BTreeMap<String, Vec<EmbeddingChunk>> = BTreeMap::new();
         for chunk in self.all_with_embeddings()? {
-            by_file.entry(chunk.file_path.clone()).or_default().push(chunk);
+            by_file
+                .entry(chunk.file_path.clone())
+                .or_default()
+                .push(chunk);
         }
         for (file_path, chunks) in by_file {
             visitor(file_path, chunks)?;
