@@ -167,7 +167,10 @@ pub(crate) fn build_error_response(
             .as_ref()
             .map(|analysis_id| format!(" Last related analysis_id: `{analysis_id}`."))
             .unwrap_or_default();
-        resp.error = Some(format!("{}{}", failure.message, analysis_hint));
+        resp.error = Some(format!(
+            "[{:?}] {}{}",
+            failure.kind, failure.message, analysis_hint
+        ));
         resp.suggested_next_tools = Some(failure.suggested_next_tools);
         resp.budget_hint = Some(failure.budget_hint);
     }

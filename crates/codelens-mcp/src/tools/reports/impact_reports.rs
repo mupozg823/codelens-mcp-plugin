@@ -96,21 +96,32 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         "coupling_hits".to_owned(),
         json!({ "path": path, "couplings": coupling_hits }),
     );
+    // Extract symbol names BEFORE moving `symbols` into sections
+    let symbol_names: Vec<String> = symbols
+        .get("symbols")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| s.get("name").and_then(|n| n.as_str()).map(|n| n.to_owned()))
+                .take(5)
+                .collect()
+        })
+        .unwrap_or_default();
     sections.insert("symbols".to_owned(), symbols);
 
-    // Semantic coupling: find symbols in other modules that are semantically similar
-    // to this module's symbols — hidden coupling the import graph doesn't show.
-    let module_name = path
-        .rsplit('/')
-        .next()
-        .unwrap_or(path)
-        .trim_end_matches(".rs")
-        .trim_end_matches(".ts")
-        .trim_end_matches(".tsx")
-        .trim_end_matches(".py")
-        .replace('_', " ");
-    // Always attempt semantic query — get_or_init will lazy-load the embedding engine
-    let sem_results = semantic_results_for_query(state, &module_name, 10, false);
+    let module_query = if symbol_names.is_empty() {
+        path.rsplit('/')
+            .next()
+            .unwrap_or(path)
+            .trim_end_matches(".rs")
+            .trim_end_matches(".ts")
+            .trim_end_matches(".tsx")
+            .trim_end_matches(".py")
+            .replace('_', " ")
+    } else {
+        symbol_names.join(" ")
+    };
+    let sem_results = semantic_results_for_query(state, &module_query, 10, false);
     let semantic_coupling: Vec<Value> = sem_results
         .into_iter()
         .filter(|r| r.score > 0.12 && !r.file_path.contains(path))
@@ -324,16 +335,32 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         .iter()
         .take(3)
         .flat_map(|path| {
-            let query = path
-                .rsplit('/')
-                .next()
-                .unwrap_or(path)
-                .trim_end_matches(".rs")
-                .trim_end_matches(".ts")
-                .trim_end_matches(".tsx")
-                .trim_end_matches(".py")
-                .replace('_', " ");
-            semantic_results_for_query(state, &query, 5, false)
+            // Build a richer query from the file's top symbol names (via symbol DB)
+            let sym_query = crate::tools::symbols::get_symbols_overview(
+                state,
+                &json!({"path": path, "depth": 1}),
+            )
+            .ok()
+            .and_then(|out| {
+                out.0.get("symbols").and_then(|v| v.as_array()).map(|arr| {
+                    arr.iter()
+                        .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
+                        .take(5)
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                })
+            })
+            .unwrap_or_else(|| {
+                path.rsplit('/')
+                    .next()
+                    .unwrap_or(path)
+                    .trim_end_matches(".rs")
+                    .trim_end_matches(".ts")
+                    .trim_end_matches(".tsx")
+                    .trim_end_matches(".py")
+                    .replace('_', " ")
+            });
+            semantic_results_for_query(state, &sym_query, 5, false)
                 .into_iter()
                 .filter(|r| r.score > 0.12 && !graph_files.contains(&r.file_path))
                 .map(|r| {
