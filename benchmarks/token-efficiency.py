@@ -76,8 +76,24 @@ def stop_http_daemon(proc):
     return runtime_common.stop_http_daemon(proc)
 
 
-def mcp_http_call(base_url, method, params=None, request_id=1, headers=None, include_headers=False):
-    return runtime_common.mcp_http_call(base_url, method, params=params, request_id=request_id, headers=headers, include_headers=include_headers)
+def mcp_http_call(
+    base_url,
+    method,
+    params=None,
+    request_id=1,
+    headers=None,
+    include_headers=False,
+    timeout_seconds=runtime_common.DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+):
+    return runtime_common.mcp_http_call(
+        base_url,
+        method,
+        params=params,
+        request_id=request_id,
+        headers=headers,
+        include_headers=include_headers,
+        timeout_seconds=timeout_seconds,
+    )
 
 
 def initialize_http_session(
@@ -85,18 +101,30 @@ def initialize_http_session(
     profile=None,
     deferred_tool_loading=False,
     trusted_client=None,
+    client_name="BenchmarkHarness",
     request_id=1,
+    timeout_seconds=runtime_common.DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS,
 ):
     return runtime_common.initialize_http_session(
         base_url,
         profile=profile,
         deferred_tool_loading=deferred_tool_loading,
         trusted_client=trusted_client,
+        client_name=client_name,
         request_id=request_id,
+        timeout_seconds=timeout_seconds,
     )
 
 
-def mcp_http_tool_call(base_url, name, arguments, request_id=1, session_id=None, headers=None):
+def mcp_http_tool_call(
+    base_url,
+    name,
+    arguments,
+    request_id=1,
+    session_id=None,
+    headers=None,
+    timeout_seconds=runtime_common.DEFAULT_HTTP_TOOL_TIMEOUT_SECONDS,
+):
     return runtime_common.mcp_http_tool_call(
         base_url,
         name,
@@ -104,10 +132,19 @@ def mcp_http_tool_call(base_url, name, arguments, request_id=1, session_id=None,
         request_id=request_id,
         session_id=session_id,
         headers=headers,
+        timeout_seconds=timeout_seconds,
     )
 
 
-def mcp_http_resource_read(base_url, uri, request_id=1, session_id=None, params=None, headers=None):
+def mcp_http_resource_read(
+    base_url,
+    uri,
+    request_id=1,
+    session_id=None,
+    params=None,
+    headers=None,
+    timeout_seconds=runtime_common.DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS,
+):
     return runtime_common.mcp_http_resource_read(
         base_url,
         uri,
@@ -115,6 +152,7 @@ def mcp_http_resource_read(base_url, uri, request_id=1, session_id=None, params=
         session_id=session_id,
         params=params,
         headers=headers,
+        timeout_seconds=timeout_seconds,
     )
 
 

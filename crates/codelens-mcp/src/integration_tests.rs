@@ -209,6 +209,33 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
 }
 
 #[test]
+fn refactor_deferred_tools_list_starts_preview_first() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let list_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1012)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"_session_deferred_tool_loading": true})),
+        },
+    )
+    .unwrap();
+    let encoded = serde_json::to_string(&list_resp).unwrap();
+    assert!(encoded.contains("\"deferred_loading_active\":true"));
+    assert!(encoded.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
+    assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
+    assert!(encoded.contains("\"verify_change_readiness\""));
+    assert!(encoded.contains("\"refactor_safety_report\""));
+    assert!(!encoded.contains("\"rename_symbol\""));
+    assert!(!encoded.contains("\"replace_symbol_body\""));
+    assert!(!encoded.contains("\"refactor_extract_function\""));
+}
+
+#[test]
 fn codex_client_name_enables_lean_tools_list_contract() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -233,7 +260,10 @@ fn codex_client_name_enables_lean_tools_list_contract() {
     assert!(encoded.contains("\"client_profile\":\"codex\""));
     assert!(encoded.contains("\"default_contract_mode\":\"lean\""));
     assert!(encoded.contains("\"include_output_schema\":false"));
+    assert!(encoded.contains("\"include_annotations\":false"));
     assert!(!encoded.contains("\"outputSchema\""));
+    assert!(!encoded.contains("\"annotations\""));
+    assert!(!encoded.contains("\"visible_namespaces\""));
 }
 
 #[test]
@@ -261,7 +291,38 @@ fn claude_client_name_keeps_full_tools_list_contract() {
     assert!(encoded.contains("\"client_profile\":\"claude\""));
     assert!(encoded.contains("\"default_contract_mode\":\"full\""));
     assert!(encoded.contains("\"include_output_schema\":true"));
+    assert!(encoded.contains("\"include_annotations\":true"));
     assert!(encoded.contains("\"outputSchema\""));
+    assert!(encoded.contains("\"annotations\""));
+    assert!(encoded.contains("\"visible_namespaces\""));
+}
+
+#[test]
+fn codex_client_can_restore_annotations_explicitly() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "_session_client_name": "CodexHarness",
+                "includeAnnotations": true,
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let encoded = serde_json::to_string(&response).expect("serialize");
+    assert!(encoded.contains("\"client_profile\":\"codex\""));
+    assert!(encoded.contains("\"include_annotations\":true"));
+    assert!(encoded.contains("\"annotations\""));
 }
 
 #[test]

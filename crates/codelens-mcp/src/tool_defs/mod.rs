@@ -44,7 +44,7 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
             vec!["reports", "graph", "symbols", "session"]
         }
         ToolSurface::Profile(ToolProfile::RefactorFull) => {
-            vec!["reports", "mutation", "symbols", "session"]
+            vec!["reports", "session"]
         }
         ToolSurface::Profile(ToolProfile::CiAudit) => {
             vec!["reports", "graph", "session"]

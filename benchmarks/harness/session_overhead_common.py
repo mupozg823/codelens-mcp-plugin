@@ -5,6 +5,12 @@ from __future__ import annotations
 
 import benchmark_runtime_common as runtime_common
 
+SESSION_TOOL_TIMEOUTS = {
+    "analyze_change_request": 30,
+    "impact_report": 30,
+    "refactor_safety_report": 120,
+}
+
 
 def run_session_overhead_scenario(
     scenario_name,
@@ -23,7 +29,9 @@ def run_session_overhead_scenario(
             base_url,
             profile=profile,
             deferred_tool_loading=True,
+            client_name="CodexHarness",
             request_id=4000,
+            timeout_seconds=runtime_common.DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS,
         )
         if not session_id:
             return {"supported": False, "scenario": scenario_name, "reason": "missing session id"}
@@ -33,6 +41,7 @@ def run_session_overhead_scenario(
             "tools/list",
             request_id=4001,
             headers={"mcp-session-id": session_id},
+            timeout_seconds=runtime_common.DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS,
         )
         tool_response = runtime.mcp_http_tool_call(
             base_url,
@@ -40,6 +49,10 @@ def run_session_overhead_scenario(
             arguments,
             request_id=4002,
             session_id=session_id,
+            timeout_seconds=SESSION_TOOL_TIMEOUTS.get(
+                tool_name,
+                runtime_common.DEFAULT_HTTP_TOOL_TIMEOUT_SECONDS,
+            ),
         )
 
         list_result = list_response.get("result", {}) if isinstance(list_response, dict) else {}

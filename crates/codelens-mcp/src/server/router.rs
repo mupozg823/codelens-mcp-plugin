@@ -7,7 +7,7 @@ use crate::resources::{read_resource, resources};
 use crate::tool_defs::{
     preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label, visible_tools,
 };
-use serde_json::json;
+use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
 
 fn visible_axes_from_tools(
@@ -193,9 +193,14 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 && requested_tier.is_none()
                 && !full_listing
                 && !full_tool_exposure;
+            let lean_contract =
+                client_profile.default_tool_contract_mode() == "lean" && !full_listing && !full_tool_exposure;
             let include_output_schema =
                 list_param_bool(&request, "includeOutputSchema", "include_output_schema")
-                    .unwrap_or(!deferred_loading_active);
+                    .unwrap_or(!(deferred_loading_active || lean_contract));
+            let include_annotations =
+                list_param_bool(&request, "includeAnnotations", "include_annotations")
+                    .unwrap_or(!lean_contract);
             let filtered = all_tools
                 .iter()
                 .copied()
@@ -224,6 +229,9 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     if !include_output_schema {
                         tool.output_schema = None;
                     }
+                    if !include_annotations {
+                        tool.annotations = None;
+                    }
                     tool
                 })
                 .collect::<Vec<_>>();
@@ -250,31 +258,67 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 surface.as_label(),
                 false,
             );
-            Some(JsonRpcResponse::result(
-                request.id,
-                json!({
-                    "client_profile": client_profile.as_str(),
-                    "active_surface": surface.as_label(),
-                    "visible_namespaces": all_namespaces,
-                    "visible_tiers": all_tiers,
-                    "preferred_namespaces": preferred_namespaces,
-                    "preferred_tiers": preferred_tiers,
-                    "loaded_namespaces": loaded_namespaces,
-                    "loaded_tiers": loaded_tiers,
-                    "effective_namespaces": effective_namespaces,
-                    "effective_tiers": effective_tiers,
-                    "selected_namespace": requested_namespace,
-                    "selected_tier": requested_tier,
-                    "deferred_loading_active": deferred_loading_active,
-                    "include_output_schema": include_output_schema,
-                    "default_contract_mode": client_profile.default_tool_contract_mode(),
-                    "full_listing": full_listing,
-                    "full_tool_exposure": full_tool_exposure,
-                    "tool_count": response_tools.len(),
-                    "tool_count_total": all_tools.len(),
-                    "tools": response_tools
-                }),
-            ))
+            let mut payload = Map::new();
+            payload.insert(
+                "client_profile".to_owned(),
+                Value::String(client_profile.as_str().to_owned()),
+            );
+            payload.insert(
+                "active_surface".to_owned(),
+                Value::String(surface.as_label().to_owned()),
+            );
+            payload.insert(
+                "preferred_namespaces".to_owned(),
+                json!(preferred_namespaces),
+            );
+            payload.insert("preferred_tiers".to_owned(), json!(preferred_tiers));
+            payload.insert("loaded_namespaces".to_owned(), json!(loaded_namespaces));
+            payload.insert("loaded_tiers".to_owned(), json!(loaded_tiers));
+            payload.insert(
+                "effective_namespaces".to_owned(),
+                json!(effective_namespaces),
+            );
+            payload.insert("effective_tiers".to_owned(), json!(effective_tiers));
+            payload.insert(
+                "deferred_loading_active".to_owned(),
+                Value::Bool(deferred_loading_active),
+            );
+            payload.insert(
+                "include_output_schema".to_owned(),
+                Value::Bool(include_output_schema),
+            );
+            payload.insert(
+                "include_annotations".to_owned(),
+                Value::Bool(include_annotations),
+            );
+            payload.insert(
+                "default_contract_mode".to_owned(),
+                Value::String(client_profile.default_tool_contract_mode().to_owned()),
+            );
+            payload.insert("tool_count".to_owned(), json!(response_tools.len()));
+            payload.insert("tool_count_total".to_owned(), json!(all_tools.len()));
+            payload.insert("tools".to_owned(), json!(response_tools));
+
+            if !lean_contract {
+                payload.insert("visible_namespaces".to_owned(), json!(all_namespaces));
+                payload.insert("visible_tiers".to_owned(), json!(all_tiers));
+                payload.insert("full_listing".to_owned(), Value::Bool(full_listing));
+                payload.insert(
+                    "full_tool_exposure".to_owned(),
+                    Value::Bool(full_tool_exposure),
+                );
+            }
+            if let Some(namespace) = requested_namespace {
+                payload.insert(
+                    "selected_namespace".to_owned(),
+                    Value::String(namespace.to_owned()),
+                );
+            }
+            if let Some(tier) = requested_tier {
+                payload.insert("selected_tier".to_owned(), Value::String(tier.to_owned()));
+            }
+
+            Some(JsonRpcResponse::result(request.id, Value::Object(payload)))
         }
         "tools/call" => match request.params {
             Some(params) => Some(dispatch_tool(state, request.id, params)),

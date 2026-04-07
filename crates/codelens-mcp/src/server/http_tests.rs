@@ -333,7 +333,10 @@ async fn codex_session_uses_lean_tools_list_contract_by_default() {
     assert!(body.contains("\"client_profile\":\"codex\""));
     assert!(body.contains("\"default_contract_mode\":\"lean\""));
     assert!(body.contains("\"include_output_schema\":false"));
+    assert!(body.contains("\"include_annotations\":false"));
     assert!(!body.contains("\"outputSchema\""));
+    assert!(!body.contains("\"annotations\""));
+    assert!(!body.contains("\"visible_namespaces\""));
 }
 
 #[tokio::test]
@@ -381,7 +384,56 @@ async fn claude_session_uses_full_tools_list_contract_by_default() {
     assert!(body.contains("\"client_profile\":\"claude\""));
     assert!(body.contains("\"default_contract_mode\":\"full\""));
     assert!(body.contains("\"include_output_schema\":true"));
+    assert!(body.contains("\"include_annotations\":true"));
     assert!(body.contains("\"outputSchema\""));
+    assert!(body.contains("\"annotations\""));
+    assert!(body.contains("\"visible_namespaces\""));
+}
+
+#[tokio::test]
+async fn codex_session_can_restore_tool_annotations_explicitly() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{"includeAnnotations":true}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("\"include_annotations\":true"));
+    assert!(body.contains("\"annotations\""));
 }
 
 #[tokio::test]
@@ -584,6 +636,61 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     assert!(body.contains("\"impact_report\""));
     assert!(!body.contains("\"find_symbol\""));
     assert!(!body.contains("\"read_file\""));
+}
+
+#[tokio::test]
+async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
+    let state = test_state();
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::RefactorFull,
+    ));
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA"},"profile":"refactor-full","deferredToolLoading":true}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("\"deferred_loading_active\":true"));
+    assert!(body.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
+    assert!(body.contains("\"verify_change_readiness\""));
+    assert!(body.contains("\"refactor_safety_report\""));
+    assert!(!body.contains("\"rename_symbol\""));
+    assert!(!body.contains("\"replace_symbol_body\""));
+    assert!(!body.contains("\"refactor_extract_function\""));
 }
 
 #[tokio::test]

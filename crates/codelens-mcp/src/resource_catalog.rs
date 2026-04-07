@@ -49,6 +49,7 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
     let surface = *state.surface();
     let request = ResourceRequestContext::from_request(uri, params);
     let context = build_visible_tool_context(state, &request);
+    let lean_contract = request.lean_tool_contract();
     let mut namespace_counts = BTreeMap::new();
     let mut tier_counts = BTreeMap::new();
     for tool in &context.tools {
@@ -71,29 +72,44 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
             })
         })
         .collect::<Vec<_>>();
-    json!({
-        "client_profile": context_request_client_profile(&request),
-        "active_surface": surface.as_label(),
-        "default_contract_mode": request.client_profile.default_tool_contract_mode(),
-        "tool_count": context.tools.len(),
-        "tool_count_total": context.total_tool_count,
-        "visible_namespaces": namespace_counts,
-        "visible_tiers": tier_counts,
-        "all_namespaces": context.all_namespaces,
-        "all_tiers": context.all_tiers,
-        "preferred_namespaces": context.preferred_namespaces,
-        "preferred_tiers": context.preferred_tiers,
-        "loaded_namespaces": context.loaded_namespaces,
-        "loaded_tiers": context.loaded_tiers,
-        "effective_namespaces": context.effective_namespaces,
-        "effective_tiers": context.effective_tiers,
-        "selected_namespace": context.selected_namespace,
-        "selected_tier": context.selected_tier,
-        "deferred_loading_active": context.deferred_loading_active,
-        "full_tool_exposure": context.full_tool_exposure,
-        "recommended_tools": prioritized,
-        "note": "Read `codelens://tools/list/full` only when summary is insufficient."
-    })
+    let mut payload = serde_json::Map::new();
+    payload.insert(
+        "client_profile".to_owned(),
+        json!(context_request_client_profile(&request)),
+    );
+    payload.insert("active_surface".to_owned(), json!(surface.as_label()));
+    payload.insert("default_contract_mode".to_owned(), json!(request.tool_contract_mode()));
+    payload.insert("tool_count".to_owned(), json!(context.tools.len()));
+    payload.insert("tool_count_total".to_owned(), json!(context.total_tool_count));
+    payload.insert("preferred_namespaces".to_owned(), json!(context.preferred_namespaces));
+    payload.insert("preferred_tiers".to_owned(), json!(context.preferred_tiers));
+    payload.insert("loaded_namespaces".to_owned(), json!(context.loaded_namespaces));
+    payload.insert("loaded_tiers".to_owned(), json!(context.loaded_tiers));
+    payload.insert("effective_namespaces".to_owned(), json!(context.effective_namespaces));
+    payload.insert("effective_tiers".to_owned(), json!(context.effective_tiers));
+    payload.insert(
+        "deferred_loading_active".to_owned(),
+        json!(context.deferred_loading_active),
+    );
+    payload.insert("recommended_tools".to_owned(), json!(prioritized));
+    payload.insert(
+        "note".to_owned(),
+        json!("Read `codelens://tools/list/full` only when summary is insufficient."),
+    );
+    if !lean_contract {
+        payload.insert("visible_namespaces".to_owned(), json!(namespace_counts));
+        payload.insert("visible_tiers".to_owned(), json!(tier_counts));
+        payload.insert("all_namespaces".to_owned(), json!(context.all_namespaces));
+        payload.insert("all_tiers".to_owned(), json!(context.all_tiers));
+        payload.insert("full_tool_exposure".to_owned(), json!(context.full_tool_exposure));
+    }
+    if let Some(namespace) = context.selected_namespace {
+        payload.insert("selected_namespace".to_owned(), json!(namespace));
+    }
+    if let Some(tier) = context.selected_tier {
+        payload.insert("selected_tier".to_owned(), json!(tier));
+    }
+    Value::Object(payload)
 }
 
 pub(crate) fn visible_tool_details(state: &AppState, uri: &str, params: Option<&Value>) -> Value {

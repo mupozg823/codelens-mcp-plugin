@@ -13,6 +13,10 @@ from urllib.error import URLError
 from datetime import datetime
 from pathlib import Path
 
+DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS = 5
+DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS = 10
+DEFAULT_HTTP_TOOL_TIMEOUT_SECONDS = 90
+
 
 def load_module(path: Path, name: str):
     spec = importlib.util.spec_from_file_location(name, path)
@@ -216,6 +220,7 @@ def mcp_http_call(
     request_id: int = 1,
     headers: dict | None = None,
     include_headers: bool = False,
+    timeout_seconds: int = DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
 ):
     payload = {
         "jsonrpc": "2.0",
@@ -232,14 +237,21 @@ def mcp_http_call(
         data=json.dumps(payload).encode("utf-8"),
         headers=request_headers,
     )
-    with urllib.request.urlopen(req, timeout=5) as resp:
+    with urllib.request.urlopen(req, timeout=timeout_seconds) as resp:
         parsed = json.loads(resp.read().decode("utf-8"))
         if include_headers:
             return parsed, {key.lower(): value for key, value in resp.headers.items()}
         return parsed
 
 
-def mcp_http_tool_call(base_url: str, name: str, arguments: dict, request_id: int = 1, session_id: str | None = None):
+def mcp_http_tool_call(
+    base_url: str,
+    name: str,
+    arguments: dict,
+    request_id: int = 1,
+    session_id: str | None = None,
+    timeout_seconds: int = DEFAULT_HTTP_TOOL_TIMEOUT_SECONDS,
+):
     payload = {
         "jsonrpc": "2.0",
         "id": request_id,
@@ -258,6 +270,7 @@ def mcp_http_tool_call(base_url: str, name: str, arguments: dict, request_id: in
         {"name": name, "arguments": arguments},
         request_id=request_id,
         headers=request_headers,
+        timeout_seconds=timeout_seconds,
     )
 
 

@@ -36,8 +36,8 @@ pub(crate) fn profile_guide(profile: ToolProfile) -> Value {
         ToolProfile::RefactorFull => json!({
             "profile": profile.as_str(),
             "intent": "Run high-safety refactors only after a fresh preflight has narrowed the target surface and cleared blockers.",
-            "preferred_tools": ["verify_change_readiness", "safe_rename_report", "unresolved_reference_check", "rename_symbol"],
-            "preferred_namespaces": ["reports", "mutation", "symbols", "session"],
+            "preferred_tools": ["verify_change_readiness", "safe_rename_report", "unresolved_reference_check", "start_analysis_job"],
+            "preferred_namespaces": ["reports", "session"],
             "avoid": ["mutation before preflight", "broad edits without diagnostics or preview"]
         }),
         ToolProfile::CiAudit => json!({

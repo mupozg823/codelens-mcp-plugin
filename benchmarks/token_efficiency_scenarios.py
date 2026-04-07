@@ -219,7 +219,20 @@ def run_queue_observability_benchmark(
         third_id = third_payload["data"]["job_id"]
         saw_queued = False
         saw_running = False
-        for idx in range(60):
+
+        for idx in range(100):
+            first_status = runtime.mcp_http_tool_call(
+                base_url, "get_analysis_job", {"job_id": first_id}, request_id=20 + idx
+            )
+            first_data = runtime.extract_tool_payload(first_status).get("data", {})
+            if first_data.get("status") in {"running", "completed"}:
+                saw_running = True
+                break
+            time.sleep(0.05)
+
+        final_jobs = {}
+        all_terminal = False
+        for idx in range(300):
             first_status = runtime.mcp_http_tool_call(
                 base_url, "get_analysis_job", {"job_id": first_id}, request_id=100 + idx
             )
@@ -240,17 +253,41 @@ def run_queue_observability_benchmark(
                 job.get("status") == "queued"
                 for job in (first_data, second_data, third_data)
             )
-            if (
-                first_data.get("status") == "completed"
-                and second_data.get("status") == "completed"
-                and third_data.get("status") == "completed"
+            final_jobs = {
+                first_id: first_data,
+                second_id: second_data,
+                third_id: third_data,
+            }
+            if all(
+                job.get("status") in {"completed", "failed", "cancelled"}
+                for job in final_jobs.values()
             ):
+                all_terminal = True
                 break
             time.sleep(0.1)
         metrics_resp = runtime.mcp_http_tool_call(base_url, "get_tool_metrics", {}, request_id=999)
         metrics_payload = runtime.extract_tool_payload(metrics_resp).get("data", {})
         session = metrics_payload.get("session", {})
         derived = metrics_payload.get("derived_kpis", {})
+        expected_jobs = 3
+        for idx in range(50):
+            terminal_count = (
+                session.get("analysis_jobs_completed", 0)
+                + session.get("analysis_jobs_failed", 0)
+                + session.get("analysis_jobs_cancelled", 0)
+            )
+            if not all_terminal or (
+                terminal_count >= expected_jobs
+                and session.get("active_analysis_workers", 0) == 0
+            ):
+                break
+            time.sleep(0.1)
+            metrics_resp = runtime.mcp_http_tool_call(
+                base_url, "get_tool_metrics", {}, request_id=1000 + idx
+            )
+            metrics_payload = runtime.extract_tool_payload(metrics_resp).get("data", {})
+            session = metrics_payload.get("session", {})
+            derived = metrics_payload.get("derived_kpis", {})
         queue_failures = session.get("analysis_jobs_failed", 0)
         queue_max_depth = session.get("analysis_queue_max_depth", 0)
         peak_workers = session.get("peak_active_analysis_workers", 0)
@@ -272,10 +309,16 @@ def run_queue_observability_benchmark(
             queue_failures_list.append(
                 f"queue success rate {success_rate:.2f} < required {thresholds.min_queue_success_rate:.2f}"
             )
+        if not all_terminal:
+            queue_failures_list.append("timed out waiting for analysis jobs to reach a terminal state")
         return {
             "supported": True,
             "saw_running": saw_running,
             "saw_queued": saw_queued,
+            "all_terminal": all_terminal,
+            "job_statuses": {
+                job_id: job.get("status", "unknown") for job_id, job in final_jobs.items()
+            },
             "session": {
                 "analysis_jobs_enqueued": session.get("analysis_jobs_enqueued", 0),
                 "analysis_jobs_started": session.get("analysis_jobs_started", 0),
@@ -660,4 +703,3 @@ def run_gate_observability_benchmark(runtime: runtime_common.BenchmarkRuntime):
         "mutation_gate": mutation_gate,
         "deferred_gate": deferred_gate,
     }
-

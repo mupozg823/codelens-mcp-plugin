@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib import request as urllib_request
 
+DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS = 5
+DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS = 10
+DEFAULT_HTTP_TOOL_TIMEOUT_SECONDS = 90
+
 
 @dataclass(frozen=True)
 class BenchmarkRuntime:
@@ -123,32 +127,58 @@ def reserve_port():
     return port
 
 
+def http_binary_candidates(bin_path):
+    primary = Path(bin_path).expanduser()
+    candidates = []
+    seen = set()
+
+    sibling = None
+    if primary.parent.name in {"release", "debug"}:
+        sibling_dir = "debug" if primary.parent.name == "release" else "release"
+        sibling = primary.parent.parent / sibling_dir / primary.name
+
+    for candidate in (primary, sibling):
+        if candidate is None:
+            continue
+        key = str(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        if candidate.exists():
+            candidates.append(candidate)
+    return candidates
+
+
 def start_http_daemon(bin_path, project, profile=None, preset="full"):
-    port = reserve_port()
-    argv = [str(bin_path), str(project), "--transport", "http"]
-    if profile:
-        argv += ["--profile", profile]
-    elif preset:
-        argv += ["--preset", preset]
-    argv += ["--port", str(port)]
-    proc = subprocess.Popen(
-        argv,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-    )
-    base_url = f"http://127.0.0.1:{port}"
-    card_url = f"{base_url}/.well-known/mcp.json"
-    for _ in range(50):
-        if proc.poll() is not None:
-            return None, None, proc
-        try:
-            with urllib_request.urlopen(card_url, timeout=0.5) as resp:
-                if resp.status == 200:
-                    return base_url, port, proc
-        except Exception:
-            time.sleep(0.1)
-    return None, None, proc
+    last_proc = None
+    for candidate in http_binary_candidates(bin_path):
+        port = reserve_port()
+        argv = [str(candidate), str(project), "--transport", "http"]
+        if profile:
+            argv += ["--profile", profile]
+        elif preset:
+            argv += ["--preset", preset]
+        argv += ["--port", str(port)]
+        proc = subprocess.Popen(
+            argv,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        last_proc = proc
+        base_url = f"http://127.0.0.1:{port}"
+        card_url = f"{base_url}/.well-known/mcp.json"
+        for _ in range(50):
+            if proc.poll() is not None:
+                break
+            try:
+                with urllib_request.urlopen(card_url, timeout=0.5) as resp:
+                    if resp.status == 200:
+                        return base_url, port, proc
+            except Exception:
+                time.sleep(0.1)
+        stop_http_daemon(proc)
+    return None, None, last_proc
 
 
 def stop_http_daemon(proc):
@@ -163,7 +193,15 @@ def stop_http_daemon(proc):
             proc.wait(timeout=3)
 
 
-def mcp_http_call(base_url, method, params=None, request_id=1, headers=None, include_headers=False):
+def mcp_http_call(
+    base_url,
+    method,
+    params=None,
+    request_id=1,
+    headers=None,
+    include_headers=False,
+    timeout_seconds=DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS,
+):
     payload = {
         "jsonrpc": "2.0",
         "id": request_id,
@@ -180,7 +218,7 @@ def mcp_http_call(base_url, method, params=None, request_id=1, headers=None, inc
         headers=request_headers,
         method="POST",
     )
-    with urllib_request.urlopen(req, timeout=5) as resp:
+    with urllib_request.urlopen(req, timeout=timeout_seconds) as resp:
         parsed = json.loads(resp.read().decode("utf-8"))
         if include_headers:
             return parsed, {key.lower(): value for key, value in resp.headers.items()}
@@ -192,9 +230,11 @@ def initialize_http_session(
     profile=None,
     deferred_tool_loading=False,
     trusted_client=None,
+    client_name="BenchmarkHarness",
     request_id=1,
+    timeout_seconds=DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS,
 ):
-    params = {"clientInfo": {"name": "BenchmarkHarness", "version": "1.0.0"}}
+    params = {"clientInfo": {"name": client_name, "version": "1.0.0"}}
     if profile:
         params["profile"] = profile
     if deferred_tool_loading:
@@ -209,11 +249,20 @@ def initialize_http_session(
         request_id=request_id,
         headers=headers,
         include_headers=True,
+        timeout_seconds=timeout_seconds,
     )
     return response_headers.get("mcp-session-id"), response, response_headers
 
 
-def mcp_http_tool_call(base_url, name, arguments, request_id=1, session_id=None, headers=None):
+def mcp_http_tool_call(
+    base_url,
+    name,
+    arguments,
+    request_id=1,
+    session_id=None,
+    headers=None,
+    timeout_seconds=DEFAULT_HTTP_TOOL_TIMEOUT_SECONDS,
+):
     request_headers = dict(headers or {})
     if session_id:
         request_headers["mcp-session-id"] = session_id
@@ -223,10 +272,19 @@ def mcp_http_tool_call(base_url, name, arguments, request_id=1, session_id=None,
         {"name": name, "arguments": arguments},
         request_id=request_id,
         headers=request_headers,
+        timeout_seconds=timeout_seconds,
     )
 
 
-def mcp_http_resource_read(base_url, uri, request_id=1, session_id=None, params=None, headers=None):
+def mcp_http_resource_read(
+    base_url,
+    uri,
+    request_id=1,
+    session_id=None,
+    params=None,
+    headers=None,
+    timeout_seconds=DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS,
+):
     payload = {"uri": uri}
     if params:
         payload.update(params)
@@ -239,6 +297,7 @@ def mcp_http_resource_read(base_url, uri, request_id=1, session_id=None, params=
         payload,
         request_id=request_id,
         headers=request_headers,
+        timeout_seconds=timeout_seconds,
     )
 
 

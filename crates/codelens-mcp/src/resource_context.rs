@@ -71,6 +71,14 @@ impl ResourceRequestContext {
             && !self.full_listing
             && !self.full_tool_exposure
     }
+
+    pub(crate) fn tool_contract_mode(&self) -> &'static str {
+        self.client_profile.default_tool_contract_mode()
+    }
+
+    pub(crate) fn lean_tool_contract(&self) -> bool {
+        self.tool_contract_mode() == "lean" && !self.full_listing && !self.full_tool_exposure
+    }
 }
 
 pub(crate) struct VisibleToolContext {
