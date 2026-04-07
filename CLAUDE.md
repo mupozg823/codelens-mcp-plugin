@@ -52,7 +52,7 @@ cargo clippy -- -W clippy::all
 
 ## Mutation Gate Protocol (Mode C)
 
-**Before ANY CodeLens mutation tool** (`rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`, `delete_lines`, `add_import`, `refactor_*`), you MUST:
+**Before CodeLens mutation tools** (`rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`, `delete_lines`, `add_import`, `refactor_*`), you SHOULD:
 
 1. Run `verify_change_readiness` with the target file path(s)
 2. Check `mutation_ready` field in the response:
@@ -61,11 +61,11 @@ cargo clippy -- -W clippy::all
    - `"blocked"` → resolve blockers before mutating
 3. For `rename_symbol` specifically: run `safe_rename_report` instead of `verify_change_readiness`
 
-**Why:** The mutation gate on the server enforces this in `refactor-full` profile. Skipping preflight returns an error, not a silent pass. Running preflight first avoids wasted tool calls.
+**Fallback:** If CodeLens is unavailable or returns an error, proceed with native tools (Edit + cargo check/test). The harness MUST NOT block on CodeLens failures.
 
-**After mutation:** always follow `suggested_next_tools` from the response (typically `get_file_diagnostics`).
+**After mutation:** follow `suggested_next_tools` from the response when available.
 
-**Preflight TTL:** Override via `CODELENS_PREFLIGHT_TTL_SECS` env var (default 600s). NLAH finding: overly strict verification hurts agent productivity by -0.8~-8.4%.
+**Preflight TTL:** Override via `CODELENS_PREFLIGHT_TTL_SECS` env var (default 600s).
 
 ## Doom-Loop Protection
 
