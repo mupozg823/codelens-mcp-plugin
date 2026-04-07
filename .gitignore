@@ -45,3 +45,4 @@ checkpoints/
 scripts/finetune/*.jsonl
 scripts/finetune/gate-results/
 scripts/finetune/external/
+scripts/finetune/pipelines/
