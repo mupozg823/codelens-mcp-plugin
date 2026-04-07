@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::analysis_queue::{
-    analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
-    STDIO_ANALYSIS_WORKER_COUNT,
+    AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
+    STDIO_ANALYSIS_WORKER_COUNT, analysis_job_cost_units,
 };
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::error::CodeLensError;

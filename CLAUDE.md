@@ -2,16 +2,18 @@
 
 ## Tool Routing — PREFER CodeLens over Read/Grep for code tasks
 
-| Task                      | Use This                                         | Not This            |
-| ------------------------- | ------------------------------------------------ | ------------------- |
-| Find function/class/type  | `mcp__codelens__find_symbol` (include_body=true) | Grep                |
-| File/directory structure  | `mcp__codelens__get_symbols_overview`            | Read entire file    |
-| Who calls/references X    | `mcp__codelens__find_referencing_symbols`        | Grep for name       |
-| Smart context for a query | `mcp__codelens__get_ranked_context`              | Multiple Read calls |
-| What breaks if I change X | `mcp__codelens__get_impact_analysis`             | Manual tracing      |
-| Type errors after edit    | `mcp__codelens__get_file_diagnostics`            | Manual check        |
-| First look at codebase    | `mcp__codelens__onboard_project`                 | ls + Read           |
-| Safe multi-file rename    | `mcp__codelens__rename_symbol`                   | Find & replace      |
+| Task                      | Use This                                         | Not This              |
+| ------------------------- | ------------------------------------------------ | --------------------- |
+| Find function/class/type  | `mcp__codelens__find_symbol` (include_body=true) | Grep                  |
+| File/directory structure  | `mcp__codelens__get_symbols_overview`            | Read entire file      |
+| Who calls/references X    | `mcp__codelens__find_referencing_symbols`        | Grep for name         |
+| Smart context for a query | `mcp__codelens__get_ranked_context`              | Multiple Read calls   |
+| What breaks if I change X | `mcp__codelens__get_impact_analysis`             | Manual tracing        |
+| Type errors after edit    | `mcp__codelens__get_file_diagnostics`            | Manual check          |
+| First look at codebase    | `mcp__codelens__onboard_project`                 | ls + Read             |
+| Safe multi-file rename    | `mcp__codelens__rename_symbol`                   | Find & replace        |
+| NL code search            | `mcp__codelens__semantic_search`                 | Grep for guessed name |
+| Change impact report      | `mcp__codelens__impact_report`                   | Manual multi-grep     |
 
 **Use Read/Grep ONLY for:** non-code files, exact string search, files < 30 lines.
 

@@ -30,6 +30,14 @@ SCRIPT_DIR = Path(__file__).parent
 ROOT = SCRIPT_DIR.parent.parent
 
 DEFAULT_OUTPUT_DIR = SCRIPT_DIR / "pipelines" / "runtime-generic-v1"
+DEFAULT_CODESEARCHNET_INPUT_CANDIDATES = (
+    SCRIPT_DIR / "csn_runtime_format.jsonl",
+    SCRIPT_DIR / "codesearchnet_pairs.jsonl",
+)
+DEFAULT_V6_POLISH_INPUTS = (
+    SCRIPT_DIR / "repo_local_adversarial.jsonl",
+    SCRIPT_DIR / "feedback_pairs_clean.jsonl",
+)
 LEGACY_RUNTIME_INPUTS = [
     SCRIPT_DIR / "training_final_v4.jsonl",
     SCRIPT_DIR / "training_pairs_camelcase.jsonl",
@@ -37,6 +45,8 @@ LEGACY_RUNTIME_INPUTS = [
 ]
 DEFAULT_BENCH_HOLDOUTS = (
     ROOT / "benchmarks" / "embedding-quality-dataset.json",
+    ROOT / "benchmarks" / "external-retrieval-dataset.json",
+    ROOT / "benchmarks" / "role-retrieval-dataset.json",
     ROOT / "benchmarks" / "csn-test-benchmark.jsonl",
 )
 TARGET_LANGUAGES = [
@@ -69,17 +79,14 @@ GENERIC_PRODUCT_RATIO = 4
 MIN_GENERIC_FLOOR = 24000
 PRODUCT_SOURCE_HINTS = {
     "feedback_pairs_clean",
-    "major_langs_extra",
     "training_pairs_rust_codelens",
-    "training_pairs_rgfamily",
+    "repo_local_adversarial",
 }
 PRODUCT_FILE_HINTS = (
     "crates/codelens-core/",
     "crates/codelens-mcp/",
     "benchmarks/harness/",
     "scripts/finetune/",
-    "utils/",
-    "bridge/",
 )
 QUERY_TYPE_PRIORITY = {
     "natural_language": 0,
@@ -87,6 +94,16 @@ QUERY_TYPE_PRIORITY = {
     "mixed_natural_language": 2,
     "identifier": 3,
 }
+SEMANTIC_QUERY_TYPE_PRIORITY = {
+    "identifier": 0,
+    "short_phrase": 1,
+    "natural_language": 2,
+    "mixed_natural_language": 3,
+}
+SEMANTIC_RECALL_QUERY_TYPES = {"identifier", "short_phrase"}
+SEMANTIC_GENERIC_RATIO = 2
+MIN_SEMANTIC_GENERIC_FLOOR = 4000
+MIN_SEMANTIC_VALIDATION_ROWS = 64
 NOISE_TOKENS = {
     "function",
     "class",
@@ -147,9 +164,17 @@ RUNTIME_POSITIVE_RE = re.compile(
 
 def parse_args():
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--recipe",
+        choices=["runtime-generic", "v6-aligned"],
+        default="runtime-generic",
+        help="runtime-generic keeps the broad mixed pipeline; v6-aligned keeps the base CSN-only and pushes local/runtime data into polish-only stages.",
+    )
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
     parser.add_argument(
-        "--codesearchnet-input", default=str(SCRIPT_DIR / "codesearchnet_pairs.jsonl")
+        "--codesearchnet-input",
+        default="",
+        help="Primary CodeSearchNet/runtime-format base corpus. Defaults to csn_runtime_format.jsonl when available.",
     )
     parser.add_argument(
         "--codexglue-input",
@@ -161,7 +186,13 @@ def parse_args():
         "--runtime-input",
         action="append",
         default=[],
-        help="Runtime-format pair file. Can be passed multiple times.",
+        help="Runtime-format pair file for the generic/base train split. Can be passed multiple times.",
+    )
+    parser.add_argument(
+        "--polish-runtime-input",
+        action="append",
+        default=[],
+        help="Runtime-format pair file used only for product/semantic polish stages. Can be passed multiple times.",
     )
     parser.add_argument(
         "--include-legacy-runtime-inputs",
@@ -174,15 +205,26 @@ def parse_args():
         default=[],
         help="Holdout benchmark file to exclude from training. Can be passed multiple times. Defaults to product + external retrieval holdouts.",
     )
-    parser.add_argument("--max-csn-per-lang", type=int, default=8000)
+    parser.add_argument(
+        "--max-csn-per-lang",
+        type=int,
+        default=0,
+        help="Cap CodeSearchNet/runtime-format base rows per language (0 = recipe default: 8000 for runtime-generic, unlimited for v6-aligned).",
+    )
     parser.add_argument("--validation-ratio", type=float, default=0.08)
     parser.add_argument("--distill-query-ratio", type=float, default=0.35)
     parser.add_argument("--distill-max-texts", type=int, default=30000)
     parser.add_argument(
         "--hard-negatives-per-query",
         type=int,
-        default=1,
-        help="Number of hard negatives to attach to each train row (0 disables hard-negative mining).",
+        default=None,
+        help="Number of hard negatives to attach to each base train row (default: 1 for runtime-generic, 0 for v6-aligned).",
+    )
+    parser.add_argument(
+        "--polish-hard-negatives-per-query",
+        type=int,
+        default=None,
+        help="Number of hard negatives to attach to each product/semantic polish row (default: follow the base setting, except v6-aligned defaults to 1).",
     )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
@@ -200,6 +242,78 @@ def iter_jsonl(path: Path):
             if not line:
                 continue
             yield json.loads(line)
+
+
+def dedupe_paths(paths: list[Path]) -> list[Path]:
+    deduped = []
+    seen = set()
+    for path in paths:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(path)
+    return deduped
+
+
+def resolve_codesearchnet_input(path_value: str) -> Path:
+    if path_value:
+        return Path(path_value)
+    for candidate in DEFAULT_CODESEARCHNET_INPUT_CANDIDATES:
+        if candidate.exists():
+            return candidate
+    return DEFAULT_CODESEARCHNET_INPUT_CANDIDATES[0]
+
+
+def resolved_codexglue_inputs(args) -> list[Path]:
+    if args.recipe == "v6-aligned":
+        return []
+    return [Path(path) for path in args.codexglue_input]
+
+
+def resolved_base_runtime_inputs(args) -> list[Path]:
+    if args.recipe == "v6-aligned":
+        return []
+    inputs = []
+    if args.include_legacy_runtime_inputs:
+        inputs.extend(LEGACY_RUNTIME_INPUTS)
+    inputs.extend(Path(path) for path in args.runtime_input)
+    return dedupe_paths(inputs)
+
+
+def resolved_polish_runtime_inputs(args) -> list[Path]:
+    inputs = [Path(path) for path in args.polish_runtime_input]
+    if args.recipe == "v6-aligned" and not inputs:
+        inputs.extend(path for path in DEFAULT_V6_POLISH_INPUTS if path.exists())
+    return dedupe_paths(inputs)
+
+
+def resolved_base_hard_negatives_per_query(args) -> int:
+    if args.hard_negatives_per_query is not None:
+        return max(0, args.hard_negatives_per_query)
+    if args.recipe == "v6-aligned":
+        return 0
+    return 1
+
+
+def resolved_max_csn_per_lang(args) -> int:
+    if args.max_csn_per_lang > 0:
+        return args.max_csn_per_lang
+    if args.recipe == "v6-aligned":
+        return 1_000_000_000
+    return 8000
+
+
+def resolved_polish_hard_negatives_per_query(args, base_negatives: int) -> int:
+    if args.polish_hard_negatives_per_query is not None:
+        return max(0, args.polish_hard_negatives_per_query)
+    if args.recipe == "v6-aligned":
+        return 1
+    return base_negatives
+
+
+def resolved_multi_view(args) -> bool:
+    return not (args.no_multi_view or args.recipe == "v6-aligned")
 
 
 def normalize_space(text: str) -> str:
@@ -331,13 +445,25 @@ def benchmark_holdout_queries(path: Path) -> set[str]:
     if not path.exists():
         return set()
     queries = set()
+
+    def collect_from_items(items):
+        for item in items:
+            if isinstance(item, dict) and item.get("query"):
+                queries.add(normalize_query(item["query"]).lower())
+
     text = path.read_text(encoding="utf-8")
     # Support both JSON array and JSONL formats
     try:
         items = json.loads(text)
-        for item in items:
-            if item.get("query"):
-                queries.add(normalize_query(item["query"]).lower())
+        if isinstance(items, list):
+            collect_from_items(items)
+        elif isinstance(items, dict):
+            if isinstance(items.get("rows"), list):
+                collect_from_items(items["rows"])
+            elif isinstance(items.get("repos"), list):
+                for repo in items["repos"]:
+                    if isinstance(repo, dict) and isinstance(repo.get("queries"), list):
+                        collect_from_items(repo["queries"])
     except json.JSONDecodeError:
         for line in text.splitlines():
             line = line.strip()
@@ -432,6 +558,13 @@ def normalize_runtime_positive(text: str) -> str:
     return render_positive_view(parsed, "full")
 
 
+def normalize_optional_positive(text: str) -> str:
+    text = normalize_space(text)
+    if not text:
+        return ""
+    return normalize_runtime_positive(text)
+
+
 def build_pair(
     query: str,
     positive: str,
@@ -464,7 +597,37 @@ def build_pair(
     }
 
 
+def copy_training_overrides(pair: dict, obj: dict) -> dict:
+    updated = dict(pair)
+    explicit_query_type = normalize_space(str(obj.get("query_type") or ""))
+    if explicit_query_type:
+        updated["query_type"] = explicit_query_type
+    explicit_negatives = []
+    seen_negative_texts = {updated["positive"]}
+    for key in ("negative", "negative_2", "negative_3", "negative_4"):
+        value = normalize_optional_positive(str(obj.get(key) or ""))
+        if not value or value in seen_negative_texts:
+            continue
+        explicit_negatives.append(value)
+        seen_negative_texts.add(value)
+    for index, value in enumerate(explicit_negatives, start=1):
+        key = "negative" if index == 1 else f"negative_{index}"
+        updated[key] = value
+    for key in ("product_focus", "semantic_focus", "adversarial_focus"):
+        if key in obj:
+            updated[key] = bool(obj.get(key))
+    for key in ("adversarial_group", "role_focus", "source_detail"):
+        value = normalize_space(str(obj.get(key) or ""))
+        if value:
+            updated[key] = value
+    return updated
+
+
 def is_product_pair(pair: dict) -> bool:
+    if pair.get("product_focus"):
+        return True
+    if pair.get("adversarial_focus") or normalize_space(str(pair.get("role_focus") or "")):
+        return True
     source = (pair.get("source") or "").lower()
     if source in PRODUCT_SOURCE_HINTS or "codelens" in source:
         return True
@@ -474,11 +637,7 @@ def is_product_pair(pair: dict) -> bool:
     if any(file_path.startswith(prefix) for prefix in PRODUCT_FILE_HINTS):
         return True
 
-    return (
-        pair.get("language") in {"rust", "typescript"}
-        and pair.get("has_real_path", False)
-        and pair.get("query_type") != "identifier"
-    )
+    return False
 
 
 def load_codesearchnet_pairs(path: Path, max_per_lang: int) -> list[dict]:
@@ -492,29 +651,31 @@ def load_codesearchnet_pairs(path: Path, max_per_lang: int) -> list[dict]:
         language = (obj.get("language") or "unknown").lower()
         if counts[language] >= max_per_lang:
             continue
-        name = extract_func_name(code, language)
-        if not name:
-            continue
-        signature = first_line(code)
-        doc_hint = first_line(query)
-        positive = build_runtime_positive(
-            name=name,
-            kind="function",
-            signature=signature,
-            file_path="",
-            doc_hint=doc_hint,
-        )
+        if parse_runtime_positive(code):
+            positive = normalize_runtime_positive(code)
+        else:
+            name = extract_func_name(code, language)
+            if not name:
+                continue
+            signature = first_line(code)
+            positive = build_runtime_positive(
+                name=name,
+                kind="function",
+                signature=signature,
+                file_path="",
+                doc_hint="",
+            )
         pair = build_pair(
             query,
             positive,
             language=language,
             source="codesearchnet_raw",
-            query_type="natural_language",
+            query_type=obj.get("query_type") or "natural_language",
         )
         if pair is None:
             continue
         counts[language] += 1
-        pairs.append(pair)
+        pairs.append(copy_training_overrides(pair, obj))
     return pairs
 
 
@@ -525,37 +686,38 @@ def load_codexglue_pairs(path: Path, max_per_lang: int) -> list[dict]:
     pairs = []
     for obj in iter_jsonl(path):
         query = obj.get("docstring") or obj.get("query") or ""
-        code = (
-            obj.get("code") or obj.get("original_string") or obj.get("positive") or ""
-        )
+        existing_positive = obj.get("positive") or ""
+        code = obj.get("code") or obj.get("original_string") or existing_positive or ""
         language = (obj.get("language") or "unknown").lower()
         if counts[language] >= max_per_lang:
             continue
-        raw_name = obj.get("func_name") or extract_func_name(code, language) or ""
-        name = normalize_func_name(raw_name)
-        if not name:
-            continue
-        signature = first_line(code)
-        doc_hint = first_line(query)
-        file_path = normalize_space(obj.get("path") or "")
-        positive = build_runtime_positive(
-            name=name,
-            kind="function",
-            signature=signature,
-            file_path=file_path,
-            doc_hint=doc_hint,
-        )
+        if parse_runtime_positive(existing_positive):
+            positive = normalize_runtime_positive(existing_positive)
+        else:
+            raw_name = obj.get("func_name") or extract_func_name(code, language) or ""
+            name = normalize_func_name(raw_name)
+            if not name:
+                continue
+            signature = first_line(code)
+            file_path = normalize_space(obj.get("path") or "")
+            positive = build_runtime_positive(
+                name=name,
+                kind="function",
+                signature=signature,
+                file_path=file_path,
+                doc_hint="",
+            )
         pair = build_pair(
             query,
             positive,
             language=language,
             source="codexglue_raw",
-            query_type="natural_language",
+            query_type=obj.get("query_type") or "natural_language",
         )
         if pair is None:
             continue
         counts[language] += 1
-        pairs.append(pair)
+        pairs.append(copy_training_overrides(pair, obj))
     return pairs
 
 
@@ -571,7 +733,7 @@ def load_runtime_pairs(path: Path) -> list[dict]:
         source = obj.get("source", source_name)
         pair = build_pair(query, positive, language=language, source=source)
         if pair is not None:
-            pairs.append(pair)
+            pairs.append(copy_training_overrides(pair, obj))
     return pairs
 
 
@@ -585,6 +747,13 @@ def dedupe_pairs(pairs: list[dict]) -> list[dict]:
         seen.add(key)
         deduped.append(pair)
     return deduped
+
+
+def merge_unique_pairs(*pair_lists: list[dict]) -> list[dict]:
+    merged = []
+    for pair_list in pair_lists:
+        merged.extend(pair_list)
+    return dedupe_pairs(merged)
 
 
 def filter_holdout_overlap(
@@ -640,17 +809,21 @@ def annotate_product_focus(rows: list[dict]) -> list[dict]:
     annotated = []
     for row in rows:
         updated = dict(row)
-        updated["product_focus"] = is_product_pair(updated)
+        updated["product_focus"] = bool(updated.get("product_focus")) or is_product_pair(updated)
         annotated.append(updated)
     return annotated
 
 
 def sample_balanced_generic_pairs(
-    rows: list[dict], target_count: int, seed: int
+    rows: list[dict],
+    target_count: int,
+    seed: int,
+    priority_map: dict[str, int] | None = None,
 ) -> list[dict]:
     if len(rows) <= target_count:
         return sorted(rows, key=lambda item: item["id"])
 
+    priority = priority_map or QUERY_TYPE_PRIORITY
     buckets: dict[str, list[dict]] = defaultdict(list)
     for row in rows:
         buckets[row["language"]].append(row)
@@ -658,7 +831,7 @@ def sample_balanced_generic_pairs(
     for language, bucket in buckets.items():
         bucket.sort(
             key=lambda item: (
-                QUERY_TYPE_PRIORITY.get(item["query_type"], 99),
+                priority.get(item["query_type"], 99),
                 deterministic_float(seed, f"{language}:{item['id']}"),
             )
         )
@@ -741,9 +914,16 @@ def build_product_polish_rows(
     validation_pairs: list[dict],
     negatives_per_query: int,
     seed: int,
+    *,
+    extra_train_pairs: list[dict] | None = None,
+    extra_validation_pairs: list[dict] | None = None,
 ) -> tuple[list[dict], list[dict], list[dict]]:
     product_train = []
-    for pair in train_base_pairs:
+    candidate_train_pairs = merge_unique_pairs(
+        train_base_pairs,
+        extra_train_pairs or [],
+    )
+    for pair in candidate_train_pairs:
         if not pair.get("product_focus"):
             continue
         if pair["query_type"] == "identifier":
@@ -766,11 +946,89 @@ def build_product_polish_rows(
 
     product_validation = [
         dict(pair)
-        for pair in validation_pairs
+        for pair in merge_unique_pairs(validation_pairs, extra_validation_pairs or [])
         if pair.get("product_focus") and pair["query_type"] != "identifier"
     ]
     product_validation.sort(key=lambda item: item["id"])
     return product_train, product_validation, product_negative_rows
+
+
+def semantic_polish_views(pair: dict) -> tuple[str, ...]:
+    query_type = pair["query_type"]
+    if query_type in SEMANTIC_RECALL_QUERY_TYPES:
+        return ("full", "no_path")
+    if pair.get("product_focus"):
+        return ("full", "no_path")
+    return ("full",)
+
+
+def build_semantic_polish_rows(
+    train_base_pairs: list[dict],
+    validation_pairs: list[dict],
+    negatives_per_query: int,
+    seed: int,
+    *,
+    extra_train_pairs: list[dict] | None = None,
+    extra_validation_pairs: list[dict] | None = None,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    candidate_train_pairs = merge_unique_pairs(
+        train_base_pairs,
+        extra_train_pairs or [],
+    )
+    product_candidates = [
+        pair
+        for pair in candidate_train_pairs
+        if pair.get("product_focus")
+        and pair["query_type"] in (SEMANTIC_RECALL_QUERY_TYPES | {"natural_language"})
+    ]
+    generic_candidates = [
+        pair
+        for pair in candidate_train_pairs
+        if not pair.get("product_focus")
+        and pair["query_type"] in SEMANTIC_RECALL_QUERY_TYPES
+    ]
+    generic_target = min(
+        len(generic_candidates),
+        max(MIN_SEMANTIC_GENERIC_FLOOR, len(product_candidates) * SEMANTIC_GENERIC_RATIO),
+    )
+    generic_selected = sample_balanced_generic_pairs(
+        generic_candidates,
+        generic_target,
+        seed + 211,
+        priority_map=SEMANTIC_QUERY_TYPE_PRIORITY,
+    )
+
+    semantic_train = []
+    for pair in product_candidates + generic_selected:
+        metadata = parse_runtime_positive(pair["positive"])
+        for view_name in semantic_polish_views(pair):
+            variant = dict(pair)
+            if metadata:
+                variant["positive"] = render_positive_view(metadata, view_name)
+            variant["semantic_focus"] = True
+            variant["view"] = view_name
+            variant["id"] = fingerprint(
+                f"{pair['base_id']}\nsemantic-polish\n{view_name}\n{variant['positive']}"
+            )
+            semantic_train.append(variant)
+
+    semantic_train = dedupe_pairs(semantic_train)
+    semantic_train.sort(key=lambda item: item["id"])
+    semantic_train, semantic_negative_rows = attach_hard_negatives(
+        semantic_train,
+        negatives_per_query,
+        seed + 211,
+    )
+
+    semantic_validation = [
+        dict(pair)
+        for pair in merge_unique_pairs(validation_pairs, extra_validation_pairs or [])
+        if pair.get("product_focus")
+        or pair["query_type"] in SEMANTIC_RECALL_QUERY_TYPES
+    ]
+    semantic_validation = dedupe_pairs(semantic_validation)
+    semantic_validation.sort(key=lambda item: item["id"])
+    return semantic_train, semantic_validation, semantic_negative_rows
 
 
 def mining_tokens_for_pair(pair: dict) -> list[str]:
@@ -860,9 +1118,24 @@ def attach_hard_negatives(
     negative_rows = []
     for idx, row in enumerate(train_rows):
         updated = dict(row)
+        explicit_negative_columns = []
+        for key in ("negative", "negative_2", "negative_3", "negative_4"):
+            if updated.get(key):
+                explicit_negative_columns.append(key)
         mined = []
         used_ids = {row["base_id"]}
-        for negative_slot in range(negatives_per_query):
+        used_negative_texts = {row["positive"]}
+        for column in explicit_negative_columns:
+            used_negative_texts.add(updated[column])
+            mined.append(
+                {
+                    "column": column,
+                    "negative_id": None,
+                    "negative": updated[column],
+                    "kind": "explicit",
+                }
+            )
+        for negative_slot in range(len(explicit_negative_columns), negatives_per_query):
             negative = select_hard_negative(
                 idx,
                 train_rows,
@@ -870,7 +1143,11 @@ def attach_hard_negatives(
                 language_rows,
                 seed + negative_slot,
             )
-            if negative is None or negative["base_id"] in used_ids:
+            if (
+                negative is None
+                or negative["base_id"] in used_ids
+                or negative["positive"] in used_negative_texts
+            ):
                 break
             column = (
                 "negative" if negative_slot == 0 else f"negative_{negative_slot + 1}"
@@ -881,9 +1158,11 @@ def attach_hard_negatives(
                     "column": column,
                     "negative_id": negative["base_id"],
                     "negative": negative["positive"],
+                    "kind": "mined",
                 }
             )
             used_ids.add(negative["base_id"])
+            used_negative_texts.add(negative["positive"])
         with_negatives.append(updated)
         if mined:
             negative_rows.append(
@@ -974,6 +1253,7 @@ def summarize_pairs(rows: list[dict]) -> dict:
         "query_types": Counter(row["query_type"] for row in rows),
         "views": Counter(row.get("view", "full") for row in rows),
         "product_focus": sum(1 for row in rows if row.get("product_focus")),
+        "semantic_focus": sum(1 for row in rows if row.get("semantic_focus")),
         "with_real_path": sum(1 for row in rows if row["has_real_path"]),
         "with_doc_hint": sum(1 for row in rows if row["has_doc_hint"]),
         "with_hard_negative": sum(1 for row in rows if row.get("negative")),
@@ -989,6 +1269,9 @@ def build_coverage_warnings(stats: dict) -> list[str]:
     train = stats["train"]
     train_langs = train["languages"]
     train_count = max(train["count"], 1)
+    recipe = stats.get("recipe", "runtime-generic")
+    hard_negatives_per_query = stats.get("hard_negatives", {}).get("per_query", 0)
+    polish_input_pairs = int(stats.get("polish_input_pairs", 0) or 0)
 
     for language in TARGET_LANGUAGES:
         count = train_langs.get(language, 0)
@@ -1010,13 +1293,15 @@ def build_coverage_warnings(stats: dict) -> list[str]:
         )
 
     hard_negative_ratio = train["with_hard_negative"] / train_count
-    if hard_negative_ratio < 0.8:
+    if hard_negatives_per_query > 0 and hard_negative_ratio < 0.8:
         warnings.append(
             f"low hard-negative coverage: {hard_negative_ratio:.1%} of train rows received mined negatives"
         )
 
     product_ratio = train["product_focus"] / train_count
-    if product_ratio < 0.12:
+    if product_ratio < 0.12 and not (
+        recipe == "v6-aligned" and polish_input_pairs > 0
+    ):
         warnings.append(
             f"low product-focus ratio: {product_ratio:.1%} of train rows are product-aligned"
         )
@@ -1025,6 +1310,12 @@ def build_coverage_warnings(stats: dict) -> list[str]:
     if product_validation_count < MIN_PRODUCT_VALIDATION_ROWS:
         warnings.append(
             f"low product validation coverage: {product_validation_count} rows (< {MIN_PRODUCT_VALIDATION_ROWS})"
+        )
+
+    semantic_validation_count = stats.get("semantic_validation", {}).get("count", 0)
+    if semantic_validation_count < MIN_SEMANTIC_VALIDATION_ROWS:
+        warnings.append(
+            f"low semantic validation coverage: {semantic_validation_count} rows (< {MIN_SEMANTIC_VALIDATION_ROWS})"
         )
 
     return warnings
@@ -1041,22 +1332,25 @@ def main():
         if args.holdout_benchmark
         else list(DEFAULT_BENCH_HOLDOUTS)
     )
-
-    runtime_inputs = []
-    if args.include_legacy_runtime_inputs:
-        runtime_inputs.extend(LEGACY_RUNTIME_INPUTS)
-    runtime_inputs.extend(Path(path) for path in args.runtime_input)
-    codexglue_inputs = [Path(path) for path in args.codexglue_input]
+    codesearchnet_input = resolve_codesearchnet_input(args.codesearchnet_input)
+    codexglue_inputs = resolved_codexglue_inputs(args)
+    base_runtime_inputs = resolved_base_runtime_inputs(args)
+    polish_runtime_inputs = resolved_polish_runtime_inputs(args)
+    base_negatives_per_query = resolved_base_hard_negatives_per_query(args)
+    polish_negatives_per_query = resolved_polish_hard_negatives_per_query(
+        args,
+        base_negatives_per_query,
+    )
+    max_csn_per_lang = resolved_max_csn_per_lang(args)
+    multi_view_enabled = resolved_multi_view(args)
 
     holdout_queries = benchmark_holdout_queries_from_paths(holdout_benchmarks)
 
     all_pairs = []
-    all_pairs.extend(
-        load_codesearchnet_pairs(Path(args.codesearchnet_input), args.max_csn_per_lang)
-    )
+    all_pairs.extend(load_codesearchnet_pairs(codesearchnet_input, max_csn_per_lang))
     for codexglue_input in codexglue_inputs:
-        all_pairs.extend(load_codexglue_pairs(codexglue_input, args.max_csn_per_lang))
-    for runtime_input in runtime_inputs:
+        all_pairs.extend(load_codexglue_pairs(codexglue_input, max_csn_per_lang))
+    for runtime_input in base_runtime_inputs:
         all_pairs.extend(load_runtime_pairs(runtime_input))
 
     all_pairs = dedupe_pairs(all_pairs)
@@ -1066,24 +1360,57 @@ def main():
     )
     train_base_pairs = rebalance_train_base_pairs(train_base_pairs, args.seed)
     validation_pairs = annotate_product_focus(validation_pairs)
-    if args.no_multi_view:
+    if not multi_view_enabled:
         train_pairs = list(train_base_pairs)
     else:
         train_pairs = expand_train_views(train_base_pairs, args.seed)
     train_pairs, hard_negative_rows = attach_hard_negatives(
         train_pairs,
-        args.hard_negatives_per_query,
+        base_negatives_per_query,
         args.seed,
     )
     distill_texts = build_distill_texts(
         train_pairs, args.distill_query_ratio, args.distill_max_texts
     )
+
+    polish_pairs = []
+    for polish_input in polish_runtime_inputs:
+        polish_pairs.extend(load_runtime_pairs(polish_input))
+    polish_pairs = dedupe_pairs(polish_pairs)
+    polish_pairs, polish_overlap_excluded = filter_holdout_overlap(
+        polish_pairs,
+        holdout_queries,
+    )
+    if polish_pairs:
+        polish_train_pairs, polish_validation_pairs = split_pairs(
+            polish_pairs,
+            args.validation_ratio,
+            args.seed + 17,
+        )
+        polish_train_pairs = annotate_product_focus(polish_train_pairs)
+        polish_validation_pairs = annotate_product_focus(polish_validation_pairs)
+    else:
+        polish_train_pairs = []
+        polish_validation_pairs = []
+
     product_polish_pairs, product_validation_pairs, product_negative_rows = (
         build_product_polish_rows(
             train_base_pairs,
             validation_pairs,
-            args.hard_negatives_per_query,
+            polish_negatives_per_query,
             args.seed,
+            extra_train_pairs=polish_train_pairs,
+            extra_validation_pairs=polish_validation_pairs,
+        )
+    )
+    semantic_polish_pairs, semantic_validation_pairs, semantic_negative_rows = (
+        build_semantic_polish_rows(
+            train_base_pairs,
+            validation_pairs,
+            polish_negatives_per_query,
+            args.seed,
+            extra_train_pairs=polish_train_pairs,
+            extra_validation_pairs=polish_validation_pairs,
         )
     )
 
@@ -1094,6 +1421,9 @@ def main():
     product_polish_path = output_dir / "product_polish.jsonl"
     product_validation_path = output_dir / "product_validation.jsonl"
     product_negatives_path = output_dir / "product_polish_hard_negatives.jsonl"
+    semantic_polish_path = output_dir / "semantic_polish.jsonl"
+    semantic_validation_path = output_dir / "semantic_validation.jsonl"
+    semantic_negatives_path = output_dir / "semantic_polish_hard_negatives.jsonl"
     stats_path = output_dir / "stats.json"
     manifest_path = output_dir / "manifest.json"
 
@@ -1104,23 +1434,40 @@ def main():
     write_jsonl(product_polish_path, product_polish_pairs)
     write_jsonl(product_validation_path, product_validation_pairs)
     write_jsonl(product_negatives_path, product_negative_rows)
+    write_jsonl(semantic_polish_path, semantic_polish_pairs)
+    write_jsonl(semantic_validation_path, semantic_validation_pairs)
+    write_jsonl(semantic_negatives_path, semantic_negative_rows)
 
     stats = {
+        "recipe": args.recipe,
+        "codesearchnet_input": str(codesearchnet_input),
+        "max_csn_per_lang": max_csn_per_lang,
+        "base_runtime_inputs": [str(path) for path in base_runtime_inputs],
+        "polish_runtime_inputs": [str(path) for path in polish_runtime_inputs],
         "total_pairs": len(all_pairs),
         "holdout_overlap_excluded": overlap_excluded,
         "holdout_query_count": len(holdout_queries),
+        "polish_input_pairs": len(polish_pairs),
+        "polish_overlap_excluded": polish_overlap_excluded,
+        "multi_view_enabled": multi_view_enabled,
         "train_base": summarize_pairs(train_base_pairs),
         "train": summarize_pairs(train_pairs),
         "validation": summarize_pairs(validation_pairs),
         "product_polish": summarize_pairs(product_polish_pairs),
         "product_validation": summarize_pairs(product_validation_pairs),
+        "semantic_polish": summarize_pairs(semantic_polish_pairs),
+        "semantic_validation": summarize_pairs(semantic_validation_pairs),
         "hard_negatives": {
             "rows": len(hard_negative_rows),
-            "per_query": args.hard_negatives_per_query,
+            "per_query": base_negatives_per_query,
         },
         "product_hard_negatives": {
             "rows": len(product_negative_rows),
-            "per_query": args.hard_negatives_per_query,
+            "per_query": polish_negatives_per_query,
+        },
+        "semantic_hard_negatives": {
+            "rows": len(semantic_negative_rows),
+            "per_query": polish_negatives_per_query,
         },
         "distill_texts": {
             "count": len(distill_texts),
@@ -1134,7 +1481,12 @@ def main():
 
     manifest = {
         "schema_version": 1,
+        "recipe": args.recipe,
         "seed": args.seed,
+        "codesearchnet_input_path": str(codesearchnet_input),
+        "max_csn_per_lang": max_csn_per_lang,
+        "base_runtime_input_paths": [str(path) for path in base_runtime_inputs],
+        "polish_runtime_input_paths": [str(path) for path in polish_runtime_inputs],
         "train_path": str(train_path),
         "validation_path": str(validation_path),
         "distill_texts_path": str(distill_path),
@@ -1142,6 +1494,9 @@ def main():
         "product_polish_path": str(product_polish_path),
         "product_validation_path": str(product_validation_path),
         "product_hard_negatives_path": str(product_negatives_path),
+        "semantic_polish_path": str(semantic_polish_path),
+        "semantic_validation_path": str(semantic_validation_path),
+        "semantic_hard_negatives_path": str(semantic_negatives_path),
         "holdout_benchmark_paths": [str(path) for path in holdout_benchmarks],
         "stats_path": str(stats_path),
         "stats": {
@@ -1151,11 +1506,17 @@ def main():
             "validation_count": stats["validation"]["count"],
             "product_polish_count": stats["product_polish"]["count"],
             "product_validation_count": stats["product_validation"]["count"],
+            "semantic_polish_count": stats["semantic_polish"]["count"],
+            "semantic_validation_count": stats["semantic_validation"]["count"],
             "distill_count": stats["distill_texts"]["count"],
             "hard_negative_rows": stats["hard_negatives"]["rows"],
             "product_hard_negative_rows": stats["product_hard_negatives"]["rows"],
+            "semantic_hard_negative_rows": stats["semantic_hard_negatives"]["rows"],
             "holdout_overlap_excluded": overlap_excluded,
             "holdout_query_count": len(holdout_queries),
+            "polish_input_pairs": len(polish_pairs),
+            "polish_overlap_excluded": polish_overlap_excluded,
+            "multi_view_enabled": multi_view_enabled,
             "train_languages": counter_to_json(stats["train"]["languages"]),
             "validation_languages": counter_to_json(stats["validation"]["languages"]),
             "warnings": stats["warnings"],

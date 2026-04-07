@@ -1,0 +1,165 @@
+{
+  "schema_version": "codelens-external-retrieval-dataset-v1",
+  "minimum_repo_count": 2,
+  "minimum_queries_per_repo": 10,
+  "repos": [
+    {
+      "repo_id": "claw-dev",
+      "label": "claw-dev",
+      "path": "/Users/bagjaeseog/Downloads/claudex/claw-dev",
+      "queries": [
+        {
+          "query": "coding agent class",
+          "query_type": "short_phrase",
+          "expected_symbol": "CodingAgent",
+          "expected_file_suffix": "src/agent.ts"
+        },
+        {
+          "query": "anthropic provider implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "AnthropicProvider",
+          "expected_file_suffix": "src/providers.ts"
+        },
+        {
+          "query": "gemini provider implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "GeminiProvider",
+          "expected_file_suffix": "src/providers.ts"
+        },
+        {
+          "query": "available tool definitions for the agent",
+          "query_type": "natural_language",
+          "expected_symbol": "toolDefinitions",
+          "expected_file_suffix": "src/tools.ts"
+        },
+        {
+          "query": "tool handler map used to execute tools",
+          "query_type": "natural_language",
+          "expected_symbol": "toolHandlers",
+          "expected_file_suffix": "src/tools.ts"
+        },
+        {
+          "query": "start the interactive terminal repl",
+          "query_type": "natural_language",
+          "expected_symbol": "startRepl",
+          "expected_file_suffix": "src/cli.tsx"
+        },
+        {
+          "query": "list files in the working directory",
+          "query_type": "natural_language",
+          "expected_symbol": "listFiles",
+          "expected_file_suffix": "src/tools.ts"
+        },
+        {
+          "query": "search text inside project files",
+          "query_type": "natural_language",
+          "expected_symbol": "searchText",
+          "expected_file_suffix": "src/tools.ts"
+        },
+        {
+          "query": "execute a shell command in the workspace",
+          "query_type": "natural_language",
+          "expected_symbol": "runShell",
+          "expected_file_suffix": "src/tools.ts"
+        },
+        {
+          "query": "resolve openai auth credentials from disk",
+          "query_type": "natural_language",
+          "expected_symbol": "resolveOpenAIAuth",
+          "expected_file_suffix": "shared/openaiAuth.js"
+        },
+        {
+          "query": "format a hint when openai auth is missing",
+          "query_type": "natural_language",
+          "expected_symbol": "formatOpenAIAuthHint",
+          "expected_file_suffix": "shared/openaiAuth.js"
+        },
+        {
+          "query": "compatibility proxy port assignment",
+          "query_type": "short_phrase",
+          "expected_symbol": "resolveCompatPortAssignment",
+          "expected_file_suffix": "shared/compatProxyPort.js"
+        }
+      ]
+    },
+    {
+      "repo_id": "rg-family-clone",
+      "label": "rg-family-clone",
+      "path": "/Users/bagjaeseog/Projects/rg-family-clone",
+      "queries": [
+        {
+          "query": "root next app layout",
+          "query_type": "short_phrase",
+          "expected_symbol": "RootLayout",
+          "expected_file_suffix": "src/app/layout.tsx"
+        },
+        {
+          "query": "layout for auth pages",
+          "query_type": "natural_language",
+          "expected_symbol": "AuthLayout",
+          "expected_file_suffix": "src/app/(auth)/layout.tsx"
+        },
+        {
+          "query": "wrap the app with shared providers",
+          "query_type": "natural_language",
+          "expected_symbol": "Providers",
+          "expected_file_suffix": "src/components/Providers.tsx"
+        },
+        {
+          "query": "merge conditional class names",
+          "query_type": "natural_language",
+          "expected_symbol": "cn",
+          "expected_file_suffix": "src/lib/utils.ts"
+        },
+        {
+          "query": "login page component",
+          "query_type": "short_phrase",
+          "expected_symbol": "LoginPage",
+          "expected_file_suffix": "src/app/(auth)/login/page.tsx"
+        },
+        {
+          "query": "login form component",
+          "query_type": "short_phrase",
+          "expected_symbol": "LoginForm",
+          "expected_file_suffix": "src/app/(auth)/login/page.tsx"
+        },
+        {
+          "query": "register page form",
+          "query_type": "natural_language",
+          "expected_symbol": "RegisterPage",
+          "expected_file_suffix": "src/app/(auth)/register/page.tsx"
+        },
+        {
+          "query": "community post editor form",
+          "query_type": "natural_language",
+          "expected_symbol": "PostForm",
+          "expected_file_suffix": "src/components/community/PostForm.tsx"
+        },
+        {
+          "query": "render a community post detail view",
+          "query_type": "natural_language",
+          "expected_symbol": "PostDetail",
+          "expected_file_suffix": "src/components/community/PostDetail.tsx"
+        },
+        {
+          "query": "render a list of community posts",
+          "query_type": "natural_language",
+          "expected_symbol": "PostList",
+          "expected_file_suffix": "src/components/community/PostList.tsx"
+        },
+        {
+          "query": "member profile card component",
+          "query_type": "short_phrase",
+          "expected_symbol": "MemberCard",
+          "expected_file_suffix": "src/components/member/MemberCard.tsx"
+        },
+        {
+          "query": "shared prisma client singleton",
+          "query_type": "natural_language",
+          "expected_symbol": "prisma",
+          "expected_file_suffix": "src/lib/prisma.ts"
+        }
+      ]
+    }
+  ]
+}

@@ -30,6 +30,8 @@ def parse_args():
     parser.add_argument("--repo", action="append", default=[])
     parser.add_argument("--task-kind", action="append", default=[])
     parser.add_argument("--agent", default="")
+    parser.add_argument("--min-real-session-tasks", type=int, default=20)
+    parser.add_argument("--min-real-session-scopes", type=int, default=3)
     parser.add_argument("--output-json", default="benchmarks/paper-benchmark-results.json")
     parser.add_argument("--output-md", default="benchmarks/paper-benchmark-summary.md")
     return parser.parse_args()
@@ -169,6 +171,23 @@ def build_harness_metrics(entries: list[dict]) -> dict:
     }
 
 
+def cohort_scope_counts(entries: list[dict]) -> dict:
+    repo_ids = {
+        entry.get("repo_id") or entry.get("repo") or entry.get("repo_label")
+        for entry in entries
+        if entry.get("repo_id") or entry.get("repo") or entry.get("repo_label")
+    }
+    task_kinds = {
+        entry.get("task_kind")
+        for entry in entries
+        if entry.get("task_kind")
+    }
+    return {
+        "distinct_repo_count": len(repo_ids),
+        "distinct_task_kind_count": len(task_kinds),
+    }
+
+
 def find_method(report: dict, method_name: str) -> dict:
     for method in report.get("methods", []):
         if method.get("method") == method_name:
@@ -200,6 +219,7 @@ def render_markdown(result: dict) -> str:
     harness = result["harness_metrics"]
     retrieval = result["retrieval_metrics"]
     cohort = result["selected_cohort"]
+    eligibility = result["promotion_eligibility"]
     lines = []
     a = lines.append
     a("# Paper Benchmark Summary")
@@ -238,12 +258,28 @@ def render_markdown(result: dict) -> str:
     a("|---|---:|")
     a(f"| Entries after mode/filter | {cohort['filtered_entry_count']} |")
     a(f"| Selected entries | {cohort['selected_entry_count']} |")
+    a(f"| Distinct repos | {cohort['distinct_repo_count']} |")
+    a(f"| Distinct task kinds | {cohort['distinct_task_kind_count']} |")
     a(f"| Source breakdown | `{json.dumps(cohort['source_kind_counts'], ensure_ascii=False, sort_keys=True)}` |")
     a(f"| Successful tasks | {harness['successful_task_count']} |")
     a(f"| Acceptance pass rate | {harness['acceptance_pass_rate']:.1%} |" if harness["acceptance_pass_rate"] is not None else "| Acceptance pass rate | n/a |")
     a(f"| Verify pass rate | {harness['verify_pass_rate']:.1%} |" if harness["verify_pass_rate"] is not None else "| Verify pass rate | n/a |")
     a(f"| Avg quality score | {harness['avg_quality_score']:.3f} |" if harness["avg_quality_score"] is not None else "| Avg quality score | n/a |")
     a("")
+    a("## Promotion Eligibility")
+    a("")
+    a("| Field | Value |")
+    a("|---|---:|")
+    a(f"| Promotion eligible | `{eligibility['promotion_eligible']}` |")
+    a(f"| Real-session required | `{eligibility['requires_real_session']}` |")
+    a(f"| Min measured tasks | {eligibility['minimum_real_session_tasks']} |")
+    a(f"| Min distinct repos/task kinds | {eligibility['minimum_real_session_scopes']} |")
+    if eligibility["failures"]:
+        a("")
+        a("Failures:")
+        for failure in eligibility["failures"]:
+            a(f"- {failure}")
+        a("")
     a("## Retrieval Support")
     a("")
     a("| Metric | Value |")
@@ -258,7 +294,7 @@ def render_markdown(result: dict) -> str:
     a("## Protocol")
     a("")
     a("- Main benchmark is harness task completion under `routed-on` mode.")
-    a("- Real-session entries are preferred; synthetic entries are used only when real-session data is absent.")
+    a("- Real-session entries are preferred; synthetic entries are reported diagnostically when real-session data is absent.")
     a(
         f"- Retrieval support metric is `get_ranked_context MRR@{retrieval['ranking_cutoff']}` from the runtime benchmark."
     )
@@ -285,6 +321,27 @@ def main():
 
     harness_metrics = build_harness_metrics(selected_entries)
     retrieval_metrics = build_retrieval_metrics(retrieval_report)
+    scope_counts = cohort_scope_counts(selected_entries)
+    promotion_failures = []
+    if selected_source_kind != "real-session":
+        promotion_failures.append(
+            f"selected cohort is {selected_source_kind}, not real-session"
+        )
+    if harness_metrics["measured_task_count"] < args.min_real_session_tasks:
+        promotion_failures.append(
+            "insufficient real-session measured tasks: "
+            f"{harness_metrics['measured_task_count']} < {args.min_real_session_tasks}"
+        )
+    if (
+        scope_counts["distinct_repo_count"] < args.min_real_session_scopes
+        and scope_counts["distinct_task_kind_count"] < args.min_real_session_scopes
+    ):
+        promotion_failures.append(
+            "insufficient real-session cohort diversity: "
+            f"repos={scope_counts['distinct_repo_count']}, "
+            f"task_kinds={scope_counts['distinct_task_kind_count']}, "
+            f"need at least {args.min_real_session_scopes} in either dimension"
+        )
     result = {
         "schema_version": "codelens-paper-benchmark-v1",
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -303,10 +360,19 @@ def main():
             "source_kind": selected_source_kind,
             "filtered_entry_count": len(filtered_entries),
             "selected_entry_count": len(selected_entries),
+            "distinct_repo_count": scope_counts["distinct_repo_count"],
+            "distinct_task_kind_count": scope_counts["distinct_task_kind_count"],
             "source_kind_counts": source_kind_counts,
         },
         "harness_metrics": harness_metrics,
         "retrieval_metrics": retrieval_metrics,
+        "promotion_eligibility": {
+            "requires_real_session": True,
+            "minimum_real_session_tasks": args.min_real_session_tasks,
+            "minimum_real_session_scopes": args.min_real_session_scopes,
+            "promotion_eligible": not promotion_failures,
+            "failures": promotion_failures,
+        },
         "headline_metrics": {
             "task_success_rate": harness_metrics["task_success_rate"],
             "tokens_per_successful_task": harness_metrics["tokens_per_successful_task"],

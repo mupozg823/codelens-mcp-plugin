@@ -1,0 +1,110 @@
+[
+  {
+    "query": "parse URL string into components",
+    "query_type": "natural_language",
+    "expected_symbol": "parseurl",
+    "expected_file_suffix": "lib/urlapi.c"
+  },
+  {
+    "query": "upload file to remote server",
+    "query_type": "natural_language",
+    "expected_symbol": "file_upload",
+    "expected_file_suffix": "lib/file.c"
+  },
+  {
+    "query": "handle HTTP cookies",
+    "query_type": "natural_language",
+    "expected_symbol": "Cookie",
+    "expected_file_suffix": "lib/cookie.h"
+  },
+  {
+    "query": "parse multipart form data",
+    "query_type": "natural_language",
+    "expected_symbol": "formparse",
+    "expected_file_suffix": "src/tool_formparse.c"
+  },
+  {
+    "query": "parse HTTP response headers",
+    "query_type": "natural_language",
+    "expected_symbol": "_parse_headerfile",
+    "expected_file_suffix": "tests/http/testenv/curl.py"
+  },
+  {
+    "query": "format and print error messages",
+    "query_type": "natural_language",
+    "expected_symbol": "errorf",
+    "expected_file_suffix": "src/tool_msgs.c"
+  },
+  {
+    "query": "send HTTP request to server",
+    "query_type": "natural_language",
+    "expected_symbol": "send_request",
+    "expected_file_suffix": "tests/libtest/lib2023.c"
+  },
+  {
+    "query": "establish TCP connection to host",
+    "query_type": "natural_language",
+    "expected_symbol": "http_connect",
+    "expected_file_suffix": "tests/server/sws.c"
+  },
+  {
+    "query": "resolve DNS hostname to IP address",
+    "query_type": "natural_language",
+    "expected_symbol": "test_resolve",
+    "expected_file_suffix": "tests/server/resolve.c"
+  },
+  {
+    "query": "show download or upload progress",
+    "query_type": "natural_language",
+    "expected_symbol": "Progress",
+    "expected_file_suffix": "lib/getinfo.c"
+  },
+  {
+    "query": "handle SSL TLS handshake",
+    "query_type": "natural_language",
+    "expected_symbol": "handshakes",
+    "expected_file_suffix": "tests/http/scorecard.py"
+  },
+  {
+    "query": "verify SSL certificate chain",
+    "query_type": "natural_language",
+    "expected_symbol": "certificate",
+    "expected_file_suffix": "tests/http/testenv/certs.py"
+  },
+  {
+    "query": "parseurl",
+    "query_type": "identifier",
+    "expected_symbol": "parseurl",
+    "expected_file_suffix": "lib/urlapi.c"
+  },
+  {
+    "query": "file_upload",
+    "query_type": "identifier",
+    "expected_symbol": "file_upload",
+    "expected_file_suffix": "lib/file.c"
+  },
+  {
+    "query": "formparse",
+    "query_type": "identifier",
+    "expected_symbol": "formparse",
+    "expected_file_suffix": "src/tool_formparse.c"
+  },
+  {
+    "query": "Cookie",
+    "query_type": "identifier",
+    "expected_symbol": "Cookie",
+    "expected_file_suffix": "lib/cookie.h"
+  },
+  {
+    "query": "errorf",
+    "query_type": "identifier",
+    "expected_symbol": "errorf",
+    "expected_file_suffix": "src/tool_msgs.c"
+  },
+  {
+    "query": "send_request",
+    "query_type": "identifier",
+    "expected_symbol": "send_request",
+    "expected_file_suffix": "tests/libtest/lib2023.c"
+  }
+]

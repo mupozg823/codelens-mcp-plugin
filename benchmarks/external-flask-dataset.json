@@ -1,0 +1,122 @@
+[
+  {
+    "query": "render HTML template with context variables",
+    "query_type": "natural_language",
+    "expected_symbol": "render_template",
+    "expected_file_suffix": "src/flask/templating.py"
+  },
+  {
+    "query": "register a blueprint for modular application",
+    "query_type": "natural_language",
+    "expected_symbol": "register_blueprint",
+    "expected_file_suffix": "src/flask/sansio/app.py"
+  },
+  {
+    "query": "handle application errors with custom handler",
+    "query_type": "natural_language",
+    "expected_symbol": "errorhandler",
+    "expected_file_suffix": "src/flask/sansio/scaffold.py"
+  },
+  {
+    "query": "define route decorator for URL mapping",
+    "query_type": "natural_language",
+    "expected_symbol": "decorator",
+    "expected_file_suffix": "src/flask/sansio/scaffold.py"
+  },
+  {
+    "query": "redirect user to another URL",
+    "query_type": "natural_language",
+    "expected_symbol": "redirect",
+    "expected_file_suffix": "src/flask/helpers.py"
+  },
+  {
+    "query": "abort request with HTTP error code",
+    "query_type": "natural_language",
+    "expected_symbol": "abort",
+    "expected_file_suffix": "src/flask/helpers.py"
+  },
+  {
+    "query": "run before each request hook",
+    "query_type": "natural_language",
+    "expected_symbol": "before_request",
+    "expected_file_suffix": "tests/test_basic.py"
+  },
+  {
+    "query": "create WSGI application instance",
+    "query_type": "natural_language",
+    "expected_symbol": "wsgi_app",
+    "expected_file_suffix": "src/flask/app.py"
+  },
+  {
+    "query": "manage user session data",
+    "query_type": "natural_language",
+    "expected_symbol": "session",
+    "expected_file_suffix": "src/flask/ctx.py"
+  },
+  {
+    "query": "configure application logging",
+    "query_type": "natural_language",
+    "expected_symbol": "logger",
+    "expected_file_suffix": "src/flask/logging.py"
+  },
+  {
+    "query": "parse multipart form data from POST",
+    "query_type": "natural_language",
+    "expected_symbol": "formparse",
+    "expected_file_suffix": "src/flask"
+  },
+  {
+    "query": "create test client for unit testing",
+    "query_type": "natural_language",
+    "expected_symbol": "client",
+    "expected_file_suffix": "tests/test_testing.py"
+  },
+  {
+    "query": "define URL routing rule",
+    "query_type": "natural_language",
+    "expected_symbol": "rule",
+    "expected_file_suffix": "src/flask/sansio/blueprints.py"
+  },
+  {
+    "query": "create application with factory pattern",
+    "query_type": "natural_language",
+    "expected_symbol": "app_factory",
+    "expected_file_suffix": "src/flask/cli.py"
+  },
+  {
+    "query": "load configuration from Python object",
+    "query_type": "natural_language",
+    "expected_symbol": "test_config_from_object",
+    "expected_file_suffix": "tests/test_config.py"
+  },
+  {
+    "query": "render_template",
+    "query_type": "identifier",
+    "expected_symbol": "render_template",
+    "expected_file_suffix": "src/flask/templating.py"
+  },
+  {
+    "query": "register_blueprint",
+    "query_type": "identifier",
+    "expected_symbol": "register_blueprint",
+    "expected_file_suffix": "src/flask/sansio/app.py"
+  },
+  {
+    "query": "wsgi_app",
+    "query_type": "identifier",
+    "expected_symbol": "wsgi_app",
+    "expected_file_suffix": "src/flask/app.py"
+  },
+  {
+    "query": "errorhandler",
+    "query_type": "identifier",
+    "expected_symbol": "errorhandler",
+    "expected_file_suffix": "src/flask/sansio/scaffold.py"
+  },
+  {
+    "query": "request_context",
+    "query_type": "identifier",
+    "expected_symbol": "request_context",
+    "expected_file_suffix": "src/flask/app.py"
+  }
+]

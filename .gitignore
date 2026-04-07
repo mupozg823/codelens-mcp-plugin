@@ -43,3 +43,5 @@ scripts/finetune/output/
 *.onnx.bak
 checkpoints/
 scripts/finetune/*.jsonl
+scripts/finetune/gate-results/
+scripts/finetune/external/

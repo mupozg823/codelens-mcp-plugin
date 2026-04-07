@@ -1,0 +1,92 @@
+[
+  {
+    "query": "user login page component",
+    "query_type": "natural_language",
+    "expected_symbol": "LoginPage",
+    "expected_file_suffix": "src/app/(auth)/login/page.tsx"
+  },
+  {
+    "query": "reusable button UI component",
+    "query_type": "natural_language",
+    "expected_symbol": "Button",
+    "expected_file_suffix": "src/components/ui/button.tsx"
+  },
+  {
+    "query": "dropdown menu component",
+    "query_type": "natural_language",
+    "expected_symbol": "DropdownMenu",
+    "expected_file_suffix": "src/components/ui/dropdown-menu.tsx"
+  },
+  {
+    "query": "modal dialog popup",
+    "query_type": "natural_language",
+    "expected_symbol": "Dialog",
+    "expected_file_suffix": "src/components/ui/dialog.tsx"
+  },
+  {
+    "query": "calendar date picker",
+    "query_type": "natural_language",
+    "expected_symbol": "Calendar",
+    "expected_file_suffix": "src/components/ui/calendar.tsx"
+  },
+  {
+    "query": "get authenticated user info",
+    "query_type": "natural_language",
+    "expected_symbol": "user",
+    "expected_file_suffix": "src/lib/auth.ts"
+  },
+  {
+    "query": "navigation header with menu items",
+    "query_type": "natural_language",
+    "expected_symbol": "navItems",
+    "expected_file_suffix": "src/components/layout/Header.tsx"
+  },
+  {
+    "query": "handle comment reply submission",
+    "query_type": "natural_language",
+    "expected_symbol": "handleReply",
+    "expected_file_suffix": "src/components/community/CommentSection.tsx"
+  },
+  {
+    "query": "search input field",
+    "query_type": "natural_language",
+    "expected_symbol": "input",
+    "expected_file_suffix": "src/app/(main)/community"
+  },
+  {
+    "query": "user avatar image display",
+    "query_type": "natural_language",
+    "expected_symbol": "AvatarImage",
+    "expected_file_suffix": "src/components/ui/avatar.tsx"
+  },
+  {
+    "query": "LoginPage",
+    "query_type": "identifier",
+    "expected_symbol": "LoginPage",
+    "expected_file_suffix": "src/app/(auth)/login/page.tsx"
+  },
+  {
+    "query": "Button",
+    "query_type": "identifier",
+    "expected_symbol": "Button",
+    "expected_file_suffix": "src/components/ui/button.tsx"
+  },
+  {
+    "query": "Dialog",
+    "query_type": "identifier",
+    "expected_symbol": "Dialog",
+    "expected_file_suffix": "src/components/ui/dialog.tsx"
+  },
+  {
+    "query": "DropdownMenu",
+    "query_type": "identifier",
+    "expected_symbol": "DropdownMenu",
+    "expected_file_suffix": "src/components/ui/dropdown-menu.tsx"
+  },
+  {
+    "query": "Calendar",
+    "query_type": "identifier",
+    "expected_symbol": "Calendar",
+    "expected_file_suffix": "src/components/ui/calendar.tsx"
+  }
+]

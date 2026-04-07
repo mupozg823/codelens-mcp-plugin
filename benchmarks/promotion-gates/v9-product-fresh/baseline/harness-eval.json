@@ -1,0 +1,2277 @@
+{
+  "schema_version": "codelens-harness-eval-v1",
+  "generated_at": "2026-04-07T03:53:43",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "baseline_reference": {
+    "workflow_total_savings_pct": 63.8,
+    "low_level_chain_before": 8,
+    "low_level_chain_after": 0,
+    "codex_like_avg_bootstrap_tokens": 8351,
+    "codex_like_avg_overhead_vs_direct_pct": 1944.4,
+    "point_lookup_regression": "Context retrieval remains worse than native point lookup"
+  },
+  "representative_repos": [
+    {
+      "id": "codelens-mcp-plugin",
+      "label": "Rust MCP repo",
+      "path": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "stack": "rust",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    }
+  ],
+  "entries": [
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "onboarding/planning",
+      "mode": "baseline",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 2621,
+      "bootstrap_tokens": 0,
+      "tool_calls": 2,
+      "low_level_chain_count": 2,
+      "elapsed_ms": 186,
+      "notes": "proxy baseline from balanced low-level workflow: Planner change request",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "onboarding/planning",
+      "mode": "naive-on",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 482,
+      "bootstrap_tokens": 0,
+      "tool_calls": 1,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 699,
+      "notes": "direct composite workflow without session bootstrap: Planner change request",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "onboarding/planning",
+      "mode": "routed-on",
+      "agent": "synthetic-proxy",
+      "success": null,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": null,
+      "notes": "no routed session benchmark available for Planner change request",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "impact/reviewer",
+      "mode": "baseline",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 2972,
+      "bootstrap_tokens": 0,
+      "tool_calls": 3,
+      "low_level_chain_count": 3,
+      "elapsed_ms": 282,
+      "notes": "proxy baseline from balanced low-level workflow: Reviewer impact analysis",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "impact/reviewer",
+      "mode": "naive-on",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 400,
+      "bootstrap_tokens": 0,
+      "tool_calls": 1,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 452,
+      "notes": "direct composite workflow without session bootstrap: Reviewer impact analysis",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "impact/reviewer",
+      "mode": "routed-on",
+      "agent": "synthetic-proxy",
+      "success": null,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": null,
+      "notes": "no routed session benchmark available for Reviewer impact analysis",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "refactor preflight",
+      "mode": "baseline",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 938,
+      "bootstrap_tokens": 0,
+      "tool_calls": 3,
+      "low_level_chain_count": 3,
+      "elapsed_ms": 533,
+      "notes": "proxy baseline from balanced low-level workflow: Refactor safety",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "refactor preflight",
+      "mode": "naive-on",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 477,
+      "bootstrap_tokens": 0,
+      "tool_calls": 1,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 2757,
+      "notes": "direct composite workflow without session bootstrap: Refactor safety",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "refactor preflight",
+      "mode": "routed-on",
+      "agent": "synthetic-proxy",
+      "success": null,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": null,
+      "notes": "no routed session benchmark available for Refactor safety",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "simple local lookup/edit",
+      "mode": "baseline",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 12068,
+      "bootstrap_tokens": 0,
+      "tool_calls": 3,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 20,
+      "notes": "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval",
+      "recommended_policy": "avoid_codelens_for_simple_local_lookup",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "simple local lookup/edit",
+      "mode": "naive-on",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 8718,
+      "bootstrap_tokens": 0,
+      "tool_calls": 3,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 193,
+      "notes": "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval",
+      "recommended_policy": "avoid_codelens_for_simple_local_lookup",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "simple local lookup/edit",
+      "mode": "routed-on",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 12068,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 20,
+      "notes": "routing policy intentionally stays native for local lookup/edit",
+      "recommended_policy": "avoid_codelens_for_simple_local_lookup",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "repo_id": "SignatureStudio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "impact/reviewer",
+      "mode": "routed-on",
+      "agent": "codex",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": 0.75,
+      "token_in": 3555,
+      "token_out": 594,
+      "bootstrap_tokens": 3555,
+      "tool_calls": 3,
+      "low_level_chain_count": 1,
+      "elapsed_ms": 3972,
+      "notes": "captured from scenario signature-studio::impact/reviewer::routed-on | verifier contract observed in session telemetry",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": true,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.3333333333333333,
+      "metrics_snapshot": {
+        "total_tokens": 4149,
+        "tools_list_tokens": 3555,
+        "error_count": 0,
+        "quality_contract_present_rate": 1.0,
+        "verifier_contract_present_rate": 1.0,
+        "verifier_followthrough_rate": 1.0
+      },
+      "captured_at": "2026-04-04T03:38:54",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-033854-signature-studio-impact-reviewer-routed-on.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "impact/reviewer",
+      "mode": "routed-on",
+      "agent": "claude",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 0,
+      "notes": "captured from scenario codelens-mcp-plugin::impact/reviewer::routed-on",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 0,
+        "tools_list_tokens": 0,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:28:45",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-032845-codelens-mcp-plugin-impact-reviewer-routed-on-claude.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "impact/reviewer",
+      "mode": "routed-on",
+      "agent": "codex",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": 0.793,
+      "token_in": 22428,
+      "token_out": 2568,
+      "bootstrap_tokens": 22428,
+      "tool_calls": 7,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 869,
+      "notes": "captured from scenario codelens-mcp-plugin::impact/reviewer::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verifier_used": true,
+      "evidence_reuse_rate": 1.0,
+      "recommended_check_followthrough_rate": 0.25,
+      "composite_ratio": 0.2857142857142857,
+      "metrics_snapshot": {
+        "total_tokens": 24996,
+        "tools_list_tokens": 22428,
+        "error_count": 0,
+        "quality_contract_present_rate": 1.0,
+        "verifier_contract_present_rate": 1.0,
+        "verifier_followthrough_rate": 0.5
+      },
+      "captured_at": "2026-04-04T03:17:17",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-031717-codelens-mcp-plugin-impact-reviewer-routed-on.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "onboarding/planning",
+      "mode": "routed-on",
+      "agent": "claude",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 0,
+      "notes": "captured from scenario codelens-mcp-plugin::onboarding/planning::routed-on",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 0,
+        "tools_list_tokens": 0,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:32:26",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-033226-codelens-mcp-plugin-onboarding-planning-routed-on-claude.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "onboarding/planning",
+      "mode": "routed-on",
+      "agent": "codex",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": 0.075,
+      "token_in": 11214,
+      "token_out": 91,
+      "bootstrap_tokens": 11214,
+      "tool_calls": 4,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 210,
+      "notes": "captured from scenario codelens-mcp-plugin::onboarding/planning::routed-on",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.5,
+      "metrics_snapshot": {
+        "total_tokens": 11305,
+        "tools_list_tokens": 11214,
+        "error_count": 2,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:31:15",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-033115-codelens-mcp-plugin-onboarding-planning-routed-on.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "refactor preflight",
+      "mode": "routed-on",
+      "agent": "claude",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 1,
+      "elapsed_ms": 0,
+      "notes": "captured from scenario codelens-mcp-plugin::refactor preflight::routed-on",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 0,
+        "tools_list_tokens": 0,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:36:57",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-033657-codelens-mcp-plugin-refactor-preflight-routed-on-claude.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "refactor preflight",
+      "mode": "routed-on",
+      "agent": "codex",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": 0.075,
+      "token_in": 7110,
+      "token_out": 91,
+      "bootstrap_tokens": 7110,
+      "tool_calls": 6,
+      "low_level_chain_count": 1,
+      "elapsed_ms": 252,
+      "notes": "captured from scenario codelens-mcp-plugin::refactor preflight::routed-on",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.5,
+      "metrics_snapshot": {
+        "total_tokens": 7201,
+        "tools_list_tokens": 7110,
+        "error_count": 3,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:35:25",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-033525-codelens-mcp-plugin-refactor-preflight-routed-on.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "simple local lookup/edit",
+      "mode": "baseline",
+      "agent": "claude",
+      "success": true,
+      "acceptance_passed": true,
+      "verify_passed": true,
+      "quality_score": 1.0,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 0,
+      "notes": "claude runner closed-loop smoke test",
+      "recommended_policy": "avoid_codelens_for_simple_local_lookup",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 0,
+        "tools_list_tokens": 0,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:00:15",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-030015-codelens-mcp-plugin-simple-local-lookup-edit-baseline-claude.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "simple local lookup/edit",
+      "mode": "baseline",
+      "agent": "codex",
+      "success": true,
+      "acceptance_passed": true,
+      "verify_passed": true,
+      "quality_score": 1.0,
+      "token_in": 11214,
+      "token_out": 0,
+      "bootstrap_tokens": 11214,
+      "tool_calls": 1,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 0,
+      "notes": "runner refresh harness-result capture smoke test",
+      "recommended_policy": "avoid_codelens_for_simple_local_lookup",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 11214,
+        "tools_list_tokens": 11214,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T02:54:31",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-025431-codelens-mcp-plugin-simple-local-lookup-edit-baseline.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "repo_id": "signature-studio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "impact/reviewer",
+      "mode": "routed-on",
+      "agent": "claude",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 0,
+      "notes": "captured from scenario signature-studio::impact/reviewer::routed-on",
+      "recommended_policy": "prefer_routed_codelens",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 0,
+        "tools_list_tokens": 0,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:40:46",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-034046-signature-studio-impact-reviewer-routed-on-claude.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "repo_id": "signature-studio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "onboarding/planning",
+      "mode": "baseline",
+      "agent": "claude",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 0,
+      "notes": "captured from scenario signature-studio::onboarding/planning::baseline",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 0,
+        "tools_list_tokens": 0,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:45:10",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-034510-signature-studio-onboarding-planning-baseline-claude.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "repo_id": "signature-studio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "onboarding/planning",
+      "mode": "baseline",
+      "agent": "codex",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": 0.3,
+      "token_in": 11214,
+      "token_out": 0,
+      "bootstrap_tokens": 11214,
+      "tool_calls": 1,
+      "low_level_chain_count": 1,
+      "elapsed_ms": 0,
+      "notes": "captured from scenario signature-studio::onboarding/planning::baseline",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 11214,
+        "tools_list_tokens": 11214,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:44:18",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-034418-signature-studio-onboarding-planning-baseline.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "repo_id": "signature-studio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "refactor preflight",
+      "mode": "routed-on",
+      "agent": "claude",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 1,
+      "elapsed_ms": 0,
+      "notes": "captured from scenario signature-studio::refactor preflight::routed-on",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 0,
+        "tools_list_tokens": 0,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:48:36",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-034836-signature-studio-refactor-preflight-routed-on-claude.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "repo_id": "signature-studio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "refactor preflight",
+      "mode": "routed-on",
+      "agent": "codex",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": 0.754,
+      "token_in": 11214,
+      "token_out": 641,
+      "bootstrap_tokens": 11214,
+      "tool_calls": 4,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 835,
+      "notes": "captured from scenario signature-studio::refactor preflight::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": true,
+      "evidence_reuse_rate": 1.0,
+      "recommended_check_followthrough_rate": 0.1111111111111111,
+      "composite_ratio": 0.25,
+      "metrics_snapshot": {
+        "total_tokens": 11855,
+        "tools_list_tokens": 11214,
+        "error_count": 0,
+        "quality_contract_present_rate": 3.0,
+        "verifier_contract_present_rate": 3.0,
+        "verifier_followthrough_rate": 0.3333333333333333
+      },
+      "captured_at": "2026-04-04T03:47:42",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-034742-signature-studio-refactor-preflight-routed-on.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+      "repo_id": "stream-admin",
+      "repo_label": "Next/Electron app",
+      "task_kind": "impact/reviewer",
+      "mode": "routed-on",
+      "agent": "claude",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 1,
+      "elapsed_ms": 0,
+      "notes": "captured from scenario stream-admin::impact/reviewer::routed-on",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 0,
+        "tools_list_tokens": 0,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:51:26",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-035126-stream-admin-impact-reviewer-routed-on-claude.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+      "repo_id": "stream-admin",
+      "repo_label": "Next/Electron app",
+      "task_kind": "impact/reviewer",
+      "mode": "routed-on",
+      "agent": "codex",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": 0.887,
+      "token_in": 11214,
+      "token_out": 926,
+      "bootstrap_tokens": 11214,
+      "tool_calls": 4,
+      "low_level_chain_count": 1,
+      "elapsed_ms": 276,
+      "notes": "captured from scenario stream-admin::impact/reviewer::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": true,
+      "evidence_reuse_rate": 1.0,
+      "recommended_check_followthrough_rate": 0.5,
+      "composite_ratio": 0.25,
+      "metrics_snapshot": {
+        "total_tokens": 12140,
+        "tools_list_tokens": 11214,
+        "error_count": 0,
+        "quality_contract_present_rate": 1.0,
+        "verifier_contract_present_rate": 1.0,
+        "verifier_followthrough_rate": 1.0
+      },
+      "captured_at": "2026-04-04T03:50:17",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-035017-stream-admin-impact-reviewer-routed-on.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+      "repo_id": "stream-admin",
+      "repo_label": "Next/Electron app",
+      "task_kind": "onboarding/planning",
+      "mode": "routed-on",
+      "agent": "claude",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 1,
+      "elapsed_ms": 0,
+      "notes": "captured from scenario stream-admin::onboarding/planning::routed-on",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 0,
+        "tools_list_tokens": 0,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T03:56:36",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-035636-stream-admin-onboarding-planning-routed-on-claude.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+      "repo_id": "stream-admin",
+      "repo_label": "Next/Electron app",
+      "task_kind": "onboarding/planning",
+      "mode": "routed-on",
+      "agent": "codex",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": 0.887,
+      "token_in": 11214,
+      "token_out": 886,
+      "bootstrap_tokens": 11214,
+      "tool_calls": 4,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 254,
+      "notes": "captured from scenario stream-admin::onboarding/planning::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": true,
+      "evidence_reuse_rate": 1.0,
+      "recommended_check_followthrough_rate": 0.3333333333333333,
+      "composite_ratio": 0.25,
+      "metrics_snapshot": {
+        "total_tokens": 12100,
+        "tools_list_tokens": 11214,
+        "error_count": 0,
+        "quality_contract_present_rate": 1.0,
+        "verifier_contract_present_rate": 1.0,
+        "verifier_followthrough_rate": 1.0
+      },
+      "captured_at": "2026-04-04T03:55:23",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-035523-stream-admin-onboarding-planning-routed-on.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+      "repo_id": "stream-admin",
+      "repo_label": "Next/Electron app",
+      "task_kind": "refactor preflight",
+      "mode": "routed-on",
+      "agent": "claude",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 1,
+      "elapsed_ms": 0,
+      "notes": "captured from scenario stream-admin::refactor preflight::routed-on",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": false,
+      "evidence_reuse_rate": 0.0,
+      "recommended_check_followthrough_rate": 0.0,
+      "composite_ratio": 0.0,
+      "metrics_snapshot": {
+        "total_tokens": 0,
+        "tools_list_tokens": 0,
+        "error_count": 0,
+        "quality_contract_present_rate": 0.0,
+        "verifier_contract_present_rate": 0.0,
+        "verifier_followthrough_rate": 0.0
+      },
+      "captured_at": "2026-04-04T04:02:04",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-040204-stream-admin-refactor-preflight-routed-on-claude.json"
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "real-session",
+      "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+      "repo_id": "stream-admin",
+      "repo_label": "Next/Electron app",
+      "task_kind": "refactor preflight",
+      "mode": "routed-on",
+      "agent": "codex",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": 0.75,
+      "token_in": 11214,
+      "token_out": 3035,
+      "bootstrap_tokens": 11214,
+      "tool_calls": 9,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 1529,
+      "notes": "captured from scenario stream-admin::refactor preflight::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused",
+      "recommended_policy": "prefer_native_baseline",
+      "verifier_used": true,
+      "evidence_reuse_rate": 1.5,
+      "recommended_check_followthrough_rate": 0.041666666666666664,
+      "composite_ratio": 0.3333333333333333,
+      "metrics_snapshot": {
+        "total_tokens": 14249,
+        "tools_list_tokens": 11214,
+        "error_count": 0,
+        "quality_contract_present_rate": 2.6666666666666665,
+        "verifier_contract_present_rate": 2.6666666666666665,
+        "verifier_followthrough_rate": 0.25
+      },
+      "captured_at": "2026-04-04T03:58:53",
+      "_source_path": "/Users/bagjaeseog/.codex/harness/reports/session-entries/20260404-035853-stream-admin-refactor-preflight-routed-on.json"
+    }
+  ],
+  "policy_entry_count": 32,
+  "policy_real_session_count": 20,
+  "excluded_policy_real_session_count": 0,
+  "duplicate_real_sessions": [],
+  "task_summaries": [
+    {
+      "repo_id": "SignatureStudio",
+      "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "impact/reviewer",
+      "recommended_policy": "prefer_native_baseline",
+      "mode_stats": {
+        "routed-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 4149.0,
+          "avg_bootstrap_tokens": 3555.0,
+          "avg_quality_score": 0.75,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "captured from scenario signature-studio::impact/reviewer::routed-on | verifier contract observed in session telemetry"
+          ]
+        }
+      },
+      "has_real_quality": true,
+      "unsupported_modes": [
+        "baseline",
+        "naive-on"
+      ],
+      "failing_modes": [],
+      "confidence": "low"
+    },
+    {
+      "repo_id": "codelens-mcp-plugin",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "impact/reviewer",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "mode_stats": {
+        "baseline": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 2972.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "proxy baseline from balanced low-level workflow: Reviewer impact analysis"
+          ]
+        },
+        "naive-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 400.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "direct composite workflow without session bootstrap: Reviewer impact analysis"
+          ]
+        },
+        "routed-on": {
+          "count": 3,
+          "measured_count": 2,
+          "avg_total_tokens": 8332.0,
+          "avg_bootstrap_tokens": 7476.0,
+          "avg_quality_score": 0.793,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "no routed session benchmark available for Reviewer impact analysis",
+            "captured from scenario codelens-mcp-plugin::impact/reviewer::routed-on"
+          ]
+        }
+      },
+      "has_real_quality": true,
+      "unsupported_modes": [],
+      "failing_modes": [],
+      "confidence": "high"
+    },
+    {
+      "repo_id": "codelens-mcp-plugin",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "onboarding/planning",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "mode_stats": {
+        "baseline": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 2621.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "proxy baseline from balanced low-level workflow: Planner change request"
+          ]
+        },
+        "naive-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 482.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "direct composite workflow without session bootstrap: Planner change request"
+          ]
+        },
+        "routed-on": {
+          "count": 3,
+          "measured_count": 2,
+          "avg_total_tokens": 3768.3333333333335,
+          "avg_bootstrap_tokens": 3738.0,
+          "avg_quality_score": 0.075,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "no routed session benchmark available for Planner change request",
+            "captured from scenario codelens-mcp-plugin::onboarding/planning::routed-on"
+          ]
+        }
+      },
+      "has_real_quality": true,
+      "unsupported_modes": [],
+      "failing_modes": [],
+      "confidence": "high"
+    },
+    {
+      "repo_id": "codelens-mcp-plugin",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "refactor preflight",
+      "recommended_policy": "prefer_codelens_after_bootstrap",
+      "mode_stats": {
+        "baseline": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 938.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "proxy baseline from balanced low-level workflow: Refactor safety"
+          ]
+        },
+        "naive-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 477.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "direct composite workflow without session bootstrap: Refactor safety"
+          ]
+        },
+        "routed-on": {
+          "count": 3,
+          "measured_count": 2,
+          "avg_total_tokens": 2400.3333333333335,
+          "avg_bootstrap_tokens": 2370.0,
+          "avg_quality_score": 0.075,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "no routed session benchmark available for Refactor safety",
+            "captured from scenario codelens-mcp-plugin::refactor preflight::routed-on"
+          ]
+        }
+      },
+      "has_real_quality": true,
+      "unsupported_modes": [],
+      "failing_modes": [],
+      "confidence": "high"
+    },
+    {
+      "repo_id": "codelens-mcp-plugin",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "simple local lookup/edit",
+      "recommended_policy": "avoid_codelens_for_simple_local_lookup",
+      "mode_stats": {
+        "baseline": {
+          "count": 3,
+          "measured_count": 3,
+          "avg_total_tokens": 7760.666666666667,
+          "avg_bootstrap_tokens": 3738.0,
+          "avg_quality_score": 1.0,
+          "verify_pass_rate": 1.0,
+          "acceptance_pass_rate": 1.0,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval",
+            "claude runner closed-loop smoke test"
+          ]
+        },
+        "naive-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 8718.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval"
+          ]
+        },
+        "routed-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 12068.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "routing policy intentionally stays native for local lookup/edit"
+          ]
+        }
+      },
+      "has_real_quality": true,
+      "unsupported_modes": [],
+      "failing_modes": [],
+      "confidence": "high"
+    },
+    {
+      "repo_id": "signature-studio",
+      "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "impact/reviewer",
+      "recommended_policy": "prefer_routed_codelens",
+      "mode_stats": {
+        "routed-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 0.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "captured from scenario signature-studio::impact/reviewer::routed-on"
+          ]
+        }
+      },
+      "has_real_quality": false,
+      "unsupported_modes": [
+        "baseline",
+        "naive-on"
+      ],
+      "failing_modes": [],
+      "confidence": "low"
+    },
+    {
+      "repo_id": "signature-studio",
+      "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "onboarding/planning",
+      "recommended_policy": "prefer_native_baseline",
+      "mode_stats": {
+        "baseline": {
+          "count": 2,
+          "measured_count": 2,
+          "avg_total_tokens": 5607.0,
+          "avg_bootstrap_tokens": 5607.0,
+          "avg_quality_score": 0.3,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "captured from scenario signature-studio::onboarding/planning::baseline",
+            "captured from scenario signature-studio::onboarding/planning::baseline"
+          ]
+        }
+      },
+      "has_real_quality": true,
+      "unsupported_modes": [
+        "naive-on",
+        "routed-on"
+      ],
+      "failing_modes": [],
+      "confidence": "low"
+    },
+    {
+      "repo_id": "signature-studio",
+      "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+      "repo_label": "Next.js app with AGENTS",
+      "task_kind": "refactor preflight",
+      "recommended_policy": "prefer_native_baseline",
+      "mode_stats": {
+        "routed-on": {
+          "count": 2,
+          "measured_count": 2,
+          "avg_total_tokens": 5927.5,
+          "avg_bootstrap_tokens": 5607.0,
+          "avg_quality_score": 0.754,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "captured from scenario signature-studio::refactor preflight::routed-on",
+            "captured from scenario signature-studio::refactor preflight::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused"
+          ]
+        }
+      },
+      "has_real_quality": true,
+      "unsupported_modes": [
+        "baseline",
+        "naive-on"
+      ],
+      "failing_modes": [],
+      "confidence": "low"
+    },
+    {
+      "repo_id": "stream-admin",
+      "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+      "repo_label": "Next/Electron app",
+      "task_kind": "impact/reviewer",
+      "recommended_policy": "prefer_native_baseline",
+      "mode_stats": {
+        "routed-on": {
+          "count": 2,
+          "measured_count": 2,
+          "avg_total_tokens": 6070.0,
+          "avg_bootstrap_tokens": 5607.0,
+          "avg_quality_score": 0.887,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "captured from scenario stream-admin::impact/reviewer::routed-on",
+            "captured from scenario stream-admin::impact/reviewer::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused"
+          ]
+        }
+      },
+      "has_real_quality": true,
+      "unsupported_modes": [
+        "baseline",
+        "naive-on"
+      ],
+      "failing_modes": [],
+      "confidence": "low"
+    },
+    {
+      "repo_id": "stream-admin",
+      "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+      "repo_label": "Next/Electron app",
+      "task_kind": "onboarding/planning",
+      "recommended_policy": "prefer_native_baseline",
+      "mode_stats": {
+        "routed-on": {
+          "count": 2,
+          "measured_count": 2,
+          "avg_total_tokens": 6050.0,
+          "avg_bootstrap_tokens": 5607.0,
+          "avg_quality_score": 0.887,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "captured from scenario stream-admin::onboarding/planning::routed-on",
+            "captured from scenario stream-admin::onboarding/planning::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused"
+          ]
+        }
+      },
+      "has_real_quality": true,
+      "unsupported_modes": [
+        "baseline",
+        "naive-on"
+      ],
+      "failing_modes": [],
+      "confidence": "low"
+    },
+    {
+      "repo_id": "stream-admin",
+      "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+      "repo_label": "Next/Electron app",
+      "task_kind": "refactor preflight",
+      "recommended_policy": "prefer_native_baseline",
+      "mode_stats": {
+        "routed-on": {
+          "count": 2,
+          "measured_count": 2,
+          "avg_total_tokens": 7124.5,
+          "avg_bootstrap_tokens": 5607.0,
+          "avg_quality_score": 0.75,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "captured from scenario stream-admin::refactor preflight::routed-on",
+            "captured from scenario stream-admin::refactor preflight::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused"
+          ]
+        }
+      },
+      "has_real_quality": true,
+      "unsupported_modes": [
+        "baseline",
+        "naive-on"
+      ],
+      "failing_modes": [],
+      "confidence": "low"
+    }
+  ],
+  "agent_task_summaries": {
+    "codex": [
+      {
+        "repo_id": "SignatureStudio",
+        "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+        "repo_label": "Next.js app with AGENTS",
+        "task_kind": "impact/reviewer",
+        "recommended_policy": "prefer_native_baseline",
+        "mode_stats": {
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 4149.0,
+            "avg_bootstrap_tokens": 3555.0,
+            "avg_quality_score": 0.75,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario signature-studio::impact/reviewer::routed-on | verifier contract observed in session telemetry"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [
+          "baseline",
+          "naive-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "impact/reviewer",
+        "recommended_policy": "prefer_codelens_after_bootstrap",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 2972.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Reviewer impact analysis"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 400.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Reviewer impact analysis"
+            ]
+          },
+          "routed-on": {
+            "count": 2,
+            "measured_count": 1,
+            "avg_total_tokens": 12498.0,
+            "avg_bootstrap_tokens": 11214.0,
+            "avg_quality_score": 0.793,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "no routed session benchmark available for Reviewer impact analysis",
+              "captured from scenario codelens-mcp-plugin::impact/reviewer::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [],
+        "failing_modes": [],
+        "confidence": "high"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "onboarding/planning",
+        "recommended_policy": "prefer_codelens_after_bootstrap",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 2621.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Planner change request"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 482.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Planner change request"
+            ]
+          },
+          "routed-on": {
+            "count": 2,
+            "measured_count": 1,
+            "avg_total_tokens": 5652.5,
+            "avg_bootstrap_tokens": 5607.0,
+            "avg_quality_score": 0.075,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "no routed session benchmark available for Planner change request",
+              "captured from scenario codelens-mcp-plugin::onboarding/planning::routed-on"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [],
+        "failing_modes": [],
+        "confidence": "high"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "refactor preflight",
+        "recommended_policy": "prefer_codelens_after_bootstrap",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 938.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Refactor safety"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 477.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Refactor safety"
+            ]
+          },
+          "routed-on": {
+            "count": 2,
+            "measured_count": 1,
+            "avg_total_tokens": 3600.5,
+            "avg_bootstrap_tokens": 3555.0,
+            "avg_quality_score": 0.075,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "no routed session benchmark available for Refactor safety",
+              "captured from scenario codelens-mcp-plugin::refactor preflight::routed-on"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [],
+        "failing_modes": [],
+        "confidence": "high"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "simple local lookup/edit",
+        "recommended_policy": "native_or_naive_both_ok_but_default_native",
+        "mode_stats": {
+          "baseline": {
+            "count": 2,
+            "measured_count": 2,
+            "avg_total_tokens": 11641.0,
+            "avg_bootstrap_tokens": 5607.0,
+            "avg_quality_score": 1.0,
+            "verify_pass_rate": 1.0,
+            "acceptance_pass_rate": 1.0,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval",
+              "runner refresh harness-result capture smoke test"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 8718.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval"
+            ]
+          },
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 12068.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "routing policy intentionally stays native for local lookup/edit"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [],
+        "failing_modes": [],
+        "confidence": "high"
+      },
+      {
+        "repo_id": "signature-studio",
+        "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+        "repo_label": "Next.js app with AGENTS",
+        "task_kind": "onboarding/planning",
+        "recommended_policy": "prefer_native_baseline",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 11214.0,
+            "avg_bootstrap_tokens": 11214.0,
+            "avg_quality_score": 0.3,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario signature-studio::onboarding/planning::baseline"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [
+          "naive-on",
+          "routed-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "signature-studio",
+        "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+        "repo_label": "Next.js app with AGENTS",
+        "task_kind": "refactor preflight",
+        "recommended_policy": "prefer_native_baseline",
+        "mode_stats": {
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 11855.0,
+            "avg_bootstrap_tokens": 11214.0,
+            "avg_quality_score": 0.754,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario signature-studio::refactor preflight::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [
+          "baseline",
+          "naive-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "stream-admin",
+        "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+        "repo_label": "Next/Electron app",
+        "task_kind": "impact/reviewer",
+        "recommended_policy": "prefer_native_baseline",
+        "mode_stats": {
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 12140.0,
+            "avg_bootstrap_tokens": 11214.0,
+            "avg_quality_score": 0.887,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario stream-admin::impact/reviewer::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [
+          "baseline",
+          "naive-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "stream-admin",
+        "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+        "repo_label": "Next/Electron app",
+        "task_kind": "onboarding/planning",
+        "recommended_policy": "prefer_native_baseline",
+        "mode_stats": {
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 12100.0,
+            "avg_bootstrap_tokens": 11214.0,
+            "avg_quality_score": 0.887,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario stream-admin::onboarding/planning::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [
+          "baseline",
+          "naive-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "stream-admin",
+        "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+        "repo_label": "Next/Electron app",
+        "task_kind": "refactor preflight",
+        "recommended_policy": "prefer_native_baseline",
+        "mode_stats": {
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 14249.0,
+            "avg_bootstrap_tokens": 11214.0,
+            "avg_quality_score": 0.75,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario stream-admin::refactor preflight::routed-on | verifier contract observed in session telemetry | recommended checks were followed through in-session | analysis/evidence handles were reused"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [
+          "baseline",
+          "naive-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      }
+    ],
+    "claude": [
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "impact/reviewer",
+        "recommended_policy": "prefer_routed_codelens",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 2972.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Reviewer impact analysis"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 400.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Reviewer impact analysis"
+            ]
+          },
+          "routed-on": {
+            "count": 2,
+            "measured_count": 1,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "no routed session benchmark available for Reviewer impact analysis",
+              "captured from scenario codelens-mcp-plugin::impact/reviewer::routed-on"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [],
+        "failing_modes": [],
+        "confidence": "medium"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "onboarding/planning",
+        "recommended_policy": "prefer_routed_codelens",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 2621.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Planner change request"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 482.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Planner change request"
+            ]
+          },
+          "routed-on": {
+            "count": 2,
+            "measured_count": 1,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "no routed session benchmark available for Planner change request",
+              "captured from scenario codelens-mcp-plugin::onboarding/planning::routed-on"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [],
+        "failing_modes": [],
+        "confidence": "medium"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "refactor preflight",
+        "recommended_policy": "prefer_routed_codelens",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 938.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Refactor safety"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 477.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Refactor safety"
+            ]
+          },
+          "routed-on": {
+            "count": 2,
+            "measured_count": 1,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "no routed session benchmark available for Refactor safety",
+              "captured from scenario codelens-mcp-plugin::refactor preflight::routed-on"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [],
+        "failing_modes": [],
+        "confidence": "medium"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "simple local lookup/edit",
+        "recommended_policy": "avoid_codelens_for_simple_local_lookup",
+        "mode_stats": {
+          "baseline": {
+            "count": 2,
+            "measured_count": 2,
+            "avg_total_tokens": 6034.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": 1.0,
+            "verify_pass_rate": 1.0,
+            "acceptance_pass_rate": 1.0,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval",
+              "claude runner closed-loop smoke test"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 8718.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval"
+            ]
+          },
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 12068.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "routing policy intentionally stays native for local lookup/edit"
+            ]
+          }
+        },
+        "has_real_quality": true,
+        "unsupported_modes": [],
+        "failing_modes": [],
+        "confidence": "high"
+      },
+      {
+        "repo_id": "signature-studio",
+        "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+        "repo_label": "Next.js app with AGENTS",
+        "task_kind": "impact/reviewer",
+        "recommended_policy": "prefer_routed_codelens",
+        "mode_stats": {
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario signature-studio::impact/reviewer::routed-on"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "baseline",
+          "naive-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "signature-studio",
+        "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+        "repo_label": "Next.js app with AGENTS",
+        "task_kind": "onboarding/planning",
+        "recommended_policy": "prefer_native_baseline",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario signature-studio::onboarding/planning::baseline"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "naive-on",
+          "routed-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "signature-studio",
+        "repo": "/Users/bagjaeseog/Downloads/SignatureStudio",
+        "repo_label": "Next.js app with AGENTS",
+        "task_kind": "refactor preflight",
+        "recommended_policy": "prefer_routed_codelens",
+        "mode_stats": {
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario signature-studio::refactor preflight::routed-on"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "baseline",
+          "naive-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "stream-admin",
+        "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+        "repo_label": "Next/Electron app",
+        "task_kind": "impact/reviewer",
+        "recommended_policy": "prefer_routed_codelens",
+        "mode_stats": {
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario stream-admin::impact/reviewer::routed-on"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "baseline",
+          "naive-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "stream-admin",
+        "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+        "repo_label": "Next/Electron app",
+        "task_kind": "onboarding/planning",
+        "recommended_policy": "prefer_routed_codelens",
+        "mode_stats": {
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario stream-admin::onboarding/planning::routed-on"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "baseline",
+          "naive-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "stream-admin",
+        "repo": "/Users/bagjaeseog/Downloads/_방송도구/stream-admin",
+        "repo_label": "Next/Electron app",
+        "task_kind": "refactor preflight",
+        "recommended_policy": "prefer_routed_codelens",
+        "mode_stats": {
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "captured from scenario stream-admin::refactor preflight::routed-on"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "baseline",
+          "naive-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      }
+    ]
+  },
+  "synthetic_failures": []
+}

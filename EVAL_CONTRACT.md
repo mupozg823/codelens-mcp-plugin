@@ -27,6 +27,9 @@
 
 - `python3 benchmarks/token-efficiency.py ... --check`
 - `python3 benchmarks/embedding-quality.py ...`
+- `python3 benchmarks/external-retrieval.py ...`
+- `python3 benchmarks/role-retrieval.py ...`
+- `python3 scripts/finetune/contamination_audit.py ...`
 - `python3 scripts/finetune/promotion_gate.py ...` for any candidate embedding model
 
 ## Benchmark Interpretation
@@ -37,6 +40,13 @@
 - Do not attribute release-vs-debug differences to refactor wins.
 - Internal training validation is not a promotion gate for embedding models.
 - Candidate embedding models must be compared against the currently deployed runtime model on fresh product retrieval benchmarks.
+- Promotion is fail-closed:
+  - real-session harness evidence is mandatory
+  - exact-label external retrieval evidence is mandatory
+  - role/adversarial retrieval evidence is mandatory
+  - contamination audit must pass
+- Promotion harness evidence should be produced through `benchmarks/harness/real-session-evidence.py`, not by trusting stale synthetic-only harness summaries.
+- If real-session evidence is insufficient, promotion must emit a coverage-gap queue and scenario pack for the missing captures.
 - Synthetic-only harness summaries are useful for smoke checks, but they are not sufficient evidence for paper claims or deployment decisions.
 
 ## Flake Policy

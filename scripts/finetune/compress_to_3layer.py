@@ -30,11 +30,76 @@ def parse_args():
     parser.add_argument("--teacher", default=str(DEFAULT_TEACHER))
     parser.add_argument("--data", default=str(DEFAULT_DATA))
     parser.add_argument("--output", default=str(DEFAULT_OUTPUT))
+    parser.add_argument(
+        "--approved-gate-report",
+        default="",
+        help="Promotion gate report that approved the 12-layer candidate for compression.",
+    )
+    parser.add_argument(
+        "--candidate-label",
+        default="",
+        help="Candidate label inside the approved promotion gate report.",
+    )
+    parser.add_argument(
+        "--allow-unapproved-teacher",
+        action="store_true",
+        help="Explicitly bypass the 12-layer promotion-gate approval check.",
+    )
     parser.add_argument("--target-layers", type=int, default=3)
     parser.add_argument("--epochs", type=int, default=3)
     parser.add_argument("--batch-size", type=int, default=16)
     parser.add_argument("--max-pairs", type=int, default=10000)
     return parser.parse_args()
+
+
+def require_approved_teacher(args) -> None:
+    if args.allow_unapproved_teacher:
+        return
+    if not args.approved_gate_report:
+        raise SystemExit(
+            "Compression is blocked until a 12-layer candidate passes promotion_gate.py. "
+            "Pass --approved-gate-report <path> and --candidate-label <label>, "
+            "or use --allow-unapproved-teacher to bypass intentionally."
+        )
+    if not args.candidate_label:
+        raise SystemExit(
+            "Pass --candidate-label with --approved-gate-report so compression can verify "
+            "the selected 12-layer candidate."
+        )
+    report_path = Path(args.approved_gate_report).expanduser().resolve()
+    if not report_path.exists():
+        raise SystemExit(f"Promotion gate report not found: {report_path}")
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    if not report.get("passed"):
+        raise SystemExit(
+            f"Promotion gate did not pass: {report_path}. "
+            "Compression is blocked until a 12-layer candidate clears the gate."
+        )
+    if report.get("selected_candidate_label") != args.candidate_label:
+        raise SystemExit(
+            "Compression is blocked because the gate-selected candidate does not match "
+            f"--candidate-label={args.candidate_label!r}. "
+            f"selected={report.get('selected_candidate_label')!r}"
+        )
+    candidate = next(
+        (
+            item
+            for item in report.get("candidates", [])
+            if item.get("candidate_label") == args.candidate_label
+        ),
+        None,
+    )
+    if candidate is None or not candidate.get("passed"):
+        raise SystemExit(
+            f"Candidate {args.candidate_label!r} was not approved in {report_path}"
+        )
+    identity = candidate.get("candidate_identity") or {}
+    layers = identity.get("num_hidden_layers")
+    if layers is not None and layers < 6:
+        raise SystemExit(
+            f"Candidate {args.candidate_label!r} is already compressed ({layers} layers). "
+            "Compression requires a gate-approved 12-layer candidate."
+        )
 
 
 def prune_layers(model, target_layers):
@@ -166,6 +231,7 @@ def export_onnx(model_path, output_dir):
 
 def main():
     args = parse_args()
+    require_approved_teacher(args)
 
     print(f"Teacher: {args.teacher}")
     print(f"Target layers: {args.target_layers}")

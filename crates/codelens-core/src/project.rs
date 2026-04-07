@@ -99,8 +99,13 @@ impl ProjectRoot {
 // ── Shared directory exclusion & file collection ────────────────────────
 
 pub const EXCLUDED_DIRS: &[&str] = &[
+    // VCS & IDE
     ".git",
     ".idea",
+    ".vscode",
+    ".cursor",
+    ".claude",
+    // Build output
     ".gradle",
     "build",
     "dist",
@@ -110,10 +115,24 @@ pub const EXCLUDED_DIRS: &[&str] = &[
     "__pycache__",
     "target",
     ".next",
+    // Virtual environments
     ".venv",
     "venv",
     ".tox",
     "env",
+    // Caches (common polluters — can contain 40K+ symbols from deps)
+    ".cache",
+    ".ruff_cache",
+    ".pytest_cache",
+    ".mypy_cache",
+    ".fastembed_cache",
+    // Editor extensions (e.g. Antigravity/Windsurf bundled JS)
+    ".antigravity",
+    ".windsurf",
+    // Cloud & external mounts
+    "Library",
+    // CodeLens runtime
+    ".codelens",
 ];
 
 /// Returns `true` if any component of `path` matches an excluded directory.

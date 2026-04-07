@@ -261,12 +261,30 @@ python3 benchmarks/paper-benchmark.py \
   --retrieval-report benchmarks/embedding-quality-results.json
 ```
 
+promotion/gate용 real-session evidence를 fail-closed로 만들려면:
+
+```bash
+python3 benchmarks/harness/real-session-evidence.py \
+  --retrieval-report benchmarks/embedding-quality-results.json \
+  --output-json /tmp/real-session-evidence.json \
+  --output-md /tmp/real-session-evidence.md
+```
+
+이 스크립트는:
+
+- fresh `real-session` entry만 기준으로 harness evidence를 재계산하고
+- stale synthetic-only harness report가 있으면 현재 session-entry archive로 자동 refresh하며
+- measured task 수가 부족하면 coverage gap queue와 scenario pack을 같이 생성한다
+
+즉 promotion gate는 이제 `synthetic fallback`이 아니라 `real-session evidence + gap queue`를 기본 경로로 사용한다.
+
 기본 정책:
 
 - 하네스 코호트는 `mode=routed-on`
 - `real-session` entry가 있으면 그것을 우선 사용
-- real-session이 없으면 `synthetic` entry로 대체
+- real-session이 없으면 `synthetic` entry로 대체하되, 이 결과는 reporting-only다
 - retrieval 보조 지표는 `embedding-quality.py`의 `get_ranked_context` 결과를 사용
+- `promotion_eligibility`는 별도 필드로 노출되며, synthetic fallback은 승격 근거가 되지 않는다
 
 출력:
 
@@ -292,12 +310,16 @@ python3 scripts/finetune/promotion_gate.py \
 - `semantic_search` MRR non-regression
 - `get_ranked_context` MRR non-regression
 - `get_ranked_context` Acc@1 non-regression
-- harness task success non-regression
+- `real-session` harness task success non-regression
+- `external-retrieval.py` exact-label non-regression
+- `role-retrieval.py` exact-label non-regression
+- `contamination_audit.py` pass
 
 주의:
 
-- 기본 harness 코호트가 synthetic-only면 smoke check로는 유효하지만, paper claim이나 배포 승격의 강한 근거로 취급하면 안 된다.
-- fresh `real-session` harness가 없으면 retrieval benchmark를 주 게이트로 보고, harness는 보조 근거로만 사용한다.
+- synthetic-only harness는 smoke check로는 유효하지만, promotion pass/fail에는 쓰지 않는다.
+- external 검증은 keyword-hit heuristic이 아니라 exact `expected_symbol` / `expected_file_suffix` gold label을 쓴다.
+- role benchmark는 `entrypoint vs helper/predicate` 혼동을 따로 측정한다.
 
 routing policy export:
 

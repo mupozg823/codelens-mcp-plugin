@@ -330,9 +330,11 @@ pub fn resolve_call_edges(
                 if let Some(defs) = symbol_index.get(callee) {
                     // Pick the candidate that is also imported (transitively)
                     for def_file in defs {
-                        if node.imports.iter().any(|imp| {
-                            def_file.ends_with(imp.rsplit('/').next().unwrap_or(imp))
-                        }) {
+                        if node
+                            .imports
+                            .iter()
+                            .any(|imp| def_file.ends_with(imp.rsplit('/').next().unwrap_or(imp)))
+                        {
                             edge.resolved_file = Some(def_file.clone());
                             edge.confidence = 0.60;
                             edge.resolution_strategy = Some("import_suffix");
@@ -402,7 +404,11 @@ pub fn get_callers(
 
     for edge in all_edges {
         if edge.callee_name == function_name {
-            let key = (edge.caller_file.clone(), edge.caller_name.clone(), edge.line);
+            let key = (
+                edge.caller_file.clone(),
+                edge.caller_name.clone(),
+                edge.line,
+            );
             if seen.insert(key) {
                 results.push(CallerEntry {
                     file: edge.caller_file,
@@ -419,7 +425,11 @@ pub fn get_callers(
     }
 
     // Sort by confidence descending
-    results.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     Ok(results)
 }
 
@@ -470,7 +480,11 @@ pub fn get_callees(
         }
     }
 
-    results.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+    results.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     Ok(results)
 }
 

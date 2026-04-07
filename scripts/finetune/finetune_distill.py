@@ -85,6 +85,16 @@ def parse_args():
         help="Optional product-aligned validation pairs for the final polish stage.",
     )
     parser.add_argument(
+        "--semantic-polish-input",
+        default="",
+        help="Optional semantic-recall retrieval rows for a final semantic polish stage.",
+    )
+    parser.add_argument(
+        "--semantic-validation-input",
+        default="",
+        help="Optional semantic-recall validation pairs for the final semantic polish stage.",
+    )
+    parser.add_argument(
         "--distill-input",
         default="",
         help="Optional JSONL file with {'text': ...} rows for Stage 1 distillation",
@@ -95,6 +105,12 @@ def parse_args():
         type=float,
         default=1.0,
         help="Final product-polish epochs after generic Stage 2.",
+    )
+    parser.add_argument(
+        "--semantic-polish-epochs",
+        type=float,
+        default=0.5,
+        help="Final semantic-recall polish epochs after product polish.",
     )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument(
@@ -161,8 +177,8 @@ def parse_args():
     parser.add_argument(
         "--evaluation-steps",
         type=int,
-        default=0,
-        help="Run evaluator every N optimization steps (0 = disable evaluator)",
+        default=500,
+        help="Run evaluator every N optimization steps (0 = disable evaluator, default: 500)",
     )
     parser.add_argument(
         "--use-cached-mnrl",
@@ -200,6 +216,11 @@ def parse_args():
         "--skip-product-polish",
         action="store_true",
         help="Skip the final product-polish stage even if inputs are available.",
+    )
+    parser.add_argument(
+        "--skip-semantic-polish",
+        action="store_true",
+        help="Skip the final semantic-recall polish stage even if inputs are available.",
     )
     parser.add_argument("--skip-onnx", action="store_true")
     return parser.parse_args()
@@ -253,6 +274,12 @@ def resolve_pipeline_inputs(args):
             args.product_polish_input = manifest.get("product_polish_path", "")
         if not args.product_validation_input:
             args.product_validation_input = manifest.get("product_validation_path", "")
+        if not args.semantic_polish_input:
+            args.semantic_polish_input = manifest.get("semantic_polish_path", "")
+        if not args.semantic_validation_input:
+            args.semantic_validation_input = manifest.get(
+                "semantic_validation_path", ""
+            )
         if not args.distill_input:
             args.distill_input = manifest.get("distill_texts_path", "")
     return manifest
@@ -407,8 +434,12 @@ def pad_token_rows(
 ) -> tuple[dict, int | None]:
     buckets = padding_buckets(train_device, max_length)
     if buckets:
-        batch_max = max((len(row.get("input_ids", [])) for row in token_rows), default=0)
-        target_length = next((bucket for bucket in buckets if batch_max <= bucket), max_length)
+        batch_max = max(
+            (len(row.get("input_ids", [])) for row in token_rows), default=0
+        )
+        target_length = next(
+            (bucket for bucket in buckets if batch_max <= bucket), max_length
+        )
         return (
             tokenizer.pad(
                 token_rows,
@@ -479,6 +510,17 @@ def resolved_save_steps(requested_save_steps: int, steps_per_epoch: int) -> int:
     if requested_save_steps > 0:
         return requested_save_steps
     return max(250, min(1000, steps_per_epoch))
+
+
+def aligned_save_steps(save_steps: int, eval_steps: int | None) -> int:
+    if not eval_steps or eval_steps <= 0:
+        return save_steps
+    if save_steps <= eval_steps:
+        return eval_steps
+    remainder = save_steps % eval_steps
+    if remainder == 0:
+        return save_steps
+    return save_steps + (eval_steps - remainder)
 
 
 def latest_checkpoint_dir(checkpoints_dir: Path) -> Path | None:
@@ -663,10 +705,7 @@ class CachedSentenceDataCollator:
     def _remember(self, text: str, encoded_row: dict[str, list[int]]) -> None:
         if self.cache_size <= 0:
             return
-        self._cache[text] = {
-            key: list(value)
-            for key, value in encoded_row.items()
-        }
+        self._cache[text] = {key: list(value) for key, value in encoded_row.items()}
         self._cache.move_to_end(text)
         while len(self._cache) > self.cache_size:
             self._cache.popitem(last=False)
@@ -1109,6 +1148,15 @@ def load_retrieval_dataset(
     dataset = dataset.rename_column("positive", "sentence_1")
     for idx, column in enumerate(negative_columns, start=2):
         dataset = dataset.rename_column(column, f"sentence_{idx}")
+    # Replace None values in negative columns to avoid model_card.py len(None) crash
+    sentence_cols = [c for c in dataset.column_names if c.startswith("sentence_")]
+    for col in sentence_cols:
+        col_data = dataset[col]
+        if any(v is None for v in col_data):
+            dataset = dataset.map(
+                lambda row, _c=col: {_c: row[_c] if row[_c] is not None else ""},
+                desc=f"fill_none_{col}",
+            )
     return dataset
 
 
@@ -1150,9 +1198,17 @@ def build_validation_evaluator(
         accuracy_at_k=[1, 3, 5, 10],
         batch_size=batch_size,
         name="validation_ir",
+        main_score_function="cosine",
         write_csv=True,
         write_predictions=False,
     )
+
+
+def best_model_metric_name(evaluator) -> str | None:
+    if evaluator is None:
+        return None
+    prefix = f"{evaluator.name}_" if getattr(evaluator, "name", "") else ""
+    return f"eval_{prefix}cosine_mrr@10"
 
 
 def run_mnrl_phase(
@@ -1275,16 +1331,24 @@ def run_mnrl_phase(
 
     checkpoints_dir = Path(args.output) / checkpoint_subdir
     checkpoints_dir.mkdir(parents=True, exist_ok=True)
-    save_steps = resolved_save_steps(args.save_steps, steps_per_epoch)
+    base_save_steps = resolved_save_steps(args.save_steps, steps_per_epoch)
+    if effective_eval_steps and args.save_steps <= 0:
+        save_steps = effective_eval_steps
+    else:
+        save_steps = aligned_save_steps(base_save_steps, effective_eval_steps)
     resume_checkpoint = (
         resolve_resume_checkpoint(args.resume_from_checkpoint, checkpoints_dir)
         if checkpoint_subdir == "checkpoints"
         else None
     )
+    best_model_metric = best_model_metric_name(evaluator)
+    load_best_model = evaluator is not None and args.evaluation_steps > 0
     print(
         "  Checkpoint policy: "
         f"save_steps={save_steps} "
-        f"resume_from={resume_checkpoint if resume_checkpoint else 'none'}"
+        f"resume_from={resume_checkpoint if resume_checkpoint else 'none'} "
+        f"load_best_model_at_end={load_best_model} "
+        f"best_metric={best_model_metric if best_model_metric else 'none'}"
     )
 
     training_args = SentenceTransformerTrainingArguments(
@@ -1301,6 +1365,9 @@ def run_mnrl_phase(
         save_total_limit=save_total_limit,
         eval_strategy="steps" if evaluator and args.evaluation_steps > 0 else "no",
         eval_steps=effective_eval_steps,
+        load_best_model_at_end=load_best_model,
+        metric_for_best_model=best_model_metric,
+        greater_is_better=True if best_model_metric else None,
         dataloader_num_workers=loader_workers,
         dataloader_persistent_workers=loader_workers > 0,
         dataloader_prefetch_factor=2 if loader_workers > 0 else None,
@@ -1363,6 +1430,27 @@ def stage3_product_polish(student, triplets_path: str, args):
     )
 
 
+def stage4_semantic_polish(student, triplets_path: str, args):
+    """Final short semantic-recall polish stage to recover pure semantic retrieval."""
+    return run_mnrl_phase(
+        student,
+        triplets_path,
+        args,
+        phase_name="Stage 4 semantic polish",
+        epochs=args.semantic_polish_epochs,
+        learning_rate=2e-6,
+        validation_input=(
+            args.semantic_validation_input
+            or args.product_validation_input
+            or args.validation_input
+        ),
+        max_train_rows=0,
+        max_validation_rows=args.max_validation_rows,
+        checkpoint_subdir="semantic-polish-checkpoints",
+        save_total_limit=1,
+    )
+
+
 def export_onnx(model_path, output_dir):
     from optimum.onnxruntime import ORTModelForFeatureExtraction
     from transformers import AutoTokenizer
@@ -1411,6 +1499,10 @@ def main():
         args.product_validation_input = str(Path(args.product_validation_input))
     if args.product_polish_input:
         args.product_polish_input = str(Path(args.product_polish_input))
+    if args.semantic_validation_input:
+        args.semantic_validation_input = str(Path(args.semantic_validation_input))
+    if args.semantic_polish_input:
+        args.semantic_polish_input = str(Path(args.semantic_polish_input))
     if args.distill_input:
         args.distill_input = str(Path(args.distill_input))
 
@@ -1426,27 +1518,56 @@ def main():
             resolved_train_device,
             dry_run_train_pairs,
         )
+        dry_run_grad_accum = gradient_accumulation_steps(
+            args.batch_size,
+            effective_train_micro_batch,
+        )
+        dry_run_steps_per_epoch = optimizer_steps_per_epoch(
+            dry_run_train_pairs,
+            effective_train_micro_batch,
+            dry_run_grad_accum,
+        )
+        dry_run_effective_eval_steps = (
+            max(1, min(args.evaluation_steps, dry_run_steps_per_epoch))
+            if args.evaluation_steps > 0
+            else 0
+        )
         dry_run_resume_checkpoint = resolve_resume_checkpoint(
             args.resume_from_checkpoint,
             Path(args.output) / "checkpoints",
+        )
+        dry_run_base_save_steps = resolved_save_steps(
+            args.save_steps,
+            dry_run_steps_per_epoch,
+        )
+        dry_run_checkpoint_save_steps = (
+            dry_run_effective_eval_steps
+            if dry_run_effective_eval_steps and args.save_steps <= 0
+            else aligned_save_steps(
+                dry_run_base_save_steps,
+                dry_run_effective_eval_steps,
+            )
         )
         summary = {
             "finetune_input": args.finetune_input,
             "validation_input": args.validation_input,
             "product_validation_input": args.product_validation_input,
             "product_polish_input": args.product_polish_input,
+            "semantic_validation_input": args.semantic_validation_input,
+            "semantic_polish_input": args.semantic_polish_input,
             "distill_input": args.distill_input,
             "output": args.output,
             "stage": args.stage,
             "max_train_rows": args.max_train_rows,
             "max_validation_rows": args.max_validation_rows,
             "polish_epochs": args.polish_epochs,
+            "semantic_polish_epochs": args.semantic_polish_epochs,
             "skip_product_polish": args.skip_product_polish,
+            "skip_semantic_polish": args.skip_semantic_polish,
             "pipeline_manifest": manifest.get("_manifest_path") if manifest else None,
             "allow_legacy_default_inputs": args.allow_legacy_default_inputs,
             "legacy_default_input_used": (
-                not explicit_finetune_input
-                and manifest is None
+                not explicit_finetune_input and manifest is None
             ),
             "resource_profile_requested": args.resource_profile,
             "resource_profile": args._resource_profile,
@@ -1503,31 +1624,18 @@ def main():
                 effective_train_micro_batch,
                 resolved_train_device,
             ),
-            "gradient_accumulation_steps": gradient_accumulation_steps(
-                args.batch_size,
-                effective_train_micro_batch,
-            ),
-            "optimizer_steps_per_epoch": optimizer_steps_per_epoch(
-                dry_run_train_pairs,
-                effective_train_micro_batch,
-                gradient_accumulation_steps(
-                    args.batch_size,
-                    effective_train_micro_batch,
-                ),
-            ),
-            "checkpoint_save_steps": resolved_save_steps(
-                args.save_steps,
-                optimizer_steps_per_epoch(
-                    dry_run_train_pairs,
-                    effective_train_micro_batch,
-                    gradient_accumulation_steps(
-                        args.batch_size,
-                        effective_train_micro_batch,
-                    ),
-                ),
-            ),
+            "gradient_accumulation_steps": dry_run_grad_accum,
+            "optimizer_steps_per_epoch": dry_run_steps_per_epoch,
+            "effective_evaluation_steps": dry_run_effective_eval_steps,
+            "checkpoint_save_steps": dry_run_checkpoint_save_steps,
             "checkpoint_resume_from": (
                 str(dry_run_resume_checkpoint) if dry_run_resume_checkpoint else None
+            ),
+            "load_best_model_at_end": args.evaluation_steps > 0,
+            "best_model_metric": (
+                "eval_validation_ir_cosine_mrr@10"
+                if args.evaluation_steps > 0
+                else None
             ),
             "effective_distill_batch_size": effective_distill_batch_size(
                 args.distill_batch_size or args.batch_size,
@@ -1558,6 +1666,19 @@ def main():
             "product_polish_pairs": (
                 count_retrieval_pairs(args.product_polish_input)
                 if args.product_polish_input
+                else 0
+            ),
+            "semantic_validation_pairs": (
+                count_retrieval_pairs(
+                    args.semantic_validation_input,
+                    max_rows=args.max_validation_rows,
+                )
+                if args.semantic_validation_input
+                else 0
+            ),
+            "semantic_polish_pairs": (
+                count_retrieval_pairs(args.semantic_polish_input)
+                if args.semantic_polish_input
                 else 0
             ),
         }
@@ -1616,6 +1737,15 @@ def main():
             and Path(args.product_polish_input).exists()
         ):
             model_path = stage3_product_polish(student, args.product_polish_input, args)
+        if (
+            args.stage == "all"
+            and not args.skip_semantic_polish
+            and args.semantic_polish_input
+            and Path(args.semantic_polish_input).exists()
+        ):
+            model_path = stage4_semantic_polish(
+                student, args.semantic_polish_input, args
+            )
 
     # Export ONNX
     if model_path is not None and not args.skip_onnx:
@@ -1628,7 +1758,21 @@ def main():
         print(
             f"  CODELENS_MODEL_DIR=/tmp/codelens-distill python3 benchmarks/embedding-quality.py ."
         )
-        print(f"\nPromotion gate:")
+        if manifest and manifest.get("_manifest_path"):
+            print(f"\nCheckpoint selection (preferred promotion path):")
+            print(
+                "  python3 "
+                f"{SCRIPT_DIR}/select_checkpoint_by_benchmarks.py "
+                f"--training-output-dir {args.output} "
+                f"--candidate-manifest {manifest['_manifest_path']} "
+                f"--binary {ROOT / 'target' / 'release' / 'codelens-mcp'}"
+            )
+        else:
+            print(
+                "\nCheckpoint selection requires a clean pipeline manifest. "
+                "Rerun with --pipeline-manifest <manifest.json>."
+            )
+        print(f"\nRaw promotion gate (single provisional ONNX):")
         print(
             "  python3 "
             f"{SCRIPT_DIR}/promotion_gate.py "

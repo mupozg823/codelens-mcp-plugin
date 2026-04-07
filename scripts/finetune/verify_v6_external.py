@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Verify V6 model on external project (claw-dev / claude code clone).
+"""Deprecated heuristic external verification.
 
-Tests semantic search quality on a project the model has NEVER seen.
-Compares V6 (internet-only, runtime format) vs baseline.
+Do not use this script as promotion evidence. It relies on keyword-hit heuristics,
+not exact expected-symbol labels. Use `benchmarks/external-retrieval.py` instead.
 """
 
 import json

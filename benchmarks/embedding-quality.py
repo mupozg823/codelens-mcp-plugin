@@ -3,6 +3,7 @@
 
 import argparse
 import collections
+import hashlib
 import json
 import os
 import shutil
@@ -44,6 +45,55 @@ SOURCE_PROJECT = os.path.abspath(ARGS.project_path)
 PROJECT = SOURCE_PROJECT
 BIN = os.path.abspath(ARGS.binary)
 DATASET = os.path.abspath(ARGS.dataset)
+
+
+def compute_file_sha256(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def resolve_runtime_model_dir():
+    exe_dir = Path(BIN).resolve().parent
+    candidates = [
+        (
+            Path(os.environ["CODELENS_MODEL_DIR"]).expanduser().resolve() / "codesearch"
+            if "CODELENS_MODEL_DIR" in os.environ
+            else None
+        ),
+        exe_dir / "models" / "codesearch",
+        Path.home() / ".cache" / "codelens" / "models" / "codesearch",
+        Path(__file__).resolve().parent.parent
+        / "crates"
+        / "codelens-core"
+        / "models"
+        / "codesearch",
+    ]
+    for candidate in candidates:
+        if candidate is not None and (candidate / "model.onnx").exists():
+            return candidate
+    raise SystemExit(
+        "Cannot resolve runtime model dir. Checked:\n"
+        + "\n".join(f"  - {candidate}" for candidate in candidates if candidate)
+    )
+
+
+def snapshot_runtime_model():
+    model_dir = resolve_runtime_model_dir()
+    model_path = model_dir / "model.onnx"
+    config_path = model_dir / "config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
+    return {
+        "model_dir": str(model_dir),
+        "model_path": str(model_path),
+        "config_path": str(config_path),
+        "sha256": compute_file_sha256(model_path),
+        "size_bytes": model_path.stat().st_size,
+        "num_hidden_layers": config.get("num_hidden_layers"),
+        "hidden_size": config.get("hidden_size"),
+    }
 
 
 def run_tool(cmd, args, timeout=120):
@@ -222,11 +272,19 @@ def evaluate_method(name, dataset, tool_name, args_factory):
 def render_markdown(result):
     lines = []
     a = lines.append
+    runtime_model = result.get("runtime_model") or {}
     a("# Embedding Quality Summary")
     a("")
     a(f"- Project: `{result['project']}`")
     a(f"- Binary: `{result['binary']}`")
     a(f"- Embedding model: `{result['embedding_model']}`")
+    if runtime_model:
+        a(
+            f"- Runtime model: `{runtime_model.get('num_hidden_layers', '?')}L`, "
+            f"`{runtime_model.get('size_bytes', 0) // (1024 * 1024)}MB`, "
+            f"`sha256:{str(runtime_model.get('sha256', ''))[:16]}`"
+        )
+        a(f"- Runtime model path: `{runtime_model.get('model_path')}`")
     a(f"- Dataset size: {result['dataset_size']}")
     a(f"- Ranking cutoff: top-{result['ranking_cutoff']}")
     a("")
@@ -290,6 +348,7 @@ def render_markdown(result):
 
 def main():
     dataset = load_dataset()
+    runtime_model = snapshot_runtime_model()
     capabilities = require_tool_success("get_capabilities", run_tool("get_capabilities", {}))
     embedding_model = ((capabilities.get("payload") or {}).get("data") or {}).get(
         "embedding_model"
@@ -354,6 +413,7 @@ def main():
         "isolated_copy": bool(ARGS.isolated_copy),
         "binary": BIN,
         "embedding_model": embedding_model,
+        "runtime_model": runtime_model,
         "dataset_path": DATASET,
         "dataset_size": len(dataset),
         "ranking_cutoff": ARGS.max_results,

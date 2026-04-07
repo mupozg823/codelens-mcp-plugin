@@ -140,19 +140,31 @@ pub(crate) fn evaluate_mutation_gate(
     let Some(preflight) = state.recent_preflight(logical_session) else {
         return Err(mutation_gate_failure(
             name,
-            format!("Tool `{name}` requires a fresh preflight in `refactor-full`. Run `verify_change_readiness` first."),
+            format!(
+                "Tool `{name}` requires a fresh preflight in `refactor-full`. Run `verify_change_readiness` first."
+            ),
             MutationFailureKind::MissingPreflight,
-            None, false, false, true,
+            None,
+            false,
+            false,
+            true,
         ));
     };
 
     if now_ms().saturating_sub(preflight.timestamp_ms) > crate::state::preflight_ttl_ms() {
         return Err(mutation_gate_failure(
             name,
-            format!("Tool `{name}` is blocked because the last `{}` preflight from surface `{}` is stale. Re-run verifier tools within {} seconds before mutating.",
-                preflight.tool_name, preflight.surface, state.preflight_ttl_seconds()),
+            format!(
+                "Tool `{name}` is blocked because the last `{}` preflight from surface `{}` is stale. Re-run verifier tools within {} seconds before mutating.",
+                preflight.tool_name,
+                preflight.surface,
+                state.preflight_ttl_seconds()
+            ),
             MutationFailureKind::StalePreflight,
-            preflight.analysis_id.clone(), true, false, false,
+            preflight.analysis_id.clone(),
+            true,
+            false,
+            false,
         ));
     }
 
@@ -160,9 +172,14 @@ pub(crate) fn evaluate_mutation_gate(
     if mutation_paths.is_empty() {
         return Err(mutation_gate_failure(
             name,
-            format!("Tool `{name}` is blocked because no mutation target path was provided for preflight matching."),
+            format!(
+                "Tool `{name}` is blocked because no mutation target path was provided for preflight matching."
+            ),
             MutationFailureKind::NoTargetPath,
-            preflight.analysis_id.clone(), false, is_symbol_aware_mutation_tool(name), false,
+            preflight.analysis_id.clone(),
+            false,
+            is_symbol_aware_mutation_tool(name),
+            false,
         ));
     }
     let path_overlap = mutation_paths
@@ -171,9 +188,14 @@ pub(crate) fn evaluate_mutation_gate(
     if !path_overlap {
         return Err(mutation_gate_failure(
             name,
-            format!("Tool `{name}` is blocked because the recent preflight does not cover the requested target paths."),
+            format!(
+                "Tool `{name}` is blocked because the recent preflight does not cover the requested target paths."
+            ),
             MutationFailureKind::PathMismatch,
-            preflight.analysis_id.clone(), false, false, false,
+            preflight.analysis_id.clone(),
+            false,
+            false,
+            false,
         ));
     }
 
@@ -184,17 +206,27 @@ pub(crate) fn evaluate_mutation_gate(
         ) {
             return Err(mutation_gate_failure(
                 name,
-                format!("Tool `{name}` requires a symbol-aware preflight. Run `safe_rename_report` or `unresolved_reference_check` first."),
+                format!(
+                    "Tool `{name}` requires a symbol-aware preflight. Run `safe_rename_report` or `unresolved_reference_check` first."
+                ),
                 MutationFailureKind::SymbolPreflightRequired,
-                preflight.analysis_id.clone(), false, true, false,
+                preflight.analysis_id.clone(),
+                false,
+                true,
+                false,
             ));
         }
         let Some(mutation_symbol) = state.extract_symbol_hint(arguments) else {
             return Err(mutation_gate_failure(
                 name,
-                format!("Tool `{name}` requires an exact symbol hint plus symbol-aware preflight evidence."),
+                format!(
+                    "Tool `{name}` requires an exact symbol hint plus symbol-aware preflight evidence."
+                ),
                 MutationFailureKind::SymbolPreflightRequired,
-                preflight.analysis_id.clone(), false, true, false,
+                preflight.analysis_id.clone(),
+                false,
+                true,
+                false,
             ));
         };
         if preflight
@@ -205,9 +237,14 @@ pub(crate) fn evaluate_mutation_gate(
         {
             return Err(mutation_gate_failure(
                 name,
-                format!("Tool `{name}` is blocked because the symbol-aware preflight does not match `{mutation_symbol}`."),
+                format!(
+                    "Tool `{name}` is blocked because the symbol-aware preflight does not match `{mutation_symbol}`."
+                ),
                 MutationFailureKind::SymbolMismatch,
-                preflight.analysis_id.clone(), false, true, false,
+                preflight.analysis_id.clone(),
+                false,
+                true,
+                false,
             ));
         }
     }
@@ -215,10 +252,15 @@ pub(crate) fn evaluate_mutation_gate(
     if preflight.readiness.mutation_ready == "blocked" {
         return Err(mutation_gate_failure(
             name,
-            format!("Tool `{name}` is blocked by verifier readiness. The last `{}` preflight reported {} blocker(s); resolve them before mutation.",
-                preflight.tool_name, preflight.blocker_count),
+            format!(
+                "Tool `{name}` is blocked by verifier readiness. The last `{}` preflight reported {} blocker(s); resolve them before mutation.",
+                preflight.tool_name, preflight.blocker_count
+            ),
             MutationFailureKind::VerifierBlocked,
-            preflight.analysis_id.clone(), false, false, false,
+            preflight.analysis_id.clone(),
+            false,
+            false,
+            false,
         ));
     }
 

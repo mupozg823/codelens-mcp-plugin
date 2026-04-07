@@ -1,0 +1,57 @@
+{
+  "schema_version": "codelens-paper-benchmark-v1",
+  "generated_at": "2026-04-06T18:53:52.804101+00:00",
+  "inputs": {
+    "harness_report": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/promotion-gates/v9-product-fresh/baseline/harness-eval.json",
+    "retrieval_report": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/promotion-gates/v9-product-fresh/baseline/embedding-quality.json"
+  },
+  "filters": {
+    "mode": "routed-on",
+    "source_kind": "auto",
+    "repo": [],
+    "task_kind": [],
+    "agent": null
+  },
+  "selected_cohort": {
+    "source_kind": "real-session",
+    "filtered_entry_count": 20,
+    "selected_entry_count": 16,
+    "source_kind_counts": {
+      "synthetic": 4,
+      "real-session": 16
+    }
+  },
+  "harness_metrics": {
+    "entry_count": 16,
+    "measured_task_count": 16,
+    "successful_task_count": 16,
+    "task_success_rate": 1.0,
+    "tokens_per_successful_task": 6124.6875,
+    "latency_per_successful_task_ms": 512.3125,
+    "avg_total_tokens": 6124.6875,
+    "avg_elapsed_ms": 512.3125,
+    "avg_quality_score": 0.621375,
+    "acceptance_pass_rate": null,
+    "verify_pass_rate": null
+  },
+  "retrieval_metrics": {
+    "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+    "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset.json",
+    "dataset_size": 89,
+    "ranking_cutoff": 10,
+    "ranked_context_mrr_at_k": 0.6761853315224102,
+    "ranked_context_acc1": 0.5842696629213483,
+    "ranked_context_acc3": 0.7415730337078652,
+    "ranked_context_acc5": 0.8202247191011236,
+    "ranked_context_avg_elapsed_ms": 100.34157303370786,
+    "lexical_ranked_context_mrr_at_k": 0.5673202835269274,
+    "hybrid_mrr_delta": 0.1088650479954828,
+    "hybrid_acc1_delta": 0.0898876404494382
+  },
+  "headline_metrics": {
+    "task_success_rate": 1.0,
+    "tokens_per_successful_task": 6124.6875,
+    "latency_per_successful_task_ms": 512.3125,
+    "get_ranked_context_mrr_at_10": 0.6761853315224102
+  }
+}
