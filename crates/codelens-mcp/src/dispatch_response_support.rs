@@ -1,7 +1,7 @@
 use crate::protocol::{JsonRpcResponse, RoutingHint, ToolCallResponse};
 use crate::tool_defs::{ToolSurface, tool_definition};
 use crate::tools;
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 
 pub(crate) fn effective_budget_for_tool(name: &str, request_budget: usize) -> usize {
     tool_definition(name)
@@ -113,6 +113,107 @@ pub(crate) fn compact_response_payload(resp: &mut ToolCallResponse) {
                 }
             }
         }
+    }
+}
+
+pub(crate) fn text_payload_for_response(
+    resp: &ToolCallResponse,
+    structured_content: Option<&Value>,
+) -> String {
+    let payload = slim_text_payload_for_async_handle(resp, structured_content)
+        .unwrap_or_else(|| serde_json::to_value(resp).unwrap_or_else(|_| json!({})));
+    serde_json::to_string(&payload)
+        .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())
+}
+
+fn slim_text_payload_for_async_handle(
+    resp: &ToolCallResponse,
+    structured_content: Option<&Value>,
+) -> Option<Value> {
+    let data = structured_content?.as_object()?;
+    data.get("analysis_id")?;
+
+    let mut payload = Map::new();
+    payload.insert("success".to_owned(), Value::Bool(resp.success));
+    insert_if_present(&mut payload, "backend_used", resp.backend_used.clone().map(Value::String));
+    insert_if_present(&mut payload, "confidence", resp.confidence.map(Value::from));
+    insert_if_present(
+        &mut payload,
+        "degraded_reason",
+        resp.degraded_reason.clone().map(Value::String),
+    );
+    insert_if_present(
+        &mut payload,
+        "source",
+        resp.source
+            .as_ref()
+            .and_then(|source| serde_json::to_value(source).ok()),
+    );
+    insert_if_present(&mut payload, "partial", resp.partial.map(Value::Bool));
+    insert_if_present(
+        &mut payload,
+        "freshness",
+        resp.freshness
+            .as_ref()
+            .and_then(|freshness| serde_json::to_value(freshness).ok()),
+    );
+    insert_if_present(&mut payload, "staleness_ms", resp.staleness_ms.map(Value::from));
+    insert_if_present(
+        &mut payload,
+        "token_estimate",
+        resp.token_estimate.map(Value::from),
+    );
+    insert_if_present(
+        &mut payload,
+        "suggested_next_tools",
+        resp.suggested_next_tools
+            .as_ref()
+            .and_then(|tools| serde_json::to_value(tools).ok()),
+    );
+    insert_if_present(
+        &mut payload,
+        "budget_hint",
+        resp.budget_hint.clone().map(Value::String),
+    );
+    insert_if_present(
+        &mut payload,
+        "routing_hint",
+        resp.routing_hint
+            .as_ref()
+            .and_then(|hint| serde_json::to_value(hint).ok()),
+    );
+    insert_if_present(&mut payload, "elapsed_ms", resp.elapsed_ms.map(Value::from));
+
+    let mut text_data = Map::new();
+    copy_summarized_field(&mut text_data, data, "analysis_id");
+    copy_summarized_field(&mut text_data, data, "summary");
+    copy_summarized_field(&mut text_data, data, "readiness");
+    copy_summarized_field(&mut text_data, data, "readiness_score");
+    copy_summarized_field(&mut text_data, data, "risk_level");
+    copy_summarized_field(&mut text_data, data, "blocker_count");
+    copy_summarized_field(&mut text_data, data, "reused");
+    copy_summarized_field(&mut text_data, data, "available_sections");
+    copy_summarized_field(&mut text_data, data, "next_actions");
+    if !text_data.is_empty() {
+        payload.insert("data".to_owned(), Value::Object(text_data));
+    }
+
+    Some(Value::Object(payload))
+}
+
+fn insert_if_present(target: &mut Map<String, Value>, key: &str, value: Option<Value>) {
+    if let Some(value) = value {
+        target.insert(key.to_owned(), value);
+    }
+}
+
+fn copy_summarized_field(
+    target: &mut Map<String, Value>,
+    source: &Map<String, Value>,
+    key: &str,
+) {
+    if let Some(value) = source.get(key) {
+        target.insert(key.to_owned(), summarize_structured_content(value, 0));
     }
 }
 

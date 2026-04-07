@@ -228,11 +228,17 @@ fn refactor_deferred_tools_list_starts_preview_first() {
     assert!(encoded.contains("\"deferred_loading_active\":true"));
     assert!(encoded.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
+    assert!(encoded.contains("\"tool_count\":4"));
     assert!(encoded.contains("\"verify_change_readiness\""));
     assert!(encoded.contains("\"refactor_safety_report\""));
-    assert!(!encoded.contains("\"rename_symbol\""));
-    assert!(!encoded.contains("\"replace_symbol_body\""));
-    assert!(!encoded.contains("\"refactor_extract_function\""));
+    assert!(encoded.contains("\"safe_rename_report\""));
+    assert!(encoded.contains("\"start_analysis_job\""));
+    assert!(!encoded.contains("\"name\":\"rename_symbol\""));
+    assert!(!encoded.contains("\"name\":\"replace_symbol_body\""));
+    assert!(!encoded.contains("\"name\":\"refactor_extract_function\""));
+    assert!(!encoded.contains("\"name\":\"impact_report\""));
+    assert!(!encoded.contains("\"name\":\"diff_aware_references\""));
+    assert!(!encoded.contains("\"name\":\"unresolved_reference_check\""));
 }
 
 #[test]
@@ -2223,6 +2229,13 @@ fn verifier_tools_return_structured_content_payload() {
     assert!(readiness_value["result"]["structuredContent"]["analysis_id"].is_string());
     assert!(readiness_value["result"]["structuredContent"]["readiness"].is_object());
     assert!(readiness_value["result"]["structuredContent"]["verifier_checks"].is_array());
+    let readiness_text = parse_tool_payload(&extract_tool_text(&readiness_response));
+    assert!(readiness_text["data"]["analysis_id"].is_string());
+    assert!(readiness_text["data"]["summary"].is_string());
+    assert!(readiness_text["data"]["readiness"].is_object());
+    assert_eq!(readiness_text["routing_hint"], json!("async"));
+    assert!(readiness_text["data"].get("verifier_checks").is_none());
+    assert!(readiness_text["data"].get("blockers").is_none());
 
     let unresolved_response = handle_request(
         &state,
@@ -3108,8 +3121,7 @@ fn call_tool_with_augmented_args(
         },
     )
     .expect("tools/call should return a response");
-    let text = extract_tool_text(&response);
-    parse_tool_payload(&text)
+    parse_tool_response(&response)
 }
 
 fn extract_tool_text(response: &crate::protocol::JsonRpcResponse) -> String {
@@ -3122,6 +3134,27 @@ fn extract_tool_text(response: &crate::protocol::JsonRpcResponse) -> String {
 
 fn parse_tool_payload(text: &str) -> serde_json::Value {
     serde_json::from_str(text).unwrap_or(json!({}))
+}
+
+fn parse_tool_response(response: &crate::protocol::JsonRpcResponse) -> serde_json::Value {
+    let value = serde_json::to_value(response).expect("serialize");
+    let mut payload = parse_tool_payload(
+        value["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or(""),
+    );
+
+    if let Some(structured_content) = value["result"].get("structuredContent").cloned() {
+        if !payload.is_object() {
+            payload = json!({});
+        }
+        payload
+            .as_object_mut()
+            .expect("payload object")
+            .insert("data".to_owned(), structured_content);
+    }
+
+    payload
 }
 
 fn project_root() -> ProjectRoot {

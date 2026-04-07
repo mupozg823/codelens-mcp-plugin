@@ -5,7 +5,8 @@ use crate::prompts::{get_prompt, prompts};
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::resources::{read_resource, resources};
 use crate::tool_defs::{
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label, visible_tools,
+    preferred_bootstrap_tools, preferred_namespaces, preferred_tier_labels, tool_namespace,
+    tool_tier_label, visible_tools,
 };
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
@@ -187,6 +188,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 .and_then(|value| value.as_bool())
                 .unwrap_or(false);
             let preferred_namespaces = preferred_namespaces(surface);
+            let preferred_bootstrap = preferred_bootstrap_tools(surface);
             let preferred_tiers = preferred_tier_labels(surface);
             let deferred_loading_active = deferred_loading_requested
                 && requested_namespace.is_none()
@@ -220,6 +222,12 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                         preferred_tiers.contains(&tier) || loaded_tiers.contains(&tier)
                     }
                     None => true,
+                })
+                .filter(|tool| match preferred_bootstrap {
+                    Some(tool_names) if deferred_loading_active => {
+                        tool_names.contains(&tool.name)
+                    }
+                    _ => true,
                 })
                 .collect::<Vec<_>>();
             let response_tools = filtered

@@ -60,6 +60,20 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
     }
 }
 
+pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static [&'static str]> {
+    match surface {
+        // Keep refactor bootstrap preview-first. Mutation and broader report tools
+        // are still reachable after an explicit expansion or follow-up step.
+        ToolSurface::Profile(ToolProfile::RefactorFull) => Some(&[
+            "verify_change_readiness",
+            "safe_rename_report",
+            "refactor_safety_report",
+            "start_analysis_job",
+        ]),
+        _ => None,
+    }
+}
+
 pub(crate) fn preferred_tiers(surface: ToolSurface) -> Vec<ToolTier> {
     match surface {
         ToolSurface::Profile(ToolProfile::PlannerReadonly)

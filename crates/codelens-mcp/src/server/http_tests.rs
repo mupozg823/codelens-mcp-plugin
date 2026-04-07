@@ -49,16 +49,32 @@ fn first_resource_text(body: &str) -> String {
 }
 
 fn first_tool_payload(body: &str) -> serde_json::Value {
-    serde_json::from_str::<serde_json::Value>(body)
-        .ok()
-        .and_then(|value| value.get("result").cloned())
-        .and_then(|result| result.get("content").cloned())
-        .and_then(|contents| contents.as_array().cloned())
-        .and_then(|contents| contents.first().cloned())
-        .and_then(|content| content.get("text").cloned())
-        .and_then(|text| text.as_str().map(ToOwned::to_owned))
-        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
-        .unwrap_or_default()
+    let value = serde_json::from_str::<serde_json::Value>(body).unwrap_or_default();
+    let mut payload = value
+        .get("result")
+        .and_then(|result| result.get("content"))
+        .and_then(|contents| contents.as_array())
+        .and_then(|contents| contents.first())
+        .and_then(|content| content.get("text"))
+        .and_then(|text| text.as_str())
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+        .unwrap_or_default();
+
+    if let Some(structured_content) = value
+        .get("result")
+        .and_then(|result| result.get("structuredContent"))
+        .cloned()
+    {
+        if !payload.is_object() {
+            payload = serde_json::json!({});
+        }
+        payload
+            .as_object_mut()
+            .expect("payload object")
+            .insert("data".to_owned(), structured_content);
+    }
+
+    payload
 }
 
 // ── POST /mcp ────────────────────────────────────────────────────────
@@ -503,6 +519,42 @@ async fn mutation_enabled_daemon_rejects_untrusted_client_mutation() {
 }
 
 #[tokio::test]
+async fn verify_change_readiness_http_response_uses_slim_text_wrapper() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"verify_change_readiness","arguments":{"task":"update hello.txt","changed_files":["hello.txt"]}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let text_payload: serde_json::Value = serde_json::from_str(
+        envelope["result"]["content"][0]["text"].as_str().unwrap_or("{}"),
+    )
+    .unwrap();
+    assert!(text_payload["data"]["analysis_id"].is_string());
+    assert!(text_payload["data"]["summary"].is_string());
+    assert!(text_payload["data"]["readiness"].is_object());
+    assert_eq!(text_payload["routing_hint"], serde_json::json!("async"));
+    assert!(text_payload["data"].get("verifier_checks").is_none());
+    assert!(text_payload["data"].get("blockers").is_none());
+    assert!(envelope["result"]["structuredContent"]["analysis_id"].is_string());
+    assert!(envelope["result"]["structuredContent"]["verifier_checks"].is_array());
+    assert!(envelope["result"]["structuredContent"]["blockers"].is_array());
+}
+
+#[tokio::test]
 async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
     let state = test_state();
     state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
@@ -686,11 +738,17 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
     let body = body_string(resp).await;
     assert!(body.contains("\"deferred_loading_active\":true"));
     assert!(body.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
+    assert!(body.contains("\"tool_count\":4"));
     assert!(body.contains("\"verify_change_readiness\""));
     assert!(body.contains("\"refactor_safety_report\""));
-    assert!(!body.contains("\"rename_symbol\""));
-    assert!(!body.contains("\"replace_symbol_body\""));
-    assert!(!body.contains("\"refactor_extract_function\""));
+    assert!(body.contains("\"safe_rename_report\""));
+    assert!(body.contains("\"start_analysis_job\""));
+    assert!(!body.contains("\"name\":\"rename_symbol\""));
+    assert!(!body.contains("\"name\":\"replace_symbol_body\""));
+    assert!(!body.contains("\"name\":\"refactor_extract_function\""));
+    assert!(!body.contains("\"name\":\"impact_report\""));
+    assert!(!body.contains("\"name\":\"diff_aware_references\""));
+    assert!(!body.contains("\"name\":\"unresolved_reference_check\""));
 }
 
 #[tokio::test]

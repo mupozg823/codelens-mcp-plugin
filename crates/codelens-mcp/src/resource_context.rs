@@ -2,8 +2,9 @@ use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::protocol::Tool;
 use crate::tool_defs::{
-    ToolProfile, ToolSurface, preferred_namespaces, preferred_tier_labels, tool_namespace,
-    tool_tier_label, visible_namespaces, visible_tiers, visible_tools,
+    ToolProfile, ToolSurface, preferred_bootstrap_tools, preferred_namespaces,
+    preferred_tier_labels, tool_namespace, tool_tier_label, visible_namespaces, visible_tiers,
+    visible_tools,
 };
 use serde_json::{Value, json};
 
@@ -105,6 +106,7 @@ pub(crate) fn build_visible_tool_context(
     let surface = *state.surface();
     let all_tools = visible_tools(surface);
     let preferred = preferred_namespaces(surface);
+    let preferred_bootstrap = preferred_bootstrap_tools(surface);
     let preferred_tiers = preferred_tier_labels(surface);
     let tools = all_tools
         .iter()
@@ -129,6 +131,12 @@ pub(crate) fn build_visible_tool_context(
                     || request.loaded_tiers.iter().any(|value| value == tier)
             }
             None => true,
+        })
+        .filter(|tool| match preferred_bootstrap {
+            Some(tool_names) if request.deferred_loading_active() => {
+                tool_names.contains(&tool.name)
+            }
+            _ => true,
         })
         .collect::<Vec<_>>();
 
