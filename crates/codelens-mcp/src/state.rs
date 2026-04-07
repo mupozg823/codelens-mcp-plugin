@@ -82,7 +82,7 @@ pub(crate) struct AppState {
     default_audit_dir: PathBuf,
     // Runtime project override (set by activate_project)
     project_override: std::sync::RwLock<Option<ProjectOverride>>,
-    lsp_pool: LspSessionPool,
+    lsp_pool: std::sync::RwLock<LspSessionPool>,
     transport_mode: Mutex<RuntimeTransportMode>,
     daemon_mode: Mutex<RuntimeDaemonMode>,
     client_profile: ClientProfile,
@@ -357,12 +357,15 @@ impl AppState {
         let _ = fs::create_dir_all(&analysis_dir);
         let _ = fs::create_dir_all(analysis_dir.join("jobs"));
         let _ = fs::create_dir_all(&audit_dir);
+        let lsp_pool_new = LspSessionPool::new(project.clone());
         let watcher = FileWatcher::start(
             project.as_path(),
             Arc::clone(&symbol_index),
             Arc::clone(&graph_cache),
         )
         .ok();
+        // Reset LSP pool to use the new project root — fixes stale path resolution.
+        *self.lsp_pool.write().unwrap_or_else(|p| p.into_inner()) = lsp_pool_new;
         *self
             .project_override
             .write()
@@ -409,8 +412,8 @@ impl AppState {
     }
 
     /// Access the LSP session pool. Pool uses internal per-session locking.
-    pub(crate) fn lsp_pool(&self) -> &LspSessionPool {
-        &self.lsp_pool
+    pub(crate) fn lsp_pool(&self) -> std::sync::RwLockReadGuard<'_, LspSessionPool> {
+        self.lsp_pool.read().unwrap_or_else(|p| p.into_inner())
     }
 
     /// Acquire active tool surface with poison recovery.
@@ -768,7 +771,7 @@ impl AppState {
             default_memories_dir: memories_dir,
             default_audit_dir: audit_dir,
             project_override: std::sync::RwLock::new(None),
-            lsp_pool: LspSessionPool::new(project),
+            lsp_pool: std::sync::RwLock::new(LspSessionPool::new(project)),
             transport_mode: Mutex::new(self.transport_mode()),
             daemon_mode: Mutex::new(self.daemon_mode()),
             client_profile: self.client_profile,
@@ -802,7 +805,7 @@ impl AppState {
         {
             let _ = symbol_index.refresh_all();
         }
-        let lsp_pool = LspSessionPool::new(project.clone());
+        let lsp_pool = std::sync::RwLock::new(LspSessionPool::new(project.clone()));
         let graph_cache = Arc::new(GraphCache::new(30));
         let memories_dir = project.as_path().join(".codelens").join("memories");
         let analysis_dir = project.as_path().join(".codelens").join("analysis-cache");
@@ -851,7 +854,7 @@ impl AppState {
         {
             let _ = symbol_index.refresh_all();
         }
-        let lsp_pool = LspSessionPool::new(project.clone());
+        let lsp_pool = std::sync::RwLock::new(LspSessionPool::new(project.clone()));
         let graph_cache = Arc::new(GraphCache::new(30));
         let memories_dir = project.as_path().join(".codelens").join("memories");
         let analysis_dir = project.as_path().join(".codelens").join("analysis-cache");
@@ -879,7 +882,7 @@ impl AppState {
     fn build(
         project: ProjectRoot,
         symbol_index: Arc<SymbolIndex>,
-        lsp_pool: LspSessionPool,
+        lsp_pool: std::sync::RwLock<LspSessionPool>,
         graph_cache: Arc<GraphCache>,
         memories_dir: PathBuf,
         analysis_dir: PathBuf,

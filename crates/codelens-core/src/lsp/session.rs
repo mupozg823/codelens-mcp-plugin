@@ -132,6 +132,16 @@ impl LspSessionPool {
         }
     }
 
+    /// Replace the project root and close all existing sessions.
+    pub fn reset(&self, project: ProjectRoot) -> Self {
+        // Drop existing sessions so LSP processes are killed.
+        self.sessions
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clear();
+        Self::new(project)
+    }
+
     pub fn session_count(&self) -> usize {
         self.sessions
             .lock()
