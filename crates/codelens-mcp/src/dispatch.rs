@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
-use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    SuccessResponseInput, build_error_response, build_success_response,
+    build_error_response, build_success_response, SuccessResponseInput,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
-    is_refactor_gated_mutation_tool,
+    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
+    MutationGateFailure,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
+use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
 use crate::tools::{self, ToolHandler, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -117,8 +117,35 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
     }
 
     let semantic_query = crate::tools::symbols::semantic_query_for_retrieval(query);
-    let results =
-        crate::tools::symbols::semantic_results_for_query(state, query, max_results, false);
+    let expanded_query = crate::tools::symbols::expanded_query_for_retrieval(query);
+
+    // Structural boosting: find name-matching candidates from SymbolIndex
+    // and boost semantic results that overlap with structural hits.
+    let structural_names: std::collections::HashSet<String> = state
+        .symbol_index()
+        .get_ranked_context(&expanded_query, None, 4000, false, 2)
+        .map(|rc| {
+            rc.symbols
+                .into_iter()
+                .map(|s| format!("{}:{}", s.file, s.name))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let candidate_limit = max_results.saturating_mul(4).clamp(max_results, 80);
+    let mut results =
+        crate::tools::symbols::semantic_results_for_query(state, query, candidate_limit, false);
+
+    // Apply structural boost: +0.06 for results that also appear in structural candidates
+    for result in &mut results {
+        let key = format!("{}:{}", result.file_path, result.symbol_name);
+        if structural_names.contains(&key) {
+            result.score += 0.06;
+        }
+    }
+    // Re-sort after boosting and truncate
+    results = crate::tools::symbols::rerank_semantic_matches(query, results, max_results);
+
     let result_scores = results
         .iter()
         .map(|result| {

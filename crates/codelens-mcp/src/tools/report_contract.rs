@@ -501,7 +501,7 @@ pub(super) fn make_handle_response(
         verifier.verifier_checks.clone(),
         sections,
     )?;
-    let data = build_handle_payload(
+    let mut data = build_handle_payload(
         tool_name,
         &artifact.id,
         &artifact.summary,
@@ -537,6 +537,19 @@ pub(super) fn make_handle_response(
             .map(|v| v.len())
             .unwrap_or(0),
     );
+    // Cross-phase: inject recent analysis IDs so agents can reference prior results.
+    let prior_ids = state.recent_analysis_ids();
+    if prior_ids.len() > 1 {
+        // Exclude current analysis from the list.
+        let prior: Vec<_> = prior_ids
+            .iter()
+            .filter(|id| id.as_str() != artifact.id)
+            .cloned()
+            .collect();
+        if !prior.is_empty() {
+            data["prior_analyses"] = serde_json::json!(prior);
+        }
+    }
     Ok((data, success_meta(BackendKind::Hybrid, confidence)))
 }
 

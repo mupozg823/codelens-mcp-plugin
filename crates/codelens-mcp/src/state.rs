@@ -97,6 +97,8 @@ pub(crate) struct AppState {
     recent_tools: Mutex<VecDeque<String>>,
     /// Recent file paths accessed in this session (max 20) for ranking boost.
     recent_files: Mutex<VecDeque<String>>,
+    /// Recent analysis IDs for cross-phase context (max 5).
+    recent_analysis_ids: Mutex<VecDeque<String>>,
     /// Doom-loop detection: (tool_name, args_hash, consecutive_count)
     doom_loop_counter: Mutex<(String, u64, usize)>,
     preflight_store: RecentPreflightStore,
@@ -566,6 +568,28 @@ impl AppState {
             .collect()
     }
 
+    /// Record an analysis_id for cross-phase context.
+    pub(crate) fn push_recent_analysis_id(&self, id: String) {
+        let mut ids = self
+            .recent_analysis_ids
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        if ids.len() >= 5 {
+            ids.pop_front();
+        }
+        ids.push_back(id);
+    }
+
+    /// Get recent analysis IDs (most recent last).
+    pub(crate) fn recent_analysis_ids(&self) -> Vec<String> {
+        self.recent_analysis_ids
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .cloned()
+            .collect()
+    }
+
     // ── Job Store delegations ────────────────────────────────────────────
 
     pub(crate) fn enqueue_analysis_job(
@@ -696,7 +720,7 @@ impl AppState {
         verifier_checks: Vec<AnalysisVerifierCheck>,
         sections: std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Result<AnalysisArtifact, CodeLensError> {
-        self.artifact_store.store(
+        let artifact = self.artifact_store.store(
             tool_name,
             self.surface().as_label(),
             self.current_project_scope(),
@@ -710,7 +734,11 @@ impl AppState {
             readiness,
             verifier_checks,
             sections,
-        )
+        )?;
+        // Cross-phase context: track recent analysis IDs so subsequent
+        // tool calls can reference prior analysis results.
+        self.push_recent_analysis_id(artifact.id.clone());
+        Ok(artifact)
     }
 
     pub(crate) fn find_reusable_analysis(
@@ -781,6 +809,7 @@ impl AppState {
             job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
             metrics: Arc::clone(&self.metrics),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
+            recent_analysis_ids: Mutex::new(VecDeque::with_capacity(5)),
             doom_loop_counter: Mutex::new((String::new(), 0, 0)),
             recent_files: Mutex::new(VecDeque::with_capacity(20)),
             preflight_store: RecentPreflightStore::new(),
@@ -909,6 +938,7 @@ impl AppState {
             job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
             metrics: Arc::new(ToolMetricsRegistry::new()),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
+            recent_analysis_ids: Mutex::new(VecDeque::with_capacity(5)),
             doom_loop_counter: Mutex::new((String::new(), 0, 0)),
             recent_files: Mutex::new(VecDeque::with_capacity(20)),
             preflight_store: RecentPreflightStore::new(),
