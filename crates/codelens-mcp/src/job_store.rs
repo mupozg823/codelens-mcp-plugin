@@ -232,6 +232,30 @@ impl AnalysisJobStore {
         Ok(job)
     }
 
+    /// List jobs, optionally filtered by status string (e.g. "queued", "running",
+    /// "completed", "cancelled", "error"). Returns jobs ordered newest-first.
+    pub fn list(
+        &self,
+        status_filter: Option<&str>,
+        project_scope: Option<&str>,
+    ) -> Vec<AnalysisJob> {
+        self.prune(Self::now_ms(), project_scope);
+        let jobs = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
+        let order = self.order.lock().unwrap_or_else(|p| p.into_inner());
+        order
+            .iter()
+            .rev()
+            .filter_map(|id| jobs.get(id))
+            .filter(|job| matches_scope(job.project_scope.as_deref(), project_scope))
+            .filter(|job| {
+                status_filter
+                    .map(|f| job.status.as_str() == f)
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect()
+    }
+
     pub fn update(
         &self,
         job_id: &str,

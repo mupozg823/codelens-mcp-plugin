@@ -139,6 +139,9 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "get_analysis_job"             => report_jobs::get_analysis_job,
         "cancel_analysis_job"          => report_jobs::cancel_analysis_job,
         "get_analysis_section"         => report_jobs::get_analysis_section,
+        "list_analysis_jobs"           => report_jobs::list_analysis_jobs,
+        "list_analysis_artifacts"      => report_jobs::list_analysis_artifacts,
+        "retry_analysis_job"           => report_jobs::retry_analysis_job,
     }
 }
 

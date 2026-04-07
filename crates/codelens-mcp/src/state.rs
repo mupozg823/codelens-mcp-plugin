@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::analysis_queue::{
-    AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
-    STDIO_ANALYSIS_WORKER_COUNT, analysis_job_cost_units,
+    analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
+    STDIO_ANALYSIS_WORKER_COUNT,
 };
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::error::CodeLensError;
@@ -609,6 +609,11 @@ impl AppState {
             error,
             self.current_project_scope(),
         )
+    }
+
+    pub(crate) fn list_analysis_jobs(&self, status_filter: Option<&str>) -> Vec<AnalysisJob> {
+        let scope = self.current_project_scope();
+        self.job_store.list(status_filter, Some(&scope))
     }
 
     pub(crate) fn get_analysis_job(&self, job_id: &str) -> Option<AnalysisJob> {

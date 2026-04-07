@@ -1,8 +1,8 @@
 use super::report_utils::{extract_handle_fields, stable_cache_key, strings_from_array};
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -12,6 +12,11 @@ fn run_job_kind(state: &AppState, kind: &str, arguments: &Value) -> ToolResult {
         "impact_report" => super::reports::impact_report(state, arguments),
         "dead_code_report" => super::reports::dead_code_report(state, arguments),
         "refactor_safety_report" => super::reports::refactor_safety_report(state, arguments),
+        "module_boundary_report" => super::reports::module_boundary_report(state, arguments),
+        "safe_rename_report" => super::reports::safe_rename_report(state, arguments),
+        "diff_aware_references" => super::reports::diff_aware_references(state, arguments),
+        "analyze_change_request" => super::reports::analyze_change_request(state, arguments),
+        "verify_change_readiness" => super::reports::verify_change_readiness(state, arguments),
         _ => Err(CodeLensError::Validation(format!(
             "unsupported analysis job kind `{kind}`"
         ))),
@@ -42,6 +47,11 @@ fn estimated_sections_for_kind(kind: &str) -> Vec<String> {
             "change_request".to_owned(),
             "related_tests".to_owned(),
         ],
+        "module_boundary_report" => vec!["boundary".to_owned()],
+        "safe_rename_report" => vec!["rename_safety".to_owned()],
+        "diff_aware_references" => vec!["references".to_owned()],
+        "analyze_change_request" => vec!["change_request".to_owned()],
+        "verify_change_readiness" => vec!["readiness".to_owned()],
         _ => Vec::new(),
     }
 }
@@ -135,10 +145,37 @@ fn run_job_kind_with_progress(
         "refactor_safety_report" => {
             run_refactor_safety_report_job(state, job_id, arguments, delay_ms)
         }
+        "module_boundary_report" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
+        "safe_rename_report" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
+        "diff_aware_references" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
+        "analyze_change_request" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
+        "verify_change_readiness" => {
+            run_simple_report_job(state, job_id, kind, arguments, delay_ms)
+        }
         _ => run_job_kind(state, kind, arguments)
             .map(|(payload, _meta)| payload)
             .map_err(|error| error.to_string()),
     }
+}
+
+/// Generic progress wrapper for report kinds that don't need step-level progress tracking.
+fn run_simple_report_job(
+    state: &AppState,
+    job_id: &str,
+    kind: &str,
+    arguments: &Value,
+    delay_ms: u64,
+) -> Result<Value, String> {
+    if !advance_job_progress(state, job_id, 30, &format!("starting {kind}"), delay_ms)? {
+        return Ok(json!({}));
+    }
+    let result = run_job_kind(state, kind, arguments)
+        .map(|(payload, _meta)| payload)
+        .map_err(|error| error.to_string())?;
+    if !advance_job_progress(state, job_id, 90, &format!("finalizing {kind}"), delay_ms)? {
+        return Ok(json!({}));
+    }
+    Ok(result)
 }
 
 fn run_dead_code_report_job(
@@ -376,13 +413,11 @@ fn run_refactor_safety_report_job(
         0.9,
         vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()],
         sections,
-        vec![
-            arguments
-                .get("file_path")
-                .and_then(|value| value.as_str())
-                .unwrap_or(path)
-                .to_owned(),
-        ],
+        vec![arguments
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or(path)
+            .to_owned()],
         symbol.map(ToOwned::to_owned),
     )
     .map(|(payload, _meta)| payload)
@@ -602,5 +637,105 @@ pub fn get_analysis_section(state: &AppState, arguments: &Value) -> ToolResult {
             "surface": artifact.surface,
         }),
         success_meta(BackendKind::Memory, artifact.confidence),
+    ))
+}
+
+pub fn list_analysis_jobs(state: &AppState, arguments: &Value) -> ToolResult {
+    let status_filter = arguments
+        .get("status")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_owned());
+    let jobs = state.list_analysis_jobs(status_filter.as_deref());
+    let items = jobs
+        .iter()
+        .map(|job| {
+            json!({
+                "job_id": job.id,
+                "kind": job.kind,
+                "status": job.status,
+                "progress": job.progress,
+                "current_step": job.current_step,
+                "analysis_id": job.analysis_id,
+                "error": job.error,
+                "updated_at_ms": job.updated_at_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok((
+        json!({
+            "jobs": items,
+            "count": items.len(),
+        }),
+        success_meta(BackendKind::Memory, 1.0),
+    ))
+}
+
+pub fn list_analysis_artifacts(state: &AppState, _arguments: &Value) -> ToolResult {
+    let summaries = state.list_analysis_summaries();
+    let items = summaries
+        .iter()
+        .map(|s| {
+            json!({
+                "analysis_id": s.id,
+                "tool_name": s.tool_name,
+                "summary": s.summary,
+                "created_at_ms": s.created_at_ms,
+                "surface": s.surface,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok((
+        json!({
+            "artifacts": items,
+            "count": items.len(),
+        }),
+        success_meta(BackendKind::Memory, 1.0),
+    ))
+}
+
+pub fn retry_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
+    let job_id = required_string(arguments, "job_id")?;
+    let original = state
+        .get_analysis_job(job_id)
+        .ok_or_else(|| CodeLensError::NotFound(format!("unknown job_id `{job_id}`")))?;
+    if !matches!(
+        original.status,
+        crate::runtime_types::JobLifecycle::Error | crate::runtime_types::JobLifecycle::Cancelled
+    ) {
+        return Err(CodeLensError::Validation(format!(
+            "job `{job_id}` has status `{}` — only error or cancelled jobs can be retried",
+            original.status
+        )));
+    }
+    let kind = original.kind.clone();
+    let profile_hint = original.profile_hint.clone();
+    let estimated_sections = estimated_sections_for_kind(&kind);
+    let job = state.store_analysis_job(
+        &kind,
+        profile_hint.clone(),
+        estimated_sections.clone(),
+        crate::runtime_types::JobLifecycle::Queued,
+        0,
+        Some("queued".to_owned()),
+        None,
+        None,
+    )?;
+    // Re-enqueue with the original arguments embedded in the new job's arguments.
+    // Since we don't persist the original call arguments, we reconstruct from job fields.
+    let retry_arguments = json!({
+        "kind": kind,
+        "profile_hint": profile_hint,
+    });
+    state.enqueue_analysis_job(job.id.clone(), kind, retry_arguments, profile_hint)?;
+    Ok((
+        json!({
+            "job_id": job.id,
+            "retried_from": job_id,
+            "status": job.status,
+            "progress": job.progress,
+            "current_step": job.current_step,
+            "estimated_sections": estimated_sections,
+        }),
+        success_meta(BackendKind::Hybrid, 0.92),
     ))
 }
