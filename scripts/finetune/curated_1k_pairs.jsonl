@@ -1,0 +1,273 @@
+{"query": "consume messages from Kafka", "positive": "function Consume in messaging/kafka.go: func (c *Consumer) Consume(ctx context.Context, handler func([]byte) error) error"}
+{"query": "reset forgotten password via email", "positive": "function resetPassword (reset password) in services/auth.ts: async function resetPassword(email: string): Promise<void>"}
+{"query": "implement service provider", "positive": "class AppServiceProvider (app service provider) in app/Providers/AppServiceProvider.php: class AppServiceProvider extends ServiceProvider"}
+{"query": "create JPA repository interface", "positive": "class UserRepository (user repository) in src/main/java/com/example/repos/UserRepository.java: public interface UserRepository extends JpaRepository<User, Long>"}
+{"query": "create integration test helper", "positive": "function SetupTestDB (setup test db) in testutil/db.go: func SetupTestDB(t *testing.T) *sql.DB"}
+{"query": "connect to PostgreSQL database", "positive": "function create_engine (create engine) in db/engine.py: def create_engine(dsn: str, pool_size: int = 5) -> Engine"}
+{"query": "implement command palette search", "positive": "function CommandPalette (command palette) in components/CommandPalette.tsx: function CommandPalette({ commands, onSelect }: CommandPaletteProps)"}
+{"query": "store auth token in cookie", "positive": "function setAuthCookie (set auth cookie) in utils/cookies.ts: function setAuthCookie(token: string, maxAge?: number): void"}
+{"query": "verify email confirmation token", "positive": "function verifyEmailToken (verify email token) in services/auth.ts: async function verifyEmailToken(token: string): Promise<boolean>"}
+{"query": "create test helper for database", "positive": "function test_db (test db) in tests/helpers.rs: pub async fn test_db() -> PgPool"}
+{"query": "parse configuration file", "positive": "function parse_config (parse config) in src/config.rs: pub fn parse_config(path: &Path) -> Result<Config>"}
+{"query": "define model scope query", "positive": "function scopeActive (scope active) in app/Models/User.php: public function scopeActive(Builder $query): Builder"}
+{"query": "define ActiveRecord model", "positive": "class User in app/models/user.rb: class User < ApplicationRecord"}
+{"query": "generate JWT token for user", "positive": "function SignToken (sign token) in auth/jwt.go: func SignToken(claims Claims, secret []byte) (string, error)"}
+{"query": "configure CORS middleware", "positive": "function setup_cors (setup cors) in app/middleware.py: def setup_cors(app: FastAPI, origins: list[str]) -> None"}
+{"query": "execute raw SQL query safely", "positive": "function execute_raw (execute raw) in db/utils.py: async def execute_raw(query: str, params: dict) -> list[dict]"}
+{"query": "handle image gallery with lightbox", "positive": "function ImageGallery (image gallery) in components/ImageGallery.tsx: function ImageGallery({ images, onSelect }: GalleryProps)"}
+{"query": "merge class names conditionally", "positive": "function cn in utils/cn.ts: function cn(...inputs: ClassValue[]): string"}
+{"query": "load dataset from CSV file", "positive": "function load_dataset (load dataset) in data/loader.py: def load_dataset(path: str, sep: str = ',') -> pd.DataFrame"}
+{"query": "validate JSON against schema", "positive": "function validate_schema (validate schema) in utils/validation.py: def validate_schema(data: dict, schema: dict) -> ValidationResult"}
+{"query": "handle graceful shutdown signal", "positive": "function shutdown_signal (shutdown signal) in src/server.rs: pub async fn shutdown_signal()"}
+{"query": "create repository for data access", "positive": "function NewUserRepo (new user repo) in repos/user.go: func NewUserRepo(db *sql.DB) *UserRepo"}
+{"query": "schedule periodic task execution", "positive": "function cleanupJob (cleanup job) in src/main/java/com/example/jobs/CleanupJob.java: @Scheduled(cron = \"0 0 2 * * ?\") public void cleanupJob()"}
+{"query": "generate color from string hash", "positive": "function stringToColor (string to color) in utils/color.ts: function stringToColor(str: string): string"}
+{"query": "define API endpoint with path parameter", "positive": "function get_user (get user) in routes/users.py: async def get_user(user_id: int, db: Session = Depends(get_db)) -> UserResponse"}
+{"query": "define route for REST resource", "positive": "function routes in config/routes.rb: resources :users, only: [:index, :show, :create, :update]"}
+{"query": "start async HTTP server", "positive": "function run_server (run server) in src/main.rs: async fn run_server(config: Config) -> Result<()>"}
+{"query": "define custom query in repository", "positive": "function findByEmail (find by email) in src/main/java/com/example/repos/UserRepository.java: Optional<User> findByEmail(String email)"}
+{"query": "write JSON response to client", "positive": "function WriteJSON (write json) in handlers/helpers.go: func WriteJSON(w http.ResponseWriter, status int, data interface{}) error"}
+{"query": "add middleware layer to router", "positive": "function with_middleware (with middleware) in src/middleware/mod.rs: pub fn with_middleware(router: Router) -> Router"}
+{"query": "run database migrations at startup", "positive": "function run_migrations (run migrations) in src/db/migrate.rs: pub async fn run_migrations(pool: &PgPool) -> Result<()>"}
+{"query": "extract bearer token from request", "positive": "function extract_token (extract token) in src/middleware/auth.rs: pub fn extract_token(headers: &HeaderMap) -> Result<String>"}
+{"query": "create database migration", "positive": "function change in db/migrate/20260408_create_users.rb: def change"}
+{"query": "apply discount coupon to order", "positive": "function applyCoupon (apply coupon) in services/orders.ts: async function applyCoupon(orderId: string, code: string): Promise<Discount>"}
+{"query": "convert file to base64 string", "positive": "function fileToBase64 (file to base64) in utils/file.ts: function fileToBase64(file: File): Promise<string>"}
+{"query": "compute TF-IDF vectors for documents", "positive": "function compute_tfidf (compute tfidf) in nlp/vectorizer.py: def compute_tfidf(documents: list[str], max_features: int = 5000) -> sparse.csr_matrix"}
+{"query": "connect to database with connection pool", "positive": "function create_pool (create pool) in src/db/pool.rs: pub async fn create_pool(url: &str) -> Result<PgPool>"}
+{"query": "create collapsible accordion panel", "positive": "function Accordion in components/Accordion.tsx: function Accordion({ items, allowMultiple }: AccordionProps)"}
+{"query": "implement dynamic page layout", "positive": "function DashboardLayout (dashboard layout) in layouts/DashboardLayout.tsx: function DashboardLayout({ children }: { children: React.ReactNode })"}
+{"query": "define API error response model", "positive": "class ErrorResponse (error response) in schemas/error.py: class ErrorResponse(BaseModel)"}
+{"query": "spawn background task with tokio", "positive": "function spawn_task (spawn task) in src/tasks/mod.rs: pub fn spawn_task<F: Future<Output = ()> + Send + 'static>(task: F) -> JoinHandle<()>"}
+{"query": "handle API request with axum", "positive": "function get_user (get user) in src/handlers/users.rs: async fn get_user(Path(id): Path<i64>, State(db): State<Pool>) -> Result<Json<User>>"}
+{"query": "add pagination to controller", "positive": "function index in app/controllers/users_controller.rb: def index; @users = User.page(params[:page]).per(25); end"}
+{"query": "handle API route with method switching", "positive": "function apiHandler (api handler) in pages/api/users/index.ts: async function apiHandler(req: NextApiRequest, res: NextApiResponse)"}
+{"query": "implement caching with Redis", "positive": "function getCached (get cached) in src/main/java/com/example/services/CacheService.java: @Cacheable(value = \"users\", key = \"#id\") public User getCached(Long id)"}
+{"query": "create accessible dialog component", "positive": "function Dialog in components/Dialog.tsx: function Dialog({ isOpen, onClose, title, children }: DialogProps)"}
+{"query": "cache value with expiration", "positive": "function set_cached (set cached) in src/cache/redis.rs: pub async fn set_cached(&self, key: &str, value: &str, ttl: Duration) -> Result<()>"}
+{"query": "define route with middleware", "positive": "function api_routes (api routes) in routes/api.php: Route::middleware('auth:sanctum')->group(function () {"}
+{"query": "create responsive image component", "positive": "function ResponsiveImage (responsive image) in components/ResponsiveImage.tsx: function ResponsiveImage({ src, alt, sizes }: ImageProps)"}
+{"query": "check if user session is valid", "positive": "function isSessionValid (is session valid) in utils/session.ts: function isSessionValid(session: Session): boolean"}
+{"query": "parse YAML configuration file", "positive": "function parse_yaml (parse yaml) in utils/config.py: def parse_yaml(path: str) -> dict"}
+{"query": "format relative time like 2 hours ago", "positive": "function formatRelativeTime (format relative time) in utils/time.ts: function formatRelativeTime(date: Date): string"}
+{"query": "broadcast message to all clients", "positive": "function broadcastMessage (broadcast message) in services/realtime.ts: function broadcastMessage(channel: string, data: unknown): void"}
+{"query": "generate fake data for testing", "positive": "function fake_user (fake user) in tests/factories.py: def fake_user(**overrides) -> dict"}
+{"query": "create Stripe checkout session", "positive": "function createCheckoutSession (create checkout session) in services/stripe.ts: async function createCheckoutSession(items: LineItem[]): Promise<string>"}
+{"query": "perform hyperparameter grid search", "positive": "function grid_search (grid search) in ml/tuning.py: def grid_search(model: Model, param_grid: dict, X: np.ndarray, y: np.ndarray) -> BestParams"}
+{"query": "read environment variable with default", "positive": "function GetEnv (get env) in config/env.go: func GetEnv(key string, fallback string) string"}
+{"query": "update record fields in database", "positive": "function Update in repos/user.go: func (r *UserRepo) Update(ctx context.Context, id int64, fields map[string]interface{}) error"}
+{"query": "send message to channel", "positive": "function send in src/messaging/channel.rs: pub async fn send<T: Serialize>(&self, topic: &str, msg: &T) -> Result<()>"}
+{"query": "write request spec test", "positive": "function describe_users (describe users) in spec/requests/users_spec.rb: describe 'GET /users' do"}
+{"query": "hash password with argon2", "positive": "function hash_password (hash password) in src/auth/password.rs: pub fn hash_password(password: &str) -> Result<String>"}
+{"query": "create new user account", "positive": "function registerUser (register user) in services/auth.ts: async function registerUser(data: RegisterInput): Promise<User>"}
+{"query": "send async email notification", "positive": "function send_email_async (send email async) in services/email.py: async def send_email_async(to: str, subject: str, body: str, attachments: list[str] = None) -> bool"}
+{"query": "create factory for test data", "positive": "function user_factory (user factory) in spec/factories/users.rb: factory :user do"}
+{"query": "create API resource transformer", "positive": "class UserResource (user resource) in app/Http/Resources/UserResource.php: class UserResource extends JsonResource"}
+{"query": "seed database with test data", "positive": "class UserSeeder (user seeder) in database/seeders/UserSeeder.php: class UserSeeder extends Seeder"}
+{"query": "mock external API call in test", "positive": "function mock_api (mock api) in tests/helpers.py: def mock_api(url: str, response: dict, status: int = 200) -> None"}
+{"query": "delete record from database", "positive": "function delete in repositories/base.py: async def delete(self, id: int) -> bool"}
+{"query": "truncate text with ellipsis at word boundary", "positive": "function truncateWords (truncate words) in utils/string.ts: function truncateWords(text: string, maxWords: number): string"}
+{"query": "create mailer for notifications", "positive": "class UserMailer (user mailer) in app/mailers/user_mailer.rb: class UserMailer < ApplicationMailer"}
+{"query": "create FastAPI application instance", "positive": "function create_app (create app) in app/main.py: def create_app() -> FastAPI"}
+{"query": "query database with filters", "positive": "function get_filtered (get filtered) in repositories/base.py: async def get_filtered(self, filters: dict, limit: int = 100) -> list[T]"}
+{"query": "detect click outside element", "positive": "function useClickOutside (use click outside) in hooks/useClickOutside.ts: function useClickOutside(ref: RefObject<HTMLElement>, handler: () => void): void"}
+{"query": "upload file to S3 bucket", "positive": "function Upload in storage/s3.go: func (s *S3Client) Upload(ctx context.Context, bucket string, key string, body io.Reader) error"}
+{"query": "load environment configuration", "positive": "function load_env (load env) in config/settings.py: def load_env(env_file: str = '.env') -> Settings"}
+{"query": "deserialize JSON request body", "positive": "struct CreateUserRequest (create user request) in src/models/request.rs: pub struct CreateUserRequest"}
+{"query": "display error message with retry button", "positive": "function ErrorDisplay (error display) in components/ErrorDisplay.tsx: function ErrorDisplay({ error, onRetry }: ErrorDisplayProps)"}
+{"query": "create toast notification popup", "positive": "function showToast (show toast) in lib/toast.ts: function showToast(message: string, type?: ToastType): void"}
+{"query": "connect to WebSocket server", "positive": "function useWebSocket (use web socket) in hooks/useWebSocket.ts: function useWebSocket(url: string, options?: WSOptions): WebSocketState"}
+{"query": "generate confusion matrix plot", "positive": "function plot_confusion_matrix (plot confusion matrix) in ml/visualization.py: def plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, labels: list[str]) -> Figure"}
+{"query": "publish message to Kafka topic", "positive": "function Publish in messaging/kafka.go: func (p *Producer) Publish(ctx context.Context, topic string, msg []byte) error"}
+{"query": "classify text sentiment", "positive": "function predict_sentiment (predict sentiment) in nlp/sentiment.py: def predict_sentiment(text: str, model: SentimentModel) -> SentimentResult"}
+{"query": "handle graceful server shutdown", "positive": "function Shutdown in server/server.go: func (s *Server) Shutdown(ctx context.Context) error"}
+{"query": "add authentication before action", "positive": "function authenticate_user (authenticate user) in app/controllers/application_controller.rb: before_action :authenticate_user!"}
+{"query": "create chart visualization component", "positive": "function BarChart (bar chart) in components/charts/BarChart.tsx: function BarChart({ data, xKey, yKey, color }: BarChartProps)"}
+{"query": "make GET request with error handling", "positive": "function apiGet (api get) in lib/api.ts: async function apiGet<T>(url: string, params?: Record<string, string>): Promise<T>"}
+{"query": "handle form field error display", "positive": "function FieldError (field error) in components/FieldError.tsx: function FieldError({ name, errors }: FieldErrorProps)"}
+{"query": "handle keyboard navigation in list", "positive": "function useArrowNavigation (use arrow navigation) in hooks/useArrowNavigation.ts: function useArrowNavigation(itemCount: number): { activeIndex: number; onKeyDown: KeyboardEventHandler }"}
+{"query": "get current logged in user", "positive": "function getCurrentUser (get current user) in hooks/useAuth.ts: function getCurrentUser(): User | null"}
+{"query": "fetch data at build time for static page", "positive": "function getStaticProps (get static props) in pages/blog/[slug].tsx: async function getStaticProps(context: GetStaticPropsContext)"}
+{"query": "validate environment variables exist", "positive": "function check_env_vars (check env vars) in config/validate.py: def check_env_vars(required: list[str]) -> None"}
+{"query": "slugify text for URL path", "positive": "function slugify in utils/string.ts: function slugify(text: string): string"}
+{"query": "load config from YAML file", "positive": "function LoadConfig (load config) in config/config.go: func LoadConfig(path string) (*Config, error)"}
+{"query": "process background job", "positive": "function process_job (process job) in workers/consumer.py: async def process_job(job: Job) -> JobResult"}
+{"query": "set value in cache with TTL", "positive": "function Set in cache/redis.go: func (c *Cache) Set(ctx context.Context, key string, value string, ttl time.Duration) error"}
+{"query": "get value from cache", "positive": "function Get in cache/redis.go: func (c *Cache) Get(ctx context.Context, key string) (string, error)"}
+{"query": "manage notification preferences", "positive": "function NotificationSettings (notification settings) in components/NotificationSettings.tsx: function NotificationSettings({ preferences, onSave }: NotificationSettingsProps)"}
+{"query": "load model from checkpoint", "positive": "function load_model (load model) in ml/persistence.py: def load_model(path: str) -> Model"}
+{"query": "parse JSON from request body", "positive": "function DecodeBody (decode body) in handlers/helpers.go: func DecodeBody(r *http.Request, v interface{}) error"}
+{"query": "define user database model", "positive": "class User in models/user.py: class User(Base)"}
+{"query": "create custom Rake task", "positive": "function import_data (import data) in lib/tasks/import.rake: task import_data: :environment do"}
+{"query": "create data augmentation pipeline", "positive": "function augment_data (augment data) in ml/augmentation.py: def augment_data(df: pd.DataFrame, strategy: str, factor: int = 2) -> pd.DataFrame"}
+{"query": "configure database connection pool", "positive": "class DataSourceConfig (data source config) in src/main/java/com/example/config/DataSourceConfig.java: @Configuration public class DataSourceConfig"}
+{"query": "define middleware filter", "positive": "class CheckRole (check role) in app/Http/Middleware/CheckRole.php: class CheckRole"}
+{"query": "batch multiple API calls together", "positive": "function batchRequests (batch requests) in lib/api.ts: async function batchRequests<T>(requests: Promise<T>[]): Promise<T[]>"}
+{"query": "map entity to response DTO", "positive": "function toDTO (to dto) in src/main/java/com/example/mappers/UserMapper.java: static UserDTO toDTO(User user)"}
+{"query": "render rich text editor", "positive": "function RichTextEditor (rich text editor) in components/RichTextEditor.tsx: function RichTextEditor({ value, onChange, plugins }: EditorProps)"}
+{"query": "create Laravel controller", "positive": "class UserController (user controller) in app/Http/Controllers/UserController.php: class UserController extends Controller"}
+{"query": "display progress bar for long operations", "positive": "function ProgressBar (progress bar) in components/ProgressBar.tsx: function ProgressBar({ value, max, label }: ProgressBarProps)"}
+{"query": "handle POST request with body validation", "positive": "function create_user (create user) in routes/users.py: async def create_user(data: CreateUserRequest, db: Session = Depends(get_db)) -> UserResponse"}
+{"query": "memoize expensive computation result", "positive": "function useMemoizedValue (use memoized value) in hooks/useMemoized.ts: function useMemoizedValue<T>(factory: () => T, deps: DependencyList): T"}
+{"query": "hash password using bcrypt", "positive": "function HashPassword (hash password) in auth/password.go: func HashPassword(password string) (string, error)"}
+{"query": "create event listener", "positive": "class SendWelcomeEmail (send welcome email) in app/Listeners/SendWelcomeEmail.php: class SendWelcomeEmail implements ShouldQueue"}
+{"query": "create model factory", "positive": "class UserFactory (user factory) in database/factories/UserFactory.php: class UserFactory extends Factory"}
+{"query": "execute database query with context", "positive": "function QueryContext (query context) in db/query.go: func QueryContext(ctx context.Context, db *sql.DB, query string, args ...interface{}) (*sql.Rows, error)"}
+{"query": "render data table with sorting", "positive": "function DataTable (data table) in components/DataTable.tsx: function DataTable<T>({ data, columns, onSort }: DataTableProps<T>)"}
+{"query": "publish event to message queue", "positive": "function publish_event (publish event) in messaging/publisher.py: async def publish_event(topic: str, event: Event) -> None"}
+{"query": "schedule periodic task with cron", "positive": "function schedule_task (schedule task) in scheduler/cron.py: def schedule_task(pattern: str, func: Callable, args: tuple = ()) -> ScheduledTask"}
+{"query": "add SEO meta tags to page head", "positive": "function SEOHead (seo head) in components/SEOHead.tsx: function SEOHead({ title, description, image }: SEOProps)"}
+{"query": "save trained model to disk", "positive": "function save_model (save model) in ml/persistence.py: def save_model(model: Model, path: str, metadata: dict = None) -> None"}
+{"query": "add rate limiting to endpoint", "positive": "function rate_limit (rate limit) in middleware/rate_limit.py: def rate_limit(max_calls: int, period: int) -> Callable"}
+{"query": "define application error types", "positive": "struct AppError (app error) in src/error.rs: pub enum AppError"}
+{"query": "sign in with email and password", "positive": "function signInWithCredentials (sign in with credentials) in services/auth.ts: async function signInWithCredentials(email: string, password: string): Promise<Session>"}
+{"query": "implement service business logic", "positive": "class UserService (user service) in src/main/java/com/example/services/UserService.java: @Service public class UserService"}
+{"query": "create message queue listener", "positive": "function onMessage (on message) in src/main/java/com/example/listeners/OrderListener.java: @RabbitListener(queues = \"orders\") public void onMessage(OrderEvent event)"}
+{"query": "create background job class", "positive": "class SendEmailJob (send email job) in app/jobs/send_email_job.rb: class SendEmailJob < ApplicationJob"}
+{"query": "define Zustand store slice", "positive": "function createUserSlice (create user slice) in store/userSlice.ts: function createUserSlice(set: SetState, get: GetState): UserSlice"}
+{"query": "configure cache with Redis", "positive": "function cache_config (cache config) in config/cache.php: return ['default' => env('CACHE_DRIVER', 'redis')]"}
+{"query": "handle webhook callback request", "positive": "function receive in app/controllers/webhooks_controller.rb: def receive"}
+{"query": "create worker goroutine pool", "positive": "function NewPool (new pool) in workers/pool.go: func NewPool(size int) *Pool"}
+{"query": "persist state across page reloads", "positive": "function usePersistentState (use persistent state) in hooks/usePersistentState.ts: function usePersistentState<T>(key: string, initial: T): [T, (v: T) => void]"}
+{"query": "refresh expired access token", "positive": "function refreshAccessToken (refresh access token) in lib/auth.ts: async function refreshAccessToken(refreshToken: string): Promise<TokenPair>"}
+{"query": "calculate cart total with tax", "positive": "function calculateTotal (calculate total) in utils/cart.ts: function calculateTotal(items: CartItem[], taxRate: number): number"}
+{"query": "handle queued job", "positive": "class ProcessPayment (process payment) in app/Jobs/ProcessPayment.php: class ProcessPayment implements ShouldQueue"}
+{"query": "create Spring Boot application", "positive": "class Application in src/main/java/com/example/Application.java: @SpringBootApplication public class Application"}
+{"query": "create SQLAlchemy model base class", "positive": "class Base in models/base.py: class Base(DeclarativeBase)"}
+{"query": "implement gRPC service method", "positive": "function GetUser (get user) in grpc/users.go: func (s *UserService) GetUser(ctx context.Context, req *pb.GetUserRequest) (*pb.UserResponse, error)"}
+{"query": "define model association", "positive": "function has_many_posts (has many posts) in app/models/user.rb: has_many :posts, dependent: :destroy"}
+{"query": "add scope for query filtering", "positive": "function active in app/models/user.rb: scope :active, -> { where(active: true) }"}
+{"query": "define serializer for JSON API", "positive": "class UserSerializer (user serializer) in app/serializers/user_serializer.rb: class UserSerializer < ActiveModel::Serializer"}
+{"query": "handle media query breakpoints", "positive": "function useMediaQuery (use media query) in hooks/useMediaQuery.ts: function useMediaQuery(query: string): boolean"}
+{"query": "write feature test", "positive": "class UserTest (user test) in tests/Feature/UserTest.php: class UserTest extends TestCase"}
+{"query": "define model validation rules", "positive": "function validates_presence (validates presence) in app/models/user.rb: validates :name, presence: true, length: { maximum: 50 }"}
+{"query": "remove stop words from text", "positive": "function remove_stopwords (remove stopwords) in nlp/preprocessing.py: def remove_stopwords(tokens: list[str], language: str = 'en') -> list[str]"}
+{"query": "create async task queue", "positive": "class TaskQueue (task queue) in workers/queue.py: class TaskQueue"}
+{"query": "log HTTP request details", "positive": "function LoggingMiddleware (logging middleware) in middleware/logging.go: func LoggingMiddleware(logger *slog.Logger) func(http.Handler) http.Handler"}
+{"query": "implement health check endpoint", "positive": "function HealthHandler (health handler) in handlers/health.go: func HealthHandler(db *sql.DB) http.HandlerFunc"}
+{"query": "create form request validation", "positive": "class StoreUserRequest (store user request) in app/Http/Requests/StoreUserRequest.php: class StoreUserRequest extends FormRequest"}
+{"query": "submit job to worker queue", "positive": "function Submit in workers/pool.go: func (p *Pool) Submit(job func()) error"}
+{"query": "define REST endpoint handler", "positive": "function HandleGetUsers (handle get users) in handlers/users.go: func HandleGetUsers(w http.ResponseWriter, r *http.Request)"}
+{"query": "define Pydantic schema for validation", "positive": "class UserCreate (user create) in schemas/user.py: class UserCreate(BaseModel)"}
+{"query": "assert response matches expected schema", "positive": "function assert_schema (assert schema) in tests/helpers.py: def assert_schema(response: Response, schema: type[BaseModel]) -> None"}
+{"query": "recover from handler panic", "positive": "function RecoveryMiddleware (recovery middleware) in middleware/recovery.go: func RecoveryMiddleware(next http.Handler) http.Handler"}
+{"query": "read config from environment", "positive": "function load_config (load config) in src/config.rs: pub fn load_config() -> Result<Config>"}
+{"query": "generate secure random token", "positive": "function generate_token (generate token) in utils/crypto.py: def generate_token(length: int = 32) -> str"}
+{"query": "process credit card payment", "positive": "function processPayment (process payment) in services/payment.ts: async function processPayment(amount: number, token: string): Promise<PaymentResult>"}
+{"query": "configure Next.js middleware for routes", "positive": "function middleware in middleware.ts: function middleware(request: NextRequest): NextResponse"}
+{"query": "get cached value by key", "positive": "function get_cached (get cached) in src/cache/redis.rs: pub async fn get_cached(&self, key: &str) -> Result<Option<String>>"}
+{"query": "create Redux action creator", "positive": "function createAction (create action) in store/actions.ts: function createAction<T>(type: string, payload: T): Action<T>"}
+{"query": "initialize tracing subscriber", "positive": "function init_tracing (init tracing) in src/telemetry.rs: pub fn init_tracing(level: &str) -> Result<()>"}
+{"query": "define database migration", "positive": "function up in database/migrations/2026_04_08_create_users_table.php: public function up(): void"}
+{"query": "apply stemming to word list", "positive": "function stem_words (stem words) in nlp/preprocessing.py: def stem_words(tokens: list[str]) -> list[str]"}
+{"query": "make test HTTP request", "positive": "function DoRequest (do request) in testutil/http.go: func DoRequest(t *testing.T, method string, path string, body interface{}) *httptest.ResponseRecorder"}
+{"query": "define command line argument parser", "positive": "struct Args in src/cli.rs: pub struct Args"}
+{"query": "create test database fixture", "positive": "function db_session (db session) in tests/conftest.py: def db_session() -> Generator[Session, None, None]"}
+{"query": "escape HTML special characters", "positive": "function escapeHTML (escape html) in utils/html.ts: function escapeHTML(str: string): string"}
+{"query": "define Eloquent relationship", "positive": "function posts in app/Models/User.php: public function posts(): HasMany"}
+{"query": "define REST controller endpoint", "positive": "class UserController (user controller) in src/main/java/com/example/controllers/UserController.java: @RestController public class UserController"}
+{"query": "update existing database record", "positive": "function update in repositories/base.py: async def update(self, id: int, data: dict) -> T"}
+{"query": "handle drag to reorder list items", "positive": "function useSortable (use sortable) in hooks/useSortable.ts: function useSortable<T>(items: T[], onReorder: (items: T[]) => void): SortableState<T>"}
+{"query": "protect page from unauthorized access", "positive": "function withAuth (with auth) in hoc/withAuth.tsx: function withAuth(Component: React.FC): React.FC"}
+{"query": "implement concern for shared behavior", "positive": "class Searchable in app/models/concerns/searchable.rb: module Searchable"}
+{"query": "retry failed network request", "positive": "function fetchWithRetry (fetch with retry) in utils/fetch.ts: async function fetchWithRetry(url: string, retries?: number): Promise<Response>"}
+{"query": "implement tag input with autocomplete", "positive": "function TagInput (tag input) in components/TagInput.tsx: function TagInput({ tags, suggestions, onAdd, onRemove }: TagInputProps)"}
+{"query": "define Eloquent model", "positive": "class User in app/Models/User.php: class User extends Authenticatable"}
+{"query": "hash string with SHA256", "positive": "function hash_string (hash string) in utils/crypto.py: def hash_string(value: str) -> str"}
+{"query": "verify and parse JWT token", "positive": "function VerifyToken (verify token) in auth/jwt.go: func VerifyToken(tokenString string, secret []byte) (*Claims, error)"}
+{"query": "insert new record into table", "positive": "function Create in repos/user.go: func (r *UserRepo) Create(ctx context.Context, u *User) error"}
+{"query": "display user avatar with fallback", "positive": "function Avatar in components/Avatar.tsx: function Avatar({ src, name, size }: AvatarProps)"}
+{"query": "implement pagination for list endpoint", "positive": "function getUsers (get users) in src/main/java/com/example/controllers/UserController.java: Page<UserDTO> getUsers(@RequestParam int page, @RequestParam int size)"}
+{"query": "train gradient boosting classifier", "positive": "function train_gbm (train gbm) in ml/models.py: def train_gbm(X_train: np.ndarray, y_train: np.ndarray, params: dict) -> GBMModel"}
+{"query": "configure Spring Security", "positive": "class SecurityConfig (security config) in src/main/java/com/example/config/SecurityConfig.java: @Configuration public class SecurityConfig"}
+{"query": "subscribe to server-sent events", "positive": "function useSSE (use sse) in hooks/useSSE.ts: function useSSE<T>(url: string): { data: T | null; error: Error | null }"}
+{"query": "configure structured logging", "positive": "function setup_logging (setup logging) in config/logging.py: def setup_logging(level: str = 'INFO', format: str = 'json') -> None"}
+{"query": "validate file type and size", "positive": "function validateFile (validate file) in utils/validation.ts: function validateFile(file: File, allowedTypes: string[], maxSize: number): ValidationResult"}
+{"query": "validate request DTO fields", "positive": "class CreateUserDTO (create user dto) in src/main/java/com/example/dto/CreateUserDTO.java: public record CreateUserDTO(@NotBlank String name, @Email String email)"}
+{"query": "authenticate request with bearer token", "positive": "function AuthMiddleware (auth middleware) in middleware/auth.go: func AuthMiddleware(next http.Handler) http.Handler"}
+{"query": "poll endpoint until condition met", "positive": "function pollUntil (poll until) in utils/polling.ts: async function pollUntil<T>(fn: () => Promise<T>, predicate: (v: T) => boolean, interval: number): Promise<T>"}
+{"query": "start gRPC service", "positive": "function StartGRPC (start grpc) in server/grpc.go: func StartGRPC(port int, svc Service) error"}
+{"query": "create structured logger", "positive": "function NewLogger (new logger) in pkg/logger/logger.go: func NewLogger(level string, format string) *slog.Logger"}
+{"query": "implement circuit breaker", "positive": "function NewBreaker (new breaker) in pkg/resilience/breaker.go: func NewBreaker(threshold int, timeout time.Duration) *Breaker"}
+{"query": "render navigation sidebar menu", "positive": "function Sidebar in components/Sidebar.tsx: function Sidebar({ items, collapsed }: SidebarProps)"}
+{"query": "parse CLI flags and arguments", "positive": "function ParseFlags (parse flags) in cmd/root.go: func ParseFlags() (*Config, error)"}
+{"query": "format file size in human readable form", "positive": "function formatFileSize (format file size) in utils/format.ts: function formatFileSize(bytes: number): string"}
+{"query": "create tooltip with positioning", "positive": "function Tooltip in components/Tooltip.tsx: function Tooltip({ content, placement, children }: TooltipProps)"}
+{"query": "implement undo action with timeout", "positive": "function useUndoAction (use undo action) in hooks/useUndoAction.ts: function useUndoAction(action: () => void, timeout?: number): { undo: () => void; isPending: boolean }"}
+{"query": "download file from server", "positive": "function downloadFile (download file) in utils/download.ts: async function downloadFile(url: string, filename: string): Promise<void>"}
+{"query": "create filterable dropdown list", "positive": "function FilterableSelect (filterable select) in components/FilterableSelect.tsx: function FilterableSelect({ options, onSelect, placeholder }: FilterableSelectProps)"}
+{"query": "find record by primary key", "positive": "function FindByID (find by id) in repos/user.go: func (r *UserRepo) FindByID(ctx context.Context, id int64) (*User, error)"}
+{"query": "split data into train and test sets", "positive": "function train_test_split (train test split) in ml/utils.py: def train_test_split(X: np.ndarray, y: np.ndarray, test_size: float = 0.2) -> tuple"}
+{"query": "implement service object pattern", "positive": "class CreateUser (create user) in app/services/create_user.rb: class CreateUser"}
+{"query": "create controller with actions", "positive": "class UsersController (users controller) in app/controllers/users_controller.rb: class UsersController < ApplicationController"}
+{"query": "manage form state with validation", "positive": "function useForm (use form) in hooks/useForm.ts: function useForm<T>(initialValues: T, validate: ValidateFn<T>): FormState<T>"}
+{"query": "simulate user click event", "positive": "function clickButton (click button) in test/helpers.ts: async function clickButton(label: string): Promise<void>"}
+{"query": "validate JWT and return claims", "positive": "function verify_jwt (verify jwt) in src/auth/jwt.rs: pub fn verify_jwt(token: &str, secret: &[u8]) -> Result<Claims>"}
+{"query": "implement step wizard form", "positive": "function useWizard (use wizard) in hooks/useWizard.ts: function useWizard(steps: WizardStep[]): WizardState"}
+{"query": "create JWT authentication filter", "positive": "class JwtFilter (jwt filter) in src/main/java/com/example/security/JwtFilter.java: public class JwtFilter extends OncePerRequestFilter"}
+{"query": "create test user fixture", "positive": "function createTestUser (create test user) in test/fixtures.ts: function createTestUser(overrides?: Partial<User>): User"}
+{"query": "wait for all goroutines to finish", "positive": "function WaitAll (wait all) in workers/pool.go: func (p *Pool) WaitAll()"}
+{"query": "create Redis client wrapper", "positive": "struct RedisClient (redis client) in src/cache/redis.rs: pub struct RedisClient"}
+{"query": "transform API response to model", "positive": "function mapResponseToModel (map response to model) in mappers/user.ts: function mapResponseToModel(data: APIResponse): UserModel"}
+{"query": "create Redis cache client", "positive": "function NewCache (new cache) in cache/redis.go: func NewCache(addr string, password string) (*Cache, error)"}
+{"query": "clamp number within range", "positive": "function clamp in utils/math.ts: function clamp(value: number, min: number, max: number): number"}
+{"query": "create test client for FastAPI", "positive": "function test_client (test client) in tests/conftest.py: def test_client(app: FastAPI) -> TestClient"}
+{"query": "handle real-time collaborative editing", "positive": "function useCollaboration (use collaboration) in hooks/useCollaboration.ts: function useCollaboration(docId: string): CollaborationState"}
+{"query": "open database connection pool", "positive": "function NewDB (new db) in db/db.go: func NewDB(dsn string, maxConns int) (*sql.DB, error)"}
+{"query": "run database migration files", "positive": "function Migrate in db/migrate.go: func Migrate(db *sql.DB, dir string) error"}
+{"query": "serialize response to JSON", "positive": "struct UserResponse (user response) in src/models/response.rs: pub struct UserResponse"}
+{"query": "handle date range picker selection", "positive": "function useDateRange (use date range) in hooks/useDateRange.ts: function useDateRange(initial?: DateRange): DateRangeState"}
+{"query": "cache function result with expiry", "positive": "function cached in utils/cache.py: def cached(ttl: int = 300) -> Callable"}
+{"query": "show loading spinner while data loads", "positive": "function LoadingSpinner (loading spinner) in components/LoadingSpinner.tsx: function LoadingSpinner({ size, color }: SpinnerProps)"}
+{"query": "run database migration forward", "positive": "function upgrade in migrations/env.py: def upgrade() -> None"}
+{"query": "generate static paths for dynamic routes", "positive": "function getStaticPaths (get static paths) in pages/blog/[slug].tsx: async function getStaticPaths(): Promise<GetStaticPathsResult>"}
+{"query": "create temporary file with cleanup", "positive": "function temp_file (temp file) in utils/tempfiles.py: def temp_file(suffix: str = '', content: bytes = None) -> ContextManager[Path]"}
+{"query": "normalize feature values to range", "positive": "function normalize_features (normalize features) in ml/preprocessing.py: def normalize_features(df: pd.DataFrame, columns: list[str]) -> pd.DataFrame"}
+{"query": "download file from S3", "positive": "function Download in storage/s3.go: func (s *S3Client) Download(ctx context.Context, bucket string, key string) (io.ReadCloser, error)"}
+{"query": "make POST request with JSON body", "positive": "function apiPost (api post) in lib/api.ts: async function apiPost<T>(url: string, body: unknown): Promise<T>"}
+{"query": "define policy for authorization", "positive": "class UserPolicy (user policy) in app/policies/user_policy.rb: class UserPolicy < ApplicationPolicy"}
+{"query": "handle webhook from payment provider", "positive": "function handlePaymentWebhook (handle payment webhook) in pages/api/webhooks/stripe.ts: async function handlePaymentWebhook(req: NextApiRequest, res: NextApiResponse)"}
+{"query": "add middleware to HTTP handler", "positive": "function WithMiddleware (with middleware) in middleware/chain.go: func WithMiddleware(h http.Handler, mw ...Middleware) http.Handler"}
+{"query": "display skeleton loading placeholder", "positive": "function Skeleton in components/Skeleton.tsx: function Skeleton({ width, height, variant }: SkeletonProps)"}
+{"query": "create custom Artisan command", "positive": "class ImportData (import data) in app/Console/Commands/ImportData.php: class ImportData extends Command"}
+{"query": "implement data export to CSV", "positive": "function exportToCSV (export to csv) in utils/export.ts: function exportToCSV<T>(data: T[], columns: Column<T>[], filename: string): void"}
+{"query": "build tab navigation component", "positive": "function Tabs in components/Tabs.tsx: function Tabs({ items, activeTab, onTabChange }: TabsProps)"}
+{"query": "rollback database migration", "positive": "function downgrade in migrations/env.py: def downgrade() -> None"}
+{"query": "create dropdown select menu", "positive": "function Select in components/Select.tsx: function Select({ options, value, onChange }: SelectProps)"}
+{"query": "track window scroll position", "positive": "function useScrollPosition (use scroll position) in hooks/useScrollPosition.ts: function useScrollPosition(): { x: number; y: number }"}
+{"query": "implement copy to clipboard button", "positive": "function CopyButton (copy button) in components/CopyButton.tsx: function CopyButton({ text, label }: CopyButtonProps)"}
+{"query": "handle global exceptions", "positive": "class GlobalExceptionHandler (global exception handler) in src/main/java/com/example/handlers/GlobalExceptionHandler.java: @ControllerAdvice public class GlobalExceptionHandler"}
+{"query": "render component for testing", "positive": "function renderWithProviders (render with providers) in test/utils.tsx: function renderWithProviders(ui: React.ReactElement, options?: RenderOptions): RenderResult"}
+{"query": "sync state between browser tabs", "positive": "function useSyncTabs (use sync tabs) in hooks/useSyncTabs.ts: function useSyncTabs<T>(key: string, state: T): T"}
+{"query": "configure Redis cache store", "positive": "function cache_store (cache store) in config/environments/production.rb: config.cache_store = :redis_cache_store"}
+{"query": "manage multi-step form progression", "positive": "function MultiStepForm (multi step form) in components/MultiStepForm.tsx: function MultiStepForm({ steps, onComplete }: MultiStepFormProps)"}
+{"query": "add authentication dependency", "positive": "function get_current_user (get current user) in deps/auth.py: async def get_current_user(token: str = Depends(oauth2_scheme)) -> User"}
+{"query": "compare password with hash", "positive": "function CheckPassword (check password) in auth/password.go: func CheckPassword(password string, hash string) bool"}
+{"query": "preview image before upload", "positive": "function useImagePreview (use image preview) in hooks/useImagePreview.ts: function useImagePreview(file: File | null): string | null"}
+{"query": "create custom annotation", "positive": "class RateLimit (rate limit) in src/main/java/com/example/annotations/RateLimit.java: @Target(ElementType.METHOD) @Retention(RetentionPolicy.RUNTIME) public @interface RateLimit"}
+{"query": "define database entity mapping", "positive": "class User in src/main/java/com/example/entities/User.java: @Entity @Table(name = \"users\") public class User"}
+{"query": "sign user out and clear session", "positive": "function signOut (sign out) in services/auth.ts: async function signOut(): Promise<void>"}
+{"query": "verify password against hash", "positive": "function verify_password (verify password) in src/auth/password.rs: pub fn verify_password(password: &str, hash: &str) -> Result<bool>"}
+{"query": "write integration test", "positive": "class UserControllerTest (user controller test) in src/test/java/com/example/controllers/UserControllerTest.java: @SpringBootTest @AutoConfigureMockMvc class UserControllerTest"}
+{"query": "handle file upload in controller", "positive": "function upload in app/Http/Controllers/FileController.php: public function upload(Request $request): JsonResponse"}
+{"query": "create HTTP server with routes", "positive": "function NewServer (new server) in server/server.go: func NewServer(cfg Config) *Server"}
+{"query": "create notification class", "positive": "class OrderShipped (order shipped) in app/Notifications/OrderShipped.php: class OrderShipped extends Notification"}
+{"query": "mock API response in tests", "positive": "function mockApiResponse (mock api response) in test/mocks.ts: function mockApiResponse<T>(url: string, data: T, status?: number): void"}
+{"query": "implement From trait for error conversion", "positive": "function from in src/error.rs: impl From<sqlx::Error> for AppError"}
+{"query": "insert new record into database", "positive": "function create in repositories/base.py: async def create(self, data: dict) -> T"}
+{"query": "cancel pending API requests on unmount", "positive": "function useAbortController (use abort controller) in hooks/useAbortController.ts: function useAbortController(): AbortController"}
+{"query": "implement repository pattern", "positive": "class UserRepository (user repository) in app/Repositories/UserRepository.php: class UserRepository implements UserRepositoryInterface"}
+{"query": "compute precision recall F1 metrics", "positive": "function compute_metrics (compute metrics) in ml/evaluation.py: def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> MetricsResult"}
+{"query": "handle file upload endpoint", "positive": "function upload_file (upload file) in routes/files.py: async def upload_file(file: UploadFile, path: str = Form(...)) -> FileResponse"}
+{"query": "deep compare two objects for equality", "positive": "function deepEqual (deep equal) in utils/compare.ts: function deepEqual(a: unknown, b: unknown): boolean"}
+{"query": "intercept HTTP response errors", "positive": "function responseInterceptor (response interceptor) in lib/interceptors.ts: function responseInterceptor(response: Response): Response"}
+{"query": "build URL with query string", "positive": "function buildURL (build url) in utils/url.ts: function buildURL(base: string, params: Record<string, string>): string"}
+{"query": "execute SQL query with parameters", "positive": "function query_as (query as) in src/db/queries.rs: pub async fn query_as<T: FromRow>(pool: &PgPool, sql: &str, params: &[&(dyn ToSql)]) -> Result<Vec<T>>"}
+{"query": "crop image to specified dimensions", "positive": "function cropImage (crop image) in utils/image.ts: async function cropImage(src: string, crop: CropArea): Promise<Blob>"}
+{"query": "parse ISO date string to Date object", "positive": "function parseISODate (parse iso date) in utils/date.ts: function parseISODate(isoString: string): Date"}
+{"query": "implement search with filters", "positive": "function useSearch (use search) in hooks/useSearch.ts: function useSearch<T>(items: T[], keys: (keyof T)[]): SearchResult<T>"}
+{"query": "register API router with prefix", "positive": "function include_routers (include routers) in app/main.py: def include_routers(app: FastAPI) -> None"}
+{"query": "tokenize text into word tokens", "positive": "function tokenize in nlp/tokenizer.py: def tokenize(text: str, language: str = 'en') -> list[str]"}
+{"query": "measure function execution time", "positive": "function timed in utils/profiling.py: def timed(func: Callable) -> Callable"}
+{"query": "handle paginated API response", "positive": "function usePagination (use pagination) in hooks/usePagination.ts: function usePagination<T>(fetcher: Fetcher<T>, pageSize: number): PaginationResult<T>"}
+{"query": "wait for async state update in test", "positive": "function waitForUpdate (wait for update) in test/utils.ts: async function waitForUpdate(): Promise<void>"}

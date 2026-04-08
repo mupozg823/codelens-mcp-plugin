@@ -532,5 +532,2087 @@
     "query_type": "identifier",
     "expected_symbol": "CalleeEntry",
     "expected_file_suffix": "crates/codelens-core/src/call_graph.rs"
+  },
+  {
+    "query": "handle user authentication with JWT tokens",
+    "query_type": "natural_language",
+    "expected_symbol": "authenticateUser",
+    "expected_file_suffix": "src/lib/auth.ts"
+  },
+  {
+    "query": "create a custom React hook for fetching data",
+    "query_type": "natural_language",
+    "expected_symbol": "useFetch",
+    "expected_file_suffix": "src/hooks/useFetch.ts"
+  },
+  {
+    "query": "validate form input fields before submission",
+    "query_type": "natural_language",
+    "expected_symbol": "validateForm",
+    "expected_file_suffix": "src/utils/validation.ts"
+  },
+  {
+    "query": "generate a signed URL for S3 file upload",
+    "query_type": "natural_language",
+    "expected_symbol": "getSignedUploadUrl",
+    "expected_file_suffix": "src/lib/storage.ts"
+  },
+  {
+    "query": "middleware to protect API routes from unauthenticated access",
+    "query_type": "natural_language",
+    "expected_symbol": "withAuth",
+    "expected_file_suffix": "src/middleware/auth.ts"
+  },
+  {
+    "query": "send a transactional email using a template",
+    "query_type": "natural_language",
+    "expected_symbol": "sendEmail",
+    "expected_file_suffix": "src/lib/email.ts"
+  },
+  {
+    "query": "paginate database query results",
+    "query_type": "natural_language",
+    "expected_symbol": "paginate",
+    "expected_file_suffix": "src/lib/db.ts"
+  },
+  {
+    "query": "refresh access token using refresh token",
+    "query_type": "natural_language",
+    "expected_symbol": "refreshAccessToken",
+    "expected_file_suffix": "src/lib/auth.ts"
+  },
+  {
+    "query": "debounce a search input handler",
+    "query_type": "natural_language",
+    "expected_symbol": "useDebounce",
+    "expected_file_suffix": "src/hooks/useDebounce.ts"
+  },
+  {
+    "query": "connect to PostgreSQL with connection pooling",
+    "query_type": "natural_language",
+    "expected_symbol": "createDbPool",
+    "expected_file_suffix": "src/lib/db.ts"
+  },
+  {
+    "query": "rate limit API requests per IP address",
+    "query_type": "natural_language",
+    "expected_symbol": "rateLimiter",
+    "expected_file_suffix": "src/middleware/rateLimiter.ts"
+  },
+  {
+    "query": "server-side render a Next.js page with user data",
+    "query_type": "natural_language",
+    "expected_symbol": "getServerSideProps",
+    "expected_file_suffix": "src/pages/dashboard.tsx"
+  },
+  {
+    "query": "upload image and resize to multiple dimensions",
+    "query_type": "natural_language",
+    "expected_symbol": "processImageUpload",
+    "expected_file_suffix": "src/lib/imageProcessor.ts"
+  },
+  {
+    "query": "handle Stripe webhook events",
+    "query_type": "natural_language",
+    "expected_symbol": "handleStripeWebhook",
+    "expected_file_suffix": "src/pages/api/webhooks/stripe.ts"
+  },
+  {
+    "query": "create a subscription checkout session",
+    "query_type": "natural_language",
+    "expected_symbol": "createCheckoutSession",
+    "expected_file_suffix": "src/lib/stripe.ts"
+  },
+  {
+    "query": "manage global state with Zustand store",
+    "query_type": "natural_language",
+    "expected_symbol": "useStore",
+    "expected_file_suffix": "src/store/index.ts"
+  },
+  {
+    "query": "infinite scroll hook for loading more items",
+    "query_type": "natural_language",
+    "expected_symbol": "useInfiniteScroll",
+    "expected_file_suffix": "src/hooks/useInfiniteScroll.ts"
+  },
+  {
+    "query": "format currency values for display",
+    "query_type": "natural_language",
+    "expected_symbol": "formatCurrency",
+    "expected_file_suffix": "src/utils/format.ts"
+  },
+  {
+    "query": "generate a random slug from a title string",
+    "query_type": "natural_language",
+    "expected_symbol": "generateSlug",
+    "expected_file_suffix": "src/utils/slug.ts"
+  },
+  {
+    "query": "transform API response to camelCase",
+    "query_type": "natural_language",
+    "expected_symbol": "toCamelCase",
+    "expected_file_suffix": "src/utils/transform.ts"
+  },
+  {
+    "query": "parse and validate environment variables at startup",
+    "query_type": "natural_language",
+    "expected_symbol": "parseEnv",
+    "expected_file_suffix": "src/config/env.ts"
+  },
+  {
+    "query": "cache API responses in Redis",
+    "query_type": "natural_language",
+    "expected_symbol": "cacheResponse",
+    "expected_file_suffix": "src/lib/cache.ts"
+  },
+  {
+    "query": "handle file drag and drop in a React component",
+    "query_type": "natural_language",
+    "expected_symbol": "useDropzone",
+    "expected_file_suffix": "src/hooks/useDropzone.ts"
+  },
+  {
+    "query": "update user profile in the database",
+    "query_type": "natural_language",
+    "expected_symbol": "updateUserProfile",
+    "expected_file_suffix": "src/services/userService.ts"
+  },
+  {
+    "query": "generate OTP for two-factor authentication",
+    "query_type": "natural_language",
+    "expected_symbol": "generateOtp",
+    "expected_file_suffix": "src/lib/otp.ts"
+  },
+  {
+    "query": "SSR data fetching for static site generation",
+    "query_type": "short_phrase",
+    "expected_symbol": "getStaticProps",
+    "expected_file_suffix": "src/pages/blog/[slug].tsx"
+  },
+  {
+    "query": "intercept Axios requests to add auth headers",
+    "query_type": "natural_language",
+    "expected_symbol": "setupAxiosInterceptors",
+    "expected_file_suffix": "src/lib/apiClient.ts"
+  },
+  {
+    "query": "export data to CSV file from a table",
+    "query_type": "natural_language",
+    "expected_symbol": "exportToCsv",
+    "expected_file_suffix": "src/utils/export.ts"
+  },
+  {
+    "query": "sort array of objects by a given key",
+    "query_type": "natural_language",
+    "expected_symbol": "sortBy",
+    "expected_file_suffix": "src/utils/array.ts"
+  },
+  {
+    "query": "toast notification system for user feedback",
+    "query_type": "short_phrase",
+    "expected_symbol": "useToast",
+    "expected_file_suffix": "src/hooks/useToast.ts"
+  },
+  {
+    "query": "track user analytics events",
+    "query_type": "natural_language",
+    "expected_symbol": "trackEvent",
+    "expected_file_suffix": "src/lib/analytics.ts"
+  },
+  {
+    "query": "deep merge two configuration objects",
+    "query_type": "natural_language",
+    "expected_symbol": "deepMerge",
+    "expected_file_suffix": "src/utils/object.ts"
+  },
+  {
+    "query": "create a typed API route handler in Next.js",
+    "query_type": "natural_language",
+    "expected_symbol": "createApiHandler",
+    "expected_file_suffix": "src/lib/apiHandler.ts"
+  },
+  {
+    "query": "hash a password with bcrypt",
+    "query_type": "natural_language",
+    "expected_symbol": "hashPassword",
+    "expected_file_suffix": "src/lib/crypto.ts"
+  },
+  {
+    "query": "lazy load a React component",
+    "query_type": "short_phrase",
+    "expected_symbol": "LazyComponent",
+    "expected_file_suffix": "src/components/LazyComponent.tsx"
+  },
+  {
+    "query": "handle SSE streaming response from server",
+    "query_type": "natural_language",
+    "expected_symbol": "useEventSource",
+    "expected_file_suffix": "src/hooks/useEventSource.ts"
+  },
+  {
+    "query": "build a reusable modal dialog component",
+    "query_type": "natural_language",
+    "expected_symbol": "Modal",
+    "expected_file_suffix": "src/components/Modal.tsx"
+  },
+  {
+    "query": "check user subscription plan and permissions",
+    "query_type": "natural_language",
+    "expected_symbol": "checkSubscription",
+    "expected_file_suffix": "src/lib/subscription.ts"
+  },
+  {
+    "query": "implement optimistic UI updates in a React mutation",
+    "query_type": "natural_language",
+    "expected_symbol": "useOptimisticUpdate",
+    "expected_file_suffix": "src/hooks/useOptimisticUpdate.ts"
+  },
+  {
+    "query": "internationalize strings with i18n locale",
+    "query_type": "natural_language",
+    "expected_symbol": "useTranslation",
+    "expected_file_suffix": "src/hooks/useTranslation.ts"
+  },
+  {
+    "query": "ApiResponse",
+    "query_type": "identifier",
+    "expected_symbol": "ApiResponse",
+    "expected_file_suffix": "src/types/api.ts"
+  },
+  {
+    "query": "UserProfile",
+    "query_type": "identifier",
+    "expected_symbol": "UserProfile",
+    "expected_file_suffix": "src/types/user.ts"
+  },
+  {
+    "query": "AuthContext",
+    "query_type": "identifier",
+    "expected_symbol": "AuthContext",
+    "expected_file_suffix": "src/context/AuthContext.tsx"
+  },
+  {
+    "query": "PaginationMeta",
+    "query_type": "identifier",
+    "expected_symbol": "PaginationMeta",
+    "expected_file_suffix": "src/types/pagination.ts"
+  },
+  {
+    "query": "upload a file to cloud storage and return its URL",
+    "query_type": "natural_language",
+    "expected_symbol": "uploadFile",
+    "expected_file_suffix": "src/lib/storage.ts"
+  },
+  {
+    "query": "parse markdown content to HTML",
+    "query_type": "natural_language",
+    "expected_symbol": "parseMarkdown",
+    "expected_file_suffix": "src/lib/markdown.ts"
+  },
+  {
+    "query": "map tRPC router endpoints to handlers",
+    "query_type": "natural_language",
+    "expected_symbol": "appRouter",
+    "expected_file_suffix": "src/server/routers/_app.ts"
+  },
+  {
+    "query": "build Prisma query filters from request params",
+    "query_type": "natural_language",
+    "expected_symbol": "buildWhereClause",
+    "expected_file_suffix": "src/lib/queryBuilder.ts"
+  },
+  {
+    "query": "retry a failed API call with exponential backoff",
+    "query_type": "natural_language",
+    "expected_symbol": "retryWithBackoff",
+    "expected_file_suffix": "src/utils/retry.ts"
+  },
+  {
+    "query": "scroll restoration hook for page navigation",
+    "query_type": "short_phrase",
+    "expected_symbol": "useScrollRestoration",
+    "expected_file_suffix": "src/hooks/useScrollRestoration.ts"
+  },
+  {
+    "query": "sanitize user-generated HTML content",
+    "query_type": "natural_language",
+    "expected_symbol": "sanitizeHtml",
+    "expected_file_suffix": "src/utils/sanitize.ts"
+  },
+  {
+    "query": "generate a unique ID for a new entity",
+    "query_type": "natural_language",
+    "expected_symbol": "generateId",
+    "expected_file_suffix": "src/utils/id.ts"
+  },
+  {
+    "query": "configure Next.js Image component with allowed domains",
+    "query_type": "natural_language",
+    "expected_symbol": "nextConfig",
+    "expected_file_suffix": "next.config.ts"
+  },
+  {
+    "query": "StreamingTextResponse",
+    "query_type": "identifier",
+    "expected_symbol": "StreamingTextResponse",
+    "expected_file_suffix": "src/lib/streaming.ts"
+  },
+  {
+    "query": "SubscriptionPlan",
+    "query_type": "identifier",
+    "expected_symbol": "SubscriptionPlan",
+    "expected_file_suffix": "src/types/billing.ts"
+  },
+  {
+    "query": "create a serverless API route to handle POST requests",
+    "query_type": "natural_language",
+    "expected_symbol": "handler",
+    "expected_file_suffix": "src/pages/api/users/index.ts"
+  },
+  {
+    "query": "build React Server Component for a data table",
+    "query_type": "natural_language",
+    "expected_symbol": "DataTable",
+    "expected_file_suffix": "src/components/DataTable.tsx"
+  },
+  {
+    "query": "flatten a nested array structure",
+    "query_type": "natural_language",
+    "expected_symbol": "flattenArray",
+    "expected_file_suffix": "src/utils/array.ts"
+  },
+  {
+    "query": "theme switching between light and dark mode",
+    "query_type": "short_phrase",
+    "expected_symbol": "useTheme",
+    "expected_file_suffix": "src/hooks/useTheme.ts"
+  },
+  {
+    "query": "run database migrations on application startup",
+    "query_type": "natural_language",
+    "expected_symbol": "runMigrations",
+    "expected_file_suffix": "src/lib/migrate.ts"
+  },
+  {
+    "query": "handle OAuth callback and exchange code for tokens",
+    "query_type": "natural_language",
+    "expected_symbol": "handleOAuthCallback",
+    "expected_file_suffix": "src/pages/api/auth/callback.ts"
+  },
+  {
+    "query": "transform image buffer to WebP format",
+    "query_type": "natural_language",
+    "expected_symbol": "convertToWebP",
+    "expected_file_suffix": "src/lib/imageProcessor.ts"
+  },
+  {
+    "query": "compute reading time estimate from article text",
+    "query_type": "natural_language",
+    "expected_symbol": "estimateReadingTime",
+    "expected_file_suffix": "src/utils/readingTime.ts"
+  },
+  {
+    "query": "create a feature flag check function",
+    "query_type": "natural_language",
+    "expected_symbol": "isFeatureEnabled",
+    "expected_file_suffix": "src/lib/featureFlags.ts"
+  },
+  {
+    "query": "log structured JSON errors to external service",
+    "query_type": "natural_language",
+    "expected_symbol": "logError",
+    "expected_file_suffix": "src/lib/logger.ts"
+  },
+  {
+    "query": "validate and parse a UUID string",
+    "query_type": "natural_language",
+    "expected_symbol": "parseUuid",
+    "expected_file_suffix": "src/utils/uuid.ts"
+  },
+  {
+    "query": "RouteConfig",
+    "query_type": "identifier",
+    "expected_symbol": "RouteConfig",
+    "expected_file_suffix": "src/types/routes.ts"
+  },
+  {
+    "query": "useLocalStorage",
+    "query_type": "identifier",
+    "expected_symbol": "useLocalStorage",
+    "expected_file_suffix": "src/hooks/useLocalStorage.ts"
+  },
+  {
+    "query": "buildMetadata",
+    "query_type": "identifier",
+    "expected_symbol": "buildMetadata",
+    "expected_file_suffix": "src/lib/metadata.ts"
+  },
+  {
+    "query": "protect a route by checking user role",
+    "query_type": "natural_language",
+    "expected_symbol": "requireRole",
+    "expected_file_suffix": "src/middleware/authorization.ts"
+  },
+  {
+    "query": "batch insert multiple records into the database",
+    "query_type": "natural_language",
+    "expected_symbol": "batchInsert",
+    "expected_file_suffix": "src/lib/db.ts"
+  },
+  {
+    "query": "handle websocket connection lifecycle",
+    "query_type": "natural_language",
+    "expected_symbol": "useWebSocket",
+    "expected_file_suffix": "src/hooks/useWebSocket.ts"
+  },
+  {
+    "query": "get current authenticated user from session",
+    "query_type": "natural_language",
+    "expected_symbol": "getCurrentUser",
+    "expected_file_suffix": "src/lib/session.ts"
+  },
+  {
+    "query": "compress and decompress JSON payload",
+    "query_type": "natural_language",
+    "expected_symbol": "compressPayload",
+    "expected_file_suffix": "src/utils/compression.ts"
+  },
+  {
+    "query": "register a service worker for offline support",
+    "query_type": "natural_language",
+    "expected_symbol": "registerServiceWorker",
+    "expected_file_suffix": "src/lib/serviceWorker.ts"
+  },
+  {
+    "query": "run background job with a queue processor",
+    "query_type": "natural_language",
+    "expected_symbol": "processJob",
+    "expected_file_suffix": "src/jobs/processor.ts"
+  },
+  {
+    "query": "create breadcrumb navigation from URL path",
+    "query_type": "natural_language",
+    "expected_symbol": "buildBreadcrumbs",
+    "expected_file_suffix": "src/utils/breadcrumbs.ts"
+  },
+  {
+    "query": "calculate Stripe proration for plan upgrade",
+    "query_type": "natural_language",
+    "expected_symbol": "calculateProration",
+    "expected_file_suffix": "src/lib/billing.ts"
+  },
+  {
+    "query": "fetch paginated list of posts with cursor",
+    "query_type": "natural_language",
+    "expected_symbol": "fetchPostsCursor",
+    "expected_file_suffix": "src/services/postService.ts"
+  },
+  {
+    "query": "CursorPaginationInput",
+    "query_type": "identifier",
+    "expected_symbol": "CursorPaginationInput",
+    "expected_file_suffix": "src/types/pagination.ts"
+  },
+  {
+    "query": "withErrorBoundary",
+    "query_type": "identifier",
+    "expected_symbol": "withErrorBoundary",
+    "expected_file_suffix": "src/components/ErrorBoundary.tsx"
+  },
+  {
+    "query": "decode a JWT token without verifying the signature",
+    "query_type": "natural_language",
+    "expected_symbol": "decodeToken",
+    "expected_file_suffix": "src/lib/jwt.ts"
+  },
+  {
+    "query": "group array items by a property value",
+    "query_type": "natural_language",
+    "expected_symbol": "groupBy",
+    "expected_file_suffix": "src/utils/array.ts"
+  },
+  {
+    "query": "check if a date is within a valid range",
+    "query_type": "natural_language",
+    "expected_symbol": "isDateInRange",
+    "expected_file_suffix": "src/utils/date.ts"
+  },
+  {
+    "query": "define a FastAPI route with path and query parameters",
+    "query_type": "natural_language",
+    "expected_symbol": "get_user",
+    "expected_file_suffix": "app/routers/users.py"
+  },
+  {
+    "query": "create a Pydantic model for request body validation",
+    "query_type": "natural_language",
+    "expected_symbol": "UserCreate",
+    "expected_file_suffix": "app/schemas/user.py"
+  },
+  {
+    "query": "run Celery background task asynchronously",
+    "query_type": "natural_language",
+    "expected_symbol": "send_email_task",
+    "expected_file_suffix": "app/tasks/email.py"
+  },
+  {
+    "query": "connect to database using SQLAlchemy async session",
+    "query_type": "natural_language",
+    "expected_symbol": "get_db",
+    "expected_file_suffix": "app/database.py"
+  },
+  {
+    "query": "authenticate user and return JWT access token",
+    "query_type": "natural_language",
+    "expected_symbol": "login_for_access_token",
+    "expected_file_suffix": "app/routers/auth.py"
+  },
+  {
+    "query": "verify a JWT token and extract claims",
+    "query_type": "natural_language",
+    "expected_symbol": "verify_token",
+    "expected_file_suffix": "app/core/security.py"
+  },
+  {
+    "query": "hash a password using bcrypt",
+    "query_type": "short_phrase",
+    "expected_symbol": "get_password_hash",
+    "expected_file_suffix": "app/core/security.py"
+  },
+  {
+    "query": "define a Django ORM model with relationships",
+    "query_type": "natural_language",
+    "expected_symbol": "Post",
+    "expected_file_suffix": "blog/models.py"
+  },
+  {
+    "query": "serialize Django model to JSON response",
+    "query_type": "natural_language",
+    "expected_symbol": "PostSerializer",
+    "expected_file_suffix": "blog/serializers.py"
+  },
+  {
+    "query": "run Django database migration for a new field",
+    "query_type": "natural_language",
+    "expected_symbol": "Migration",
+    "expected_file_suffix": "blog/migrations/0002_add_author.py"
+  },
+  {
+    "query": "paginate a Django REST Framework queryset",
+    "query_type": "natural_language",
+    "expected_symbol": "StandardResultsSetPagination",
+    "expected_file_suffix": "api/pagination.py"
+  },
+  {
+    "query": "send a webhook notification on model save",
+    "query_type": "natural_language",
+    "expected_symbol": "notify_webhook",
+    "expected_file_suffix": "app/signals.py"
+  },
+  {
+    "query": "write a pytest fixture for database session",
+    "query_type": "natural_language",
+    "expected_symbol": "db_session",
+    "expected_file_suffix": "tests/conftest.py"
+  },
+  {
+    "query": "upload a file in FastAPI using UploadFile",
+    "query_type": "natural_language",
+    "expected_symbol": "upload_file",
+    "expected_file_suffix": "app/routers/files.py"
+  },
+  {
+    "query": "parse CSV file into a list of dicts",
+    "query_type": "natural_language",
+    "expected_symbol": "parse_csv",
+    "expected_file_suffix": "app/utils/csv_parser.py"
+  },
+  {
+    "query": "apply rate limiting to a FastAPI endpoint",
+    "query_type": "natural_language",
+    "expected_symbol": "rate_limit_middleware",
+    "expected_file_suffix": "app/middleware/rate_limit.py"
+  },
+  {
+    "query": "connect to Redis cache and set a value",
+    "query_type": "natural_language",
+    "expected_symbol": "get_redis_client",
+    "expected_file_suffix": "app/core/cache.py"
+  },
+  {
+    "query": "bulk insert records into PostgreSQL",
+    "query_type": "natural_language",
+    "expected_symbol": "bulk_create_records",
+    "expected_file_suffix": "app/repositories/base.py"
+  },
+  {
+    "query": "implement a repository pattern for database access",
+    "query_type": "natural_language",
+    "expected_symbol": "UserRepository",
+    "expected_file_suffix": "app/repositories/user.py"
+  },
+  {
+    "query": "create a custom exception handler in FastAPI",
+    "query_type": "natural_language",
+    "expected_symbol": "http_exception_handler",
+    "expected_file_suffix": "app/core/exceptions.py"
+  },
+  {
+    "query": "load configuration from environment variables",
+    "query_type": "natural_language",
+    "expected_symbol": "Settings",
+    "expected_file_suffix": "app/core/config.py"
+  },
+  {
+    "query": "implement a Python context manager for a transaction",
+    "query_type": "natural_language",
+    "expected_symbol": "transaction",
+    "expected_file_suffix": "app/database.py"
+  },
+  {
+    "query": "filter Django queryset by date range",
+    "query_type": "natural_language",
+    "expected_symbol": "filter_by_date_range",
+    "expected_file_suffix": "api/filters.py"
+  },
+  {
+    "query": "define GraphQL mutation to create a user",
+    "query_type": "natural_language",
+    "expected_symbol": "CreateUserMutation",
+    "expected_file_suffix": "graphql/mutations/user.py"
+  },
+  {
+    "query": "run a subprocess command and capture output",
+    "query_type": "natural_language",
+    "expected_symbol": "run_command",
+    "expected_file_suffix": "app/utils/subprocess_util.py"
+  },
+  {
+    "query": "decrypt a message using AES encryption",
+    "query_type": "natural_language",
+    "expected_symbol": "decrypt_message",
+    "expected_file_suffix": "app/core/crypto.py"
+  },
+  {
+    "query": "load a machine learning model from a file",
+    "query_type": "natural_language",
+    "expected_symbol": "load_model",
+    "expected_file_suffix": "ml/inference.py"
+  },
+  {
+    "query": "preprocess text for NLP pipeline",
+    "query_type": "natural_language",
+    "expected_symbol": "preprocess_text",
+    "expected_file_suffix": "ml/preprocessing.py"
+  },
+  {
+    "query": "stream large file response without loading into memory",
+    "query_type": "natural_language",
+    "expected_symbol": "stream_file_response",
+    "expected_file_suffix": "app/routers/files.py"
+  },
+  {
+    "query": "register a FastAPI dependency injection provider",
+    "query_type": "natural_language",
+    "expected_symbol": "get_current_user",
+    "expected_file_suffix": "app/dependencies.py"
+  },
+  {
+    "query": "configure CORS allowed origins in FastAPI",
+    "query_type": "natural_language",
+    "expected_symbol": "setup_cors",
+    "expected_file_suffix": "app/main.py"
+  },
+  {
+    "query": "TokenData",
+    "query_type": "identifier",
+    "expected_symbol": "TokenData",
+    "expected_file_suffix": "app/schemas/token.py"
+  },
+  {
+    "query": "UserInDB",
+    "query_type": "identifier",
+    "expected_symbol": "UserInDB",
+    "expected_file_suffix": "app/schemas/user.py"
+  },
+  {
+    "query": "check if user has permission to access a resource",
+    "query_type": "natural_language",
+    "expected_symbol": "check_permission",
+    "expected_file_suffix": "app/core/permissions.py"
+  },
+  {
+    "query": "extract features from raw dataset for training",
+    "query_type": "natural_language",
+    "expected_symbol": "extract_features",
+    "expected_file_suffix": "ml/feature_engineering.py"
+  },
+  {
+    "query": "write a pytest parametrize test for multiple inputs",
+    "query_type": "natural_language",
+    "expected_symbol": "test_validate_input",
+    "expected_file_suffix": "tests/test_validation.py"
+  },
+  {
+    "query": "handle async generator for streaming responses",
+    "query_type": "natural_language",
+    "expected_symbol": "event_stream",
+    "expected_file_suffix": "app/routers/stream.py"
+  },
+  {
+    "query": "retry a network request with exponential backoff",
+    "query_type": "natural_language",
+    "expected_symbol": "retry_request",
+    "expected_file_suffix": "app/utils/http_client.py"
+  },
+  {
+    "query": "convert a dataclass to a dict recursively",
+    "query_type": "natural_language",
+    "expected_symbol": "dataclass_to_dict",
+    "expected_file_suffix": "app/utils/serializer.py"
+  },
+  {
+    "query": "import data from external API and normalize schema",
+    "query_type": "natural_language",
+    "expected_symbol": "import_external_data",
+    "expected_file_suffix": "app/integrations/importer.py"
+  },
+  {
+    "query": "generate PDF report from HTML template",
+    "query_type": "natural_language",
+    "expected_symbol": "generate_pdf",
+    "expected_file_suffix": "app/utils/pdf_generator.py"
+  },
+  {
+    "query": "validate and sanitize user input against a schema",
+    "query_type": "natural_language",
+    "expected_symbol": "validate_input",
+    "expected_file_suffix": "app/validators.py"
+  },
+  {
+    "query": "BaseRepository",
+    "query_type": "identifier",
+    "expected_symbol": "BaseRepository",
+    "expected_file_suffix": "app/repositories/base.py"
+  },
+  {
+    "query": "CeleryConfig",
+    "query_type": "identifier",
+    "expected_symbol": "CeleryConfig",
+    "expected_file_suffix": "app/core/celery_config.py"
+  },
+  {
+    "query": "initialize SQLAlchemy ORM engine with connection string",
+    "query_type": "natural_language",
+    "expected_symbol": "create_engine",
+    "expected_file_suffix": "app/database.py"
+  },
+  {
+    "query": "detect anomalies in time series data",
+    "query_type": "natural_language",
+    "expected_symbol": "detect_anomalies",
+    "expected_file_suffix": "ml/anomaly_detection.py"
+  },
+  {
+    "query": "store and retrieve values from a Python LRU cache",
+    "query_type": "natural_language",
+    "expected_symbol": "cache_result",
+    "expected_file_suffix": "app/utils/cache.py"
+  },
+  {
+    "query": "implement Django custom management command",
+    "query_type": "natural_language",
+    "expected_symbol": "Command",
+    "expected_file_suffix": "management/commands/sync_data.py"
+  },
+  {
+    "query": "test a FastAPI endpoint with the TestClient",
+    "query_type": "natural_language",
+    "expected_symbol": "test_create_user",
+    "expected_file_suffix": "tests/test_users.py"
+  },
+  {
+    "query": "create a custom Django admin action",
+    "query_type": "natural_language",
+    "expected_symbol": "export_as_csv",
+    "expected_file_suffix": "admin/actions.py"
+  },
+  {
+    "query": "schedule a periodic task with Celery beat",
+    "query_type": "natural_language",
+    "expected_symbol": "schedule_cleanup",
+    "expected_file_suffix": "app/tasks/scheduler.py"
+  },
+  {
+    "query": "send a push notification to a mobile device",
+    "query_type": "natural_language",
+    "expected_symbol": "send_push_notification",
+    "expected_file_suffix": "app/services/push.py"
+  },
+  {
+    "query": "aggregate query results grouped by day",
+    "query_type": "natural_language",
+    "expected_symbol": "aggregate_by_day",
+    "expected_file_suffix": "app/analytics/queries.py"
+  },
+  {
+    "query": "HealthCheck",
+    "query_type": "identifier",
+    "expected_symbol": "HealthCheck",
+    "expected_file_suffix": "app/schemas/health.py"
+  },
+  {
+    "query": "DatabaseError",
+    "query_type": "identifier",
+    "expected_symbol": "DatabaseError",
+    "expected_file_suffix": "app/core/exceptions.py"
+  },
+  {
+    "query": "convert pandas DataFrame to a list of records",
+    "query_type": "natural_language",
+    "expected_symbol": "df_to_records",
+    "expected_file_suffix": "app/utils/dataframe.py"
+  },
+  {
+    "query": "read secrets from AWS Secrets Manager",
+    "query_type": "natural_language",
+    "expected_symbol": "get_secret",
+    "expected_file_suffix": "app/core/secrets.py"
+  },
+  {
+    "query": "encode a binary file as base64 string",
+    "query_type": "natural_language",
+    "expected_symbol": "encode_base64",
+    "expected_file_suffix": "app/utils/encoding.py"
+  },
+  {
+    "query": "verify an HMAC signature on an incoming webhook",
+    "query_type": "natural_language",
+    "expected_symbol": "verify_webhook_signature",
+    "expected_file_suffix": "app/core/webhooks.py"
+  },
+  {
+    "query": "find the closest matching item using fuzzy search",
+    "query_type": "natural_language",
+    "expected_symbol": "fuzzy_search",
+    "expected_file_suffix": "app/search/fuzzy.py"
+  },
+  {
+    "query": "run data validation and return a list of errors",
+    "query_type": "natural_language",
+    "expected_symbol": "run_validation",
+    "expected_file_suffix": "app/validators.py"
+  },
+  {
+    "query": "split a list into chunks of a given size",
+    "query_type": "natural_language",
+    "expected_symbol": "chunk_list",
+    "expected_file_suffix": "app/utils/itertools_ext.py"
+  },
+  {
+    "query": "log a request and its response time as a middleware",
+    "query_type": "natural_language",
+    "expected_symbol": "logging_middleware",
+    "expected_file_suffix": "app/middleware/logging.py"
+  },
+  {
+    "query": "compute TF-IDF score for document ranking",
+    "query_type": "natural_language",
+    "expected_symbol": "compute_tfidf",
+    "expected_file_suffix": "ml/tfidf.py"
+  },
+  {
+    "query": "create a dataclass for a configuration section",
+    "query_type": "natural_language",
+    "expected_symbol": "DatabaseConfig",
+    "expected_file_suffix": "app/core/config.py"
+  },
+  {
+    "query": "S3Client",
+    "query_type": "identifier",
+    "expected_symbol": "S3Client",
+    "expected_file_suffix": "app/integrations/s3.py"
+  },
+  {
+    "query": "PushNotificationPayload",
+    "query_type": "identifier",
+    "expected_symbol": "PushNotificationPayload",
+    "expected_file_suffix": "app/schemas/push.py"
+  },
+  {
+    "query": "summarize a long text using an LLM",
+    "query_type": "natural_language",
+    "expected_symbol": "summarize_text",
+    "expected_file_suffix": "ml/summarizer.py"
+  },
+  {
+    "query": "run a full-text search query on a database table",
+    "query_type": "natural_language",
+    "expected_symbol": "full_text_search",
+    "expected_file_suffix": "app/search/db_search.py"
+  },
+  {
+    "query": "track model training metrics per epoch",
+    "query_type": "natural_language",
+    "expected_symbol": "TrainingCallback",
+    "expected_file_suffix": "ml/callbacks.py"
+  },
+  {
+    "query": "handle HTTP request with context and timeout",
+    "query_type": "natural_language",
+    "expected_symbol": "HandleRequest",
+    "expected_file_suffix": "internal/handler/handler.go"
+  },
+  {
+    "query": "connect to PostgreSQL database using pgx driver",
+    "query_type": "natural_language",
+    "expected_symbol": "NewDBPool",
+    "expected_file_suffix": "internal/db/postgres.go"
+  },
+  {
+    "query": "run a database transaction with rollback on error",
+    "query_type": "natural_language",
+    "expected_symbol": "WithTransaction",
+    "expected_file_suffix": "internal/db/transaction.go"
+  },
+  {
+    "query": "parse JSON request body into a struct",
+    "query_type": "natural_language",
+    "expected_symbol": "DecodeJSON",
+    "expected_file_suffix": "internal/httputil/request.go"
+  },
+  {
+    "query": "generate a JWT token for a user",
+    "query_type": "natural_language",
+    "expected_symbol": "GenerateToken",
+    "expected_file_suffix": "internal/auth/jwt.go"
+  },
+  {
+    "query": "validate a JWT token and return claims",
+    "query_type": "natural_language",
+    "expected_symbol": "ValidateToken",
+    "expected_file_suffix": "internal/auth/jwt.go"
+  },
+  {
+    "query": "implement middleware for request logging",
+    "query_type": "natural_language",
+    "expected_symbol": "LoggingMiddleware",
+    "expected_file_suffix": "internal/middleware/logging.go"
+  },
+  {
+    "query": "write a gRPC server handler for a service method",
+    "query_type": "natural_language",
+    "expected_symbol": "CreateUser",
+    "expected_file_suffix": "internal/grpc/user_server.go"
+  },
+  {
+    "query": "publish a message to a Kafka topic",
+    "query_type": "natural_language",
+    "expected_symbol": "PublishMessage",
+    "expected_file_suffix": "internal/messaging/kafka_producer.go"
+  },
+  {
+    "query": "consume messages from a Kafka topic",
+    "query_type": "natural_language",
+    "expected_symbol": "ConsumeMessages",
+    "expected_file_suffix": "internal/messaging/kafka_consumer.go"
+  },
+  {
+    "query": "implement a retry loop with exponential backoff",
+    "query_type": "natural_language",
+    "expected_symbol": "RetryWithBackoff",
+    "expected_file_suffix": "internal/util/retry.go"
+  },
+  {
+    "query": "parse command-line flags using the flag package",
+    "query_type": "natural_language",
+    "expected_symbol": "ParseFlags",
+    "expected_file_suffix": "cmd/server/main.go"
+  },
+  {
+    "query": "gracefully shut down an HTTP server on signal",
+    "query_type": "natural_language",
+    "expected_symbol": "GracefulShutdown",
+    "expected_file_suffix": "internal/server/server.go"
+  },
+  {
+    "query": "read configuration from YAML file",
+    "query_type": "natural_language",
+    "expected_symbol": "LoadConfig",
+    "expected_file_suffix": "internal/config/loader.go"
+  },
+  {
+    "query": "implement a worker pool for parallel processing",
+    "query_type": "natural_language",
+    "expected_symbol": "WorkerPool",
+    "expected_file_suffix": "internal/worker/pool.go"
+  },
+  {
+    "query": "write unit test with table-driven test cases",
+    "query_type": "natural_language",
+    "expected_symbol": "TestHandleRequest",
+    "expected_file_suffix": "internal/handler/handler_test.go"
+  },
+  {
+    "query": "implement an LRU cache with expiration",
+    "query_type": "natural_language",
+    "expected_symbol": "NewLRUCache",
+    "expected_file_suffix": "internal/cache/lru.go"
+  },
+  {
+    "query": "use sync.WaitGroup to wait for goroutines",
+    "query_type": "natural_language",
+    "expected_symbol": "RunConcurrently",
+    "expected_file_suffix": "internal/util/concurrency.go"
+  },
+  {
+    "query": "register routes on an HTTP mux with middleware",
+    "query_type": "natural_language",
+    "expected_symbol": "RegisterRoutes",
+    "expected_file_suffix": "internal/server/routes.go"
+  },
+  {
+    "query": "read a file line by line using bufio scanner",
+    "query_type": "natural_language",
+    "expected_symbol": "ReadLines",
+    "expected_file_suffix": "internal/util/file.go"
+  },
+  {
+    "query": "encode a struct to JSON and write to response",
+    "query_type": "natural_language",
+    "expected_symbol": "WriteJSON",
+    "expected_file_suffix": "internal/httputil/response.go"
+  },
+  {
+    "query": "connect to Redis and implement a simple set-get",
+    "query_type": "natural_language",
+    "expected_symbol": "NewRedisClient",
+    "expected_file_suffix": "internal/cache/redis.go"
+  },
+  {
+    "query": "measure function execution latency with prometheus",
+    "query_type": "natural_language",
+    "expected_symbol": "RecordLatency",
+    "expected_file_suffix": "internal/metrics/prometheus.go"
+  },
+  {
+    "query": "Config",
+    "query_type": "identifier",
+    "expected_symbol": "Config",
+    "expected_file_suffix": "internal/config/config.go"
+  },
+  {
+    "query": "Server",
+    "query_type": "identifier",
+    "expected_symbol": "Server",
+    "expected_file_suffix": "internal/server/server.go"
+  },
+  {
+    "query": "Repository",
+    "query_type": "identifier",
+    "expected_symbol": "Repository",
+    "expected_file_suffix": "internal/db/repository.go"
+  },
+  {
+    "query": "implement OpenTelemetry trace span for a function",
+    "query_type": "natural_language",
+    "expected_symbol": "StartSpan",
+    "expected_file_suffix": "internal/tracing/tracer.go"
+  },
+  {
+    "query": "apply database migrations using goose",
+    "query_type": "natural_language",
+    "expected_symbol": "RunMigrations",
+    "expected_file_suffix": "internal/db/migrate.go"
+  },
+  {
+    "query": "marshal proto message to binary format",
+    "query_type": "natural_language",
+    "expected_symbol": "MarshalProto",
+    "expected_file_suffix": "internal/proto/util.go"
+  },
+  {
+    "query": "implement health check endpoint for Kubernetes",
+    "query_type": "natural_language",
+    "expected_symbol": "HealthHandler",
+    "expected_file_suffix": "internal/handler/health.go"
+  },
+  {
+    "query": "seed the database with initial test data",
+    "query_type": "natural_language",
+    "expected_symbol": "SeedDB",
+    "expected_file_suffix": "internal/db/seed.go"
+  },
+  {
+    "query": "scan SQL rows into a slice of structs",
+    "query_type": "natural_language",
+    "expected_symbol": "ScanRows",
+    "expected_file_suffix": "internal/db/scanner.go"
+  },
+  {
+    "query": "ErrNotFound",
+    "query_type": "identifier",
+    "expected_symbol": "ErrNotFound",
+    "expected_file_suffix": "internal/errors/errors.go"
+  },
+  {
+    "query": "handle an error by wrapping it with additional context",
+    "query_type": "natural_language",
+    "expected_symbol": "WrapError",
+    "expected_file_suffix": "internal/errors/errors.go"
+  },
+  {
+    "query": "validate a struct using validator tags",
+    "query_type": "natural_language",
+    "expected_symbol": "ValidateStruct",
+    "expected_file_suffix": "internal/util/validator.go"
+  },
+  {
+    "query": "log a structured message with fields using zap",
+    "query_type": "natural_language",
+    "expected_symbol": "NewLogger",
+    "expected_file_suffix": "internal/logger/zap.go"
+  },
+  {
+    "query": "create a mock implementation for an interface",
+    "query_type": "natural_language",
+    "expected_symbol": "MockUserRepository",
+    "expected_file_suffix": "internal/db/mock_repository.go"
+  },
+  {
+    "query": "compute SHA256 hash of a string",
+    "query_type": "natural_language",
+    "expected_symbol": "HashSHA256",
+    "expected_file_suffix": "internal/util/crypto.go"
+  },
+  {
+    "query": "JobWorker",
+    "query_type": "identifier",
+    "expected_symbol": "JobWorker",
+    "expected_file_suffix": "internal/worker/worker.go"
+  },
+  {
+    "query": "KafkaProducer",
+    "query_type": "identifier",
+    "expected_symbol": "KafkaProducer",
+    "expected_file_suffix": "internal/messaging/kafka_producer.go"
+  },
+  {
+    "query": "serialize a struct to a map for dynamic querying",
+    "query_type": "natural_language",
+    "expected_symbol": "StructToMap",
+    "expected_file_suffix": "internal/util/reflect.go"
+  },
+  {
+    "query": "implement a circuit breaker for external service calls",
+    "query_type": "natural_language",
+    "expected_symbol": "NewCircuitBreaker",
+    "expected_file_suffix": "internal/resilience/circuit_breaker.go"
+  },
+  {
+    "query": "rate limit requests using a token bucket algorithm",
+    "query_type": "natural_language",
+    "expected_symbol": "NewRateLimiter",
+    "expected_file_suffix": "internal/middleware/rate_limiter.go"
+  },
+  {
+    "query": "upload a file to GCS bucket",
+    "query_type": "natural_language",
+    "expected_symbol": "UploadToGCS",
+    "expected_file_suffix": "internal/storage/gcs.go"
+  },
+  {
+    "query": "decode URL-encoded query parameters",
+    "query_type": "natural_language",
+    "expected_symbol": "ParseQueryParams",
+    "expected_file_suffix": "internal/httputil/query.go"
+  },
+  {
+    "query": "define a Spring REST controller endpoint",
+    "query_type": "natural_language",
+    "expected_symbol": "UserController",
+    "expected_file_suffix": "src/main/java/com/example/controller/UserController.java"
+  },
+  {
+    "query": "create a Spring JPA repository interface",
+    "query_type": "natural_language",
+    "expected_symbol": "UserRepository",
+    "expected_file_suffix": "src/main/java/com/example/repository/UserRepository.java"
+  },
+  {
+    "query": "implement a Spring service layer with transaction",
+    "query_type": "natural_language",
+    "expected_symbol": "UserService",
+    "expected_file_suffix": "src/main/java/com/example/service/UserService.java"
+  },
+  {
+    "query": "configure Spring Security filter chain",
+    "query_type": "natural_language",
+    "expected_symbol": "SecurityConfig",
+    "expected_file_suffix": "src/main/java/com/example/config/SecurityConfig.java"
+  },
+  {
+    "query": "map a JPA entity to a database table",
+    "query_type": "natural_language",
+    "expected_symbol": "UserEntity",
+    "expected_file_suffix": "src/main/java/com/example/entity/UserEntity.java"
+  },
+  {
+    "query": "convert entity to DTO for API response",
+    "query_type": "natural_language",
+    "expected_symbol": "UserMapper",
+    "expected_file_suffix": "src/main/java/com/example/mapper/UserMapper.java"
+  },
+  {
+    "query": "handle global exceptions with Spring ControllerAdvice",
+    "query_type": "natural_language",
+    "expected_symbol": "GlobalExceptionHandler",
+    "expected_file_suffix": "src/main/java/com/example/exception/GlobalExceptionHandler.java"
+  },
+  {
+    "query": "write a JUnit 5 test with mocked dependencies",
+    "query_type": "natural_language",
+    "expected_symbol": "UserServiceTest",
+    "expected_file_suffix": "src/test/java/com/example/service/UserServiceTest.java"
+  },
+  {
+    "query": "create a Spring Batch job for data processing",
+    "query_type": "natural_language",
+    "expected_symbol": "ImportJobConfig",
+    "expected_file_suffix": "src/main/java/com/example/batch/ImportJobConfig.java"
+  },
+  {
+    "query": "publish a Spring application event and listen to it",
+    "query_type": "natural_language",
+    "expected_symbol": "UserCreatedEvent",
+    "expected_file_suffix": "src/main/java/com/example/event/UserCreatedEvent.java"
+  },
+  {
+    "query": "configure Liquibase database changelog",
+    "query_type": "natural_language",
+    "expected_symbol": "DatabaseConfig",
+    "expected_file_suffix": "src/main/java/com/example/config/DatabaseConfig.java"
+  },
+  {
+    "query": "implement a JWT authentication filter",
+    "query_type": "natural_language",
+    "expected_symbol": "JwtAuthenticationFilter",
+    "expected_file_suffix": "src/main/java/com/example/security/JwtAuthenticationFilter.java"
+  },
+  {
+    "query": "create a Spring Cache configuration with Redis",
+    "query_type": "natural_language",
+    "expected_symbol": "CacheConfig",
+    "expected_file_suffix": "src/main/java/com/example/config/CacheConfig.java"
+  },
+  {
+    "query": "send an email with Spring Mail and Thymeleaf template",
+    "query_type": "natural_language",
+    "expected_symbol": "EmailService",
+    "expected_file_suffix": "src/main/java/com/example/service/EmailService.java"
+  },
+  {
+    "query": "validate request body with Bean Validation annotations",
+    "query_type": "natural_language",
+    "expected_symbol": "CreateUserRequest",
+    "expected_file_suffix": "src/main/java/com/example/dto/CreateUserRequest.java"
+  },
+  {
+    "query": "UserServiceImpl",
+    "query_type": "identifier",
+    "expected_symbol": "UserServiceImpl",
+    "expected_file_suffix": "src/main/java/com/example/service/impl/UserServiceImpl.java"
+  },
+  {
+    "query": "JwtTokenProvider",
+    "query_type": "identifier",
+    "expected_symbol": "JwtTokenProvider",
+    "expected_file_suffix": "src/main/java/com/example/security/JwtTokenProvider.java"
+  },
+  {
+    "query": "schedule a Spring task with a cron expression",
+    "query_type": "natural_language",
+    "expected_symbol": "ScheduledTasks",
+    "expected_file_suffix": "src/main/java/com/example/scheduled/ScheduledTasks.java"
+  },
+  {
+    "query": "implement an aspect for method-level logging",
+    "query_type": "natural_language",
+    "expected_symbol": "LoggingAspect",
+    "expected_file_suffix": "src/main/java/com/example/aspect/LoggingAspect.java"
+  },
+  {
+    "query": "create a Spring WebClient for non-blocking HTTP calls",
+    "query_type": "natural_language",
+    "expected_symbol": "WebClientConfig",
+    "expected_file_suffix": "src/main/java/com/example/config/WebClientConfig.java"
+  },
+  {
+    "query": "write a custom Spring Health Indicator",
+    "query_type": "natural_language",
+    "expected_symbol": "DatabaseHealthIndicator",
+    "expected_file_suffix": "src/main/java/com/example/health/DatabaseHealthIndicator.java"
+  },
+  {
+    "query": "PageableResponse",
+    "query_type": "identifier",
+    "expected_symbol": "PageableResponse",
+    "expected_file_suffix": "src/main/java/com/example/dto/PageableResponse.java"
+  },
+  {
+    "query": "ApiException",
+    "query_type": "identifier",
+    "expected_symbol": "ApiException",
+    "expected_file_suffix": "src/main/java/com/example/exception/ApiException.java"
+  },
+  {
+    "query": "implement Flyway migration script to add a column",
+    "query_type": "natural_language",
+    "expected_symbol": "V2__add_email_column",
+    "expected_file_suffix": "src/main/resources/db/migration/V2__add_email_column.sql"
+  },
+  {
+    "query": "publish a message to a RabbitMQ exchange",
+    "query_type": "natural_language",
+    "expected_symbol": "MessagePublisher",
+    "expected_file_suffix": "src/main/java/com/example/messaging/MessagePublisher.java"
+  },
+  {
+    "query": "consume messages from a RabbitMQ queue",
+    "query_type": "natural_language",
+    "expected_symbol": "MessageConsumer",
+    "expected_file_suffix": "src/main/java/com/example/messaging/MessageConsumer.java"
+  },
+  {
+    "query": "configure OpenAPI Swagger documentation for the API",
+    "query_type": "natural_language",
+    "expected_symbol": "SwaggerConfig",
+    "expected_file_suffix": "src/main/java/com/example/config/SwaggerConfig.java"
+  },
+  {
+    "query": "search records with dynamic JPA Specification",
+    "query_type": "natural_language",
+    "expected_symbol": "UserSpecification",
+    "expected_file_suffix": "src/main/java/com/example/repository/spec/UserSpecification.java"
+  },
+  {
+    "query": "RabbitMQConfig",
+    "query_type": "identifier",
+    "expected_symbol": "RabbitMQConfig",
+    "expected_file_suffix": "src/main/java/com/example/config/RabbitMQConfig.java"
+  },
+  {
+    "query": "AuditListener",
+    "query_type": "identifier",
+    "expected_symbol": "AuditListener",
+    "expected_file_suffix": "src/main/java/com/example/audit/AuditListener.java"
+  },
+  {
+    "query": "implement an async TCP server with Tokio",
+    "query_type": "natural_language",
+    "expected_symbol": "run_server",
+    "expected_file_suffix": "src/server/tcp.rs"
+  },
+  {
+    "query": "deserialize JSON into a Rust struct with serde",
+    "query_type": "natural_language",
+    "expected_symbol": "from_json",
+    "expected_file_suffix": "src/models/message.rs"
+  },
+  {
+    "query": "define a custom error type with thiserror",
+    "query_type": "natural_language",
+    "expected_symbol": "AppError",
+    "expected_file_suffix": "src/error.rs"
+  },
+  {
+    "query": "query a database row with sqlx and bind parameters",
+    "query_type": "natural_language",
+    "expected_symbol": "find_by_id",
+    "expected_file_suffix": "src/repository/user.rs"
+  },
+  {
+    "query": "spawn a background task with Tokio handle",
+    "query_type": "natural_language",
+    "expected_symbol": "spawn_background_task",
+    "expected_file_suffix": "src/tasks/background.rs"
+  },
+  {
+    "query": "implement the Display trait for a custom type",
+    "query_type": "natural_language",
+    "expected_symbol": "fmt",
+    "expected_file_suffix": "src/types/status.rs"
+  },
+  {
+    "query": "write a property-based test with proptest",
+    "query_type": "natural_language",
+    "expected_symbol": "prop_test_roundtrip",
+    "expected_file_suffix": "tests/prop_tests.rs"
+  },
+  {
+    "query": "build a CLI argument parser with clap derive",
+    "query_type": "natural_language",
+    "expected_symbol": "Cli",
+    "expected_file_suffix": "src/cli.rs"
+  },
+  {
+    "query": "implement an Axum route handler with state injection",
+    "query_type": "natural_language",
+    "expected_symbol": "create_user_handler",
+    "expected_file_suffix": "src/handlers/user.rs"
+  },
+  {
+    "query": "use a channel to communicate between threads",
+    "query_type": "natural_language",
+    "expected_symbol": "run_with_channel",
+    "expected_file_suffix": "src/concurrency/channels.rs"
+  },
+  {
+    "query": "create a connection pool with deadpool-postgres",
+    "query_type": "natural_language",
+    "expected_symbol": "create_pool",
+    "expected_file_suffix": "src/db/pool.rs"
+  },
+  {
+    "query": "read and write a TOML configuration file",
+    "query_type": "natural_language",
+    "expected_symbol": "load_config",
+    "expected_file_suffix": "src/config.rs"
+  },
+  {
+    "query": "implement a custom Serde deserializer for a field",
+    "query_type": "natural_language",
+    "expected_symbol": "deserialize_timestamp",
+    "expected_file_suffix": "src/serde_helpers.rs"
+  },
+  {
+    "query": "verify HMAC-SHA256 signature in Rust",
+    "query_type": "natural_language",
+    "expected_symbol": "verify_hmac",
+    "expected_file_suffix": "src/crypto/hmac.rs"
+  },
+  {
+    "query": "implement From trait for error type conversion",
+    "query_type": "natural_language",
+    "expected_symbol": "from_sqlx_error",
+    "expected_file_suffix": "src/error.rs"
+  },
+  {
+    "query": "run integration test against a real database",
+    "query_type": "natural_language",
+    "expected_symbol": "test_user_repository",
+    "expected_file_suffix": "tests/integration/user_repo.rs"
+  },
+  {
+    "query": "AppConfig",
+    "query_type": "identifier",
+    "expected_symbol": "AppConfig",
+    "expected_file_suffix": "src/config.rs"
+  },
+  {
+    "query": "DbPool",
+    "query_type": "identifier",
+    "expected_symbol": "DbPool",
+    "expected_file_suffix": "src/db/pool.rs"
+  },
+  {
+    "query": "use Arc and Mutex to share state across async tasks",
+    "query_type": "natural_language",
+    "expected_symbol": "SharedState",
+    "expected_file_suffix": "src/state.rs"
+  },
+  {
+    "query": "implement a trait for pluggable storage backends",
+    "query_type": "natural_language",
+    "expected_symbol": "StorageBackend",
+    "expected_file_suffix": "src/storage/mod.rs"
+  },
+  {
+    "query": "parse command-line arguments and run subcommands",
+    "query_type": "natural_language",
+    "expected_symbol": "run_cli",
+    "expected_file_suffix": "src/main.rs"
+  },
+  {
+    "query": "emit structured tracing spans with tracing crate",
+    "query_type": "natural_language",
+    "expected_symbol": "init_tracing",
+    "expected_file_suffix": "src/telemetry.rs"
+  },
+  {
+    "query": "check if two byte slices are equal in constant time",
+    "query_type": "natural_language",
+    "expected_symbol": "constant_time_eq",
+    "expected_file_suffix": "src/crypto/util.rs"
+  },
+  {
+    "query": "AxumRouter",
+    "query_type": "identifier",
+    "expected_symbol": "AxumRouter",
+    "expected_file_suffix": "src/router.rs"
+  },
+  {
+    "query": "implement retry logic with a backoff strategy",
+    "query_type": "natural_language",
+    "expected_symbol": "retry_async",
+    "expected_file_suffix": "src/util/retry.rs"
+  },
+  {
+    "query": "write a benchmark test with criterion",
+    "query_type": "natural_language",
+    "expected_symbol": "bench_search",
+    "expected_file_suffix": "benches/search.rs"
+  },
+  {
+    "query": "TokenBucket",
+    "query_type": "identifier",
+    "expected_symbol": "TokenBucket",
+    "expected_file_suffix": "src/ratelimit/token_bucket.rs"
+  },
+  {
+    "query": "handle a timeout on an async future",
+    "query_type": "natural_language",
+    "expected_symbol": "with_timeout",
+    "expected_file_suffix": "src/util/timeout.rs"
+  },
+  {
+    "query": "generate a random cryptographic nonce",
+    "query_type": "natural_language",
+    "expected_symbol": "generate_nonce",
+    "expected_file_suffix": "src/crypto/nonce.rs"
+  },
+  {
+    "query": "flatten a nested Result and propagate errors",
+    "query_type": "natural_language",
+    "expected_symbol": "flatten_result",
+    "expected_file_suffix": "src/util/result_ext.rs"
+  },
+  {
+    "query": "define a Rails controller action to create a resource",
+    "query_type": "natural_language",
+    "expected_symbol": "create",
+    "expected_file_suffix": "app/controllers/api/v1/users_controller.rb"
+  },
+  {
+    "query": "write an ActiveRecord scope with a custom condition",
+    "query_type": "natural_language",
+    "expected_symbol": "active_users",
+    "expected_file_suffix": "app/models/user.rb"
+  },
+  {
+    "query": "add a before_action callback to authenticate requests",
+    "query_type": "natural_language",
+    "expected_symbol": "authenticate_user!",
+    "expected_file_suffix": "app/controllers/application_controller.rb"
+  },
+  {
+    "query": "serialize an ActiveRecord model to JSON with JBuilder",
+    "query_type": "natural_language",
+    "expected_symbol": "index.json.jbuilder",
+    "expected_file_suffix": "app/views/api/v1/users/index.json.jbuilder"
+  },
+  {
+    "query": "create a background job with Sidekiq",
+    "query_type": "natural_language",
+    "expected_symbol": "SendWelcomeEmailJob",
+    "expected_file_suffix": "app/jobs/send_welcome_email_job.rb"
+  },
+  {
+    "query": "write a Rails database migration to add a column",
+    "query_type": "natural_language",
+    "expected_symbol": "AddEmailToUsers",
+    "expected_file_suffix": "db/migrate/20240101_add_email_to_users.rb"
+  },
+  {
+    "query": "validate presence and uniqueness of a model attribute",
+    "query_type": "natural_language",
+    "expected_symbol": "validates_email",
+    "expected_file_suffix": "app/models/user.rb"
+  },
+  {
+    "query": "implement a custom Devise strategy for API token auth",
+    "query_type": "natural_language",
+    "expected_symbol": "TokenAuthenticatable",
+    "expected_file_suffix": "lib/devise/strategies/token_authenticatable.rb"
+  },
+  {
+    "query": "write an RSpec request spec for a POST endpoint",
+    "query_type": "natural_language",
+    "expected_symbol": "POST /api/v1/users",
+    "expected_file_suffix": "spec/requests/api/v1/users_spec.rb"
+  },
+  {
+    "query": "create a Rails service object for business logic",
+    "query_type": "natural_language",
+    "expected_symbol": "UserCreationService",
+    "expected_file_suffix": "app/services/user_creation_service.rb"
+  },
+  {
+    "query": "ApplicationRecord",
+    "query_type": "identifier",
+    "expected_symbol": "ApplicationRecord",
+    "expected_file_suffix": "app/models/application_record.rb"
+  },
+  {
+    "query": "ApplicationMailer",
+    "query_type": "identifier",
+    "expected_symbol": "ApplicationMailer",
+    "expected_file_suffix": "app/mailers/application_mailer.rb"
+  },
+  {
+    "query": "configure Rails routes with namespaced API endpoints",
+    "query_type": "natural_language",
+    "expected_symbol": "draw_routes",
+    "expected_file_suffix": "config/routes.rb"
+  },
+  {
+    "query": "use ActiveJob to enqueue a mailer in background",
+    "query_type": "natural_language",
+    "expected_symbol": "deliver_later",
+    "expected_file_suffix": "app/mailers/user_mailer.rb"
+  },
+  {
+    "query": "configure ActiveStorage for file attachments",
+    "query_type": "natural_language",
+    "expected_symbol": "has_one_attached",
+    "expected_file_suffix": "app/models/document.rb"
+  },
+  {
+    "query": "define a Laravel route with controller action",
+    "query_type": "natural_language",
+    "expected_symbol": "UserController",
+    "expected_file_suffix": "app/Http/Controllers/UserController.php"
+  },
+  {
+    "query": "create a Laravel Eloquent model with relationships",
+    "query_type": "natural_language",
+    "expected_symbol": "User",
+    "expected_file_suffix": "app/Models/User.php"
+  },
+  {
+    "query": "write a Laravel form request for input validation",
+    "query_type": "natural_language",
+    "expected_symbol": "CreateUserRequest",
+    "expected_file_suffix": "app/Http/Requests/CreateUserRequest.php"
+  },
+  {
+    "query": "dispatch a Laravel job to the queue",
+    "query_type": "natural_language",
+    "expected_symbol": "ProcessImportJob",
+    "expected_file_suffix": "app/Jobs/ProcessImportJob.php"
+  },
+  {
+    "query": "create a Laravel migration to add an index",
+    "query_type": "natural_language",
+    "expected_symbol": "CreateUsersTable",
+    "expected_file_suffix": "database/migrations/2024_01_01_create_users_table.php"
+  },
+  {
+    "query": "implement a Laravel middleware to check API key",
+    "query_type": "natural_language",
+    "expected_symbol": "CheckApiKey",
+    "expected_file_suffix": "app/Http/Middleware/CheckApiKey.php"
+  },
+  {
+    "query": "send an email with a Mailable and Blade template",
+    "query_type": "natural_language",
+    "expected_symbol": "WelcomeEmail",
+    "expected_file_suffix": "app/Mail/WelcomeEmail.php"
+  },
+  {
+    "query": "write a Laravel Observer to react to model events",
+    "query_type": "natural_language",
+    "expected_symbol": "UserObserver",
+    "expected_file_suffix": "app/Observers/UserObserver.php"
+  },
+  {
+    "query": "create a Livewire component for real-time search",
+    "query_type": "natural_language",
+    "expected_symbol": "SearchUsers",
+    "expected_file_suffix": "app/Http/Livewire/SearchUsers.php"
+  },
+  {
+    "query": "define a Laravel event and listener pair",
+    "query_type": "natural_language",
+    "expected_symbol": "UserRegistered",
+    "expected_file_suffix": "app/Events/UserRegistered.php"
+  },
+  {
+    "query": "ApiResource",
+    "query_type": "identifier",
+    "expected_symbol": "UserResource",
+    "expected_file_suffix": "app/Http/Resources/UserResource.php"
+  },
+  {
+    "query": "ServiceProvider",
+    "query_type": "identifier",
+    "expected_symbol": "AppServiceProvider",
+    "expected_file_suffix": "app/Providers/AppServiceProvider.php"
+  },
+  {
+    "query": "query database using Laravel Query Builder with joins",
+    "query_type": "natural_language",
+    "expected_symbol": "getUsersWithRoles",
+    "expected_file_suffix": "app/Repositories/UserRepository.php"
+  },
+  {
+    "query": "write a PHPUnit feature test for a POST endpoint",
+    "query_type": "natural_language",
+    "expected_symbol": "test_user_can_register",
+    "expected_file_suffix": "tests/Feature/UserRegistrationTest.php"
+  },
+  {
+    "query": "cache a database query result with Laravel Cache",
+    "query_type": "natural_language",
+    "expected_symbol": "getCachedUsers",
+    "expected_file_suffix": "app/Services/UserService.php"
+  },
+  {
+    "query": "JWT token generation",
+    "query_type": "short_phrase",
+    "expected_symbol": "generateToken",
+    "expected_file_suffix": "src/lib/jwt.ts"
+  },
+  {
+    "query": "form validation schema",
+    "query_type": "short_phrase",
+    "expected_symbol": "userSchema",
+    "expected_file_suffix": "src/schemas/user.ts"
+  },
+  {
+    "query": "file upload handler",
+    "query_type": "short_phrase",
+    "expected_symbol": "handleFileUpload",
+    "expected_file_suffix": "src/lib/upload.ts"
+  },
+  {
+    "query": "Redis cache client setup",
+    "query_type": "short_phrase",
+    "expected_symbol": "createRedisClient",
+    "expected_file_suffix": "src/lib/redis.ts"
+  },
+  {
+    "query": "database connection singleton",
+    "query_type": "short_phrase",
+    "expected_symbol": "getDbClient",
+    "expected_file_suffix": "src/lib/prisma.ts"
+  },
+  {
+    "query": "password strength validation",
+    "query_type": "short_phrase",
+    "expected_symbol": "validatePassword",
+    "expected_file_suffix": "src/utils/validation.ts"
+  },
+  {
+    "query": "access token expiry check",
+    "query_type": "short_phrase",
+    "expected_symbol": "isTokenExpired",
+    "expected_file_suffix": "src/lib/auth.ts"
+  },
+  {
+    "query": "image compression utility",
+    "query_type": "short_phrase",
+    "expected_symbol": "compressImage",
+    "expected_file_suffix": "src/lib/imageProcessor.ts"
+  },
+  {
+    "query": "Next.js error page component",
+    "query_type": "short_phrase",
+    "expected_symbol": "ErrorPage",
+    "expected_file_suffix": "src/pages/_error.tsx"
+  },
+  {
+    "query": "user session persistence hook",
+    "query_type": "short_phrase",
+    "expected_symbol": "useSession",
+    "expected_file_suffix": "src/hooks/useSession.ts"
+  },
+  {
+    "query": "async database session factory",
+    "query_type": "short_phrase",
+    "expected_symbol": "async_session_factory",
+    "expected_file_suffix": "app/database.py"
+  },
+  {
+    "query": "user model serialization",
+    "query_type": "short_phrase",
+    "expected_symbol": "UserResponse",
+    "expected_file_suffix": "app/schemas/user.py"
+  },
+  {
+    "query": "background task queue",
+    "query_type": "short_phrase",
+    "expected_symbol": "task_queue",
+    "expected_file_suffix": "app/core/queue.py"
+  },
+  {
+    "query": "Pydantic settings config",
+    "query_type": "short_phrase",
+    "expected_symbol": "get_settings",
+    "expected_file_suffix": "app/core/config.py"
+  },
+  {
+    "query": "password reset token generation",
+    "query_type": "short_phrase",
+    "expected_symbol": "generate_reset_token",
+    "expected_file_suffix": "app/core/security.py"
+  },
+  {
+    "query": "Django test factory for user",
+    "query_type": "short_phrase",
+    "expected_symbol": "UserFactory",
+    "expected_file_suffix": "tests/factories.py"
+  },
+  {
+    "query": "ML model prediction endpoint",
+    "query_type": "short_phrase",
+    "expected_symbol": "predict",
+    "expected_file_suffix": "app/routers/ml.py"
+  },
+  {
+    "query": "CSV row parser utility",
+    "query_type": "short_phrase",
+    "expected_symbol": "parse_row",
+    "expected_file_suffix": "app/utils/csv_parser.py"
+  },
+  {
+    "query": "context deadline propagation",
+    "query_type": "short_phrase",
+    "expected_symbol": "WithDeadline",
+    "expected_file_suffix": "internal/util/context.go"
+  },
+  {
+    "query": "HTTP JSON error response",
+    "query_type": "short_phrase",
+    "expected_symbol": "ErrorResponse",
+    "expected_file_suffix": "internal/httputil/response.go"
+  },
+  {
+    "query": "goroutine safe counter",
+    "query_type": "short_phrase",
+    "expected_symbol": "AtomicCounter",
+    "expected_file_suffix": "internal/util/counter.go"
+  },
+  {
+    "query": "database row scanner helper",
+    "query_type": "short_phrase",
+    "expected_symbol": "ScanUser",
+    "expected_file_suffix": "internal/db/scanner.go"
+  },
+  {
+    "query": "OpenTelemetry span context",
+    "query_type": "short_phrase",
+    "expected_symbol": "ExtractSpanContext",
+    "expected_file_suffix": "internal/tracing/propagator.go"
+  },
+  {
+    "query": "JWT claims struct",
+    "query_type": "short_phrase",
+    "expected_symbol": "Claims",
+    "expected_file_suffix": "internal/auth/claims.go"
+  },
+  {
+    "query": "Spring bean factory method",
+    "query_type": "short_phrase",
+    "expected_symbol": "userServiceBean",
+    "expected_file_suffix": "src/main/java/com/example/config/AppConfig.java"
+  },
+  {
+    "query": "JPA entity auditing",
+    "query_type": "short_phrase",
+    "expected_symbol": "BaseAuditEntity",
+    "expected_file_suffix": "src/main/java/com/example/entity/BaseAuditEntity.java"
+  },
+  {
+    "query": "custom validator annotation",
+    "query_type": "short_phrase",
+    "expected_symbol": "ValidEmail",
+    "expected_file_suffix": "src/main/java/com/example/validation/ValidEmail.java"
+  },
+  {
+    "query": "REST API pagination response",
+    "query_type": "short_phrase",
+    "expected_symbol": "buildPageResponse",
+    "expected_file_suffix": "src/main/java/com/example/util/PageUtil.java"
+  },
+  {
+    "query": "async trait implementation",
+    "query_type": "short_phrase",
+    "expected_symbol": "AsyncHandler",
+    "expected_file_suffix": "src/traits/handler.rs"
+  },
+  {
+    "query": "config file loading",
+    "query_type": "short_phrase",
+    "expected_symbol": "from_file",
+    "expected_file_suffix": "src/config.rs"
+  },
+  {
+    "query": "error chain conversion",
+    "query_type": "short_phrase",
+    "expected_symbol": "into_app_error",
+    "expected_file_suffix": "src/error.rs"
+  },
+  {
+    "query": "connection pool initialization",
+    "query_type": "short_phrase",
+    "expected_symbol": "init_pool",
+    "expected_file_suffix": "src/db/pool.rs"
+  },
+  {
+    "query": "middleware stack builder",
+    "query_type": "short_phrase",
+    "expected_symbol": "build_middleware",
+    "expected_file_suffix": "src/server/middleware.rs"
+  },
+  {
+    "query": "ActiveRecord association helpers",
+    "query_type": "short_phrase",
+    "expected_symbol": "belongs_to_user",
+    "expected_file_suffix": "app/models/post.rb"
+  },
+  {
+    "query": "Rails concern for soft delete",
+    "query_type": "short_phrase",
+    "expected_symbol": "SoftDeletable",
+    "expected_file_suffix": "app/models/concerns/soft_deletable.rb"
+  },
+  {
+    "query": "Sidekiq retry configuration",
+    "query_type": "short_phrase",
+    "expected_symbol": "sidekiq_options",
+    "expected_file_suffix": "app/jobs/base_job.rb"
+  },
+  {
+    "query": "Eloquent query scope",
+    "query_type": "short_phrase",
+    "expected_symbol": "scopeActive",
+    "expected_file_suffix": "app/Models/User.php"
+  },
+  {
+    "query": "Laravel service container binding",
+    "query_type": "short_phrase",
+    "expected_symbol": "register",
+    "expected_file_suffix": "app/Providers/AppServiceProvider.php"
+  },
+  {
+    "query": "Blade component rendering",
+    "query_type": "short_phrase",
+    "expected_symbol": "render",
+    "expected_file_suffix": "app/View/Components/Button.php"
+  },
+  {
+    "query": "SignedUploadUrlResult",
+    "query_type": "identifier",
+    "expected_symbol": "SignedUploadUrlResult",
+    "expected_file_suffix": "src/types/storage.ts"
+  },
+  {
+    "query": "CheckoutSessionParams",
+    "query_type": "identifier",
+    "expected_symbol": "CheckoutSessionParams",
+    "expected_file_suffix": "src/types/billing.ts"
+  },
+  {
+    "query": "WebSocketMessage",
+    "query_type": "identifier",
+    "expected_symbol": "WebSocketMessage",
+    "expected_file_suffix": "src/types/websocket.ts"
+  },
+  {
+    "query": "FeatureFlags",
+    "query_type": "identifier",
+    "expected_symbol": "FeatureFlags",
+    "expected_file_suffix": "src/types/features.ts"
+  },
+  {
+    "query": "JobPayload",
+    "query_type": "identifier",
+    "expected_symbol": "JobPayload",
+    "expected_file_suffix": "src/types/jobs.ts"
+  },
+  {
+    "query": "EmailTemplate",
+    "query_type": "identifier",
+    "expected_symbol": "EmailTemplate",
+    "expected_file_suffix": "src/types/email.ts"
+  },
+  {
+    "query": "AnomalyResult",
+    "query_type": "identifier",
+    "expected_symbol": "AnomalyResult",
+    "expected_file_suffix": "ml/anomaly_detection.py"
+  },
+  {
+    "query": "ImportRecord",
+    "query_type": "identifier",
+    "expected_symbol": "ImportRecord",
+    "expected_file_suffix": "app/schemas/import_record.py"
+  },
+  {
+    "query": "WebhookEvent",
+    "query_type": "identifier",
+    "expected_symbol": "WebhookEvent",
+    "expected_file_suffix": "app/schemas/webhook.py"
+  },
+  {
+    "query": "PaginatedResponse",
+    "query_type": "identifier",
+    "expected_symbol": "PaginatedResponse",
+    "expected_file_suffix": "app/schemas/pagination.py"
+  },
+  {
+    "query": "UserDTO",
+    "query_type": "identifier",
+    "expected_symbol": "UserDTO",
+    "expected_file_suffix": "internal/dto/user.go"
+  },
+  {
+    "query": "CircuitBreaker",
+    "query_type": "identifier",
+    "expected_symbol": "CircuitBreaker",
+    "expected_file_suffix": "internal/resilience/circuit_breaker.go"
+  },
+  {
+    "query": "MetricsCollector",
+    "query_type": "identifier",
+    "expected_symbol": "MetricsCollector",
+    "expected_file_suffix": "internal/metrics/collector.go"
+  },
+  {
+    "query": "UserDto",
+    "query_type": "identifier",
+    "expected_symbol": "UserDto",
+    "expected_file_suffix": "src/main/java/com/example/dto/UserDto.java"
+  },
+  {
+    "query": "OrderEntity",
+    "query_type": "identifier",
+    "expected_symbol": "OrderEntity",
+    "expected_file_suffix": "src/main/java/com/example/entity/OrderEntity.java"
+  },
+  {
+    "query": "HandlerError",
+    "query_type": "identifier",
+    "expected_symbol": "HandlerError",
+    "expected_file_suffix": "src/handlers/error.rs"
+  },
+  {
+    "query": "StorageConfig",
+    "query_type": "identifier",
+    "expected_symbol": "StorageConfig",
+    "expected_file_suffix": "src/storage/config.rs"
+  },
+  {
+    "query": "ApplicationJob",
+    "query_type": "identifier",
+    "expected_symbol": "ApplicationJob",
+    "expected_file_suffix": "app/jobs/application_job.rb"
+  },
+  {
+    "query": "BaseController",
+    "query_type": "identifier",
+    "expected_symbol": "BaseController",
+    "expected_file_suffix": "app/Http/Controllers/Controller.php"
   }
 ]
