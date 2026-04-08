@@ -87,7 +87,7 @@ impl SqliteVecStore {
 
         let conn = Connection::open(db_path)?;
         conn.execute_batch(
-            "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL;",
+            "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL; PRAGMA auto_vacuum=INCREMENTAL;",
         )?;
 
         // Check if DB exists with a different model — if so, drop and recreate

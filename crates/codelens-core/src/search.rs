@@ -164,6 +164,28 @@ pub fn search_symbols_hybrid_with_semantic(
             .partial_cmp(&a.score)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
+
+    // Diversity pass: limit results per file to avoid clustering from one module.
+    // Promotes cross-file discovery while keeping the highest-scored results.
+    const MAX_PER_FILE: usize = 3;
+    if results.len() > max_results {
+        let mut file_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut promoted = Vec::with_capacity(max_results);
+        let mut demoted = Vec::new();
+        for r in results {
+            let count = file_counts.entry(r.file.clone()).or_insert(0);
+            if *count < MAX_PER_FILE {
+                *count += 1;
+                promoted.push(r);
+            } else {
+                demoted.push(r);
+            }
+        }
+        promoted.extend(demoted);
+        results = promoted;
+    }
+
     results.truncate(max_results);
     Ok(results)
 }

@@ -466,8 +466,29 @@ pub(crate) fn run_analysis_job_from_queue(
             {
                 return Ok(JobLifecycle::Cancelled);
             }
-            let result = run_job_kind_with_progress(worker_state, &job_id, &kind, &arguments);
-            match result {
+            // Retry transient failures up to 2 times with backoff
+            let mut last_err = None;
+            let mut result = None;
+            for attempt in 0..3 {
+                match run_job_kind_with_progress(worker_state, &job_id, &kind, &arguments) {
+                    Ok(payload) => {
+                        result = Some(payload);
+                        break;
+                    }
+                    Err(e) if attempt < 2 => {
+                        last_err = Some(e);
+                        std::thread::sleep(std::time::Duration::from_millis(
+                            100 * (attempt as u64 + 1),
+                        ));
+                        continue;
+                    }
+                    Err(e) => {
+                        last_err = Some(e);
+                        break;
+                    }
+                }
+            }
+            match result.map(Ok).unwrap_or_else(|| Err(last_err.unwrap())) {
                 Ok(payload) if payload.is_object() => {
                     let (analysis_id, estimated_sections) = extract_handle_fields(&payload);
                     let current = worker_state.get_analysis_job(&job_id);
