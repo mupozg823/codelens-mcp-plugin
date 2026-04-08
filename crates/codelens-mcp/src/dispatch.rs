@@ -132,7 +132,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         })
         .unwrap_or_default();
 
-    let candidate_limit = max_results.saturating_mul(4).clamp(max_results, 80);
+    let candidate_limit = max_results.saturating_mul(8).clamp(max_results, 200);
     let mut results =
         crate::tools::symbols::semantic_results_for_query(state, query, candidate_limit, false);
 
@@ -141,6 +141,39 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         let key = format!("{}:{}", result.file_path, result.symbol_name);
         if structural_names.contains(&key) {
             result.score += 0.06;
+        }
+    }
+
+    // Apply query-keyword ↔ symbol-name matching boost.
+    // Extract content words from query (skip stop words), then check if
+    // the snake_case / camelCase symbol name contains any of them.
+    {
+        let stop_words: std::collections::HashSet<&str> = [
+            "a", "an", "the", "in", "on", "at", "to", "for", "of", "with", "from", "by", "is",
+            "are", "was", "were", "be", "do", "does", "how", "what", "when", "where", "which",
+            "all", "and", "or", "into", "using", "via",
+        ]
+        .into_iter()
+        .collect();
+        let query_keywords: Vec<String> = query
+            .to_ascii_lowercase()
+            .split_whitespace()
+            .filter(|w| w.len() >= 3 && !stop_words.contains(w))
+            .map(|w| w.to_owned())
+            .collect();
+        if !query_keywords.is_empty() {
+            for result in &mut results {
+                let sym_lower = result.symbol_name.to_ascii_lowercase();
+                let matched = query_keywords
+                    .iter()
+                    .filter(|kw| sym_lower.contains(kw.as_str()))
+                    .count();
+                if matched > 0 {
+                    // Proportional boost: more keyword matches = higher boost
+                    let boost = 0.08 * matched as f64;
+                    result.score += boost.min(0.20);
+                }
+            }
         }
     }
     // Re-sort after boosting and truncate

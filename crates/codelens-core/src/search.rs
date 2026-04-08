@@ -126,7 +126,7 @@ pub fn search_symbols_hybrid_with_semantic(
             if seen.contains(&key) {
                 let sem_key = format!("{file_path}:{name}");
                 if let Some(&sem_score) = scores.get(&sem_key)
-                    && sem_score > 0.3
+                    && sem_score > 0.1
                     && let Some(existing) = results
                         .iter_mut()
                         .find(|r| r.name == name && r.file == file_path && r.line == line as usize)
@@ -136,7 +136,7 @@ pub fn search_symbols_hybrid_with_semantic(
                 continue;
             }
             let sem_key = format!("{file_path}:{name}");
-            if let Some(&sem_score) = scores.get(&sem_key).filter(|&&s| s > 0.5) {
+            if let Some(&sem_score) = scores.get(&sem_key).filter(|&&s| s > 0.15) {
                 seen.insert(key);
                 results.push(SearchResult {
                     name,
@@ -338,8 +338,8 @@ mod tests {
     fn semantic_low_scores_filtered_out() {
         let (_root, project) = make_project_with_symbols();
         let mut scores = std::collections::HashMap::new();
-        // Score below 0.5 threshold should not produce semantic match
-        scores.insert("main.py:helper".to_owned(), 0.3);
+        // Score below 0.15 threshold should not produce semantic match
+        scores.insert("main.py:helper".to_owned(), 0.1);
 
         let results = search_symbols_hybrid_with_semantic(
             &project,
