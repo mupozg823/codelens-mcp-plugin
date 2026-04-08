@@ -332,10 +332,17 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
             .get("total_affected_files")
             .and_then(|value| value.as_u64())
             .unwrap_or_default();
-        top_findings.push(format!("{path}: {affected} affected file(s)"));
+        let change_kind = codelens_core::git::classify_change_kind(&state.project(), path);
+        let kind_label = if change_kind == "additive" {
+            " (additive)"
+        } else {
+            ""
+        };
+        top_findings.push(format!("{path}: {affected} affected file(s){kind_label}"));
         impact_rows.push(json!({
             "path": path,
             "affected_files": affected,
+            "change_kind": change_kind,
             "direct_importers": impact.get("direct_importers").cloned().unwrap_or(json!([])),
             "blast_radius": impact.get("blast_radius").cloned().unwrap_or(json!([])),
         }));

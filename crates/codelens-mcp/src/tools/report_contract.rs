@@ -252,17 +252,26 @@ fn build_verifier_contract(
             .and_then(|value| value.as_array())
             .cloned()
             .unwrap_or_default();
+        // Only count non-additive changes toward the blast radius threshold.
+        // Additive changes (new exports, new files) are backwards-compatible and
+        // don't break existing importers.
         let high_impact = impacted.iter().any(|row| {
-            row.get("affected_files")
-                .and_then(|value| value.as_u64())
-                .unwrap_or_default()
-                >= 8
+            let is_additive = row
+                .get("change_kind")
+                .and_then(|v| v.as_str())
+                .is_some_and(|k| k == "additive");
+            !is_additive
+                && row
+                    .get("affected_files")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or_default()
+                    >= 8
         });
         reference_details["impact_rows"] = json!(impacted.len());
         if high_impact {
             reference_status = VERIFIER_CAUTION;
             reference_summary =
-                "Large blast radius detected; expand importer evidence before broad edits."
+                "Large blast radius detected for breaking change; expand importer evidence before broad edits."
                     .to_owned();
         } else if impacted.is_empty() {
             reference_status = VERIFIER_CAUTION;

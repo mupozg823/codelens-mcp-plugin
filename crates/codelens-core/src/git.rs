@@ -119,6 +119,35 @@ pub fn get_changed_files(
     Ok(dedup_files(all_files))
 }
 
+/// Check whether the diff for a single file is additive-only (no deleted lines).
+/// Returns `"additive"` if the file has 0 deleted lines (new exports, new code),
+/// `"breaking"` if it was deleted, or `"mixed"` otherwise.
+pub fn classify_change_kind(project: &ProjectRoot, file_path: &str) -> String {
+    // New/untracked files are always additive
+    let status = run_git(project, &["status", "--porcelain", "--", file_path])
+        .unwrap_or_default();
+    let status_char = status.trim().chars().next().unwrap_or('M');
+    if status_char == '?' || status_char == 'A' {
+        return "additive".to_owned();
+    }
+    if status_char == 'D' {
+        return "breaking".to_owned();
+    }
+    // For modified files: check numstat (additions/deletions)
+    let numstat = run_git(project, &["diff", "--numstat", "HEAD", "--", file_path])
+        .unwrap_or_default();
+    if let Some(line) = numstat.lines().next() {
+        let parts: Vec<&str> = line.split('\t').collect();
+        if parts.len() >= 2 {
+            let deletions: u64 = parts[1].parse().unwrap_or(1);
+            if deletions == 0 {
+                return "additive".to_owned();
+            }
+        }
+    }
+    "mixed".to_owned()
+}
+
 pub fn get_diff_symbols(project: &ProjectRoot, git_ref: Option<&str>) -> Result<Vec<DiffSymbol>> {
     use crate::symbols::{SymbolKind, get_symbols_overview};
 
