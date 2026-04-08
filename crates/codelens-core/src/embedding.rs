@@ -2063,7 +2063,17 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         .unwrap_or_default();
 
     if docstring.is_empty() {
-        base
+        // Fallback: extract the first meaningful line from the function body.
+        // This captures key API calls (e.g. "tree_sitter::Parser", "stdin()")
+        // that help the embedding model match NL queries to symbols without docs.
+        let body_hint = source
+            .and_then(|src| extract_body_hint(src, sym.start_byte as usize, sym.end_byte as usize))
+            .unwrap_or_default();
+        if body_hint.is_empty() {
+            base
+        } else {
+            format!("{} — {}", base, body_hint)
+        }
     } else {
         let first_line = docstring.lines().next().unwrap_or(&docstring);
         let truncated = if first_line.chars().count() > 60 {
@@ -2074,6 +2084,60 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         };
         format!("{} — {}", base, truncated)
     }
+}
+
+/// Extract the first meaningful line from a function body (skipping braces, whitespace, comments).
+/// Used as a fallback when no docstring is available, to give the embedding model
+/// a hint about what the function actually does (e.g. "let parser = tree_sitter::Parser::new()").
+fn extract_body_hint(source: &str, start: usize, end: usize) -> Option<String> {
+    if start >= source.len() || end > source.len() || start >= end {
+        return None;
+    }
+    let safe_start = if source.is_char_boundary(start) {
+        start
+    } else {
+        source.floor_char_boundary(start)
+    };
+    let safe_end = end.min(source.len());
+    let safe_end = if source.is_char_boundary(safe_end) {
+        safe_end
+    } else {
+        source.floor_char_boundary(safe_end)
+    };
+    let body = &source[safe_start..safe_end];
+
+    // Skip past the signature: everything until we see a line ending with '{' or ':'
+    // (opening brace of the function body), then start looking for meaningful lines.
+    let mut past_signature = false;
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if !past_signature {
+            // Keep skipping until we find the opening brace/colon
+            if trimmed.ends_with('{') || trimmed.ends_with(':') || trimmed == "{" {
+                past_signature = true;
+            }
+            continue;
+        }
+        // Skip comments, blank lines, closing braces
+        if trimmed.is_empty()
+            || trimmed.starts_with("//")
+            || trimmed.starts_with('#')
+            || trimmed.starts_with("/*")
+            || trimmed.starts_with('*')
+            || trimmed == "}"
+        {
+            continue;
+        }
+        // Found a meaningful line
+        let hint = if trimmed.chars().count() > 60 {
+            let s: String = trimmed.chars().take(60).collect();
+            format!("{s}...")
+        } else {
+            trimmed.to_string()
+        };
+        return Some(hint);
+    }
+    None
 }
 
 /// Extract the leading docstring or comment block from a symbol's body.
@@ -2361,6 +2425,28 @@ mod tests {
     fn extract_leading_doc_returns_none_for_no_doc() {
         let source = "def f():\n    return 1\n";
         assert!(extract_leading_doc(source, 0, source.len()).is_none());
+    }
+
+    #[test]
+    fn extract_body_hint_finds_first_meaningful_line() {
+        let source = "pub fn parse_symbols(\n    project: &ProjectRoot,\n) -> Vec<SymbolInfo> {\n    let mut parser = tree_sitter::Parser::new();\n    parser.set_language(lang);\n}\n";
+        let hint = extract_body_hint(source, 0, source.len());
+        assert!(hint.is_some());
+        assert!(hint.unwrap().contains("tree_sitter::Parser"));
+    }
+
+    #[test]
+    fn extract_body_hint_skips_comments() {
+        let source = "fn foo() {\n    // setup\n    let x = bar();\n}\n";
+        let hint = extract_body_hint(source, 0, source.len());
+        assert_eq!(hint.unwrap(), "let x = bar();");
+    }
+
+    #[test]
+    fn extract_body_hint_returns_none_for_empty() {
+        let source = "fn empty() {\n}\n";
+        let hint = extract_body_hint(source, 0, source.len());
+        assert!(hint.is_none());
     }
 
     #[test]
