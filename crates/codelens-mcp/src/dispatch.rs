@@ -132,7 +132,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         })
         .unwrap_or_default();
 
-    let candidate_limit = max_results.saturating_mul(8).clamp(max_results, 200);
+    let candidate_limit = max_results.saturating_mul(4).clamp(max_results, 80);
     let mut results =
         crate::tools::symbols::semantic_results_for_query(state, query, candidate_limit, false);
 
@@ -144,39 +144,45 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         }
     }
 
-    // Apply query-keyword ↔ symbol-name matching boost.
-    // Extract content words from query (skip stop words), then check if
-    // the snake_case / camelCase symbol name contains any of them.
+    // Merge hybrid search results: lexical/FTS/fuzzy catches symbols that
+    // semantic embedding misses (e.g. "parse" → parse_symbols via FTS).
+    // Convert hybrid SearchResults into SemanticMatch format and merge.
     {
-        let stop_words: std::collections::HashSet<&str> = [
-            "a", "an", "the", "in", "on", "at", "to", "for", "of", "with", "from", "by", "is",
-            "are", "was", "were", "be", "do", "does", "how", "what", "when", "where", "which",
-            "all", "and", "or", "into", "using", "via",
-        ]
-        .into_iter()
-        .collect();
-        let query_keywords: Vec<String> = query
-            .to_ascii_lowercase()
-            .split_whitespace()
-            .filter(|w| w.len() >= 3 && !stop_words.contains(w))
-            .map(|w| w.to_owned())
+        let semantic_scores: std::collections::HashMap<String, f64> = results
+            .iter()
+            .map(|r| (format!("{}:{}", r.file_path, r.symbol_name), r.score as f64))
             .collect();
-        if !query_keywords.is_empty() {
-            for result in &mut results {
-                let sym_lower = result.symbol_name.to_ascii_lowercase();
-                let matched = query_keywords
-                    .iter()
-                    .filter(|kw| sym_lower.contains(kw.as_str()))
-                    .count();
-                if matched > 0 {
-                    // Proportional boost: more keyword matches = higher boost
-                    let boost = 0.08 * matched as f64;
-                    result.score += boost.min(0.20);
-                }
+        let hybrid = codelens_core::search::search_symbols_hybrid_with_semantic(
+            &project,
+            query,
+            candidate_limit,
+            0.7,
+            Some(&semantic_scores),
+        )
+        .unwrap_or_default();
+
+        let mut seen: std::collections::HashSet<String> = results
+            .iter()
+            .map(|r| format!("{}:{}:{}", r.file_path, r.symbol_name, r.line))
+            .collect();
+
+        for hr in hybrid {
+            let key = format!("{}:{}:{}", hr.file, hr.name, hr.line);
+            if seen.insert(key) {
+                results.push(codelens_core::SemanticMatch {
+                    file_path: hr.file,
+                    symbol_name: hr.name,
+                    kind: hr.kind,
+                    line: hr.line,
+                    signature: hr.signature,
+                    name_path: hr.name_path,
+                    score: hr.score / 100.0, // normalize from 0-100 to 0-1
+                });
             }
         }
     }
-    // Re-sort after boosting and truncate
+
+    // Re-sort and truncate
     results = crate::tools::symbols::rerank_semantic_matches(query, results, max_results);
 
     let result_scores = results
