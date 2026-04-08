@@ -503,14 +503,14 @@ pub(crate) fn semantic_results_for_query(
     }
 
     let guard = state.embedding_engine();
-    if let Some(engine) = guard.as_ref() {
-        if engine.is_indexed() {
-            let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
-            let results = engine
-                .search(&semantic_query, candidate_limit)
-                .unwrap_or_default();
-            return rerank_semantic_matches(query, results, limit);
-        }
+    if let Some(engine) = guard.as_ref()
+        && engine.is_indexed()
+    {
+        let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
+        let results = engine
+            .search(&semantic_query, candidate_limit)
+            .unwrap_or_default();
+        return rerank_semantic_matches(query, results, limit);
     }
     Vec::new()
 }

@@ -338,17 +338,16 @@ fn find_shadowing_files(
 
     // Try DB-based batch lookup first (avoids per-file tree-sitter re-parse)
     let db_path = crate::db::index_db_path(project.as_path());
-    if let Ok(db) = crate::db::IndexDb::open(&db_path) {
-        if let Ok(symbols) = db.symbols_for_files(&files_with_matches) {
-            if !symbols.is_empty() {
-                for sym in &symbols {
-                    if sym.name == symbol_name && sym.file_path != declaration_file {
-                        shadow_files.insert(sym.file_path.clone());
-                    }
-                }
-                return Ok(shadow_files);
+    if let Ok(db) = crate::db::IndexDb::open(&db_path)
+        && let Ok(symbols) = db.symbols_for_files(&files_with_matches)
+        && !symbols.is_empty()
+    {
+        for sym in &symbols {
+            if sym.name == symbol_name && sym.file_path != declaration_file {
+                shadow_files.insert(sym.file_path.clone());
             }
         }
+        return Ok(shadow_files);
     }
 
     // Fallback: per-file tree-sitter parse

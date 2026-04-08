@@ -317,6 +317,19 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         )
     };
 
+    // Pre-compute change_kind for all target files to avoid repeated git calls inside the loop.
+    let project = state.project();
+    let change_kinds: std::collections::HashMap<&str, String> = target_files
+        .iter()
+        .take(5)
+        .map(|p| {
+            (
+                p.as_str(),
+                codelens_core::git::classify_change_kind(&project, p),
+            )
+        })
+        .collect();
+
     let mut impact_rows = Vec::new();
     let mut top_findings = Vec::new();
     for path in target_files.iter().take(5) {
@@ -332,7 +345,10 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
             .get("total_affected_files")
             .and_then(|value| value.as_u64())
             .unwrap_or_default();
-        let change_kind = codelens_core::git::classify_change_kind(&state.project(), path);
+        let change_kind = change_kinds
+            .get(path.as_str())
+            .cloned()
+            .unwrap_or_else(|| "mixed".to_owned());
         let kind_label = if change_kind == "additive" {
             " (additive)"
         } else {

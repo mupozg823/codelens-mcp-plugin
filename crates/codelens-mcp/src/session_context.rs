@@ -1,7 +1,7 @@
 /// Session metadata extracted from `_session_*` JSON keys in tool call arguments
 /// or resource request params. Parsed once, then passed to access control, audit,
 /// and resource handlers — eliminates duplicate extraction from raw JSON.
-
+///
 /// Session context parsed from `_session_*` keys.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct SessionRequestContext {

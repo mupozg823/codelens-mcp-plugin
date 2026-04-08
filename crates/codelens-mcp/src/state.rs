@@ -66,11 +66,9 @@ struct ProjectOverride {
     symbol_index: Arc<SymbolIndex>,
     graph_cache: Arc<GraphCache>,
     memories_dir: PathBuf,
-    #[allow(dead_code)]
-    analysis_dir: PathBuf,
     audit_dir: PathBuf,
-    #[allow(dead_code)]
-    watcher: Option<FileWatcher>,
+    /// Keeps the watcher alive so it continues to receive file-system events.
+    _watcher: Option<FileWatcher>,
 }
 
 pub(crate) struct AppState {
@@ -417,9 +415,8 @@ impl AppState {
             symbol_index,
             graph_cache,
             memories_dir,
-            analysis_dir: analysis_dir.clone(),
             audit_dir,
-            watcher,
+            _watcher: watcher,
         });
         self.artifact_store.set_analysis_dir(analysis_dir.clone());
         self.job_store.set_jobs_dir(analysis_dir.join("jobs"));

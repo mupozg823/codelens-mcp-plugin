@@ -259,12 +259,10 @@ impl ToolMetricsRegistry {
                 }
                 session.pending_composite_guidance = false;
             }
-            if name != "get_tool_metrics"
-                && session.pending_quality_contract
+            if session.pending_quality_contract
                 && (name == "get_analysis_section"
                     || name == "get_file_diagnostics"
-                    || name == "find_tests"
-                    || name == "get_tool_metrics")
+                    || name == "find_tests")
             {
                 session.recommended_check_followthrough_count += 1;
                 session.pending_quality_contract = false;

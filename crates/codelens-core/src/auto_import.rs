@@ -340,7 +340,7 @@ fn generate_import_statement(symbol_name: &str, source_file: &str, target_ext: &
         .replace('/', ".");
 
     match target_ext {
-        "py" => format!("from {} import {}", module.replace('.', "."), symbol_name),
+        "py" => format!("from {module} import {symbol_name}"),
         "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => {
             let rel_path = if source_file.starts_with("src/") {
                 format!(

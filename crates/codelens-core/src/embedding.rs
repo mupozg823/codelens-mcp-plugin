@@ -2039,7 +2039,7 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
 
     // Add parent context from name_path (e.g. "UserService/get_user" → "in UserService")
     let parent_ctx = if !sym.name_path.is_empty() && sym.name_path.contains('/') {
-        let parent = sym.name_path.rsplitn(2, '/').nth(1).unwrap_or("");
+        let parent = sym.name_path.rsplit_once('/').map(|x| x.0).unwrap_or("");
         if parent.is_empty() {
             String::new()
         } else {
