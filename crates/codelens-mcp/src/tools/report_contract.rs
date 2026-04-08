@@ -863,3 +863,64 @@ fn infer_risk_level(
         "low"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    /// Replicate the high_impact logic from build_verifier_contract for impact_report.
+    fn is_high_impact(impacts: &[serde_json::Value]) -> bool {
+        impacts.iter().any(|row| {
+            let is_additive = row
+                .get("change_kind")
+                .and_then(|v| v.as_str())
+                .is_some_and(|k| k == "additive");
+            !is_additive
+                && row
+                    .get("affected_files")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or_default()
+                    >= 8
+        })
+    }
+
+    #[test]
+    fn additive_change_not_high_impact() {
+        let impacts = vec![json!({
+            "path": "types/index.ts",
+            "affected_files": 130,
+            "change_kind": "additive",
+        })];
+        assert!(!is_high_impact(&impacts));
+    }
+
+    #[test]
+    fn breaking_change_is_high_impact() {
+        let impacts = vec![json!({
+            "path": "types/index.ts",
+            "affected_files": 130,
+            "change_kind": "mixed",
+        })];
+        assert!(is_high_impact(&impacts));
+    }
+
+    #[test]
+    fn small_breaking_change_not_high_impact() {
+        let impacts = vec![json!({
+            "path": "utils.ts",
+            "affected_files": 3,
+            "change_kind": "mixed",
+        })];
+        assert!(!is_high_impact(&impacts));
+    }
+
+    #[test]
+    fn missing_change_kind_treated_as_breaking() {
+        // Legacy entries without change_kind should be conservative (treated as breaking).
+        let impacts = vec![json!({
+            "path": "lib.rs",
+            "affected_files": 10,
+        })];
+        assert!(is_high_impact(&impacts));
+    }
+}

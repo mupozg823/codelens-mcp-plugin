@@ -219,6 +219,87 @@ mod tests {
         assert!(parse_name_status("\n\n").is_empty());
     }
 
+    fn git_init_with_file(dir: &std::path::Path, name: &str, content: &str) {
+        std::fs::write(dir.join(name), content).unwrap();
+        std::process::Command::new("git")
+            .args(["add", name])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init", "--allow-empty-message"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+    }
+
+    #[test]
+    fn classify_change_kind_additive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "test"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        git_init_with_file(dir, "lib.py", "def hello(): pass\n");
+        // Append-only change → additive
+        std::fs::write(dir.join("lib.py"), "def hello(): pass\ndef world(): pass\n").unwrap();
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        assert_eq!(classify_change_kind(&project, "lib.py"), "additive");
+    }
+
+    #[test]
+    fn classify_change_kind_mixed() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "test"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        git_init_with_file(dir, "lib.py", "def hello(): pass\n");
+        // Replace line → mixed (has deletions)
+        std::fs::write(dir.join("lib.py"), "def goodbye(): pass\n").unwrap();
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        assert_eq!(classify_change_kind(&project, "lib.py"), "mixed");
+    }
+
+    #[test]
+    fn classify_change_kind_untracked() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(dir)
+            .output()
+            .unwrap();
+        // Untracked file → additive
+        std::fs::write(dir.join("new.py"), "x = 1\n").unwrap();
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        assert_eq!(classify_change_kind(&project, "new.py"), "additive");
+    }
+
     #[test]
     fn dedup_files_removes_duplicates() {
         let files = vec![

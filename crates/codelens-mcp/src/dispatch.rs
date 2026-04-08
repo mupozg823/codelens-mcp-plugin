@@ -378,14 +378,19 @@ pub(crate) fn dispatch_tool(
     let args_hash = {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        // Exclude routing metadata from doom-loop hash so that identical
-        // semantic calls with different profiles are still detected.
-        let mut filtered = arguments.clone();
-        if let Some(obj) = filtered.as_object_mut() {
-            obj.remove("_profile");
-            obj.remove("_compact");
+        // Hash arguments excluding routing metadata (_profile, _compact)
+        // so identical semantic calls with different profiles are still detected.
+        // Iterate sorted keys to avoid clone + remove overhead.
+        if let Some(obj) = arguments.as_object() {
+            for (k, v) in obj {
+                if k != "_profile" && k != "_compact" {
+                    k.hash(&mut hasher);
+                    v.to_string().hash(&mut hasher);
+                }
+            }
+        } else {
+            arguments.to_string().hash(&mut hasher);
         }
-        filtered.to_string().hash(&mut hasher);
         hasher.finish()
     };
     let doom_count = state.doom_loop_count(name, args_hash);
