@@ -15,6 +15,7 @@ fn run_job_kind(state: &AppState, kind: &str, arguments: &Value) -> ToolResult {
         "module_boundary_report" => super::reports::module_boundary_report(state, arguments),
         "safe_rename_report" => super::reports::safe_rename_report(state, arguments),
         "diff_aware_references" => super::reports::diff_aware_references(state, arguments),
+        "semantic_code_review" => super::reports::semantic_code_review(state, arguments),
         "analyze_change_request" => super::reports::analyze_change_request(state, arguments),
         "verify_change_readiness" => super::reports::verify_change_readiness(state, arguments),
         _ => Err(CodeLensError::Validation(format!(
@@ -50,6 +51,7 @@ fn estimated_sections_for_kind(kind: &str) -> Vec<String> {
         "module_boundary_report" => vec!["boundary".to_owned()],
         "safe_rename_report" => vec!["rename_safety".to_owned()],
         "diff_aware_references" => vec!["references".to_owned()],
+        "semantic_code_review" => vec!["review_items".to_owned(), "semantic_status".to_owned()],
         "analyze_change_request" => vec!["change_request".to_owned()],
         "verify_change_readiness" => vec!["readiness".to_owned()],
         _ => Vec::new(),
@@ -148,6 +150,7 @@ fn run_job_kind_with_progress(
         "module_boundary_report" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
         "safe_rename_report" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
         "diff_aware_references" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
+        "semantic_code_review" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
         "analyze_change_request" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
         "verify_change_readiness" => {
             run_simple_report_job(state, job_id, kind, arguments, delay_ms)
