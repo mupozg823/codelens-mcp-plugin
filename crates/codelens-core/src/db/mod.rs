@@ -224,7 +224,7 @@ impl IndexDb {
             "CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
                 name, name_path, signature,
                 content=symbols, content_rowid=id,
-                tokenize='unicode61 remove_diacritics 2'
+                tokenize='unicode61 remove_diacritics 2 separators _'
             );",
         ),
         (
@@ -233,6 +233,18 @@ impl IndexDb {
             // Kind index: accelerates files_with_symbol_kinds (type_hierarchy, etc.)
             "CREATE INDEX IF NOT EXISTS idx_symbols_file_byte ON symbols(file_id, start_byte);
              CREATE INDEX IF NOT EXISTS idx_symbols_kind ON symbols(kind);",
+        ),
+        (
+            6,
+            // Rebuild FTS with underscore separator so snake_case names are tokenized:
+            // "parse_symbols" → ["parse", "symbols"] enabling FTS match on individual words.
+            "DROP TABLE IF EXISTS symbols_fts;
+             CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
+                name, name_path, signature,
+                content=symbols, content_rowid=id,
+                tokenize='unicode61 remove_diacritics 2 separators _'
+             );
+             INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild');",
         ),
     ];
 
