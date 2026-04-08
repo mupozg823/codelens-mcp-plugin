@@ -88,16 +88,16 @@ Use stdio only for single local sessions:
 
 ### For Agent Harnesses
 
-| Need | Preferred Tool | Why |
-| --- | --- | --- |
-| "Compress a change request" | `analyze_change_request` | Returns ranked files, key symbols, risks, and next actions |
-| "Start with the smallest useful context" | `find_minimal_context_for_change` | Avoids raw file/graph expansion |
-| "Review module boundaries" | `module_boundary_report` | Bounded impact, coupling, and cycle evidence |
-| "Check rename safety" | `safe_rename_report` | Preview-first report with blockers and sections |
-| "Compress changed-file impact" | `impact_report` | Reviewer-friendly impact summary with bounded blast radius |
-| "Compress diff references" | `diff_aware_references` | Keeps reviewer/CI context short around changed files |
-| "Poll a durable report" | `start_analysis_job` → `get_analysis_job` | Async-friendly workflow for heavier reports |
-| "Expand only one stored section" | `get_analysis_section` | Keeps the default answer short |
+| Need                                     | Preferred Tool                            | Why                                                        |
+| ---------------------------------------- | ----------------------------------------- | ---------------------------------------------------------- |
+| "Compress a change request"              | `analyze_change_request`                  | Returns ranked files, key symbols, risks, and next actions |
+| "Start with the smallest useful context" | `find_minimal_context_for_change`         | Avoids raw file/graph expansion                            |
+| "Review module boundaries"               | `module_boundary_report`                  | Bounded impact, coupling, and cycle evidence               |
+| "Check rename safety"                    | `safe_rename_report`                      | Preview-first report with blockers and sections            |
+| "Compress changed-file impact"           | `impact_report`                           | Reviewer-friendly impact summary with bounded blast radius |
+| "Compress diff references"               | `diff_aware_references`                   | Keeps reviewer/CI context short around changed files       |
+| "Poll a durable report"                  | `start_analysis_job` → `get_analysis_job` | Async-friendly workflow for heavier reports                |
+| "Expand only one stored section"         | `get_analysis_section`                    | Keeps the default answer short                             |
 
 <details>
 <summary>Benchmark methodology</summary>
@@ -113,13 +113,13 @@ Run `python3 benchmarks/token-efficiency.py <project>` to reproduce.
 
 ### Role-Based Surfaces
 
-| Profile | Use case | Default transport |
-| --- | --- | --- |
-| `planner-readonly` | planner/architect context compression | `stdio` or HTTP |
-| `builder-minimal` | implementation with minimal visible tool surface | `stdio` |
-| `reviewer-graph` | graph-aware review and risk analysis | HTTP preferred |
-| `refactor-full` | preview-first refactors and structured edits | `stdio` or HTTP |
-| `ci-audit` | machine-friendly review around diffs and risk | HTTP preferred |
+| Profile            | Use case                                         | Default transport |
+| ------------------ | ------------------------------------------------ | ----------------- |
+| `planner-readonly` | planner/architect context compression            | `stdio` or HTTP   |
+| `builder-minimal`  | implementation with minimal visible tool surface | `stdio`           |
+| `reviewer-graph`   | graph-aware review and risk analysis             | HTTP preferred    |
+| `refactor-full`    | preview-first refactors and structured edits     | `stdio` or HTTP   |
+| `ci-audit`         | machine-friendly review around diffs and risk    | HTTP preferred    |
 
 `ci-audit` composite reports use a fixed machine schema with `schema_version`, `report_kind`, `machine_summary`, and `evidence_handles` so CI can parse them without relying on prose.
 `refactor-full` now enforces preflight-first mutation: run `verify_change_readiness` before file mutations, and use `safe_rename_report` or `unresolved_reference_check` before `rename_symbol`.
@@ -157,14 +157,14 @@ All via statically-linked tree-sitter grammars. Zero runtime dependencies.
 
 ## Performance
 
-| Operation            | Time  | Notes                   |
-| -------------------- | ----- | ----------------------- |
-| find_symbol          | <1ms  | SQLite FTS5             |
-| get_symbols_overview | <1ms  | Cached                  |
-| get_ranked_context   | ~20ms | 4-signal hybrid ranking |
-| get_impact_analysis  | ~1ms  | Graph cache             |
+| Operation            | Time                     | Notes                                          |
+| -------------------- | ------------------------ | ---------------------------------------------- |
+| find_symbol          | <1ms                     | SQLite FTS5                                    |
+| get_symbols_overview | <1ms                     | Cached                                         |
+| get_ranked_context   | ~20ms                    | 4-signal hybrid ranking                        |
+| get_impact_analysis  | ~1ms                     | Graph cache                                    |
 | semantic_search      | warm, workload-dependent | Measure with `benchmarks/embedding-runtime.py` |
-| Cold start           | ~12ms | No LSP boot needed      |
+| Cold start           | ~12ms                    | No LSP boot needed                             |
 
 ## Embedding Model
 
@@ -198,14 +198,14 @@ The quality report now breaks results down by query type:
 - identifier-like queries stay lexical-first
 - short phrases and natural-language queries keep hybrid semantic blending
 
-Current reproducible local quality snapshot (`benchmarks/embedding-quality-results.json`, sequential run with `--isolated-copy`):
+Current reproducible local quality snapshot (`benchmarks/embedding-quality-summary.md`, 32-query dataset):
 
-- `semantic_search`: `MRR 0.502`, `Acc@1 44%`, `Acc@3 56%`, `Acc@5 62%`
-- `get_ranked_context` lexical-only: `MRR 0.407`, `Acc@1 28%`, `Acc@3 47%`, `Acc@5 53%`
-- `get_ranked_context` hybrid: `MRR 0.654`, `Acc@1 53%`, `Acc@3 69%`, `Acc@5 78%`
-- Hybrid uplift over lexical-only: `+0.246 MRR`, `+25% Acc@1`, `+22% Acc@3`, `+25% Acc@5`
-- Identifier queries: hybrid uplift is neutral because `get_ranked_context` now stays lexical-first for identifier-like queries
-- The benchmark scripts now fail fast if `index_embeddings` or any measured tool call fails, so stale partial outputs are no longer treated as valid results.
+- `semantic_search`: `MRR 0.499`, `Acc@1 44%`, `Acc@3 53%`, `Acc@5 62%`
+- `get_ranked_context` lexical-only: `MRR 0.417`, `Acc@1 28%`, `Acc@3 50%`, `Acc@5 53%`
+- `get_ranked_context` hybrid: `MRR 0.639`, `Acc@1 50%`, `Acc@3 69%`, `Acc@5 81%`
+- Hybrid uplift over lexical-only: `+0.222 MRR`, `+22% Acc@1`, `+19% Acc@3`, `+28% Acc@5`
+- Identifier queries: hybrid uplift is neutral because `get_ranked_context` stays lexical-first for identifier-like queries
+- Impact reports now classify changes as `additive`/`breaking`/`mixed` — additive changes (new exports) skip high-impact warnings
 
 ## vs Serena
 
@@ -221,7 +221,7 @@ Both are code intelligence MCP servers. Different trade-offs:
 | **Offline / air-gap** | Fully offline (ML model bundled)  | Partial (needs LSP binaries)           |
 | **ML / semantic**     | Bundled CodeSearchNet ONNX model  | None                                   |
 | **Refactoring**       | 4 operations (inline, move, etc.) | 1 (replace symbol body)                |
-| **Languages**         | 25 (tree-sitter grammars)         | 40+ (via LSP ecosystem)                |
+| **Languages**         | 30 (tree-sitter grammars)         | 40+ (via LSP ecosystem)                |
 | **Token budget**      | Role profiles + legacy presets    | No                                     |
 | **Stars**             | New project                       | 22K+                                   |
 
@@ -232,11 +232,11 @@ Both are code intelligence MCP servers. Different trade-offs:
 ## Building
 
 ```bash
-cargo build --release                         # includes semantic (57MB)
+cargo build --release                         # includes semantic (76MB)
 cargo build --release --no-default-features   # without ML model (23MB)
 cargo build --release --features http         # add HTTP transport
 
-# Tests (209+)
+# Tests (341)
 cargo test -p codelens-core && cargo test -p codelens-mcp
 ```
 
@@ -244,20 +244,20 @@ For the repo-local development flow, see `DEVELOPMENT_PIPELINE.md`.
 
 ## Agentic Architecture
 
-| Feature                                 | Status                                      |
-| --------------------------------------- | ------------------------------------------- |
-| Streamable HTTP + SSE                   | Supported                                   |
-| Role-based capability negotiation       | `--profile` + legacy `--preset`             |
-| Tool Annotations (readOnly/destructive) | Supported                                   |
-| Tool Output Schemas                     | Core tools + analysis handles               |
-| `.well-known/mcp.json` Server Card      | HTTP transport                              |
-| Analysis handles + section expansion    | Supported                                   |
-| Durable analysis jobs                   | `start_analysis_job` + `get_analysis_job`   |
-| Mutation audit log                      | `.codelens/audit/mutation-audit.jsonl`      |
-| Token budget control (`_profile`)       | legacy shortcuts + role-profile budgets      |
-| Multi-project queries                   | `query_project`                             |
-| Contextual tool chaining                | `suggested_next_tools`                      |
-| MCP 2025-03-26 spec compliant           | Full                                        |
+| Feature                                 | Status                                    |
+| --------------------------------------- | ----------------------------------------- |
+| Streamable HTTP + SSE                   | Supported                                 |
+| Role-based capability negotiation       | `--profile` + legacy `--preset`           |
+| Tool Annotations (readOnly/destructive) | Supported                                 |
+| Tool Output Schemas                     | Core tools + analysis handles             |
+| `.well-known/mcp.json` Server Card      | HTTP transport                            |
+| Analysis handles + section expansion    | Supported                                 |
+| Durable analysis jobs                   | `start_analysis_job` + `get_analysis_job` |
+| Mutation audit log                      | `.codelens/audit/mutation-audit.jsonl`    |
+| Token budget control (`_profile`)       | legacy shortcuts + role-profile budgets   |
+| Multi-project queries                   | `query_project`                           |
+| Contextual tool chaining                | `suggested_next_tools`                    |
+| MCP 2025-03-26 spec compliant           | Full                                      |
 
 ## License
 
