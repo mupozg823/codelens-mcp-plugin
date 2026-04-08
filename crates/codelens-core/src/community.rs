@@ -76,6 +76,12 @@ pub fn detect_communities(
         .map(|&ni| pg.edges(ni).count() as f64)
         .collect();
 
+    // Pre-compute community degree sums for O(1) lookup (instead of O(n) per query)
+    let mut comm_degree_sum: HashMap<usize, f64> = HashMap::new();
+    for i in 0..n {
+        *comm_degree_sum.entry(community[i]).or_default() += degree[i];
+    }
+
     // Iterative improvement (simplified Louvain — single level)
     let mut improved = true;
     let mut iterations = 0;
@@ -104,12 +110,7 @@ pub fn detect_communities(
                 if c == current_comm {
                     continue;
                 }
-                // Sum of degrees of nodes in community c
-                let sigma_c: f64 = (0..n)
-                    .filter(|&j| community[j] == c)
-                    .map(|j| degree[j])
-                    .sum();
-
+                let sigma_c = comm_degree_sum.get(&c).copied().unwrap_or(0.0);
                 let gain = edges_to_c / m - (sigma_c * ki) / (2.0 * m * m);
                 if gain > best_gain {
                     best_gain = gain;
@@ -118,6 +119,9 @@ pub fn detect_communities(
             }
 
             if best_comm != current_comm {
+                // Update degree sum cache: remove from old, add to new
+                *comm_degree_sum.entry(current_comm).or_default() -= ki;
+                *comm_degree_sum.entry(best_comm).or_default() += ki;
                 community[i] = best_comm;
                 improved = true;
             }

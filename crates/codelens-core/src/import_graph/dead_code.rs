@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::parsers::collect_top_level_funcs;
-use super::{DeadCodeEntry, GraphCache, collect_candidate_files};
+use super::{collect_candidate_files, DeadCodeEntry, GraphCache};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DeadCodeEntryV2 {
@@ -47,18 +47,26 @@ pub(super) fn is_entry_point_symbol(name: &str) -> bool {
         || name.starts_with("Test")
 }
 
-/// Check whether the line immediately before a symbol definition starts with `@`
-/// (decorator pattern). `lines` is the 0-indexed source lines; `symbol_line` is
-/// 1-indexed (as returned by tree-sitter / SymbolInfo).
+/// Check whether any line preceding a symbol definition starts with `@`
+/// (decorator pattern). Scans upward through stacked decorators.
+/// `lines` is the 0-indexed source lines; `symbol_line` is 1-indexed.
 pub(super) fn has_decorator(lines: &[&str], symbol_line: usize) -> bool {
     if symbol_line < 2 {
         return false;
     }
-    let prev_idx = symbol_line - 2; // convert to 0-indexed, then go one line back
-    lines
-        .get(prev_idx)
-        .map(|l| l.trim_start().starts_with('@'))
-        .unwrap_or(false)
+    // Scan upward from the line before the definition
+    let mut idx = symbol_line - 2; // convert to 0-indexed, then go one line back
+    loop {
+        match lines.get(idx) {
+            Some(line) if line.trim_start().starts_with('@') => return true,
+            Some(line) if line.trim().is_empty() => {} // skip blank lines between decorators
+            _ => return false,
+        }
+        if idx == 0 {
+            return false;
+        }
+        idx -= 1;
+    }
 }
 
 pub fn find_dead_code(

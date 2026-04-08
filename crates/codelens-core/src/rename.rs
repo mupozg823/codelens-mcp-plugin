@@ -326,17 +326,37 @@ fn find_shadowing_files(
 ) -> Result<std::collections::HashSet<String>> {
     let mut shadow_files = std::collections::HashSet::new();
 
-    let files_with_matches: std::collections::HashSet<&String> =
-        all_matches.iter().map(|(f, _, _)| f).collect();
+    let files_with_matches: Vec<&str> = all_matches
+        .iter()
+        .map(|(f, _, _)| f.as_str())
+        .filter(|f| *f != declaration_file)
+        .collect();
 
-    for fp in files_with_matches {
-        if fp == declaration_file {
-            continue;
+    if files_with_matches.is_empty() {
+        return Ok(shadow_files);
+    }
+
+    // Try DB-based batch lookup first (avoids per-file tree-sitter re-parse)
+    let db_path = crate::db::index_db_path(project.as_path());
+    if let Ok(db) = crate::db::IndexDb::open(&db_path) {
+        if let Ok(symbols) = db.symbols_for_files(&files_with_matches) {
+            if !symbols.is_empty() {
+                for sym in &symbols {
+                    if sym.name == symbol_name && sym.file_path != declaration_file {
+                        shadow_files.insert(sym.file_path.clone());
+                    }
+                }
+                return Ok(shadow_files);
+            }
         }
+    }
+
+    // Fallback: per-file tree-sitter parse
+    for fp in files_with_matches {
         if let Ok(symbols) = get_symbols_overview(project, fp, 3)
             && has_declaration(&symbols, symbol_name)
         {
-            shadow_files.insert(fp.clone());
+            shadow_files.insert(fp.to_owned());
         }
     }
 

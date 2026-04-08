@@ -324,11 +324,13 @@ pub fn resolve_call_edges(
                 && let Some(defs) = symbol_index.get(callee) {
                     // Pick the candidate that is also imported (transitively)
                     for def_file in defs {
-                        if node
-                            .imports
-                            .iter()
-                            .any(|imp| def_file.ends_with(imp.rsplit('/').next().unwrap_or(imp)))
-                        {
+                        if node.imports.iter().any(|imp| {
+                            // Match on full path suffix, not just filename
+                            def_file.ends_with(imp)
+                                || def_file.ends_with(&format!("/{imp}"))
+                                || imp.ends_with(def_file)
+                                || imp.ends_with(&format!("/{def_file}"))
+                        }) {
                             edge.resolved_file = Some(def_file.clone());
                             edge.confidence = 0.60;
                             edge.resolution_strategy = Some("import_suffix");
