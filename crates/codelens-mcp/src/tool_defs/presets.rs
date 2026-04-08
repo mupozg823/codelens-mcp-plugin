@@ -209,6 +209,7 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "verify_change_readiness",
     "summarize_symbol_impact",
     "diff_aware_references",
+    "semantic_code_review",
     // Async analysis
     "start_analysis_job",
     "get_analysis_job",

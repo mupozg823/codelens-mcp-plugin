@@ -9,7 +9,7 @@ pub use context_reports::{
 };
 pub use impact_reports::{
     dead_code_report, diff_aware_references, impact_report, module_boundary_report,
-    refactor_safety_report,
+    refactor_safety_report, semantic_code_review,
 };
 pub use verifier_reports::{
     safe_rename_report, unresolved_reference_check, verify_change_readiness,
