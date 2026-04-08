@@ -401,35 +401,27 @@ pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
 #[cfg(feature = "semantic")]
 pub(crate) fn semantic_status(state: &AppState) -> Value {
     let configured_model = codelens_core::configured_embedding_model_name();
-    if let Some(engine_opt) = state.embedding.get() {
-        return match engine_opt {
-            Some(engine) => {
-                let info = engine.index_info();
-                if info.indexed_symbols > 0 {
-                    json!({
-                        "status": "ready",
-                        "model": info.model_name,
-                        "indexed_symbols": info.indexed_symbols,
-                        "loaded": true,
-                    })
-                } else {
-                    json!({
-                        "status": "unavailable",
-                        "model": info.model_name,
-                        "indexed_symbols": info.indexed_symbols,
-                        "loaded": true,
-                        "reason": "embedding index is empty; call index_embeddings",
-                    })
-                }
-            }
-            None => json!({
-                "status": "failed",
-                "model": configured_model,
-                "loaded": false,
-                "reason": "embedding engine failed to initialize",
-            }),
+    let guard = state.embedding_ref();
+    if let Some(engine) = guard.as_ref() {
+        let info = engine.index_info();
+        return if info.indexed_symbols > 0 {
+            json!({
+                "status": "ready",
+                "model": info.model_name,
+                "indexed_symbols": info.indexed_symbols,
+                "loaded": true,
+            })
+        } else {
+            json!({
+                "status": "unavailable",
+                "model": info.model_name,
+                "indexed_symbols": info.indexed_symbols,
+                "loaded": true,
+                "reason": "embedding index is empty; call index_embeddings",
+            })
         };
     }
+    drop(guard);
 
     match codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
         .ok()
@@ -510,18 +502,15 @@ pub(crate) fn semantic_results_for_query(
         return Vec::new();
     }
 
-    let project = state.project();
-    let engine_opt = state
-        .embedding
-        .get_or_init(|| codelens_core::EmbeddingEngine::new(&project).ok());
-    if let Some(engine) = engine_opt
-        && engine.is_indexed()
-    {
-        let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
-        let results = engine
-            .search(&semantic_query, candidate_limit)
-            .unwrap_or_default();
-        return rerank_semantic_matches(query, results, limit);
+    let guard = state.embedding_engine();
+    if let Some(engine) = guard.as_ref() {
+        if engine.is_indexed() {
+            let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
+            let results = engine
+                .search(&semantic_query, candidate_limit)
+                .unwrap_or_default();
+            return rerank_semantic_matches(query, results, limit);
+        }
     }
     Vec::new()
 }

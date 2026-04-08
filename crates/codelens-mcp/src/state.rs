@@ -106,7 +106,7 @@ pub(crate) struct AppState {
     pub(crate) watcher: Option<FileWatcher>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,
     #[cfg(feature = "semantic")]
-    pub(crate) embedding: std::sync::OnceLock<Option<EmbeddingEngine>>,
+    pub(crate) embedding: std::sync::RwLock<Option<EmbeddingEngine>>,
     /// Secondary (read-only) project indexes for cross-project queries.
     pub(crate) secondary_projects: Mutex<HashMap<String, SecondaryProject>>,
     #[cfg(feature = "http")]
@@ -223,6 +223,47 @@ impl AppState {
     ) {
         self.preflight_store
             .set_timestamp_for_test(&self.preflight_key(logical_session), timestamp_ms);
+    }
+
+    // ── Embedding engine accessors ──────────────────────────────────────
+
+    /// Get or initialize embedding engine for the current project.
+    /// Fast path (read lock) if already initialized; slow path (write lock) for first init.
+    #[cfg(feature = "semantic")]
+    pub(crate) fn embedding_engine(
+        &self,
+    ) -> std::sync::RwLockReadGuard<'_, Option<EmbeddingEngine>> {
+        // Fast path: already initialized
+        {
+            let guard = self.embedding.read().unwrap_or_else(|p| p.into_inner());
+            if guard.is_some() {
+                return guard;
+            }
+        }
+        // Slow path: initialize under write lock
+        {
+            let mut wguard = self.embedding.write().unwrap_or_else(|p| p.into_inner());
+            if wguard.is_none() {
+                let project = self.project();
+                *wguard = EmbeddingEngine::new(&project)
+                    .map_err(|e| tracing::error!("EmbeddingEngine init failed: {e}"))
+                    .ok();
+            }
+        }
+        self.embedding.read().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Read-only access to embedding state without triggering initialization.
+    #[cfg(feature = "semantic")]
+    pub(crate) fn embedding_ref(&self) -> std::sync::RwLockReadGuard<'_, Option<EmbeddingEngine>> {
+        self.embedding.read().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Drop the current embedding engine (called on project switch).
+    #[cfg(feature = "semantic")]
+    pub(crate) fn reset_embedding(&self) {
+        let mut guard = self.embedding.write().unwrap_or_else(|p| p.into_inner());
+        *guard = None;
     }
 
     // ── Active project accessors (check override, fallback to default) ──
@@ -385,6 +426,8 @@ impl AppState {
         self.artifact_store.clear();
         self.job_store.clear();
         self.clear_recent_preflights();
+        #[cfg(feature = "semantic")]
+        self.reset_embedding();
         self.artifact_store.cleanup_stale_dirs(Self::now_ms());
         let scope = self.current_project_scope();
         self.job_store
@@ -402,6 +445,8 @@ impl AppState {
         self.artifact_store.clear();
         self.job_store.clear();
         self.clear_recent_preflights();
+        #[cfg(feature = "semantic")]
+        self.reset_embedding();
     }
 
     /// Check if running on the default project.
@@ -818,7 +863,7 @@ impl AppState {
             watcher_maintenance: Mutex::new(HashMap::new()),
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
-            embedding: std::sync::OnceLock::new(),
+            embedding: std::sync::RwLock::new(None),
             #[cfg(feature = "http")]
             session_store: None,
         }
@@ -947,7 +992,7 @@ impl AppState {
             watcher_maintenance: Mutex::new(HashMap::new()),
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
-            embedding: std::sync::OnceLock::new(),
+            embedding: std::sync::RwLock::new(None),
             #[cfg(feature = "http")]
             session_store: None,
         }

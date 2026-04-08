@@ -97,17 +97,10 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         .unwrap_or(20) as usize;
 
     let project = state.project();
-    let engine = state
-        .embedding
-        .get_or_init(|| {
-            EmbeddingEngine::new(&project)
-                .map_err(|e| tracing::error!("EmbeddingEngine init failed: {e}"))
-                .ok()
-        })
-        .as_ref()
-        .ok_or_else(|| {
-            anyhow::anyhow!("Embedding engine not available. Build with --features semantic")
-        })?;
+    let guard = state.embedding_engine();
+    let engine = guard.as_ref().ok_or_else(|| {
+        anyhow::anyhow!("Embedding engine not available. Build with --features semantic")
+    })?;
 
     if !engine.is_indexed() {
         return Err(CodeLensError::FeatureUnavailable(
@@ -238,13 +231,8 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
 #[cfg(feature = "semantic")]
 fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let project = state.project();
-    let engine = state
-        .embedding
-        .get_or_init(|| {
-            EmbeddingEngine::new(&project)
-                .map_err(|e| tracing::error!("EmbeddingEngine init failed: {e}"))
-                .ok()
-        })
+    let guard = state.embedding_engine();
+    let engine = guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
@@ -264,10 +252,8 @@ fn find_similar_code_handler(state: &AppState, arguments: &serde_json::Value) ->
         .and_then(|v| v.as_u64())
         .unwrap_or(10) as usize;
 
-    let project = state.project();
-    let engine = state
-        .embedding
-        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+    let guard = state.embedding_engine();
+    let engine = guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
@@ -289,10 +275,8 @@ fn find_code_duplicates_handler(state: &AppState, arguments: &serde_json::Value)
         .and_then(|v| v.as_u64())
         .unwrap_or(20) as usize;
 
-    let project = state.project();
-    let engine = state
-        .embedding
-        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+    let guard = state.embedding_engine();
+    let engine = guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
@@ -313,10 +297,8 @@ fn classify_symbol_handler(state: &AppState, arguments: &serde_json::Value) -> T
         .ok_or_else(|| CodeLensError::MissingParam("categories".into()))?;
     let cat_strs: Vec<&str> = categories.iter().filter_map(|v| v.as_str()).collect();
 
-    let project = state.project();
-    let engine = state
-        .embedding
-        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+    let guard = state.embedding_engine();
+    let engine = guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
@@ -334,10 +316,8 @@ fn find_misplaced_code_handler(state: &AppState, arguments: &serde_json::Value) 
         .and_then(|v| v.as_u64())
         .unwrap_or(10) as usize;
 
-    let project = state.project();
-    let engine = state
-        .embedding
-        .get_or_init(|| EmbeddingEngine::new(&project).ok())
+    let guard = state.embedding_engine();
+    let engine = guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
@@ -485,11 +465,10 @@ pub(crate) fn dispatch_tool(
             {
                 let project = state.project();
                 let configured_model = codelens_core::configured_embedding_model_name();
-                let embeddings_active = state
-                    .embedding
-                    .get()
-                    .and_then(|engine| engine.as_ref())
-                    .is_some_and(|engine| engine.is_indexed());
+                let embeddings_active = {
+                    let guard = state.embedding_ref();
+                    guard.as_ref().is_some_and(|engine| engine.is_indexed())
+                };
                 let on_disk_index_exists = EmbeddingEngine::inspect_existing_index(&project)
                     .ok()
                     .flatten()
@@ -497,10 +476,8 @@ pub(crate) fn dispatch_tool(
                         info.model_name == configured_model && info.indexed_symbols > 0
                     });
                 if embeddings_active || on_disk_index_exists {
-                    if let Some(engine) = state
-                        .embedding
-                        .get_or_init(|| EmbeddingEngine::new(&project).ok())
-                    {
+                    let guard = state.embedding_engine();
+                    if let Some(engine) = guard.as_ref() {
                         if let Err(e) = engine.index_changed_files(&project, &[fp]) {
                             tracing::debug!(
                                 file = fp,

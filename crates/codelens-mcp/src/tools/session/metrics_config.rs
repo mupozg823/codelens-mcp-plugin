@@ -1,9 +1,9 @@
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
+    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
 };
-use crate::tools::{AppState, ToolResult, success_meta};
+use crate::tools::{success_meta, AppState, ToolResult};
 use serde_json::json;
 
 pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
@@ -97,27 +97,31 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
 
     // Check embeddings
     #[cfg(feature = "semantic")]
-    let embeddings_loaded = state.embedding.get().map(|e| e.is_some()).unwrap_or(false);
+    let embeddings_loaded = state.embedding_ref().is_some();
     #[cfg(not(feature = "semantic"))]
     let embeddings_loaded = false;
 
     let configured_embedding_model = codelens_core::configured_embedding_model_name();
-    let embedding_runtime = state
-        .embedding
-        .get()
-        .and_then(|engine| engine.as_ref().map(|engine| engine.runtime_info().clone()))
-        .unwrap_or_else(codelens_core::configured_embedding_runtime_info);
+    let embedding_runtime = {
+        let guard = state.embedding_ref();
+        guard
+            .as_ref()
+            .map(|engine| engine.runtime_info().clone())
+            .unwrap_or_else(codelens_core::configured_embedding_runtime_info)
+    };
 
     #[cfg(feature = "semantic")]
-    let embedding_index_info = state
-        .embedding
-        .get()
-        .and_then(|engine| engine.as_ref().map(|engine| engine.index_info()))
-        .or_else(|| {
-            codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
-                .ok()
-                .flatten()
-        });
+    let embedding_index_info = {
+        let guard = state.embedding_ref();
+        guard
+            .as_ref()
+            .map(|engine| engine.index_info())
+            .or_else(|| {
+                codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
+                    .ok()
+                    .flatten()
+            })
+    };
     #[cfg(not(feature = "semantic"))]
     let embedding_index_info =
         codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())

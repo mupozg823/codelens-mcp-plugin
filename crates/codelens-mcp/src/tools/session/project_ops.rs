@@ -94,7 +94,7 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
             "auto_surface": auto_label,
             "auto_budget": auto_budget,
             "indexed_files": file_count,
-            "embedding_ready": state.embedding.get().is_some_and(|e| e.is_some())
+            "embedding_ready": state.embedding_ref().is_some()
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
