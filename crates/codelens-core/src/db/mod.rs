@@ -9,7 +9,7 @@ mod ops;
 #[cfg(test)]
 mod tests;
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 6;
 
 /// SQLite-backed symbol and import index for a single project.
 pub struct IndexDb {
@@ -243,8 +243,7 @@ impl IndexDb {
                 name, name_path, signature,
                 content=symbols, content_rowid=id,
                 tokenize='unicode61 remove_diacritics 2 separators _'
-             );
-             INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild');",
+             );",
         ),
     ];
 

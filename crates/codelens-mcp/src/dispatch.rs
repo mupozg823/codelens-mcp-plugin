@@ -176,7 +176,10 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
                     line: hr.line,
                     signature: hr.signature,
                     name_path: hr.name_path,
-                    score: hr.score / 100.0, // normalize from 0-100 to 0-1
+                    // Scale hybrid scores to semantic range (0.1-0.3).
+                    // Hybrid raw scores: exact=100, fts=40-80, fuzzy=50-90.
+                    // We want them as supplementary candidates, not dominant.
+                    score: (hr.score / 100.0) * 0.35,
                 });
             }
         }
