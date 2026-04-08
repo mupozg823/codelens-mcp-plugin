@@ -431,7 +431,9 @@ mod tests {
         assert!(supports_import_graph("main.cpp"));
         assert!(supports_import_graph("main.h"));
         assert!(supports_import_graph("main.php"));
-        assert!(!supports_import_graph("main.swift"));
+        assert!(supports_import_graph("main.swift"));
+        assert!(supports_import_graph("main.scala"));
+        assert!(supports_import_graph("main.css"));
     }
 
     #[test]

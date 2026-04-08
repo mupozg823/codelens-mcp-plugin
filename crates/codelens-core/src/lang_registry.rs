@@ -150,19 +150,19 @@ static EXTENSIONS: &[ExtEntry] = &[
     ExtEntry {
         ext: "swift",
         language_id: "swift",
-        supports_imports: false,
+        supports_imports: true,
         canonical: "swift",
     },
     ExtEntry {
         ext: "scala",
         language_id: "scala",
-        supports_imports: false,
+        supports_imports: true,
         canonical: "scala",
     },
     ExtEntry {
         ext: "sc",
         language_id: "scala",
-        supports_imports: false,
+        supports_imports: true,
         canonical: "scala",
     },
     ExtEntry {
@@ -272,7 +272,7 @@ static EXTENSIONS: &[ExtEntry] = &[
     ExtEntry {
         ext: "css",
         language_id: "css",
-        supports_imports: false,
+        supports_imports: true,
         canonical: "css",
     },
     ExtEntry {
@@ -383,10 +383,10 @@ mod tests {
     }
 
     #[test]
-    fn swift_scala_no_imports() {
-        assert!(!supports_imports("swift"));
-        assert!(!supports_imports("scala"));
-        assert!(!supports_imports("sc"));
+    fn swift_scala_support_imports() {
+        assert!(supports_imports("swift"));
+        assert!(supports_imports("scala"));
+        assert!(supports_imports("sc"));
     }
 
     #[test]

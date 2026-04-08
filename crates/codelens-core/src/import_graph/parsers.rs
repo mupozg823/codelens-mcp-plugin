@@ -121,6 +121,9 @@ pub fn extract_imports_from_source(path: &Path, content: &str) -> Vec<String> {
         "php" => extract_php_imports(content),
         "cs" => extract_csharp_imports(content),
         "dart" => extract_dart_imports(content),
+        "scala" | "sc" => extract_scala_imports(content),
+        "swift" => extract_swift_imports(content),
+        "css" | "scss" | "less" => extract_css_imports(content),
         _ => Vec::new(),
     }
 }
@@ -276,6 +279,43 @@ pub(super) fn extract_dart_imports(content: &str) -> Vec<String> {
         }
     }
     imports
+}
+
+// ── Scala ────────────────────────────────────────────────────────────────────
+static SCALA_IMPORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?m)^\s*import\s+([A-Za-z0-9_\.]+)").unwrap());
+
+fn extract_scala_imports(content: &str) -> Vec<String> {
+    SCALA_IMPORT_RE
+        .captures_iter(content)
+        .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_owned()))
+        .collect()
+}
+
+// ── Swift ────────────────────────────────────────────────────────────────────
+static SWIFT_IMPORT_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r"(?m)^\s*import\s+(?:class\s+|struct\s+|enum\s+|protocol\s+|func\s+)?([A-Za-z0-9_\.]+)",
+    )
+    .unwrap()
+});
+
+fn extract_swift_imports(content: &str) -> Vec<String> {
+    SWIFT_IMPORT_RE
+        .captures_iter(content)
+        .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_owned()))
+        .collect()
+}
+
+// ── CSS/SCSS ─────────────────────────────────────────────────────────────────
+static CSS_IMPORT_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"(?m)@import\s+(?:url\()?["']([^"']+)["']\)?"#).unwrap());
+
+fn extract_css_imports(content: &str) -> Vec<String> {
+    CSS_IMPORT_RE
+        .captures_iter(content)
+        .filter_map(|cap| cap.get(1).map(|m| m.as_str().to_owned()))
+        .collect()
 }
 
 // ── extract_imports_for_file (public wrapper) ────────────────────────────────

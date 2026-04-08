@@ -119,12 +119,16 @@ const JAVA_QUERY: &str = r#"
     (enum_declaration name: (identifier) @enum.name) @enum.def
     (method_declaration name: (identifier) @method.name) @method.def
     (constructor_declaration name: (identifier) @method.name) @method.def
+    (field_declaration declarator: (variable_declarator name: (identifier) @variable.name)) @variable.def
+    (annotation_type_declaration name: (identifier) @interface.name) @interface.def
+    (record_declaration name: (identifier) @class.name) @class.def
 "#;
 
 const KOTLIN_QUERY: &str = r#"
     (class_declaration name: (identifier) @class.name) @class.def
     (object_declaration name: (identifier) @class.name) @class.def
     (function_declaration name: (identifier) @function.name) @function.def
+    (companion_object) @class.def
 "#;
 
 const RUST_QUERY: &str = r#"
@@ -148,10 +152,13 @@ const C_QUERY: &str = r#"
 
 const CPP_QUERY: &str = r#"
 (function_definition declarator: (function_declarator declarator: (identifier) @function.name)) @function.def
+(function_definition declarator: (function_declarator declarator: (qualified_identifier name: (identifier) @method.name))) @method.def
 (class_specifier name: (type_identifier) @class.name) @class.def
 (struct_specifier name: (type_identifier) @class.name) @class.def
 (enum_specifier name: (type_identifier) @enum.name) @enum.def
 (namespace_definition (namespace_identifier) @module.name) @module.def
+(type_definition declarator: (type_identifier) @type_alias.name) @type_alias.def
+(template_declaration (class_specifier name: (type_identifier) @class.name)) @class.def
 "#;
 
 const PHP_QUERY: &str = r#"
