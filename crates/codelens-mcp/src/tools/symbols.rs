@@ -155,6 +155,26 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     if query_lower.contains("watch") && result.file_path.contains("watcher") {
         prior += 0.14;
     }
+    if (query_lower.contains("parse") || query_lower.contains("ast"))
+        && (result.symbol_name.contains("parse") || result.file_path.contains("parser"))
+    {
+        prior += 0.14;
+    }
+    if (query_lower.contains("embed") || query_lower.contains("vector") || query_lower.contains("index"))
+        && result.file_path.contains("embedding")
+    {
+        prior += 0.10;
+    }
+    if (query_lower.contains("duplicate") || query_lower.contains("similar"))
+        && (result.symbol_name.contains("duplicate") || result.symbol_name.contains("similar"))
+    {
+        prior += 0.10;
+    }
+    if (query_lower.contains("review") || query_lower.contains("diff"))
+        && (result.file_path.contains("report") || result.symbol_name.contains("review"))
+    {
+        prior += 0.10;
+    }
 
     // Keep heuristics as a bounded bias so embedding similarity remains primary.
     prior.clamp(-0.10_f64, 0.19_f64)
