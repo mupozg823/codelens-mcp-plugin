@@ -1,5 +1,5 @@
+use super::types::{make_symbol_id, ParsedSymbol, SymbolInfo, SymbolKind};
 use super::LanguageConfig;
-use super::types::{ParsedSymbol, SymbolInfo, SymbolKind, make_symbol_id};
 use anyhow::{Context, Result};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -175,12 +175,14 @@ fn nest_symbols(symbols: Vec<ParsedSymbol>) -> Vec<ParsedSymbol> {
 }
 
 fn dedup_symbols(symbols: Vec<ParsedSymbol>) -> Vec<ParsedSymbol> {
-    let mut seen = HashSet::new();
+    let mut seen_range = HashSet::new();
+    let mut seen_identity = HashSet::new();
     let mut deduped = Vec::new();
 
     for symbol in symbols {
-        let key = (symbol.start_byte, symbol.end_byte);
-        if seen.insert(key) {
+        let range_key = (symbol.start_byte, symbol.end_byte);
+        let identity_key = (symbol.name.clone(), symbol.line, symbol.kind.clone());
+        if seen_range.insert(range_key) && seen_identity.insert(identity_key) {
             deduped.push(symbol);
         }
     }

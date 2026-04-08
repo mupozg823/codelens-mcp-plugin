@@ -93,11 +93,13 @@ const JAVASCRIPT_QUERY: &str = r#"
 
 const TYPESCRIPT_QUERY: &str = r#"
     (class_declaration name: (type_identifier) @class.name) @class.def
+    (abstract_class_declaration name: (type_identifier) @class.name) @class.def
     (function_declaration name: (identifier) @function.name) @function.def
     (method_definition name: (property_identifier) @method.name) @method.def
     (interface_declaration name: (type_identifier) @interface.name) @interface.def
     (enum_declaration name: (identifier) @enum.name) @enum.def
     (type_alias_declaration name: (type_identifier) @type_alias.name) @type_alias.def
+    (module name: (identifier) @module.name) @module.def
     (lexical_declaration (variable_declarator name: (identifier) @variable.name)) @variable.def
 "#;
 
@@ -132,7 +134,9 @@ const RUST_QUERY: &str = r#"
     (function_item name: (identifier) @function.name) @function.def
     (const_item name: (identifier) @variable.name) @variable.def
     (static_item name: (identifier) @variable.name) @variable.def
-    (type_item name: (type_identifier) @typealias.name) @typealias.def
+    (type_item name: (type_identifier) @type_alias.name) @type_alias.def
+    (macro_definition name: (identifier) @function.name) @function.def
+    (mod_item name: (identifier) @module.name) @module.def
 "#;
 
 const C_QUERY: &str = r#"

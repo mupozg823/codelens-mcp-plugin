@@ -514,37 +514,59 @@ impl IndexDb {
         }
 
         // Lazy rebuild: rebuild FTS index if stale (symbols changed since last rebuild).
-        // Uses a meta key to track FTS freshness, avoiding per-insert trigger overhead.
-        let fts_fresh: bool = self
+        // Uses meta keys for count freshness + timestamp cooldown (30s) to avoid
+        // expensive COUNT(*) + rebuild on every search call.
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let last_rebuild_ts: i64 = self
             .conn
             .query_row(
-                "SELECT value FROM meta WHERE key = 'fts_symbol_count'",
+                "SELECT value FROM meta WHERE key = 'fts_rebuild_ts'",
                 [],
                 |row| row.get::<_, String>(0),
             )
             .optional()?
             .and_then(|v| v.parse::<i64>().ok())
-            .map(|cached_count| {
-                let current: i64 = self
+            .unwrap_or(0);
+
+        if now_secs - last_rebuild_ts > 30 {
+            let fts_fresh: bool = self
+                .conn
+                .query_row(
+                    "SELECT value FROM meta WHERE key = 'fts_symbol_count'",
+                    [],
+                    |row| row.get::<_, String>(0),
+                )
+                .optional()?
+                .and_then(|v| v.parse::<i64>().ok())
+                .map(|cached_count| {
+                    let current: i64 = self
+                        .conn
+                        .query_row("SELECT COUNT(*) FROM symbols", [], |row| row.get(0))
+                        .unwrap_or(0);
+                    cached_count == current
+                })
+                .unwrap_or(false);
+
+            if !fts_fresh {
+                let sym_count: i64 = self
                     .conn
                     .query_row("SELECT COUNT(*) FROM symbols", [], |row| row.get(0))
                     .unwrap_or(0);
-                cached_count == current
-            })
-            .unwrap_or(false);
-
-        if !fts_fresh {
-            let sym_count: i64 = self
-                .conn
-                .query_row("SELECT COUNT(*) FROM symbols", [], |row| row.get(0))
-                .unwrap_or(0);
-            if sym_count > 0 {
-                let _ = self
-                    .conn
-                    .execute_batch("INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')");
+                if sym_count > 0 {
+                    let _ = self
+                        .conn
+                        .execute_batch("INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild')");
+                    let _ = self.conn.execute(
+                        "INSERT OR REPLACE INTO meta (key, value) VALUES ('fts_symbol_count', ?1)",
+                        params![sym_count.to_string()],
+                    );
+                }
                 let _ = self.conn.execute(
-                    "INSERT OR REPLACE INTO meta (key, value) VALUES ('fts_symbol_count', ?1)",
-                    params![sym_count.to_string()],
+                    "INSERT OR REPLACE INTO meta (key, value) VALUES ('fts_rebuild_ts', ?1)",
+                    params![now_secs.to_string()],
                 );
             }
         }
