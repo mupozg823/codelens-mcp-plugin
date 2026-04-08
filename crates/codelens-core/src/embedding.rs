@@ -2037,12 +2037,24 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         sym.name.clone()
     };
 
+    // Add parent context from name_path (e.g. "UserService/get_user" → "in UserService")
+    let parent_ctx = if !sym.name_path.is_empty() && sym.name_path.contains('/') {
+        let parent = sym.name_path.rsplitn(2, '/').nth(1).unwrap_or("");
+        if parent.is_empty() {
+            String::new()
+        } else {
+            format!(" (in {})", parent)
+        }
+    } else {
+        String::new()
+    };
+
     let base = if sym.signature.is_empty() {
-        format!("{} {}{}", sym.kind, name_with_split, file_ctx)
+        format!("{} {}{}{}", sym.kind, name_with_split, parent_ctx, file_ctx)
     } else {
         format!(
-            "{} {}{}: {}",
-            sym.kind, name_with_split, file_ctx, sym.signature
+            "{} {}{}{}: {}",
+            sym.kind, name_with_split, parent_ctx, file_ctx, sym.signature
         )
     };
 

@@ -113,6 +113,12 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     if result.file_path.contains("/tests") || result.file_path.ends_with("_tests.rs") {
         prior -= 0.05;
     }
+    if result.file_path.contains("util")
+        || result.file_path.contains("helper")
+        || result.file_path.contains("common")
+    {
+        prior -= 0.02;
+    }
 
     prior += match result.kind.as_str() {
         "function" | "method" => 0.04,
