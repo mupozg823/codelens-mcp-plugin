@@ -4,6 +4,13 @@ use anyhow::Result;
 use serde::Serialize;
 use strsim::jaro_winkler;
 
+/// Minimum cosine similarity for boosting existing search results with semantic scores.
+pub const SEMANTIC_BOOST_THRESHOLD: f64 = 0.10;
+/// Minimum cosine similarity for surfacing new semantic-only results.
+pub const SEMANTIC_NEW_RESULT_THRESHOLD: f64 = 0.15;
+/// Minimum cosine similarity for semantic coupling detection in reports.
+pub const SEMANTIC_COUPLING_THRESHOLD: f64 = 0.12;
+
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchResult {
     pub name: String,
@@ -126,17 +133,17 @@ pub fn search_symbols_hybrid_with_semantic(
             if seen.contains(&key) {
                 let sem_key = format!("{file_path}:{name}");
                 if let Some(&sem_score) = scores.get(&sem_key)
-                    && sem_score > 0.1
+                    && sem_score > SEMANTIC_BOOST_THRESHOLD
                     && let Some(existing) = results
                         .iter_mut()
                         .find(|r| r.name == name && r.file == file_path && r.line == line as usize)
                 {
-                    existing.score += sem_score * 15.0;
+                    existing.score += (sem_score * 15.0).min(10.0);
                 }
                 continue;
             }
             let sem_key = format!("{file_path}:{name}");
-            if let Some(&sem_score) = scores.get(&sem_key).filter(|&&s| s > 0.15) {
+            if let Some(&sem_score) = scores.get(&sem_key).filter(|&&s| s > SEMANTIC_NEW_RESULT_THRESHOLD) {
                 seen.insert(key);
                 results.push(SearchResult {
                     name,

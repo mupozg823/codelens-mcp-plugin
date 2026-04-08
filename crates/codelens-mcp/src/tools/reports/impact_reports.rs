@@ -4,6 +4,7 @@ use crate::tools::symbols::{
     semantic_query_for_retrieval, semantic_results_for_query, semantic_status,
 };
 use crate::tools::{required_string, AppState, ToolResult};
+use codelens_core::search::{SEMANTIC_COUPLING_THRESHOLD, SEMANTIC_NEW_RESULT_THRESHOLD};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -71,16 +72,6 @@ fn build_dead_code_semantic_query(name: &str, file: Option<&str>) -> String {
             format!("similar live code for {name} in {}", path_hint(file))
         }
         _ => format!("similar live code for {name}"),
-    };
-    semantic_query_for_retrieval(&query)
-}
-
-fn build_impact_semantic_query(path: &str, symbol_names: &[String]) -> String {
-    let hint = path_hint(path);
-    let query = if symbol_names.is_empty() {
-        format!("code related to {hint}")
-    } else {
-        format!("code related to {hint} {}", symbol_names.join(" "))
     };
     semantic_query_for_retrieval(&query)
 }
@@ -162,7 +153,7 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
     let sem_results = semantic_results_for_query(state, &module_query, 10, false);
     let semantic_coupling: Vec<Value> = sem_results
         .into_iter()
-        .filter(|r| r.score > 0.12 && !r.file_path.contains(path))
+        .filter(|r| r.score > SEMANTIC_COUPLING_THRESHOLD && !r.file_path.contains(path))
         .take(5)
         .map(|r| {
             json!({
@@ -243,7 +234,7 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
             }
             let similar: Vec<Value> = results
                 .into_iter()
-                .filter(|r| r.score > 0.15)
+                .filter(|r| r.score > SEMANTIC_NEW_RESULT_THRESHOLD)
                 .map(|r| {
                     json!({
                         "symbol": r.symbol_name,
@@ -373,42 +364,51 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         })
         .collect();
 
-    // Always attempt — get_or_init lazy-loads embedding engine
-    let semantic_related: Vec<Value> = target_files
-        .iter()
-        .take(3)
-        .flat_map(|path| {
-            // Build a richer query from the file's top symbol names (via symbol DB)
-            let symbol_names: Vec<String> = crate::tools::symbols::get_symbols_overview(
-                state,
-                &json!({"path": path, "depth": 1}),
-            )
-            .ok()
-            .and_then(|out| {
-                out.0.get("symbols").and_then(|v| v.as_array()).map(|arr| {
-                    arr.iter()
-                        .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
-                        .take(5)
-                        .map(ToOwned::to_owned)
-                        .collect::<Vec<_>>()
-                })
-            })
-            .unwrap_or_default();
-            let sym_query = build_impact_semantic_query(path, &symbol_names);
-            semantic_results_for_query(state, &sym_query, 5, false)
-                .into_iter()
-                .filter(|r| r.score > 0.12 && !graph_files.contains(&r.file_path))
-                .map(|r| {
-                    json!({
-                        "source": path,
-                        "related_file": r.file_path,
-                        "related_symbol": r.symbol_name,
-                        "semantic_score": (r.score * 1000.0).round() / 1000.0,
+    // Batch semantic enrichment: collect symbols from up to 3 files, then issue
+    // a single combined query instead of per-file calls.
+    let batch_files: Vec<&String> = target_files.iter().take(3).collect();
+    let mut all_symbol_names: Vec<String> = Vec::new();
+    let mut batch_file_set: Vec<String> = Vec::new();
+    for path in &batch_files {
+        batch_file_set.push((*path).clone());
+        let names: Vec<String> =
+            crate::tools::symbols::get_symbols_overview(state, &json!({"path": path, "depth": 1}))
+                .ok()
+                .and_then(|out| {
+                    out.0.get("symbols").and_then(|v| v.as_array()).map(|arr| {
+                        arr.iter()
+                            .filter_map(|s| s.get("name").and_then(|n| n.as_str()))
+                            .take(5)
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
                     })
                 })
-                .collect::<Vec<_>>()
-        })
-        .collect();
+                .unwrap_or_default();
+        all_symbol_names.extend(names);
+    }
+    all_symbol_names.sort_unstable();
+    all_symbol_names.dedup();
+    let combined_query = all_symbol_names.join(" ");
+    let semantic_related: Vec<Value> = if combined_query.is_empty() {
+        Vec::new()
+    } else {
+        semantic_results_for_query(state, &combined_query, 15, false)
+            .into_iter()
+            .filter(|r| {
+                r.score > SEMANTIC_COUPLING_THRESHOLD
+                    && !graph_files.contains(&r.file_path)
+                    && !batch_file_set.contains(&r.file_path)
+            })
+            .take(10)
+            .map(|r| {
+                json!({
+                    "related_file": r.file_path,
+                    "related_symbol": r.symbol_name,
+                    "semantic_score": (r.score * 1000.0).round() / 1000.0,
+                })
+            })
+            .collect()
+    };
 
     let mut sections = BTreeMap::new();
     sections.insert(
@@ -448,9 +448,7 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        build_dead_code_semantic_query, build_impact_semantic_query, build_module_semantic_query,
-    };
+    use super::{build_dead_code_semantic_query, build_module_semantic_query};
 
     #[test]
     fn module_semantic_query_keeps_module_intent() {
@@ -469,17 +467,6 @@ mod tests {
         assert!(query.contains("similar live code for"));
         assert!(query.contains("rename_symbol"));
         assert!(query.contains("rename"));
-    }
-
-    #[test]
-    fn impact_semantic_query_uses_related_to_intent() {
-        let query = build_impact_semantic_query(
-            "crates/codelens-core/src/watcher.rs",
-            &["watch_files".to_string()],
-        );
-        assert!(query.contains("code related to"));
-        assert!(query.contains("watcher"));
-        assert!(query.contains("watch_files"));
     }
 }
 

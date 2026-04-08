@@ -62,11 +62,7 @@ fn config_for_canonical(canonical: &str) -> Option<LanguageConfig> {
         "jl" => ("jl", tree_sitter_julia::LANGUAGE.into(), JULIA_QUERY),
         "css" => ("css", tree_sitter_css::LANGUAGE.into(), CSS_QUERY),
         "html" => ("html", tree_sitter_html::LANGUAGE.into(), HTML_QUERY),
-        "toml" => (
-            "toml",
-            tree_sitter_toml_updated::language(),
-            TOML_QUERY,
-        ),
+        "toml" => ("toml", tree_sitter_toml_updated::language(), TOML_QUERY),
         "yaml" => ("yaml", tree_sitter_yaml::LANGUAGE.into(), YAML_QUERY),
         "clj" => ("clj", tree_sitter_clojure::LANGUAGE.into(), CLOJURE_QUERY),
         // make/dockerfile/vim/fsharp/perl — all blocked by tree-sitter 0.25→0.26 LanguageFn conflict
@@ -108,7 +104,11 @@ const TYPESCRIPT_QUERY: &str = r#"
 const GO_QUERY: &str = r#"
     (function_declaration name: (identifier) @function.name) @function.def
     (method_declaration name: (field_identifier) @method.name) @method.def
-    (type_declaration (type_spec name: (type_identifier) @class.name)) @class.def
+    (type_declaration (type_spec name: (type_identifier) @class.name type: (struct_type))) @class.def
+    (type_declaration (type_spec name: (type_identifier) @interface.name type: (interface_type))) @interface.def
+    (type_declaration (type_spec name: (type_identifier) @type_alias.name)) @type_alias.def
+    (const_declaration (const_spec name: (identifier) @variable.name)) @variable.def
+    (var_declaration (var_spec name: (identifier) @variable.name)) @variable.def
 "#;
 
 const JAVA_QUERY: &str = r#"
