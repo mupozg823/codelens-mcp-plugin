@@ -23,3 +23,7 @@ T2: 고품질 학습 데이터 — 나머지 727쌍 생성 필요
 - V8-A (LLM synthetic LoRA on V6) MRR 0.807→0.891 성공 but 실사용 gap 존재
 - INT8 양자화 시 경계 케이스 품질 손실 확인 (cosine sim 0.967)
 - CSN에 Rust/TypeScript 없음 → 다국어 데이터 필수
+- FTS5 tokenizer underscore separator 추가 (v6 마이그레이션) — "parse" → parse_symbols 매칭 가능
+- hybrid 결과를 semantic_search에 병합 — score \* 0.35로 스케일링
+- 남은 문제: hybrid FTS가 NL 쿼리 전체로 매칭 → 키워드 추출 후 FTS 필요
+- semantic threshold 0.5 → 0.15, boost threshold 0.3 → 0.1

@@ -5,18 +5,31 @@
 
 use crate::import_graph::extract_imports_for_file;
 use crate::project::ProjectRoot;
-use crate::symbols::{SymbolIndex, SymbolInfo, get_symbols_overview, language_for_path};
+use crate::symbols::{get_symbols_overview, language_for_path, SymbolIndex, SymbolInfo};
 use anyhow::Result;
 use regex::Regex;
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::Path;
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 use tree_sitter::{Node, Parser};
 
 static TYPE_CANDIDATE_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b([A-Z][a-zA-Z0-9_]*)\b").unwrap());
+
+const IMPORT_CACHE_CAPACITY: usize = 64;
+
+static IMPORT_ANALYSIS_CACHE: LazyLock<Mutex<HashMap<u64, MissingImportAnalysis>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn content_cache_key(file_path: &str, content: &str) -> u64 {
+    let mut hasher = std::hash::DefaultHasher::new();
+    file_path.hash(&mut hasher);
+    content.hash(&mut hasher);
+    hasher.finish()
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ImportSuggestion {
@@ -35,12 +48,21 @@ pub struct MissingImportAnalysis {
 }
 
 /// Analyze a file for potentially unresolved symbols and suggest imports.
+/// Results are cached by (file_path, content_hash) to avoid redundant parsing and lookups.
 pub fn analyze_missing_imports(
     project: &ProjectRoot,
     file_path: &str,
 ) -> Result<MissingImportAnalysis> {
     let resolved = project.resolve(file_path)?;
     let source = fs::read_to_string(&resolved)?;
+    let cache_key = content_cache_key(file_path, &source);
+
+    // Return cached result if file content unchanged
+    if let Ok(cache) = IMPORT_ANALYSIS_CACHE.lock()
+        && let Some(cached) = cache.get(&cache_key) {
+            return Ok(cached.clone());
+        }
+
     let ext = resolved
         .extension()
         .and_then(|e| e.to_str())
@@ -92,11 +114,22 @@ pub fn analyze_missing_imports(
         }
     }
 
-    Ok(MissingImportAnalysis {
+    let result = MissingImportAnalysis {
         file_path: file_path.to_string(),
         unresolved_symbols: unresolved,
         suggestions,
-    })
+    };
+
+    // Store in cache, evict oldest if at capacity
+    if let Ok(mut cache) = IMPORT_ANALYSIS_CACHE.lock() {
+        if cache.len() >= IMPORT_CACHE_CAPACITY
+            && let Some(&oldest_key) = cache.keys().next() {
+                cache.remove(&oldest_key);
+            }
+        cache.insert(cache_key, result.clone());
+    }
+
+    Ok(result)
 }
 
 /// Add an import statement to a file at the correct position.

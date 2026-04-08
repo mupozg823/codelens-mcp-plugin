@@ -64,7 +64,7 @@ fn config_for_canonical(canonical: &str) -> Option<LanguageConfig> {
         "html" => ("html", tree_sitter_html::LANGUAGE.into(), HTML_QUERY),
         "toml" => (
             "toml",
-            tree_sitter_toml_updated::language().into(),
+            tree_sitter_toml_updated::language(),
             TOML_QUERY,
         ),
         "yaml" => ("yaml", tree_sitter_yaml::LANGUAGE.into(), YAML_QUERY),

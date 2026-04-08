@@ -150,7 +150,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
     {
         let semantic_scores: std::collections::HashMap<String, f64> = results
             .iter()
-            .map(|r| (format!("{}:{}", r.file_path, r.symbol_name), r.score as f64))
+            .map(|r| (format!("{}:{}", r.file_path, r.symbol_name), r.score))
             .collect();
         let hybrid = codelens_core::search::search_symbols_hybrid_with_semantic(
             &project,
@@ -548,7 +548,7 @@ pub(crate) fn dispatch_tool(
             state,
             surface,
             active_surface: &active_surface,
-            arguments: arguments,
+            arguments,
             logical_session_id: &session.session_id,
             gate_allowance: gate_allowance.as_ref(),
             compact,

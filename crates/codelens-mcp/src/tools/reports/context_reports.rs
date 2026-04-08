@@ -1,7 +1,7 @@
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use crate::tools::{AppState, ToolResult, required_string};
-use serde_json::{Value, json};
+use crate::tools::{required_string, AppState, ToolResult};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult {

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use super::{DirStats, FileRow, IndexDb, NewCall, NewImport, NewSymbol, SymbolRow, SymbolWithFile};
 
@@ -66,7 +66,7 @@ pub(crate) fn upsert_file(
         .unwrap_or_default()
         .as_millis() as i64;
 
-    conn.execute(
+    let id: i64 = conn.query_row(
         "INSERT INTO files (relative_path, mtime_ms, content_hash, size_bytes, language, indexed_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)
          ON CONFLICT(relative_path) DO UPDATE SET
@@ -74,13 +74,9 @@ pub(crate) fn upsert_file(
             content_hash = excluded.content_hash,
             size_bytes = excluded.size_bytes,
             language = excluded.language,
-            indexed_at = excluded.indexed_at",
+            indexed_at = excluded.indexed_at
+         RETURNING id",
         params![relative_path, mtime_ms, content_hash, size_bytes, language, now],
-    )?;
-
-    let id: i64 = conn.query_row(
-        "SELECT id FROM files WHERE relative_path = ?1",
-        params![relative_path],
         |row| row.get(0),
     )?;
 
@@ -749,11 +745,10 @@ impl IndexDb {
                 end_byte: row.get(7)?,
             };
 
-            if current_file.as_deref() != Some(symbol.file_path.as_str()) {
-                if let Some(previous_file) = current_file.replace(symbol.file_path.clone()) {
+            if current_file.as_deref() != Some(symbol.file_path.as_str())
+                && let Some(previous_file) = current_file.replace(symbol.file_path.clone()) {
                     callback(previous_file, std::mem::take(&mut current_symbols))?;
                 }
-            }
 
             current_symbols.push(symbol);
             count += 1;

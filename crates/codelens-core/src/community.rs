@@ -53,12 +53,11 @@ pub fn detect_communities(
     for (file, node) in graph {
         if let Some(&src) = node_map.get(file) {
             for imported in &node.imports {
-                if let Some(&dst) = node_map.get(imported) {
-                    if src != dst && !pg.contains_edge(src, dst) {
+                if let Some(&dst) = node_map.get(imported)
+                    && src != dst && !pg.contains_edge(src, dst) {
                         pg.add_edge(src, dst, ());
                         edge_count += 1;
                     }
-                }
             }
         }
     }

@@ -423,11 +423,10 @@ impl EmbeddingStore for SqliteVecStore {
 
         while let Some(row) = rows.next()? {
             let file_path: String = row.get(0)?;
-            if current_file.as_deref() != Some(file_path.as_str()) {
-                if let Some(previous_file) = current_file.replace(file_path.clone()) {
+            if current_file.as_deref() != Some(file_path.as_str())
+                && let Some(previous_file) = current_file.replace(file_path.clone()) {
                     visitor(previous_file, std::mem::take(&mut current_chunks))?;
                 }
-            }
 
             let symbol_name: String = row.get(1)?;
             let kind: String = row.get(2)?;
@@ -763,7 +762,7 @@ fn configured_embedding_text_cache_size() -> usize {
     std::env::var("CODELENS_EMBED_TEXT_CACHE_SIZE")
         .ok()
         .and_then(|value| value.trim().parse::<usize>().ok())
-        .unwrap_or_else(|| {
+        .unwrap_or({
             if cfg!(target_os = "macos") {
                 DEFAULT_MACOS_TEXT_EMBED_CACHE_SIZE
             } else {
@@ -851,7 +850,7 @@ fn recommended_embed_threads() -> usize {
 }
 
 fn embed_batch_size() -> usize {
-    parse_usize_env("CODELENS_EMBED_BATCH_SIZE").unwrap_or_else(|| {
+    parse_usize_env("CODELENS_EMBED_BATCH_SIZE").unwrap_or({
         if cfg!(target_os = "macos") {
             DEFAULT_MACOS_EMBED_BATCH_SIZE
         } else {
@@ -917,7 +916,7 @@ pub fn configured_embedding_runtime_info() -> EmbeddingRuntimeInfo {
     #[cfg(target_os = "macos")]
     {
         let coreml_enabled = runtime_preference != "cpu";
-        return EmbeddingRuntimeInfo {
+        EmbeddingRuntimeInfo {
             runtime_preference,
             backend: "not_loaded".to_string(),
             threads,
@@ -932,7 +931,7 @@ pub fn configured_embedding_runtime_info() -> EmbeddingRuntimeInfo {
             coreml_model_cache_dir: coreml_enabled
                 .then(|| configured_coreml_model_cache_dir().display().to_string()),
             fallback_reason: None,
-        };
+        }
     }
 
     #[cfg(not(target_os = "macos"))]

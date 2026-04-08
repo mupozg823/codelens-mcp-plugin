@@ -494,6 +494,11 @@ pub(crate) fn semantic_results_for_query(
         return Vec::new();
     }
 
+    // Skip embedding lookup for short single-word identifiers where FTS is more accurate
+    if query_prefers_lexical_only(query) && query.trim().len() <= 40 {
+        return Vec::new();
+    }
+
     let semantic_query = semantic_query_for_retrieval(query);
     if semantic_query.is_empty() {
         return Vec::new();

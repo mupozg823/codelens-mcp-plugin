@@ -219,7 +219,7 @@ fn find_word_matches_in_files(
         for (line_idx, line) in content.lines().enumerate() {
             for mat in word_re.find_iter(line) {
                 let abs_start = byte_offset + mat.start();
-                if !is_in_ranges(&non_code, abs_start) {
+                if !is_in_ranges(non_code, abs_start) {
                     results.push((rel.clone(), line_idx + 1, mat.start() + 1));
                 }
             }
