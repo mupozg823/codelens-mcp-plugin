@@ -249,10 +249,13 @@ pub(crate) fn bounded_result_payload(
         if let Some(existing) = structured_content.as_ref() {
             structured_content = Some(summarize_structured_content(existing, 0));
         }
-    } else if text.len() <= max_chars {
-        // Stage 4: aggressive summarize structured, keep text
+    } else if usage_pct <= 100 {
+        // Stage 4: aggressive summarize structured + truncate text if needed
         if let Some(existing) = structured_content.as_ref() {
             structured_content = Some(summarize_structured_content(existing, 0));
+        }
+        if text.len() > max_chars {
+            text = format!("{}...[truncated]", text.chars().take(max_chars).collect::<String>());
         }
         truncated = true;
     } else {

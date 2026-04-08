@@ -139,7 +139,7 @@ impl AppState {
         RecentPreflightStore::key(&self.current_project_scope(), logical_session)
     }
 
-    fn clear_recent_preflights(&self) {
+    pub(crate) fn clear_recent_preflights(&self) {
         self.preflight_store.clear();
     }
 

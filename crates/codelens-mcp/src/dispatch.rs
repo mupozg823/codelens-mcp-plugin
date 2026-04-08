@@ -398,7 +398,14 @@ pub(crate) fn dispatch_tool(
     let args_hash = {
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        arguments.to_string().hash(&mut hasher);
+        // Exclude routing metadata from doom-loop hash so that identical
+        // semantic calls with different profiles are still detected.
+        let mut filtered = arguments.clone();
+        if let Some(obj) = filtered.as_object_mut() {
+            obj.remove("_profile");
+            obj.remove("_compact");
+        }
+        filtered.to_string().hash(&mut hasher);
         hasher.finish()
     };
     let doom_count = state.doom_loop_count(name, args_hash);
@@ -463,6 +470,7 @@ pub(crate) fn dispatch_tool(
     // 5. Post-mutation side effects (graph invalidation, audit, incremental reindex)
     if result.is_ok() && is_content_mutation_tool(name) {
         state.graph_cache().invalidate();
+        state.clear_recent_preflights();
         // Incremental reindex: refresh symbol DB + embedding index for the mutated file
         if let Some(fp) = arguments
             .get("file_path")
