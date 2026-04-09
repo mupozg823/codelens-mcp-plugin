@@ -16,6 +16,8 @@ from pathlib import Path
 DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS = 5
 DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS = 10
 DEFAULT_HTTP_TOOL_TIMEOUT_SECONDS = 90
+RUN_MANIFEST_FILENAME = "run-manifest.json"
+RUN_EVENT_LOG_FILENAME = "run-events.jsonl"
 
 
 def load_module(path: Path, name: str):
@@ -55,6 +57,242 @@ def slugify(value: str) -> str:
     while "--" in slug:
         slug = slug.replace("--", "-")
     return slug.strip("-") or "task"
+
+
+def now_iso() -> str:
+    return datetime.now().isoformat(timespec="seconds")
+
+
+def read_json_file(path: Path):
+    return json.loads(path.read_text())
+
+
+def write_json_file(path: Path, payload: dict):
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+
+
+def run_identity(
+    *,
+    runner: str,
+    agent: str,
+    repo_path: Path,
+    execution_repo_path: Path,
+    task_kind: str,
+    mode: str,
+    scenario_id: str | None,
+):
+    return {
+        "runner": runner,
+        "agent": agent,
+        "repo": str(repo_path),
+        "execution_repo": str(execution_repo_path),
+        "task_kind": task_kind,
+        "mode": mode or "",
+        "scenario_id": scenario_id or None,
+    }
+
+
+def append_run_event(event_log_path: Path, event_type: str, payload: dict):
+    event_log_path.parent.mkdir(parents=True, exist_ok=True)
+    record = {
+        "timestamp": now_iso(),
+        "event_type": event_type,
+        "payload": payload,
+    }
+    with event_log_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def ensure_run_manifest(
+    *,
+    run_dir: Path,
+    runner: str,
+    agent: str,
+    repo_path: Path,
+    execution_repo_path: Path,
+    task_kind: str,
+    mode: str,
+    scenario_id: str | None,
+    recommended_policy: str,
+    route_mode: str,
+):
+    manifest_path = run_dir / RUN_MANIFEST_FILENAME
+    event_log_path = run_dir / RUN_EVENT_LOG_FILENAME
+    identity = run_identity(
+        runner=runner,
+        agent=agent,
+        repo_path=repo_path,
+        execution_repo_path=execution_repo_path,
+        task_kind=task_kind,
+        mode=mode,
+        scenario_id=scenario_id,
+    )
+    if manifest_path.exists():
+        manifest = read_json_file(manifest_path)
+        existing_identity = manifest.get("identity") or {}
+        mismatches = []
+        for key, value in identity.items():
+            if existing_identity.get(key) != value:
+                mismatches.append(
+                    {
+                        "field": key,
+                        "expected": value,
+                        "found": existing_identity.get(key),
+                    }
+                )
+        if mismatches:
+            raise SystemExit(
+                "run-dir already belongs to a different harness execution identity: "
+                f"{json.dumps(mismatches, ensure_ascii=False)}"
+            )
+        manifest["updated_at"] = now_iso()
+        manifest["routing"] = {
+            "recommended_policy": recommended_policy,
+            "route_mode": route_mode,
+        }
+        write_json_file(manifest_path, manifest)
+        append_run_event(
+            event_log_path,
+            "run_reopened",
+            {
+                "identity": identity,
+                "routing": manifest["routing"],
+            },
+        )
+        return manifest_path, event_log_path, manifest
+
+    manifest = {
+        "schema_version": "codelens-harness-run-v1",
+        "run_id": run_dir.name,
+        "run_dir": str(run_dir),
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+        "identity": identity,
+        "routing": {
+            "recommended_policy": recommended_policy,
+            "route_mode": route_mode,
+        },
+        "checkpoints": {},
+        "artifacts": {},
+    }
+    write_json_file(manifest_path, manifest)
+    append_run_event(
+        event_log_path,
+        "run_initialized",
+        {
+            "identity": identity,
+            "routing": manifest["routing"],
+        },
+    )
+    return manifest_path, event_log_path, manifest
+
+
+def load_run_manifest(manifest_path: Path) -> dict:
+    return read_json_file(manifest_path)
+
+
+def checkpoint_status(manifest: dict, stage: str) -> str | None:
+    checkpoint = (manifest.get("checkpoints") or {}).get(stage) or {}
+    status = checkpoint.get("status")
+    return status if isinstance(status, str) else None
+
+
+def artifact_is_reusable(manifest_path: Path, stage: str, artifact_path: Path) -> bool:
+    if not manifest_path.exists() or not artifact_path.exists():
+        return False
+    manifest = load_run_manifest(manifest_path)
+    return checkpoint_status(manifest, stage) == "completed"
+
+
+def load_reusable_artifact_json(manifest_path: Path, stage: str, artifact_path: Path):
+    if not artifact_is_reusable(manifest_path, stage, artifact_path):
+        return None
+    return read_json_file(artifact_path)
+
+
+def checkpoint_run_stage(
+    manifest_path: Path,
+    event_log_path: Path,
+    stage: str,
+    *,
+    status: str,
+    artifacts: dict[str, str | Path] | None = None,
+    details: dict | None = None,
+):
+    manifest = load_run_manifest(manifest_path)
+    checkpoints = manifest.setdefault("checkpoints", {})
+    stage_record = checkpoints.get(stage) or {}
+    stage_record.update(
+        {
+            "status": status,
+            "updated_at": now_iso(),
+        }
+    )
+    if details:
+        stage_record["details"] = details
+    if artifacts:
+        materialized_artifacts = {
+            key: str(Path(value)) if isinstance(value, Path) else str(value)
+            for key, value in artifacts.items()
+        }
+        stage_record["artifacts"] = materialized_artifacts
+        manifest.setdefault("artifacts", {}).update(materialized_artifacts)
+    checkpoints[stage] = stage_record
+    manifest["updated_at"] = now_iso()
+    write_json_file(manifest_path, manifest)
+    append_run_event(
+        event_log_path,
+        "stage_checkpointed",
+        {
+            "stage": stage,
+            "status": status,
+            "details": details or {},
+            "artifacts": checkpoints[stage].get("artifacts", {}),
+        },
+    )
+    return manifest
+
+
+def record_stage_reuse(
+    manifest_path: Path,
+    event_log_path: Path,
+    stage: str,
+    *,
+    artifacts: dict[str, str | Path] | None = None,
+    details: dict | None = None,
+):
+    manifest = load_run_manifest(manifest_path)
+    checkpoints = manifest.setdefault("checkpoints", {})
+    stage_record = checkpoints.get(stage) or {}
+    stage_record["status"] = stage_record.get("status") or "completed"
+    stage_record["last_reused_at"] = now_iso()
+    stage_record["reuse_count"] = int(stage_record.get("reuse_count") or 0) + 1
+    if details:
+        stage_record["reuse_details"] = details
+    if artifacts:
+        materialized_artifacts = {
+            key: str(Path(value)) if isinstance(value, Path) else str(value)
+            for key, value in artifacts.items()
+        }
+        stage_record["artifacts"] = {
+            **(stage_record.get("artifacts") or {}),
+            **materialized_artifacts,
+        }
+        manifest.setdefault("artifacts", {}).update(materialized_artifacts)
+    checkpoints[stage] = stage_record
+    manifest["updated_at"] = now_iso()
+    write_json_file(manifest_path, manifest)
+    append_run_event(
+        event_log_path,
+        "stage_reused",
+        {
+            "stage": stage,
+            "details": details or {},
+            "artifacts": stage_record.get("artifacts", {}),
+            "reuse_count": stage_record.get("reuse_count", 0),
+        },
+    )
+    return manifest
 
 
 def resolve_execution_repo_path(repo_path: Path, repo_id: str = "", alias_dir: Path | None = None):
@@ -692,24 +930,108 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
             include_headers=True,
         )
         session_id = response_headers.get("mcp-session-id")
+        bootstrap = mcp_http_tool_call(
+            base_url,
+            "prepare_harness_session",
+            {
+                "project": str(repo_path),
+                "detail": "compact",
+                "preferred_entrypoints": preferred_entrypoints,
+            },
+            request_id=request_id_base + 3,
+            session_id=session_id,
+        )
+        bootstrap_payload = extract_tool_payload(bootstrap)
+        bootstrap_data = (
+            bootstrap_payload.get("data", {}) if isinstance(bootstrap_payload, dict) else {}
+        )
+        if bootstrap_payload.get("success") is not False and isinstance(bootstrap_data, dict) and bootstrap_data:
+            session_payload = bootstrap_data.get("http_session", {})
+            visible_tools = bootstrap_data.get("visible_tools", {})
+            routing = bootstrap_data.get("routing", {})
+            project_data = bootstrap_data.get("project", {})
+            config_data = bootstrap_data.get("config", {})
+            caps_data = bootstrap_data.get("capabilities", {})
+            include_output_schema = (
+                session_payload.get("default_tools_list_contract_mode") != "lean"
+            )
+            tools_list_contract_mode = "full" if include_output_schema else "lean"
+            schema_recovery_hint = None
+            if not include_output_schema:
+                schema_recovery_hint = (
+                    "Retry tools/list with includeOutputSchema=true only when output shapes matter; "
+                    "prefer narrowing by namespace or tier before requesting a full contract."
+                )
+            richer_contract = None
+            if tools_list_contract_mode == "lean" and should_prefetch_richer_tools_contract(brief):
+                richer_contract = fetch_richer_tools_contract(base_url, session_id, request_id_base + 4)
+            recommended_entrypoint = routing.get("recommended_entrypoint")
+            preferred_visible = routing.get("preferred_entrypoints_visible") or []
+            followup_tools = [tool for tool in preferred_visible if tool != recommended_entrypoint]
+            return {
+                "available": True,
+                "session_id": session_id,
+                "tool_count": visible_tools.get("tool_count", 0),
+                "tool_count_total": visible_tools.get("tool_count_total", visible_tools.get("tool_count", 0)),
+                "effective_namespaces": visible_tools.get("effective_namespaces", []),
+                "preferred_namespaces": visible_tools.get("preferred_namespaces", []),
+                "loaded_tiers": visible_tools.get("loaded_tiers", []),
+                "deferred_loading_active": visible_tools.get("deferred_loading_active"),
+                "include_output_schema": include_output_schema,
+                "tools_list_contract_mode": tools_list_contract_mode,
+                "schema_recovery_hint": schema_recovery_hint,
+                "richer_contract_prefetched": bool(richer_contract and richer_contract.get("prefetched")),
+                "richer_contract_scope": None if not richer_contract else richer_contract.get("scope"),
+                "richer_contract_tool_count": None if not richer_contract else richer_contract.get("tool_count"),
+                "recommended_entrypoint": recommended_entrypoint,
+                "recommendation_source": "official_bootstrap_tool",
+                "recommended_contract_action": (
+                    "stay_lean_until_shape_needed"
+                    if tools_list_contract_mode == "lean"
+                    else "stay_on_default_contract"
+                ),
+                "recommended_followup_tools": followup_tools[:3],
+                "preferred_entrypoints_visible": preferred_visible,
+                "preferred_entrypoints_in_prefetched_contract": [] if not richer_contract else [
+                    tool
+                    for tool in preferred_entrypoints
+                    if tool in extract_tool_names(richer_contract)
+                ],
+                "auto_surface": project_data.get("auto_surface"),
+                "auto_budget": project_data.get("auto_budget"),
+                "indexed_files": project_data.get(
+                    "indexed_files",
+                    (config_data.get("symbol_index") or {}).get("indexed_files"),
+                ),
+                "frameworks": project_data.get("frameworks", config_data.get("frameworks", [])),
+                "embedding_model": caps_data.get("embedding_model"),
+                "embedding_indexed": caps_data.get("embedding_indexed"),
+                "embedding_indexed_symbols": caps_data.get("embedding_indexed_symbols"),
+                "activate_project_error": None,
+                "preferred_entrypoints": preferred_entrypoints,
+                "fallback_to_native": fallback_to_native,
+                "init_response": init_response,
+                "probe_strategy": "official_bootstrap_tool",
+            }
+
         tool_list = mcp_http_call(
             f"{base_url}",
             "tools/list",
-            request_id=request_id_base + 1,
+            request_id=request_id_base + 10,
             headers={"mcp-session-id": session_id} if session_id else None,
         )
         tool_list_primitive = mcp_http_call(
             f"{base_url}",
             "tools/list",
             {"tier": "primitive"},
-            request_id=request_id_base + 2,
+            request_id=request_id_base + 11,
             headers={"mcp-session-id": session_id} if session_id else None,
         )
         activate = mcp_http_tool_call(
             base_url,
             "activate_project",
             {"project": str(repo_path)},
-            request_id=request_id_base + 3,
+            request_id=request_id_base + 12,
             session_id=session_id,
         )
         activate_payload = extract_tool_payload(activate)
@@ -718,14 +1040,14 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
                 f"{base_url}",
                 "tools/list",
                 {"tier": "primitive"},
-                request_id=request_id_base + 4,
+                request_id=request_id_base + 13,
                 headers={"mcp-session-id": session_id} if session_id else None,
             )
             activate = mcp_http_tool_call(
                 base_url,
                 "activate_project",
                 {"project": str(repo_path)},
-                request_id=request_id_base + 5,
+                request_id=request_id_base + 14,
                 session_id=session_id,
             )
             activate_payload = extract_tool_payload(activate)
@@ -733,7 +1055,7 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
             base_url,
             "get_capabilities",
             {},
-            request_id=request_id_base + 6,
+            request_id=request_id_base + 15,
             session_id=session_id,
         )
         caps_payload = extract_tool_payload(capabilities)
@@ -798,6 +1120,7 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
             "preferred_entrypoints": preferred_entrypoints,
             "fallback_to_native": fallback_to_native,
             "init_response": init_response,
+            "probe_strategy": "legacy_round_trip_fallback",
         }
     except URLError as exc:
         return {

@@ -36,6 +36,7 @@ pub(crate) fn is_deferred_control_tool(name: &str) -> bool {
     matches!(
         name,
         "activate_project"
+            | "prepare_harness_session"
             | "get_current_config"
             | "get_capabilities"
             | "set_profile"

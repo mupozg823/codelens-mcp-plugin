@@ -122,6 +122,9 @@ pub(crate) fn build_visible_tool_context(
             _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
             Some(namespace) => tool_namespace(tool.name) == namespace,
             None if request.deferred_loading_active() => {
+                if is_deferred_control_tool(tool.name) {
+                    return true;
+                }
                 let namespace = tool_namespace(tool.name);
                 preferred.contains(&namespace)
                     || request
@@ -135,6 +138,9 @@ pub(crate) fn build_visible_tool_context(
             _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
             Some(tier) => tool_tier_label(tool.name) == tier,
             None if request.deferred_loading_active() => {
+                if is_deferred_control_tool(tool.name) {
+                    return true;
+                }
                 let tier = tool_tier_label(tool.name);
                 preferred_tiers.contains(&tier)
                     || request.loaded_tiers.iter().any(|value| value == tier)

@@ -135,7 +135,21 @@ fn resolve_startup_project(source: &StartupProjectSource) -> Result<ProjectRoot>
     }
 }
 
-// ── Entry point ────────────────────────────────────────────────────────
+fn cli_option_value(args: &[String], flag: &str) -> Option<String> {
+    let mut iter = args.iter().skip(1);
+    while let Some(arg) = iter.next() {
+        if arg == "--" {
+            break;
+        }
+        if let Some(value) = arg.strip_prefix(&format!("{flag}=")) {
+            return Some(value.to_owned());
+        }
+        if arg == flag {
+            return iter.next().cloned();
+        }
+    }
+    None
+}
 
 fn main() -> Result<()> {
     // Initialize tracing subscriber — output to stderr to avoid interfering with
@@ -161,21 +175,17 @@ fn main() -> Result<()> {
                 .map(|s| ToolPreset::from_str(&s))
         })
         .unwrap_or_else(|| state::ClientProfile::detect(None).default_preset());
-    let profile = args
-        .iter()
-        .position(|a| a == "--profile")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|s| ToolProfile::from_str(s))
+    let profile = cli_option_value(&args, "--profile")
+        .as_deref()
+        .and_then(ToolProfile::from_str)
         .or_else(|| {
             std::env::var("CODELENS_PROFILE")
                 .ok()
                 .and_then(|s| ToolProfile::from_str(&s))
         });
-    let daemon_mode = args
-        .iter()
-        .position(|a| a == "--daemon-mode")
-        .and_then(|i| args.get(i + 1))
-        .map(|s| RuntimeDaemonMode::from_str(s))
+    let daemon_mode = cli_option_value(&args, "--daemon-mode")
+        .as_deref()
+        .map(RuntimeDaemonMode::from_str)
         .or_else(|| {
             std::env::var("CODELENS_DAEMON_MODE")
                 .ok()
@@ -183,6 +193,11 @@ fn main() -> Result<()> {
         })
         .unwrap_or(RuntimeDaemonMode::Standard);
 
+    // Project root resolution priority:
+    // 1. Explicit path argument (if not ".")
+    // 2. CLAUDE_PROJECT_DIR environment variable (set by Claude Code)
+    // 3. MCP_PROJECT_DIR environment variable (generic)
+    // 4. Current working directory with .git/.cargo marker detection
     let project_from_claude = std::env::var("CLAUDE_PROJECT_DIR").ok();
     let project_from_mcp = std::env::var("MCP_PROJECT_DIR").ok();
     let cwd = std::env::current_dir()?;
@@ -194,30 +209,14 @@ fn main() -> Result<()> {
     );
 
     // One-shot CLI mode: --cmd <tool_name> [--args '<json>']
-    let cmd_tool = args
-        .iter()
-        .position(|a| a == "--cmd")
-        .and_then(|i| args.get(i + 1))
-        .cloned();
+    let cmd_tool = cli_option_value(&args, "--cmd");
 
-    let cmd_args = args
-        .iter()
-        .position(|a| a == "--args")
-        .and_then(|i| args.get(i + 1))
-        .cloned();
+    let cmd_args = cli_option_value(&args, "--args");
 
-    let transport = args
-        .iter()
-        .position(|a| a == "--transport")
-        .and_then(|i| args.get(i + 1))
-        .map(|s| s.as_str())
-        .unwrap_or("stdio");
+    let transport = cli_option_value(&args, "--transport").unwrap_or_else(|| "stdio".to_owned());
 
     #[cfg(feature = "http")]
-    let port: u16 = args
-        .iter()
-        .position(|a| a == "--port")
-        .and_then(|i| args.get(i + 1))
+    let port: u16 = cli_option_value(&args, "--port")
         .and_then(|s| s.parse().ok())
         .unwrap_or(7837);
 
@@ -228,7 +227,7 @@ fn main() -> Result<()> {
         );
     }
     let app_state = AppState::new(project, preset);
-    app_state.configure_transport_mode(transport);
+    app_state.configure_transport_mode(&transport);
     app_state.configure_daemon_mode(daemon_mode);
     if let Some(profile) = profile {
         app_state.set_surface(ToolSurface::Profile(profile));
@@ -244,7 +243,7 @@ fn main() -> Result<()> {
         return run_oneshot(&state, &tool_name, cmd_args.as_deref());
     }
 
-    match transport {
+    match transport.as_str() {
         #[cfg(feature = "http")]
         "http" => {
             let state = Arc::new(app_state.with_session_store());
@@ -302,6 +301,17 @@ mod startup_tests {
     }
 
     #[test]
+    fn cli_project_arg_skips_equals_syntax_flags() {
+        let args = vec![
+            "codelens-mcp".to_owned(),
+            "--transport=http".to_owned(),
+            "--port=7842".to_owned(),
+            "/tmp/repo".to_owned(),
+        ];
+        assert_eq!(parse_cli_project_arg(&args).as_deref(), Some("/tmp/repo"));
+    }
+
+    #[test]
     fn explicit_project_resolution_fails_closed() {
         let missing = temp_dir("missing-parent").join("does-not-exist");
         let source = StartupProjectSource::Cli(missing.to_string_lossy().to_string());
@@ -314,6 +324,6 @@ mod startup_tests {
     }
 }
 
-#[cfg(test)]
 #[path = "integration_tests.rs"]
+#[cfg(test)]
 mod tests;

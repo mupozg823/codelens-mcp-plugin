@@ -831,6 +831,79 @@ async fn session_profiles_are_isolated_across_tools_list() {
 }
 
 #[tokio::test]
+async fn codex_session_prepare_harness_session_bootstraps_without_tools_list() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let bootstrap = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"prepare_harness_session","arguments":{{"project":"{}","preferred_entrypoints":["verify_change_readiness","get_ranked_context"]}}}}}}"#,
+                    state.project().as_path().display()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(bootstrap.status(), StatusCode::OK);
+    let payload = first_tool_payload(&body_string(bootstrap).await);
+    assert_eq!(payload["success"], serde_json::json!(true));
+    assert_eq!(
+        payload["data"]["project"]["auto_surface"],
+        serde_json::json!("builder-minimal")
+    );
+    assert_eq!(
+        payload["data"]["active_surface"],
+        serde_json::json!("builder-minimal")
+    );
+    assert_eq!(payload["data"]["token_budget"], serde_json::json!(6000));
+    assert_eq!(
+        payload["data"]["http_session"]["default_tools_list_contract_mode"],
+        serde_json::json!("lean")
+    );
+    assert_eq!(
+        payload["data"]["routing"]["recommended_entrypoint"],
+        serde_json::json!("get_ranked_context")
+    );
+    let tool_names = payload["data"]["visible_tools"]["tool_names"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        tool_names
+            .iter()
+            .any(|value| value == "prepare_harness_session")
+    );
+}
+
+#[tokio::test]
 async fn codex_session_uses_lean_tools_list_contract_by_default() {
     let state = test_state();
     let app = build_router(state.clone());

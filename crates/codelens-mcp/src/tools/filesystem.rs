@@ -1,4 +1,5 @@
 use super::{AppState, ToolResult, required_string, success_meta};
+use crate::client_profile::ClientProfile;
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use codelens_core::{
@@ -7,9 +8,16 @@ use codelens_core::{
 };
 use serde_json::json;
 
-pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let stats = state.symbol_index().stats()?;
-    let surface = *state.surface();
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    let surface = state.execution_surface(&session);
+    let token_budget = state.execution_token_budget(&session);
+    let client_profile = session
+        .client_name
+        .as_deref()
+        .map(|name| ClientProfile::detect(Some(name)))
+        .unwrap_or_else(|| state.client_profile());
     let frameworks = detect_frameworks(state.project().as_path());
     let workspace_packages = detect_workspace_packages(state.project().as_path());
     Ok((
@@ -20,8 +28,9 @@ pub fn get_current_config(state: &AppState, _arguments: &serde_json::Value) -> T
             "available_backends": ["filesystem", "tree-sitter-cached", "lsp_pooled"],
             "symbol_index": stats,
             "surface": surface.as_label(),
+            "token_budget": token_budget,
             "tool_count": crate::tool_defs::visible_tools(surface).len(),
-            "client_profile": state.client_profile().as_str(),
+            "client_profile": client_profile.as_str(),
             "frameworks": frameworks,
             "workspace_packages": workspace_packages
         }),

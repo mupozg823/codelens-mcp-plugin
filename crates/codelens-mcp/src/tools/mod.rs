@@ -96,6 +96,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "rename_memory"                => memory::rename_memory,
         // ── Session ──
         "activate_project"             => session::activate_project,
+        "prepare_harness_session"      => session::prepare_harness_session,
         "onboarding"                   => session::onboarding,
         "prepare_for_new_conversation" => session::prepare_for_new_conversation,
         "summarize_changes"            => session::summarize_changes,
@@ -556,6 +557,11 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "get_project_structure",
             "get_current_config",
             "get_capabilities",
+        ],
+        "prepare_harness_session" => &[
+            "get_current_config",
+            "get_capabilities",
+            "get_ranked_context",
         ],
         "onboard_project" => &["get_ranked_context", "find_symbol", "get_capabilities"],
         "get_watch_status" => &["refresh_symbol_index", "prune_index_failures"],

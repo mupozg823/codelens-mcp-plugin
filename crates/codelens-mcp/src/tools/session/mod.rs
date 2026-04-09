@@ -7,5 +7,6 @@ pub use metrics_config::{
 };
 pub use project_ops::{
     activate_project, add_queryable_project, list_queryable_projects, onboarding,
-    prepare_for_new_conversation, query_project, remove_queryable_project, summarize_changes,
+    prepare_for_new_conversation, prepare_harness_session, query_project, remove_queryable_project,
+    summarize_changes,
 };

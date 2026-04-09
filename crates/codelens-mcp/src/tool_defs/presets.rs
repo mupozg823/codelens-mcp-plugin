@@ -71,6 +71,7 @@ impl ToolSurface {
 
 pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     "activate_project",
+    "prepare_harness_session",
     "get_current_config",
     "set_preset",
     "set_profile",
@@ -136,6 +137,7 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
 pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     // Session
     "activate_project",
+    "prepare_harness_session",
     "get_current_config",
     "set_profile",
     "set_preset",
@@ -162,6 +164,7 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
 
 pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "activate_project",
+    "prepare_harness_session",
     "get_current_config",
     "get_capabilities",
     "set_profile",
@@ -189,6 +192,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
 pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     // Session
     "activate_project",
+    "prepare_harness_session",
     "get_current_config",
     "set_profile",
     "set_preset",
@@ -219,6 +223,7 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
 pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     // Session
     "activate_project",
+    "prepare_harness_session",
     "get_current_config",
     "set_profile",
     "set_preset",
@@ -265,6 +270,7 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
 
 pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "activate_project",
+    "prepare_harness_session",
     "get_current_config",
     "get_capabilities",
     "set_profile",
@@ -299,6 +305,7 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
 
 pub(crate) const EVALUATOR_COMPACT_TOOLS: &[&str] = &[
     "activate_project",
+    "prepare_harness_session",
     "get_current_config",
     "get_capabilities",
     "set_profile",

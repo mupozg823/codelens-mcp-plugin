@@ -168,17 +168,74 @@ def main():
     bootstrap_json.parent.mkdir(parents=True, exist_ok=True)
     bootstrap_md.parent.mkdir(parents=True, exist_ok=True)
     prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path, event_log_path, _ = common.ensure_run_manifest(
+        run_dir=run_dir,
+        runner="codex-task-runner",
+        agent=args.agent,
+        repo_path=repo_path,
+        execution_repo_path=execution_repo_path,
+        task_kind=args.task_kind,
+        mode=args.mode or common.infer_mode_from_policy(brief["recommended_policy"]),
+        scenario_id=scenario.get("scenario_id") if scenario else None,
+        recommended_policy=brief["recommended_policy"],
+        route_mode=brief["route_mode"],
+    )
 
     mcp_preflight = None
     mcp_preflight_file = run_dir / "mcp-preflight.json"
     if not args.skip_mcp_preflight:
-        mcp_preflight = common.probe_codex_mcp(args.mcp_url, repo_path, brief)
-        mcp_preflight_file.write_text(json.dumps(mcp_preflight, ensure_ascii=False, indent=2) + "\n")
+        mcp_preflight = common.load_reusable_artifact_json(
+            manifest_path, "mcp_preflight", mcp_preflight_file
+        )
+        if mcp_preflight is not None:
+            common.record_stage_reuse(
+                manifest_path,
+                event_log_path,
+                "mcp_preflight",
+                artifacts={"mcp_preflight_file": mcp_preflight_file},
+                details={"source": "run_dir"},
+            )
+        else:
+            mcp_preflight = common.probe_codex_mcp(args.mcp_url, repo_path, brief)
+            mcp_preflight_file.write_text(
+                json.dumps(mcp_preflight, ensure_ascii=False, indent=2) + "\n"
+            )
+            common.checkpoint_run_stage(
+                manifest_path,
+                event_log_path,
+                "mcp_preflight",
+                status="completed",
+                artifacts={"mcp_preflight_file": mcp_preflight_file},
+                details={"available": bool(mcp_preflight.get("available"))},
+            )
+    else:
+        common.checkpoint_run_stage(
+            manifest_path,
+            event_log_path,
+            "mcp_preflight",
+            status="skipped",
+            details={"reason": "skip_mcp_preflight"},
+        )
 
     bootstrap_json.write_text(json.dumps(brief, ensure_ascii=False, indent=2) + "\n")
     bootstrap_md.write_text(bootstrap.render_markdown(brief))
     prompt = common.render_prompt(brief, "~/.codex/AGENTS.md", mcp_preflight=mcp_preflight)
     prompt_file.write_text(prompt)
+    common.checkpoint_run_stage(
+        manifest_path,
+        event_log_path,
+        "bootstrap_generated",
+        status="completed",
+        artifacts={
+            "bootstrap_json": bootstrap_json,
+            "bootstrap_markdown": bootstrap_md,
+            "prompt_file": prompt_file,
+        },
+        details={
+            "preferred_entrypoints_count": len(brief.get("preferred_entrypoints") or []),
+            "first_action_count": len(brief.get("first_actions") or []),
+        },
+    )
 
     result = {
         "repo": str(repo_path),
@@ -191,6 +248,8 @@ def main():
         "bootstrap_markdown": str(bootstrap_md),
         "prompt_file": str(prompt_file),
         "run_dir": str(run_dir),
+        "run_manifest": str(manifest_path),
+        "run_event_log": str(event_log_path),
     }
     if mcp_preflight is not None:
         result["mcp_preflight_file"] = str(mcp_preflight_file)
@@ -214,6 +273,7 @@ def main():
             "preferred_entrypoints_in_prefetched_contract": mcp_preflight.get(
                 "preferred_entrypoints_in_prefetched_contract"
             ),
+            "probe_strategy": mcp_preflight.get("probe_strategy"),
             "fallback_to_native": mcp_preflight.get("fallback_to_native", False),
         }
     metrics_session_id = (
@@ -309,7 +369,26 @@ def main():
             if proc.stderr:
                 sys.stderr.write(proc.stderr)
         if proc.returncode != 0:
+            common.checkpoint_run_stage(
+                manifest_path,
+                event_log_path,
+                "execution",
+                status="failed",
+                details={"returncode": proc.returncode},
+            )
             raise SystemExit(proc.returncode)
+        common.checkpoint_run_stage(
+            manifest_path,
+            event_log_path,
+            "execution",
+            status="completed",
+            artifacts=(
+                {"last_message_file": result["last_message_file"]}
+                if result.get("last_message_file")
+                else None
+            ),
+            details={"returncode": 0},
+        )
     finally:
         if codex_home_tempdir is not None:
             codex_home_tempdir.cleanup()
@@ -323,6 +402,13 @@ def main():
         if after_metrics is None:
             if after_error:
                 result["metrics_after_error"] = after_error
+                common.checkpoint_run_stage(
+                    manifest_path,
+                    event_log_path,
+                    "metrics_capture",
+                    status="failed",
+                    details={"error": after_error},
+                )
         else:
             after_metrics_file.write_text(json.dumps(after_metrics, ensure_ascii=False, indent=2) + "\n")
             result["metrics_after_file"] = str(after_metrics_file)
@@ -349,6 +435,23 @@ def main():
             recommendation_note = common.summarize_codex_recommendation_outcome(recommendation_outcome)
             if recommendation_note:
                 notes = f"{notes} | {recommendation_note}" if notes else recommendation_note
+            common.checkpoint_run_stage(
+                manifest_path,
+                event_log_path,
+                "metrics_capture",
+                status="completed",
+                artifacts={
+                    "metrics_before_file": before_metrics_file,
+                    "metrics_after_file": after_metrics_file,
+                    "metrics_delta_file": delta_metrics_file,
+                    **(
+                        {"mcp_recommendation_outcome_file": recommendation_outcome_file}
+                        if recommendation_outcome is not None
+                        else {}
+                    ),
+                },
+                details={"tool_delta_count": len(delta_payload.get("tools") or [])},
+            )
 
             entry_args = common.build_entry_args(
                 repo_path=repo_path,
@@ -378,38 +481,140 @@ def main():
                 mode=entry_args.mode,
             )
             result.update({k: v for k, v in artifact_paths.items() if not k.endswith("_path")})
+            common.checkpoint_run_stage(
+                manifest_path,
+                event_log_path,
+                "session_entry",
+                status="completed",
+                artifacts={
+                    "session_entry_json": artifact_paths["session_entry_json"],
+                    "session_entry_markdown": artifact_paths["session_entry_markdown"],
+                    "archived_session_entry_json": artifact_paths["archived_session_entry_json"],
+                    "archived_session_entry_markdown": artifact_paths["archived_session_entry_markdown"],
+                },
+                details={"quality_score": session_entry.get("quality_score")},
+            )
 
             harness_eval_json = Path(args.harness_eval_json).expanduser() if args.harness_eval_json else run_dir / "harness-eval.json"
             harness_eval_md = Path(args.harness_eval_md).expanduser() if args.harness_eval_md else run_dir / "harness-eval.md"
-            try:
-                result["harness_eval_result"] = common.run_harness_eval(
-                    HARNESS_EVAL_SCRIPT,
-                    repo_path=repo_path,
-                    archive_entry_json=artifact_paths["archive_entry_json_path"],
-                    output_json=harness_eval_json,
-                    output_md=harness_eval_md,
-                    label=f"live-{repo['id']}-{common.slugify(args.task_kind)}",
-                    base_report_path=policy.get("source_report_path", ""),
+            reused_harness_eval = common.load_reusable_artifact_json(
+                manifest_path, "harness_eval", harness_eval_json
+            )
+            if reused_harness_eval is not None:
+                result["harness_eval_result"] = reused_harness_eval
+                common.record_stage_reuse(
+                    manifest_path,
+                    event_log_path,
+                    "harness_eval",
+                    artifacts={
+                        "harness_eval_json": harness_eval_json,
+                        "harness_eval_markdown": harness_eval_md,
+                    },
+                    details={"source": "run_dir"},
                 )
-                result["harness_eval_json"] = str(harness_eval_json)
-                result["harness_eval_markdown"] = str(harness_eval_md)
-            except subprocess.CalledProcessError as exc:
-                result["harness_eval_error"] = (
-                    exc.stderr.strip() or exc.stdout.strip() or str(exc)
-                )
+            else:
+                try:
+                    result["harness_eval_result"] = common.run_harness_eval(
+                        HARNESS_EVAL_SCRIPT,
+                        repo_path=repo_path,
+                        archive_entry_json=artifact_paths["archive_entry_json_path"],
+                        output_json=harness_eval_json,
+                        output_md=harness_eval_md,
+                        label=f"live-{repo['id']}-{common.slugify(args.task_kind)}",
+                        base_report_path=policy.get("source_report_path", ""),
+                    )
+                    common.checkpoint_run_stage(
+                        manifest_path,
+                        event_log_path,
+                        "harness_eval",
+                        status="completed",
+                        artifacts={
+                            "harness_eval_json": harness_eval_json,
+                            "harness_eval_markdown": harness_eval_md,
+                        },
+                        details={
+                            "task_success_rate": (
+                                (result["harness_eval_result"].get("summary") or {})
+                                .get("routed_on", {})
+                                .get("task_success_rate")
+                            )
+                        },
+                    )
+                except subprocess.CalledProcessError as exc:
+                    result["harness_eval_error"] = (
+                        exc.stderr.strip() or exc.stdout.strip() or str(exc)
+                    )
+                    common.checkpoint_run_stage(
+                        manifest_path,
+                        event_log_path,
+                        "harness_eval",
+                        status="failed",
+                        details={"error": result["harness_eval_error"]},
+                    )
+            result["harness_eval_json"] = str(harness_eval_json)
+            result["harness_eval_markdown"] = str(harness_eval_md)
 
             refresh_result_file = run_dir / "routing-policy-refresh.json"
-            try:
-                result["routing_policy_refresh"] = common.run_refresh(
-                    REFRESH_POLICY_SCRIPT,
-                    label=f"post-session-{repo['id']}-{common.slugify(args.task_kind)}",
-                    output_json=refresh_result_file,
+            reused_refresh = common.load_reusable_artifact_json(
+                manifest_path, "routing_policy_refresh", refresh_result_file
+            )
+            if reused_refresh is not None:
+                result["routing_policy_refresh"] = reused_refresh
+                common.record_stage_reuse(
+                    manifest_path,
+                    event_log_path,
+                    "routing_policy_refresh",
+                    artifacts={"routing_policy_refresh_json": refresh_result_file},
+                    details={"source": "run_dir"},
                 )
-                result["routing_policy_refresh_json"] = str(refresh_result_file)
-            except subprocess.CalledProcessError as exc:
-                result["routing_policy_refresh_error"] = (
-                    exc.stderr.strip() or exc.stdout.strip() or str(exc)
-                )
+            else:
+                try:
+                    result["routing_policy_refresh"] = common.run_refresh(
+                        REFRESH_POLICY_SCRIPT,
+                        label=f"post-session-{repo['id']}-{common.slugify(args.task_kind)}",
+                        output_json=refresh_result_file,
+                    )
+                    common.checkpoint_run_stage(
+                        manifest_path,
+                        event_log_path,
+                        "routing_policy_refresh",
+                        status="completed",
+                        artifacts={"routing_policy_refresh_json": refresh_result_file},
+                        details={
+                            "coverage_count": (
+                                (result["routing_policy_refresh"].get("coverage_summary") or {})
+                                .get("total_real_entries")
+                            )
+                        },
+                    )
+                except subprocess.CalledProcessError as exc:
+                    result["routing_policy_refresh_error"] = (
+                        exc.stderr.strip() or exc.stdout.strip() or str(exc)
+                    )
+                    common.checkpoint_run_stage(
+                        manifest_path,
+                        event_log_path,
+                        "routing_policy_refresh",
+                        status="failed",
+                        details={"error": result["routing_policy_refresh_error"]},
+                    )
+            result["routing_policy_refresh_json"] = str(refresh_result_file)
+    elif args.capture_eval:
+        common.checkpoint_run_stage(
+            manifest_path,
+            event_log_path,
+            "metrics_capture",
+            status="skipped",
+            details={"reason": "metrics_before_unavailable"},
+        )
+    else:
+        common.checkpoint_run_stage(
+            manifest_path,
+            event_log_path,
+            "metrics_capture",
+            status="skipped",
+            details={"reason": "capture_eval_disabled"},
+        )
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

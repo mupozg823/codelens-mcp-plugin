@@ -2,6 +2,9 @@ use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile};
 use crate::tool_runtime::{ToolResult, required_string, success_meta};
+use crate::resource_context::{
+    ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
+};
 use codelens_core::detect_frameworks;
 use codelens_core::memory::list_memory_names;
 use serde_json::json;
@@ -104,6 +107,134 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
             "auto_budget": auto_budget,
             "indexed_files": file_count,
             "embedding_ready": state.embedding_ref().is_some()
+        }),
+        success_meta(BackendKind::Session, 1.0),
+    ))
+}
+
+pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    if arguments.get("preset").and_then(|v| v.as_str()).is_some()
+        && arguments.get("profile").and_then(|v| v.as_str()).is_some()
+    {
+        return Err(crate::error::CodeLensError::Validation(
+            "prepare_harness_session accepts either `preset` or `profile`, not both".to_owned(),
+        ));
+    }
+
+    let (activate_payload, _) = activate_project(state, arguments)?;
+
+    if arguments.get("profile").and_then(|v| v.as_str()).is_some() {
+        crate::tools::session::set_profile(state, arguments)?;
+    } else if arguments.get("preset").and_then(|v| v.as_str()).is_some() {
+        crate::tools::session::set_preset(state, arguments)?;
+    } else if let Some(budget) = arguments
+        .get("token_budget")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+    {
+        #[cfg(feature = "http")]
+        {
+            let session = crate::session_context::SessionRequestContext::from_json(arguments);
+            if !session.is_local() {
+                state.set_session_surface_and_budget(
+                    &session.session_id,
+                    state.execution_surface(&session),
+                    budget,
+                );
+            } else {
+                state.set_token_budget(budget);
+            }
+        }
+        #[cfg(not(feature = "http"))]
+        {
+            state.set_token_budget(budget);
+        }
+    }
+
+    let detail = arguments
+        .get("detail")
+        .and_then(|v| v.as_str())
+        .unwrap_or("compact");
+    let request = ResourceRequestContext::from_request("codelens://tools/list", Some(arguments));
+    let session = request.session.clone();
+    let active_surface = state.execution_surface(&session);
+    let token_budget = state.execution_token_budget(&session);
+
+    let config_payload = if detail == "full" {
+        let (payload, _) = crate::tools::filesystem::get_current_config(state, arguments)?;
+        payload
+    } else {
+        json!({
+            "runtime": "rust-core",
+            "project_root": state.project().as_path().display().to_string(),
+            "surface": active_surface.as_label(),
+            "token_budget": token_budget,
+            "tool_count": crate::tool_defs::visible_tools(active_surface).len(),
+            "client_profile": request.client_profile.as_str(),
+        })
+    };
+    let capabilities_arguments = match arguments.get("file_path").and_then(|v| v.as_str()) {
+        Some(file_path) => json!({ "file_path": file_path }),
+        None => json!({}),
+    };
+    let (capabilities_payload, _) =
+        crate::tools::session::get_capabilities(state, &capabilities_arguments)?;
+
+    let visible = build_visible_tool_context(state, &request);
+    let visible_tool_names = visible
+        .tools
+        .iter()
+        .map(|tool| tool.name.to_owned())
+        .collect::<Vec<_>>();
+    let preferred_entrypoints = arguments
+        .get("preferred_entrypoints")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let preferred_entrypoints_visible = preferred_entrypoints
+        .iter()
+        .filter(|tool| visible_tool_names.iter().any(|name| name == *tool))
+        .cloned()
+        .collect::<Vec<_>>();
+    let recommended_entrypoint = preferred_entrypoints_visible.first().cloned();
+
+    Ok((
+        json!({
+            "activated": true,
+            "project": activate_payload,
+            "active_surface": active_surface.as_label(),
+            "token_budget": token_budget,
+            "config": config_payload,
+            "capabilities": capabilities_payload,
+            "http_session": build_http_session_payload(state, &request),
+            "visible_tools": {
+                "tool_count": visible.tools.len(),
+                "tool_count_total": visible.total_tool_count,
+                "tool_names": visible_tool_names,
+                "all_namespaces": visible.all_namespaces,
+                "all_tiers": visible.all_tiers,
+                "preferred_namespaces": visible.preferred_namespaces,
+                "preferred_tiers": visible.preferred_tiers,
+                "loaded_namespaces": visible.loaded_namespaces,
+                "loaded_tiers": visible.loaded_tiers,
+                "effective_namespaces": visible.effective_namespaces,
+                "effective_tiers": visible.effective_tiers,
+                "selected_namespace": visible.selected_namespace,
+                "selected_tier": visible.selected_tier,
+                "deferred_loading_active": visible.deferred_loading_active,
+                "full_tool_exposure": visible.full_tool_exposure,
+            },
+            "routing": {
+                "preferred_entrypoints": preferred_entrypoints,
+                "preferred_entrypoints_visible": preferred_entrypoints_visible,
+                "recommended_entrypoint": recommended_entrypoint,
+            }
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
