@@ -16,9 +16,8 @@ SHARED_POLICY = {
     "canonical_policy_markdown": SHARED_POLICY_DIR / "codelens-routing-policy.shared.md",
 }
 REPO_CONTRACT_NAMES = (
-    "PROJECT_AGENT_POLICY.md",
     "EVAL_CONTRACT.md",
-    "HARNESS_MODES.md",
+    "docs/platform-setup.md",
 )
 
 AGENT_REGISTRY = {

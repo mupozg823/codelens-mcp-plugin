@@ -73,15 +73,25 @@ def unwrap_metrics_payload(raw):
 def build_entry(args, payload):
     session = payload.get("session") or {}
     derived = payload.get("derived_kpis") or {}
+    metrics_capture_skipped = bool(payload.get("metrics_capture_skipped"))
+    metrics_capture_reason = payload.get("metrics_capture_reason")
     repo_path = str(Path(args.repo).expanduser())
     repo_id = getattr(args, "repo_id", "") or Path(repo_path).name or "repo"
     repo_label = getattr(args, "repo_label", "") or repo_id
-    bootstrap_tokens = int(session.get("tools_list_tokens") or 0)
-    total_tokens = int(session.get("total_tokens") or 0)
-    token_out = max(total_tokens - bootstrap_tokens, 0)
+    bootstrap_raw = session.get("tools_list_tokens")
+    total_raw = session.get("total_tokens")
+    bootstrap_tokens = int(bootstrap_raw) if bootstrap_raw is not None else None
+    total_tokens = int(total_raw) if total_raw is not None else None
+    token_out = (
+        max(total_tokens - bootstrap_tokens, 0)
+        if total_tokens is not None and bootstrap_tokens is not None
+        else None
+    )
     notes = []
     if args.notes:
         notes.append(args.notes.strip())
+    if metrics_capture_skipped and metrics_capture_reason:
+        notes.append(f"metrics capture skipped: {metrics_capture_reason}")
     if float(derived.get("verifier_contract_present_rate") or 0.0) > 0:
         notes.append("verifier contract observed in session telemetry")
     if float(derived.get("recommended_check_followthrough_rate") or 0.0) > 0:
@@ -92,6 +102,20 @@ def build_entry(args, payload):
         notes.append("mutation preflight gate was exercised")
     if int(session.get("deferred_namespace_expansion_count") or 0) > 0:
         notes.append("deferred loading expansion occurred")
+    last_message_file = getattr(args, "last_message_file", "") or ""
+    last_message_text = ""
+    if last_message_file:
+        path = Path(last_message_file).expanduser()
+        if path.exists():
+            last_message_text = path.read_text(encoding="utf-8", errors="replace")
+    completion_contract = common.analyze_completion_contract(last_message_text)
+    if completion_contract.get("score") is not None:
+        notes.append(
+            "completion contract "
+            f"{sum(1 for hit in completion_contract['section_hits'].values() if hit)}/4 sections detected"
+        )
+    if completion_contract.get("asked_for_user_input"):
+        notes.append("asked for user input during nominally non-interactive run")
 
     success = args.success
     if success is None:
@@ -115,10 +139,10 @@ def build_entry(args, payload):
         "token_in": bootstrap_tokens,
         "token_out": token_out,
         "bootstrap_tokens": bootstrap_tokens,
-        "tool_calls": int(session.get("total_calls") or 0),
+        "tool_calls": int(session["total_calls"]) if session.get("total_calls") is not None else None,
         "low_level_chain_count": int(
             session.get("repeated_low_level_chain_count") or 0
-        ),
+        ) if session.get("repeated_low_level_chain_count") is not None else None,
         "elapsed_ms": session.get("total_ms"),
         "notes": " | ".join(notes),
         "recommended_policy": args.recommended_policy or "pending",
@@ -129,6 +153,11 @@ def build_entry(args, payload):
             derived.get("recommended_check_followthrough_rate") or 0.0
         ),
         "composite_ratio": float(derived.get("composite_ratio") or 0.0),
+        "last_message_file": str(Path(last_message_file).expanduser()) if last_message_file else None,
+        "completion_contract_score": completion_contract.get("score"),
+        "completion_contract_passed": completion_contract.get("passed"),
+        "asked_for_user_input": completion_contract.get("asked_for_user_input"),
+        "completion_contract_sections": completion_contract.get("section_hits"),
         "metrics_snapshot": {
             "total_tokens": total_tokens,
             "tools_list_tokens": bootstrap_tokens,
@@ -143,6 +172,8 @@ def build_entry(args, payload):
                 derived.get("verifier_followthrough_rate") or 0.0
             ),
         },
+        "metrics_capture_skipped": metrics_capture_skipped,
+        "metrics_capture_reason": metrics_capture_reason,
         "captured_at": datetime.now().isoformat(timespec="seconds"),
     }
 
@@ -165,6 +196,9 @@ def render_markdown(entry):
         f"| Acceptance passed | {entry['acceptance_passed']} |",
         f"| Verify passed | {entry['verify_passed']} |",
         f"| Quality score | {entry['quality_score']} |",
+        f"| Completion contract score | {entry.get('completion_contract_score')} |",
+        f"| Completion contract passed | {entry.get('completion_contract_passed')} |",
+        f"| Asked for user input | {entry.get('asked_for_user_input')} |",
         f"| Token in | {entry['token_in']} |",
         f"| Token out | {entry['token_out']} |",
         f"| Bootstrap tokens | {entry['bootstrap_tokens']} |",
@@ -204,6 +238,7 @@ def main():
     parser.add_argument("--quality-score", type=float, default=None)
     parser.add_argument("--recommended-policy", default="")
     parser.add_argument("--notes", default="")
+    parser.add_argument("--last-message-file", default="")
     parser.add_argument("--output-json", default="")
     parser.add_argument("--output-md", default="")
     args = parser.parse_args()

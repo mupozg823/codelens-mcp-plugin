@@ -140,8 +140,6 @@ def build_runner_command(
         "--capture-eval",
         "--exec",
     ]
-    if agent == "codex" and binary:
-        cmd.extend(["--binary", binary])
     return cmd
 
 

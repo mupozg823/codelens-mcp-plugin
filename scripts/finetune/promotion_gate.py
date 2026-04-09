@@ -166,8 +166,13 @@ def parse_args():
     parser.add_argument(
         "--max-latency-per-success-increase-ms", type=float, default=-1.0
     )
+    parser.add_argument("--allow-completion-contract-score-drop", type=float, default=0.0)
+    parser.add_argument("--allow-completion-contract-pass-rate-drop", type=float, default=0.0)
+    parser.add_argument("--max-user-input-request-rate-increase", type=float, default=0.0)
     parser.add_argument("--min-real-session-tasks", type=int, default=20)
     parser.add_argument("--min-real-session-scopes", type=int, default=3)
+    parser.add_argument("--min-completion-contract-pass-rate", type=float, default=1.0)
+    parser.add_argument("--max-user-input-request-rate", type=float, default=0.0)
     return parser.parse_args()
 
 
@@ -313,6 +318,8 @@ def run_real_session_evidence(
     harness_report: Path | None,
     min_real_session_tasks: int,
     min_real_session_scopes: int,
+    min_completion_contract_pass_rate: float,
+    max_user_input_request_rate: float,
     env: dict[str, str] | None,
     session_entry_globs: list[str] | None = None,
     no_default_session_glob: bool = False,
@@ -329,6 +336,10 @@ def run_real_session_evidence(
         str(min_real_session_tasks),
         "--min-real-session-scopes",
         str(min_real_session_scopes),
+        "--min-completion-contract-pass-rate",
+        str(min_completion_contract_pass_rate),
+        "--max-user-input-request-rate",
+        str(max_user_input_request_rate),
         "--output-json",
         str(output_json),
         "--output-md",
@@ -618,6 +629,61 @@ def compare_harness_axis(args, baseline_paper: dict, candidate_paper: dict) -> d
                 f"{cand_latency:.1f} > {base_latency:.1f}"
             )
 
+    base_completion_score = baseline_paper["harness_metrics"].get(
+        "avg_completion_contract_score"
+    )
+    cand_completion_score = candidate_paper["harness_metrics"].get(
+        "avg_completion_contract_score"
+    )
+    if base_completion_score is not None and cand_completion_score is not None:
+        if (
+            cand_completion_score + args.allow_completion_contract_score_drop
+            < base_completion_score
+        ):
+            failures.append(
+                "completion contract score regressed: "
+                f"{cand_completion_score:.3f} < {base_completion_score:.3f}"
+            )
+
+    base_completion_pass = baseline_paper["harness_metrics"].get(
+        "completion_contract_pass_rate"
+    )
+    cand_completion_pass = candidate_paper["harness_metrics"].get(
+        "completion_contract_pass_rate"
+    )
+    if base_completion_pass is not None and cand_completion_pass is not None:
+        if (
+            cand_completion_pass + args.allow_completion_contract_pass_rate_drop
+            < base_completion_pass
+        ):
+            failures.append(
+                "completion contract pass rate regressed: "
+                f"{cand_completion_pass:.3f} < {base_completion_pass:.3f}"
+            )
+
+    base_user_input_rate = baseline_paper["harness_metrics"].get(
+        "user_input_request_rate"
+    )
+    cand_user_input_rate = candidate_paper["harness_metrics"].get(
+        "user_input_request_rate"
+    )
+    if base_user_input_rate is not None and cand_user_input_rate is not None:
+        if (
+            args.max_user_input_request_rate_increase >= 0
+            and cand_user_input_rate
+            > base_user_input_rate + args.max_user_input_request_rate_increase
+        ):
+            failures.append(
+                "user input request rate increased beyond threshold: "
+                f"{cand_user_input_rate:.3f} > {base_user_input_rate:.3f} + "
+                f"{args.max_user_input_request_rate_increase:.3f}"
+            )
+        elif cand_user_input_rate > base_user_input_rate:
+            warnings.append(
+                "user input request rate increased: "
+                f"{cand_user_input_rate:.3f} > {base_user_input_rate:.3f}"
+            )
+
     return {
         "axis": "harness",
         "passed": not failures,
@@ -638,6 +704,21 @@ def compare_harness_axis(args, baseline_paper: dict, candidate_paper: dict) -> d
                 None
                 if base_latency is None or cand_latency is None
                 else cand_latency - base_latency
+            ),
+            "avg_completion_contract_score": (
+                None
+                if base_completion_score is None or cand_completion_score is None
+                else cand_completion_score - base_completion_score
+            ),
+            "completion_contract_pass_rate": (
+                None
+                if base_completion_pass is None or cand_completion_pass is None
+                else cand_completion_pass - base_completion_pass
+            ),
+            "user_input_request_rate": (
+                None
+                if base_user_input_rate is None or cand_user_input_rate is None
+                else cand_user_input_rate - base_user_input_rate
             ),
         },
         "baseline_selected_cohort": baseline_paper.get("selected_cohort"),
@@ -719,6 +800,8 @@ def collect_baseline_reports(
         harness_report=raw_harness_report,
         min_real_session_tasks=args.min_real_session_tasks,
         min_real_session_scopes=args.min_real_session_scopes,
+        min_completion_contract_pass_rate=args.min_completion_contract_pass_rate,
+        max_user_input_request_rate=args.max_user_input_request_rate,
         env=None,
         session_entry_globs=session_entry_globs,
         no_default_session_glob=no_default_session_glob,
@@ -832,6 +915,8 @@ def evaluate_candidate(
             harness_report=raw_harness_report,
             min_real_session_tasks=args.min_real_session_tasks,
             min_real_session_scopes=args.min_real_session_scopes,
+            min_completion_contract_pass_rate=args.min_completion_contract_pass_rate,
+            max_user_input_request_rate=args.max_user_input_request_rate,
             env=env,
             session_entry_globs=session_entry_globs,
             no_default_session_glob=no_default_session_glob,

@@ -1,7 +1,7 @@
 # CodeLens MCP — Architecture & Project Overview
 
 > Pure Rust MCP server and harness optimization tool for code intelligence
-> 63 tools | 25 languages | tree-sitter-first | ~22K LOC
+> Default release registry: 88 tools | 25 languages | tree-sitter-first | ~44K Rust LOC
 
 ---
 
@@ -21,13 +21,13 @@
 │  │                                                               │  │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐ │  │
 │  │  │ Dispatch │→ │  Tools   │→ │  State   │→ │  Telemetry   │ │  │
-│  │  │  Table   │  │ (63개)   │  │ AppState │  │  Metrics     │ │  │
+│  │  │  Table   │  │ (88 기본)│  │ AppState │  │  Metrics     │ │  │
 │  │  └──────────┘  └────┬─────┘  └──────────┘  └──────────────┘ │  │
 │  │                     │                                         │  │
 │  │  ┌─────────────────────────────────────────────────────────┐ │  │
 │  │  │              Tool Categories                             │ │  │
-│  │  │  Symbol(14) │ Edit(12) │ Analysis(7) │ File(7)          │ │  │
-│  │  │  Memory(5)  │ Session(12) │ Composite(1) │ Semantic(2)  │ │  │
+│  │  │  Symbol │ Edit │ Analysis │ File │ Session              │ │  │
+│  │  │  Memory │ Semantic │ Workflow/Report │ Deferred Loading  │ │  │
 │  │  └─────────────────────────────────────────────────────────┘ │  │
 │  └───────────────────────────────┬───────────────────────────────┘  │
 │                                  │                                   │
@@ -35,11 +35,11 @@
 │  │                   codelens-core (Engine)                       │  │
 │  │                                                               │  │
 │  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌───────────────┐  │  │
-│  │  │ Symbols │  │  Search  │  │   DB    │  │ Import Graph  │  │  │
-│  │  │ Parser  │  │ FTS5 +  │  │ SQLite  │  │ PageRank,SCC  │  │  │
-│  │  │ Ranking │  │ Scoring │  │ Schema  │  │ Dead Code     │  │  │
-│  │  │ Reader  │  │ Hybrid  │  │  v4     │  │ Call Graph    │  │  │
-│  │  │ Writer  │  │         │  │         │  │ Coupling      │  │  │
+│  │  │ Symbols │  │ Search   │  │   DB    │  │ Import Graph  │  │  │
+│  │  │ Parser  │  │ FTS5 +   │  │ SQLite  │  │ PageRank,SCC  │  │  │
+│  │  │ Ranking │  │ Hybrid   │  │ Schema  │  │ Dead Code     │  │  │
+│  │  │ Reader  │  │ Merge    │  │  v6     │  │ Call Graph    │  │  │
+│  │  │ Writer  │  │          │  │         │  │ Coupling      │  │  │
 │  │  └────┬────┘  └────┬────┘  └────┬────┘  └──────┬────────┘  │  │
 │  │       │            │            │               │            │  │
 │  │  ┌────▼────────────▼────────────▼───────────────▼────────┐  │  │
@@ -47,7 +47,7 @@
 │  │  │  tree-sitter (25 lang) │ LSP pool (opt-in)           │  │  │
 │  │  │  Lang Registry         │ Scope Analysis              │  │  │
 │  │  │  Lang Config           │ File Watcher (notify)       │  │  │
-│  │  │  VFS / Project Root    │ Embedding (fastembed)       │  │  │
+│  │  │  VFS / Project Root    │ Embedding (bundled/opt-in)  │  │  │
 │  │  └───────────────────────────────────────────────────────┘  │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                                                                     │
@@ -61,23 +61,23 @@ It is the bounded MCP tool that optimizes harnesses by compressing context, prod
 
 Use repo-local contracts alongside this document:
 
-- `PROJECT_AGENT_POLICY.md`
+- `AGENTS.md`
 - `EVAL_CONTRACT.md`
-- `HARNESS_MODES.md`
-- `DEVELOPMENT_PIPELINE.md`
-- `HARNESS_ARCHITECTURE.md`
+- `CLAUDE.md`
+- `docs/platform-setup.md`
+- `benchmarks/harness/README.md`
 
 ## 2. Project Directory Structure
 
 ```
 codelens-mcp-plugin/
-├── Cargo.toml                          # Workspace: 2 crates, 25+ tree-sitter deps
+├── Cargo.toml                          # Workspace: 2 crates, tree-sitter-backed engine + MCP server
 ├── CLAUDE.md                           # AI agent instructions
 ├── README.md                           # Project documentation
 ├── install.sh                          # Installation script
 │
 ├── crates/
-│   ├── codelens-core/                  # Engine (~15K LOC)
+│   ├── codelens-core/                  # Engine (~21K Rust LOC)
 │   │   ├── Cargo.toml                  # deps: tree-sitter x25, rusqlite, rayon
 │   │   ├── benches/indexing.rs         # Performance benchmarks
 │   │   ├── tests/
@@ -102,7 +102,7 @@ codelens-mcp-plugin/
 │   │       │   └── tests.rs            # Symbol subsystem tests
 │   │       │
 │   │       ├── db/                     # SQLite + FTS5
-│   │       │   ├── mod.rs              # IndexDb — schema v4, migrations
+│   │       │   ├── mod.rs              # IndexDb — schema v6, migrations
 │   │       │   ├── ops.rs              # CRUD operations
 │   │       │   └── tests.rs            # DB tests
 │   │       │
@@ -141,20 +141,20 @@ codelens-mcp-plugin/
 │   │       ├── vfs.rs                 # Virtual filesystem normalization
 │   │       └── watcher.rs             # File watcher (notify + debounce)
 │   │
-│   └── codelens-mcp/                  # MCP Server (~7K LOC)
+│   └── codelens-mcp/                  # MCP Server (~22K Rust LOC)
 │       ├── Cargo.toml                 # deps: axum, tokio, serde_json
 │       └── src/
 │           ├── main.rs                # Entry: CLI args, transport selection
-│           ├── state.rs               # AppState + ProjectOverride (runtime switching)
-│           ├── dispatch.rs            # Dispatcher: _profile, telemetry, auto-invalidate
+│           ├── state.rs               # AppState + project switching + runtime state
+│           ├── dispatch.rs            # Dispatcher: routing, budgets, gate checks, telemetry
 │           ├── protocol.rs            # Tool, ToolAnnotations, OutputSchema
-│           ├── tool_defs.rs           # 63 tool definitions + presets
+│           ├── tool_defs/             # build.rs, presets.rs, output_schemas.rs
 │           ├── error.rs               # CodeLensError enum
 │           ├── authority.rs           # Backend metadata helpers
 │           ├── telemetry.rs           # ToolMetricsRegistry
 │           ├── prompts.rs             # MCP prompt templates
 │           ├── resources.rs           # MCP resource endpoints
-│           ├── integration_tests.rs   # 41 integration tests
+│           ├── integration_tests.rs   # Deferred loading + client contract integration tests
 │           │
 │           ├── server/                # Transport layer
 │           │   ├── mod.rs             # Server module exports
@@ -167,14 +167,13 @@ codelens-mcp-plugin/
 │           │
 │           └── tools/                 # Tool implementations
 │               ├── mod.rs             # Dispatch table + suggest_next_tools
-│               ├── symbols.rs         # Symbol lookup tools (7)
-│               ├── lsp.rs             # LSP tools (7) — tree-sitter-first
-│               ├── graph.rs           # Analysis tools (14)
-│               ├── filesystem.rs      # File I/O tools (7)
-│               ├── mutation.rs        # Code editing tools (11)
-│               ├── memory.rs          # Project memory tools (5)
-│               ├── session.rs         # Session/config tools (12)
-│               └── composite.rs       # Multi-step workflow tools (3)
+│               ├── symbols.rs         # Symbol lookup tools
+│               ├── lsp.rs             # LSP tools — tree-sitter-first fallback model
+│               ├── graph.rs           # Analysis tools
+│               ├── filesystem.rs      # File I/O tools
+│               ├── mutation.rs        # Code editing tools
+│               ├── memory.rs          # Project memory tools
+│               └── session.rs         # Session/config + onboarding/report tools
 │
 ├── skills/                            # Claude Code skills
 │   ├── code-review/SKILL.md           # /codelens-review
@@ -252,50 +251,43 @@ codelens-mcp-plugin/
 
 ---
 
-## 4. Tool Ecosystem (63 tools)
+## 4. Tool Ecosystem
 
-### Preset Distribution
-
-```
-FULL (63)        ████████████████████████████████████████████  100%
-BALANCED (39)    █████████████████████████                      62%
-MINIMAL (20)     ███████████████                                33%
-```
-
-### Tool Categories
+### Default Registry Snapshot
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        63 Tools                                  │
-├──────────────┬──────────────┬──────────────┬────────────────────┤
-│ [Symbol] 14  │ [Edit] 12    │ [Analysis] 7 │ [Session] 13       │
-│              │              │              │                    │
-│ find_symbol  │ rename_symbol│ get_impact   │ activate_project   │
-│ get_symbols  │ replace_body │ find_dead    │ onboard_project    │
-│ get_ranked   │ replace_cont │ find_circular│ set_preset         │
-│ find_refs    │ replace_lines│ get_coupling │ get_capabilities   │
-│ get_diag     │ delete_lines │ get_importance│ query_project     │
-│ search_ws    │ insert_at    │ find_scoped  │ add/remove project │
-│ get_type_h   │ insert_before│ get_changed  │ list_projects      │
-│ plan_rename  │ insert_after │              │ prepare_new_conv   │
-│ check_lsp    │ create_file  │              │ summarize_changes  │
-│ get_lsp_rec  │ add_import   │              │ get_watch_status   │
-│ refresh_idx  │ missing_imp  │              │ get_tool_metrics   │
-│ get_proj_str │ extract_func │              │ summarize_file     │
-│ get_complex  │              │              │                    │
-│ fuzzy_search │              │              │                    │
-├──────────────┼──────────────┼──────────────┼────────────────────┤
-│ [File] 7     │ [Memory] 5   │ [Semantic] 2 │                    │
-│              │              │              │                    │
-│ read_file    │ list_memories│ semantic_srch│                    │
-│ list_dir     │ read_memory  │ index_embed  │                    │
-│ find_file    │ write_memory │              │                    │
-│ search_pat   │ delete_memory│              │                    │
-│ find_annot   │ rename_memory│              │                    │
-│ find_tests   │              │              │                    │
-│ get_config   │              │              │                    │
-└──────────────┴──────────────┴──────────────┴────────────────────┘
+FULL (88)        ████████████████████████████████████████████████ 100%
+BALANCED (60)    █████████████████████████████████                68%
+MINIMAL (22)     ████████████                                     25%
 ```
+
+Counts above reflect the current source snapshot for the default semantic-enabled build.
+
+### Preferred Profiles
+
+The operational surface is now profile-first rather than preset-first.
+
+```
+planner-readonly   read-heavy planning, ranked context, references
+builder-minimal    edit path with limited mutation surface
+reviewer-graph     impact/review workflows, graph-heavy inspection
+refactor-full      gated mutation tools + verifier workflows
+ci-audit           bounded reports, readiness, impact, diagnostics
+evaluator-compact  harness and benchmark-facing compact contract
+```
+
+### Categories
+
+The registry is organized around:
+
+- symbol lookup and ranked context
+- file I/O and workspace inspection
+- mutation and gated refactor flows
+- analysis/report workflows
+- project/session/runtime controls
+- semantic indexing and hybrid retrieval
+
+Deferred loading narrows the first exposed tool surface further for supported clients.
 
 ---
 

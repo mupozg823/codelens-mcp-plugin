@@ -84,3 +84,21 @@ Response payloads are compressed based on budget usage:
 - Stage 3 (85-95%): aggressive summarization
 - Stage 4 (95-100%): minimal skeleton + truncated flag
 - Stage 5 (>100%): hard truncation with error payload
+
+<!-- CODELENS_REPO_CLAUDE_ROUTING_POLICY:BEGIN -->
+## CodeLens Repo Routing Policy
+
+_Generated from `/Users/bagjaeseog/.codex/harness/reports/refreshes/2026-04-09-141242-post-session-codelens-mcp-plugin-impact-reviewer.json` on 2026-04-09T14:12:42 for `codelens-mcp-plugin`_
+
+_Derived from the authoritative Claude policy JSON. This repo section is non-authoritative._
+
+Repo-specific routing rules:
+- no repo-specific exceptions; follow the global CodeLens routing policy.
+
+Claude harness guidance:
+- on complex tasks, use the repo and global CLAUDE instructions before selecting a harness pattern.
+- keep simple point lookups native when the policy says native is preferred.
+- use CodeLens-aware exploration for multi-file or reviewer-heavy work.
+<!-- CODELENS_REPO_CLAUDE_ROUTING_POLICY:END -->
+
+

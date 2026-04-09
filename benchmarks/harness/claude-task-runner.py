@@ -254,6 +254,7 @@ def main():
             quality_score=args.quality_score,
             recommended_policy=brief["recommended_policy"],
             notes=args.notes,
+            last_message_file=result.get("last_message_file", ""),
         )
         session_entry = session_eval.build_entry(entry_args, delta_payload)
         session_entry["repo_label"] = repo.get("label", session_entry.get("repo_label", repo["id"]))

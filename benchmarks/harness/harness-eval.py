@@ -297,11 +297,21 @@ def load_synthetic_entries_from_report(path: Path, representative_repos):
 def total_tokens(entry):
     token_in = entry.get("token_in")
     token_out = entry.get("token_out")
+    if token_in is None and token_out is None:
+        return None
     return (token_in or 0) + (token_out or 0)
 
 
 def mode_stats(entries):
     count = len(entries)
+    measured_total_tokens = [
+        value for value in (total_tokens(entry) for entry in entries) if value is not None
+    ]
+    measured_bootstrap_tokens = [
+        int(entry["bootstrap_tokens"])
+        for entry in entries
+        if entry.get("bootstrap_tokens") is not None
+    ]
     quality_scores = [
         float(entry["quality_score"])
         for entry in entries
@@ -320,16 +330,33 @@ def mode_stats(entries):
     measured_success = [
         entry.get("success") for entry in entries if entry.get("success") is not None
     ]
+    completion_scores = [
+        float(entry["completion_contract_score"])
+        for entry in entries
+        if entry.get("completion_contract_score") is not None
+    ]
+    completion_pass = [
+        entry.get("completion_contract_passed")
+        for entry in entries
+        if entry.get("completion_contract_passed") is not None
+    ]
+    input_requests = [
+        entry.get("asked_for_user_input")
+        for entry in entries
+        if entry.get("asked_for_user_input") is not None
+    ]
     return {
         "count": count,
         "measured_count": len(measured_success),
         "avg_total_tokens": (
-            sum(total_tokens(entry) for entry in entries) / count if count else 0.0
+            sum(measured_total_tokens) / len(measured_total_tokens)
+            if measured_total_tokens
+            else None
         ),
         "avg_bootstrap_tokens": (
-            sum(int(entry.get("bootstrap_tokens") or 0) for entry in entries) / count
-            if count
-            else 0.0
+            sum(measured_bootstrap_tokens) / len(measured_bootstrap_tokens)
+            if measured_bootstrap_tokens
+            else None
         ),
         "avg_quality_score": (
             sum(quality_scores) / len(quality_scores) if quality_scores else None
@@ -347,6 +374,21 @@ def mode_stats(entries):
         "success_rate": (
             sum(1 for value in measured_success if value) / len(measured_success)
             if measured_success
+            else None
+        ),
+        "avg_completion_contract_score": (
+            sum(completion_scores) / len(completion_scores)
+            if completion_scores
+            else None
+        ),
+        "completion_contract_pass_rate": (
+            sum(1 for value in completion_pass if value) / len(completion_pass)
+            if completion_pass
+            else None
+        ),
+        "user_input_request_rate": (
+            sum(1 for value in input_requests if value) / len(input_requests)
+            if input_requests
             else None
         ),
         "sample_notes": [
@@ -611,6 +653,23 @@ def render_report(report):
             f"{entry.get('low_level_chain_count') or 0} | "
             f"{entry.get('elapsed_ms') if entry.get('elapsed_ms') is not None else '-'} | "
             f"{entry.get('recommended_policy', 'pending')} |"
+        )
+
+    a("")
+    a("## Harness Discipline")
+    a("")
+    for item in task_summaries:
+        routed = item["mode_stats"].get("routed-on", {})
+        completion = routed.get("avg_completion_contract_score")
+        pass_rate = routed.get("completion_contract_pass_rate")
+        input_rate = routed.get("user_input_request_rate")
+        if completion is None and pass_rate is None and input_rate is None:
+            continue
+        a(
+            f"- {item['repo_label']} / {item['task_kind']}: "
+            f"completion_score={completion if completion is not None else '-'}, "
+            f"completion_pass_rate={pass_rate if pass_rate is not None else '-'}, "
+            f"user_input_request_rate={input_rate if input_rate is not None else '-'}"
         )
 
     a("")

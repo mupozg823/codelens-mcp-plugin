@@ -281,6 +281,9 @@ def render_bootstrap_agents(repo):
             "## Local Guidance",
             "",
             "- Keep diffs minimal and prefer existing modules over new wrappers.",
+            "- Operate non-interactively by default; choose the safest reasonable default unless user input is truly required.",
+            "- For multi-step work, keep an explicit checklist and close it before finishing.",
+            "- Use a build -> verify -> fix loop when runnable verification exists.",
             "- Use native `rg/read/test` for trivial point lookups.",
             "- Escalate to CodeLens workflow tools only when the task becomes multi-file, reviewer-heavy, or refactor-sensitive.",
             "",
@@ -312,6 +315,7 @@ def render_bootstrap_claude(repo):
             "",
             "- Prefer CodeLens workflow tools for multi-file impact analysis, reviewer tasks, and refactor preflight.",
             "- Keep simple point lookups on native read/grep when the task is already local and unambiguous.",
+            "- Operate non-interactively by default and use verification before completion when the repo provides it.",
             "- For complex tasks, choose a harness pattern after reading global and local CLAUDE instructions.",
             "",
         ]

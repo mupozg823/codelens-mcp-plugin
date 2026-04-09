@@ -32,6 +32,8 @@ def parse_args():
     parser.add_argument("--agent", default="")
     parser.add_argument("--min-real-session-tasks", type=int, default=20)
     parser.add_argument("--min-real-session-scopes", type=int, default=3)
+    parser.add_argument("--min-completion-contract-pass-rate", type=float, default=1.0)
+    parser.add_argument("--max-user-input-request-rate", type=float, default=0.0)
     parser.add_argument("--output-json", default="benchmarks/paper-benchmark-results.json")
     parser.add_argument("--output-md", default="benchmarks/paper-benchmark-summary.md")
     return parser.parse_args()
@@ -136,6 +138,21 @@ def build_harness_metrics(entries: list[dict]) -> dict:
         for entry in entries
         if entry.get("quality_score") is not None
     ]
+    completion_scores = [
+        float(entry["completion_contract_score"])
+        for entry in entries
+        if entry.get("completion_contract_score") is not None
+    ]
+    completion_passes = [
+        entry.get("completion_contract_passed")
+        for entry in entries
+        if entry.get("completion_contract_passed") is not None
+    ]
+    user_input_requests = [
+        entry.get("asked_for_user_input")
+        for entry in entries
+        if entry.get("asked_for_user_input") is not None
+    ]
     elapsed = [
         float(entry["elapsed_ms"])
         for entry in entries
@@ -158,6 +175,17 @@ def build_harness_metrics(entries: list[dict]) -> dict:
         "avg_total_tokens": mean([total_tokens(entry) for entry in entries]),
         "avg_elapsed_ms": mean(elapsed),
         "avg_quality_score": mean(quality_scores),
+        "avg_completion_contract_score": mean(completion_scores),
+        "completion_contract_pass_rate": (
+            sum(1 for value in completion_passes if value) / len(completion_passes)
+            if completion_passes
+            else None
+        ),
+        "user_input_request_rate": (
+            sum(1 for value in user_input_requests if value) / len(user_input_requests)
+            if user_input_requests
+            else None
+        ),
         "acceptance_pass_rate": (
             sum(1 for value in acceptance if value) / len(acceptance)
             if acceptance
@@ -265,6 +293,9 @@ def render_markdown(result: dict) -> str:
     a(f"| Acceptance pass rate | {harness['acceptance_pass_rate']:.1%} |" if harness["acceptance_pass_rate"] is not None else "| Acceptance pass rate | n/a |")
     a(f"| Verify pass rate | {harness['verify_pass_rate']:.1%} |" if harness["verify_pass_rate"] is not None else "| Verify pass rate | n/a |")
     a(f"| Avg quality score | {harness['avg_quality_score']:.3f} |" if harness["avg_quality_score"] is not None else "| Avg quality score | n/a |")
+    a(f"| Avg completion contract score | {harness['avg_completion_contract_score']:.3f} |" if harness["avg_completion_contract_score"] is not None else "| Avg completion contract score | n/a |")
+    a(f"| Completion contract pass rate | {harness['completion_contract_pass_rate']:.1%} |" if harness["completion_contract_pass_rate"] is not None else "| Completion contract pass rate | n/a |")
+    a(f"| User input request rate | {harness['user_input_request_rate']:.1%} |" if harness["user_input_request_rate"] is not None else "| User input request rate | n/a |")
     a("")
     a("## Promotion Eligibility")
     a("")
@@ -274,6 +305,8 @@ def render_markdown(result: dict) -> str:
     a(f"| Real-session required | `{eligibility['requires_real_session']}` |")
     a(f"| Min measured tasks | {eligibility['minimum_real_session_tasks']} |")
     a(f"| Min distinct repos/task kinds | {eligibility['minimum_real_session_scopes']} |")
+    a(f"| Min completion contract pass rate | {eligibility['minimum_completion_contract_pass_rate']:.1%} |")
+    a(f"| Max user input request rate | {eligibility['maximum_user_input_request_rate']:.1%} |")
     if eligibility["failures"]:
         a("")
         a("Failures:")
@@ -342,6 +375,24 @@ def main():
             f"task_kinds={scope_counts['distinct_task_kind_count']}, "
             f"need at least {args.min_real_session_scopes} in either dimension"
         )
+    completion_pass_rate = harness_metrics["completion_contract_pass_rate"]
+    if (
+        completion_pass_rate is not None
+        and completion_pass_rate < args.min_completion_contract_pass_rate
+    ):
+        promotion_failures.append(
+            "completion contract pass rate below threshold: "
+            f"{completion_pass_rate:.3f} < {args.min_completion_contract_pass_rate:.3f}"
+        )
+    user_input_request_rate = harness_metrics["user_input_request_rate"]
+    if (
+        user_input_request_rate is not None
+        and user_input_request_rate > args.max_user_input_request_rate
+    ):
+        promotion_failures.append(
+            "user input request rate above threshold: "
+            f"{user_input_request_rate:.3f} > {args.max_user_input_request_rate:.3f}"
+        )
     result = {
         "schema_version": "codelens-paper-benchmark-v1",
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -370,6 +421,8 @@ def main():
             "requires_real_session": True,
             "minimum_real_session_tasks": args.min_real_session_tasks,
             "minimum_real_session_scopes": args.min_real_session_scopes,
+            "minimum_completion_contract_pass_rate": args.min_completion_contract_pass_rate,
+            "maximum_user_input_request_rate": args.max_user_input_request_rate,
             "promotion_eligible": not promotion_failures,
             "failures": promotion_failures,
         },

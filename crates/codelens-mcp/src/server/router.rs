@@ -53,6 +53,25 @@ fn list_param_str<'a>(request: &'a JsonRpcRequest, key: &str) -> Option<&'a str>
         .and_then(|value| value.as_str())
 }
 
+fn strip_schema_descriptions(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            map.remove("description");
+            map.remove("title");
+            map.remove("examples");
+            for child in map.values_mut() {
+                strip_schema_descriptions(child);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_schema_descriptions(item);
+            }
+        }
+        _ => {}
+    }
+}
+
 pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcResponse> {
     if request.jsonrpc != "2.0" {
         return Some(JsonRpcResponse::error(
@@ -203,6 +222,10 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             let include_annotations =
                 list_param_bool(&request, "includeAnnotations", "include_annotations")
                     .unwrap_or(!lean_contract);
+            let compact_input_schema = lean_contract
+                && deferred_loading_active
+                && !include_output_schema
+                && !include_annotations;
             let filtered = all_tools
                 .iter()
                 .copied()
@@ -239,6 +262,9 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     }
                     if !include_annotations {
                         tool.annotations = None;
+                    }
+                    if compact_input_schema {
+                        strip_schema_descriptions(&mut tool.input_schema);
                     }
                     tool
                 })
@@ -298,6 +324,10 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             payload.insert(
                 "include_annotations".to_owned(),
                 Value::Bool(include_annotations),
+            );
+            payload.insert(
+                "input_schema_descriptions_stripped".to_owned(),
+                Value::Bool(compact_input_schema),
             );
             payload.insert(
                 "default_contract_mode".to_owned(),

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from glob import glob
 from pathlib import Path
@@ -108,15 +109,25 @@ def load_session_entries(patterns, representative_repos):
 
 
 def qualifying_real_entry(entry):
+    return not real_entry_rejection_reasons(entry)
+
+
+def real_entry_rejection_reasons(entry):
+    reasons = []
     if entry.get("source_kind") != "real-session":
-        return False
+        reasons.append("not_real_session")
+        return reasons
     if entry.get("success") is not True:
-        return False
+        reasons.append("unsuccessful")
     if entry.get("acceptance_passed") is False:
-        return False
+        reasons.append("acceptance_failed")
     if entry.get("verify_passed") is False:
-        return False
-    return True
+        reasons.append("verification_failed")
+    if entry.get("completion_contract_passed") is False:
+        reasons.append("completion_contract_failed")
+    if entry.get("asked_for_user_input") is True:
+        reasons.append("asked_for_user_input")
+    return reasons
 
 
 def real_session_identity(entry):
@@ -214,7 +225,72 @@ def compute_quality_score(entry):
         + 0.15 * evidence
         + 0.15 * composite
     )
+
+    completion_score = entry.get("completion_contract_score")
+    asked_for_user_input = entry.get("asked_for_user_input")
+    if completion_score is not None or asked_for_user_input is not None:
+        completion_score = float(completion_score or 0.0)
+        non_interactive = 0.0 if asked_for_user_input else 1.0
+        score = 0.80 * score + 0.15 * completion_score + 0.05 * non_interactive
+
     return round(score, 3)
+
+
+def analyze_completion_contract(text: str | None):
+    if not text:
+        return {
+            "section_hits": {
+                "requested_work": False,
+                "evidence": False,
+                "verification": False,
+                "remaining_risks": False,
+            },
+            "score": None,
+            "passed": None,
+            "asked_for_user_input": None,
+        }
+
+    normalized = text.lower()
+    label_prefix = r"^\s*(?:[-*]\s*)?(?:\*\*|__)?"
+    label_suffix = r"(?:\*\*|__)?\s*[:\-]"
+    section_patterns = {
+        "requested_work": [
+            label_prefix
+            + r"(requested work( completed)?|work completed|completed work|what i changed|what i did)"
+            + label_suffix,
+        ],
+        "evidence": [
+            label_prefix
+            + r"(evidence used|evidence|evidence checked|evidence reviewed)"
+            + label_suffix,
+        ],
+        "verification": [
+            label_prefix
+            + r"(verification( run)?|tests? run|checks? run|verified with)"
+            + label_suffix,
+        ],
+        "remaining_risks": [
+            label_prefix
+            + r"(remaining risks?|risks?|gaps?|remaining gaps?|uncertainties)"
+            + label_suffix,
+        ],
+    }
+    section_hits = {
+        name: any(re.search(pattern, normalized, re.MULTILINE) for pattern in patterns)
+        for name, patterns in section_patterns.items()
+    }
+    score = round(sum(1 for hit in section_hits.values() if hit) / 4.0, 3)
+    input_patterns = [
+        r"\b(do you want me to|would you like me to|which option should i|what would you like me to|should i proceed|how should i proceed)\b",
+        r"(진행할까요|어떻게 할까요|원하시나요|어느 쪽으로 할까요|원하시면[^.\n]*(할까요|진행할까요|할지 말씀해|알려주세요))",
+    ]
+    asked_for_user_input = any(re.search(pattern, normalized) for pattern in input_patterns)
+    return {
+        "section_hits": section_hits,
+        "score": score,
+        "passed": score >= 0.75,
+        "asked_for_user_input": asked_for_user_input,
+    }
 
 
 def filter_qualifying_entries(entries):

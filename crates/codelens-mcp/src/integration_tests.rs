@@ -271,6 +271,64 @@ fn codex_client_name_enables_lean_tools_list_contract() {
 }
 
 #[test]
+fn codex_builder_bootstrap_strips_input_schema_descriptions() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::BuilderMinimal,
+    ));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "_session_client_name": "CodexHarness",
+                "_session_deferred_tool_loading": true,
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let encoded = serde_json::to_string(&response).expect("serialize");
+    assert!(encoded.contains("\"input_schema_descriptions_stripped\":true"));
+    assert!(encoded.contains("\"name\":\"get_ranked_context\""));
+    assert!(!encoded.contains("Symbol name to search for"));
+    assert!(!encoded.contains("Disable semantic/hybrid ranking and use structural signals only"));
+}
+
+#[test]
+fn codex_builder_explicit_output_schema_preserves_input_schema_descriptions() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::BuilderMinimal,
+    ));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "_session_client_name": "CodexHarness",
+                "_session_deferred_tool_loading": true,
+                "includeOutputSchema": true,
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let encoded = serde_json::to_string(&response).expect("serialize");
+    assert!(encoded.contains("\"input_schema_descriptions_stripped\":false"));
+    assert!(encoded.contains("Symbol name to search for"));
+    assert!(encoded.contains("Disable semantic/hybrid ranking and use structural signals only"));
+}
+
+#[test]
 fn claude_client_name_keeps_full_tools_list_contract() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);

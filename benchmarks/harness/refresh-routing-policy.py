@@ -56,13 +56,19 @@ def dedupe_qualifying_real_entries(entries, representative_repos):
     qualifying_entries = 0
     overall_agent_counts = defaultdict(int)
     qualifying_candidates = []
+    rejection_reason_counts = defaultdict(int)
 
     for entry in entries:
         if entry.get("source_kind") != "real-session":
             continue
         total_real_entries += 1
         repo_id = entry.get("repo_id", "")
-        if repo_id not in repo_map or not common.qualifying_real_entry(entry):
+        if repo_id not in repo_map:
+            continue
+        rejection_reasons = common.real_entry_rejection_reasons(entry)
+        if rejection_reasons:
+            for reason in rejection_reasons:
+                rejection_reason_counts[reason] += 1
             continue
         qualifying_entries += 1
         normalized = dict(entry)
@@ -85,6 +91,7 @@ def dedupe_qualifying_real_entries(entries, representative_repos):
         "unique_qualifying_real_entries": len(deduped_entries),
         "overall_agent_counts": dict(sorted(overall_agent_counts.items())),
         "unique_overall_agent_counts": dict(sorted(unique_agent_counts.items())),
+        "rejection_reason_counts": dict(sorted(rejection_reason_counts.items())),
         "entries": deduped_entries,
         "duplicates": duplicates,
     }
@@ -287,6 +294,12 @@ def render_refresh_status_markdown(payload):
         f"- Duplicate real session count: `{payload['duplicate_real_session_count']}`",
         "",
     ]
+    rejection_counts = payload.get("rejection_reason_counts") or {}
+    if rejection_counts:
+        lines.extend(["## Rejection Reasons", ""])
+        for reason, count in sorted(rejection_counts.items()):
+            lines.append(f"- `{reason}`: `{count}`")
+        lines.append("")
     if payload["missing_coverage"] or payload["missing_agent_coverage"]:
         lines.extend(["## Gaps", ""])
         for row in payload["missing_coverage"]:
@@ -369,6 +382,7 @@ def coverage_summary(config, entries, required_task_kinds, min_per_combo, requir
         "unique_qualifying_real_entries": deduped["unique_qualifying_real_entries"],
         "overall_agent_counts": deduped["overall_agent_counts"],
         "unique_overall_agent_counts": deduped["unique_overall_agent_counts"],
+        "rejection_reason_counts": deduped["rejection_reason_counts"],
         "duplicate_real_sessions": deduped["duplicates"],
         "coverage": coverage,
         "missing": missing,
@@ -582,6 +596,7 @@ def main():
         "unique_qualifying_real_entries": coverage["unique_qualifying_real_entries"],
         "overall_agent_counts": coverage["overall_agent_counts"],
         "unique_overall_agent_counts": coverage["unique_overall_agent_counts"],
+        "rejection_reason_counts": coverage["rejection_reason_counts"],
         "duplicate_real_session_count": len(coverage["duplicate_real_sessions"]),
         "duplicate_real_sessions": coverage["duplicate_real_sessions"],
         "policy_drift": policy_drift,

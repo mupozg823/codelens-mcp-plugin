@@ -47,6 +47,8 @@ def parse_args():
     parser.add_argument("--agent", default="")
     parser.add_argument("--min-real-session-tasks", type=int, default=20)
     parser.add_argument("--min-real-session-scopes", type=int, default=3)
+    parser.add_argument("--min-completion-contract-pass-rate", type=float, default=1.0)
+    parser.add_argument("--max-user-input-request-rate", type=float, default=0.0)
     parser.add_argument("--session-entry-glob", action="append", default=[])
     parser.add_argument("--no-default-session-glob", action="store_true")
     parser.add_argument(
@@ -174,6 +176,24 @@ def build_real_session_result(
             f"task_kinds={scope_counts['distinct_task_kind_count']}, "
             f"need at least {args.min_real_session_scopes} in either dimension"
         )
+    completion_pass_rate = harness_metrics["completion_contract_pass_rate"]
+    if (
+        completion_pass_rate is not None
+        and completion_pass_rate < args.min_completion_contract_pass_rate
+    ):
+        promotion_failures.append(
+            "completion contract pass rate below threshold: "
+            f"{completion_pass_rate:.3f} < {args.min_completion_contract_pass_rate:.3f}"
+        )
+    user_input_request_rate = harness_metrics["user_input_request_rate"]
+    if (
+        user_input_request_rate is not None
+        and user_input_request_rate > args.max_user_input_request_rate
+    ):
+        promotion_failures.append(
+            "user input request rate above threshold: "
+            f"{user_input_request_rate:.3f} > {args.max_user_input_request_rate:.3f}"
+        )
 
     return {
         "schema_version": "codelens-real-session-evidence-v1",
@@ -203,6 +223,8 @@ def build_real_session_result(
             "requires_real_session": True,
             "minimum_real_session_tasks": args.min_real_session_tasks,
             "minimum_real_session_scopes": args.min_real_session_scopes,
+            "minimum_completion_contract_pass_rate": args.min_completion_contract_pass_rate,
+            "maximum_user_input_request_rate": args.max_user_input_request_rate,
             "promotion_eligible": not promotion_failures,
             "failures": promotion_failures,
         },
@@ -210,6 +232,9 @@ def build_real_session_result(
             "task_success_rate": harness_metrics["task_success_rate"],
             "tokens_per_successful_task": harness_metrics["tokens_per_successful_task"],
             "latency_per_successful_task_ms": harness_metrics["latency_per_successful_task_ms"],
+            "completion_contract_pass_rate": harness_metrics["completion_contract_pass_rate"],
+            "avg_completion_contract_score": harness_metrics["avg_completion_contract_score"],
+            "user_input_request_rate": harness_metrics["user_input_request_rate"],
             f"get_ranked_context_mrr_at_{retrieval_metrics['ranking_cutoff']}": retrieval_metrics["ranked_context_mrr_at_k"],
         },
         "real_session_diagnostics": {

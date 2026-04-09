@@ -49,6 +49,15 @@
 - If real-session evidence is insufficient, promotion must emit a coverage-gap queue and scenario pack for the missing captures.
 - Synthetic-only harness summaries are useful for smoke checks, but they are not sufficient evidence for paper claims or deployment decisions.
 
+## Codex Harness Operating Defaults
+
+- Harness runs should assume non-interactive execution by default.
+- Multi-step tasks should keep explicit plan or checklist state rather than relying on implicit progress.
+- When verification is available, the harness should encourage a build -> verify -> fix loop before completion.
+- Completion output should include the requested work, evidence, verification actually run, and any remaining gaps.
+- Point lookups should stay on the native path; multi-file reviewer/planning/refactor tasks should only escalate to CodeLens after the first local boundary check.
+- Prompt or bootstrap changes are only acceptable if they preserve the fail-closed evaluation rules above.
+
 ## Flake Policy
 
 - A single green run is not enough for historically flaky HTTP tests.

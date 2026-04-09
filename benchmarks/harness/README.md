@@ -27,3 +27,10 @@
   - Codex: `~/.codex/harness/policies/codelens-routing-policy.json`
   - Claude: `~/.claude/harness/policies/codelens-routing-policy.json`
   - shared reference: `~/.codex/harness/policies/codelens-routing-policy.shared.json`
+
+Codex harness defaults reflected in this layer:
+- non-interactive by default during harness runs
+- explicit task tracking for multi-step work
+- build -> verify -> fix before completion when runnable verification exists
+- completion summaries must say what was done, what evidence was used, what verification ran, and what remains uncertain
+- simple local lookup/edit stays native; CodeLens is for multi-file reviewer/planning/preflight paths after bootstrap

@@ -8,6 +8,7 @@ import hashlib
 import importlib.util
 import json
 import subprocess
+import time
 import urllib.request
 from urllib.error import URLError
 from datetime import datetime
@@ -16,6 +17,7 @@ from pathlib import Path
 DEFAULT_HTTP_REQUEST_TIMEOUT_SECONDS = 5
 DEFAULT_HTTP_BOOTSTRAP_TIMEOUT_SECONDS = 10
 DEFAULT_HTTP_TOOL_TIMEOUT_SECONDS = 90
+DEFAULT_MCP_PREFLIGHT_CACHE_MAX_AGE_SECONDS = 300
 
 
 def load_module(path: Path, name: str):
@@ -86,6 +88,7 @@ def resolve_execution_repo_path(repo_path: Path, repo_id: str = "", alias_dir: P
 
 
 def render_prompt(brief: dict, global_instruction_label: str, mcp_preflight: dict | None = None) -> str:
+    compact_codex = brief.get("platform") == "codex"
     lines = [
         f"Task kind: {brief['task_kind']}",
         f"Routing policy: {brief['recommended_policy']} ({brief['policy_source']}, confidence={brief['confidence']})",
@@ -117,6 +120,27 @@ def render_prompt(brief: dict, global_instruction_label: str, mcp_preflight: dic
     lines.extend(
         [
             f"Follow the repository AGENTS.md and the global {global_instruction_label} instructions.",
+            "Harness defaults for this run:",
+            (
+                "- Non-interactive by default; only ask for input when the task is genuinely blocked or risky."
+                if compact_codex
+                else "- Operate non-interactively by default; only ask for input if the task is genuinely blocked or risky."
+            ),
+            (
+                "- Keep an explicit checklist for multi-step work and close it before finishing."
+                if compact_codex
+                else "- Keep an explicit plan or checklist for multi-step work and do not finish with open items."
+            ),
+            (
+                "- Use build -> verify -> fix when runnable verification exists."
+                if compact_codex
+                else "- Use a build -> verify -> fix loop when runnable verification exists; do not stop after self-inspection alone."
+            ),
+            (
+                "- If a read is partial or truncated, fetch the missing targeted context before concluding."
+                if compact_codex
+                else "- If a file read is partial or truncated, acknowledge that limit and fetch the missing targeted context before concluding."
+            ),
             "Use the following routing guidance for this task:",
         ]
     )
@@ -133,7 +157,7 @@ def render_prompt(brief: dict, global_instruction_label: str, mcp_preflight: dic
         if brief.get("stop_rule"):
             lines.append(f"- stop rule: {brief['stop_rule']}")
 
-    if brief.get("preferred_entrypoints") and brief.get("use_codelens") != "avoid":
+    if brief.get("preferred_entrypoints") and brief.get("use_codelens") != "avoid" and not compact_codex:
         lines.extend(
             [
                 "",
@@ -146,31 +170,46 @@ def render_prompt(brief: dict, global_instruction_label: str, mcp_preflight: dic
         lines.extend(["", "MCP preflight:"])
         if mcp_preflight.get("available"):
             lines.append(
-                f"- CodeLens MCP reachable; active surface={mcp_preflight.get('auto_surface') or 'unknown'}, budget={mcp_preflight.get('auto_budget') or 'unknown'}."
+                (
+                    f"- CodeLens MCP reachable; surface={mcp_preflight.get('auto_surface') or 'unknown'}, budget={mcp_preflight.get('auto_budget') or 'unknown'}."
+                    if compact_codex
+                    else f"- CodeLens MCP reachable; active surface={mcp_preflight.get('auto_surface') or 'unknown'}, budget={mcp_preflight.get('auto_budget') or 'unknown'}."
+                )
             )
             if mcp_preflight.get("tools_list_contract_mode") == "lean":
                 lines.append(
-                    "- Deferred tools/list is lean by default. If you need output schemas for mutation, verifier, or tool-shape ambiguity, retry tools/list with includeOutputSchema=true and narrow by namespace/tier first."
+                    (
+                        "- Lean deferred contract by default; request output schema only when shape ambiguity matters."
+                        if compact_codex
+                        else "- Deferred tools/list is lean by default. If you need output schemas for mutation, verifier, or tool-shape ambiguity, retry tools/list with includeOutputSchema=true and narrow by namespace/tier first."
+                    )
                 )
             elif mcp_preflight.get("tools_list_contract_mode") == "full":
                 lines.append("- Deferred tools/list already includes output schemas.")
-            if mcp_preflight.get("richer_contract_prefetched"):
+            if mcp_preflight.get("richer_contract_prefetched") and not compact_codex:
                 lines.append(
                     f"- Richer tool contract prefetched for {mcp_preflight.get('richer_contract_scope') or 'targeted'} scope; visible tools={mcp_preflight.get('richer_contract_tool_count') or 'unknown'}."
                 )
-            if mcp_preflight.get("embedding_indexed") is not None:
+            if mcp_preflight.get("embedding_indexed") is not None and not compact_codex:
                 lines.append(
                     f"- Semantic index ready={mcp_preflight.get('embedding_indexed')}, indexed_symbols={mcp_preflight.get('embedding_indexed_symbols', 0)}."
                 )
-            if mcp_preflight.get("preferred_entrypoints"):
+            if mcp_preflight.get("preferred_entrypoints") and not compact_codex:
                 lines.append(
                     f"- Suggested bootstrap entrypoints: {', '.join(mcp_preflight['preferred_entrypoints'])}."
                 )
             if mcp_preflight.get("recommended_entrypoint"):
                 lines.append(
-                    f"- Recommended next CodeLens entrypoint: {mcp_preflight['recommended_entrypoint']} ({mcp_preflight.get('recommendation_source', 'preflight')})."
+                    (
+                        f"- Next CodeLens entrypoint: {mcp_preflight['recommended_entrypoint']}."
+                        if compact_codex
+                        else f"- Recommended next CodeLens entrypoint: {mcp_preflight['recommended_entrypoint']} ({mcp_preflight.get('recommendation_source', 'preflight')})."
+                    )
                 )
-            if mcp_preflight.get("recommended_contract_action"):
+            if mcp_preflight.get("recommended_contract_action") and (
+                not compact_codex
+                or mcp_preflight.get("recommended_contract_action") != "stay_lean_until_shape_needed"
+            ):
                 lines.append(
                     f"- Contract action: {mcp_preflight['recommended_contract_action']}."
                 )
@@ -178,7 +217,7 @@ def render_prompt(brief: dict, global_instruction_label: str, mcp_preflight: dic
                 lines.append(
                     f"- Follow-up tools after the first entrypoint: {', '.join(mcp_preflight['recommended_followup_tools'])}."
                 )
-            if mcp_preflight.get("fallback_to_native"):
+            if mcp_preflight.get("fallback_to_native") and not compact_codex:
                 lines.append("- Even though MCP is reachable, stay native first and escalate only after the initial local boundary check.")
         else:
             lines.append("- CodeLens MCP preflight failed; treat CodeLens as unavailable for this run.")
@@ -205,7 +244,25 @@ def render_prompt(brief: dict, global_instruction_label: str, mcp_preflight: dic
             "",
             "Delivery:",
             "- Keep CodeLens usage aligned with the routing policy above.",
-            "- Report the verdict, evidence used, verification actually run, and remaining risks.",
+            "- Report the requested work completed, evidence used, verification actually run, and remaining risks.",
+            (
+                "- Finish with these exact headers: Requested work completed / Evidence used / Verification run / Remaining risks."
+                if compact_codex
+                else "- Use this completion skeleton:"
+            ),
+        ]
+    )
+    if not compact_codex:
+        lines.extend(
+            [
+                "  - Requested work completed:",
+                "  - Evidence used:",
+                "  - Verification run:",
+                "  - Remaining risks:",
+            ]
+        )
+    lines.extend(
+        [
             "- If this is a read-only evaluation run, leave the worktree unchanged.",
             "",
         ]
@@ -301,6 +358,89 @@ def safe_capture_metrics_snapshot(base_url: str, request_id: int):
         return capture_metrics_snapshot(base_url, request_id=request_id), None
     except Exception as exc:
         return None, str(exc)
+
+
+def should_run_codex_mcp_preflight(brief: dict) -> bool:
+    use_codelens = str(brief.get("use_codelens") or "").strip().lower()
+    if use_codelens in {"avoid", "optional"}:
+        return False
+    return True
+
+
+def should_capture_codex_metrics(brief: dict, mode: str) -> bool:
+    normalized_mode = str(mode or "").strip().lower()
+    if normalized_mode in {"naive-on", "routed-on"}:
+        return True
+    use_codelens = str(brief.get("use_codelens") or "").strip().lower()
+    return use_codelens in {"required", "recommended"}
+
+
+def build_codex_preflight_cache_key(base_url: str, repo_path: Path, brief: dict) -> str:
+    identity = {
+        "base_url": str(base_url),
+        "repo_path": str(Path(repo_path).expanduser().resolve()),
+        "task_kind": brief.get("task_kind"),
+        "recommended_policy": brief.get("recommended_policy"),
+        "route_mode": brief.get("route_mode"),
+        "use_codelens": brief.get("use_codelens"),
+        "native_first": bool(brief.get("native_first")),
+        "deferred_loading": bool(brief.get("deferred_loading")),
+        "preferred_entrypoints": list(brief.get("preferred_entrypoints") or []),
+        "evaluation_mode": brief.get("evaluation_mode"),
+    }
+    serialized = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha1(serialized.encode("utf-8")).hexdigest()
+
+
+def sanitize_codex_preflight_for_cache(payload: dict) -> dict:
+    sanitized = json.loads(json.dumps(payload))
+    sanitized.pop("session_id", None)
+    sanitized.pop("init_response", None)
+    return sanitized
+
+
+def read_cached_codex_preflight(cache_dir: Path, cache_key: str, max_age_seconds: int):
+    if max_age_seconds <= 0:
+        return None
+    cache_file = Path(cache_dir) / f"{cache_key}.json"
+    if not cache_file.exists():
+        return None
+    try:
+        wrapper = json.loads(cache_file.read_text())
+    except Exception:
+        return None
+    captured_at = wrapper.get("captured_at")
+    payload = wrapper.get("payload")
+    if not isinstance(captured_at, (int, float)) or not isinstance(payload, dict):
+        return None
+    age_seconds = max(time.time() - float(captured_at), 0.0)
+    if age_seconds > max_age_seconds:
+        return None
+    cached_payload = json.loads(json.dumps(payload))
+    cached_payload["cache_hit"] = True
+    cached_payload["cache_age_seconds"] = round(age_seconds, 3)
+    cached_payload["cache_key"] = cache_key
+    cached_payload["probe_strategy"] = "cache"
+    return cached_payload
+
+
+def write_cached_codex_preflight(cache_dir: Path, cache_key: str, payload: dict):
+    sanitized = sanitize_codex_preflight_for_cache(payload)
+    cache_file = Path(cache_dir) / f"{cache_key}.json"
+    cache_file.parent.mkdir(parents=True, exist_ok=True)
+    cache_file.write_text(
+        json.dumps(
+            {
+                "captured_at": time.time(),
+                "cache_key": cache_key,
+                "payload": sanitized,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+        + "\n"
+    )
+    return cache_file
 
 
 def is_hidden_by_deferred_loading(payload: dict) -> bool:
@@ -552,6 +692,9 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
             "preferred_entrypoints": preferred_entrypoints,
             "fallback_to_native": fallback_to_native,
             "init_response": init_response,
+            "cache_hit": False,
+            "cache_age_seconds": 0.0,
+            "probe_strategy": "live",
         }
     except URLError as exc:
         return {
@@ -559,6 +702,9 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
             "error": str(exc),
             "preferred_entrypoints": preferred_entrypoints,
             "fallback_to_native": True,
+            "cache_hit": False,
+            "cache_age_seconds": None,
+            "probe_strategy": "live",
         }
     except Exception as exc:
         return {
@@ -566,7 +712,32 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
             "error": str(exc),
             "preferred_entrypoints": preferred_entrypoints,
             "fallback_to_native": True,
+            "cache_hit": False,
+            "cache_age_seconds": None,
+            "probe_strategy": "live",
         }
+
+
+def load_or_probe_codex_mcp(
+    base_url: str,
+    repo_path: Path,
+    brief: dict,
+    cache_dir: Path | None = None,
+    max_age_seconds: int = DEFAULT_MCP_PREFLIGHT_CACHE_MAX_AGE_SECONDS,
+    request_id_base: int = 9000,
+):
+    cache_key = build_codex_preflight_cache_key(base_url, repo_path, brief)
+    if cache_dir is not None:
+        cached = read_cached_codex_preflight(cache_dir, cache_key, max_age_seconds)
+        if cached is not None:
+            return cached
+
+    live = probe_codex_mcp(base_url, repo_path, brief, request_id_base=request_id_base)
+    live["cache_key"] = cache_key
+    if cache_dir is not None and live.get("available"):
+        cache_file = write_cached_codex_preflight(cache_dir, cache_key, live)
+        live["cache_file"] = str(cache_file)
+    return live
 
 
 def capture_metrics_snapshot(base_url: str, request_id: int):
@@ -750,6 +921,19 @@ def build_metrics_delta(session_eval, before_raw: dict, after_raw: dict):
     return subtract_metrics_capture_overhead(payload)
 
 
+def empty_metrics_delta_payload(reason: str):
+    return {
+        "count": 0,
+        "session": {},
+        "derived_kpis": {},
+        "tools": [],
+        "surfaces": [],
+        "capture_overhead_subtracted": False,
+        "metrics_capture_skipped": True,
+        "metrics_capture_reason": reason,
+    }
+
+
 def write_session_entry_artifacts(
     *,
     session_eval,
@@ -840,6 +1024,7 @@ def build_entry_args(
     quality_score: str,
     recommended_policy: str,
     notes: str,
+    last_message_file: str = "",
 ):
     return argparse.Namespace(
         repo=str(repo_path),
@@ -856,4 +1041,5 @@ def build_entry_args(
         quality_score=float(quality_score) if quality_score else None,
         recommended_policy=recommended_policy,
         notes=notes,
+        last_message_file=last_message_file,
     )

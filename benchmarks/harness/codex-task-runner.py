@@ -20,6 +20,7 @@ REFRESH_POLICY_SCRIPT = SCRIPT_DIR / "refresh-routing-policy.py"
 DEFAULT_PROMPT_DIR = Path.home() / ".codex" / "harness" / "bootstrap" / "prompts"
 DEFAULT_RUN_DIR = Path.home() / ".codex" / "harness" / "runs"
 DEFAULT_WORKSPACE_ALIAS_DIR = Path.home() / ".codex" / "harness" / "workspaces"
+DEFAULT_PREFLIGHT_CACHE_DIR = Path.home() / ".codex" / "harness" / "cache" / "mcp-preflight"
 DEFAULT_MCP_URL = "http://127.0.0.1:7837/mcp"
 
 
@@ -51,6 +52,16 @@ def main():
     parser.add_argument("--mode", default="")
     parser.add_argument("--mcp-url", default=DEFAULT_MCP_URL)
     parser.add_argument("--skip-mcp-preflight", action="store_true")
+    parser.add_argument("--disable-mcp-preflight-cache", action="store_true")
+    parser.add_argument(
+        "--mcp-preflight-cache-dir",
+        default=str(DEFAULT_PREFLIGHT_CACHE_DIR),
+    )
+    parser.add_argument(
+        "--mcp-preflight-max-age-seconds",
+        type=int,
+        default=common.DEFAULT_MCP_PREFLIGHT_CACHE_MAX_AGE_SECONDS,
+    )
     parser.add_argument("--capture-eval", action="store_true")
     parser.add_argument("--run-dir", default="")
     parser.add_argument("--session-entry-json", default="")
@@ -101,6 +112,7 @@ def main():
     brief = bootstrap.build_brief(repo, args.task_kind, task_text, policy, resolved_rule)
     if scenario:
         brief = bootstrap.apply_scenario_to_brief(brief, scenario)
+    effective_mode = args.mode or common.infer_mode_from_policy(brief["recommended_policy"])
 
     stamp = datetime.now().strftime("%Y-%m-%d")
     base = f"{stamp}-{common.slugify(repo['id'])}-{common.slugify(args.task_kind)}"
@@ -120,9 +132,23 @@ def main():
 
     mcp_preflight = None
     mcp_preflight_file = run_dir / "mcp-preflight.json"
-    if not args.skip_mcp_preflight:
-        mcp_preflight = common.probe_codex_mcp(args.mcp_url, repo_path, brief)
+    if args.skip_mcp_preflight:
+        result_preflight_mode = "disabled-by-flag"
+    elif not common.should_run_codex_mcp_preflight(brief):
+        result_preflight_mode = "skipped-by-policy"
+    else:
+        cache_dir = None
+        if not args.disable_mcp_preflight_cache:
+            cache_dir = Path(args.mcp_preflight_cache_dir).expanduser()
+        mcp_preflight = common.load_or_probe_codex_mcp(
+            args.mcp_url,
+            repo_path,
+            brief,
+            cache_dir=cache_dir,
+            max_age_seconds=args.mcp_preflight_max_age_seconds,
+        )
         mcp_preflight_file.write_text(json.dumps(mcp_preflight, ensure_ascii=False, indent=2) + "\n")
+        result_preflight_mode = "enabled"
 
     bootstrap_json.write_text(json.dumps(brief, ensure_ascii=False, indent=2) + "\n")
     bootstrap_md.write_text(bootstrap.render_markdown(brief))
@@ -140,11 +166,15 @@ def main():
         "bootstrap_markdown": str(bootstrap_md),
         "prompt_file": str(prompt_file),
         "run_dir": str(run_dir),
+        "mcp_preflight_mode": result_preflight_mode,
     }
     if mcp_preflight is not None:
         result["mcp_preflight_file"] = str(mcp_preflight_file)
         result["mcp_preflight"] = {
             "available": bool(mcp_preflight.get("available")),
+            "probe_strategy": mcp_preflight.get("probe_strategy"),
+            "cache_hit": bool(mcp_preflight.get("cache_hit")),
+            "cache_age_seconds": mcp_preflight.get("cache_age_seconds"),
             "auto_surface": mcp_preflight.get("auto_surface"),
             "auto_budget": mcp_preflight.get("auto_budget"),
             "indexed_files": mcp_preflight.get("indexed_files"),
@@ -181,6 +211,7 @@ def main():
         codex_cmd.insert(-1, "--json")
     if args.output_last_message:
         codex_cmd[2:2] = ["--output-last-message", args.output_last_message]
+        result["last_message_file"] = args.output_last_message
     elif args.capture_eval or args.exec:
         last_message_file = run_dir / "last-message.md"
         codex_cmd[2:2] = ["--output-last-message", str(last_message_file)]
@@ -189,16 +220,26 @@ def main():
     result["codex_command"] = codex_cmd
 
     before_metrics = None
+    metrics_capture_mode = "disabled"
+    metrics_capture_skip_reason = ""
     before_metrics_file = run_dir / "metrics-before.json"
     after_metrics_file = run_dir / "metrics-after.json"
     delta_metrics_file = run_dir / "metrics-delta.json"
     if args.capture_eval:
-        before_metrics, before_error = common.safe_capture_metrics_snapshot(args.mcp_url, request_id=9101)
-        if before_metrics is not None:
-            before_metrics_file.write_text(json.dumps(before_metrics, ensure_ascii=False, indent=2) + "\n")
-            result["metrics_before_file"] = str(before_metrics_file)
-        elif before_error:
-            result["metrics_before_error"] = before_error
+        if common.should_capture_codex_metrics(brief, effective_mode):
+            metrics_capture_mode = "full"
+            before_metrics, before_error = common.safe_capture_metrics_snapshot(args.mcp_url, request_id=9101)
+            if before_metrics is not None:
+                before_metrics_file.write_text(json.dumps(before_metrics, ensure_ascii=False, indent=2) + "\n")
+                result["metrics_before_file"] = str(before_metrics_file)
+            elif before_error:
+                metrics_capture_mode = "error"
+                result["metrics_before_error"] = before_error
+        else:
+            metrics_capture_mode = "skipped-by-policy"
+            metrics_capture_skip_reason = f"{brief.get('recommended_policy', 'unknown-policy')} / {effective_mode}"
+            result["metrics_capture_skip_reason"] = metrics_capture_skip_reason
+        result["metrics_capture_mode"] = metrics_capture_mode
 
     if not args.exec:
         print(json.dumps(result, ensure_ascii=False, indent=2))
@@ -208,24 +249,29 @@ def main():
     if proc.returncode != 0:
         raise SystemExit(proc.returncode)
 
-    if args.capture_eval and before_metrics is not None:
-        after_metrics, after_error = common.safe_capture_metrics_snapshot(args.mcp_url, request_id=9102)
-        if after_metrics is None:
-            if after_error:
-                result["metrics_after_error"] = after_error
-        else:
-            after_metrics_file.write_text(json.dumps(after_metrics, ensure_ascii=False, indent=2) + "\n")
-            result["metrics_after_file"] = str(after_metrics_file)
-            delta_payload = common.build_metrics_delta(session_eval, before_metrics, after_metrics)
-            delta_metrics_file.write_text(json.dumps(delta_payload, ensure_ascii=False, indent=2) + "\n")
-            result["metrics_delta_file"] = str(delta_metrics_file)
+    if args.capture_eval:
+        delta_payload = None
+        if before_metrics is not None:
+            after_metrics, after_error = common.safe_capture_metrics_snapshot(args.mcp_url, request_id=9102)
+            if after_metrics is None:
+                if after_error:
+                    result["metrics_after_error"] = after_error
+            else:
+                after_metrics_file.write_text(json.dumps(after_metrics, ensure_ascii=False, indent=2) + "\n")
+                result["metrics_after_file"] = str(after_metrics_file)
+                delta_payload = common.build_metrics_delta(session_eval, before_metrics, after_metrics)
+                delta_metrics_file.write_text(json.dumps(delta_payload, ensure_ascii=False, indent=2) + "\n")
+                result["metrics_delta_file"] = str(delta_metrics_file)
+        elif metrics_capture_mode == "skipped-by-policy":
+            delta_payload = common.empty_metrics_delta_payload(metrics_capture_skip_reason)
 
+        if delta_payload is not None:
             entry_args = common.build_entry_args(
                 repo_path=repo_path,
                 repo=repo,
                 scenario=scenario,
                 task_kind=args.task_kind,
-                mode=args.mode or common.infer_mode_from_policy(brief["recommended_policy"]),
+                mode=effective_mode,
                 agent=args.agent,
                 session_eval=session_eval,
                 acceptance_passed=args.acceptance_passed,
@@ -233,6 +279,7 @@ def main():
                 quality_score=args.quality_score,
                 recommended_policy=brief["recommended_policy"],
                 notes=args.notes,
+                last_message_file=result.get("last_message_file", ""),
             )
             session_entry = session_eval.build_entry(entry_args, delta_payload)
             session_entry["repo_label"] = repo.get("label", session_entry.get("repo_label", repo["id"]))
