@@ -296,9 +296,13 @@ def extract_tool_payload(response):
     return {}
 
 
-def safe_capture_metrics_snapshot(base_url: str, request_id: int):
+def safe_capture_metrics_snapshot(base_url: str, request_id: int, session_id: str | None = None):
     try:
-        return capture_metrics_snapshot(base_url, request_id=request_id), None
+        return capture_metrics_snapshot(
+            base_url,
+            request_id=request_id,
+            session_id=session_id,
+        ), None
     except Exception as exc:
         return None, str(exc)
 
@@ -663,8 +667,14 @@ def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base
         }
 
 
-def capture_metrics_snapshot(base_url: str, request_id: int):
-    return mcp_http_tool_call(base_url, "get_tool_metrics", {}, request_id=request_id)
+def capture_metrics_snapshot(base_url: str, request_id: int, session_id: str | None = None):
+    return mcp_http_tool_call(
+        base_url,
+        "get_tool_metrics",
+        {},
+        request_id=request_id,
+        session_id=session_id,
+    )
 
 
 def delta_mapping(before: dict, after: dict):

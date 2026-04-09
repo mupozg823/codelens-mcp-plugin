@@ -5,7 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import shutil
 import subprocess
+import tempfile
 from datetime import datetime
 from pathlib import Path
 
@@ -21,6 +24,7 @@ DEFAULT_PROMPT_DIR = Path.home() / ".codex" / "harness" / "bootstrap" / "prompts
 DEFAULT_RUN_DIR = Path.home() / ".codex" / "harness" / "runs"
 DEFAULT_WORKSPACE_ALIAS_DIR = Path.home() / ".codex" / "harness" / "workspaces"
 DEFAULT_MCP_URL = "http://127.0.0.1:7837/mcp"
+DEFAULT_CODEX_HOME = Path.home() / ".codex"
 
 
 def load_bootstrap_module():
@@ -29,6 +33,50 @@ def load_bootstrap_module():
 
 def load_session_eval_module():
     return common.load_module(SESSION_EVAL_SCRIPT, "session_eval_module")
+
+
+def build_minimal_codex_home_config(*, repo_paths: list[Path], mcp_url: str) -> str:
+    lines = [
+        'model = "gpt-5.4"',
+        'model_reasoning_effort = "none"',
+        "",
+        "[mcp_servers.codelens]",
+        f'url = "{mcp_url}"',
+        "",
+    ]
+    seen_paths: set[str] = set()
+    for repo_path in repo_paths:
+        canonical = str(Path(repo_path).expanduser().resolve())
+        if canonical in seen_paths:
+            continue
+        seen_paths.add(canonical)
+        lines.extend(
+            [
+                f"[projects.{json.dumps(canonical)}]",
+                'trust_level = "trusted"',
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def prepare_isolated_codex_home(
+    *,
+    source_home: Path,
+    repo_paths: list[Path],
+    mcp_url: str,
+):
+    auth_path = source_home / "auth.json"
+    if not auth_path.exists():
+        return None, None, "auth.json missing"
+
+    tempdir = tempfile.TemporaryDirectory(prefix="codex-harness-home-")
+    home_path = Path(tempdir.name)
+    shutil.copy2(auth_path, home_path / "auth.json")
+    (home_path / "config.toml").write_text(
+        build_minimal_codex_home_config(repo_paths=repo_paths, mcp_url=mcp_url)
+    )
+    return tempdir, home_path, None
 
 
 def main():
@@ -64,6 +112,8 @@ def main():
     parser.add_argument("--exec", action="store_true")
     parser.add_argument("--json", action="store_true")
     parser.add_argument("--output-last-message", default="")
+    parser.add_argument("--no-ephemeral", action="store_true")
+    parser.add_argument("--no-isolated-codex-home", action="store_true")
     args = parser.parse_args()
 
     bootstrap = load_bootstrap_module()
@@ -165,6 +215,11 @@ def main():
             ),
             "fallback_to_native": mcp_preflight.get("fallback_to_native", False),
         }
+    metrics_session_id = (
+        mcp_preflight.get("session_id")
+        if isinstance(mcp_preflight, dict)
+        else None
+    )
     if workspace_alias:
         result["workspace_alias"] = workspace_alias
 
@@ -185,8 +240,11 @@ def main():
         last_message_file = run_dir / "last-message.md"
         codex_cmd[2:2] = ["--output-last-message", str(last_message_file)]
         result["last_message_file"] = str(last_message_file)
+    if not args.no_ephemeral:
+        codex_cmd.insert(-1, "--ephemeral")
 
     result["codex_command"] = codex_cmd
+    result["codex_ephemeral"] = not args.no_ephemeral
 
     before_metrics = None
     before_metrics_file = run_dir / "metrics-before.json"
@@ -194,7 +252,11 @@ def main():
     delta_metrics_file = run_dir / "metrics-delta.json"
     recommendation_outcome = None
     if args.capture_eval:
-        before_metrics, before_error = common.safe_capture_metrics_snapshot(args.mcp_url, request_id=9101)
+        before_metrics, before_error = common.safe_capture_metrics_snapshot(
+            args.mcp_url,
+            request_id=9101,
+            session_id=metrics_session_id,
+        )
         if before_metrics is not None:
             before_metrics_file.write_text(json.dumps(before_metrics, ensure_ascii=False, indent=2) + "\n")
             result["metrics_before_file"] = str(before_metrics_file)
@@ -205,12 +267,46 @@ def main():
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return
 
-    proc = subprocess.run(codex_cmd, input=prompt, text=True, cwd=execution_repo_path)
-    if proc.returncode != 0:
-        raise SystemExit(proc.returncode)
+    codex_env = None
+    codex_home_tempdir = None
+    if args.no_isolated_codex_home:
+        result["codex_home_mode"] = "default"
+    elif args.profile:
+        result["codex_home_mode"] = "default-profile-preserved"
+    else:
+        codex_home_tempdir, isolated_home, isolated_error = prepare_isolated_codex_home(
+            source_home=DEFAULT_CODEX_HOME,
+            repo_paths=[repo_path, execution_repo_path],
+            mcp_url=args.mcp_url,
+        )
+        if isolated_home is not None:
+            codex_env = dict(os.environ)
+            codex_env["CODEX_HOME"] = str(isolated_home)
+            result["codex_home_mode"] = "isolated-minimal"
+        else:
+            result["codex_home_mode"] = "default"
+            result["codex_home_error"] = isolated_error
+
+    try:
+        proc = subprocess.run(
+            codex_cmd,
+            input=prompt,
+            text=True,
+            cwd=execution_repo_path,
+            env=codex_env,
+        )
+        if proc.returncode != 0:
+            raise SystemExit(proc.returncode)
+    finally:
+        if codex_home_tempdir is not None:
+            codex_home_tempdir.cleanup()
 
     if args.capture_eval and before_metrics is not None:
-        after_metrics, after_error = common.safe_capture_metrics_snapshot(args.mcp_url, request_id=9102)
+        after_metrics, after_error = common.safe_capture_metrics_snapshot(
+            args.mcp_url,
+            request_id=9102,
+            session_id=metrics_session_id,
+        )
         if after_metrics is None:
             if after_error:
                 result["metrics_after_error"] = after_error
@@ -267,25 +363,35 @@ def main():
 
             harness_eval_json = Path(args.harness_eval_json).expanduser() if args.harness_eval_json else run_dir / "harness-eval.json"
             harness_eval_md = Path(args.harness_eval_md).expanduser() if args.harness_eval_md else run_dir / "harness-eval.md"
-            result["harness_eval_result"] = common.run_harness_eval(
-                HARNESS_EVAL_SCRIPT,
-                repo_path=repo_path,
-                archive_entry_json=artifact_paths["archive_entry_json_path"],
-                output_json=harness_eval_json,
-                output_md=harness_eval_md,
-                label=f"live-{repo['id']}-{common.slugify(args.task_kind)}",
-                base_report_path=policy.get("source_report_path", ""),
-            )
-            result["harness_eval_json"] = str(harness_eval_json)
-            result["harness_eval_markdown"] = str(harness_eval_md)
+            try:
+                result["harness_eval_result"] = common.run_harness_eval(
+                    HARNESS_EVAL_SCRIPT,
+                    repo_path=repo_path,
+                    archive_entry_json=artifact_paths["archive_entry_json_path"],
+                    output_json=harness_eval_json,
+                    output_md=harness_eval_md,
+                    label=f"live-{repo['id']}-{common.slugify(args.task_kind)}",
+                    base_report_path=policy.get("source_report_path", ""),
+                )
+                result["harness_eval_json"] = str(harness_eval_json)
+                result["harness_eval_markdown"] = str(harness_eval_md)
+            except subprocess.CalledProcessError as exc:
+                result["harness_eval_error"] = (
+                    exc.stderr.strip() or exc.stdout.strip() or str(exc)
+                )
 
             refresh_result_file = run_dir / "routing-policy-refresh.json"
-            result["routing_policy_refresh"] = common.run_refresh(
-                REFRESH_POLICY_SCRIPT,
-                label=f"post-session-{repo['id']}-{common.slugify(args.task_kind)}",
-                output_json=refresh_result_file,
-            )
-            result["routing_policy_refresh_json"] = str(refresh_result_file)
+            try:
+                result["routing_policy_refresh"] = common.run_refresh(
+                    REFRESH_POLICY_SCRIPT,
+                    label=f"post-session-{repo['id']}-{common.slugify(args.task_kind)}",
+                    output_json=refresh_result_file,
+                )
+                result["routing_policy_refresh_json"] = str(refresh_result_file)
+            except subprocess.CalledProcessError as exc:
+                result["routing_policy_refresh_error"] = (
+                    exc.stderr.strip() or exc.stdout.strip() or str(exc)
+                )
 
     print(json.dumps(result, ensure_ascii=False, indent=2))
 

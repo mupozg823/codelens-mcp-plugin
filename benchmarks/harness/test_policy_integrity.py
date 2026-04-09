@@ -5,12 +5,25 @@ from __future__ import annotations
 
 import json
 import sys
+import importlib.util
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import harness_eval_common as common
 import harness_runner_common as runner_common
+
+
+def load_script_module(module_name: str, filename: str):
+    path = Path(__file__).resolve().parent / filename
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    spec.loader.exec_module(module)
+    return module
+
+
+CODEX_RUNNER = load_script_module("codex_task_runner_test", "codex-task-runner.py")
 
 
 def test_repo_override_trumps_global():
@@ -338,6 +351,21 @@ def test_build_codex_recommendation_outcome_tracks_entrypoint_and_contract_align
     )
 
 
+def test_build_minimal_codex_home_config_dedupes_paths_and_keeps_codelens_only():
+    config = CODEX_RUNNER.build_minimal_codex_home_config(
+        repo_paths=[
+            Path("/tmp/repo"),
+            Path("/tmp/repo"),
+            Path("/tmp/repo-alias"),
+        ],
+        mcp_url="http://127.0.0.1:9999/mcp",
+    )
+    assert '[mcp_servers.codelens]' in config
+    assert 'url = "http://127.0.0.1:9999/mcp"' in config
+    assert config.count('trust_level = "trusted"') == 2
+    assert "[plugins." not in config
+
+
 def main():
     tests = [
         test_repo_override_trumps_global,
@@ -351,6 +379,7 @@ def main():
         test_compute_quality_score_empty_claude_session,
         test_summarize_called_tools_orders_and_filters_zero_call_rows,
         test_build_codex_recommendation_outcome_tracks_entrypoint_and_contract_alignment,
+        test_build_minimal_codex_home_config_dedupes_paths_and_keeps_codelens_only,
         test_promotion_structural_identity,
         test_promotion_structural_ignores_timestamps,
         test_normalize_repo_id_fallback,

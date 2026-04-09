@@ -28,6 +28,7 @@ EXPORT = load_script_module("export_routing_policy_test", "export-routing-policy
 HARNESS_EVAL = load_script_module("harness_eval_test", "harness-eval.py")
 REFRESH = load_script_module("refresh_routing_policy_test", "refresh-routing-policy.py")
 TASK_BOOTSTRAP = load_script_module("task_bootstrap_test", "task-bootstrap.py")
+CODEX_RUNNER = load_script_module("codex_task_runner_test", "codex-task-runner.py")
 
 
 def make_repo():
@@ -312,6 +313,21 @@ class PolicyIntegrityTests(unittest.TestCase):
             runner_common.summarize_codex_recommendation_outcome(outcome),
             "recommended follow-up tools exercised: get_analysis_section",
         )
+
+    def test_minimal_codex_home_config_stays_small_and_trusted(self):
+        config = CODEX_RUNNER.build_minimal_codex_home_config(
+            repo_paths=[
+                Path("/tmp/repo"),
+                Path("/tmp/repo"),
+                Path("/tmp/repo-alias"),
+            ],
+            mcp_url="http://127.0.0.1:7847/mcp",
+        )
+
+        self.assertIn('[mcp_servers.codelens]', config)
+        self.assertIn('url = "http://127.0.0.1:7847/mcp"', config)
+        self.assertEqual(config.count('trust_level = "trusted"'), 2)
+        self.assertNotIn("[plugins.", config)
 
 
 if __name__ == "__main__":
