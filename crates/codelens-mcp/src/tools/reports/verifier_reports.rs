@@ -1,7 +1,8 @@
+use crate::AppState;
+use crate::tool_runtime::{ToolResult, required_string};
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use crate::tools::{required_string, AppState, ToolResult};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResult {

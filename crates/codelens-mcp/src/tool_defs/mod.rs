@@ -32,6 +32,17 @@ pub(crate) fn visible_namespaces(surface: ToolSurface) -> Vec<&'static str> {
     namespaces
 }
 
+pub(crate) fn is_deferred_control_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "activate_project"
+            | "get_current_config"
+            | "get_capabilities"
+            | "set_profile"
+            | "set_preset"
+    )
+}
+
 pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
     match surface {
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => {

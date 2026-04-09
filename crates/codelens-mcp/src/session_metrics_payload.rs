@@ -9,7 +9,7 @@ pub(crate) struct SessionMetricsPayload {
 pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsPayload {
     let session = state.metrics().session_snapshot();
     let handle_reads = session.analysis_summary_reads + session.analysis_section_reads;
-    let watcher_stats = state.watcher.as_ref().map(|watcher| watcher.stats());
+    let watcher_stats = state.watcher_stats();
     let watcher_failure_health = state.watcher_failure_health();
 
     let mut session_json = Map::new();

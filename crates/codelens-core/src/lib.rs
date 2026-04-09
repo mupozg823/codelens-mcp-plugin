@@ -65,6 +65,7 @@ pub use embedding::{
     EmbeddingEngine, EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch,
     configured_embedding_model_name, configured_embedding_runtime_info,
     configured_embedding_runtime_preference, configured_embedding_threads,
+    embedding_model_assets_available,
 };
 pub use scope_analysis::{
     ReferenceKind, ScopedReference, find_scoped_references, find_scoped_references_in_file,

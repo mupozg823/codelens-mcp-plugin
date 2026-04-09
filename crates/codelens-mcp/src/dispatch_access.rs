@@ -2,8 +2,9 @@ use crate::AppState;
 use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 use crate::tool_defs::{
-    ToolSurface, is_content_mutation_tool, is_read_only_surface, is_tool_in_surface,
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
+    ToolSurface, is_content_mutation_tool, is_deferred_control_tool, is_read_only_surface,
+    is_tool_in_surface, preferred_namespaces, preferred_tier_labels, tool_namespace,
+    tool_tier_label,
 };
 
 fn is_deferred_namespace_access_allowed(
@@ -12,6 +13,9 @@ fn is_deferred_namespace_access_allowed(
     surface: ToolSurface,
 ) -> bool {
     if !session.deferred_loading || session.is_local() {
+        return true;
+    }
+    if is_deferred_control_tool(name) {
         return true;
     }
     if session.full_tool_exposure {
@@ -34,6 +38,9 @@ fn is_deferred_tier_access_allowed(
     surface: ToolSurface,
 ) -> bool {
     if !session.deferred_loading || session.is_local() {
+        return true;
+    }
+    if is_deferred_control_tool(name) {
         return true;
     }
     if session.full_tool_exposure {

@@ -212,6 +212,9 @@ async fn mcp_post_handler(
             state.session_store.as_ref(),
             session_id.as_deref(),
             initialize_metadata,
+            &state.current_project_scope(),
+            *state.surface(),
+            state.token_budget(),
         )
     } else {
         None

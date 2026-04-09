@@ -1,4 +1,4 @@
-use crate::project::ProjectRoot;
+use crate::project::{ProjectRoot, collect_files};
 use crate::symbols::{SymbolInfo, get_symbols_overview};
 use anyhow::{Result, bail};
 use regex::Regex;
@@ -6,7 +6,6 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::sync::LazyLock;
-use walkdir::WalkDir;
 
 static IDENTIFIER_RE: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap());
@@ -174,24 +173,46 @@ fn collect_project_scope_edits(
     Ok(edits)
 }
 
-use crate::project::is_excluded;
-
 /// Find ALL word-boundary matches of `symbol_name` across the project.
 /// Unlike search_for_pattern, this returns multiple matches per line via find_iter.
 pub fn find_all_word_matches(
     project: &ProjectRoot,
     symbol_name: &str,
 ) -> Result<Vec<(String, usize, usize)>> {
-    // Fast path: use indexed file list from DB to avoid scanning non-code files.
+    let candidate_files = collect_candidate_files(project)?;
+
+    if candidate_files.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    // Fast path: use indexed file list only when it fully covers the current
+    // project. Partial or empty DBs must not suppress project-wide rename hits.
     let db_path = crate::db::index_db_path(project.as_path());
     if db_path.exists()
         && let Ok(db) = crate::db::IndexDb::open(&db_path)
         && let Ok(indexed_files) = db.all_file_paths()
+        && indexed_files.len() >= candidate_files.len()
     {
-        return find_word_matches_in_files(project, symbol_name, &indexed_files);
+        let indexed_set: std::collections::HashSet<&str> =
+            indexed_files.iter().map(String::as_str).collect();
+        if candidate_files
+            .iter()
+            .all(|path| indexed_set.contains(path.as_str()))
+        {
+            return find_word_matches_in_files(project, symbol_name, &indexed_files);
+        }
     }
-    // Fallback: full WalkDir scan (cold start, no index yet)
-    find_word_matches_walkdir(project, symbol_name)
+
+    find_word_matches_in_files(project, symbol_name, &candidate_files)
+}
+
+fn collect_candidate_files(project: &ProjectRoot) -> Result<Vec<String>> {
+    Ok(
+        collect_files(project.as_path(), |path| crate::lang_config::language_for_path(path).is_some())?
+            .into_iter()
+            .map(|path| project.to_relative(path))
+            .collect(),
+    )
 }
 
 /// Fast path: scan only indexed files (from DB).
@@ -285,35 +306,6 @@ fn is_in_ranges(ranges: &[(usize, usize)], offset: usize) -> bool {
             }
         })
         .is_ok()
-}
-
-/// Fallback: full WalkDir scan when no index exists.
-fn find_word_matches_walkdir(
-    project: &ProjectRoot,
-    symbol_name: &str,
-) -> Result<Vec<(String, usize, usize)>> {
-    let word_re = Regex::new(&format!(r"\b{}\b", regex::escape(symbol_name)))?;
-    let mut results = Vec::new();
-    for entry in WalkDir::new(project.as_path())
-        .into_iter()
-        .filter_entry(|e| !is_excluded(e.path()))
-    {
-        let entry = entry?;
-        if !entry.file_type().is_file() {
-            continue;
-        }
-        let content = match fs::read_to_string(entry.path()) {
-            Ok(c) => c,
-            Err(_) => continue,
-        };
-        let rel = project.to_relative(entry.path());
-        for (line_idx, line) in content.lines().enumerate() {
-            for mat in word_re.find_iter(line) {
-                results.push((rel.clone(), line_idx + 1, mat.start() + 1));
-            }
-        }
-    }
-    Ok(results)
 }
 
 /// Find files (other than the declaration file) that declare a symbol with the same name.
@@ -541,6 +533,29 @@ mod tests {
         let main_content = fs::read_to_string(project.resolve("src/main.py").unwrap()).unwrap();
         assert!(main_content.contains("AccountService"));
         assert!(!main_content.contains("UserService"));
+    }
+
+    #[test]
+    fn project_scope_falls_back_when_symbol_db_is_empty() {
+        let (dir, project) = make_fixture();
+        let db_dir = dir.join(".codelens/index");
+        fs::create_dir_all(&db_dir).unwrap();
+        let _db = crate::db::IndexDb::open(&db_dir.join("symbols.db")).unwrap();
+
+        let result = rename_symbol(
+            &project,
+            "src/service.py",
+            "UserService",
+            "AccountService",
+            None,
+            RenameScope::Project,
+            true,
+        )
+        .unwrap();
+
+        assert!(result.success);
+        assert!(result.modified_files >= 2);
+        assert!(result.total_replacements >= 3);
     }
 
     #[test]

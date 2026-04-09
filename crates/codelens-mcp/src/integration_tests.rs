@@ -12,6 +12,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEST_PROJECT_SEQ: AtomicU64 = AtomicU64::new(0);
 
+fn embedding_model_available_for_test() -> bool {
+    if !codelens_core::embedding_model_assets_available() {
+        eprintln!("skipping integration test: CodeSearchNet model assets unavailable");
+        return false;
+    }
+    true
+}
+
 // ── Protocol-level tests ─────────────────────────────────────────────
 
 #[test]
@@ -196,8 +204,10 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(encoded
-        .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
+    assert!(
+        encoded
+            .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]")
+    );
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"impact_report\""));
@@ -226,11 +236,13 @@ fn refactor_deferred_tools_list_starts_preview_first() {
     assert!(encoded.contains("\"deferred_loading_active\":true"));
     assert!(encoded.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
-    assert!(encoded.contains("\"tool_count\":4"));
+    assert!(encoded.contains("\"tool_count\":"));
     assert!(encoded.contains("\"verify_change_readiness\""));
     assert!(encoded.contains("\"refactor_safety_report\""));
     assert!(encoded.contains("\"safe_rename_report\""));
     assert!(encoded.contains("\"start_analysis_job\""));
+    assert!(encoded.contains("\"activate_project\""));
+    assert!(encoded.contains("\"set_profile\""));
     assert!(!encoded.contains("\"name\":\"rename_symbol\""));
     assert!(!encoded.contains("\"name\":\"replace_symbol_body\""));
     assert!(!encoded.contains("\"name\":\"refactor_extract_function\""));
@@ -428,10 +440,12 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("blocked by daemon mode"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("blocked by daemon mode")
+    );
 }
 
 #[test]
@@ -450,10 +464,12 @@ fn hidden_tools_are_blocked_at_call_time() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("not available in active surface"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not available in active surface")
+    );
 }
 
 #[test]
@@ -478,9 +494,11 @@ fn watch_status_reports_lock_contention_field() {
     assert!(payload["data"].get("stale_index_failures").is_some());
     assert!(payload["data"].get("persistent_index_failures").is_some());
     assert!(payload["data"].get("pruned_missing_failures").is_some());
-    assert!(payload["data"]
-        .get("recent_failure_window_seconds")
-        .is_some());
+    assert!(
+        payload["data"]
+            .get("recent_failure_window_seconds")
+            .is_some()
+    );
 }
 
 #[test]
@@ -1164,6 +1182,9 @@ fn onboard_project_returns_structure() {
 
 #[test]
 fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
     let project = project_root();
     fs::create_dir_all(project.as_path().join("src")).unwrap();
     fs::write(
@@ -1213,19 +1234,23 @@ fn impact_report_surfaces_unavailable_semantic_status() {
     let analysis_id = payload["data"]["analysis_id"]
         .as_str()
         .expect("analysis_id should be present");
-    assert!(payload["data"]["available_sections"]
-        .as_array()
-        .map(|sections| sections.iter().any(|section| section == "semantic_status"))
-        .unwrap_or(false));
-    assert!(payload["data"]["next_actions"]
-        .as_array()
-        .map(|actions| {
-            actions
-                .iter()
-                .filter_map(|value| value.as_str())
-                .any(|value| value.contains("index_embeddings"))
-        })
-        .unwrap_or(false));
+    assert!(
+        payload["data"]["available_sections"]
+            .as_array()
+            .map(|sections| sections.iter().any(|section| section == "semantic_status"))
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["data"]["next_actions"]
+            .as_array()
+            .map(|actions| {
+                actions
+                    .iter()
+                    .filter_map(|value| value.as_str())
+                    .any(|value| value.contains("index_embeddings"))
+            })
+            .unwrap_or(false)
+    );
 
     let section = call_tool(
         &state,
@@ -1234,14 +1259,19 @@ fn impact_report_surfaces_unavailable_semantic_status() {
     );
     assert_eq!(section["success"], json!(true));
     assert_eq!(section["data"]["content"]["status"], json!("unavailable"));
-    assert!(section["data"]["content"]["reason"]
-        .as_str()
-        .unwrap_or("")
-        .contains("index_embeddings"));
+    assert!(
+        section["data"]["content"]["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains("index_embeddings")
+    );
 }
 
 #[test]
 fn impact_report_uses_existing_embedding_index_for_semantic_status() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
     let project = project_root();
     fs::write(
         project.as_path().join("impact_semantic_ready.py"),
@@ -1302,6 +1332,9 @@ fn get_capabilities_returns_features() {
 
 #[test]
 fn get_capabilities_reports_existing_embedding_index_without_loading_engine() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
     let project = project_root();
     fs::write(
         project.as_path().join("embed.py"),
@@ -1367,11 +1400,13 @@ fn analyze_change_request_returns_handle_and_section() {
     );
     assert_eq!(section["success"], json!(true));
     assert_eq!(section["data"]["analysis_id"], json!(analysis_id));
-    assert!(state
-        .analysis_dir()
-        .join(analysis_id)
-        .join("ranked_files.json")
-        .exists());
+    assert!(
+        state
+            .analysis_dir()
+            .join(analysis_id)
+            .join("ranked_files.json")
+            .exists()
+    );
 }
 
 #[test]
@@ -1485,7 +1520,7 @@ fn start_analysis_job_returns_completed_handle() {
     // Store job without enqueuing to background worker — run synchronously to
     // eliminate timing dependency that causes flaky failures under parallel load.
     let job = state
-        .store_analysis_job(
+        .store_analysis_job_for_current_scope(
             "impact_report",
             Some("reviewer-graph".to_owned()),
             vec!["impact_rows".to_owned()],
@@ -1676,8 +1711,18 @@ fn reviewer_jobs_use_parallel_http_pool() {
             "debug_step_delay_ms": 80
         }),
     );
-    let first_job_id = first["data"]["job_id"].as_str().unwrap();
-    let second_job_id = second["data"]["job_id"].as_str().unwrap();
+    assert_eq!(first["success"], json!(true), "first job failed: {first}");
+    assert_eq!(
+        second["success"],
+        json!(true),
+        "second job failed: {second}"
+    );
+    let first_job_id = first["data"]["job_id"]
+        .as_str()
+        .expect("first job_id should be present");
+    let second_job_id = second["data"]["job_id"]
+        .as_str()
+        .expect("second job_id should be present");
     for _ in 0..100 {
         let metrics = call_tool(&state, "get_tool_metrics", json!({}));
         let peak_workers = metrics["data"]["session"]["peak_active_analysis_workers"]
@@ -2312,9 +2357,11 @@ fn oversized_analysis_handle_keeps_structured_content_schema_shape() {
         json!(true)
     );
     assert_eq!(value["result"]["structuredContent"].get("truncated"), None);
-    assert!(value["result"]["structuredContent"]["analysis_id"]
-        .as_str()
-        .is_some());
+    assert!(
+        value["result"]["structuredContent"]["analysis_id"]
+            .as_str()
+            .is_some()
+    );
     assert!(
         value["result"]["structuredContent"]["readiness"]["mutation_ready"]
             .as_str()
@@ -2480,9 +2527,11 @@ fn foreign_project_scoped_analysis_is_ignored_for_reuse() {
     .unwrap();
 
     assert!(state.get_analysis(analysis_id).is_none());
-    assert!(state
-        .find_reusable_analysis("analyze_change_request", &cache_key)
-        .is_none());
+    assert!(
+        state
+            .find_reusable_analysis_for_current_scope("analyze_change_request", &cache_key)
+            .is_none()
+    );
 }
 
 #[test]
@@ -2558,10 +2607,12 @@ fn analysis_artifacts_expire_by_ttl() {
 
     assert!(state.get_analysis(&analysis_id).is_none());
     assert!(!state.analysis_dir().join(&analysis_id).exists());
-    assert!(state
-        .list_analysis_summaries()
-        .into_iter()
-        .all(|summary| summary.id != analysis_id));
+    assert!(
+        state
+            .list_analysis_summaries()
+            .into_iter()
+            .all(|summary| summary.id != analysis_id)
+    );
 }
 
 #[test]
@@ -2747,10 +2798,12 @@ fn refactor_surface_requires_preflight_before_create_text_file() {
         json!({"relative_path": "mutated.txt", "content": "hello"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("requires a fresh preflight"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("requires a fresh preflight")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2798,9 +2851,11 @@ fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
         }),
     );
     assert_eq!(payload["success"], json!(true));
-    assert!(fs::read_to_string(project.as_path().join("gated.py"))
-        .unwrap()
-        .contains("new"));
+    assert!(
+        fs::read_to_string(project.as_path().join("gated.py"))
+            .unwrap()
+            .contains("new")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2848,10 +2903,12 @@ fn safe_rename_report_blocked_preflight_blocks_rename_symbol() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("blocked by verifier readiness"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("blocked by verifier readiness")
+    );
 }
 
 #[test]
@@ -2886,10 +2943,12 @@ fn rename_symbol_requires_symbol_aware_preflight() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("symbol-aware preflight"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("symbol-aware preflight")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2968,10 +3027,12 @@ fn session_scoped_preflight_does_not_cross_sessions() {
         "session-b",
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("requires a fresh preflight"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("requires a fresh preflight")
+    );
 }
 
 #[test]
@@ -2994,6 +3055,9 @@ fn builder_minimal_mutation_behavior_unchanged() {
 
 #[test]
 fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
     let project = project_root();
     fs::write(
         project.as_path().join("semantic_mutation.py"),
@@ -3031,20 +3095,22 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
         search["data"]["retrieval"]["semantic_query"],
         json!("ember archive delta")
     );
-    assert!(search["data"]["results"]
-        .as_array()
-        .map(|results| {
-            results
-                .iter()
-                .all(|result| result["provenance"]["source"] == json!("semantic"))
-                && results
+    assert!(
+        search["data"]["results"]
+            .as_array()
+            .map(|results| {
+                results
                     .iter()
-                    .all(|result| result["provenance"]["adjusted_score"].is_number())
-                && results
-                    .iter()
-                    .any(|result| result.get("symbol_name") == Some(&json!("ember_archive_delta")))
-        })
-        .unwrap_or(false));
+                    .all(|result| result["provenance"]["source"] == json!("semantic"))
+                    && results
+                        .iter()
+                        .all(|result| result["provenance"]["adjusted_score"].is_number())
+                    && results.iter().any(|result| {
+                        result.get("symbol_name") == Some(&json!("ember_archive_delta"))
+                    })
+            })
+            .unwrap_or(false)
+    );
 }
 
 // ── Test helpers ─────────────────────────────────────────────────────

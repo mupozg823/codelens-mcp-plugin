@@ -1,6 +1,7 @@
+use crate::AppState;
 use crate::protocol::BackendKind;
-use crate::tool_defs::{default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface};
-use crate::tools::{success_meta, AppState, ToolResult};
+use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile};
+use crate::tool_runtime::{ToolResult, required_string, success_meta};
 use codelens_core::detect_frameworks;
 use codelens_core::memory::list_memory_names;
 use serde_json::json;
@@ -28,12 +29,9 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         .unwrap_or_default();
     let memories_dir = state.memories_dir();
     let memory_count = list_memory_names(&memories_dir, None).len();
-    let watcher_running = state
-        .watcher
-        .as_ref()
-        .map(|w| w.stats().running)
-        .unwrap_or(false);
+    let watcher_running = state.watcher_running();
     let frameworks = detect_frameworks(project.as_path());
+    let project_base_path = project.as_path().to_string_lossy().to_string();
 
     // Auto-set role surface based on project size + client profile
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
@@ -77,15 +75,26 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
                 "planner-readonly",
             )
         };
-    state.set_surface(auto_surface);
-    state.set_token_budget(auto_budget);
+    #[cfg(feature = "http")]
+    if !session.is_local() {
+        state.set_session_surface_and_budget(&session.session_id, auto_surface, auto_budget);
+        state.bind_project_to_session(&session.session_id, &project_base_path);
+    } else {
+        state.set_surface(auto_surface);
+        state.set_token_budget(auto_budget);
+    }
+    #[cfg(not(feature = "http"))]
+    {
+        state.set_surface(auto_surface);
+        state.set_token_budget(auto_budget);
+    }
 
     Ok((
         json!({
             "activated": true,
             "switched": switched.is_some(),
             "project_name": project_name,
-            "project_base_path": project.as_path().to_string_lossy(),
+            "project_base_path": project_base_path,
             "backend_id": "rust-core",
             "memory_count": memory_count,
             "serena_memories_dir": memories_dir.to_string_lossy(),
@@ -228,7 +237,7 @@ pub fn list_queryable_projects(state: &AppState, _arguments: &serde_json::Value)
 }
 
 pub fn add_queryable_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let path = crate::tools::required_string(arguments, "path")?;
+    let path = required_string(arguments, "path")?;
     match state.add_secondary_project(path) {
         Ok(name) => Ok((
             json!({ "added": true, "name": name, "path": path }),
@@ -239,7 +248,7 @@ pub fn add_queryable_project(state: &AppState, arguments: &serde_json::Value) ->
 }
 
 pub fn remove_queryable_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let name = crate::tools::required_string(arguments, "name")?;
+    let name = required_string(arguments, "name")?;
     let removed = state.remove_secondary_project(name);
     Ok((
         json!({ "removed": removed, "name": name }),
@@ -248,8 +257,8 @@ pub fn remove_queryable_project(state: &AppState, arguments: &serde_json::Value)
 }
 
 pub fn query_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let project_name = crate::tools::required_string(arguments, "project_name")?;
-    let symbol_name = crate::tools::required_string(arguments, "symbol_name")?;
+    let project_name = required_string(arguments, "project_name")?;
+    let symbol_name = required_string(arguments, "symbol_name")?;
     let max_results = arguments
         .get("max_results")
         .and_then(|v| v.as_u64())

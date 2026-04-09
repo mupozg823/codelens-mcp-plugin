@@ -20,6 +20,7 @@ pub(crate) struct SuccessResponseInput<'a> {
     pub active_surface: &'a str,
     pub arguments: &'a serde_json::Value,
     pub logical_session_id: &'a str,
+    pub recent_tools: Vec<String>,
     pub gate_allowance: Option<&'a MutationGateAllowance>,
     pub compact: bool,
     pub harness_phase: Option<&'a str>,
@@ -40,6 +41,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         active_surface,
         arguments,
         logical_session_id,
+        recent_tools,
         gate_allowance,
         compact,
         harness_phase,
@@ -96,13 +98,8 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     resp.elapsed_ms = Some(elapsed_ms as u64);
     resp.routing_hint = Some(routing_hint_for_payload(&resp));
 
-    let emitted_composite_guidance = apply_contextual_guidance(
-        &mut resp,
-        name,
-        &state.recent_tools(),
-        harness_phase,
-        surface,
-    );
+    let emitted_composite_guidance =
+        apply_contextual_guidance(&mut resp, name, &recent_tools, harness_phase, surface);
 
     // Self-evolution: when doom-loop detected, override suggestions with alternative tools
     if doom_loop_count >= 3 {

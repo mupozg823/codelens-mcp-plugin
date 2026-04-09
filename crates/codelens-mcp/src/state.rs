@@ -7,8 +7,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::analysis_queue::{
-    analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
-    STDIO_ANALYSIS_WORKER_COUNT,
+    AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
+    STDIO_ANALYSIS_WORKER_COUNT, analysis_job_cost_units,
 };
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::error::CodeLensError;
@@ -60,15 +60,71 @@ fn normalize_path_for_project(project_root: &Path, path: &str) -> String {
 
 // ── Application state ──────────────────────────────────────────────────
 
-/// Holds project-specific resources that can be swapped at runtime.
-struct ProjectOverride {
+const PROJECT_CONTEXT_CACHE_LIMIT: usize = 4;
+
+/// Holds project-specific resources that can be reused across rebinds.
+struct ProjectRuntimeContext {
     project: ProjectRoot,
     symbol_index: Arc<SymbolIndex>,
     graph_cache: Arc<GraphCache>,
+    lsp_pool: Arc<LspSessionPool>,
     memories_dir: PathBuf,
+    analysis_dir: PathBuf,
     audit_dir: PathBuf,
     /// Keeps the watcher alive so it continues to receive file-system events.
-    _watcher: Option<FileWatcher>,
+    watcher: Option<FileWatcher>,
+}
+
+#[derive(Default)]
+struct ProjectContextCache {
+    entries: HashMap<String, Arc<ProjectRuntimeContext>>,
+    access_order: VecDeque<String>,
+}
+
+impl ProjectContextCache {
+    fn get(&mut self, scope: &str) -> Option<Arc<ProjectRuntimeContext>> {
+        let context = self.entries.get(scope).cloned()?;
+        self.touch(scope);
+        Some(context)
+    }
+
+    fn insert(&mut self, scope: String, context: Arc<ProjectRuntimeContext>) {
+        self.entries.insert(scope.clone(), context);
+        self.touch(&scope);
+    }
+
+    fn touch(&mut self, scope: &str) {
+        self.access_order.retain(|entry| entry != scope);
+        self.access_order.push_back(scope.to_owned());
+    }
+
+    fn evict_until_within_limit(
+        &mut self,
+        limit: usize,
+        protected_scopes: &[&str],
+    ) -> Vec<Arc<ProjectRuntimeContext>> {
+        let mut evicted = Vec::new();
+        while self.entries.len() > limit {
+            let Some(oldest) = self.access_order.pop_front() else {
+                break;
+            };
+            if protected_scopes.iter().any(|scope| *scope == oldest) {
+                self.access_order.push_back(oldest);
+                if self
+                    .access_order
+                    .iter()
+                    .all(|scope| protected_scopes.iter().any(|protected| protected == &scope.as_str()))
+                {
+                    break;
+                }
+                continue;
+            }
+            if let Some(context) = self.entries.remove(&oldest) {
+                evicted.push(context);
+            }
+        }
+        evicted
+    }
 }
 
 pub(crate) struct AppState {
@@ -76,11 +132,14 @@ pub(crate) struct AppState {
     default_project: ProjectRoot,
     default_symbol_index: Arc<SymbolIndex>,
     default_graph_cache: Arc<GraphCache>,
+    default_lsp_pool: Arc<LspSessionPool>,
     default_memories_dir: PathBuf,
+    default_analysis_dir: PathBuf,
     default_audit_dir: PathBuf,
+    default_watcher: Option<FileWatcher>,
     // Runtime project override (set by activate_project)
-    project_override: std::sync::RwLock<Option<ProjectOverride>>,
-    lsp_pool: std::sync::RwLock<LspSessionPool>,
+    project_override: std::sync::RwLock<Option<Arc<ProjectRuntimeContext>>>,
+    project_context_cache: Mutex<ProjectContextCache>,
     transport_mode: Mutex<RuntimeTransportMode>,
     daemon_mode: Mutex<RuntimeDaemonMode>,
     client_profile: ClientProfile,
@@ -101,8 +160,9 @@ pub(crate) struct AppState {
     doom_loop_counter: Mutex<(String, u64, usize)>,
     preflight_store: RecentPreflightStore,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
-    pub(crate) watcher: Option<FileWatcher>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,
+    #[cfg_attr(not(feature = "http"), allow(dead_code))]
+    project_execution_lock: Mutex<()>,
     #[cfg(feature = "semantic")]
     pub(crate) embedding: std::sync::RwLock<Option<EmbeddingEngine>>,
     /// Secondary (read-only) project indexes for cross-project queries.
@@ -129,12 +189,263 @@ impl AppState {
         self.project().as_path().to_string_lossy().to_string()
     }
 
+    pub(crate) fn project_scope_for_session(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+    ) -> String {
+        session
+            .project_path
+            .clone()
+            .unwrap_or_else(|| self.current_project_scope())
+    }
+
+    pub(crate) fn project_scope_for_arguments(&self, arguments: &Value) -> String {
+        let session = crate::session_context::SessionRequestContext::from_json(arguments);
+        self.project_scope_for_session(&session)
+    }
+
+    fn default_project_scope(&self) -> String {
+        self.default_project.as_path().to_string_lossy().to_string()
+    }
+
+    fn active_project_context(&self) -> Option<Arc<ProjectRuntimeContext>> {
+        self.project_override
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .cloned()
+    }
+
+    fn build_project_runtime_context(
+        project: ProjectRoot,
+        start_watcher: bool,
+    ) -> anyhow::Result<ProjectRuntimeContext> {
+        let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
+        if symbol_index
+            .stats()
+            .map(|s| s.indexed_files == 0)
+            .unwrap_or(true)
+        {
+            let _ = symbol_index.refresh_all();
+        }
+        let graph_cache = Arc::new(GraphCache::new(30));
+        let memories_dir = project.as_path().join(".codelens").join("memories");
+        let analysis_dir = project.as_path().join(".codelens").join("analysis-cache");
+        let audit_dir = project.as_path().join(".codelens").join("audit");
+        let _ = fs::create_dir_all(&memories_dir);
+        let _ = fs::create_dir_all(&analysis_dir);
+        let _ = fs::create_dir_all(analysis_dir.join("jobs"));
+        let _ = fs::create_dir_all(&audit_dir);
+        let lsp_pool = Arc::new(LspSessionPool::new(project.clone()));
+        let watcher = if start_watcher {
+            FileWatcher::start(
+                project.as_path(),
+                Arc::clone(&symbol_index),
+                Arc::clone(&graph_cache),
+            )
+            .ok()
+        } else {
+            None
+        };
+        Ok(ProjectRuntimeContext {
+            project,
+            symbol_index,
+            graph_cache,
+            lsp_pool,
+            memories_dir,
+            analysis_dir,
+            audit_dir,
+            watcher,
+        })
+    }
+
+    fn activate_project_context(&self, context: Option<Arc<ProjectRuntimeContext>>) {
+        *self
+            .project_override
+            .write()
+            .unwrap_or_else(|p| p.into_inner()) = context.clone();
+        let analysis_dir = context
+            .as_ref()
+            .map(|override_ctx| override_ctx.analysis_dir.clone())
+            .unwrap_or_else(|| self.default_analysis_dir.clone());
+        self.artifact_store.set_analysis_dir(analysis_dir.clone());
+        self.job_store.set_jobs_dir(analysis_dir.join("jobs"));
+        self.artifact_store.clear();
+        self.job_store.clear();
+        self.clear_recent_preflights();
+        #[cfg(feature = "semantic")]
+        self.reset_embedding();
+        self.artifact_store.cleanup_stale_dirs(Self::now_ms());
+        let scope = self.current_project_scope();
+        self.job_store
+            .cleanup_stale_files(Self::now_ms(), Some(&scope));
+    }
+
+    #[cfg(feature = "http")]
+    fn http_session_state(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+    ) -> Option<Arc<crate::server::session::SessionState>> {
+        if session.is_local() {
+            return None;
+        }
+        self.session_store
+            .as_ref()
+            .and_then(|store| store.get(&session.session_id))
+    }
+
+    pub(crate) fn execution_surface(
+        &self,
+        _session: &crate::session_context::SessionRequestContext,
+    ) -> ToolSurface {
+        #[cfg(feature = "http")]
+        if let Some(session_state) = self.http_session_state(_session) {
+            return session_state.surface();
+        }
+        *self.surface()
+    }
+
+    pub(crate) fn execution_token_budget(
+        &self,
+        _session: &crate::session_context::SessionRequestContext,
+    ) -> usize {
+        #[cfg(feature = "http")]
+        if let Some(session_state) = self.http_session_state(_session) {
+            return session_state.token_budget();
+        }
+        self.token_budget()
+    }
+
+    #[cfg(feature = "http")]
+    pub(crate) fn set_session_surface_and_budget(
+        &self,
+        session_id: &str,
+        surface: ToolSurface,
+        budget: usize,
+    ) {
+        if let Some(store) = &self.session_store
+            && let Some(session) = store.get(session_id)
+        {
+            session.set_surface(surface);
+            session.set_token_budget(budget);
+        }
+    }
+
+    pub(crate) fn push_recent_tool_for_session(
+        &self,
+        _session: &crate::session_context::SessionRequestContext,
+        name: &str,
+    ) {
+        #[cfg(feature = "http")]
+        if let Some(session_state) = self.http_session_state(_session) {
+            session_state.push_recent_tool(name);
+            return;
+        }
+        self.push_recent_tool(name);
+    }
+
+    pub(crate) fn recent_tools_for_session(
+        &self,
+        _session: &crate::session_context::SessionRequestContext,
+    ) -> Vec<String> {
+        #[cfg(feature = "http")]
+        if let Some(session_state) = self.http_session_state(_session) {
+            return session_state.recent_tools();
+        }
+        self.recent_tools()
+    }
+
+    pub(crate) fn record_file_access_for_session(
+        &self,
+        _session: &crate::session_context::SessionRequestContext,
+        path: &str,
+    ) {
+        #[cfg(feature = "http")]
+        if let Some(session_state) = self.http_session_state(_session) {
+            session_state.record_file_access(path);
+            return;
+        }
+        self.record_file_access(path);
+    }
+
+    pub(crate) fn recent_file_paths_for_session(
+        &self,
+        _session: &crate::session_context::SessionRequestContext,
+    ) -> Vec<String> {
+        #[cfg(feature = "http")]
+        if let Some(session_state) = self.http_session_state(_session) {
+            return session_state.recent_file_paths();
+        }
+        self.recent_file_paths()
+    }
+
+    pub(crate) fn doom_loop_count_for_session(
+        &self,
+        _session: &crate::session_context::SessionRequestContext,
+        name: &str,
+        args_hash: u64,
+    ) -> usize {
+        #[cfg(feature = "http")]
+        if let Some(session_state) = self.http_session_state(_session) {
+            return session_state.doom_loop_count(name, args_hash);
+        }
+        self.doom_loop_count(name, args_hash)
+    }
+
+    #[cfg(feature = "http")]
+    pub(crate) fn bind_project_to_session(&self, session_id: &str, project_path: &str) {
+        if let Some(store) = &self.session_store
+            && let Some(session) = store.get(session_id)
+        {
+            session.set_project_path(project_path);
+        }
+    }
+
+    #[cfg(feature = "http")]
+    pub(crate) fn ensure_session_project<'a>(
+        &'a self,
+        session: &crate::session_context::SessionRequestContext,
+    ) -> Result<Option<std::sync::MutexGuard<'a, ()>>, CodeLensError> {
+        let Some(bound_project) = session.project_path.as_deref() else {
+            return Ok(None);
+        };
+        let guard = self
+            .project_execution_lock
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let current = self.current_project_scope();
+        if current != bound_project {
+            self.switch_project(bound_project).map_err(|error| {
+                CodeLensError::Validation(format!(
+                    "session project `{bound_project}` is not active and automatic rebind failed: {error}"
+                ))
+            })?;
+        }
+        Ok(Some(guard))
+    }
+
+    #[cfg(not(feature = "http"))]
+    pub(crate) fn ensure_session_project<'a>(
+        &'a self,
+        _session: &crate::session_context::SessionRequestContext,
+    ) -> Result<Option<std::sync::MutexGuard<'a, ()>>, CodeLensError> {
+        Ok(None)
+    }
+
     pub(crate) fn preflight_ttl_seconds(&self) -> u64 {
         preflight_ttl_ms() / 1000
     }
 
-    fn preflight_key(&self, logical_session: &str) -> String {
-        RecentPreflightStore::key(&self.current_project_scope(), logical_session)
+    fn preflight_key_for_scope(&self, scope: &str, logical_session: &str) -> String {
+        RecentPreflightStore::key(scope, logical_session)
+    }
+
+    fn preflight_key_for_session(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+        logical_session: &str,
+    ) -> String {
+        self.preflight_key_for_scope(&self.project_scope_for_session(session), logical_session)
     }
 
     pub(crate) fn clear_recent_preflights(&self) {
@@ -196,7 +507,10 @@ impl AppState {
         arguments: &Value,
         payload: &Value,
     ) {
-        let key = self.preflight_key(logical_session);
+        let key = self.preflight_key_for_scope(
+            &self.project_scope_for_arguments(arguments),
+            logical_session,
+        );
         self.preflight_store.record_from_payload(
             key,
             tool_name,
@@ -208,9 +522,13 @@ impl AppState {
         );
     }
 
-    pub(crate) fn recent_preflight(&self, logical_session: &str) -> Option<RecentPreflight> {
+    pub(crate) fn recent_preflight_for_session(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+        logical_session: &str,
+    ) -> Option<RecentPreflight> {
         self.preflight_store
-            .get(&self.preflight_key(logical_session))
+            .get(&self.preflight_key_for_session(session, logical_session))
     }
 
     #[cfg(test)]
@@ -220,7 +538,10 @@ impl AppState {
         timestamp_ms: u64,
     ) {
         self.preflight_store
-            .set_timestamp_for_test(&self.preflight_key(logical_session), timestamp_ms);
+            .set_timestamp_for_test(
+                &self.preflight_key_for_scope(&self.current_project_scope(), logical_session),
+                timestamp_ms,
+            );
     }
 
     // ── Embedding engine accessors ──────────────────────────────────────
@@ -268,26 +589,16 @@ impl AppState {
 
     /// Get the active project root. Clones the ProjectRoot (just a PathBuf).
     pub(crate) fn project(&self) -> ProjectRoot {
-        let guard = self
-            .project_override
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
-        match guard.as_ref() {
-            Some(o) => o.project.clone(),
-            None => self.default_project.clone(),
-        }
+        self.active_project_context()
+            .map(|context| context.project.clone())
+            .unwrap_or_else(|| self.default_project.clone())
     }
 
     /// Get the active symbol index.
     pub(crate) fn symbol_index(&self) -> Arc<SymbolIndex> {
-        let guard = self
-            .project_override
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
-        match guard.as_ref() {
-            Some(o) => Arc::clone(&o.symbol_index),
-            None => Arc::clone(&self.default_symbol_index),
-        }
+        self.active_project_context()
+            .map(|context| Arc::clone(&context.symbol_index))
+            .unwrap_or_else(|| Arc::clone(&self.default_symbol_index))
     }
 
     pub(crate) fn watcher_failure_health(&self) -> WatcherFailureHealth {
@@ -331,31 +642,23 @@ impl AppState {
 
     /// Get the active graph cache.
     pub(crate) fn graph_cache(&self) -> Arc<GraphCache> {
-        let guard = self
-            .project_override
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
-        match guard.as_ref() {
-            Some(o) => Arc::clone(&o.graph_cache),
-            None => Arc::clone(&self.default_graph_cache),
-        }
+        self.active_project_context()
+            .map(|context| Arc::clone(&context.graph_cache))
+            .unwrap_or_else(|| Arc::clone(&self.default_graph_cache))
     }
 
     /// Get the active memories directory.
     pub(crate) fn memories_dir(&self) -> PathBuf {
-        let guard = self
-            .project_override
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
-        match guard.as_ref() {
-            Some(o) => o.memories_dir.clone(),
-            None => self.default_memories_dir.clone(),
-        }
+        self.active_project_context()
+            .map(|context| context.memories_dir.clone())
+            .unwrap_or_else(|| self.default_memories_dir.clone())
     }
 
     /// Get the active analysis cache directory.
     pub(crate) fn analysis_dir(&self) -> PathBuf {
-        self.artifact_store.analysis_dir().to_path_buf()
+        self.active_project_context()
+            .map(|context| context.analysis_dir.clone())
+            .unwrap_or_else(|| self.default_analysis_dir.clone())
     }
 
     #[allow(dead_code)]
@@ -364,100 +667,82 @@ impl AppState {
     }
 
     pub(crate) fn audit_dir(&self) -> PathBuf {
-        let guard = self
-            .project_override
-            .read()
-            .unwrap_or_else(|p| p.into_inner());
-        match guard.as_ref() {
-            Some(o) => o.audit_dir.clone(),
-            None => self.default_audit_dir.clone(),
-        }
+        self.active_project_context()
+            .map(|context| context.audit_dir.clone())
+            .unwrap_or_else(|| self.default_audit_dir.clone())
+    }
+
+    pub(crate) fn watcher_stats(&self) -> Option<codelens_core::WatcherStats> {
+        self.active_project_context()
+            .as_ref()
+            .and_then(|context| context.watcher.as_ref().map(FileWatcher::stats))
+            .or_else(|| self.default_watcher.as_ref().map(FileWatcher::stats))
+    }
+
+    pub(crate) fn watcher_running(&self) -> bool {
+        self.watcher_stats().map(|stats| stats.running).unwrap_or(false)
     }
 
     /// Switch the active project at runtime. Creates a new index and graph cache.
     pub(crate) fn switch_project(&self, path: &str) -> anyhow::Result<String> {
         let project = ProjectRoot::new(path)?;
+        let scope = project.as_path().to_string_lossy().to_string();
         let name = project
             .as_path()
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| path.to_string());
-        let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
-        if symbol_index
-            .stats()
-            .map(|s| s.indexed_files == 0)
-            .unwrap_or(true)
-        {
-            let _ = symbol_index.refresh_all();
+
+        if scope == self.default_project_scope() {
+            self.activate_project_context(None);
+            return Ok(name);
         }
-        let graph_cache = Arc::new(GraphCache::new(30));
-        let memories_dir = project.as_path().join(".codelens").join("memories");
-        let analysis_dir = project.as_path().join(".codelens").join("analysis-cache");
-        let audit_dir = project.as_path().join(".codelens").join("audit");
-        let _ = fs::create_dir_all(&memories_dir);
-        let _ = fs::create_dir_all(&analysis_dir);
-        let _ = fs::create_dir_all(analysis_dir.join("jobs"));
-        let _ = fs::create_dir_all(&audit_dir);
-        let lsp_pool_new = LspSessionPool::new(project.clone());
-        let watcher = FileWatcher::start(
-            project.as_path(),
-            Arc::clone(&symbol_index),
-            Arc::clone(&graph_cache),
-        )
-        .ok();
-        // Reset LSP pool to use the new project root — fixes stale path resolution.
-        *self.lsp_pool.write().unwrap_or_else(|p| p.into_inner()) = lsp_pool_new;
-        *self
-            .project_override
-            .write()
-            .unwrap_or_else(|p| p.into_inner()) = Some(ProjectOverride {
-            project,
-            symbol_index,
-            graph_cache,
-            memories_dir,
-            audit_dir,
-            _watcher: watcher,
-        });
-        self.artifact_store.set_analysis_dir(analysis_dir.clone());
-        self.job_store.set_jobs_dir(analysis_dir.join("jobs"));
-        self.artifact_store.clear();
-        self.job_store.clear();
-        self.clear_recent_preflights();
-        #[cfg(feature = "semantic")]
-        self.reset_embedding();
-        self.artifact_store.cleanup_stale_dirs(Self::now_ms());
-        let scope = self.current_project_scope();
-        self.job_store
-            .cleanup_stale_files(Self::now_ms(), Some(&scope));
+
+        if let Some(current) = self.active_project_context()
+            && current.project.as_path() == project.as_path()
+        {
+            return Ok(name);
+        }
+
+        let context = {
+            let mut cache = self
+                .project_context_cache
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            if let Some(cached) = cache.get(&scope) {
+                cached
+            } else {
+                let built = Arc::new(Self::build_project_runtime_context(project, true)?);
+                cache.insert(scope.clone(), Arc::clone(&built));
+                let active_scope = self.current_project_scope();
+                let protected = [self.default_project_scope(), active_scope, scope.clone()];
+                let protected_refs = protected.iter().map(String::as_str).collect::<Vec<_>>();
+                let _evicted =
+                    cache.evict_until_within_limit(PROJECT_CONTEXT_CACHE_LIMIT, &protected_refs);
+                built
+            }
+        };
+        self.activate_project_context(Some(context));
         Ok(name)
     }
 
     /// Reset to the default project.
     #[allow(dead_code)]
     pub(crate) fn reset_project(&self) {
-        *self
-            .project_override
-            .write()
-            .unwrap_or_else(|p| p.into_inner()) = None;
-        self.artifact_store.clear();
-        self.job_store.clear();
-        self.clear_recent_preflights();
-        #[cfg(feature = "semantic")]
-        self.reset_embedding();
+        self.activate_project_context(None);
     }
 
     /// Check if running on the default project.
     #[allow(dead_code)]
     pub(crate) fn is_default_project(&self) -> bool {
-        self.project_override
-            .read()
-            .unwrap_or_else(|p| p.into_inner())
-            .is_none()
+        self.active_project_context().is_none()
     }
 
     /// Access the LSP session pool. Pool uses internal per-session locking.
-    pub(crate) fn lsp_pool(&self) -> std::sync::RwLockReadGuard<'_, LspSessionPool> {
-        self.lsp_pool.read().unwrap_or_else(|p| p.into_inner())
+    pub(crate) fn lsp_pool(&self) -> Arc<LspSessionPool> {
+        self.active_project_context()
+            .map(|context| Arc::clone(&context.lsp_pool))
+            .unwrap_or_else(|| Arc::clone(&self.default_lsp_pool))
     }
 
     /// Acquire active tool surface with poison recovery.
@@ -658,6 +943,7 @@ impl AppState {
 
     pub(crate) fn store_analysis_job(
         &self,
+        scope: &str,
         kind: &str,
         profile_hint: Option<String>,
         estimated_sections: Vec<String>,
@@ -676,27 +962,62 @@ impl AppState {
             current_step,
             analysis_id,
             error,
-            self.current_project_scope(),
+            scope.to_owned(),
         )
     }
 
-    pub(crate) fn list_analysis_jobs(&self, status_filter: Option<&str>) -> Vec<AnalysisJob> {
-        let scope = self.current_project_scope();
+    #[cfg(test)]
+    pub(crate) fn store_analysis_job_for_current_scope(
+        &self,
+        kind: &str,
+        profile_hint: Option<String>,
+        estimated_sections: Vec<String>,
+        status: JobLifecycle,
+        progress: u8,
+        current_step: Option<String>,
+        analysis_id: Option<String>,
+        error: Option<String>,
+    ) -> Result<AnalysisJob, CodeLensError> {
+        self.store_analysis_job(
+            &self.current_project_scope(),
+            kind,
+            profile_hint,
+            estimated_sections,
+            status,
+            progress,
+            current_step,
+            analysis_id,
+            error,
+        )
+    }
+
+    pub(crate) fn list_analysis_jobs_for_scope(
+        &self,
+        scope: &str,
+        status_filter: Option<&str>,
+    ) -> Vec<AnalysisJob> {
         self.job_store.list(status_filter, Some(&scope))
     }
 
-    pub(crate) fn get_analysis_job(&self, job_id: &str) -> Option<AnalysisJob> {
-        let scope = self.current_project_scope();
+    pub(crate) fn get_analysis_job_for_scope(&self, scope: &str, job_id: &str) -> Option<AnalysisJob> {
         let job = self.job_store.get(job_id, Some(&scope))?;
         // Cross-concern: warm artifact cache when job references an analysis
         if let Some(analysis_id) = job.analysis_id.as_deref() {
-            let _ = self.get_analysis(analysis_id);
+            let _ = self.get_analysis_for_scope(scope, analysis_id);
         }
         Some(job)
     }
 
-    pub(crate) fn cancel_analysis_job(&self, job_id: &str) -> Result<AnalysisJob, CodeLensError> {
-        let scope = self.current_project_scope();
+    #[cfg(test)]
+    pub(crate) fn get_analysis_job(&self, job_id: &str) -> Option<AnalysisJob> {
+        self.get_analysis_job_for_scope(&self.current_project_scope(), job_id)
+    }
+
+    pub(crate) fn cancel_analysis_job_for_scope(
+        &self,
+        scope: &str,
+        job_id: &str,
+    ) -> Result<AnalysisJob, CodeLensError> {
         let job = self.job_store.cancel(job_id, Some(&scope))?;
         if job.status == JobLifecycle::Cancelled {
             self.metrics.record_analysis_job_cancelled(0, 0);
@@ -706,6 +1027,7 @@ impl AppState {
 
     pub(crate) fn update_analysis_job(
         &self,
+        scope: &str,
         job_id: &str,
         status: Option<JobLifecycle>,
         progress: Option<u8>,
@@ -714,7 +1036,6 @@ impl AppState {
         analysis_id: Option<Option<String>>,
         error: Option<Option<String>>,
     ) -> Result<AnalysisJob, CodeLensError> {
-        let scope = self.current_project_scope();
         self.job_store.update(
             job_id,
             status,
@@ -750,6 +1071,7 @@ impl AppState {
 
     pub(crate) fn store_analysis(
         &self,
+        scope: &str,
         tool_name: &str,
         cache_key: Option<String>,
         summary: String,
@@ -765,7 +1087,7 @@ impl AppState {
         let artifact = self.artifact_store.store(
             tool_name,
             self.surface().as_label(),
-            self.current_project_scope(),
+            scope.to_owned(),
             cache_key,
             summary,
             top_findings,
@@ -783,28 +1105,76 @@ impl AppState {
         Ok(artifact)
     }
 
+    pub(crate) fn store_analysis_for_current_scope(
+        &self,
+        tool_name: &str,
+        cache_key: Option<String>,
+        summary: String,
+        top_findings: Vec<String>,
+        risk_level: String,
+        confidence: f64,
+        next_actions: Vec<String>,
+        blockers: Vec<String>,
+        readiness: AnalysisReadiness,
+        verifier_checks: Vec<AnalysisVerifierCheck>,
+        sections: std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> Result<AnalysisArtifact, CodeLensError> {
+        self.store_analysis(
+            &self.current_project_scope(),
+            tool_name,
+            cache_key,
+            summary,
+            top_findings,
+            risk_level,
+            confidence,
+            next_actions,
+            blockers,
+            readiness,
+            verifier_checks,
+            sections,
+        )
+    }
+
     pub(crate) fn find_reusable_analysis(
         &self,
+        scope: &str,
         tool_name: &str,
         cache_key: &str,
     ) -> Option<AnalysisArtifact> {
-        let scope = self.current_project_scope();
         self.artifact_store.find_reusable(
             tool_name,
             cache_key,
             self.surface().as_label(),
-            Some(&scope),
+            Some(scope),
         )
     }
 
-    pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
-        let scope = self.current_project_scope();
+    pub(crate) fn find_reusable_analysis_for_current_scope(
+        &self,
+        tool_name: &str,
+        cache_key: &str,
+    ) -> Option<AnalysisArtifact> {
+        self.find_reusable_analysis(&self.current_project_scope(), tool_name, cache_key)
+    }
+
+    pub(crate) fn get_analysis_for_scope(
+        &self,
+        scope: &str,
+        analysis_id: &str,
+    ) -> Option<AnalysisArtifact> {
         self.artifact_store.get(analysis_id, Some(&scope))
     }
 
-    pub(crate) fn list_analysis_summaries(&self) -> Vec<AnalysisSummary> {
-        let scope = self.current_project_scope();
+    pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
+        self.get_analysis_for_scope(&self.current_project_scope(), analysis_id)
+    }
+
+    pub(crate) fn list_analysis_summaries_for_scope(&self, scope: &str) -> Vec<AnalysisSummary> {
         self.artifact_store.list_summaries(Some(&scope))
+    }
+
+    pub(crate) fn list_analysis_summaries(&self) -> Vec<AnalysisSummary> {
+        self.list_analysis_summaries_for_scope(&self.current_project_scope())
     }
 
     pub(crate) fn get_analysis_section(
@@ -834,14 +1204,18 @@ impl AppState {
         let memories_dir = self.memories_dir();
         let analysis_dir = self.analysis_dir();
         let audit_dir = self.audit_dir();
+        let lsp_pool = self.lsp_pool();
         Self {
             default_project: project.clone(),
             default_symbol_index: symbol_index,
             default_graph_cache: graph_cache,
+            default_lsp_pool: lsp_pool,
             default_memories_dir: memories_dir,
+            default_analysis_dir: analysis_dir.clone(),
             default_audit_dir: audit_dir,
+            default_watcher: None,
             project_override: std::sync::RwLock::new(None),
-            lsp_pool: std::sync::RwLock::new(LspSessionPool::new(project)),
+            project_context_cache: Mutex::new(ProjectContextCache::default()),
             transport_mode: Mutex::new(self.transport_mode()),
             daemon_mode: Mutex::new(self.daemon_mode()),
             client_profile: self.client_profile,
@@ -856,8 +1230,8 @@ impl AppState {
             recent_files: Mutex::new(VecDeque::with_capacity(20)),
             preflight_store: RecentPreflightStore::new(),
             analysis_queue: OnceLock::new(),
-            watcher: None,
             watcher_maintenance: Mutex::new(HashMap::new()),
+            project_execution_lock: Mutex::new(()),
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
@@ -867,42 +1241,12 @@ impl AppState {
     }
 
     pub(crate) fn new(project: ProjectRoot, preset: ToolPreset) -> Self {
-        let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
-        // Auto-index on startup if DB is empty — ensures zero-config first use.
-        if symbol_index
-            .stats()
-            .map(|s| s.indexed_files == 0)
-            .unwrap_or(true)
-        {
-            let _ = symbol_index.refresh_all();
-        }
-        let lsp_pool = std::sync::RwLock::new(LspSessionPool::new(project.clone()));
-        let graph_cache = Arc::new(GraphCache::new(30));
-        let memories_dir = project.as_path().join(".codelens").join("memories");
-        let analysis_dir = project.as_path().join(".codelens").join("analysis-cache");
-        let audit_dir = project.as_path().join(".codelens").join("audit");
-        let _ = fs::create_dir_all(&memories_dir);
-        let _ = fs::create_dir_all(&analysis_dir);
-        let _ = fs::create_dir_all(analysis_dir.join("jobs"));
-        let _ = fs::create_dir_all(&audit_dir);
-
-        let watcher = FileWatcher::start(
-            project.as_path(),
-            Arc::clone(&symbol_index),
-            Arc::clone(&graph_cache),
-        )
-        .ok();
+        let context = Self::build_project_runtime_context(project, true)
+            .expect("startup project context should initialize");
 
         let state = Self::build(
-            project,
-            symbol_index,
-            lsp_pool,
-            graph_cache,
-            memories_dir,
-            analysis_dir,
-            audit_dir,
+            context,
             preset,
-            watcher,
         );
         state.configure_transport_mode("stdio");
         state.artifact_store.cleanup_stale_dirs(Self::now_ms());
@@ -917,58 +1261,40 @@ impl AppState {
     /// Reduces thread/I/O pressure when many instances run in parallel (e.g. tests).
     #[cfg(test)]
     pub(crate) fn new_minimal(project: ProjectRoot, preset: ToolPreset) -> Self {
-        let symbol_index = Arc::new(SymbolIndex::new(project.clone()));
-        if symbol_index
-            .stats()
-            .map(|s| s.indexed_files == 0)
-            .unwrap_or(true)
-        {
-            let _ = symbol_index.refresh_all();
-        }
-        let lsp_pool = std::sync::RwLock::new(LspSessionPool::new(project.clone()));
-        let graph_cache = Arc::new(GraphCache::new(30));
-        let memories_dir = project.as_path().join(".codelens").join("memories");
-        let analysis_dir = project.as_path().join(".codelens").join("analysis-cache");
-        let audit_dir = project.as_path().join(".codelens").join("audit");
-        let _ = fs::create_dir_all(&memories_dir);
-        let _ = fs::create_dir_all(&analysis_dir);
-        let _ = fs::create_dir_all(analysis_dir.join("jobs"));
-        let _ = fs::create_dir_all(&audit_dir);
+        let context = Self::build_project_runtime_context(project, false)
+            .expect("test project context should initialize");
 
         let state = Self::build(
-            project,
-            symbol_index,
-            lsp_pool,
-            graph_cache,
-            memories_dir,
-            analysis_dir,
-            audit_dir,
+            context,
             preset,
-            None,
         );
         state.configure_transport_mode("stdio");
         state
     }
 
     fn build(
-        project: ProjectRoot,
-        symbol_index: Arc<SymbolIndex>,
-        lsp_pool: std::sync::RwLock<LspSessionPool>,
-        graph_cache: Arc<GraphCache>,
-        memories_dir: PathBuf,
-        analysis_dir: PathBuf,
-        audit_dir: PathBuf,
+        context: ProjectRuntimeContext,
         preset: ToolPreset,
-        watcher: Option<FileWatcher>,
     ) -> Self {
+        let default_project = context.project.clone();
+        let default_symbol_index = Arc::clone(&context.symbol_index);
+        let default_graph_cache = Arc::clone(&context.graph_cache);
+        let default_lsp_pool = Arc::clone(&context.lsp_pool);
+        let default_memories_dir = context.memories_dir.clone();
+        let default_analysis_dir = context.analysis_dir.clone();
+        let default_audit_dir = context.audit_dir.clone();
+        let default_watcher = context.watcher;
         Self {
-            default_project: project,
-            default_symbol_index: symbol_index,
-            lsp_pool,
-            default_graph_cache: graph_cache,
-            default_memories_dir: memories_dir,
-            default_audit_dir: audit_dir,
+            default_project,
+            default_symbol_index,
+            default_graph_cache,
+            default_lsp_pool,
+            default_memories_dir,
+            default_analysis_dir: default_analysis_dir.clone(),
+            default_audit_dir,
+            default_watcher,
             project_override: std::sync::RwLock::new(None),
+            project_context_cache: Mutex::new(ProjectContextCache::default()),
             transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
             daemon_mode: Mutex::new(RuntimeDaemonMode::Standard),
             client_profile: ClientProfile::detect(None),
@@ -976,8 +1302,8 @@ impl AppState {
             token_budget: std::sync::atomic::AtomicUsize::new(
                 crate::tool_defs::default_budget_for_preset(preset),
             ),
-            artifact_store: AnalysisArtifactStore::new(analysis_dir.clone()),
-            job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
+            artifact_store: AnalysisArtifactStore::new(default_analysis_dir.clone()),
+            job_store: crate::job_store::AnalysisJobStore::new(default_analysis_dir.join("jobs")),
             metrics: Arc::new(ToolMetricsRegistry::new()),
             recent_tools: Mutex::new(VecDeque::with_capacity(5)),
             recent_analysis_ids: Mutex::new(VecDeque::with_capacity(5)),
@@ -985,8 +1311,8 @@ impl AppState {
             recent_files: Mutex::new(VecDeque::with_capacity(20)),
             preflight_store: RecentPreflightStore::new(),
             analysis_queue: OnceLock::new(),
-            watcher,
             watcher_maintenance: Mutex::new(HashMap::new()),
+            project_execution_lock: Mutex::new(()),
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
@@ -1111,5 +1437,51 @@ impl AppState {
         self.artifact_store
             .set_created_at_for_test(analysis_id, created_at_ms)
             .map_err(|e| CodeLensError::Internal(e.into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_project_root(label: &str) -> ProjectRoot {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-state-{label}-{}-{:?}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos(),
+            std::thread::current().id(),
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("lib.rs"), "fn sample() {}\n").unwrap();
+        ProjectRoot::new(&dir).unwrap()
+    }
+
+    #[test]
+    fn switch_project_reuses_cached_symbol_index_and_lsp_pool() {
+        let default_project = temp_project_root("default");
+        let project_a = temp_project_root("a");
+        let project_b = temp_project_root("b");
+        let state = AppState::new_minimal(default_project, ToolPreset::Balanced);
+
+        state
+            .switch_project(project_a.as_path().to_str().unwrap())
+            .unwrap();
+        let first_index = state.symbol_index();
+        let first_lsp_pool = state.lsp_pool();
+
+        state
+            .switch_project(project_b.as_path().to_str().unwrap())
+            .unwrap();
+        state
+            .switch_project(project_a.as_path().to_str().unwrap())
+            .unwrap();
+
+        let reused_index = state.symbol_index();
+        let reused_lsp_pool = state.lsp_pool();
+
+        assert!(Arc::ptr_eq(&first_index, &reused_index));
+        assert!(Arc::ptr_eq(&first_lsp_pool, &reused_lsp_pool));
     }
 }

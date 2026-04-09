@@ -46,10 +46,15 @@ fn text_resource(uri: &str, text: String) -> Value {
 }
 
 pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>) -> Value {
+    let request = ResourceRequestContext::from_request(uri, params);
+    let _session_project_guard = state
+        .ensure_session_project(&request.session)
+        .ok()
+        .flatten();
     match uri {
         "codelens://project/overview" => {
             let stats = state.symbol_index().stats().ok();
-            let surface = *state.surface();
+            let surface = state.execution_surface(&request.session);
             let visible = visible_tools(surface);
             json_resource(
                 uri,
@@ -67,10 +72,11 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             let stats = state.symbol_index().stats().ok();
             let frameworks = detect_frameworks(state.project().as_path());
             let workspace_packages = detect_workspace_packages(state.project().as_path());
+            let surface = state.execution_surface(&request.session);
             json_resource(
                 uri,
                 json!({
-                    "active_surface": state.surface().as_label(),
+                    "active_surface": surface.as_label(),
                     "daemon_mode": state.daemon_mode().as_str(),
                     "frameworks": frameworks,
                     "workspace_packages": workspace_packages,
@@ -84,7 +90,6 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             )
         }
         "codelens://tools/list" => {
-            let request = ResourceRequestContext::from_request(uri, params);
             if request.deferred_loading_requested
                 && (request.requested_namespace.is_some() || request.requested_tier.is_some())
             {
@@ -102,7 +107,6 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             json_resource(uri, Value::Object(stats))
         }
         "codelens://session/http" => {
-            let request = ResourceRequestContext::from_request(uri, params);
             json_resource(uri, build_http_session_payload(state, &request))
         }
         _ if uri.starts_with("codelens://profile/") && uri.ends_with("/guide") => {
