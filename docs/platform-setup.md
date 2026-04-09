@@ -81,11 +81,11 @@ For `refactor-full`, use a preflight-first path:
 
 Recent matching preflight is required before `refactor-full` content mutations execute.
 
-**Legacy presets:**
+**Legacy presets (current default semantic build):**
 
-- `minimal` — 20 tools, fastest, read-only exploration + safe edits
-- `balanced` — 39 tools, default, excludes niche analysis + Claude built-in overlaps
-- `full` — 63 tools, everything including advanced analysis
+- `minimal` — 22 tools, fastest, read-only exploration + safe edits
+- `balanced` — 60 tools, default, excludes niche analysis + Claude built-in overlaps
+- `full` — 88 tools, full registry
 
 ---
 
@@ -271,7 +271,10 @@ agent = client.agents.create(
 | Variable             | Default    | Description                                     |
 | -------------------- | ---------- | ----------------------------------------------- |
 | `CODELENS_LOG`       | `warn`     | Log level (trace/debug/info/warn/error)         |
+| `CODELENS_PRESET`    | `balanced` | Legacy preset default (overridden by --preset)  |
 | `CODELENS_PROFILE`   | unset      | Preferred role profile (`planner-readonly`, `builder-minimal`, `reviewer-graph`, `refactor-full`, `ci-audit`) |
+| `CLAUDE_PROJECT_DIR` | unset      | Auto-detected project root (set by Claude Code) |
+| `MCP_PROJECT_DIR`    | unset      | Generic project root override                   |
 
 ## vNext Workflow Defaults
 
@@ -281,17 +284,13 @@ agent = client.agents.create(
 - Heavier reports can use `start_analysis_job` and poll via `get_analysis_job`.
 - Expand detail only through `get_analysis_section` or `codelens://analysis/{id}/...` resources.
 - Mutation-enabled profiles write audit logs to `.codelens/audit/mutation-audit.jsonl`.
-| `CODELENS_PRESET`    | `balanced` | Legacy preset default (overridden by --preset)  |
-| `CODELENS_PROFILE`   | —          | Preferred role surface (overridden by --profile) |
-| `CLAUDE_PROJECT_DIR` | —          | Auto-detected project root (set by Claude Code) |
-| `MCP_PROJECT_DIR`    | —          | Generic project root override                   |
 
 ---
 
 ## Preset Comparison
 
 ```
-Feature                    MINIMAL(20)  BALANCED(39)  FULL(63)
+Feature                    MINIMAL(22)  BALANCED(60)  FULL(88)
 ─────────────────────────  ──────────   ──────────    ────────
 Symbol lookup (find/get)   ✓            ✓             ✓
 Code editing (rename/etc)  ✓            ✓             ✓
@@ -305,7 +304,7 @@ Multi-project queries      ✗            ✓             ✓
 Unified insert/replace     ✓            ✓             ✓
 ─────────────────────────
 ¹ Claude Code has built-in Read/Glob/Grep
-² Requires `semantic` feature (default enabled)
+² Counts and semantic rows assume the default semantic-enabled build
 ```
 
 ---

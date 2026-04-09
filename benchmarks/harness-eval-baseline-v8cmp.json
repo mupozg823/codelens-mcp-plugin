@@ -1,0 +1,1007 @@
+{
+  "schema_version": "codelens-harness-eval-v1",
+  "generated_at": "2026-04-07T01:19:39",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "baseline_reference": {
+    "workflow_total_savings_pct": 63.8,
+    "low_level_chain_before": 8,
+    "low_level_chain_after": 0,
+    "codex_like_avg_bootstrap_tokens": 8351,
+    "codex_like_avg_overhead_vs_direct_pct": 1944.4,
+    "point_lookup_regression": "Context retrieval remains worse than native point lookup"
+  },
+  "representative_repos": [
+    {
+      "id": "codelens-mcp-plugin",
+      "label": "Rust MCP repo",
+      "path": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "stack": "rust",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    }
+  ],
+  "entries": [
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "onboarding/planning",
+      "mode": "baseline",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 2258,
+      "bootstrap_tokens": 0,
+      "tool_calls": 2,
+      "low_level_chain_count": 2,
+      "elapsed_ms": 174,
+      "notes": "proxy baseline from balanced low-level workflow: Planner change request",
+      "recommended_policy": "prefer_naive_codelens",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "onboarding/planning",
+      "mode": "naive-on",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 482,
+      "bootstrap_tokens": 0,
+      "tool_calls": 1,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 601,
+      "notes": "direct composite workflow without session bootstrap: Planner change request",
+      "recommended_policy": "prefer_naive_codelens",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "onboarding/planning",
+      "mode": "routed-on",
+      "agent": "synthetic-proxy",
+      "success": null,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": null,
+      "notes": "no routed session benchmark available for Planner change request",
+      "recommended_policy": "prefer_naive_codelens",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "impact/reviewer",
+      "mode": "baseline",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 2609,
+      "bootstrap_tokens": 0,
+      "tool_calls": 3,
+      "low_level_chain_count": 3,
+      "elapsed_ms": 288,
+      "notes": "proxy baseline from balanced low-level workflow: Reviewer impact analysis",
+      "recommended_policy": "prefer_naive_codelens",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "impact/reviewer",
+      "mode": "naive-on",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 400,
+      "bootstrap_tokens": 0,
+      "tool_calls": 1,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 414,
+      "notes": "direct composite workflow without session bootstrap: Reviewer impact analysis",
+      "recommended_policy": "prefer_naive_codelens",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "impact/reviewer",
+      "mode": "routed-on",
+      "agent": "synthetic-proxy",
+      "success": null,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": null,
+      "notes": "no routed session benchmark available for Reviewer impact analysis",
+      "recommended_policy": "prefer_naive_codelens",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "refactor preflight",
+      "mode": "baseline",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 938,
+      "bootstrap_tokens": 0,
+      "tool_calls": 3,
+      "low_level_chain_count": 3,
+      "elapsed_ms": 486,
+      "notes": "proxy baseline from balanced low-level workflow: Refactor safety",
+      "recommended_policy": "prefer_naive_codelens",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "refactor preflight",
+      "mode": "naive-on",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 477,
+      "bootstrap_tokens": 0,
+      "tool_calls": 1,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 6252,
+      "notes": "direct composite workflow without session bootstrap: Refactor safety",
+      "recommended_policy": "prefer_naive_codelens",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "refactor preflight",
+      "mode": "routed-on",
+      "agent": "synthetic-proxy",
+      "success": null,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 0,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": null,
+      "notes": "no routed session benchmark available for Refactor safety",
+      "recommended_policy": "prefer_naive_codelens",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "simple local lookup/edit",
+      "mode": "baseline",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 13587,
+      "bootstrap_tokens": 0,
+      "tool_calls": 3,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 17,
+      "notes": "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval",
+      "recommended_policy": "native_or_naive_both_ok_but_default_native",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "simple local lookup/edit",
+      "mode": "naive-on",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 8718,
+      "bootstrap_tokens": 0,
+      "tool_calls": 3,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 189,
+      "notes": "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval",
+      "recommended_policy": "native_or_naive_both_ok_but_default_native",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    },
+    {
+      "schema_version": "codelens-harness-eval-entry-v1",
+      "source_kind": "synthetic",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_id": "codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "simple local lookup/edit",
+      "mode": "routed-on",
+      "agent": "synthetic-proxy",
+      "success": true,
+      "acceptance_passed": null,
+      "verify_passed": null,
+      "quality_score": null,
+      "token_in": 0,
+      "token_out": 13587,
+      "bootstrap_tokens": 0,
+      "tool_calls": 0,
+      "low_level_chain_count": 0,
+      "elapsed_ms": 17,
+      "notes": "routing policy intentionally stays native for local lookup/edit",
+      "recommended_policy": "native_or_naive_both_ok_but_default_native",
+      "verify_commands": [
+        "cargo fmt --check",
+        "cargo check",
+        "cargo test"
+      ]
+    }
+  ],
+  "policy_entry_count": 12,
+  "policy_real_session_count": 0,
+  "excluded_policy_real_session_count": 0,
+  "duplicate_real_sessions": [],
+  "task_summaries": [
+    {
+      "repo_id": "codelens-mcp-plugin",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "impact/reviewer",
+      "recommended_policy": "prefer_naive_codelens",
+      "mode_stats": {
+        "baseline": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 2609.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "proxy baseline from balanced low-level workflow: Reviewer impact analysis"
+          ]
+        },
+        "naive-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 400.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "direct composite workflow without session bootstrap: Reviewer impact analysis"
+          ]
+        },
+        "routed-on": {
+          "count": 1,
+          "measured_count": 0,
+          "avg_total_tokens": 0.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": null,
+          "sample_notes": [
+            "no routed session benchmark available for Reviewer impact analysis"
+          ]
+        }
+      },
+      "has_real_quality": false,
+      "unsupported_modes": [
+        "routed-on"
+      ],
+      "failing_modes": [],
+      "confidence": "low"
+    },
+    {
+      "repo_id": "codelens-mcp-plugin",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "onboarding/planning",
+      "recommended_policy": "prefer_naive_codelens",
+      "mode_stats": {
+        "baseline": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 2258.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "proxy baseline from balanced low-level workflow: Planner change request"
+          ]
+        },
+        "naive-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 482.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "direct composite workflow without session bootstrap: Planner change request"
+          ]
+        },
+        "routed-on": {
+          "count": 1,
+          "measured_count": 0,
+          "avg_total_tokens": 0.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": null,
+          "sample_notes": [
+            "no routed session benchmark available for Planner change request"
+          ]
+        }
+      },
+      "has_real_quality": false,
+      "unsupported_modes": [
+        "routed-on"
+      ],
+      "failing_modes": [],
+      "confidence": "low"
+    },
+    {
+      "repo_id": "codelens-mcp-plugin",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "refactor preflight",
+      "recommended_policy": "prefer_naive_codelens",
+      "mode_stats": {
+        "baseline": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 938.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "proxy baseline from balanced low-level workflow: Refactor safety"
+          ]
+        },
+        "naive-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 477.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "direct composite workflow without session bootstrap: Refactor safety"
+          ]
+        },
+        "routed-on": {
+          "count": 1,
+          "measured_count": 0,
+          "avg_total_tokens": 0.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": null,
+          "sample_notes": [
+            "no routed session benchmark available for Refactor safety"
+          ]
+        }
+      },
+      "has_real_quality": false,
+      "unsupported_modes": [
+        "routed-on"
+      ],
+      "failing_modes": [],
+      "confidence": "low"
+    },
+    {
+      "repo_id": "codelens-mcp-plugin",
+      "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+      "repo_label": "Rust MCP repo",
+      "task_kind": "simple local lookup/edit",
+      "recommended_policy": "native_or_naive_both_ok_but_default_native",
+      "mode_stats": {
+        "baseline": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 13587.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval"
+          ]
+        },
+        "naive-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 8718.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval"
+          ]
+        },
+        "routed-on": {
+          "count": 1,
+          "measured_count": 1,
+          "avg_total_tokens": 13587.0,
+          "avg_bootstrap_tokens": 0.0,
+          "avg_quality_score": null,
+          "verify_pass_rate": null,
+          "acceptance_pass_rate": null,
+          "success_rate": 1.0,
+          "sample_notes": [
+            "routing policy intentionally stays native for local lookup/edit"
+          ]
+        }
+      },
+      "has_real_quality": false,
+      "unsupported_modes": [],
+      "failing_modes": [],
+      "confidence": "medium"
+    }
+  ],
+  "agent_task_summaries": {
+    "codex": [
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "impact/reviewer",
+        "recommended_policy": "prefer_naive_codelens",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 2609.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Reviewer impact analysis"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 400.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Reviewer impact analysis"
+            ]
+          },
+          "routed-on": {
+            "count": 1,
+            "measured_count": 0,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": null,
+            "sample_notes": [
+              "no routed session benchmark available for Reviewer impact analysis"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "routed-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "onboarding/planning",
+        "recommended_policy": "prefer_naive_codelens",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 2258.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Planner change request"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 482.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Planner change request"
+            ]
+          },
+          "routed-on": {
+            "count": 1,
+            "measured_count": 0,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": null,
+            "sample_notes": [
+              "no routed session benchmark available for Planner change request"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "routed-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "refactor preflight",
+        "recommended_policy": "prefer_naive_codelens",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 938.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Refactor safety"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 477.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Refactor safety"
+            ]
+          },
+          "routed-on": {
+            "count": 1,
+            "measured_count": 0,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": null,
+            "sample_notes": [
+              "no routed session benchmark available for Refactor safety"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "routed-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "simple local lookup/edit",
+        "recommended_policy": "native_or_naive_both_ok_but_default_native",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 13587.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 8718.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval"
+            ]
+          },
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 13587.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "routing policy intentionally stays native for local lookup/edit"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [],
+        "failing_modes": [],
+        "confidence": "medium"
+      }
+    ],
+    "claude": [
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "impact/reviewer",
+        "recommended_policy": "prefer_naive_codelens",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 2609.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Reviewer impact analysis"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 400.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Reviewer impact analysis"
+            ]
+          },
+          "routed-on": {
+            "count": 1,
+            "measured_count": 0,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": null,
+            "sample_notes": [
+              "no routed session benchmark available for Reviewer impact analysis"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "routed-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "onboarding/planning",
+        "recommended_policy": "prefer_naive_codelens",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 2258.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Planner change request"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 482.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Planner change request"
+            ]
+          },
+          "routed-on": {
+            "count": 1,
+            "measured_count": 0,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": null,
+            "sample_notes": [
+              "no routed session benchmark available for Planner change request"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "routed-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "refactor preflight",
+        "recommended_policy": "prefer_naive_codelens",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 938.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "proxy baseline from balanced low-level workflow: Refactor safety"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 477.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "direct composite workflow without session bootstrap: Refactor safety"
+            ]
+          },
+          "routed-on": {
+            "count": 1,
+            "measured_count": 0,
+            "avg_total_tokens": 0.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": null,
+            "sample_notes": [
+              "no routed session benchmark available for Refactor safety"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [
+          "routed-on"
+        ],
+        "failing_modes": [],
+        "confidence": "low"
+      },
+      {
+        "repo_id": "codelens-mcp-plugin",
+        "repo": "/Users/bagjaeseog/codelens-mcp-plugin",
+        "repo_label": "Rust MCP repo",
+        "task_kind": "simple local lookup/edit",
+        "recommended_policy": "native_or_naive_both_ok_but_default_native",
+        "mode_stats": {
+          "baseline": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 13587.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval"
+            ]
+          },
+          "naive-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 8718.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "synthetic aggregate over Find symbol 'dispatch_tool', Understand file structure, Context retrieval"
+            ]
+          },
+          "routed-on": {
+            "count": 1,
+            "measured_count": 1,
+            "avg_total_tokens": 13587.0,
+            "avg_bootstrap_tokens": 0.0,
+            "avg_quality_score": null,
+            "verify_pass_rate": null,
+            "acceptance_pass_rate": null,
+            "success_rate": 1.0,
+            "sample_notes": [
+              "routing policy intentionally stays native for local lookup/edit"
+            ]
+          }
+        },
+        "has_real_quality": false,
+        "unsupported_modes": [],
+        "failing_modes": [],
+        "confidence": "medium"
+      }
+    ]
+  },
+  "synthetic_failures": []
+}

@@ -298,7 +298,7 @@ Query-type note:
 | 지표                     | 산식                 | 기준 | 개선 액션                      |
 | ------------------------ | -------------------- | ---- | ------------------------------ |
 | **dispatch 엔트리 수**   | dispatch_table 항목  | <80  | 초과 시 → 도구 합병            |
-| **tool_defs.rs LOC**     | 파일 줄 수           | <400 | 초과 시 → 매크로화 또는 분리   |
+| **tool_defs/build.rs LOC** | 파일 줄 수         | <400 | 초과 시 → 카테고리 분리 검토   |
 | **state.rs 필드 수**     | AppState 구조체 필드 | <15  | 초과 시 → 서브 구조체 추출     |
 | **테스트 커버리지**      | 도구당 테스트        | >0.5 | 낮으면 → 누락 도구 테스트 추가 |
 | **defs↔dispatch 일관성** | 자동 테스트          | PASS | FAIL → 빌드 차단               |
@@ -307,7 +307,7 @@ Query-type note:
 
 ```
 dispatch 엔트리: ~65 (매크로 레지스트리)
-tool_defs.rs:    ~350 LOC
+tool_defs/build.rs: 167 LOC
 state.rs 필드:   13 (AppState) + 2 (SecondaryProject)
 테스트:          190 (core 149 + mcp 41)
 일관성 테스트:   PASS (tool_defs_and_dispatch_are_consistent)
@@ -315,7 +315,7 @@ state.rs 필드:   13 (AppState) + 2 (SecondaryProject)
 
 ### 다음 액션
 
-- [ ] tool_defs.rs 400LOC 도달 시 카테고리별 파일 분리
+- [ ] tool_defs/build.rs 400LOC 도달 시 레지스트리 카테고리 분리 검토
 - [ ] AppState 15필드 도달 시 서브 구조체 추출
 
 ---

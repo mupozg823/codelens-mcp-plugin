@@ -240,7 +240,7 @@ cargo build --release --features http         # add HTTP transport
 cargo test -p codelens-core && cargo test -p codelens-mcp
 ```
 
-For the repo-local development flow, see `DEVELOPMENT_PIPELINE.md`.
+For repo-local verification and harness-facing setup, see `EVAL_CONTRACT.md` and `docs/platform-setup.md`.
 
 ## Agentic Architecture
 
