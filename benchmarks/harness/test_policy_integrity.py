@@ -351,6 +351,64 @@ def test_build_codex_recommendation_outcome_tracks_entrypoint_and_contract_align
     )
 
 
+def test_parse_codex_json_events_ignores_non_json_noise():
+    rows = runner_common.parse_codex_json_events(
+        "\n".join(
+            [
+                "plugin warning: skipped",
+                '{"type":"thread.started","thread_id":"abc"}',
+                "not-json",
+                '{"type":"item.completed","item":{"type":"agent_message","text":"OK"}}',
+            ]
+        )
+    )
+    assert [row["type"] for row in rows] == ["thread.started", "item.completed"]
+
+
+def test_build_codex_recommendation_outcome_prefers_event_trace_for_attempted_entrypoint():
+    mcp_preflight = {
+        "available": True,
+        "recommended_entrypoint": "impact_report",
+        "recommended_followup_tools": ["get_analysis_section"],
+        "recommended_contract_action": "stay_lean_until_shape_needed",
+    }
+    codex_event_rows = runner_common.parse_codex_json_events(
+        "\n".join(
+            [
+                '{"type":"item.started","item":{"type":"mcp_tool_call","server":"codelens","tool":"impact_report","arguments":{}}}',
+                '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"codelens","tool":"impact_report","status":"failed","error":{"message":"user cancelled MCP tool call"}}}',
+            ]
+        )
+    )
+    delta_payload = {
+        "tools": [
+            {"tool": "get_capabilities", "calls": 1, "total_ms": 10, "total_tokens": 20},
+        ],
+        "session": {
+            "deferred_namespace_expansion_count": 0,
+            "deferred_hidden_tool_call_denied_count": 0,
+        },
+    }
+    outcome = runner_common.build_codex_recommendation_outcome(
+        mcp_preflight,
+        delta_payload,
+        codex_event_rows=codex_event_rows,
+    )
+    assert outcome is not None
+    assert outcome["evidence_source"] == "codex_event_trace"
+    assert outcome["alignment"] == "attempted-entrypoint"
+    assert outcome["recommended_entrypoint_called"] is True
+    assert outcome["recommended_entrypoint_call_count"] == 1
+    assert outcome["recommended_entrypoint_success_count"] == 0
+    assert outcome["recommended_entrypoint_failure_count"] == 1
+    assert outcome["recommended_entrypoint_cancelled_count"] == 0
+    assert outcome["top_called_tools"][0]["tool"] == "impact_report"
+    assert (
+        runner_common.summarize_codex_recommendation_outcome(outcome)
+        == "recommended entrypoint impact_report was attempted but did not complete successfully"
+    )
+
+
 def test_build_minimal_codex_home_config_dedupes_paths_and_keeps_codelens_only():
     config = CODEX_RUNNER.build_minimal_codex_home_config(
         repo_paths=[
@@ -379,6 +437,8 @@ def main():
         test_compute_quality_score_empty_claude_session,
         test_summarize_called_tools_orders_and_filters_zero_call_rows,
         test_build_codex_recommendation_outcome_tracks_entrypoint_and_contract_alignment,
+        test_parse_codex_json_events_ignores_non_json_noise,
+        test_build_codex_recommendation_outcome_prefers_event_trace_for_attempted_entrypoint,
         test_build_minimal_codex_home_config_dedupes_paths_and_keeps_codelens_only,
         test_promotion_structural_identity,
         test_promotion_structural_ignores_timestamps,

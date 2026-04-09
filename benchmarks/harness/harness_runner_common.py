@@ -450,14 +450,110 @@ def summarize_called_tools(delta_payload: dict) -> list[dict]:
     return rows
 
 
-def build_codex_recommendation_outcome(mcp_preflight: dict | None, delta_payload: dict) -> dict | None:
+def parse_codex_json_events(text: str) -> list[dict]:
+    rows = []
+    for line in text.splitlines():
+        candidate = line.strip()
+        if not candidate.startswith("{"):
+            continue
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            rows.append(payload)
+    return rows
+
+
+def summarize_codex_mcp_tool_events(
+    event_rows: list[dict],
+    *,
+    server_name: str | None = "codelens",
+) -> list[dict]:
+    by_tool: dict[str, dict] = {}
+    for row in event_rows:
+        if not isinstance(row, dict):
+            continue
+        event_type = row.get("type")
+        item = row.get("item")
+        if event_type not in {"item.started", "item.completed"} or not isinstance(item, dict):
+            continue
+        if item.get("type") != "mcp_tool_call":
+            continue
+        tool = item.get("tool")
+        server = item.get("server")
+        if not isinstance(tool, str):
+            continue
+        if server_name and server != server_name:
+            continue
+        state = by_tool.setdefault(
+            tool,
+            {
+                "tool": tool,
+                "server": server,
+                "calls": 0,
+                "successes": 0,
+                "failures": 0,
+                "cancelled": 0,
+                "statuses": [],
+                "error_messages": [],
+            },
+        )
+        if event_type == "item.started":
+            state["calls"] += 1
+            continue
+
+        if state["calls"] == 0:
+            state["calls"] = 1
+        status = item.get("status")
+        if isinstance(status, str):
+            state["statuses"].append(status)
+            normalized = status.lower()
+            if normalized in {"completed", "success", "succeeded"}:
+                state["successes"] += 1
+            elif normalized == "failed":
+                state["failures"] += 1
+            elif normalized in {"cancelled", "canceled"}:
+                state["cancelled"] += 1
+        error = item.get("error")
+        if isinstance(error, dict):
+            message = error.get("message")
+            if isinstance(message, str) and message not in state["error_messages"]:
+                state["error_messages"].append(message)
+
+    rows = list(by_tool.values())
+    rows.sort(
+        key=lambda item: (
+            -item["calls"],
+            -item["successes"],
+            -item["failures"],
+            -item["cancelled"],
+            item["tool"],
+        )
+    )
+    return rows
+
+
+def build_codex_recommendation_outcome(
+    mcp_preflight: dict | None,
+    delta_payload: dict,
+    *,
+    codex_event_rows: list[dict] | None = None,
+) -> dict | None:
     if not isinstance(mcp_preflight, dict) or not mcp_preflight.get("available"):
         return None
 
     recommended_entrypoint = mcp_preflight.get("recommended_entrypoint")
     recommended_followup_tools = list(mcp_preflight.get("recommended_followup_tools") or [])
     recommended_contract_action = mcp_preflight.get("recommended_contract_action")
-    called_tools = summarize_called_tools(delta_payload)
+    event_trace_tools = summarize_codex_mcp_tool_events(codex_event_rows or [])
+    event_trace_counts = {row["tool"]: row["calls"] for row in event_trace_tools}
+    event_trace_successes = {row["tool"]: row["successes"] for row in event_trace_tools}
+    event_trace_failures = {row["tool"]: row["failures"] for row in event_trace_tools}
+    event_trace_cancelled = {row["tool"]: row["cancelled"] for row in event_trace_tools}
+    used_event_trace = bool(event_trace_tools)
+
+    called_tools = event_trace_tools if used_event_trace else summarize_called_tools(delta_payload)
     called_counts = {row["tool"]: row["calls"] for row in called_tools}
     session = delta_payload.get("session", {}) if isinstance(delta_payload, dict) else {}
     deferred_expansions = int(session.get("deferred_namespace_expansion_count") or 0)
@@ -466,18 +562,55 @@ def build_codex_recommendation_outcome(mcp_preflight: dict | None, delta_payload
     recommended_entrypoint_called = (
         recommended_entrypoint in called_counts if isinstance(recommended_entrypoint, str) else None
     )
+    recommended_entrypoint_success_count = (
+        event_trace_successes.get(recommended_entrypoint, 0)
+        if used_event_trace and isinstance(recommended_entrypoint, str)
+        else None
+    )
+    recommended_entrypoint_failure_count = (
+        event_trace_failures.get(recommended_entrypoint, 0)
+        if used_event_trace and isinstance(recommended_entrypoint, str)
+        else None
+    )
+    recommended_entrypoint_cancelled_count = (
+        event_trace_cancelled.get(recommended_entrypoint, 0)
+        if used_event_trace and isinstance(recommended_entrypoint, str)
+        else None
+    )
     recommended_followup_tools_called = [
         tool for tool in recommended_followup_tools if tool in called_counts
     ]
+    recommended_followup_tools_succeeded = [
+        tool for tool in recommended_followup_tools if event_trace_successes.get(tool, 0) > 0
+    ] if used_event_trace else list(recommended_followup_tools_called)
     recommended_followup_tools_missed = [
         tool for tool in recommended_followup_tools if tool not in called_counts
     ]
+    recommended_followup_tools_attempted_without_success = [
+        tool
+        for tool in recommended_followup_tools_called
+        if tool not in recommended_followup_tools_succeeded
+    ]
 
     alignment = "no-recommendation"
-    if recommended_entrypoint_called:
+    entrypoint_matched = (
+        recommended_entrypoint_success_count and recommended_entrypoint_success_count > 0
+        if used_event_trace
+        else recommended_entrypoint_called
+    )
+    followup_matched = (
+        bool(recommended_followup_tools_succeeded)
+        if used_event_trace
+        else bool(recommended_followup_tools_called)
+    )
+    if entrypoint_matched:
         alignment = "matched-entrypoint"
-    elif recommended_followup_tools_called:
+    elif followup_matched:
         alignment = "matched-followup"
+    elif recommended_entrypoint_called:
+        alignment = "attempted-entrypoint"
+    elif recommended_followup_tools_called:
+        alignment = "attempted-followup"
     elif recommended_entrypoint or recommended_followup_tools:
         alignment = "no-match"
 
@@ -491,12 +624,18 @@ def build_codex_recommendation_outcome(mcp_preflight: dict | None, delta_payload
 
     return {
         "recommended_entrypoint": recommended_entrypoint,
+        "evidence_source": "codex_event_trace" if used_event_trace else "tool_metrics",
         "recommended_entrypoint_called": recommended_entrypoint_called,
         "recommended_entrypoint_call_count": (
             called_counts.get(recommended_entrypoint, 0) if isinstance(recommended_entrypoint, str) else 0
         ),
+        "recommended_entrypoint_success_count": recommended_entrypoint_success_count,
+        "recommended_entrypoint_failure_count": recommended_entrypoint_failure_count,
+        "recommended_entrypoint_cancelled_count": recommended_entrypoint_cancelled_count,
         "recommended_followup_tools": recommended_followup_tools,
         "recommended_followup_tools_called": recommended_followup_tools_called,
+        "recommended_followup_tools_succeeded": recommended_followup_tools_succeeded,
+        "recommended_followup_tools_attempted_without_success": recommended_followup_tools_attempted_without_success,
         "recommended_followup_tools_missed": recommended_followup_tools_missed,
         "recommended_contract_action": recommended_contract_action,
         "contract_action_aligned": contract_action_aligned,
@@ -515,10 +654,19 @@ def summarize_codex_recommendation_outcome(outcome: dict | None) -> str:
     if alignment == "matched-entrypoint" and recommended_entrypoint:
         return f"recommended entrypoint {recommended_entrypoint} was exercised"
     if alignment == "matched-followup":
-        called = outcome.get("recommended_followup_tools_called") or []
+        called = outcome.get("recommended_followup_tools_succeeded") or []
         if called:
             return f"recommended follow-up tools exercised: {', '.join(called)}"
+    if alignment == "attempted-entrypoint" and recommended_entrypoint:
+        return f"recommended entrypoint {recommended_entrypoint} was attempted but did not complete successfully"
+    if alignment == "attempted-followup":
+        called = outcome.get("recommended_followup_tools_attempted_without_success") or []
+        if called:
+            return f"recommended follow-up tools were attempted but did not complete successfully: {', '.join(called)}"
     if alignment == "no-match" and recommended_entrypoint:
+        source = outcome.get("evidence_source")
+        if source == "codex_event_trace":
+            return f"recommended entrypoint {recommended_entrypoint} was not observed in the Codex event trace"
         return f"recommended entrypoint {recommended_entrypoint} was not observed in tool metrics"
     return ""
 

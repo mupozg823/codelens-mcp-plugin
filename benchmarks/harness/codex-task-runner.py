@@ -8,6 +8,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -232,7 +233,8 @@ def main():
         codex_cmd[2:2] = ["--sandbox", args.sandbox]
     elif brief.get("evaluation_mode") == "read-only-eval":
         codex_cmd[2:2] = ["--sandbox", "read-only"]
-    if args.json:
+    codex_json_mode = args.json or args.capture_eval
+    if codex_json_mode:
         codex_cmd.insert(-1, "--json")
     if args.output_last_message:
         codex_cmd[2:2] = ["--output-last-message", args.output_last_message]
@@ -245,11 +247,13 @@ def main():
 
     result["codex_command"] = codex_cmd
     result["codex_ephemeral"] = not args.no_ephemeral
+    result["codex_json_mode"] = codex_json_mode
 
     before_metrics = None
     before_metrics_file = run_dir / "metrics-before.json"
     after_metrics_file = run_dir / "metrics-after.json"
     delta_metrics_file = run_dir / "metrics-delta.json"
+    codex_events_file = run_dir / "codex-events.jsonl"
     recommendation_outcome = None
     if args.capture_eval:
         before_metrics, before_error = common.safe_capture_metrics_snapshot(
@@ -294,7 +298,16 @@ def main():
             text=True,
             cwd=execution_repo_path,
             env=codex_env,
+            capture_output=codex_json_mode,
         )
+        if codex_json_mode:
+            if proc.stdout:
+                sys.stdout.write(proc.stdout)
+                if args.capture_eval:
+                    codex_events_file.write_text(proc.stdout)
+                    result["codex_events_file"] = str(codex_events_file)
+            if proc.stderr:
+                sys.stderr.write(proc.stderr)
         if proc.returncode != 0:
             raise SystemExit(proc.returncode)
     finally:
@@ -316,9 +329,14 @@ def main():
             delta_payload = common.build_metrics_delta(session_eval, before_metrics, after_metrics)
             delta_metrics_file.write_text(json.dumps(delta_payload, ensure_ascii=False, indent=2) + "\n")
             result["metrics_delta_file"] = str(delta_metrics_file)
+            codex_event_rows = common.parse_codex_json_events(
+                codex_events_file.read_text() if codex_events_file.exists() else ""
+            )
+            result["codex_event_count"] = len(codex_event_rows)
             recommendation_outcome = common.build_codex_recommendation_outcome(
                 mcp_preflight,
                 delta_payload,
+                codex_event_rows=codex_event_rows,
             )
             if recommendation_outcome is not None:
                 recommendation_outcome_file = run_dir / "mcp-recommendation-outcome.json"

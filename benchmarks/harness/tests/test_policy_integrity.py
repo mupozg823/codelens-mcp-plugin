@@ -329,6 +329,64 @@ class PolicyIntegrityTests(unittest.TestCase):
         self.assertEqual(config.count('trust_level = "trusted"'), 2)
         self.assertNotIn("[plugins.", config)
 
+    def test_parse_codex_json_events_ignores_noise(self):
+        rows = runner_common.parse_codex_json_events(
+            "\n".join(
+                [
+                    "plugin warning",
+                    '{"type":"thread.started","thread_id":"abc"}',
+                    "not-json",
+                    '{"type":"item.completed","item":{"type":"agent_message","text":"OK"}}',
+                ]
+            )
+        )
+
+        self.assertEqual([row["type"] for row in rows], ["thread.started", "item.completed"])
+
+    def test_recommendation_outcome_prefers_event_trace_attempts(self):
+        outcome = runner_common.build_codex_recommendation_outcome(
+            {
+                "available": True,
+                "recommended_entrypoint": "impact_report",
+                "recommended_followup_tools": ["get_analysis_section"],
+                "recommended_contract_action": "stay_lean_until_shape_needed",
+            },
+            {
+                "tools": [
+                    {
+                        "tool": "get_capabilities",
+                        "calls": 1,
+                        "total_ms": 10,
+                        "total_tokens": 20,
+                    }
+                ],
+                "session": {
+                    "deferred_namespace_expansion_count": 0,
+                    "deferred_hidden_tool_call_denied_count": 0,
+                },
+            },
+            codex_event_rows=runner_common.parse_codex_json_events(
+                "\n".join(
+                    [
+                        '{"type":"item.started","item":{"type":"mcp_tool_call","server":"codelens","tool":"impact_report","arguments":{}}}',
+                        '{"type":"item.completed","item":{"type":"mcp_tool_call","server":"codelens","tool":"impact_report","status":"failed","error":{"message":"user cancelled MCP tool call"}}}',
+                    ]
+                )
+            ),
+        )
+
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome["evidence_source"], "codex_event_trace")
+        self.assertEqual(outcome["alignment"], "attempted-entrypoint")
+        self.assertTrue(outcome["recommended_entrypoint_called"])
+        self.assertEqual(outcome["recommended_entrypoint_call_count"], 1)
+        self.assertEqual(outcome["recommended_entrypoint_success_count"], 0)
+        self.assertEqual(outcome["recommended_entrypoint_failure_count"], 1)
+        self.assertEqual(
+            runner_common.summarize_codex_recommendation_outcome(outcome),
+            "recommended entrypoint impact_report was attempted but did not complete successfully",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
