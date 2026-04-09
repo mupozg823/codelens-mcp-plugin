@@ -11,6 +11,7 @@ if str(HARNESS_DIR) not in sys.path:
     sys.path.insert(0, str(HARNESS_DIR))
 
 import harness_eval_common as common  # noqa: E402
+import harness_runner_common as runner_common  # noqa: E402
 
 
 def load_script_module(module_name: str, filename: str):
@@ -276,6 +277,41 @@ class PolicyIntegrityTests(unittest.TestCase):
         self.assertIn("authoritative policy JSON", policy_section)
         self.assertIn("Policy target: `claude`", claude_override)
         self.assertIn("reference only", claude_override)
+
+    def test_recommendation_outcome_detects_followup_only_match(self):
+        outcome = runner_common.build_codex_recommendation_outcome(
+            {
+                "available": True,
+                "recommended_entrypoint": "impact_report",
+                "recommended_followup_tools": ["get_analysis_section", "verify_change_readiness"],
+                "recommended_contract_action": "use_prefetched_workflow_contract",
+                "richer_contract_prefetched": True,
+            },
+            {
+                "tools": [
+                    {
+                        "tool": "get_analysis_section",
+                        "calls": 2,
+                        "total_ms": 25,
+                        "total_tokens": 40,
+                    }
+                ],
+                "session": {
+                    "deferred_namespace_expansion_count": 1,
+                    "deferred_hidden_tool_call_denied_count": 0,
+                },
+            },
+        )
+
+        self.assertIsNotNone(outcome)
+        self.assertEqual(outcome["alignment"], "matched-followup")
+        self.assertEqual(outcome["recommended_followup_tools_called"], ["get_analysis_section"])
+        self.assertEqual(outcome["recommended_followup_tools_missed"], ["verify_change_readiness"])
+        self.assertTrue(outcome["contract_action_aligned"])
+        self.assertEqual(
+            runner_common.summarize_codex_recommendation_outcome(outcome),
+            "recommended follow-up tools exercised: get_analysis_section",
+        )
 
 
 if __name__ == "__main__":

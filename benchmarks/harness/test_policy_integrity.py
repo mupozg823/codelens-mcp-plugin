@@ -10,6 +10,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import harness_eval_common as common
+import harness_runner_common as runner_common
 
 
 def test_repo_override_trumps_global():
@@ -286,6 +287,57 @@ def test_compute_quality_score_empty_claude_session():
     assert common.compute_quality_score(entry) is None
 
 
+def test_summarize_called_tools_orders_and_filters_zero_call_rows():
+    delta_payload = {
+        "tools": [
+            {"tool": "impact_report", "calls": 1, "total_ms": 90, "total_tokens": 200},
+            {"tool": "analyze_change_request", "calls": 3, "total_ms": 40, "total_tokens": 150},
+            {"tool": "verify_change_readiness", "calls": 3, "total_ms": 60, "total_tokens": 120},
+            {"tool": "get_capabilities", "calls": 0, "total_ms": 99, "total_tokens": 99},
+            {"tool": None, "calls": 2, "total_ms": 10, "total_tokens": 10},
+        ]
+    }
+    rows = runner_common.summarize_called_tools(delta_payload)
+    assert [row["tool"] for row in rows] == [
+        "verify_change_readiness",
+        "analyze_change_request",
+        "impact_report",
+    ]
+    assert rows[0]["calls"] == 3
+    assert rows[0]["total_ms"] == 60
+
+
+def test_build_codex_recommendation_outcome_tracks_entrypoint_and_contract_alignment():
+    mcp_preflight = {
+        "available": True,
+        "recommended_entrypoint": "impact_report",
+        "recommended_followup_tools": ["get_analysis_section", "verify_change_readiness"],
+        "recommended_contract_action": "stay_lean_until_shape_needed",
+    }
+    delta_payload = {
+        "tools": [
+            {"tool": "impact_report", "calls": 2, "total_ms": 80, "total_tokens": 200},
+            {"tool": "get_analysis_section", "calls": 1, "total_ms": 20, "total_tokens": 40},
+        ],
+        "session": {
+            "deferred_namespace_expansion_count": 0,
+            "deferred_hidden_tool_call_denied_count": 0,
+        },
+    }
+    outcome = runner_common.build_codex_recommendation_outcome(mcp_preflight, delta_payload)
+    assert outcome is not None
+    assert outcome["alignment"] == "matched-entrypoint"
+    assert outcome["recommended_entrypoint_called"] is True
+    assert outcome["recommended_entrypoint_call_count"] == 2
+    assert outcome["recommended_followup_tools_called"] == ["get_analysis_section"]
+    assert outcome["recommended_followup_tools_missed"] == ["verify_change_readiness"]
+    assert outcome["contract_action_aligned"] is True
+    assert (
+        runner_common.summarize_codex_recommendation_outcome(outcome)
+        == "recommended entrypoint impact_report was exercised"
+    )
+
+
 def main():
     tests = [
         test_repo_override_trumps_global,
@@ -297,6 +349,8 @@ def main():
         test_compute_quality_score_errors_lower_score,
         test_compute_quality_score_no_tool_calls,
         test_compute_quality_score_empty_claude_session,
+        test_summarize_called_tools_orders_and_filters_zero_call_rows,
+        test_build_codex_recommendation_outcome_tracks_entrypoint_and_contract_alignment,
         test_promotion_structural_identity,
         test_promotion_structural_ignores_timestamps,
         test_normalize_repo_id_fallback,
