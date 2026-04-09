@@ -192,6 +192,7 @@ def main():
     before_metrics_file = run_dir / "metrics-before.json"
     after_metrics_file = run_dir / "metrics-after.json"
     delta_metrics_file = run_dir / "metrics-delta.json"
+    recommendation_outcome = None
     if args.capture_eval:
         before_metrics, before_error = common.safe_capture_metrics_snapshot(args.mcp_url, request_id=9101)
         if before_metrics is not None:
@@ -219,6 +220,21 @@ def main():
             delta_payload = common.build_metrics_delta(session_eval, before_metrics, after_metrics)
             delta_metrics_file.write_text(json.dumps(delta_payload, ensure_ascii=False, indent=2) + "\n")
             result["metrics_delta_file"] = str(delta_metrics_file)
+            recommendation_outcome = common.build_codex_recommendation_outcome(
+                mcp_preflight,
+                delta_payload,
+            )
+            if recommendation_outcome is not None:
+                recommendation_outcome_file = run_dir / "mcp-recommendation-outcome.json"
+                recommendation_outcome_file.write_text(
+                    json.dumps(recommendation_outcome, ensure_ascii=False, indent=2) + "\n"
+                )
+                result["mcp_recommendation_outcome_file"] = str(recommendation_outcome_file)
+                result["mcp_recommendation_outcome"] = recommendation_outcome
+            notes = args.notes
+            recommendation_note = common.summarize_codex_recommendation_outcome(recommendation_outcome)
+            if recommendation_note:
+                notes = f"{notes} | {recommendation_note}" if notes else recommendation_note
 
             entry_args = common.build_entry_args(
                 repo_path=repo_path,
@@ -232,7 +248,7 @@ def main():
                 verify_passed=args.verify_passed,
                 quality_score=args.quality_score,
                 recommended_policy=brief["recommended_policy"],
-                notes=args.notes,
+                notes=notes,
             )
             session_entry = session_eval.build_entry(entry_args, delta_payload)
             session_entry["repo_label"] = repo.get("label", session_entry.get("repo_label", repo["id"]))

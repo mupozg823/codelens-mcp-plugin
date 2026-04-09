@@ -425,6 +425,100 @@ def build_codex_routing_recommendation(
     }
 
 
+def summarize_called_tools(delta_payload: dict) -> list[dict]:
+    rows = []
+    for row in delta_payload.get("tools", []) if isinstance(delta_payload, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        tool = row.get("tool")
+        calls = int(row.get("calls") or 0)
+        if not isinstance(tool, str) or calls <= 0:
+            continue
+        rows.append(
+            {
+                "tool": tool,
+                "calls": calls,
+                "total_ms": int(row.get("total_ms") or 0),
+                "total_tokens": int(row.get("total_tokens") or 0),
+            }
+        )
+    rows.sort(key=lambda item: (-item["calls"], -item["total_ms"], item["tool"]))
+    return rows
+
+
+def build_codex_recommendation_outcome(mcp_preflight: dict | None, delta_payload: dict) -> dict | None:
+    if not isinstance(mcp_preflight, dict) or not mcp_preflight.get("available"):
+        return None
+
+    recommended_entrypoint = mcp_preflight.get("recommended_entrypoint")
+    recommended_followup_tools = list(mcp_preflight.get("recommended_followup_tools") or [])
+    recommended_contract_action = mcp_preflight.get("recommended_contract_action")
+    called_tools = summarize_called_tools(delta_payload)
+    called_counts = {row["tool"]: row["calls"] for row in called_tools}
+    session = delta_payload.get("session", {}) if isinstance(delta_payload, dict) else {}
+    deferred_expansions = int(session.get("deferred_namespace_expansion_count") or 0)
+    deferred_hidden_denials = int(session.get("deferred_hidden_tool_call_denied_count") or 0)
+
+    recommended_entrypoint_called = (
+        recommended_entrypoint in called_counts if isinstance(recommended_entrypoint, str) else None
+    )
+    recommended_followup_tools_called = [
+        tool for tool in recommended_followup_tools if tool in called_counts
+    ]
+    recommended_followup_tools_missed = [
+        tool for tool in recommended_followup_tools if tool not in called_counts
+    ]
+
+    alignment = "no-recommendation"
+    if recommended_entrypoint_called:
+        alignment = "matched-entrypoint"
+    elif recommended_followup_tools_called:
+        alignment = "matched-followup"
+    elif recommended_entrypoint or recommended_followup_tools:
+        alignment = "no-match"
+
+    contract_action_aligned = None
+    if recommended_contract_action == "stay_lean_until_shape_needed":
+        contract_action_aligned = deferred_expansions == 0 and deferred_hidden_denials == 0
+    elif recommended_contract_action == "use_prefetched_workflow_contract":
+        contract_action_aligned = bool(mcp_preflight.get("richer_contract_prefetched"))
+    elif recommended_contract_action in {"stay_on_default_contract", "open_primitive_tier"}:
+        contract_action_aligned = True
+
+    return {
+        "recommended_entrypoint": recommended_entrypoint,
+        "recommended_entrypoint_called": recommended_entrypoint_called,
+        "recommended_entrypoint_call_count": (
+            called_counts.get(recommended_entrypoint, 0) if isinstance(recommended_entrypoint, str) else 0
+        ),
+        "recommended_followup_tools": recommended_followup_tools,
+        "recommended_followup_tools_called": recommended_followup_tools_called,
+        "recommended_followup_tools_missed": recommended_followup_tools_missed,
+        "recommended_contract_action": recommended_contract_action,
+        "contract_action_aligned": contract_action_aligned,
+        "deferred_namespace_expansion_count": deferred_expansions,
+        "deferred_hidden_tool_call_denied_count": deferred_hidden_denials,
+        "alignment": alignment,
+        "top_called_tools": called_tools[:5],
+    }
+
+
+def summarize_codex_recommendation_outcome(outcome: dict | None) -> str:
+    if not isinstance(outcome, dict):
+        return ""
+    recommended_entrypoint = outcome.get("recommended_entrypoint")
+    alignment = outcome.get("alignment")
+    if alignment == "matched-entrypoint" and recommended_entrypoint:
+        return f"recommended entrypoint {recommended_entrypoint} was exercised"
+    if alignment == "matched-followup":
+        called = outcome.get("recommended_followup_tools_called") or []
+        if called:
+            return f"recommended follow-up tools exercised: {', '.join(called)}"
+    if alignment == "no-match" and recommended_entrypoint:
+        return f"recommended entrypoint {recommended_entrypoint} was not observed in tool metrics"
+    return ""
+
+
 def probe_codex_mcp(base_url: str, repo_path: Path, brief: dict, request_id_base: int = 9000):
     preferred_entrypoints = list(brief.get("preferred_entrypoints") or [])
     fallback_to_native = brief.get("recommended_policy") in {
