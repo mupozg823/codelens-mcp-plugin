@@ -3,6 +3,7 @@
 use super::session::{SessionClientMetadata, SessionStore};
 use crate::client_profile::ClientProfile;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
+use crate::tool_defs::ToolSurface;
 use axum::http::{HeaderMap, HeaderValue, StatusCode};
 use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{IntoResponse, Response};
@@ -92,6 +93,7 @@ pub(crate) fn extract_initialize_metadata(
         requested_profile,
         trusted_client,
         deferred_tool_loading,
+        project_path: None,
         loaded_namespaces: Vec::new(),
         loaded_tiers: Vec::new(),
         full_tool_exposure: None,
@@ -102,11 +104,21 @@ pub(crate) fn create_initialize_session(
     store: Option<&SessionStore>,
     requested_session_id: Option<&str>,
     metadata: Option<SessionClientMetadata>,
+    initial_project_path: &str,
+    initial_surface: ToolSurface,
+    initial_budget: usize,
 ) -> Option<InitializeSession> {
     let store = store?;
     let (session, resumed) = store.create_or_resume(requested_session_id);
     if let Some(metadata) = metadata {
         session.set_client_metadata(metadata);
+    }
+    if !resumed {
+        session.set_surface(initial_surface);
+        session.set_token_budget(initial_budget);
+    }
+    if session.client_metadata().project_path.is_none() {
+        session.set_project_path(initial_project_path);
     }
     Some(InitializeSession {
         id: session.id.clone(),

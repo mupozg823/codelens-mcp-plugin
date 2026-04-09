@@ -4,8 +4,9 @@
 #![cfg(feature = "http")]
 #![allow(dead_code)] // fields/methods used by transport_http handlers
 
-use crate::tool_defs::ToolPreset;
+use crate::tool_defs::{ToolPreset, ToolSurface};
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::sync::{
     Arc, Mutex, RwLock,
     atomic::{AtomicUsize, Ordering},
@@ -22,6 +23,7 @@ pub struct SessionClientMetadata {
     pub requested_profile: Option<String>,
     pub trusted_client: Option<bool>,
     pub deferred_tool_loading: Option<bool>,
+    pub project_path: Option<String>,
     pub loaded_namespaces: Vec<String>,
     pub loaded_tiers: Vec<String>,
     pub full_tool_exposure: Option<bool>,
@@ -40,9 +42,13 @@ pub struct SessionState {
     pub created_at: Instant,
     last_active: RwLock<Instant>,
     pub preset: Mutex<ToolPreset>,
+    surface: Mutex<ToolSurface>,
     pub token_budget: AtomicUsize,
     resume_count: AtomicUsize,
     client_metadata: RwLock<SessionClientMetadata>,
+    recent_tools: Mutex<VecDeque<String>>,
+    recent_files: Mutex<VecDeque<String>>,
+    doom_loop_counter: Mutex<(String, u64, usize)>,
     /// SSE sender for server→client push on the GET stream.
     pub sse_tx: Mutex<Option<mpsc::Sender<SseEvent>>>,
 }
@@ -54,9 +60,13 @@ impl SessionState {
             created_at: Instant::now(),
             last_active: RwLock::new(Instant::now()),
             preset: Mutex::new(ToolPreset::Balanced),
+            surface: Mutex::new(ToolSurface::Preset(ToolPreset::Balanced)),
             token_budget: AtomicUsize::new(4000),
             resume_count: AtomicUsize::new(0),
             client_metadata: RwLock::new(SessionClientMetadata::default()),
+            recent_tools: Mutex::new(VecDeque::with_capacity(5)),
+            recent_files: Mutex::new(VecDeque::with_capacity(20)),
+            doom_loop_counter: Mutex::new((String::new(), 0, 0)),
             sse_tx: Mutex::new(None),
         }
     }
@@ -81,9 +91,39 @@ impl SessionState {
         self.token_budget.store(budget, Ordering::Relaxed);
     }
 
+    pub fn surface(&self) -> ToolSurface {
+        *self
+            .surface
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn set_surface(&self, surface: ToolSurface) {
+        *self
+            .surface
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = surface;
+        if let ToolSurface::Preset(preset) = surface {
+            *self
+                .preset
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = preset;
+        }
+    }
+
     pub fn set_client_metadata(&self, metadata: SessionClientMetadata) {
         if let Ok(mut current) = self.client_metadata.write() {
+            let preserved_project = current.project_path.clone();
             *current = metadata;
+            if current.project_path.is_none() {
+                current.project_path = preserved_project;
+            }
+        }
+    }
+
+    pub fn set_project_path(&self, project_path: impl Into<String>) {
+        if let Ok(mut current) = self.client_metadata.write() {
+            current.project_path = Some(project_path.into());
         }
     }
 
@@ -120,6 +160,60 @@ impl SessionState {
             .read()
             .map(|metadata| metadata.clone())
             .unwrap_or_default()
+    }
+
+    pub fn push_recent_tool(&self, name: &str) {
+        let mut q = self
+            .recent_tools
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if q.len() >= 5 {
+            q.pop_front();
+        }
+        q.push_back(name.to_owned());
+    }
+
+    pub fn recent_tools(&self) -> Vec<String> {
+        self.recent_tools
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    pub fn record_file_access(&self, path: &str) {
+        let mut files = self
+            .recent_files
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        files.retain(|value| value != path);
+        if files.len() >= 20 {
+            files.pop_front();
+        }
+        files.push_back(path.to_owned());
+    }
+
+    pub fn recent_file_paths(&self) -> Vec<String> {
+        self.recent_files
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .cloned()
+            .collect()
+    }
+
+    pub fn doom_loop_count(&self, name: &str, args_hash: u64) -> usize {
+        let mut counter = self
+            .doom_loop_counter
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if counter.0 == name && counter.1 == args_hash {
+            counter.2 += 1;
+        } else {
+            *counter = (name.to_owned(), args_hash, 1);
+        }
+        counter.2
     }
 
     pub fn mark_resumed(&self) -> usize {

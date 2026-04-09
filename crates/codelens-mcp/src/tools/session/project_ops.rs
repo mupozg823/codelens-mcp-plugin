@@ -29,12 +29,9 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         .unwrap_or_default();
     let memories_dir = state.memories_dir();
     let memory_count = list_memory_names(&memories_dir, None).len();
-    let watcher_running = state
-        .watcher
-        .as_ref()
-        .map(|w| w.stats().running)
-        .unwrap_or(false);
+    let watcher_running = state.watcher_running();
     let frameworks = detect_frameworks(project.as_path());
+    let project_base_path = project.as_path().to_string_lossy().to_string();
 
     // Auto-set role surface based on project size + client profile
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
@@ -78,15 +75,26 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
                 "planner-readonly",
             )
         };
-    state.set_surface(auto_surface);
-    state.set_token_budget(auto_budget);
+    #[cfg(feature = "http")]
+    if !session.is_local() {
+        state.set_session_surface_and_budget(&session.session_id, auto_surface, auto_budget);
+        state.bind_project_to_session(&session.session_id, &project_base_path);
+    } else {
+        state.set_surface(auto_surface);
+        state.set_token_budget(auto_budget);
+    }
+    #[cfg(not(feature = "http"))]
+    {
+        state.set_surface(auto_surface);
+        state.set_token_budget(auto_budget);
+    }
 
     Ok((
         json!({
             "activated": true,
             "switched": switched.is_some(),
             "project_name": project_name,
-            "project_base_path": project.as_path().to_string_lossy(),
+            "project_base_path": project_base_path,
             "backend_id": "rust-core",
             "memory_count": memory_count,
             "serena_memories_dir": memories_dir.to_string_lossy(),

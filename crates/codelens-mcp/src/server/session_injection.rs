@@ -51,6 +51,10 @@ pub(super) fn inject_tool_call_session(
         serde_json::json!(metadata.deferred_tool_loading),
     );
     args.insert(
+        "_session_project_path".to_owned(),
+        serde_json::json!(metadata.project_path),
+    );
+    args.insert(
         "_session_loaded_namespaces".to_owned(),
         serde_json::json!(metadata.loaded_namespaces),
     );
@@ -100,7 +104,7 @@ pub(super) fn inject_tools_list_session(
         full_listing,
     );
 
-    inject_deferred_params(request, &session);
+    inject_deferred_params(request, session_id, &session);
 }
 
 /// Update deferred loading state and inject session metadata for resources/read.
@@ -149,14 +153,14 @@ pub(super) fn inject_resources_read_session(
         );
     }
 
-    inject_deferred_params(request, &session);
+    inject_deferred_params(request, session_id, &session);
 }
 
 // ── Shared helpers ──────────────────────────────────────────────────────
 
 fn update_deferred_state(
     session: &crate::server::session::SessionState,
-    state: &Arc<AppState>,
+    _state: &Arc<AppState>,
     requested_namespace: Option<&str>,
     requested_tier: Option<&str>,
     full_listing: bool,
@@ -164,7 +168,7 @@ fn update_deferred_state(
     if full_listing {
         session.enable_full_tool_exposure();
     } else if let Some(namespace) = requested_namespace {
-        if crate::tool_defs::visible_namespaces(*state.surface()).contains(&namespace) {
+        if crate::tool_defs::visible_namespaces(session.surface()).contains(&namespace) {
             session.record_loaded_namespace(namespace);
         }
     }
@@ -179,14 +183,17 @@ fn update_deferred_state(
 
 fn inject_deferred_params(
     request: &mut JsonRpcRequest,
+    session_id: &str,
     session: &crate::server::session::SessionState,
 ) {
     let metadata = session.client_metadata();
     let deferred_fields = serde_json::json!({
+        "_session_id": session_id,
         "_session_requested_profile": metadata.requested_profile,
         "_session_client_name": metadata.client_name,
         "_session_client_version": metadata.client_version,
         "_session_deferred_tool_loading": metadata.deferred_tool_loading,
+        "_session_project_path": metadata.project_path,
         "_session_loaded_namespaces": metadata.loaded_namespaces,
         "_session_loaded_tiers": metadata.loaded_tiers,
         "_session_full_tool_exposure": metadata.full_tool_exposure,
