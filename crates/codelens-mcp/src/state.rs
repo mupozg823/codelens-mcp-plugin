@@ -189,6 +189,21 @@ impl AppState {
         self.project().as_path().to_string_lossy().to_string()
     }
 
+    pub(crate) fn project_scope_for_session(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+    ) -> String {
+        session
+            .project_path
+            .clone()
+            .unwrap_or_else(|| self.current_project_scope())
+    }
+
+    pub(crate) fn project_scope_for_arguments(&self, arguments: &Value) -> String {
+        let session = crate::session_context::SessionRequestContext::from_json(arguments);
+        self.project_scope_for_session(&session)
+    }
+
     fn default_project_scope(&self) -> String {
         self.default_project.as_path().to_string_lossy().to_string()
     }
@@ -421,8 +436,16 @@ impl AppState {
         preflight_ttl_ms() / 1000
     }
 
-    fn preflight_key(&self, logical_session: &str) -> String {
-        RecentPreflightStore::key(&self.current_project_scope(), logical_session)
+    fn preflight_key_for_scope(&self, scope: &str, logical_session: &str) -> String {
+        RecentPreflightStore::key(scope, logical_session)
+    }
+
+    fn preflight_key_for_session(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+        logical_session: &str,
+    ) -> String {
+        self.preflight_key_for_scope(&self.project_scope_for_session(session), logical_session)
     }
 
     pub(crate) fn clear_recent_preflights(&self) {
@@ -484,7 +507,10 @@ impl AppState {
         arguments: &Value,
         payload: &Value,
     ) {
-        let key = self.preflight_key(logical_session);
+        let key = self.preflight_key_for_scope(
+            &self.project_scope_for_arguments(arguments),
+            logical_session,
+        );
         self.preflight_store.record_from_payload(
             key,
             tool_name,
@@ -496,9 +522,13 @@ impl AppState {
         );
     }
 
-    pub(crate) fn recent_preflight(&self, logical_session: &str) -> Option<RecentPreflight> {
+    pub(crate) fn recent_preflight_for_session(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+        logical_session: &str,
+    ) -> Option<RecentPreflight> {
         self.preflight_store
-            .get(&self.preflight_key(logical_session))
+            .get(&self.preflight_key_for_session(session, logical_session))
     }
 
     #[cfg(test)]
@@ -508,7 +538,10 @@ impl AppState {
         timestamp_ms: u64,
     ) {
         self.preflight_store
-            .set_timestamp_for_test(&self.preflight_key(logical_session), timestamp_ms);
+            .set_timestamp_for_test(
+                &self.preflight_key_for_scope(&self.current_project_scope(), logical_session),
+                timestamp_ms,
+            );
     }
 
     // ── Embedding engine accessors ──────────────────────────────────────
@@ -910,6 +943,7 @@ impl AppState {
 
     pub(crate) fn store_analysis_job(
         &self,
+        scope: &str,
         kind: &str,
         profile_hint: Option<String>,
         estimated_sections: Vec<String>,
@@ -928,27 +962,62 @@ impl AppState {
             current_step,
             analysis_id,
             error,
-            self.current_project_scope(),
+            scope.to_owned(),
         )
     }
 
-    pub(crate) fn list_analysis_jobs(&self, status_filter: Option<&str>) -> Vec<AnalysisJob> {
-        let scope = self.current_project_scope();
+    #[cfg(test)]
+    pub(crate) fn store_analysis_job_for_current_scope(
+        &self,
+        kind: &str,
+        profile_hint: Option<String>,
+        estimated_sections: Vec<String>,
+        status: JobLifecycle,
+        progress: u8,
+        current_step: Option<String>,
+        analysis_id: Option<String>,
+        error: Option<String>,
+    ) -> Result<AnalysisJob, CodeLensError> {
+        self.store_analysis_job(
+            &self.current_project_scope(),
+            kind,
+            profile_hint,
+            estimated_sections,
+            status,
+            progress,
+            current_step,
+            analysis_id,
+            error,
+        )
+    }
+
+    pub(crate) fn list_analysis_jobs_for_scope(
+        &self,
+        scope: &str,
+        status_filter: Option<&str>,
+    ) -> Vec<AnalysisJob> {
         self.job_store.list(status_filter, Some(&scope))
     }
 
-    pub(crate) fn get_analysis_job(&self, job_id: &str) -> Option<AnalysisJob> {
-        let scope = self.current_project_scope();
+    pub(crate) fn get_analysis_job_for_scope(&self, scope: &str, job_id: &str) -> Option<AnalysisJob> {
         let job = self.job_store.get(job_id, Some(&scope))?;
         // Cross-concern: warm artifact cache when job references an analysis
         if let Some(analysis_id) = job.analysis_id.as_deref() {
-            let _ = self.get_analysis(analysis_id);
+            let _ = self.get_analysis_for_scope(scope, analysis_id);
         }
         Some(job)
     }
 
-    pub(crate) fn cancel_analysis_job(&self, job_id: &str) -> Result<AnalysisJob, CodeLensError> {
-        let scope = self.current_project_scope();
+    #[cfg(test)]
+    pub(crate) fn get_analysis_job(&self, job_id: &str) -> Option<AnalysisJob> {
+        self.get_analysis_job_for_scope(&self.current_project_scope(), job_id)
+    }
+
+    pub(crate) fn cancel_analysis_job_for_scope(
+        &self,
+        scope: &str,
+        job_id: &str,
+    ) -> Result<AnalysisJob, CodeLensError> {
         let job = self.job_store.cancel(job_id, Some(&scope))?;
         if job.status == JobLifecycle::Cancelled {
             self.metrics.record_analysis_job_cancelled(0, 0);
@@ -958,6 +1027,7 @@ impl AppState {
 
     pub(crate) fn update_analysis_job(
         &self,
+        scope: &str,
         job_id: &str,
         status: Option<JobLifecycle>,
         progress: Option<u8>,
@@ -966,7 +1036,6 @@ impl AppState {
         analysis_id: Option<Option<String>>,
         error: Option<Option<String>>,
     ) -> Result<AnalysisJob, CodeLensError> {
-        let scope = self.current_project_scope();
         self.job_store.update(
             job_id,
             status,
@@ -1002,6 +1071,7 @@ impl AppState {
 
     pub(crate) fn store_analysis(
         &self,
+        scope: &str,
         tool_name: &str,
         cache_key: Option<String>,
         summary: String,
@@ -1017,7 +1087,7 @@ impl AppState {
         let artifact = self.artifact_store.store(
             tool_name,
             self.surface().as_label(),
-            self.current_project_scope(),
+            scope.to_owned(),
             cache_key,
             summary,
             top_findings,
@@ -1035,28 +1105,76 @@ impl AppState {
         Ok(artifact)
     }
 
+    pub(crate) fn store_analysis_for_current_scope(
+        &self,
+        tool_name: &str,
+        cache_key: Option<String>,
+        summary: String,
+        top_findings: Vec<String>,
+        risk_level: String,
+        confidence: f64,
+        next_actions: Vec<String>,
+        blockers: Vec<String>,
+        readiness: AnalysisReadiness,
+        verifier_checks: Vec<AnalysisVerifierCheck>,
+        sections: std::collections::BTreeMap<String, serde_json::Value>,
+    ) -> Result<AnalysisArtifact, CodeLensError> {
+        self.store_analysis(
+            &self.current_project_scope(),
+            tool_name,
+            cache_key,
+            summary,
+            top_findings,
+            risk_level,
+            confidence,
+            next_actions,
+            blockers,
+            readiness,
+            verifier_checks,
+            sections,
+        )
+    }
+
     pub(crate) fn find_reusable_analysis(
         &self,
+        scope: &str,
         tool_name: &str,
         cache_key: &str,
     ) -> Option<AnalysisArtifact> {
-        let scope = self.current_project_scope();
         self.artifact_store.find_reusable(
             tool_name,
             cache_key,
             self.surface().as_label(),
-            Some(&scope),
+            Some(scope),
         )
     }
 
-    pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
-        let scope = self.current_project_scope();
+    pub(crate) fn find_reusable_analysis_for_current_scope(
+        &self,
+        tool_name: &str,
+        cache_key: &str,
+    ) -> Option<AnalysisArtifact> {
+        self.find_reusable_analysis(&self.current_project_scope(), tool_name, cache_key)
+    }
+
+    pub(crate) fn get_analysis_for_scope(
+        &self,
+        scope: &str,
+        analysis_id: &str,
+    ) -> Option<AnalysisArtifact> {
         self.artifact_store.get(analysis_id, Some(&scope))
     }
 
-    pub(crate) fn list_analysis_summaries(&self) -> Vec<AnalysisSummary> {
-        let scope = self.current_project_scope();
+    pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
+        self.get_analysis_for_scope(&self.current_project_scope(), analysis_id)
+    }
+
+    pub(crate) fn list_analysis_summaries_for_scope(&self, scope: &str) -> Vec<AnalysisSummary> {
         self.artifact_store.list_summaries(Some(&scope))
+    }
+
+    pub(crate) fn list_analysis_summaries(&self) -> Vec<AnalysisSummary> {
+        self.list_analysis_summaries_for_scope(&self.current_project_scope())
     }
 
     pub(crate) fn get_analysis_section(

@@ -137,7 +137,7 @@ pub(crate) fn evaluate_mutation_gate(
 
     let _logical_session = session.session_id.as_str();
     let logical_session = session.session_id.as_str();
-    let Some(preflight) = state.recent_preflight(logical_session) else {
+    let Some(preflight) = state.recent_preflight_for_session(session, logical_session) else {
         return Err(mutation_gate_failure(
             name,
             format!(
