@@ -6,22 +6,17 @@ pub mod memory;
 pub mod mutation;
 mod report_contract;
 pub(crate) mod report_jobs;
+mod report_payload;
 mod report_utils;
+mod report_verifier;
 pub mod reports;
 pub mod session;
 pub mod symbols;
 
 use crate::AppState;
-use crate::error::CodeLensError;
-use crate::protocol::{AnalysisSource, BackendKind, Freshness, ToolResponseMeta};
 use crate::tool_defs::{ToolProfile, ToolSurface};
+pub use crate::tool_runtime::{ToolHandler, ToolResult, required_string, success_meta};
 use std::collections::HashMap;
-
-/// Tool handler result type — every handler returns this.
-pub type ToolResult = Result<(serde_json::Value, ToolResponseMeta), CodeLensError>;
-
-/// Function pointer type for tool handlers.
-pub type ToolHandler = fn(&AppState, &serde_json::Value) -> ToolResult;
 
 /// Declarative tool registry macro — reduces boilerplate and prevents drift.
 /// Each entry is `"tool_name" => module::handler_fn`.
@@ -151,28 +146,6 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
 /// not for precise measurement. JSON-heavy output tends to undercount.
 pub fn estimate_tokens(text: &str) -> usize {
     text.len() / 4
-}
-
-pub fn success_meta(backend: BackendKind, confidence: f64) -> ToolResponseMeta {
-    ToolResponseMeta {
-        backend_used: backend.to_string(),
-        confidence,
-        degraded_reason: None,
-        source: AnalysisSource::Native,
-        partial: false,
-        freshness: Freshness::Live,
-        staleness_ms: None,
-    }
-}
-
-pub fn required_string<'a>(
-    value: &'a serde_json::Value,
-    key: &str,
-) -> Result<&'a str, CodeLensError> {
-    value
-        .get(key)
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| CodeLensError::MissingParam(key.to_owned()))
 }
 
 /// Parse LSP args from arguments, falling back to defaults for the given command.
@@ -649,7 +622,11 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "verify_change_readiness",
             "safe_rename_report",
         ],
-        "diff_aware_references" => &["get_analysis_section", "impact_report", "semantic_code_review"],
+        "diff_aware_references" => &[
+            "get_analysis_section",
+            "impact_report",
+            "semantic_code_review",
+        ],
         "semantic_code_review" => &["get_analysis_section", "impact_report"],
         "start_analysis_job" => &["get_analysis_job"],
         "get_analysis_job" => &["get_analysis_section"],

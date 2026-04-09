@@ -1,6 +1,7 @@
+use crate::AppState;
 use crate::protocol::BackendKind;
-use crate::tool_defs::{default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface};
-use crate::tools::{success_meta, AppState, ToolResult};
+use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile};
+use crate::tool_runtime::{ToolResult, required_string, success_meta};
 use codelens_core::detect_frameworks;
 use codelens_core::memory::list_memory_names;
 use serde_json::json;
@@ -228,7 +229,7 @@ pub fn list_queryable_projects(state: &AppState, _arguments: &serde_json::Value)
 }
 
 pub fn add_queryable_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let path = crate::tools::required_string(arguments, "path")?;
+    let path = required_string(arguments, "path")?;
     match state.add_secondary_project(path) {
         Ok(name) => Ok((
             json!({ "added": true, "name": name, "path": path }),
@@ -239,7 +240,7 @@ pub fn add_queryable_project(state: &AppState, arguments: &serde_json::Value) ->
 }
 
 pub fn remove_queryable_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let name = crate::tools::required_string(arguments, "name")?;
+    let name = required_string(arguments, "name")?;
     let removed = state.remove_secondary_project(name);
     Ok((
         json!({ "removed": removed, "name": name }),
@@ -248,8 +249,8 @@ pub fn remove_queryable_project(state: &AppState, arguments: &serde_json::Value)
 }
 
 pub fn query_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let project_name = crate::tools::required_string(arguments, "project_name")?;
-    let symbol_name = crate::tools::required_string(arguments, "symbol_name")?;
+    let project_name = required_string(arguments, "project_name")?;
+    let symbol_name = required_string(arguments, "symbol_name")?;
     let max_results = arguments
         .get("max_results")
         .and_then(|v| v.as_u64())

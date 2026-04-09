@@ -25,6 +25,7 @@ mod session_metrics_payload;
 mod state;
 mod telemetry;
 mod tool_defs;
+mod tool_runtime;
 mod tools;
 
 pub(crate) use state::AppState;
