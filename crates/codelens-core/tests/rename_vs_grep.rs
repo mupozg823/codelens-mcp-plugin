@@ -5,7 +5,31 @@ use std::collections::HashSet;
 use std::fs;
 use walkdir::WalkDir;
 
-/// Collect ALL `\bword\b` occurrences via raw file scan (ground truth).
+fn is_in_double_quoted_string(line: &str, byte_offset: usize) -> bool {
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (idx, ch) in line.char_indices() {
+        if idx >= byte_offset {
+            break;
+        }
+
+        if escaped {
+            escaped = false;
+            continue;
+        }
+
+        match ch {
+            '\\' if in_string => escaped = true,
+            '"' => in_string = !in_string,
+            _ => {}
+        }
+    }
+
+    in_string
+}
+
+/// Collect ALL code-only `\bword\b` occurrences via file scan.
 fn grep_all_occurrences(root: &std::path::Path, word: &str) -> Vec<(String, usize, usize)> {
     let re = Regex::new(&format!(r"\b{}\b", regex::escape(word))).unwrap();
     let excluded = [
@@ -43,7 +67,13 @@ fn grep_all_occurrences(root: &std::path::Path, word: &str) -> Vec<(String, usiz
             .to_string_lossy()
             .to_string();
         for (line_idx, line) in content.lines().enumerate() {
+            if line.trim_start().starts_with("//") {
+                continue;
+            }
             for mat in re.find_iter(line) {
+                if is_in_double_quoted_string(line, mat.start()) {
+                    continue;
+                }
                 results.push((rel.clone(), line_idx + 1, mat.start() + 1));
             }
         }
