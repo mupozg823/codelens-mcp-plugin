@@ -12,6 +12,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static TEST_PROJECT_SEQ: AtomicU64 = AtomicU64::new(0);
 
+fn embedding_model_available_for_test() -> bool {
+    if !codelens_core::embedding_model_assets_available() {
+        eprintln!("skipping integration test: CodeSearchNet model assets unavailable");
+        return false;
+    }
+    true
+}
+
 // ── Protocol-level tests ─────────────────────────────────────────────
 
 #[test]
@@ -1174,6 +1182,9 @@ fn onboard_project_returns_structure() {
 
 #[test]
 fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
     let project = project_root();
     fs::create_dir_all(project.as_path().join("src")).unwrap();
     fs::write(
@@ -1258,6 +1269,9 @@ fn impact_report_surfaces_unavailable_semantic_status() {
 
 #[test]
 fn impact_report_uses_existing_embedding_index_for_semantic_status() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
     let project = project_root();
     fs::write(
         project.as_path().join("impact_semantic_ready.py"),
@@ -1318,6 +1332,9 @@ fn get_capabilities_returns_features() {
 
 #[test]
 fn get_capabilities_reports_existing_embedding_index_without_loading_engine() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
     let project = project_root();
     fs::write(
         project.as_path().join("embed.py"),
@@ -1694,8 +1711,18 @@ fn reviewer_jobs_use_parallel_http_pool() {
             "debug_step_delay_ms": 80
         }),
     );
-    let first_job_id = first["data"]["job_id"].as_str().unwrap();
-    let second_job_id = second["data"]["job_id"].as_str().unwrap();
+    assert_eq!(first["success"], json!(true), "first job failed: {first}");
+    assert_eq!(
+        second["success"],
+        json!(true),
+        "second job failed: {second}"
+    );
+    let first_job_id = first["data"]["job_id"]
+        .as_str()
+        .expect("first job_id should be present");
+    let second_job_id = second["data"]["job_id"]
+        .as_str()
+        .expect("second job_id should be present");
     for _ in 0..100 {
         let metrics = call_tool(&state, "get_tool_metrics", json!({}));
         let peak_workers = metrics["data"]["session"]["peak_active_analysis_workers"]
@@ -3028,6 +3055,9 @@ fn builder_minimal_mutation_behavior_unchanged() {
 
 #[test]
 fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded() {
+    if !embedding_model_available_for_test() {
+        return;
+    }
     let project = project_root();
     fs::write(
         project.as_path().join("semantic_mutation.py"),

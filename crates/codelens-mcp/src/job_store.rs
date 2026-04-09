@@ -75,7 +75,7 @@ impl AnalysisJobStore {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_file() {
+            if !path.is_file() || path.extension().and_then(|ext| ext.to_str()) != Some("json") {
                 continue;
             }
             let job = fs::read(&path)
@@ -310,5 +310,30 @@ fn matches_scope(job_scope: Option<&str>, current_scope: Option<&str>) -> bool {
         (Some(j), Some(c)) => j == c,
         (None, _) => true,
         (_, None) => true,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cleanup_stale_files_ignores_inflight_tmp_files() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-job-store-test-{}-{}",
+            std::process::id(),
+            AnalysisJobStore::now_ms()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let store = AnalysisJobStore::new(dir.clone());
+
+        let tmp_path = dir.join("job-1.json.tmp");
+        fs::write(&tmp_path, br#"{"inflight":true}"#).unwrap();
+
+        store.cleanup_stale_files(AnalysisJobStore::now_ms(), None);
+
+        assert!(tmp_path.exists(), "cleanup should not remove inflight tmp files");
+        let _ = fs::remove_file(tmp_path);
+        let _ = fs::remove_dir_all(dir);
     }
 }

@@ -1146,6 +1146,10 @@ pub fn configured_embedding_model_name() -> String {
     std::env::var("CODELENS_EMBED_MODEL").unwrap_or_else(|_| CODESEARCH_MODEL_NAME.to_string())
 }
 
+pub fn embedding_model_assets_available() -> bool {
+    resolve_model_dir().is_ok()
+}
+
 impl EmbeddingEngine {
     fn embed_texts_cached(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {
         if texts.is_empty() {
@@ -2251,6 +2255,15 @@ mod tests {
     /// Serialize tests that load the fastembed ONNX model to avoid file lock contention.
     static MODEL_LOCK: Mutex<()> = Mutex::new(());
 
+    macro_rules! skip_without_embedding_model {
+        () => {
+            if !super::embedding_model_assets_available() {
+                eprintln!("skipping embedding test: CodeSearchNet model assets unavailable");
+                return;
+            }
+        };
+    }
+
     /// Helper: create a temp project with seeded symbols.
     fn make_project_with_source() -> (tempfile::TempDir, ProjectRoot) {
         let dir = tempfile::tempdir().unwrap();
@@ -2503,6 +2516,7 @@ mod tests {
     #[test]
     fn engine_new_and_index() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).expect("engine should load");
         assert!(!engine.is_indexed());
@@ -2515,6 +2529,7 @@ mod tests {
     #[test]
     fn engine_search_returns_results() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2533,6 +2548,7 @@ mod tests {
     #[test]
     fn engine_incremental_index() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2547,6 +2563,7 @@ mod tests {
     #[test]
     fn engine_reindex_preserves_symbol_count() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2560,6 +2577,7 @@ mod tests {
     #[test]
     fn full_reindex_reuses_unchanged_embeddings() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2590,6 +2608,7 @@ mod tests {
     #[test]
     fn full_reindex_reuses_unchanged_sibling_after_edit() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2634,6 +2653,7 @@ mod tests {
     #[test]
     fn full_reindex_removes_deleted_files() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (dir, project) = make_project_with_source();
         write_python_file_with_symbols(
             dir.path(),
@@ -2667,6 +2687,7 @@ mod tests {
     #[test]
     fn engine_model_change_recreates_db() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
 
         // First engine with default model
@@ -2683,6 +2704,7 @@ mod tests {
     #[test]
     fn inspect_existing_index_returns_model_and_count() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2697,6 +2719,7 @@ mod tests {
     #[test]
     fn store_can_fetch_single_embedding_without_loading_all() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2714,6 +2737,7 @@ mod tests {
     #[test]
     fn find_similar_code_uses_index_and_excludes_target_symbol() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2730,6 +2754,7 @@ mod tests {
     #[test]
     fn delete_by_file_removes_rows_in_one_batch() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2742,6 +2767,7 @@ mod tests {
     #[test]
     fn store_streams_embeddings_grouped_by_file() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2761,6 +2787,7 @@ mod tests {
     #[test]
     fn store_fetches_embeddings_for_specific_files() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2773,6 +2800,7 @@ mod tests {
     #[test]
     fn store_fetches_embeddings_for_scored_chunks() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2793,6 +2821,7 @@ mod tests {
     #[test]
     fn find_misplaced_code_returns_per_file_outliers() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2805,6 +2834,7 @@ mod tests {
     #[test]
     fn find_duplicates_uses_batched_candidate_embeddings() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
@@ -2826,6 +2856,7 @@ mod tests {
     #[test]
     fn search_scored_returns_raw_chunks() {
         let _lock = MODEL_LOCK.lock().unwrap();
+        skip_without_embedding_model!();
         let (_dir, project) = make_project_with_source();
         let engine = EmbeddingEngine::new(&project).unwrap();
         engine.index_from_project(&project).unwrap();
