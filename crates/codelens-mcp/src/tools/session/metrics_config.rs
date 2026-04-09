@@ -1,16 +1,15 @@
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
+    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
 };
-use crate::tools::{success_meta, AppState, ToolResult};
+use crate::tools::{AppState, ToolResult, success_meta};
 use serde_json::json;
 
 pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let failure_health = state.watcher_failure_health();
-    match &state.watcher {
-        Some(watcher) => {
-            let mut stats = watcher.stats();
+    match state.watcher_stats() {
+        Some(mut stats) => {
             stats.index_failures = Some(failure_health.recent_failures);
             let mut payload = serde_json::to_value(stats).unwrap_or_else(|_| json!({}));
             if let Some(map) = payload.as_object_mut() {
@@ -347,13 +346,13 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
 }
 
 pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let preset_str = arguments
         .get("preset")
         .and_then(|v| v.as_str())
         .unwrap_or("balanced");
     let new_preset = ToolPreset::from_str(preset_str);
-    let old_surface = state.surface().as_label().to_owned();
-    state.set_surface(ToolSurface::Preset(new_preset));
+    let old_surface = state.execution_surface(&session).as_label().to_owned();
 
     // Auto-set token budget per preset, or accept explicit override
     let budget = arguments
@@ -361,7 +360,22 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
         .unwrap_or(default_budget_for_preset(new_preset));
-    state.set_token_budget(budget);
+    #[cfg(feature = "http")]
+    if !session.is_local() {
+        state.set_session_surface_and_budget(
+            &session.session_id,
+            ToolSurface::Preset(new_preset),
+            budget,
+        );
+    } else {
+        state.set_surface(ToolSurface::Preset(new_preset));
+        state.set_token_budget(budget);
+    }
+    #[cfg(not(feature = "http"))]
+    {
+        state.set_surface(ToolSurface::Preset(new_preset));
+        state.set_token_budget(budget);
+    }
 
     Ok((
         json!({
@@ -377,6 +391,7 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
 }
 
 pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let profile_str = arguments
         .get("profile")
         .and_then(|v| v.as_str())
@@ -384,14 +399,28 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
     let profile = ToolProfile::from_str(profile_str).ok_or_else(|| {
         crate::error::CodeLensError::Validation(format!("unknown profile `{profile_str}`"))
     })?;
-    let old_surface = state.surface().as_label().to_owned();
-    state.set_surface(ToolSurface::Profile(profile));
+    let old_surface = state.execution_surface(&session).as_label().to_owned();
     let budget = arguments
         .get("token_budget")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
         .unwrap_or(default_budget_for_profile(profile));
-    state.set_token_budget(budget);
+    #[cfg(feature = "http")]
+    if !session.is_local() {
+        state.set_session_surface_and_budget(
+            &session.session_id,
+            ToolSurface::Profile(profile),
+            budget,
+        );
+    } else {
+        state.set_surface(ToolSurface::Profile(profile));
+        state.set_token_budget(budget);
+    }
+    #[cfg(not(feature = "http"))]
+    {
+        state.set_surface(ToolSurface::Profile(profile));
+        state.set_token_budget(budget);
+    }
 
     Ok((
         json!({

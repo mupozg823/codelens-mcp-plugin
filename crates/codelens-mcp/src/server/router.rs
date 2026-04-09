@@ -5,8 +5,8 @@ use crate::prompts::{get_prompt, prompts};
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::resources::{read_resource, resources};
 use crate::tool_defs::{
-    preferred_bootstrap_tools, preferred_namespaces, preferred_tier_labels, tool_namespace,
-    tool_tier_label, visible_tools,
+    is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
+    preferred_tier_labels, tool_namespace, tool_tier_label, visible_tools,
 };
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
@@ -146,7 +146,12 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             ))
         }
         "tools/list" => {
-            let surface = *state.surface();
+            let session = request
+                .params
+                .as_ref()
+                .map(crate::session_context::SessionRequestContext::from_json)
+                .unwrap_or_default();
+            let surface = state.execution_surface(&session);
             let all_tools = visible_tools(surface);
             let (all_namespaces, all_tiers) = visible_axes_from_tools(&all_tools);
             let requested_namespace = request
@@ -214,8 +219,9 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 && requested_tier.is_none()
                 && !full_listing
                 && !full_tool_exposure;
-            let lean_contract =
-                client_profile.default_tool_contract_mode() == "lean" && !full_listing && !full_tool_exposure;
+            let lean_contract = client_profile.default_tool_contract_mode() == "lean"
+                && !full_listing
+                && !full_tool_exposure;
             let include_output_schema =
                 list_param_bool(&request, "includeOutputSchema", "include_output_schema")
                     .unwrap_or(!(deferred_loading_active || lean_contract));
@@ -230,6 +236,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 .iter()
                 .copied()
                 .filter(|tool| match requested_namespace {
+                    _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
                     Some(namespace) => tool_namespace(tool.name) == namespace,
                     None if deferred_loading_active => {
                         let namespace = tool_namespace(tool.name);
@@ -239,6 +246,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     None => true,
                 })
                 .filter(|tool| match requested_tier {
+                    _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
                     Some(tier) => tool_tier_label(tool.name) == tier,
                     None if deferred_loading_active => {
                         let tier = tool_tier_label(tool.name);
@@ -247,9 +255,8 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     None => true,
                 })
                 .filter(|tool| match preferred_bootstrap {
-                    Some(tool_names) if deferred_loading_active => {
-                        tool_names.contains(&tool.name)
-                    }
+                    _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
+                    Some(tool_names) if deferred_loading_active => tool_names.contains(&tool.name),
                     _ => true,
                 })
                 .collect::<Vec<_>>();

@@ -2,14 +2,15 @@ use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::protocol::Tool;
 use crate::tool_defs::{
-    ToolProfile, ToolSurface, preferred_bootstrap_tools, preferred_namespaces,
-    preferred_tier_labels, tool_namespace, tool_tier_label, visible_namespaces, visible_tiers,
-    visible_tools,
+    ToolProfile, ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools,
+    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
+    visible_namespaces, visible_tiers, visible_tools,
 };
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResourceRequestContext {
+    pub(crate) session: crate::session_context::SessionRequestContext,
     pub(crate) deferred_loading_requested: bool,
     pub(crate) loaded_namespaces: Vec<String>,
     pub(crate) loaded_tiers: Vec<String>,
@@ -24,6 +25,7 @@ pub(crate) struct ResourceRequestContext {
 impl Default for ResourceRequestContext {
     fn default() -> Self {
         Self {
+            session: crate::session_context::SessionRequestContext::default(),
             deferred_loading_requested: false,
             loaded_namespaces: Vec::new(),
             loaded_tiers: Vec::new(),
@@ -42,6 +44,10 @@ impl ResourceRequestContext {
         let session = params
             .map(crate::session_context::SessionRequestContext::from_json)
             .unwrap_or_default();
+        let loaded_namespaces = session.loaded_namespaces.clone();
+        let loaded_tiers = session.loaded_tiers.clone();
+        let full_tool_exposure = session.full_tool_exposure;
+        let client_name = session.client_name.clone();
         let client_profile = session
             .client_name
             .as_deref()
@@ -53,15 +59,16 @@ impl ResourceRequestContext {
             .or_else(|| client_profile.default_deferred_tool_loading())
             .unwrap_or(false);
         Self {
+            session,
             deferred_loading_requested,
-            loaded_namespaces: session.loaded_namespaces,
-            loaded_tiers: session.loaded_tiers,
-            full_tool_exposure: session.full_tool_exposure,
+            loaded_namespaces,
+            loaded_tiers,
+            full_tool_exposure,
             requested_namespace: string_param(params, "namespace"),
             requested_tier: string_param(params, "tier"),
             full_listing: uri == "codelens://tools/list/full" || bool_param(params, "full"),
             client_profile,
-            client_name: session.client_name,
+            client_name,
         }
     }
 
@@ -103,7 +110,7 @@ pub(crate) fn build_visible_tool_context(
     state: &AppState,
     request: &ResourceRequestContext,
 ) -> VisibleToolContext {
-    let surface = *state.surface();
+    let surface = state.execution_surface(&request.session);
     let all_tools = visible_tools(surface);
     let preferred = preferred_namespaces(surface);
     let preferred_bootstrap = preferred_bootstrap_tools(surface);
@@ -112,6 +119,7 @@ pub(crate) fn build_visible_tool_context(
         .iter()
         .copied()
         .filter(|tool| match request.requested_namespace.as_deref() {
+            _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
             Some(namespace) => tool_namespace(tool.name) == namespace,
             None if request.deferred_loading_active() => {
                 let namespace = tool_namespace(tool.name);
@@ -124,6 +132,7 @@ pub(crate) fn build_visible_tool_context(
             None => true,
         })
         .filter(|tool| match request.requested_tier.as_deref() {
+            _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
             Some(tier) => tool_tier_label(tool.name) == tier,
             None if request.deferred_loading_active() => {
                 let tier = tool_tier_label(tool.name);
@@ -133,6 +142,7 @@ pub(crate) fn build_visible_tool_context(
             None => true,
         })
         .filter(|tool| match preferred_bootstrap {
+            _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
             Some(tool_names) if request.deferred_loading_active() => {
                 tool_names.contains(&tool.name)
             }
@@ -184,7 +194,7 @@ pub(crate) fn build_http_session_payload(
     state: &AppState,
     request: &ResourceRequestContext,
 ) -> Value {
-    let surface = *state.surface();
+    let surface = state.execution_surface(&request.session);
     json!({
         "enabled": state.session_resume_supported(),
         "active_sessions": state.active_session_count(),

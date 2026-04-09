@@ -166,7 +166,9 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     {
         prior += 0.14;
     }
-    if (query_lower.contains("embed") || query_lower.contains("vector") || query_lower.contains("index"))
+    if (query_lower.contains("embed")
+        || query_lower.contains("vector")
+        || query_lower.contains("index"))
         && result.file_path.contains("embedding")
     {
         prior += 0.10;
@@ -745,7 +747,8 @@ pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> 
     let path = required_string(arguments, "path")?;
     let explicit_depth = arguments.get("depth").and_then(|v| v.as_u64());
     let depth = explicit_depth.unwrap_or(1) as usize;
-    let budget = state.token_budget();
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    let budget = state.execution_token_budget(&session);
     let mut symbols = state
         .symbol_index()
         .get_symbols_overview_cached(path, depth)?;
@@ -841,11 +844,12 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     let expanded_query = expanded_query_for_retrieval(query);
     let semantic_query = semantic_query_for_retrieval(query);
     let path = arguments.get("path").and_then(|v| v.as_str());
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let max_tokens = arguments
         .get("max_tokens")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
-        .unwrap_or_else(|| state.token_budget());
+        .unwrap_or_else(|| state.execution_token_budget(&session));
     let include_body = arguments
         .get("include_body")
         .and_then(|v| v.as_bool())
@@ -867,7 +871,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         .collect();
 
     // Boost scores for files recently accessed in this session
-    let recent_files = state.recent_file_paths();
+    let recent_files = state.recent_file_paths_for_session(&session);
     let mut boosted_scores: std::collections::HashMap<String, f64> = if use_semantic_in_core {
         semantic_scores
     } else {

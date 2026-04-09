@@ -7,6 +7,8 @@
 pub(crate) struct SessionRequestContext {
     pub session_id: String,
     pub deferred_loading: bool,
+    #[cfg_attr(not(feature = "http"), allow(dead_code))]
+    pub project_path: Option<String>,
     pub loaded_namespaces: Vec<String>,
     pub loaded_tiers: Vec<String>,
     pub full_tool_exposure: bool,
@@ -22,6 +24,7 @@ impl SessionRequestContext {
         Self {
             session_id: str_field(value, "_session_id").unwrap_or_else(|| "local".to_owned()),
             deferred_loading: bool_field(value, "_session_deferred_tool_loading"),
+            project_path: str_field(value, "_session_project_path"),
             loaded_namespaces: string_array_field(value, "_session_loaded_namespaces"),
             loaded_tiers: string_array_field(value, "_session_loaded_tiers"),
             full_tool_exposure: bool_field(value, "_session_full_tool_exposure"),

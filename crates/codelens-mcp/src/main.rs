@@ -29,15 +29,110 @@ mod tools;
 
 pub(crate) use state::AppState;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use codelens_core::ProjectRoot;
 use server::oneshot::run_oneshot;
 use server::transport_stdio::run_stdio;
 use state::RuntimeDaemonMode;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tool_defs::{
     ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
 };
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum StartupProjectSource {
+    Cli(String),
+    ClaudeEnv(String),
+    McpEnv(String),
+    Cwd(PathBuf),
+}
+
+impl StartupProjectSource {
+    fn is_explicit(&self) -> bool {
+        !matches!(self, Self::Cwd(_))
+    }
+
+    fn label(&self) -> &'static str {
+        match self {
+            Self::Cli(_) => "CLI path",
+            Self::ClaudeEnv(_) => "CLAUDE_PROJECT_DIR",
+            Self::McpEnv(_) => "MCP_PROJECT_DIR",
+            Self::Cwd(_) => "current working directory",
+        }
+    }
+}
+
+fn flag_takes_value(flag: &str) -> bool {
+    matches!(
+        flag,
+        "--preset" | "--profile" | "--daemon-mode" | "--cmd" | "--args" | "--transport" | "--port"
+    )
+}
+
+pub(crate) fn parse_cli_project_arg(args: &[String]) -> Option<String> {
+    let mut skip_next = false;
+    let mut iter = args.iter().skip(1);
+    while let Some(arg) = iter.next() {
+        let value = arg.as_str();
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+        if value == "--" {
+            return iter.next().map(|entry| entry.to_string());
+        }
+        if let Some((flag, _)) = value.split_once('=')
+            && flag_takes_value(flag)
+        {
+            continue;
+        }
+        if flag_takes_value(value) {
+            skip_next = true;
+            continue;
+        }
+        if value.starts_with('-') {
+            continue;
+        }
+        return Some(value.to_string());
+    }
+    None
+}
+
+fn select_startup_project_source(
+    args: &[String],
+    claude_project_dir: Option<String>,
+    mcp_project_dir: Option<String>,
+    cwd: PathBuf,
+) -> StartupProjectSource {
+    if let Some(path) = parse_cli_project_arg(args) {
+        StartupProjectSource::Cli(path)
+    } else if let Some(path) = claude_project_dir {
+        StartupProjectSource::ClaudeEnv(path)
+    } else if let Some(path) = mcp_project_dir {
+        StartupProjectSource::McpEnv(path)
+    } else {
+        StartupProjectSource::Cwd(cwd)
+    }
+}
+
+fn resolve_startup_project(source: &StartupProjectSource) -> Result<ProjectRoot> {
+    match source {
+        StartupProjectSource::Cli(path)
+        | StartupProjectSource::ClaudeEnv(path)
+        | StartupProjectSource::McpEnv(path) => ProjectRoot::new(path)
+            .map_err(anyhow::Error::from)
+            .with_context(|| {
+                format!(
+                    "failed to resolve explicit project root from {}",
+                    source.label()
+                )
+            }),
+        StartupProjectSource::Cwd(path) => ProjectRoot::new(path)
+            .map_err(anyhow::Error::from)
+            .with_context(|| format!("failed to resolve project root from {}", path.display())),
+    }
+}
 
 // ── Entry point ────────────────────────────────────────────────────────
 
@@ -54,7 +149,6 @@ fn main() -> Result<()> {
         .init();
 
     let args: Vec<String> = std::env::args().collect();
-    let project_arg = args.get(1).map(|s| s.as_str()).unwrap_or(".");
     let preset = args
         .iter()
         .position(|a| a == "--preset")
@@ -88,24 +182,15 @@ fn main() -> Result<()> {
         })
         .unwrap_or(RuntimeDaemonMode::Standard);
 
-    // Project root resolution priority:
-    // 1. Explicit path argument (if not ".")
-    // 2. CLAUDE_PROJECT_DIR environment variable (set by Claude Code)
-    // 3. MCP_PROJECT_DIR environment variable (generic)
-    // 4. Current working directory with .git/.cargo marker detection
-    let project_from_cli = project_arg != ".";
     let project_from_claude = std::env::var("CLAUDE_PROJECT_DIR").ok();
     let project_from_mcp = std::env::var("MCP_PROJECT_DIR").ok();
-
-    let effective_path = if project_from_cli {
-        project_arg.to_string()
-    } else if let Some(dir) = project_from_claude.clone() {
-        dir
-    } else if let Some(dir) = project_from_mcp.clone() {
-        dir
-    } else {
-        ".".to_string()
-    };
+    let cwd = std::env::current_dir()?;
+    let project_source = select_startup_project_source(
+        &args,
+        project_from_claude.clone(),
+        project_from_mcp.clone(),
+        cwd,
+    );
 
     // One-shot CLI mode: --cmd <tool_name> [--args '<json>']
     let cmd_tool = args
@@ -135,22 +220,8 @@ fn main() -> Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(7837);
 
-    let project = ProjectRoot::new(&effective_path).or_else(|_| {
-        // Fallback: try current working directory if explicit path fails
-        tracing::warn!(
-            "Failed to resolve project root '{}', falling back to cwd",
-            effective_path
-        );
-        let cwd = std::env::current_dir()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| ".".to_string());
-        ProjectRoot::new(&cwd)
-    })?;
-    if !project_from_cli
-        && project_from_claude.is_none()
-        && project_from_mcp.is_none()
-        && project.as_path() == std::path::Path::new("/")
-    {
+    let project = resolve_startup_project(&project_source)?;
+    if !project_source.is_explicit() && project.as_path() == std::path::Path::new("/") {
         anyhow::bail!(
             "Refusing to start CodeLens on `/` without an explicit project root. Pass a path or set MCP_PROJECT_DIR/CLAUDE_PROJECT_DIR."
         );
@@ -185,6 +256,60 @@ fn main() -> Result<()> {
             );
         }
         _ => run_stdio(Arc::new(app_state)),
+    }
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::{StartupProjectSource, parse_cli_project_arg, resolve_startup_project};
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-startup-{name}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn cli_project_arg_skips_flag_values() {
+        let args = vec![
+            "codelens-mcp".to_owned(),
+            "--transport".to_owned(),
+            "http".to_owned(),
+            "--profile".to_owned(),
+            "reviewer-graph".to_owned(),
+            "/tmp/repo".to_owned(),
+        ];
+        assert_eq!(parse_cli_project_arg(&args).as_deref(), Some("/tmp/repo"));
+    }
+
+    #[test]
+    fn cli_project_arg_honors_double_dash_separator() {
+        let args = vec![
+            "codelens-mcp".to_owned(),
+            "--transport".to_owned(),
+            "http".to_owned(),
+            "--".to_owned(),
+            ".".to_owned(),
+        ];
+        assert_eq!(parse_cli_project_arg(&args).as_deref(), Some("."));
+    }
+
+    #[test]
+    fn explicit_project_resolution_fails_closed() {
+        let missing = temp_dir("missing-parent").join("does-not-exist");
+        let source = StartupProjectSource::Cli(missing.to_string_lossy().to_string());
+        let error = resolve_startup_project(&source).expect_err("missing explicit path must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("failed to resolve explicit project root")
+        );
     }
 }
 

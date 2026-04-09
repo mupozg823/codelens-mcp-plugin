@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
+use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    build_error_response, build_success_response, SuccessResponseInput,
+    SuccessResponseInput, build_error_response, build_success_response,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
-    MutationGateFailure,
+    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
+    is_refactor_gated_mutation_tool,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
+use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
 use crate::tools::{self, ToolHandler, ToolResult};
-use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -50,6 +50,7 @@ impl ToolCallEnvelope {
             .cloned()
             .unwrap_or_else(|| json!({}));
         let session = crate::session_context::SessionRequestContext::from_json(&arguments);
+        let default_budget = state.execution_token_budget(&session);
         let budget = arguments
             .get("_profile")
             .and_then(|v| v.as_str())
@@ -60,10 +61,10 @@ impl ToolCallEnvelope {
                         "fast_local" => 2000usize,
                         "deep_semantic" => 16000,
                         "safe_mutation" => 4000,
-                        _ => state.token_budget(),
+                        _ => default_budget,
                     })
             })
-            .unwrap_or_else(|| state.token_budget());
+            .unwrap_or(default_budget);
         let compact = arguments
             .get("_compact")
             .and_then(|v| v.as_bool())
@@ -372,7 +373,7 @@ pub(crate) fn dispatch_tool(
     let span = info_span!("tool_call", tool = name);
     let _guard = span.enter();
     let start = std::time::Instant::now();
-    state.push_recent_tool(name);
+    state.push_recent_tool_for_session(session, name);
 
     // Doom-loop detection: hash arguments, check consecutive repeat count
     let args_hash = {
@@ -393,7 +394,7 @@ pub(crate) fn dispatch_tool(
         }
         hasher.finish()
     };
-    let doom_count = state.doom_loop_count(name, args_hash);
+    let doom_count = state.doom_loop_count_for_session(session, name, args_hash);
 
     // Track file access for session-aware ranking boost
     if let Some(fp) = arguments
@@ -402,10 +403,25 @@ pub(crate) fn dispatch_tool(
         .or_else(|| arguments.get("relative_path"))
         .and_then(|v| v.as_str())
     {
-        state.record_file_access(fp);
+        state.record_file_access_for_session(session, fp);
     }
-    let surface = *state.surface();
+    let surface = state.execution_surface(session);
     let active_surface = surface.as_label().to_owned();
+    let recent_tools = state.recent_tools_for_session(session);
+    let _session_project_guard = match state.ensure_session_project(session) {
+        Ok(guard) => guard,
+        Err(project_err) => {
+            return build_error_response(
+                name,
+                project_err,
+                None,
+                &active_surface,
+                state,
+                start,
+                id,
+            );
+        }
+    };
 
     // 2. Validate tool access (surface, namespace, tier, daemon mode)
     if let Err(access_err) = validate_tool_access(name, session, surface, state) {
@@ -540,6 +556,7 @@ pub(crate) fn dispatch_tool(
             active_surface: &active_surface,
             arguments,
             logical_session_id: &session.session_id,
+            recent_tools,
             gate_allowance: gate_allowance.as_ref(),
             compact,
             harness_phase: harness_phase.as_deref(),
