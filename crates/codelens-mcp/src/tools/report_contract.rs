@@ -31,7 +31,7 @@ pub(super) fn make_handle_response(
         symbol_hint.as_deref(),
     );
     if let Some(cache_key) = cache_key.as_deref()
-        && let Some(artifact) = state.find_reusable_analysis(tool_name, cache_key)
+        && let Some(artifact) = state.find_reusable_analysis_for_current_scope(tool_name, cache_key)
     {
         state.metrics().record_analysis_cache_hit();
         let data = build_handle_payload(
@@ -72,7 +72,7 @@ pub(super) fn make_handle_response(
         );
         return Ok((data, success_meta(BackendKind::Hybrid, artifact.confidence)));
     }
-    let artifact = state.store_analysis(
+    let artifact = state.store_analysis_for_current_scope(
         tool_name,
         cache_key,
         summary.clone(),

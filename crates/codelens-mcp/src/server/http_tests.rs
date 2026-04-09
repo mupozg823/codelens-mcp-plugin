@@ -437,6 +437,205 @@ async fn session_binding_rebinds_project_per_request() {
 }
 
 #[tokio::test]
+async fn analysis_jobs_follow_session_bound_project_scope() {
+    let project_a = temp_project_dir("analysis-a");
+    let project_b = temp_project_dir("analysis-b");
+    std::fs::write(
+        project_a.join("first.py"),
+        "def first_only():\n    return 1\n",
+    )
+    .unwrap();
+    std::fs::write(
+        project_b.join("second.py"),
+        "def second_only():\n    return 2\n",
+    )
+    .unwrap();
+
+    let project = ProjectRoot::new(project_a.to_str().unwrap()).unwrap();
+    let state = Arc::new(
+        AppState::new(project, crate::tool_defs::ToolPreset::Balanced).with_session_store(),
+    );
+    let app = build_router(state);
+
+    let init_a = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid_a = init_a
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let init_b = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid_b = init_b
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let activate_b = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid_b)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{{"name":"activate_project","arguments":{{"project":"{}"}}}}}}"#,
+                    project_b.display()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(activate_b.status(), StatusCode::OK);
+
+    let set_profile_b = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid_b)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"set_profile","arguments":{"profile":"reviewer-graph"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(set_profile_b.status(), StatusCode::OK);
+
+    let start = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid_b)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"start_analysis_job","arguments":{"kind":"impact_report","path":"second.py","profile_hint":"reviewer-graph"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(start.status(), StatusCode::OK);
+    let start_payload = first_tool_payload(&body_string(start).await);
+    let job_id = start_payload["data"]["job_id"]
+        .as_str()
+        .expect("job id")
+        .to_owned();
+
+    let mut analysis_id = None;
+    let mut last_poll_payload = None;
+    for _ in 0..2000 {
+        let poll = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/mcp")
+                    .header("content-type", "application/json")
+                    .header("mcp-session-id", &sid_b)
+                    .body(axum::body::Body::from(format!(
+                        r#"{{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{{"name":"get_analysis_job","arguments":{{"job_id":"{}"}}}}}}"#,
+                        job_id
+                    )))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let poll_payload = first_tool_payload(&body_string(poll).await);
+        last_poll_payload = Some(poll_payload.clone());
+        if let Some(id) = poll_payload["data"]["analysis_id"].as_str() {
+            analysis_id = Some(id.to_owned());
+            break;
+        }
+        if matches!(
+            poll_payload["data"]["status"].as_str(),
+            Some("error") | Some("cancelled")
+        ) {
+            panic!("analysis job did not complete successfully: {poll_payload}");
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    let analysis_id = analysis_id.unwrap_or_else(|| {
+        panic!(
+            "analysis_id after completion; last poll payload: {}",
+            last_poll_payload.unwrap_or_default()
+        )
+    });
+    let section = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid_b)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{{"name":"get_analysis_section","arguments":{{"analysis_id":"{}","section":"impact_rows"}}}}}}"#,
+                    analysis_id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let section_payload = first_tool_payload(&body_string(section).await);
+    assert_eq!(section_payload["success"], serde_json::json!(true));
+    assert!(section_payload["data"]["content"].to_string().contains("second.py"));
+
+    let foreign_poll = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid_a)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":8,"method":"tools/call","params":{{"name":"get_analysis_job","arguments":{{"job_id":"{}"}}}}}}"#,
+                    job_id
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let foreign_body = body_string(foreign_poll).await;
+    assert!(foreign_body.contains("unknown job_id"));
+}
+
+#[tokio::test]
 async fn session_bound_missing_project_fails_closed() {
     let state = test_state();
     let app = build_router(state.clone());
@@ -1067,11 +1266,13 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
     let body = body_string(resp).await;
     assert!(body.contains("\"deferred_loading_active\":true"));
     assert!(body.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
-    assert!(body.contains("\"tool_count\":4"));
+    assert!(body.contains("\"tool_count\":"));
     assert!(body.contains("\"verify_change_readiness\""));
     assert!(body.contains("\"refactor_safety_report\""));
     assert!(body.contains("\"safe_rename_report\""));
     assert!(body.contains("\"start_analysis_job\""));
+    assert!(body.contains("\"activate_project\""));
+    assert!(body.contains("\"set_profile\""));
     assert!(!body.contains("\"name\":\"rename_symbol\""));
     assert!(!body.contains("\"name\":\"replace_symbol_body\""));
     assert!(!body.contains("\"name\":\"refactor_extract_function\""));

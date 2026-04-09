@@ -1,8 +1,8 @@
 use super::report_utils::{extract_handle_fields, stable_cache_key, strings_from_array};
-use super::{required_string, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::Path;
 use std::time::Duration;
@@ -106,13 +106,14 @@ fn patch_job_file(
 
 fn advance_job_progress(
     state: &AppState,
+    scope: &str,
     job_id: &str,
     progress: u8,
     current_step: &str,
     delay_ms: u64,
 ) -> Result<bool, String> {
     if state
-        .get_analysis_job(job_id)
+        .get_analysis_job_for_scope(scope, job_id)
         .as_ref()
         .map(|job| job.status)
         == Some(crate::runtime_types::JobLifecycle::Cancelled)
@@ -121,6 +122,7 @@ fn advance_job_progress(
     }
     state
         .update_analysis_job(
+            scope,
             job_id,
             Some(crate::runtime_types::JobLifecycle::Running),
             Some(progress),
@@ -136,24 +138,35 @@ fn advance_job_progress(
 
 fn run_job_kind_with_progress(
     state: &AppState,
+    scope: &str,
     job_id: &str,
     kind: &str,
     arguments: &Value,
 ) -> Result<Value, String> {
     let delay_ms = debug_step_delay_ms(arguments);
     match kind {
-        "impact_report" => run_impact_report_job(state, job_id, arguments, delay_ms),
-        "dead_code_report" => run_dead_code_report_job(state, job_id, arguments, delay_ms),
+        "impact_report" => run_impact_report_job(state, scope, job_id, arguments, delay_ms),
+        "dead_code_report" => run_dead_code_report_job(state, scope, job_id, arguments, delay_ms),
         "refactor_safety_report" => {
-            run_refactor_safety_report_job(state, job_id, arguments, delay_ms)
+            run_refactor_safety_report_job(state, scope, job_id, arguments, delay_ms)
         }
-        "module_boundary_report" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
-        "safe_rename_report" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
-        "diff_aware_references" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
-        "semantic_code_review" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
-        "analyze_change_request" => run_simple_report_job(state, job_id, kind, arguments, delay_ms),
+        "module_boundary_report" => {
+            run_simple_report_job(state, scope, job_id, kind, arguments, delay_ms)
+        }
+        "safe_rename_report" => {
+            run_simple_report_job(state, scope, job_id, kind, arguments, delay_ms)
+        }
+        "diff_aware_references" => {
+            run_simple_report_job(state, scope, job_id, kind, arguments, delay_ms)
+        }
+        "semantic_code_review" => {
+            run_simple_report_job(state, scope, job_id, kind, arguments, delay_ms)
+        }
+        "analyze_change_request" => {
+            run_simple_report_job(state, scope, job_id, kind, arguments, delay_ms)
+        }
         "verify_change_readiness" => {
-            run_simple_report_job(state, job_id, kind, arguments, delay_ms)
+            run_simple_report_job(state, scope, job_id, kind, arguments, delay_ms)
         }
         _ => run_job_kind(state, kind, arguments)
             .map(|(payload, _meta)| payload)
@@ -164,18 +177,19 @@ fn run_job_kind_with_progress(
 /// Generic progress wrapper for report kinds that don't need step-level progress tracking.
 fn run_simple_report_job(
     state: &AppState,
+    scope: &str,
     job_id: &str,
     kind: &str,
     arguments: &Value,
     delay_ms: u64,
 ) -> Result<Value, String> {
-    if !advance_job_progress(state, job_id, 30, &format!("starting {kind}"), delay_ms)? {
+    if !advance_job_progress(state, scope, job_id, 30, &format!("starting {kind}"), delay_ms)? {
         return Ok(json!({}));
     }
     let result = run_job_kind(state, kind, arguments)
         .map(|(payload, _meta)| payload)
         .map_err(|error| error.to_string())?;
-    if !advance_job_progress(state, job_id, 90, &format!("finalizing {kind}"), delay_ms)? {
+    if !advance_job_progress(state, scope, job_id, 90, &format!("finalizing {kind}"), delay_ms)? {
         return Ok(json!({}));
     }
     Ok(result)
@@ -183,6 +197,7 @@ fn run_simple_report_job(
 
 fn run_dead_code_report_job(
     state: &AppState,
+    scope_key: &str,
     job_id: &str,
     arguments: &Value,
     delay_ms: u64,
@@ -195,14 +210,28 @@ fn run_dead_code_report_job(
         .get("max_results")
         .and_then(|v| v.as_u64())
         .unwrap_or(20);
-    if !advance_job_progress(state, job_id, 20, "scanning dead code candidates", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope_key,
+        job_id,
+        20,
+        "scanning dead code candidates",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     let dead_code =
         super::graph::find_dead_code_v2_tool(state, &json!({"max_results": max_results}))
             .map(|output| output.0)
             .map_err(|error| error.to_string())?;
-    if !advance_job_progress(state, job_id, 70, "filtering scoped dead code", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope_key,
+        job_id,
+        70,
+        "filtering scoped dead code",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     let candidates = dead_code
@@ -221,7 +250,14 @@ fn run_dead_code_report_job(
         json!({"scope": scope, "dead_code": candidates}),
     );
     sections.insert("raw_dead_code".to_owned(), dead_code);
-    if !advance_job_progress(state, job_id, 90, "writing dead code analysis", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope_key,
+        job_id,
+        90,
+        "writing dead code analysis",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     super::report_contract::make_handle_response(
@@ -246,11 +282,12 @@ fn run_dead_code_report_job(
 
 fn run_impact_report_job(
     state: &AppState,
+    scope: &str,
     job_id: &str,
     arguments: &Value,
     delay_ms: u64,
 ) -> Result<Value, String> {
-    if !advance_job_progress(state, job_id, 20, "collecting changed files", delay_ms)? {
+    if !advance_job_progress(state, scope, job_id, 20, "collecting changed files", delay_ms)? {
         return Ok(json!({}));
     }
     let changed_files = strings_from_array(
@@ -275,7 +312,7 @@ fn run_impact_report_job(
             8,
         )
     };
-    if !advance_job_progress(state, job_id, 45, "measuring impact surface", delay_ms)? {
+    if !advance_job_progress(state, scope, job_id, 45, "measuring impact surface", delay_ms)? {
         return Ok(json!({}));
     }
     let mut impact_rows = Vec::new();
@@ -311,6 +348,7 @@ fn run_impact_report_job(
         let loop_progress = 45 + (((idx + 1) * 35) / total) as u8;
         if !advance_job_progress(
             state,
+            scope,
             job_id,
             loop_progress.min(80),
             &format!("analyzed impact for {path}"),
@@ -324,7 +362,7 @@ fn run_impact_report_job(
         "impact_rows".to_owned(),
         json!({"files": target_files, "impacts": impact_rows}),
     );
-    if !advance_job_progress(state, job_id, 90, "writing impact analysis", delay_ms)? {
+    if !advance_job_progress(state, scope, job_id, 90, "writing impact analysis", delay_ms)? {
         return Ok(json!({}));
     }
     super::report_contract::make_handle_response(
@@ -345,6 +383,7 @@ fn run_impact_report_job(
 
 fn run_refactor_safety_report_job(
     state: &AppState,
+    scope: &str,
     job_id: &str,
     arguments: &Value,
     delay_ms: u64,
@@ -355,13 +394,13 @@ fn run_refactor_safety_report_job(
         .unwrap_or(".");
     let task = arguments.get("task").and_then(|value| value.as_str());
     let symbol = arguments.get("symbol").and_then(|value| value.as_str());
-    if !advance_job_progress(state, job_id, 20, "analyzing module boundaries", delay_ms)? {
+    if !advance_job_progress(state, scope, job_id, 20, "analyzing module boundaries", delay_ms)? {
         return Ok(json!({}));
     }
     let boundary = super::reports::module_boundary_report(state, &json!({"path": path}))
         .map(|output| output.0)
         .map_err(|error| error.to_string())?;
-    if !advance_job_progress(state, job_id, 40, "summarizing symbol impact", delay_ms)? {
+    if !advance_job_progress(state, scope, job_id, 40, "summarizing symbol impact", delay_ms)? {
         return Ok(json!({}));
     }
     let symbol_impact = if let Some(symbol) = symbol {
@@ -374,7 +413,7 @@ fn run_refactor_safety_report_job(
     } else {
         json!({"skipped": true, "reason": "no symbol provided"})
     };
-    if !advance_job_progress(state, job_id, 60, "ranking refactor context", delay_ms)? {
+    if !advance_job_progress(state, scope, job_id, 60, "ranking refactor context", delay_ms)? {
         return Ok(json!({}));
     }
     let change_request = task
@@ -385,7 +424,7 @@ fn run_refactor_safety_report_job(
         .transpose()
         .map_err(|error| error.to_string())?
         .unwrap_or_else(|| json!({"skipped": true, "reason": "no task provided"}));
-    if !advance_job_progress(state, job_id, 80, "collecting related tests", delay_ms)? {
+    if !advance_job_progress(state, scope, job_id, 80, "collecting related tests", delay_ms)? {
         return Ok(json!({}));
     }
     let tests = super::filesystem::find_tests(state, &json!({"path": path, "max_results": 10}))
@@ -423,11 +462,13 @@ fn run_refactor_safety_report_job(
         0.9,
         vec!["Use safe_rename_report or focused edits only after checking blockers".to_owned()],
         sections,
-        vec![arguments
-            .get("file_path")
-            .and_then(|value| value.as_str())
-            .unwrap_or(path)
-            .to_owned()],
+        vec![
+            arguments
+                .get("file_path")
+                .and_then(|value| value.as_str())
+                .unwrap_or(path)
+                .to_owned(),
+        ],
         symbol.map(ToOwned::to_owned),
     )
     .map(|(payload, _meta)| payload)
@@ -441,21 +482,31 @@ pub(crate) fn run_analysis_job_from_queue(
     arguments: Value,
 ) -> crate::runtime_types::JobLifecycle {
     use crate::runtime_types::JobLifecycle;
-    let project_path = worker_state
-        .project()
-        .as_path()
-        .to_string_lossy()
-        .to_string();
+    let scope = worker_state.project_scope_for_arguments(&arguments);
     if worker_state
-        .get_analysis_job(&job_id)
+        .get_analysis_job_for_scope(&scope, &job_id)
         .as_ref()
         .map(|job| job.status)
         == Some(crate::runtime_types::JobLifecycle::Cancelled)
     {
         return JobLifecycle::Cancelled;
     }
+    if let Err(error) = worker_state.switch_project(&scope) {
+        patch_job_file(
+            &scope,
+            &job_id,
+            Some(JobLifecycle::Error),
+            Some(100),
+            Some(Some("failed".to_owned())),
+            Some(None),
+            Some(Some(format!(
+                "analysis worker failed to bind project scope `{scope}`: {error}"
+            ))),
+        );
+        return JobLifecycle::Error;
+    }
     patch_job_file(
-        &project_path,
+        &scope,
         &job_id,
         Some(crate::runtime_types::JobLifecycle::Running),
         Some(5),
@@ -466,7 +517,7 @@ pub(crate) fn run_analysis_job_from_queue(
     let worker = std::panic::catch_unwind(std::panic::AssertUnwindSafe(
         || -> Result<JobLifecycle, String> {
             if worker_state
-                .get_analysis_job(&job_id)
+                .get_analysis_job_for_scope(&scope, &job_id)
                 .as_ref()
                 .map(|job| job.status)
                 == Some(JobLifecycle::Cancelled)
@@ -477,7 +528,8 @@ pub(crate) fn run_analysis_job_from_queue(
             let mut last_err = None;
             let mut result = None;
             for attempt in 0..3 {
-                match run_job_kind_with_progress(worker_state, &job_id, &kind, &arguments) {
+                match run_job_kind_with_progress(worker_state, &scope, &job_id, &kind, &arguments)
+                {
                     Ok(payload) => {
                         result = Some(payload);
                         break;
@@ -498,12 +550,13 @@ pub(crate) fn run_analysis_job_from_queue(
             match result.map(Ok).unwrap_or_else(|| Err(last_err.unwrap())) {
                 Ok(payload) if payload.is_object() => {
                     let (analysis_id, estimated_sections) = extract_handle_fields(&payload);
-                    let current = worker_state.get_analysis_job(&job_id);
+                    let current = worker_state.get_analysis_job_for_scope(&scope, &job_id);
                     if current.as_ref().map(|job| job.status) == Some(JobLifecycle::Cancelled) {
                         return Ok(JobLifecycle::Cancelled);
                     }
                     worker_state
                         .update_analysis_job(
+                            &scope,
                             &job_id,
                             Some(JobLifecycle::Completed),
                             Some(100),
@@ -519,6 +572,7 @@ pub(crate) fn run_analysis_job_from_queue(
                 Err(error) => {
                     worker_state
                         .update_analysis_job(
+                            &scope,
                             &job_id,
                             Some(JobLifecycle::Error),
                             Some(100),
@@ -543,7 +597,7 @@ pub(crate) fn run_analysis_job_from_queue(
                 "analysis worker panicked".to_owned()
             };
             patch_job_file(
-                &project_path,
+                &scope,
                 &job_id,
                 Some(JobLifecycle::Error),
                 Some(100),
@@ -555,7 +609,7 @@ pub(crate) fn run_analysis_job_from_queue(
         }
         Ok(Err(message)) => {
             patch_job_file(
-                &project_path,
+                &scope,
                 &job_id,
                 Some(JobLifecycle::Error),
                 Some(100),
@@ -571,12 +625,14 @@ pub(crate) fn run_analysis_job_from_queue(
 
 pub fn start_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
     let kind = required_string(arguments, "kind")?.to_owned();
+    let scope = state.project_scope_for_arguments(arguments);
     let profile_hint = arguments
         .get("profile_hint")
         .and_then(|value| value.as_str())
         .map(ToOwned::to_owned);
     let estimated_sections = estimated_sections_for_kind(&kind);
     let job = state.store_analysis_job(
+        &scope,
         &kind,
         profile_hint.clone(),
         estimated_sections.clone(),
@@ -607,8 +663,9 @@ pub fn start_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
 
 pub fn get_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
     let job_id = required_string(arguments, "job_id")?;
+    let scope = state.project_scope_for_arguments(arguments);
     let job = state
-        .get_analysis_job(job_id)
+        .get_analysis_job_for_scope(&scope, job_id)
         .ok_or_else(|| CodeLensError::NotFound(format!("unknown job_id `{job_id}`")))?;
     Ok((
         json!({
@@ -629,7 +686,8 @@ pub fn get_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
 
 pub fn cancel_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
     let job_id = required_string(arguments, "job_id")?;
-    let job = state.cancel_analysis_job(job_id)?;
+    let scope = state.project_scope_for_arguments(arguments);
+    let job = state.cancel_analysis_job_for_scope(&scope, job_id)?;
     Ok((
         json!({
             "job_id": job.id,
@@ -645,8 +703,9 @@ pub fn cancel_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
 pub fn get_analysis_section(state: &AppState, arguments: &Value) -> ToolResult {
     let analysis_id = required_string(arguments, "analysis_id")?;
     let section = required_string(arguments, "section")?;
+    let scope = state.project_scope_for_arguments(arguments);
     let artifact = state
-        .get_analysis(analysis_id)
+        .get_analysis_for_scope(&scope, analysis_id)
         .ok_or_else(|| CodeLensError::NotFound(format!("unknown analysis_id `{analysis_id}`")))?;
     let content =
         state
@@ -672,11 +731,12 @@ pub fn get_analysis_section(state: &AppState, arguments: &Value) -> ToolResult {
 }
 
 pub fn list_analysis_jobs(state: &AppState, arguments: &Value) -> ToolResult {
+    let scope = state.project_scope_for_arguments(arguments);
     let status_filter = arguments
         .get("status")
         .and_then(|v| v.as_str())
         .map(|s| s.to_owned());
-    let jobs = state.list_analysis_jobs(status_filter.as_deref());
+    let jobs = state.list_analysis_jobs_for_scope(&scope, status_filter.as_deref());
     let items = jobs
         .iter()
         .map(|job| {
@@ -701,8 +761,9 @@ pub fn list_analysis_jobs(state: &AppState, arguments: &Value) -> ToolResult {
     ))
 }
 
-pub fn list_analysis_artifacts(state: &AppState, _arguments: &Value) -> ToolResult {
-    let summaries = state.list_analysis_summaries();
+pub fn list_analysis_artifacts(state: &AppState, arguments: &Value) -> ToolResult {
+    let scope = state.project_scope_for_arguments(arguments);
+    let summaries = state.list_analysis_summaries_for_scope(&scope);
     let items = summaries
         .iter()
         .map(|s| {
@@ -726,8 +787,9 @@ pub fn list_analysis_artifacts(state: &AppState, _arguments: &Value) -> ToolResu
 
 pub fn retry_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
     let job_id = required_string(arguments, "job_id")?;
+    let scope = state.project_scope_for_arguments(arguments);
     let original = state
-        .get_analysis_job(job_id)
+        .get_analysis_job_for_scope(&scope, job_id)
         .ok_or_else(|| CodeLensError::NotFound(format!("unknown job_id `{job_id}`")))?;
     if !matches!(
         original.status,
@@ -742,6 +804,7 @@ pub fn retry_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
     let profile_hint = original.profile_hint.clone();
     let estimated_sections = estimated_sections_for_kind(&kind);
     let job = state.store_analysis_job(
+        &scope,
         &kind,
         profile_hint.clone(),
         estimated_sections.clone(),
