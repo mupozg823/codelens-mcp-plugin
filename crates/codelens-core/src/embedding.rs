@@ -83,68 +83,70 @@ struct SqliteVecStore {
 
 impl SqliteVecStore {
     fn new(db_path: &std::path::Path, dimension: usize, model_name: &str) -> Result<Self> {
-        ffi::register_sqlite_vec()?;
+        crate::db::open_derived_sqlite_with_recovery(db_path, "embedding index", || {
+            ffi::register_sqlite_vec()?;
 
-        let conn = Connection::open(db_path)?;
-        conn.execute_batch(
-            "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL; PRAGMA auto_vacuum=INCREMENTAL;",
-        )?;
-
-        // Check if DB exists with a different model — if so, drop and recreate
-        let existing_model: Option<String> = conn
-            .query_row(
-                "SELECT value FROM meta WHERE key = 'model' LIMIT 1",
-                [],
-                |row| row.get(0),
-            )
-            .ok();
-
-        let needs_recreate = match &existing_model {
-            Some(m) => m != model_name,
-            None => {
-                // meta table might not exist yet
-                true
-            }
-        };
-
-        if needs_recreate {
-            // Drop everything and start fresh
+            let conn = Connection::open(db_path)?;
             conn.execute_batch(
-                "DROP TABLE IF EXISTS vec_symbols;
-                 DROP TABLE IF EXISTS symbols;
-                 DROP TABLE IF EXISTS meta;",
+                "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL; PRAGMA auto_vacuum=INCREMENTAL;",
             )?;
-        }
 
-        conn.execute_batch(&format!(
-            "CREATE TABLE IF NOT EXISTS meta (
-                key TEXT PRIMARY KEY,
-                value TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS symbols (
-                id INTEGER PRIMARY KEY,
-                file_path TEXT NOT NULL,
-                symbol_name TEXT NOT NULL,
-                kind TEXT NOT NULL,
-                line INTEGER NOT NULL,
-                signature TEXT NOT NULL,
-                name_path TEXT NOT NULL DEFAULT '',
-                text TEXT NOT NULL
-            );
-            CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(
-                embedding float[{dimension}]
-            );",
-            dimension = dimension
-        ))?;
+            // Check if DB exists with a different model — if so, drop and recreate
+            let existing_model: Option<String> = conn
+                .query_row(
+                    "SELECT value FROM meta WHERE key = 'model' LIMIT 1",
+                    [],
+                    |row| row.get(0),
+                )
+                .ok();
 
-        // Store model name
-        conn.execute(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES ('model', ?1)",
-            rusqlite::params![model_name],
-        )?;
+            let needs_recreate = match &existing_model {
+                Some(m) => m != model_name,
+                None => {
+                    // meta table might not exist yet
+                    true
+                }
+            };
 
-        Ok(Self {
-            db: Mutex::new(conn),
+            if needs_recreate {
+                // Drop everything and start fresh
+                conn.execute_batch(
+                    "DROP TABLE IF EXISTS vec_symbols;
+                     DROP TABLE IF EXISTS symbols;
+                     DROP TABLE IF EXISTS meta;",
+                )?;
+            }
+
+            conn.execute_batch(&format!(
+                "CREATE TABLE IF NOT EXISTS meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS symbols (
+                    id INTEGER PRIMARY KEY,
+                    file_path TEXT NOT NULL,
+                    symbol_name TEXT NOT NULL,
+                    kind TEXT NOT NULL,
+                    line INTEGER NOT NULL,
+                    signature TEXT NOT NULL,
+                    name_path TEXT NOT NULL DEFAULT '',
+                    text TEXT NOT NULL
+                );
+                CREATE VIRTUAL TABLE IF NOT EXISTS vec_symbols USING vec0(
+                    embedding float[{dimension}]
+                );",
+                dimension = dimension
+            ))?;
+
+            // Store model name
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('model', ?1)",
+                rusqlite::params![model_name],
+            )?;
+
+            Ok(Self {
+                db: Mutex::new(conn),
+            })
         })
     }
 
@@ -424,9 +426,10 @@ impl EmbeddingStore for SqliteVecStore {
         while let Some(row) = rows.next()? {
             let file_path: String = row.get(0)?;
             if current_file.as_deref() != Some(file_path.as_str())
-                && let Some(previous_file) = current_file.replace(file_path.clone()) {
-                    visitor(previous_file, std::mem::take(&mut current_chunks))?;
-                }
+                && let Some(previous_file) = current_file.replace(file_path.clone())
+            {
+                visitor(previous_file, std::mem::take(&mut current_chunks))?;
+            }
 
             let symbol_name: String = row.get(1)?;
             let kind: String = row.get(2)?;
@@ -1599,9 +1602,14 @@ impl EmbeddingEngine {
             return Ok(None);
         }
 
-        ffi::register_sqlite_vec()?;
-        let conn = Connection::open(&db_path)?;
-        conn.execute_batch("PRAGMA busy_timeout=5000;")?;
+        let conn =
+            crate::db::open_derived_sqlite_with_recovery(&db_path, "embedding index", || {
+                ffi::register_sqlite_vec()?;
+                let conn = Connection::open(&db_path)?;
+                conn.execute_batch("PRAGMA busy_timeout=5000;")?;
+                conn.query_row("PRAGMA schema_version", [], |_row| Ok(()))?;
+                Ok(conn)
+            })?;
 
         let model_name: Option<String> = conn
             .query_row(
@@ -2714,6 +2722,37 @@ mod tests {
             .expect("index info should exist");
         assert_eq!(info.model_name, engine.model_name());
         assert_eq!(info.indexed_symbols, 2);
+    }
+
+    #[test]
+    fn inspect_existing_index_recovers_from_corrupt_db() {
+        let (_dir, project) = make_project_with_source();
+        let index_dir = project.as_path().join(".codelens/index");
+        let db_path = index_dir.join("embeddings.db");
+        let wal_path = index_dir.join("embeddings.db-wal");
+        let shm_path = index_dir.join("embeddings.db-shm");
+
+        std::fs::write(&db_path, b"not a sqlite database").unwrap();
+        std::fs::write(&wal_path, b"bad wal").unwrap();
+        std::fs::write(&shm_path, b"bad shm").unwrap();
+
+        let info = EmbeddingEngine::inspect_existing_index(&project).unwrap();
+        assert!(info.is_none());
+
+        assert!(db_path.is_file());
+
+        let backup_names: Vec<String> = std::fs::read_dir(&index_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".corrupt-"))
+            .collect();
+
+        assert!(
+            backup_names
+                .iter()
+                .any(|name| name.starts_with("embeddings.db.corrupt-")),
+            "expected quarantined embedding db, found {backup_names:?}"
+        );
     }
 
     #[test]

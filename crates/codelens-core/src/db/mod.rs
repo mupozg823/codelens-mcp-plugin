@@ -1,8 +1,9 @@
 use anyhow::{Context, Result};
 use rusqlite::{Connection, OptionalExtension};
 use sha2::{Digest, Sha256};
+use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod ops;
 
@@ -117,18 +118,16 @@ pub(crate) use ops::{
 impl IndexDb {
     /// Open or create the index database at the given path.
     pub fn open(db_path: &Path) -> Result<Self> {
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("failed to create {}", parent.display()))?;
-        }
-        let conn = Connection::open(db_path)
-            .with_context(|| format!("failed to open db at {}", db_path.display()))?;
-        conn.execute_batch(
-            "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -8000; PRAGMA auto_vacuum = INCREMENTAL;",
-        )?;
-        let mut db = Self { conn };
-        db.migrate()?;
-        Ok(db)
+        open_derived_sqlite_with_recovery(db_path, "symbol index", || {
+            let conn = Connection::open(db_path)
+                .with_context(|| format!("failed to open db at {}", db_path.display()))?;
+            conn.execute_batch(
+                "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA cache_size = -8000; PRAGMA auto_vacuum = INCREMENTAL;",
+            )?;
+            let mut db = Self { conn };
+            db.migrate()?;
+            Ok(db)
+        })
     }
 
     /// Open existing database in read-only mode (no migration, no WAL creation).
@@ -326,6 +325,39 @@ impl IndexDb {
     }
 }
 
+pub(crate) fn open_derived_sqlite_with_recovery<T, F>(
+    db_path: &Path,
+    kind: &str,
+    mut init: F,
+) -> Result<T>
+where
+    F: FnMut() -> Result<T>,
+{
+    ensure_db_parent_dir(db_path)?;
+
+    match init() {
+        Ok(value) => Ok(value),
+        Err(error) if is_recoverable_sqlite_anyhow(&error) => {
+            let backups = quarantine_corrupt_sqlite_files(db_path)?;
+            tracing::warn!(
+                path = %db_path.display(),
+                kind,
+                backups = ?backups,
+                error = %error,
+                "recovering derived sqlite index from corruption"
+            );
+            init().with_context(|| {
+                format!(
+                    "failed to recreate recovered {} at {}",
+                    kind,
+                    db_path.display()
+                )
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn is_lock_contention(error: &rusqlite::Error) -> bool {
     matches!(
         error,
@@ -343,6 +375,100 @@ fn is_lock_contention_anyhow(error: &anyhow::Error) -> bool {
             .downcast_ref::<rusqlite::Error>()
             .is_some_and(is_lock_contention)
     })
+}
+
+fn ensure_db_parent_dir(db_path: &Path) -> Result<()> {
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    Ok(())
+}
+
+fn is_recoverable_sqlite_error(error: &rusqlite::Error) -> bool {
+    matches!(
+        error,
+        rusqlite::Error::SqliteFailure(code, maybe_msg)
+            if matches!(
+                code.code,
+                rusqlite::ErrorCode::SystemIoFailure
+                    | rusqlite::ErrorCode::DatabaseCorrupt
+                    | rusqlite::ErrorCode::NotADatabase
+            ) || maybe_msg
+                .as_deref()
+                .is_some_and(sqlite_message_suggests_recovery)
+    )
+}
+
+fn is_recoverable_sqlite_anyhow(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        cause
+            .downcast_ref::<rusqlite::Error>()
+            .is_some_and(is_recoverable_sqlite_error)
+            || sqlite_message_suggests_recovery(&cause.to_string())
+    })
+}
+
+fn sqlite_message_suggests_recovery(message: &str) -> bool {
+    let message = message.to_ascii_lowercase();
+    message.contains("disk i/o error")
+        || message.contains("database disk image is malformed")
+        || message.contains("file is not a database")
+}
+
+fn quarantine_corrupt_sqlite_files(db_path: &Path) -> Result<Vec<PathBuf>> {
+    let suffix = format!(
+        "corrupt-{}-{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis(),
+        std::process::id()
+    );
+    let mut backups = Vec::new();
+
+    for path in sqlite_related_paths(db_path) {
+        if !path.exists() {
+            continue;
+        }
+
+        let file_name = path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "sqlite-index".to_owned());
+        let backup_path = path.with_file_name(format!("{file_name}.{suffix}"));
+
+        match fs::rename(&path, &backup_path) {
+            Ok(()) => backups.push(backup_path),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    format!(
+                        "failed to quarantine corrupt sqlite file {}",
+                        path.display()
+                    )
+                });
+            }
+        }
+    }
+
+    Ok(backups)
+}
+
+fn sqlite_related_paths(db_path: &Path) -> [PathBuf; 3] {
+    let file_name = db_path.file_name().unwrap_or_default();
+
+    let mut wal_name = file_name.to_os_string();
+    wal_name.push("-wal");
+
+    let mut shm_name = file_name.to_os_string();
+    shm_name.push("-shm");
+
+    [
+        db_path.to_path_buf(),
+        db_path.with_file_name(wal_name),
+        db_path.with_file_name(shm_name),
+    ]
 }
 
 /// Compute SHA-256 hex digest of content.

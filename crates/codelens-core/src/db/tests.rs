@@ -1,4 +1,5 @@
 use super::*;
+use std::fs;
 
 #[test]
 fn creates_schema_and_upserts_file() {
@@ -242,4 +243,77 @@ fn with_transaction_auto_rollback_on_error() {
     assert!(result.is_err());
     // File should not exist — transaction was rolled back
     assert!(db.get_file("rollback_test.py").unwrap().is_none());
+}
+
+#[test]
+fn open_recreates_corrupt_db_and_wal_sidecars() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("symbols.db");
+    let wal_path = dir.path().join("symbols.db-wal");
+    let shm_path = dir.path().join("symbols.db-shm");
+
+    fs::write(&db_path, b"not a sqlite database").unwrap();
+    fs::write(&wal_path, b"bad wal").unwrap();
+    fs::write(&shm_path, b"bad shm").unwrap();
+
+    let db = IndexDb::open(&db_path).unwrap();
+    assert_eq!(db.file_count().unwrap(), 0);
+
+    let file_id = db
+        .upsert_file("src/lib.rs", 100, "hash", 12, Some("rs"))
+        .unwrap();
+    assert!(file_id > 0);
+    assert!(db.get_file("src/lib.rs").unwrap().is_some());
+
+    assert!(db_path.is_file());
+
+    let backup_names: Vec<String> = fs::read_dir(dir.path())
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains(".corrupt-"))
+        .collect();
+
+    assert!(
+        backup_names
+            .iter()
+            .any(|name| name.starts_with("symbols.db.corrupt-")),
+        "expected quarantined primary db file, found {backup_names:?}"
+    );
+}
+
+#[test]
+fn quarantine_corrupt_sqlite_files_moves_sidecars_when_present() {
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("symbols.db");
+    let wal_path = dir.path().join("symbols.db-wal");
+    let shm_path = dir.path().join("symbols.db-shm");
+
+    fs::write(&db_path, b"not a sqlite database").unwrap();
+    fs::write(&wal_path, b"bad wal").unwrap();
+    fs::write(&shm_path, b"bad shm").unwrap();
+
+    let backups = quarantine_corrupt_sqlite_files(&db_path).unwrap();
+    let backup_names: Vec<String> = backups
+        .iter()
+        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect();
+
+    assert!(
+        backup_names
+            .iter()
+            .any(|name| name.starts_with("symbols.db.corrupt-")),
+        "expected quarantined primary db file, found {backup_names:?}"
+    );
+    assert!(
+        backup_names
+            .iter()
+            .any(|name| name.starts_with("symbols.db-wal.corrupt-")),
+        "expected quarantined wal sidecar, found {backup_names:?}"
+    );
+    assert!(
+        backup_names
+            .iter()
+            .any(|name| name.starts_with("symbols.db-shm.corrupt-")),
+        "expected quarantined shm sidecar, found {backup_names:?}"
+    );
 }
