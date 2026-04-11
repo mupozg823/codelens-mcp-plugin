@@ -1,0 +1,1487 @@
+{
+  "project": "/tmp/next-js/packages/next/src",
+  "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-embed-quality-zibqnhe1/src",
+  "isolated_copy": true,
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-next-js.json",
+  "dataset_size": 34,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.14640522875816994,
+      "acc1": 0.11764705882352941,
+      "acc3": 0.14705882352941177,
+      "acc5": 0.17647058823529413,
+      "avg_elapsed_ms": 1900.9535294117647,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 447.81
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.10256410256410256,
+          "acc1": 0.07692307692307693,
+          "acc3": 0.11538461538461539,
+          "acc5": 0.11538461538461539,
+          "avg_elapsed_ms": 2203.5003846153845
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.05185185185185185,
+          "acc1": 0.0,
+          "acc3": 0.0,
+          "acc5": 0.16666666666666666,
+          "avg_elapsed_ms": 1074.2983333333334
+        }
+      },
+      "rows": [
+        {
+          "query": "get the current request headers in a server component",
+          "query_type": "natural_language",
+          "expected_symbol": "headers",
+          "expected_file_suffix": "server/request/headers.ts",
+          "rank": null,
+          "elapsed_ms": 2152.09,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "headers",
+            "file": "compiled/@vercel/blob/index.cjs"
+          }
+        },
+        {
+          "query": "read cookies in a server component",
+          "query_type": "natural_language",
+          "expected_symbol": "cookies",
+          "expected_file_suffix": "server/request/cookies.ts",
+          "rank": null,
+          "elapsed_ms": 2354.88,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "read",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "check if draft mode is enabled",
+          "query_type": "natural_language",
+          "expected_symbol": "draftMode",
+          "expected_file_suffix": "server/request/draft-mode.ts",
+          "rank": 6,
+          "elapsed_ms": 1784.87,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "revalidate a cached path on demand",
+          "query_type": "natural_language",
+          "expected_symbol": "revalidatePath",
+          "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+          "rank": null,
+          "elapsed_ms": 1787.29,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "read",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "invalidate cached data by tag",
+          "query_type": "natural_language",
+          "expected_symbol": "revalidateTag",
+          "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+          "rank": null,
+          "elapsed_ms": 1780.03,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "invalidate",
+            "file": "compiled/babel/bundle.js"
+          }
+        },
+        {
+          "query": "cache the result of a server-side function",
+          "query_type": "natural_language",
+          "expected_symbol": "unstable_cache",
+          "expected_file_suffix": "server/web/spec-extension/unstable-cache.ts",
+          "rank": null,
+          "elapsed_ms": 3232.74,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "cachedProperty",
+            "file": "compiled/crypto-browserify/index.js"
+          }
+        },
+        {
+          "query": "return a 404 from a server component",
+          "query_type": "natural_language",
+          "expected_symbol": "notFound",
+          "expected_file_suffix": "client/components/not-found.ts",
+          "rank": null,
+          "elapsed_ms": 2654.47,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "rename",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "permanently redirect to a new URL",
+          "query_type": "natural_language",
+          "expected_symbol": "permanentRedirect",
+          "expected_file_suffix": "client/components/redirect.ts",
+          "rank": 1,
+          "elapsed_ms": 1790.9,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "permanentRedirect",
+            "file": "client/components/redirect.ts"
+          }
+        },
+        {
+          "query": "get the current URL search params in a client component",
+          "query_type": "natural_language",
+          "expected_symbol": "useSearchParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": null,
+          "elapsed_ms": 2144.43,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "searchParams",
+            "file": "client/components/client-page.tsx"
+          }
+        },
+        {
+          "query": "read the current pathname in a client component",
+          "query_type": "natural_language",
+          "expected_symbol": "usePathname",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": null,
+          "elapsed_ms": 2895.28,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "pathname",
+            "file": "client/dev/on-demand-entries-client.ts"
+          }
+        },
+        {
+          "query": "access dynamic route params",
+          "query_type": "natural_language",
+          "expected_symbol": "useParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": null,
+          "elapsed_ms": 2195.77,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "parseDynamicParamFromURLPart",
+            "file": "client/route-params.ts"
+          }
+        },
+        {
+          "query": "use the router for programmatic navigation",
+          "query_type": "natural_language",
+          "expected_symbol": "useRouter",
+          "expected_file_suffix": "client/compat/router.ts",
+          "rank": null,
+          "elapsed_ms": 2838.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "Router",
+            "file": "client/components/app-router.tsx"
+          }
+        },
+        {
+          "query": "custom Request class with helpers for Next.js",
+          "query_type": "natural_language",
+          "expected_symbol": "NextRequest",
+          "expected_file_suffix": "server/web/spec-extension/request.ts",
+          "rank": null,
+          "elapsed_ms": 1176.9,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "next",
+            "file": "compiled/crypto-browserify/index.js"
+          }
+        },
+        {
+          "query": "Next.js Response helper with cookies and redirects",
+          "query_type": "natural_language",
+          "expected_symbol": "NextResponse",
+          "expected_file_suffix": "server/web/spec-extension/response.ts",
+          "rank": null,
+          "elapsed_ms": 1197.92,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "next",
+            "file": "compiled/crypto-browserify/index.js"
+          }
+        },
+        {
+          "query": "load Next.js user config from disk",
+          "query_type": "natural_language",
+          "expected_symbol": "loadConfig",
+          "expected_file_suffix": "server/config.ts",
+          "rank": null,
+          "elapsed_ms": 2360.75,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getNextConfig",
+            "file": "cli/next-info.ts"
+          }
+        },
+        {
+          "query": "gather trace output files for the build",
+          "query_type": "natural_language",
+          "expected_symbol": "collectBuildTraces",
+          "expected_file_suffix": "build/collect-build-traces.ts",
+          "rank": null,
+          "elapsed_ms": 1237.93,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "traceMemoryUsage",
+            "file": "lib/memory/trace.ts"
+          }
+        },
+        {
+          "query": "start the Next.js HTTP server",
+          "query_type": "natural_language",
+          "expected_symbol": "startServer",
+          "expected_file_suffix": "server/lib/start-server.ts",
+          "rank": null,
+          "elapsed_ms": 2554.54,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "startServer",
+            "file": "cli/next-dev.ts"
+          }
+        },
+        {
+          "query": "check if a route contains dynamic segments",
+          "query_type": "natural_language",
+          "expected_symbol": "isDynamicRoute",
+          "expected_file_suffix": "shared/lib/router/utils/is-dynamic.ts",
+          "rank": null,
+          "elapsed_ms": 2577.97,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "checkConstraints",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "build a regex that matches a route pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "getRouteRegex",
+          "expected_file_suffix": "shared/lib/router/utils/route-regex.ts",
+          "rank": null,
+          "elapsed_ms": 2858.53,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "buildNamespaceReexport",
+            "file": "compiled/babel-packages/packages-bundle.js"
+          }
+        },
+        {
+          "query": "get a matcher function for a route",
+          "query_type": "natural_language",
+          "expected_symbol": "getRouteMatcher",
+          "expected_file_suffix": "shared/lib/router/utils/route-matcher.ts",
+          "rank": null,
+          "elapsed_ms": 2583.5,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "matchKnownRoute",
+            "file": "client/components/segment-cache/optimistic-routes.ts"
+          }
+        },
+        {
+          "query": "add the configured basePath to a URL",
+          "query_type": "natural_language",
+          "expected_symbol": "addBasePath",
+          "expected_file_suffix": "client/add-base-path.ts",
+          "rank": 1,
+          "elapsed_ms": 2094.93,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "addBasePath",
+            "file": "client/add-base-path.ts"
+          }
+        },
+        {
+          "query": "substitute dynamic segments into the as path",
+          "query_type": "natural_language",
+          "expected_symbol": "interpolateAs",
+          "expected_file_suffix": "shared/lib/router/utils/interpolate-as.ts",
+          "rank": null,
+          "elapsed_ms": 2442.04,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "collectSegmentPaths",
+            "file": "export/index.ts"
+          }
+        },
+        {
+          "query": "normalize an app-router path format",
+          "query_type": "natural_language",
+          "expected_symbol": "normalizeAppPath",
+          "expected_file_suffix": "shared/lib/router/utils/app-paths.ts",
+          "rank": null,
+          "elapsed_ms": 2735.3,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "normalizeParserOptions",
+            "file": "compiled/babel-packages/packages-bundle.js"
+          }
+        },
+        {
+          "query": "check if a URL is a local in-app URL",
+          "query_type": "natural_language",
+          "expected_symbol": "isLocalURL",
+          "expected_file_suffix": "shared/lib/router/utils/is-local-url.ts",
+          "rank": null,
+          "elapsed_ms": 2359.9,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "urlIsLocal",
+            "file": "compiled/@vercel/blob/index.cjs"
+          }
+        },
+        {
+          "query": "format a URL object back to a string",
+          "query_type": "natural_language",
+          "expected_symbol": "formatUrl",
+          "expected_file_suffix": "shared/lib/router/utils/format-url.ts",
+          "rank": null,
+          "elapsed_ms": 2123.37,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "formatStringOrUrl",
+            "file": "client/app-dir/link.tsx"
+          }
+        },
+        {
+          "query": "check if a path already has the base path prefix",
+          "query_type": "natural_language",
+          "expected_symbol": "hasBasePath",
+          "expected_file_suffix": "client/has-base-path.ts",
+          "rank": 2,
+          "elapsed_ms": 1376.41,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "revalidate path",
+          "query_type": "short_phrase",
+          "expected_symbol": "revalidatePath",
+          "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+          "rank": 9,
+          "elapsed_ms": 711.78,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "relative",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "next request",
+          "query_type": "short_phrase",
+          "expected_symbol": "NextRequest",
+          "expected_file_suffix": "server/web/spec-extension/request.ts",
+          "rank": null,
+          "elapsed_ms": 710.38,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "nextInfo",
+            "file": "cli/next-info.ts"
+          }
+        },
+        {
+          "query": "use search params",
+          "query_type": "short_phrase",
+          "expected_symbol": "useSearchParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": 5,
+          "elapsed_ms": 1767.89,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "searchParams",
+            "file": "compiled/@vercel/blob/index.cjs"
+          }
+        },
+        {
+          "query": "get route regex",
+          "query_type": "short_phrase",
+          "expected_symbol": "getRouteRegex",
+          "expected_file_suffix": "shared/lib/router/utils/route-regex.ts",
+          "rank": null,
+          "elapsed_ms": 1871.38,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getReturn",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "load config",
+          "query_type": "short_phrase",
+          "expected_symbol": "loadConfig",
+          "expected_file_suffix": "server/config.ts",
+          "rank": null,
+          "elapsed_ms": 688.08,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "load",
+            "file": "compiled/@vercel/og/index.node.js"
+          }
+        },
+        {
+          "query": "start server",
+          "query_type": "short_phrase",
+          "expected_symbol": "startServer",
+          "expected_file_suffix": "server/lib/start-server.ts",
+          "rank": null,
+          "elapsed_ms": 696.28,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "start",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "NextRequest",
+          "query_type": "identifier",
+          "expected_symbol": "NextRequest",
+          "expected_file_suffix": "server/web/spec-extension/request.ts",
+          "rank": 1,
+          "elapsed_ms": 446.11,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "NextRequest",
+            "file": "server/web/spec-extension/request.ts"
+          }
+        },
+        {
+          "query": "useSearchParams",
+          "query_type": "identifier",
+          "expected_symbol": "useSearchParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": 1,
+          "elapsed_ms": 449.51,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "useSearchParams",
+            "file": "client/components/navigation.ts"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.22940513644323435,
+      "acc1": 0.20588235294117646,
+      "acc3": 0.23529411764705882,
+      "acc5": 0.23529411764705882,
+      "avg_elapsed_ms": 289.9358823529412,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 178.75
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.1444729376230924,
+          "acc1": 0.11538461538461539,
+          "acc3": 0.15384615384615385,
+          "acc5": 0.15384615384615385,
+          "avg_elapsed_ms": 313.24
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.34057971014492755,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.3333333333333333,
+          "acc5": 0.3333333333333333,
+          "avg_elapsed_ms": 226.01333333333332
+        }
+      },
+      "rows": [
+        {
+          "query": "get the current request headers in a server component",
+          "query_type": "natural_language",
+          "expected_symbol": "headers",
+          "expected_file_suffix": "server/request/headers.ts",
+          "rank": null,
+          "elapsed_ms": 281.23,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "getAccessFallbackHTTPStatus",
+            "file": "client/components/http-access-fallback/http-access-fallback.ts"
+          }
+        },
+        {
+          "query": "read cookies in a server component",
+          "query_type": "natural_language",
+          "expected_symbol": "cookies",
+          "expected_file_suffix": "server/request/cookies.ts",
+          "rank": null,
+          "elapsed_ms": 328.41,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "read",
+            "file": "compiled/babel/bundle.js"
+          }
+        },
+        {
+          "query": "check if draft mode is enabled",
+          "query_type": "natural_language",
+          "expected_symbol": "draftMode",
+          "expected_file_suffix": "server/request/draft-mode.ts",
+          "rank": 21,
+          "elapsed_ms": 281.86,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "_enabled",
+            "file": "compiled/react-dom-experimental/cjs/react-dom-profiling.profiling.js"
+          }
+        },
+        {
+          "query": "revalidate a cached path on demand",
+          "query_type": "natural_language",
+          "expected_symbol": "revalidatePath",
+          "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+          "rank": null,
+          "elapsed_ms": 281.48,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "_",
+            "file": "compiled/path-to-regexp/index.js"
+          }
+        },
+        {
+          "query": "invalidate cached data by tag",
+          "query_type": "natural_language",
+          "expected_symbol": "revalidateTag",
+          "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+          "rank": null,
+          "elapsed_ms": 282.99,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "_invalidate",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "cache the result of a server-side function",
+          "query_type": "natural_language",
+          "expected_symbol": "unstable_cache",
+          "expected_file_suffix": "server/web/spec-extension/unstable-cache.ts",
+          "rank": null,
+          "elapsed_ms": 395.03,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "isIdentifier",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "return a 404 from a server component",
+          "query_type": "natural_language",
+          "expected_symbol": "notFound",
+          "expected_file_suffix": "client/components/not-found.ts",
+          "rank": null,
+          "elapsed_ms": 367.82,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "hasReturn",
+            "file": "compiled/babel/bundle.js"
+          }
+        },
+        {
+          "query": "permanently redirect to a new URL",
+          "query_type": "natural_language",
+          "expected_symbol": "permanentRedirect",
+          "expected_file_suffix": "client/components/redirect.ts",
+          "rank": 24,
+          "elapsed_ms": 299.65,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "new_",
+            "file": "compiled/terser/bundle.min.js"
+          }
+        },
+        {
+          "query": "get the current URL search params in a client component",
+          "query_type": "natural_language",
+          "expected_symbol": "useSearchParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": null,
+          "elapsed_ms": 306.7,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "search",
+            "file": "compiled/@vercel/blob/index.cjs"
+          }
+        },
+        {
+          "query": "read the current pathname in a client component",
+          "query_type": "natural_language",
+          "expected_symbol": "usePathname",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": null,
+          "elapsed_ms": 364.94,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "pathname",
+            "file": "shared/lib/router/router.ts"
+          }
+        },
+        {
+          "query": "access dynamic route params",
+          "query_type": "natural_language",
+          "expected_symbol": "useParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": null,
+          "elapsed_ms": 313.5,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "isDynamicRoute",
+            "file": "shared/lib/router/utils/is-dynamic.ts"
+          }
+        },
+        {
+          "query": "use the router for programmatic navigation",
+          "query_type": "natural_language",
+          "expected_symbol": "useRouter",
+          "expected_file_suffix": "client/compat/router.ts",
+          "rank": null,
+          "elapsed_ms": 364.98,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "for_",
+            "file": "compiled/terser/bundle.min.js"
+          }
+        },
+        {
+          "query": "custom Request class with helpers for Next.js",
+          "query_type": "natural_language",
+          "expected_symbol": "NextRequest",
+          "expected_file_suffix": "server/web/spec-extension/request.ts",
+          "rank": null,
+          "elapsed_ms": 239.08,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "for_",
+            "file": "compiled/terser/bundle.min.js"
+          }
+        },
+        {
+          "query": "Next.js Response helper with cookies and redirects",
+          "query_type": "natural_language",
+          "expected_symbol": "NextResponse",
+          "expected_file_suffix": "server/web/spec-extension/response.ts",
+          "rank": null,
+          "elapsed_ms": 237.73,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "Response",
+            "file": "compiled/@vercel/blob/index.cjs"
+          }
+        },
+        {
+          "query": "load Next.js user config from disk",
+          "query_type": "natural_language",
+          "expected_symbol": "loadConfig",
+          "expected_file_suffix": "server/config.ts",
+          "rank": null,
+          "elapsed_ms": 326.23,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "isUser",
+            "file": "compiled/babel/bundle.js"
+          }
+        },
+        {
+          "query": "gather trace output files for the build",
+          "query_type": "natural_language",
+          "expected_symbol": "collectBuildTraces",
+          "expected_file_suffix": "build/collect-build-traces.ts",
+          "rank": null,
+          "elapsed_ms": 235.43,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "for_",
+            "file": "compiled/terser/bundle.min.js"
+          }
+        },
+        {
+          "query": "start the Next.js HTTP server",
+          "query_type": "natural_language",
+          "expected_symbol": "startServer",
+          "expected_file_suffix": "server/lib/start-server.ts",
+          "rank": null,
+          "elapsed_ms": 347.54,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "Start",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "check if a route contains dynamic segments",
+          "query_type": "natural_language",
+          "expected_symbol": "isDynamicRoute",
+          "expected_file_suffix": "shared/lib/router/utils/is-dynamic.ts",
+          "rank": 1,
+          "elapsed_ms": 339.46,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "isDynamicRoute",
+            "file": "shared/lib/router/utils/is-dynamic.ts"
+          }
+        },
+        {
+          "query": "build a regex that matches a route pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "getRouteRegex",
+          "expected_file_suffix": "shared/lib/router/utils/route-regex.ts",
+          "rank": 1,
+          "elapsed_ms": 361.85,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "getRouteRegex",
+            "file": "shared/lib/router/utils/route-regex.ts"
+          }
+        },
+        {
+          "query": "get a matcher function for a route",
+          "query_type": "natural_language",
+          "expected_symbol": "getRouteMatcher",
+          "expected_file_suffix": "shared/lib/router/utils/route-matcher.ts",
+          "rank": null,
+          "elapsed_ms": 329.68,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "for_",
+            "file": "compiled/terser/bundle.min.js"
+          }
+        },
+        {
+          "query": "add the configured basePath to a URL",
+          "query_type": "natural_language",
+          "expected_symbol": "addBasePath",
+          "expected_file_suffix": "client/add-base-path.ts",
+          "rank": 18,
+          "elapsed_ms": 305.95,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "addConfiguredExperimentalFeature",
+            "file": "server/config.ts"
+          }
+        },
+        {
+          "query": "substitute dynamic segments into the as path",
+          "query_type": "natural_language",
+          "expected_symbol": "interpolateAs",
+          "expected_file_suffix": "shared/lib/router/utils/interpolate-as.ts",
+          "rank": null,
+          "elapsed_ms": 331.39,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "inTopLevel",
+            "file": "compiled/babel/bundle.js"
+          }
+        },
+        {
+          "query": "normalize an app-router path format",
+          "query_type": "natural_language",
+          "expected_symbol": "normalizeAppPath",
+          "expected_file_suffix": "shared/lib/router/utils/app-paths.ts",
+          "rank": 1,
+          "elapsed_ms": 355.53,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "normalizeAppPath",
+            "file": "shared/lib/router/utils/app-paths.ts"
+          }
+        },
+        {
+          "query": "check if a URL is a local in-app URL",
+          "query_type": "natural_language",
+          "expected_symbol": "isLocalURL",
+          "expected_file_suffix": "shared/lib/router/utils/is-local-url.ts",
+          "rank": 17,
+          "elapsed_ms": 320.71,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "locale",
+            "file": "shared/lib/router/router.ts"
+          }
+        },
+        {
+          "query": "format a URL object back to a string",
+          "query_type": "natural_language",
+          "expected_symbol": "formatUrl",
+          "expected_file_suffix": "shared/lib/router/utils/format-url.ts",
+          "rank": 19,
+          "elapsed_ms": 300.69,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "Url",
+            "file": "shared/lib/router/router.ts"
+          }
+        },
+        {
+          "query": "check if a path already has the base path prefix",
+          "query_type": "natural_language",
+          "expected_symbol": "hasBasePath",
+          "expected_file_suffix": "client/has-base-path.ts",
+          "rank": 2,
+          "elapsed_ms": 244.38,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "pathHasPrefix",
+            "file": "shared/lib/router/utils/path-has-prefix.ts"
+          }
+        },
+        {
+          "query": "revalidate path",
+          "query_type": "short_phrase",
+          "expected_symbol": "revalidatePath",
+          "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+          "rank": null,
+          "elapsed_ms": 196.16,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "_",
+            "file": "compiled/path-to-regexp/index.js"
+          }
+        },
+        {
+          "query": "next request",
+          "query_type": "short_phrase",
+          "expected_symbol": "NextRequest",
+          "expected_file_suffix": "server/web/spec-extension/request.ts",
+          "rank": null,
+          "elapsed_ms": 199.28,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "NextRequestAdapter",
+            "file": "server/web/spec-extension/adapters/next-request.ts"
+          }
+        },
+        {
+          "query": "use search params",
+          "query_type": "short_phrase",
+          "expected_symbol": "useSearchParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": 23,
+          "elapsed_ms": 277.78,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "makeErroringSearchParamsForUseCache",
+            "file": "server/request/search-params.ts"
+          }
+        },
+        {
+          "query": "get route regex",
+          "query_type": "short_phrase",
+          "expected_symbol": "getRouteRegex",
+          "expected_file_suffix": "shared/lib/router/utils/route-regex.ts",
+          "rank": 1,
+          "elapsed_ms": 288.58,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "getRouteRegex",
+            "file": "shared/lib/router/utils/route-regex.ts"
+          }
+        },
+        {
+          "query": "load config",
+          "query_type": "short_phrase",
+          "expected_symbol": "loadConfig",
+          "expected_file_suffix": "server/config.ts",
+          "rank": null,
+          "elapsed_ms": 197.33,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "load",
+            "file": "compiled/webpack/bundle5.js"
+          }
+        },
+        {
+          "query": "start server",
+          "query_type": "short_phrase",
+          "expected_symbol": "startServer",
+          "expected_file_suffix": "server/lib/start-server.ts",
+          "rank": 1,
+          "elapsed_ms": 196.95,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "startServer",
+            "file": "server/lib/start-server.ts"
+          }
+        },
+        {
+          "query": "NextRequest",
+          "query_type": "identifier",
+          "expected_symbol": "NextRequest",
+          "expected_file_suffix": "server/web/spec-extension/request.ts",
+          "rank": 1,
+          "elapsed_ms": 179.2,
+          "candidate_count": 17,
+          "top_candidate": {
+            "name": "NextRequest",
+            "file": "server/web/spec-extension/request.ts"
+          }
+        },
+        {
+          "query": "useSearchParams",
+          "query_type": "identifier",
+          "expected_symbol": "useSearchParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": 1,
+          "elapsed_ms": 178.3,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "useSearchParams",
+            "file": "client/components/navigation.ts"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.19785660675753555,
+      "acc1": 0.14705882352941177,
+      "acc3": 0.20588235294117646,
+      "acc5": 0.23529411764705882,
+      "avg_elapsed_ms": 401.23117647058825,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 179.585
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.11770992165729008,
+          "acc1": 0.07692307692307693,
+          "acc3": 0.11538461538461539,
+          "acc5": 0.15384615384615385,
+          "avg_elapsed_ms": 430.92461538461544
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.2777777777777778,
+          "acc1": 0.16666666666666666,
+          "acc3": 0.3333333333333333,
+          "acc5": 0.3333333333333333,
+          "avg_elapsed_ms": 346.44166666666666
+        }
+      },
+      "rows": [
+        {
+          "query": "get the current request headers in a server component",
+          "query_type": "natural_language",
+          "expected_symbol": "headers",
+          "expected_file_suffix": "server/request/headers.ts",
+          "rank": null,
+          "elapsed_ms": 401.49,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "headers",
+            "file": "compiled/@vercel/blob/index.cjs"
+          }
+        },
+        {
+          "query": "read cookies in a server component",
+          "query_type": "natural_language",
+          "expected_symbol": "cookies",
+          "expected_file_suffix": "server/request/cookies.ts",
+          "rank": null,
+          "elapsed_ms": 443.92,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "cookies",
+            "file": "compiled/@vercel/blob/index.cjs"
+          }
+        },
+        {
+          "query": "check if draft mode is enabled",
+          "query_type": "natural_language",
+          "expected_symbol": "draftMode",
+          "expected_file_suffix": "server/request/draft-mode.ts",
+          "rank": 21,
+          "elapsed_ms": 397.05,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "_enabled",
+            "file": "compiled/react-dom-experimental/cjs/react-dom-profiling.profiling.js"
+          }
+        },
+        {
+          "query": "revalidate a cached path on demand",
+          "query_type": "natural_language",
+          "expected_symbol": "revalidatePath",
+          "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+          "rank": null,
+          "elapsed_ms": 406.72,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "cachedProperty",
+            "file": "compiled/crypto-browserify/index.js"
+          }
+        },
+        {
+          "query": "invalidate cached data by tag",
+          "query_type": "natural_language",
+          "expected_symbol": "revalidateTag",
+          "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+          "rank": null,
+          "elapsed_ms": 422.92,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "invalidate",
+            "file": "compiled/babel/bundle.js"
+          }
+        },
+        {
+          "query": "cache the result of a server-side function",
+          "query_type": "natural_language",
+          "expected_symbol": "unstable_cache",
+          "expected_file_suffix": "server/web/spec-extension/unstable-cache.ts",
+          "rank": null,
+          "elapsed_ms": 516.1,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "cachedProperty",
+            "file": "compiled/crypto-browserify/index.js"
+          }
+        },
+        {
+          "query": "return a 404 from a server component",
+          "query_type": "natural_language",
+          "expected_symbol": "notFound",
+          "expected_file_suffix": "client/components/not-found.ts",
+          "rank": 3,
+          "elapsed_ms": 466.97,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "ServerError",
+            "file": "compiled/raw-body/index.js"
+          }
+        },
+        {
+          "query": "permanently redirect to a new URL",
+          "query_type": "natural_language",
+          "expected_symbol": "permanentRedirect",
+          "expected_file_suffix": "client/components/redirect.ts",
+          "rank": 1,
+          "elapsed_ms": 400.65,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "permanentRedirect",
+            "file": "client/components/redirect.ts"
+          }
+        },
+        {
+          "query": "get the current URL search params in a client component",
+          "query_type": "natural_language",
+          "expected_symbol": "useSearchParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": null,
+          "elapsed_ms": 425.02,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "searchParams",
+            "file": "client/components/client-page.tsx"
+          }
+        },
+        {
+          "query": "read the current pathname in a client component",
+          "query_type": "natural_language",
+          "expected_symbol": "usePathname",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": 11,
+          "elapsed_ms": 490.73,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "pathname",
+            "file": "client/dev/on-demand-entries-client.ts"
+          }
+        },
+        {
+          "query": "access dynamic route params",
+          "query_type": "natural_language",
+          "expected_symbol": "useParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": null,
+          "elapsed_ms": 435.96,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "useDynamicRouteParams",
+            "file": "client/components/navigation.ts"
+          }
+        },
+        {
+          "query": "use the router for programmatic navigation",
+          "query_type": "natural_language",
+          "expected_symbol": "useRouter",
+          "expected_file_suffix": "client/compat/router.ts",
+          "rank": null,
+          "elapsed_ms": 483.81,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "Router",
+            "file": "client/components/app-router.tsx"
+          }
+        },
+        {
+          "query": "custom Request class with helpers for Next.js",
+          "query_type": "natural_language",
+          "expected_symbol": "NextRequest",
+          "expected_file_suffix": "server/web/spec-extension/request.ts",
+          "rank": null,
+          "elapsed_ms": 352.95,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "next",
+            "file": "compiled/crypto-browserify/index.js"
+          }
+        },
+        {
+          "query": "Next.js Response helper with cookies and redirects",
+          "query_type": "natural_language",
+          "expected_symbol": "NextResponse",
+          "expected_file_suffix": "server/web/spec-extension/response.ts",
+          "rank": null,
+          "elapsed_ms": 357.62,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "next",
+            "file": "compiled/crypto-browserify/index.js"
+          }
+        },
+        {
+          "query": "load Next.js user config from disk",
+          "query_type": "natural_language",
+          "expected_symbol": "loadConfig",
+          "expected_file_suffix": "server/config.ts",
+          "rank": null,
+          "elapsed_ms": 437.65,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "nextConfig",
+            "file": "cli/next-typegen.ts"
+          }
+        },
+        {
+          "query": "gather trace output files for the build",
+          "query_type": "natural_language",
+          "expected_symbol": "collectBuildTraces",
+          "expected_file_suffix": "build/collect-build-traces.ts",
+          "rank": null,
+          "elapsed_ms": 352.79,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "makeTrace",
+            "file": "compiled/babel-packages/packages-bundle.js"
+          }
+        },
+        {
+          "query": "start the Next.js HTTP server",
+          "query_type": "natural_language",
+          "expected_symbol": "startServer",
+          "expected_file_suffix": "server/lib/start-server.ts",
+          "rank": null,
+          "elapsed_ms": 465.17,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "startServer",
+            "file": "cli/next-dev.ts"
+          }
+        },
+        {
+          "query": "check if a route contains dynamic segments",
+          "query_type": "natural_language",
+          "expected_symbol": "isDynamicRoute",
+          "expected_file_suffix": "shared/lib/router/utils/is-dynamic.ts",
+          "rank": 6,
+          "elapsed_ms": 457.2,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "doesSegmentNeedDynamicRequest",
+            "file": "client/components/router-reducer/ppr-navigations.ts"
+          }
+        },
+        {
+          "query": "build a regex that matches a route pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "getRouteRegex",
+          "expected_file_suffix": "shared/lib/router/utils/route-regex.ts",
+          "rank": 12,
+          "elapsed_ms": 479.75,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "matchKnownRoute",
+            "file": "client/components/segment-cache/optimistic-routes.ts"
+          }
+        },
+        {
+          "query": "get a matcher function for a route",
+          "query_type": "natural_language",
+          "expected_symbol": "getRouteMatcher",
+          "expected_file_suffix": "shared/lib/router/utils/route-matcher.ts",
+          "rank": null,
+          "elapsed_ms": 446.52,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "match",
+            "file": "client/components/segment-cache/optimistic-routes.ts"
+          }
+        },
+        {
+          "query": "add the configured basePath to a URL",
+          "query_type": "natural_language",
+          "expected_symbol": "addBasePath",
+          "expected_file_suffix": "client/add-base-path.ts",
+          "rank": 5,
+          "elapsed_ms": 423.41,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "baseUrl",
+            "file": "compiled/@vercel/blob/index.cjs"
+          }
+        },
+        {
+          "query": "substitute dynamic segments into the as path",
+          "query_type": "natural_language",
+          "expected_symbol": "interpolateAs",
+          "expected_file_suffix": "shared/lib/router/utils/interpolate-as.ts",
+          "rank": null,
+          "elapsed_ms": 452.58,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "segments",
+            "file": "client/components/router-reducer/compute-changed-path.ts"
+          }
+        },
+        {
+          "query": "normalize an app-router path format",
+          "query_type": "natural_language",
+          "expected_symbol": "normalizeAppPath",
+          "expected_file_suffix": "shared/lib/router/utils/app-paths.ts",
+          "rank": 19,
+          "elapsed_ms": 476.53,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "AppRouter",
+            "file": "client/components/app-router.tsx"
+          }
+        },
+        {
+          "query": "check if a URL is a local in-app URL",
+          "query_type": "natural_language",
+          "expected_symbol": "isLocalURL",
+          "expected_file_suffix": "shared/lib/router/utils/is-local-url.ts",
+          "rank": 19,
+          "elapsed_ms": 434.73,
+          "candidate_count": 34,
+          "top_candidate": {
+            "name": "urlIsLocal",
+            "file": "compiled/@vercel/blob/index.cjs"
+          }
+        },
+        {
+          "query": "format a URL object back to a string",
+          "query_type": "natural_language",
+          "expected_symbol": "formatUrl",
+          "expected_file_suffix": "shared/lib/router/utils/format-url.ts",
+          "rank": 30,
+          "elapsed_ms": 416.03,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "formatStringOrUrl",
+            "file": "client/app-dir/link.tsx"
+          }
+        },
+        {
+          "query": "check if a path already has the base path prefix",
+          "query_type": "natural_language",
+          "expected_symbol": "hasBasePath",
+          "expected_file_suffix": "client/has-base-path.ts",
+          "rank": 1,
+          "elapsed_ms": 359.77,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "hasBasePath",
+            "file": "client/has-base-path.ts"
+          }
+        },
+        {
+          "query": "revalidate path",
+          "query_type": "short_phrase",
+          "expected_symbol": "revalidatePath",
+          "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+          "rank": null,
+          "elapsed_ms": 331.44,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "revalidatingEntry",
+            "file": "client/components/segment-cache/scheduler.ts"
+          }
+        },
+        {
+          "query": "next request",
+          "query_type": "short_phrase",
+          "expected_symbol": "NextRequest",
+          "expected_file_suffix": "server/web/spec-extension/request.ts",
+          "rank": null,
+          "elapsed_ms": 317.78,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "nextCode",
+            "file": "compiled/@vercel/og/index.node.js"
+          }
+        },
+        {
+          "query": "use search params",
+          "query_type": "short_phrase",
+          "expected_symbol": "useSearchParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": 6,
+          "elapsed_ms": 399.98,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "searchParams",
+            "file": "compiled/@vercel/blob/index.cjs"
+          }
+        },
+        {
+          "query": "get route regex",
+          "query_type": "short_phrase",
+          "expected_symbol": "getRouteRegex",
+          "expected_file_suffix": "shared/lib/router/utils/route-regex.ts",
+          "rank": 2,
+          "elapsed_ms": 404.13,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "regex",
+            "file": "compiled/@modelcontextprotocol/sdk/server/mcp.js"
+          }
+        },
+        {
+          "query": "load config",
+          "query_type": "short_phrase",
+          "expected_symbol": "loadConfig",
+          "expected_file_suffix": "server/config.ts",
+          "rank": null,
+          "elapsed_ms": 313.36,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "load",
+            "file": "compiled/@vercel/og/index.node.js"
+          }
+        },
+        {
+          "query": "start server",
+          "query_type": "short_phrase",
+          "expected_symbol": "startServer",
+          "expected_file_suffix": "server/lib/start-server.ts",
+          "rank": 1,
+          "elapsed_ms": 311.96,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "startServer",
+            "file": "server/lib/start-server.ts"
+          }
+        },
+        {
+          "query": "NextRequest",
+          "query_type": "identifier",
+          "expected_symbol": "NextRequest",
+          "expected_file_suffix": "server/web/spec-extension/request.ts",
+          "rank": 1,
+          "elapsed_ms": 177.58,
+          "candidate_count": 17,
+          "top_candidate": {
+            "name": "NextRequest",
+            "file": "server/web/spec-extension/request.ts"
+          }
+        },
+        {
+          "query": "useSearchParams",
+          "query_type": "identifier",
+          "expected_symbol": "useSearchParams",
+          "expected_file_suffix": "client/components/navigation.ts",
+          "rank": 1,
+          "elapsed_ms": 181.59,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "useSearchParams",
+            "file": "client/components/navigation.ts"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": -0.031548529685698795,
+    "acc1_delta": -0.05882352941176469,
+    "acc3_delta": -0.02941176470588236,
+    "acc5_delta": 0.0
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": -0.026763015965802328,
+      "acc1_delta": -0.038461538461538464,
+      "acc3_delta": -0.038461538461538464,
+      "acc5_delta": 0.0
+    },
+    "short_phrase": {
+      "mrr_delta": -0.06280193236714976,
+      "acc1_delta": -0.16666666666666666,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    }
+  }
+}

@@ -1,0 +1,206 @@
+[
+  {
+    "query": "get the current request headers in a server component",
+    "expected_symbol": "headers",
+    "expected_file_suffix": "server/request/headers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "read cookies in a server component",
+    "expected_symbol": "cookies",
+    "expected_file_suffix": "server/request/cookies.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if draft mode is enabled",
+    "expected_symbol": "draftMode",
+    "expected_file_suffix": "server/request/draft-mode.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "revalidate a cached path on demand",
+    "expected_symbol": "revalidatePath",
+    "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "invalidate cached data by tag",
+    "expected_symbol": "revalidateTag",
+    "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "cache the result of a server-side function",
+    "expected_symbol": "unstable_cache",
+    "expected_file_suffix": "server/web/spec-extension/unstable-cache.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "return a 404 from a server component",
+    "expected_symbol": "notFound",
+    "expected_file_suffix": "client/components/not-found.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "permanently redirect to a new URL",
+    "expected_symbol": "permanentRedirect",
+    "expected_file_suffix": "client/components/redirect.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "get the current URL search params in a client component",
+    "expected_symbol": "useSearchParams",
+    "expected_file_suffix": "client/components/navigation.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "read the current pathname in a client component",
+    "expected_symbol": "usePathname",
+    "expected_file_suffix": "client/components/navigation.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "access dynamic route params",
+    "expected_symbol": "useParams",
+    "expected_file_suffix": "client/components/navigation.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "use the router for programmatic navigation",
+    "expected_symbol": "useRouter",
+    "expected_file_suffix": "client/compat/router.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "custom Request class with helpers for Next.js",
+    "expected_symbol": "NextRequest",
+    "expected_file_suffix": "server/web/spec-extension/request.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "Next.js Response helper with cookies and redirects",
+    "expected_symbol": "NextResponse",
+    "expected_file_suffix": "server/web/spec-extension/response.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "load Next.js user config from disk",
+    "expected_symbol": "loadConfig",
+    "expected_file_suffix": "server/config.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "gather trace output files for the build",
+    "expected_symbol": "collectBuildTraces",
+    "expected_file_suffix": "build/collect-build-traces.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "start the Next.js HTTP server",
+    "expected_symbol": "startServer",
+    "expected_file_suffix": "server/lib/start-server.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if a route contains dynamic segments",
+    "expected_symbol": "isDynamicRoute",
+    "expected_file_suffix": "shared/lib/router/utils/is-dynamic.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "build a regex that matches a route pattern",
+    "expected_symbol": "getRouteRegex",
+    "expected_file_suffix": "shared/lib/router/utils/route-regex.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "get a matcher function for a route",
+    "expected_symbol": "getRouteMatcher",
+    "expected_file_suffix": "shared/lib/router/utils/route-matcher.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "add the configured basePath to a URL",
+    "expected_symbol": "addBasePath",
+    "expected_file_suffix": "client/add-base-path.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "substitute dynamic segments into the as path",
+    "expected_symbol": "interpolateAs",
+    "expected_file_suffix": "shared/lib/router/utils/interpolate-as.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "normalize an app-router path format",
+    "expected_symbol": "normalizeAppPath",
+    "expected_file_suffix": "shared/lib/router/utils/app-paths.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if a URL is a local in-app URL",
+    "expected_symbol": "isLocalURL",
+    "expected_file_suffix": "shared/lib/router/utils/is-local-url.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "format a URL object back to a string",
+    "expected_symbol": "formatUrl",
+    "expected_file_suffix": "shared/lib/router/utils/format-url.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if a path already has the base path prefix",
+    "expected_symbol": "hasBasePath",
+    "expected_file_suffix": "client/has-base-path.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "revalidate path",
+    "expected_symbol": "revalidatePath",
+    "expected_file_suffix": "server/web/spec-extension/revalidate.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "next request",
+    "expected_symbol": "NextRequest",
+    "expected_file_suffix": "server/web/spec-extension/request.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "use search params",
+    "expected_symbol": "useSearchParams",
+    "expected_file_suffix": "client/components/navigation.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "get route regex",
+    "expected_symbol": "getRouteRegex",
+    "expected_file_suffix": "shared/lib/router/utils/route-regex.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "load config",
+    "expected_symbol": "loadConfig",
+    "expected_file_suffix": "server/config.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "start server",
+    "expected_symbol": "startServer",
+    "expected_file_suffix": "server/lib/start-server.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "NextRequest",
+    "expected_symbol": "NextRequest",
+    "expected_file_suffix": "server/web/spec-extension/request.ts",
+    "query_type": "identifier"
+  },
+  {
+    "query": "useSearchParams",
+    "expected_symbol": "useSearchParams",
+    "expected_file_suffix": "client/components/navigation.ts",
+    "query_type": "identifier"
+  }
+]

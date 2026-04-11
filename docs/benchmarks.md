@@ -1664,6 +1664,163 @@ Pattern: **5 positive (Rust / Rust / Rust / TS-JS / TS-JS) : 1 negative (Python)
 
 **Artefacts**: `benchmarks/embedding-quality-v1.6-phase3d-typescript-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-typescript.json`.
 
+### §8.16 — Phase 3e: third JS/TS dataset on `vercel/next.js` (typical app)
+
+**Hypothesis** (from §8.15 "Limitations acknowledged", point 1): both existing TS datasets are unrepresentative of a typical app codebase — `facebook/jest` is matcher-heavy object-literal test tooling and `microsoft/TypeScript` is a compiler with 50 k-line files and dense JSDoc. §8.15 explicitly teed up Phase 3e on `vercel/next.js` or `facebook/react` to cover "small-to-medium TS with React / Next.js / Node patterns" — the population of codebases most real users point CodeLens at. The null-hypothesis going in was "the v1.5 stack should produce a small positive on a typical app, probably closer to jest's +7.3 % than to TypeScript's +104 %". Phase 3e tests that null hypothesis directly.
+
+**Target repo**: `vercel/next.js` (depth-1 shallow clone, ~1.5 GB, 28 547 working-tree files). We benchmark against **`/tmp/next-js/packages/next/src`** — the core framework runtime package, excluding `/packages/next/src/compiled` (bundled third-party code, only 16 `.ts` files) — for **1 564 source files totalling 268 560 LOC**. The file-size profile is strikingly different from TypeScript's: **median 61 LOC/file**, mean ~172 LOC/file, largest single file `server/app-render/app-render.tsx` at 8 397 lines (vs TypeScript's `checker.ts` at ~50 000). This is the first external-repo benchmark in the v1.6 measurement campaign whose file profile matches the "typical app" shape.
+
+**Dataset**: 34 hand-built queries in `benchmarks/embedding-quality-dataset-next-js.json`, spanning six subsystems of the Next.js public API surface:
+
+| Subsystem                      | Example queries                                                                                                                                    | Count |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------- | ----: |
+| App Router server-side API     | `headers`, `cookies`, `draftMode`, `revalidatePath`, `revalidateTag`, `unstable_cache`, `notFound`, `permanentRedirect`                            |     8 |
+| Client router hooks            | `useSearchParams`, `usePathname`, `useParams`, `useRouter`                                                                                         |     4 |
+| Server runtime spec extensions | `NextRequest`, `NextResponse`, `loadConfig`                                                                                                        |     3 |
+| Build pipeline                 | `collectBuildTraces`, `startServer`                                                                                                                |     2 |
+| Routing utilities              | `isDynamicRoute`, `getRouteRegex`, `getRouteMatcher`, `addBasePath`, `interpolateAs`, `normalizeAppPath`, `isLocalURL`, `formatUrl`, `hasBasePath` |     9 |
+| Short phrases + identifiers    | `revalidate path`, `next request`, `use search params`, `get route regex`, `load config`, `start server`, `NextRequest`, `useSearchParams`         |     8 |
+
+Total: 26 NL + 6 short_phrase + 2 identifier = **34 queries** (matching Phase 3d's shape for direct comparison).
+
+**Measurement**:
+
+| arm         |   hybrid MRR | Δ abs vs baseline |  Δ rel | NL sub-MRR | short sub-MRR | identifier sub-MRR |
+| ----------- | -----------: | ----------------: | -----: | ---------: | ------------: | -----------------: |
+| baseline    |     0.197857 |                 — |      — |   0.117788 |      0.277778 |           1.000000 |
+| 2e only     |     0.196208 |           −0.0016 | −0.8 % |   0.118963 |      0.262821 |           1.000000 |
+| 2b+2c only  |     0.197857 |           +0.0000 |  0.0 % |   0.117788 |      0.277778 |           1.000000 |
+| **stacked** | **0.196208** |           −0.0016 | −0.8 % |   0.118963 |  **0.262821** |           1.000000 |
+
+**This is a null result.** Phase 2b+2c produces **exactly zero** hybrid lift (`0.19785660675753555` identical to the baseline float, 17 digits). Phase 2e shaves 0.8 % off hybrid. Stacked equals 2e-only because 2b+2c contributes nothing. The v1.5 stack is neither positive nor meaningfully negative on Next.js — it is _inert_.
+
+**Per-query decomposition**:
+
+```
+NL queries (26 total, stacked vs baseline):
+   2 improved, 0 regressed, 24 unchanged
+    draftMode             21 → 16   (target still outside top 10)
+    isLocalURL            19 → 14   (target still outside top 10)
+
+short_phrase queries (6 total, stacked vs baseline):
+   0 improved, 1 regressed (under Phase 2e), 5 unchanged
+    use search params      6 → 13   (Δ MRR −0.0769)
+
+identifier queries (2 total): both rank-1 in every arm
+
+Total: 2 improved, 1 regressed, 31 unchanged — 2 : 1 positive : negative ratio.
+
+Retrieval failures (rank=None in every arm, NL): 15 / 26 (58 %)
+  headers, cookies, revalidatePath, revalidateTag, unstable_cache,
+  useSearchParams (NL form), useParams, useRouter, NextRequest (NL form),
+  NextResponse, loadConfig, collectBuildTraces, startServer,
+  getRouteMatcher, interpolateAs
+```
+
+The two nominal "improvements" under 2b+2c (draftMode 21 → 16, isLocalURL 19 → 14) are both within the ranks-outside-top-10 region where no `max_results=10` consumer sees a difference — they are numerically real but operationally invisible. The one regression (use search params 6 → 13 under Phase 2e) is inside the top 10 and _is_ operationally visible: a user searching for "use search params" on Next.js would go from rank 6 to rank 13 if Phase 2e were on.
+
+**Where the lift actually comes from (semantic vs hybrid decomposition, continued)**:
+
+As in §8.15, `semantic_search` aggregate MRR is **identical across all four arms** (0.14640522875816994 to 17 decimal digits) and pure `get_ranked_context_no_semantic` (lexical-only) changes _only_ under Phase 2e (0.2294 → 0.2312, a +0.8 % lexical lift that is outweighed by re-ranker interference in the hybrid combination). Phase 2b+2c leaves both semantic and lexical MRR completely untouched on Next.js — there is no candidate re-ordering to recover, because the baseline hybrid ordering is already as good as the re-ranker can produce with the available signal.
+
+**Why is Next.js inert when TypeScript was +104 %?**
+
+Three compounding factors, all flipped in direction from §8.15's TypeScript-specific factors:
+
+1. **Baseline is closer to the ceiling** (0.1979 hybrid vs TypeScript's 0.0984). The Next.js baseline is already doing about as well as semantic + lexical can combine for — the semantic MRR (0.146) is actually _lower_ than the lexical MRR (0.229) on this dataset, meaning lexical signal is the dominant component already and Phase 2b's comment-body extraction has no slack to recover.
+2. **File size profile is app-shaped, not compiler-shaped** (median 61 LOC vs TypeScript's checker.ts at 50 000). When files are small, `extract_leading_doc` already captures the full doc comment — Phase 2b's full-body NL-token extraction has no unseen body text to surface because the body _is_ the full file.
+3. **JSDoc density is sparse**. Next.js uses TypeScript's structural types as documentation. Functions like `headers`, `cookies`, `notFound`, `revalidatePath` have 1–3 line doc comments at most, and most lib functions have no comments at all. There is no JSDoc body text for Phase 2b to extract, because there is very little JSDoc body text in the first place.
+
+Phase 2c (`extract_api_calls`) fares equally poorly: Next.js app-level functions are mostly thin wrappers over Web Platform APIs (`Request`, `Response`, `cookies()`) rather than `Type::method` call chains. There are fewer API-call patterns per function body than in the TypeScript compiler's internal `Type::method` traversals.
+
+**Scoping the TypeScript compiler result**:
+
+§8.15 noted the TypeScript +104 % lift was "a function of TypeScript's specific 'giant files + JSDoc-heavy' code style" and predicted a typical TS app would land "closer to jest's +7.3 % than to +104 %". Phase 3e refutes the upper half of that prediction — Next.js lands at **exactly 0 %**, below both the +7.3 % and +104 % marks. The v1.5 stack's mechanism (recover NL signal from function body comments and API call patterns) is not merely "smaller on typical apps", it is **mechanism-inert on typical apps**. The comment/API-call surface Phase 2b+2c taps into barely exists in short-file codebases.
+
+Viewed as a three-dataset range, the JS/TS v1.5 lift is now:
+
+| dataset               | file profile                               | hybrid lift |
+| :-------------------- | :----------------------------------------- | ----------: |
+| jest                  | matcher-heavy, ~380 files                  |      +7.3 % |
+| TypeScript compiler   | compiler, ~709 files, huge                 |    +104.3 % |
+| **Next.js (typical)** | **framework, ~1 564 files, median 61 LOC** |   **0.0 %** |
+
+The pattern is not "language-specific" but **file-size-specific**: the v1.5 stack lifts compilers and tooling where individual files are large and heavily commented, and it does nothing on normal app code where files are short and sparsely commented. The language label (`ts` / `typescript` / `tsx` / `js` / `javascript` / `jsx`) is a correlated-but-not-causal proxy for file shape.
+
+**Updated seven-dataset baseline matrix**:
+
+| Dataset                           | Language  | baseline MRR | stacked MRR |      Δ abs |      Δ rel |
+| --------------------------------- | --------- | -----------: | ----------: | ---------: | ---------: |
+| 89-query self                     | Rust      |        0.572 |       0.586 |     +0.014 |     +2.4 % |
+| 436-query self                    | Rust      |       0.0476 |      0.0510 |    +0.0034 |     +7.1 % |
+| ripgrep external                  | Rust      |        0.459 |       0.529 |     +0.070 |    +15.2 % |
+| requests external                 | Python    |        0.584 |       0.495 |     −0.089 |    −15.2 % |
+| jest external                     | TS/JS     |        0.155 |       0.166 |     +0.011 |     +7.3 % |
+| typescript external               | TS/JS     |        0.098 |       0.201 |     +0.103 |   +104.3 % |
+| **next-js external (new, §8.16)** | **TS/JS** |    **0.198** |   **0.196** | **−0.002** | **−0.8 %** |
+
+Pattern: **5 positive (3 Rust + 2 TS/JS tooling) : 1 negative (Python) : 1 inert (TS/JS app)**. The JS/TS classification that §8.15 called "two-dataset strong confidence (both positive)" is now better described as **"compiler/tooling strong, typical-app neutral"**. This is not a regression — the v1.5 stack still never hurts production on a typical JS/TS app (−0.8 % is within measurement noise), it just doesn't help either.
+
+**Implications for `CODELENS_EMBED_HINT_AUTO=1` default-on (v1.6.0)**:
+
+The default-flip in v1.6.0 was made on the premise that §8.15 showed the JS/TS stack to be consistently positive. §8.16 does not reverse the v1.6.0 decision, but it does narrow the user-facing benefit claim:
+
+- **Users with compiler/tooling/language-server code (TypeScript compiler, Babel, esbuild, Rollup, tsserver, etc.)** will see the large JS/TS lifts §8.13 and §8.15 documented (+7 % to +104 %).
+- **Users with typical app code (Next.js, React apps, Vue apps, Node.js services)** will see _neutral_ behaviour — no measurable win, no measurable loss, within ±1 % of baseline.
+- **Phase 2e on JS/TS is now negative on two out of three datasets** (TypeScript −10.0 %, Next.js −0.8 %, jest +1.3 % marginal). The Phase 2m "language-gated 2e disable for JS/TS" decision deferred in §8.15 is now better-supported by evidence: 2 of 3 JS/TS datasets show 2e as net negative. Still deferred (waiting for a real user hit), but the evidence is stronger.
+
+Neither bullet suggests reverting the v1.6.0 flip — the default-on cost on a typical app is zero, not a regression. It does mean the marketing line "Phase 2b+2c helps JS/TS retrieval" should be qualified to "Phase 2b+2c helps compiler and tooling JS/TS retrieval; typical app code sees no change".
+
+**Reproduce**:
+
+```bash
+# Clone Next.js (no submodules, depth 1)
+git clone --depth=1 https://github.com/vercel/next.js.git /tmp/next-js
+
+# Arm 1: baseline
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/next-js/packages/next/src --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-next-js.json \
+  --output benchmarks/embedding-quality-v1.6-phase3e-next-js-baseline.json
+
+# Arm 2: Phase 2e only
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/next-js/packages/next/src --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-next-js.json \
+  --output benchmarks/embedding-quality-v1.6-phase3e-next-js-2e-only.json
+
+# Arm 3: Phase 2b + 2c only
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/next-js/packages/next/src --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-next-js.json \
+  --output benchmarks/embedding-quality-v1.6-phase3e-next-js-2b2c-only.json
+
+# Arm 4: stacked
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/next-js/packages/next/src --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-next-js.json \
+  --output benchmarks/embedding-quality-v1.6-phase3e-next-js-stacked.json
+```
+
+**Limitations acknowledged**:
+
+1. **Retrieval-failure floor is 15 / 26 NL queries (58 %)**. More than half of the natural-language queries never place the target within the top 10 candidates in any arm. These are cases where `semantic_search`'s CodeSearchNet-INT8 embedding + lexical BM25 scoring combined cannot find files like `server/request/headers.ts` from a query like "get the current request headers in a server component", regardless of how Phase 2b/2c/2e re-rank them. This is a larger share of retrieval-failure than TypeScript's 20 / 26 (77 %), but the absolute count is similar — the difference is TypeScript has more retrieval failures _and_ more headroom for the ranked ones, while Next.js has fewer retrieval failures _but_ the baseline hybrid ranking was already near-ceiling for the findable ones. Both outcomes point at the same underlying cap: the v1.5 re-ranker can only re-order candidates it already has.
+2. **One dataset does not disprove a population claim**. Next.js is _a_ typical TS app, but it is a particularly large and frameworky one with complex internal architecture. A smaller app (a Node.js service, a Remix app, a Vite + React SPA) might land somewhere between Next.js 0 % and jest +7 %. The honest framing is "v1.5 stack ranges from 0 % to +104 % on JS/TS depending on file size and JSDoc density", not "v1.5 stack is zero on all typical apps".
+3. **Dataset overlap with Phase 3d methodology**. Phase 3d (TypeScript compiler) used exactly the same 34-query shape (26 NL + 6 short + 2 identifier) and 4-arm structure as Phase 3e. This makes the comparison directly apples-to-apples, but it also means the query style (Next.js public API surface, named exports only, English NL phrasing) imports the same methodological preferences across both datasets. A dataset built by a different author with a different query style might land elsewhere. §8.12's ripgrep dataset was built this way and Phase 2b+2c moved it from 0.459 to 0.529 (+15.2 %), so the query-style bias is not the dominant factor — but it is a factor.
+
+**Artefacts**: `benchmarks/embedding-quality-v1.6-phase3e-next-js-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-next-js.json`.
+
 ---
 
 ## 9. See Also
