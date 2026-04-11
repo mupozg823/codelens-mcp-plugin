@@ -455,13 +455,21 @@ pub fn query_project(state: &AppState, arguments: &serde_json::Value) -> ToolRes
 /// no known-extension files at all), we leave the env var unset and the
 /// engine falls through to the conservative default (stack OFF).
 pub fn auto_set_embed_hint_lang(project_path: &std::path::Path) {
+    // v1.6.0 flip (§8.14): default-ON semantics. Unset env means "auto
+    // mode ON", explicit `CODELENS_EMBED_HINT_AUTO=0`/`false`/`no`/`off`
+    // is the opt-out. Must stay in lock-step with the engine's
+    // `auto_hint_mode_enabled()` in `crates/codelens-engine/src/embedding/mod.rs`.
     let auto_hint_gate_enabled = std::env::var("CODELENS_EMBED_HINT_AUTO")
         .ok()
         .map(|v| {
             let lowered = v.trim().to_ascii_lowercase();
-            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
+            match lowered.as_str() {
+                "1" | "true" | "yes" | "on" => true,
+                "0" | "false" | "no" | "off" => false,
+                _ => true, // unknown value → fall through to default-on
+            }
         })
-        .unwrap_or(false);
+        .unwrap_or(true);
     let user_forced_lang = std::env::var("CODELENS_EMBED_HINT_AUTO_LANG").is_ok();
     if !auto_hint_gate_enabled || user_forced_lang {
         return;
