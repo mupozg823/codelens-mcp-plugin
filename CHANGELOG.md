@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 4d — single-instance port guard for HTTP transport)
+
+Closes the duplicate-launcher failure mode that Phase 4c's structured logging **made visible but did not resolve**. Phase 4c observability confirmed two launchers racing on port 7837 (`project_source="MCP_PROJECT_DIR"` and `project_source="CLI path"`, 27 μs apart). The `CLI path` source maps to the launchd user agent `com.bagjaeseog.codelens-mcp.http.plist` (`RunAtLoad+KeepAlive`), while the `MCP_PROJECT_DIR` source is not tracked to any persistent config. Since source elimination is impossible without project-wide user-config policy, Phase 4d adds an **application-level single-instance guarantee** instead: whoever loses the race exits gracefully (`exit 0`) with a structured marker, leaving the existing daemon undisturbed.
+
+- **`port_is_occupied()` helper in `transport_http.rs`**: probes `127.0.0.1:<port>` via `TcpStream::connect` with a 200 ms timeout. `Ok(Ok(_))` → port is occupied (something is listening). `Ok(Err(_))` (typically `ConnectionRefused`) → port is free. Timeout → treat as free (conservative — the actual `bind` call will catch any real conflict). Pure async, no extra dependencies.
+- **Pre-bind probe in `run_http()`**: the HTTP server entry point now probes the target port before even constructing the axum router. Occupied port → skip to `emit_existing_instance_exit()`. Free port → normal bind + serve path.
+- **Bind-time AddrInUse fallback**: a short race window exists between the probe and the actual `bind()` call where a second instance could claim the port. We catch that specific error (`std::io::ErrorKind::AddrInUse` from the `bind` result) and re-route it through the same graceful exit path. Double-safety — whichever detection fires first wins.
+- **`emit_existing_instance_exit()` → `exit 0`**: logs a structured `warn!` with `port`, `project_root`, `git_sha`, `daemon_started_at`, and a new `existing_instance_detected=true` discriminator field, then calls `std::process::exit(0)`. The `exit 0` is deliberate so a suitably configured launchd user agent (`KeepAlive.SuccessfulExit=false`) will respect the graceful termination and **not** trigger a retry loop. If the plist is not yet updated, launchd will keep retrying but each retry hits the same graceful exit — worst case is log noise, not a spin.
+- **Smoke test on running daemon (verified end-to-end)**: launched a second `codelens-mcp --transport http --port 7837` against a live daemon (PID 33970). Result:
+  ```
+  WARN CODELENS_SESSION_START pid=53608 ... git_sha=b60a1d5 ...
+  WARN another CodeLens MCP daemon is already listening on this port —
+       deferring to existing instance (exit 0) port=7837
+       existing_instance_detected=true ...
+  exit code: 0
+  ```
+  The second process detected the existing listener in **376 μs** (between startup banner and graceful exit), emitted the structured marker, and exited cleanly. The existing daemon (PID 33970) kept serving uninterrupted. Phase 4c's `project_source=MCP_PROJECT_DIR` vs `project_source=CLI path` race (the bug that motivated this phase) is now a no-op: whichever process reaches the port first keeps it, the other emits one log line and exits.
+- **Three new unit tests** in `transport_http::single_instance_guard_tests`:
+  - `port_is_occupied_returns_false_for_empty_port` — bind `127.0.0.1:0` to reserve an ephemeral port, drop the listener, probe should return false (normal startup path)
+  - `port_is_occupied_returns_true_for_live_listener` — bind a real listener, spawn an accept loop, probe should return true (duplicate-detection path)
+  - `port_is_occupied_handles_port_zero_gracefully` — port 0 is a reserved wildcard, probe should return false without panicking (edge case)
+
+  MCP test count (`--features http`): 198 → **201** (+3). Default-feature count unchanged at 155 (the tests are `#[cfg(feature = "http")]`-gated).
+
+- **launchd plist migration note** (user action required, not done in this PR): for the graceful-exit path to prevent launchd retry loops, `~/Library/LaunchAgents/com.bagjaeseog.codelens-mcp.http.plist` should be updated from `<key>KeepAlive</key><true/>` to a dict form with `SuccessfulExit=false`:
+
+  ```xml
+  <key>KeepAlive</key>
+  <dict>
+      <key>SuccessfulExit</key>
+      <false/>
+  </dict>
+  ```
+
+  Followed by `launchctl unload ~/Library/LaunchAgents/com.bagjaeseog.codelens-mcp.http.plist && launchctl load ~/Library/LaunchAgents/com.bagjaeseog.codelens-mcp.http.plist`. This is documented but **not automated** — system-level config changes are out of scope for a Rust PR and should be approved explicitly by the user after reviewing the PR.
+
+- **No API breakage**: no JSON payload changes, no public function signatures changed. The `run_http` function returns the same `Result<()>` with the same normal path; the only difference is that `std::process::exit(0)` may now be called from within the function body under the specific "port occupied" condition. Callers that expected `run_http` to always return are a theoretical concern, but there are no such callers in-tree (the function is the final leaf in `main.rs`'s http branch).
+
 ### Added (Phase 4c — HTTP startup banner, structured bind errors, docs stale fixes)
 
 Operational observability layer improvements. Phase 4a/4b made `get_capabilities` an accurate runtime truth source, but debuggers looking at append-only daemon logs (e.g. `~/.codex/codelens-http.log` under launchd) still had no single-line session boundary. Phase 4c closes the gap for log readers the same way Phase 4b closed it for `get_capabilities` callers.

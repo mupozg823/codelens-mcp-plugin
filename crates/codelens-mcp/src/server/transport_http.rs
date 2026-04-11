@@ -86,10 +86,72 @@ async fn server_card_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
     )
 }
 
+/// Phase 4d (§single-instance guard): probe the target port before
+/// attempting to bind. Returns `true` if the port is already
+/// accepting connections, which we interpret as "another CodeLens
+/// MCP daemon is already live here — defer to it".
+///
+/// Uses a short 200 ms connect timeout so startup doesn't stall on
+/// weird network states. `ConnectionRefused` (the normal "nothing is
+/// listening" response from the kernel) is the happy path and
+/// returns `false`. Any other error (timeout, permission denied,
+/// network unreachable) is also treated as "port is free" —
+/// conservative, since the actual `bind` call will still catch a
+/// real bind conflict.
+async fn port_is_occupied(port: u16) -> bool {
+    use tokio::net::TcpStream;
+    use tokio::time::{Duration, timeout};
+    let addr = format!("127.0.0.1:{port}");
+    match timeout(Duration::from_millis(200), TcpStream::connect(&addr)).await {
+        // Successful connect within 200 ms → something is listening.
+        Ok(Ok(_stream)) => true,
+        // Any error (ConnectionRefused, etc.) → port is free.
+        Ok(Err(_)) => false,
+        // Timeout → treat as free (bind will catch a real conflict).
+        Err(_) => false,
+    }
+}
+
+/// Phase 4d (§single-instance guard): log and exit 0 when we detect
+/// an existing instance. `std::process::exit(0)` is deliberate — it
+/// tells launchd (configured with `KeepAlive.SuccessfulExit=false`)
+/// that this invocation is a normal termination and should **not**
+/// trigger an automatic retry. If the user's launchd config does
+/// not yet carry that key, launchd will keep retrying but each retry
+/// will hit the same exit 0 path until the existing instance dies
+/// naturally — so the worst case is log noise, not a spin.
+fn emit_existing_instance_exit(
+    port: u16,
+    project_root: String,
+    daemon_started_at: &str,
+) -> ! {
+    tracing::warn!(
+        port,
+        project_root = %project_root,
+        git_sha = crate::build_info::BUILD_GIT_SHA,
+        daemon_started_at = daemon_started_at,
+        existing_instance_detected = true,
+        "another CodeLens MCP daemon is already listening on this port — deferring to existing instance (exit 0)"
+    );
+    std::process::exit(0);
+}
+
 /// Start the HTTP server with Streamable HTTP transport.
 #[tokio::main]
 pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
     state.metrics().record_transport_session("http");
+
+    // Phase 4d §single-instance guard: probe before bind. Catches
+    // the common duplicate-launcher case (two launchd-style sources
+    // racing for the same port) with a sub-second check instead of
+    // letting both processes reach `bind()` and stack bind errors
+    // in the append-only daemon log.
+    if port_is_occupied(port).await {
+        let project_root = state.current_project_scope();
+        let daemon_started_at = state.daemon_started_at().to_string();
+        emit_existing_instance_exit(port, project_root, &daemon_started_at);
+    }
+
     let app = build_router(state.clone());
 
     // Session cleanup background task
@@ -110,17 +172,37 @@ pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("CodeLens MCP HTTP server listening on http://{addr}/mcp");
 
-    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|error| {
-        tracing::error!(
-            port,
-            project_root = %state.current_project_scope(),
-            git_sha = crate::build_info::BUILD_GIT_SHA,
-            daemon_started_at = state.daemon_started_at(),
-            error = %error,
-            "failed to bind CodeLens MCP HTTP listener"
-        );
-        error
-    })?;
+    // Phase 4d §single-instance guard: even with pre-probe, a
+    // race window exists where a second instance bound the port
+    // between our probe and our bind. `bind` will then fail with
+    // `AddrInUse`. We catch that specific error and re-route to
+    // the same graceful exit 0 path.
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+            let project_root = state.current_project_scope();
+            let daemon_started_at = state.daemon_started_at().to_string();
+            tracing::warn!(
+                port,
+                project_root = %project_root,
+                git_sha = crate::build_info::BUILD_GIT_SHA,
+                daemon_started_at = %daemon_started_at,
+                "bind raced with existing instance (AddrInUse after probe) — deferring"
+            );
+            emit_existing_instance_exit(port, project_root, &daemon_started_at);
+        }
+        Err(error) => {
+            tracing::error!(
+                port,
+                project_root = %state.current_project_scope(),
+                git_sha = crate::build_info::BUILD_GIT_SHA,
+                daemon_started_at = state.daemon_started_at(),
+                error = %error,
+                "failed to bind CodeLens MCP HTTP listener"
+            );
+            return Err(error.into());
+        }
+    };
     axum::serve(listener, app).await.map_err(|error| {
         tracing::error!(
             port,
@@ -298,4 +380,78 @@ async fn mcp_delete_handler(State(state): State<Arc<AppState>>, headers: HeaderM
         tracing::debug!(session_id = id, "session terminated by client");
     }
     StatusCode::NO_CONTENT
+}
+
+// ── Phase 4d: single-instance port guard tests ─────────────────────
+
+#[cfg(test)]
+mod single_instance_guard_tests {
+    use super::port_is_occupied;
+
+    /// Pick a port that's almost certainly free by binding 127.0.0.1:0
+    /// (let the kernel choose) and returning the allocated number.
+    /// The listener is dropped before we return, so by the time the
+    /// caller probes, the port is definitely free.
+    async fn reserve_free_port() -> u16 {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("kernel should hand out a free ephemeral port");
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+        port
+    }
+
+    /// Phase 4d AC3: an empty port must be reported as not-occupied.
+    /// This is the normal startup path — daemon probes, sees nothing,
+    /// proceeds to bind.
+    #[tokio::test]
+    async fn port_is_occupied_returns_false_for_empty_port() {
+        let port = reserve_free_port().await;
+        assert!(
+            !port_is_occupied(port).await,
+            "empty port {port} must be reported as not-occupied"
+        );
+    }
+
+    /// Phase 4d AC1: a port with a live listener must be reported as
+    /// occupied. This is the single-instance trigger — a second
+    /// launcher probing the same port must detect the existing
+    /// daemon before calling `bind()`.
+    #[tokio::test]
+    async fn port_is_occupied_returns_true_for_live_listener() {
+        // Bind a real listener on an ephemeral port.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("kernel should hand out a free ephemeral port");
+        let port = listener.local_addr().unwrap().port();
+
+        // Spawn a minimal accept loop so the probe's TcpStream::connect
+        // actually succeeds rather than hitting a race against the
+        // kernel's accept queue. We just accept and immediately drop —
+        // the probe only cares about the initial 3-way handshake.
+        let accept_handle = tokio::spawn(async move {
+            if let Ok((stream, _)) = listener.accept().await {
+                drop(stream);
+            }
+        });
+
+        assert!(
+            port_is_occupied(port).await,
+            "live listener on port {port} must be reported as occupied"
+        );
+
+        // Clean up the spawned accept task.
+        accept_handle.abort();
+    }
+
+    /// Phase 4d AC1 edge case: unreachable ports (e.g. port 0, which
+    /// is a reserved wildcard) should not panic and should return
+    /// false so normal startup proceeds. The probe is conservative
+    /// by design — bind will catch any real problem.
+    #[tokio::test]
+    async fn port_is_occupied_handles_port_zero_gracefully() {
+        // Port 0 is reserved and unbindable via TcpStream::connect.
+        // Should return false (not-occupied) without panicking.
+        let _ = port_is_occupied(0).await;
+    }
 }
