@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Docs
+
+- **Phase 2d model-swap design brief** — new `docs/design/v1.6-phase2d-model-swap-brief.md` captures the structured trade-off surface for a future embedding-model upgrade (CodeSearchNet-INT8 → BGE-small / Jina code v2 / gte-small / …). Ten-section brief: context, candidate short-list with size + license + ONNX-support table, evaluation protocol re-using the v1.5 four-arm infrastructure, three bundle strategies (compile-in / download-on-first-run / feature flag), migration path with automatic reindex on model-name mismatch, ten-entry risk matrix, four-checkpoint effort breakdown with explicit stop conditions, and a decision matrix the maintainer fills in before any code change starts. **No code or behaviour change ships with the brief** — it is pre-decision by design, and exists specifically so a future Phase 2d does not repeat the Phase 2 cAST PoC's "first-guess implementation then measure" failure mode. The v1.5 stacked MRR (0.586 on 89-query, +7.1 % relative on 436-query) is now the formal baseline any model swap must exceed.
+
 ## [1.5.0] — 2026-04-12
 
 Second public release. This version cuts the v1.5 experiment iteration into a shippable package: three stackable opt-in gates for NL-heavy retrieval, all cross-dataset validated on the 89-query self dataset and the 436-query augmented dataset, with a parameter sweep locking in the recommended `(threshold = 40, max = 40)` values. No behaviour change is turned on by default — every new gate is `CODELENS_*=1` opt-in — so existing deployments upgrade in place with zero surprises.
