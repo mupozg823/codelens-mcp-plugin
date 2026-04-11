@@ -150,47 +150,40 @@ async fn mcp_post_handler(
     let mut request = request;
 
     // Validate session for non-initialize requests
-    if !is_initialize {
-        if let Some(ref sid) = session_id {
-            if let Some(store) = &state.session_store {
-                if store.get(sid).is_none() {
-                    return (StatusCode::NOT_FOUND, "Unknown session").into_response();
-                }
-            }
-        }
+    if !is_initialize
+        && let Some(ref sid) = session_id
+        && let Some(store) = &state.session_store
+        && store.get(sid).is_none()
+    {
+        return (StatusCode::NOT_FOUND, "Unknown session").into_response();
     }
 
     // Inject session metadata into request params based on method
-    if !is_initialize {
-        if let Some(ref sid) = session_id {
-            if let Some(store) = &state.session_store {
-                match request.method.as_str() {
-                    "tools/call" => {
-                        super::session_injection::inject_tool_call_session(
-                            &mut request,
-                            sid,
-                            store,
-                        );
-                    }
-                    "tools/list" => {
-                        super::session_injection::inject_tools_list_session(
-                            &mut request,
-                            sid,
-                            store,
-                            &state,
-                        );
-                    }
-                    "resources/read" => {
-                        super::session_injection::inject_resources_read_session(
-                            &mut request,
-                            sid,
-                            store,
-                            &state,
-                        );
-                    }
-                    _ => {}
-                }
+    if !is_initialize
+        && let Some(ref sid) = session_id
+        && let Some(store) = &state.session_store
+    {
+        match request.method.as_str() {
+            "tools/call" => {
+                super::session_injection::inject_tool_call_session(&mut request, sid, store);
             }
+            "tools/list" => {
+                super::session_injection::inject_tools_list_session(
+                    &mut request,
+                    sid,
+                    store,
+                    &state,
+                );
+            }
+            "resources/read" => {
+                super::session_injection::inject_resources_read_session(
+                    &mut request,
+                    sid,
+                    store,
+                    &state,
+                );
+            }
+            _ => {}
         }
     }
 
@@ -278,11 +271,11 @@ async fn mcp_get_handler(State(state): State<Arc<AppState>>, headers: HeaderMap)
 // ── DELETE /mcp (session termination) ─────────────────────────────────
 
 async fn mcp_delete_handler(State(state): State<Arc<AppState>>, headers: HeaderMap) -> StatusCode {
-    if let Some(id) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok()) {
-        if let Some(store) = &state.session_store {
-            store.remove(id);
-            tracing::debug!(session_id = id, "session terminated by client");
-        }
+    if let Some(id) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok())
+        && let Some(store) = &state.session_store
+    {
+        store.remove(id);
+        tracing::debug!(session_id = id, "session terminated by client");
     }
     StatusCode::NO_CONTENT
 }

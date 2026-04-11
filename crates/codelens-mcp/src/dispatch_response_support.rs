@@ -135,7 +135,11 @@ fn slim_text_payload_for_async_handle(
 
     let mut payload = Map::new();
     payload.insert("success".to_owned(), Value::Bool(resp.success));
-    insert_if_present(&mut payload, "backend_used", resp.backend_used.clone().map(Value::String));
+    insert_if_present(
+        &mut payload,
+        "backend_used",
+        resp.backend_used.clone().map(Value::String),
+    );
     insert_if_present(&mut payload, "confidence", resp.confidence.map(Value::from));
     insert_if_present(
         &mut payload,
@@ -157,7 +161,11 @@ fn slim_text_payload_for_async_handle(
             .as_ref()
             .and_then(|freshness| serde_json::to_value(freshness).ok()),
     );
-    insert_if_present(&mut payload, "staleness_ms", resp.staleness_ms.map(Value::from));
+    insert_if_present(
+        &mut payload,
+        "staleness_ms",
+        resp.staleness_ms.map(Value::from),
+    );
     insert_if_present(
         &mut payload,
         "token_estimate",
@@ -207,17 +215,14 @@ fn insert_if_present(target: &mut Map<String, Value>, key: &str, value: Option<V
     }
 }
 
-fn copy_summarized_field(
-    target: &mut Map<String, Value>,
-    source: &Map<String, Value>,
-    key: &str,
-) {
+fn copy_summarized_field(target: &mut Map<String, Value>, source: &Map<String, Value>, key: &str) {
     if let Some(value) = source.get(key) {
         target.insert(key.to_owned(), summarize_structured_content(value, 0));
     }
 }
 
 /// Adaptive compression based on OpenDev 5-stage strategy (arxiv:2603.05344).
+/// Thresholds are adjusted by effort level offset (Low=-10, Medium=0, High=+10).
 /// Stage 1: <75% budget → pass through
 /// Stage 2: 75-85% → summarize structured content (depth=1)
 /// Stage 3: 85-95% → aggressive summarize (depth=0)
@@ -228,34 +233,44 @@ pub(crate) fn bounded_result_payload(
     mut structured_content: Option<Value>,
     payload_estimate: usize,
     effective_budget: usize,
+    effort_offset: i32,
 ) -> (String, Option<Value>, bool) {
     let usage_pct = if effective_budget > 0 {
         payload_estimate * 100 / effective_budget
     } else {
         100
     };
+    // Apply effort offset to thresholds (High effort delays compression)
+    let t1 = (75i32 + effort_offset).clamp(50, 90) as usize;
+    let t2 = (85i32 + effort_offset).clamp(60, 95) as usize;
+    let t3 = (95i32 + effort_offset).clamp(70, 100) as usize;
+    let t4 = (100i32 + effort_offset).clamp(80, 110) as usize;
+
     let max_chars = effective_budget * 8;
     let mut truncated = false;
 
-    if usage_pct <= 75 {
+    if usage_pct <= t1 {
         // Stage 1: pass through
-    } else if usage_pct <= 85 {
+    } else if usage_pct <= t2 {
         // Stage 2: light summarization
         if let Some(existing) = structured_content.as_ref() {
             structured_content = Some(summarize_structured_content(existing, 1));
         }
-    } else if usage_pct <= 95 {
+    } else if usage_pct <= t3 {
         // Stage 3: aggressive summarization
         if let Some(existing) = structured_content.as_ref() {
             structured_content = Some(summarize_structured_content(existing, 0));
         }
-    } else if usage_pct <= 100 {
+    } else if usage_pct <= t4 {
         // Stage 4: aggressive summarize structured + truncate text if needed
         if let Some(existing) = structured_content.as_ref() {
             structured_content = Some(summarize_structured_content(existing, 0));
         }
         if text.len() > max_chars {
-            text = format!("{}...[truncated]", text.chars().take(max_chars).collect::<String>());
+            text = format!(
+                "{}...[truncated]",
+                text.chars().take(max_chars).collect::<String>()
+            );
         }
         truncated = true;
     } else {
@@ -279,16 +294,39 @@ pub(crate) fn bounded_result_payload(
     (text, structured_content, truncated)
 }
 
+/// Determine `_meta["anthropic/maxResultSizeChars"]` based on tool tier.
+/// Claude Code v2.1.91+ respects this annotation to keep up to 500K chars.
+pub(crate) fn max_result_size_chars_for_tool(name: &str, truncated: bool) -> usize {
+    use crate::protocol::ToolTier;
+    use crate::tool_defs::tool_tier;
+
+    if truncated {
+        return 25_000;
+    }
+
+    match tool_tier(name) {
+        ToolTier::Workflow => 200_000,
+        ToolTier::Analysis => 100_000,
+        ToolTier::Primitive => 50_000,
+    }
+}
+
 pub(crate) fn success_jsonrpc_response(
     id: Option<Value>,
     text: String,
     structured_content: Option<Value>,
+    max_result_size_chars: Option<usize>,
 ) -> JsonRpcResponse {
     let mut result = json!({
         "content": [{ "type": "text", "text": text }]
     });
     if let Some(structured_content) = structured_content {
         result["structuredContent"] = structured_content;
+    }
+    if let Some(max_chars) = max_result_size_chars {
+        result["_meta"] = json!({
+            "anthropic/maxResultSizeChars": max_chars
+        });
     }
     JsonRpcResponse::result(id, result)
 }

@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
-use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    SuccessResponseInput, build_error_response, build_success_response,
+    build_error_response, build_success_response, SuccessResponseInput,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
-    is_refactor_gated_mutation_tool,
+    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
+    MutationGateFailure,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
+use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
 use crate::tools::{self, ToolHandler, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -87,7 +87,7 @@ impl ToolCallEnvelope {
 // ── Semantic handlers (feature-gated) ──────────────────────────────────
 
 #[cfg(feature = "semantic")]
-use codelens_core::EmbeddingEngine;
+use codelens_engine::EmbeddingEngine;
 
 #[cfg(feature = "semantic")]
 fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -146,7 +146,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
             .iter()
             .map(|r| (format!("{}:{}", r.file_path, r.symbol_name), r.score))
             .collect();
-        let hybrid = codelens_core::search::search_symbols_hybrid_with_semantic(
+        let hybrid = codelens_engine::search::search_symbols_hybrid_with_semantic(
             &project,
             query,
             candidate_limit,
@@ -163,7 +163,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         for hr in hybrid {
             let key = format!("{}:{}:{}", hr.file, hr.name, hr.line);
             if seen.insert(key) {
-                results.push(codelens_core::SemanticMatch {
+                results.push(codelens_engine::SemanticMatch {
                     file_path: hr.file,
                     symbol_name: hr.name,
                     kind: hr.kind,
@@ -248,19 +248,33 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
 fn find_similar_code_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = tools::required_string(arguments, "file_path")?;
     let symbol_name = tools::required_string(arguments, "symbol_name")?;
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(10) as usize;
+    let max_results = tools::optional_usize(arguments, "max_results", 10);
+    let min_similarity = arguments
+        .get("min_similarity")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.3);
 
     let guard = state.embedding_engine();
     let engine = guard
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
-    let results = engine.find_similar_code(file_path, symbol_name, max_results)?;
+    // Over-fetch then filter by minimum similarity threshold
+    let fetch_limit = max_results.saturating_mul(2).clamp(max_results, 40);
+    let raw_results = engine.find_similar_code(file_path, symbol_name, fetch_limit)?;
+    let results: Vec<_> = raw_results
+        .into_iter()
+        .filter(|r| r.score >= min_similarity)
+        .take(max_results)
+        .collect();
     Ok((
-        json!({"query_symbol": symbol_name, "file": file_path, "similar": results, "count": results.len()}),
+        json!({
+            "query_symbol": symbol_name,
+            "file": file_path,
+            "min_similarity": min_similarity,
+            "similar": results,
+            "count": results.len()
+        }),
         tools::success_meta(crate::protocol::BackendKind::Semantic, 0.80),
     ))
 }
@@ -351,6 +365,39 @@ static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> = LazyLock::
     m
 });
 
+// ── Schema pre-validation ─────────────────────────────────────────────
+
+/// Check that all `required` fields from the tool's input_schema are present.
+/// Returns early with MissingParam error before the handler runs.
+fn validate_required_params(
+    name: &str,
+    arguments: &serde_json::Value,
+) -> Result<(), CodeLensError> {
+    let tool = match crate::tool_defs::tool_definition(name) {
+        Some(t) => t,
+        None => return Ok(()), // unknown tool handled later by dispatch table
+    };
+    let required = match tool.input_schema.get("required").and_then(|v| v.as_array()) {
+        Some(arr) => arr,
+        None => return Ok(()), // no required fields
+    };
+    for field in required {
+        if let Some(key) = field.as_str() {
+            // Skip routing metadata (underscore-prefixed) — never user-visible
+            if key.starts_with('_') {
+                continue;
+            }
+            let present = arguments
+                .get(key)
+                .is_some_and(|v| !v.is_null() && v.as_str() != Some(""));
+            if !present {
+                return Err(CodeLensError::MissingParam(key.to_owned()));
+            }
+        }
+    }
+    Ok(())
+}
+
 // ── Dispatch entry point ───────────────────────────────────────────────
 
 pub(crate) fn dispatch_tool(
@@ -394,7 +441,7 @@ pub(crate) fn dispatch_tool(
         }
         hasher.finish()
     };
-    let doom_count = state.doom_loop_count_for_session(session, name, args_hash);
+    let (doom_count, doom_rapid) = state.doom_loop_count_for_session(session, name, args_hash);
 
     // Track file access for session-aware ranking boost
     if let Some(fp) = arguments
@@ -426,6 +473,19 @@ pub(crate) fn dispatch_tool(
     // 2. Validate tool access (surface, namespace, tier, daemon mode)
     if let Err(access_err) = validate_tool_access(name, session, surface, state) {
         return build_error_response(name, access_err, None, &active_surface, state, start, id);
+    }
+
+    // 2b. Schema pre-validation: check required fields before handler runs
+    if let Err(validation_err) = validate_required_params(name, arguments) {
+        return build_error_response(
+            name,
+            validation_err,
+            None,
+            &active_surface,
+            state,
+            start,
+            id,
+        );
     }
 
     // 3. Mutation gate check + 4. Execute tool via DISPATCH_TABLE
@@ -485,7 +545,7 @@ pub(crate) fn dispatch_tool(
             #[cfg(feature = "semantic")]
             {
                 let project = state.project();
-                let configured_model = codelens_core::configured_embedding_model_name();
+                let configured_model = codelens_engine::configured_embedding_model_name();
                 let embeddings_active = {
                     let guard = state.embedding_ref();
                     guard.as_ref().is_some_and(|engine| engine.is_indexed())
@@ -541,13 +601,16 @@ pub(crate) fn dispatch_tool(
         tracing::warn!(
             tool = name,
             repeat_count = doom_count,
-            "doom-loop detected: same tool+args called {} times consecutively",
-            doom_count
+            rapid = doom_rapid,
+            "doom-loop detected: same tool+args called {} times consecutively{}",
+            doom_count,
+            if doom_rapid { " (rapid burst)" } else { "" }
         );
     }
     match result {
         Ok((payload, meta)) => build_success_response(SuccessResponseInput {
             doom_loop_count: doom_count,
+            doom_loop_rapid: doom_rapid,
             name,
             payload,
             meta,
@@ -573,7 +636,7 @@ pub(crate) fn dispatch_tool(
 #[cfg(all(test, feature = "semantic"))]
 mod semantic_tests {
     use crate::tools::symbols::rerank_semantic_matches;
-    use codelens_core::SemanticMatch;
+    use codelens_engine::SemanticMatch;
 
     fn semantic_match(file_path: &str, symbol_name: &str, kind: &str, score: f64) -> SemanticMatch {
         SemanticMatch {

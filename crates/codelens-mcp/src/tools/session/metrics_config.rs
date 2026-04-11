@@ -1,10 +1,10 @@
-use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
+    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
 };
-use crate::tool_runtime::{ToolResult, success_meta};
+use crate::tool_runtime::{success_meta, ToolResult};
+use crate::AppState;
 use serde_json::json;
 
 pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
@@ -101,13 +101,13 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     #[cfg(not(feature = "semantic"))]
     let embeddings_loaded = false;
 
-    let configured_embedding_model = codelens_core::configured_embedding_model_name();
+    let configured_embedding_model = codelens_engine::configured_embedding_model_name();
     let embedding_runtime = {
         let guard = state.embedding_ref();
         guard
             .as_ref()
             .map(|engine| engine.runtime_info().clone())
-            .unwrap_or_else(codelens_core::configured_embedding_runtime_info)
+            .unwrap_or_else(codelens_engine::configured_embedding_runtime_info)
     };
 
     #[cfg(feature = "semantic")]
@@ -117,14 +117,14 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             .as_ref()
             .map(|engine| engine.index_info())
             .or_else(|| {
-                codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
+                codelens_engine::EmbeddingEngine::inspect_existing_index(&state.project())
                     .ok()
                     .flatten()
             })
     };
     #[cfg(not(feature = "semantic"))]
     let embedding_index_info =
-        codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
+        codelens_engine::EmbeddingEngine::inspect_existing_index(&state.project())
             .ok()
             .flatten();
 
@@ -355,6 +355,16 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
     let new_preset = ToolPreset::from_str(preset_str);
     let old_surface = state.execution_surface(&session).as_label().to_owned();
 
+    // Apply effort_level if provided
+    if let Some(effort_str) = arguments.get("effort_level").and_then(|v| v.as_str()) {
+        let level = match effort_str {
+            "low" => crate::client_profile::EffortLevel::Low,
+            "medium" => crate::client_profile::EffortLevel::Medium,
+            _ => crate::client_profile::EffortLevel::High,
+        };
+        state.set_effort_level(level);
+    }
+
     // Auto-set token budget per preset, or accept explicit override
     let budget = arguments
         .get("token_budget")
@@ -385,6 +395,7 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
             "current_preset": format!("{new_preset:?}"),
             "active_surface": ToolSurface::Preset(new_preset).as_label(),
             "token_budget": budget,
+            "effort_level": state.effort_level().as_str(),
             "note": "Preset changed. Next tools/list call will reflect the new tool set."
         }),
         success_meta(BackendKind::Session, 1.0),

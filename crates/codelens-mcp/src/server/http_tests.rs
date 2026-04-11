@@ -9,7 +9,7 @@ use super::session::SessionStore;
 use super::transport_http::build_router;
 use crate::AppState;
 use axum::http::{Request, StatusCode};
-use codelens_core::ProjectRoot;
+use codelens_engine::ProjectRoot;
 use http_body_util::BodyExt;
 use std::sync::Arc;
 use std::time::Duration;
@@ -32,16 +32,7 @@ fn test_state() -> Arc<AppState> {
 }
 
 fn temp_project_dir(name: &str) -> std::path::PathBuf {
-    let dir = std::env::temp_dir().join(format!(
-        "codelens-http-{name}-{}-{:?}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_nanos(),
-        std::thread::current().id(),
-    ));
-    std::fs::create_dir_all(&dir).unwrap();
-    dir
+    crate::test_helpers::fixtures::temp_project_dir(name)
 }
 
 async fn body_string(resp: axum::response::Response) -> String {
@@ -614,7 +605,11 @@ async fn analysis_jobs_follow_session_bound_project_scope() {
         .unwrap();
     let section_payload = first_tool_payload(&body_string(section).await);
     assert_eq!(section_payload["success"], serde_json::json!(true));
-    assert!(section_payload["data"]["content"].to_string().contains("second.py"));
+    assert!(
+        section_payload["data"]["content"]
+            .to_string()
+            .contains("second.py")
+    );
 
     let foreign_poll = app
         .oneshot(

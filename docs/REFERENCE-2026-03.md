@@ -1,7 +1,7 @@
 # CodeLens MCP — 2026년 3월 개발 참고 자료
 
 > 최종 업데이트: 2026-03-29
-> 대상: CodeLens MCP (Rust, ~15K LoC, 50 tools, 1인 개발)
+> 대상: CodeLens MCP (Rust, ~22K LoC, 89 tools, 1인 개발)
 
 ---
 
@@ -9,21 +9,21 @@
 
 ### 1.1 공식 SDK 및 주요 프레임워크
 
-| 프로젝트 | Stars | 버전 | 특징 | CodeLens 관련성 |
-|----------|-------|------|------|----------------|
-| [modelcontextprotocol/rust-sdk](https://github.com/modelcontextprotocol/rust-sdk) | 3.2k | 0.16.0 | `rmcp` + `rmcp-macros`, tokio 기반 | **1.0 안정화 후 프로토콜 레이어 교체 후보** |
-| [rust-mcp-stack/rust-mcp-filesystem](https://github.com/rust-mcp-stack/rust-mcp-filesystem) | 141 | 0.4.1 | async 파일시스템, 보안 기본값 | 파일 도구 설계 참고 |
-| [Dicklesworthstone/fastmcp_rust](https://github.com/Dicklesworthstone/fastmcp_rust) | 16 | — | cancel-correct async, `#![forbid(unsafe_code)]` | unsafe 제거 패턴 참고 |
-| [JSBtechnologies/FastRMCP](https://github.com/JSBtechnologies/FastRMCP) | 초기 | — | FastAPI 스타일 DX, STDIO/SSE/WebSocket | Transport 확장 참고 |
-| ultrafast-mcp (docs.rs) | — | — | MCP 2025-06-18 스펙, OAuth 2.1, 멀티 트랜스포트 | 최신 스펙 구현 참고 |
+| 프로젝트                                                                                    | Stars | 버전   | 특징                                            | CodeLens 관련성                             |
+| ------------------------------------------------------------------------------------------- | ----- | ------ | ----------------------------------------------- | ------------------------------------------- |
+| [modelcontextprotocol/rust-sdk](https://github.com/modelcontextprotocol/rust-sdk)           | 3.2k  | 0.16.0 | `rmcp` + `rmcp-macros`, tokio 기반              | **1.0 안정화 후 프로토콜 레이어 교체 후보** |
+| [rust-mcp-stack/rust-mcp-filesystem](https://github.com/rust-mcp-stack/rust-mcp-filesystem) | 141   | 0.4.1  | async 파일시스템, 보안 기본값                   | 파일 도구 설계 참고                         |
+| [Dicklesworthstone/fastmcp_rust](https://github.com/Dicklesworthstone/fastmcp_rust)         | 16    | —      | cancel-correct async, `#![forbid(unsafe_code)]` | unsafe 제거 패턴 참고                       |
+| [JSBtechnologies/FastRMCP](https://github.com/JSBtechnologies/FastRMCP)                     | 초기  | —      | FastAPI 스타일 DX, STDIO/SSE/WebSocket          | Transport 확장 참고                         |
+| ultrafast-mcp (docs.rs)                                                                     | —     | —      | MCP 2025-06-18 스펙, OAuth 2.1, 멀티 트랜스포트 | 최신 스펙 구현 참고                         |
 
 ### 1.2 Rust + AI Agent 프레임워크
 
-| 프로젝트 | Stars | 특징 |
-|----------|-------|------|
-| [liquidos-ai/AutoAgents](https://github.com/liquidos-ai/AutoAgents) | 489 | 멀티에이전트, Python 대비 36% 높은 rps, 5x 메모리 절감 |
-| [Rig](https://rig.rs/) | — | 모듈러 LLM 앱 프레임워크, MCP 통합 |
-| [ldclabs/anda](https://github.com/ldclabs/anda) | — | AI agent + ICP 블록체인 + TEE |
+| 프로젝트                                                            | Stars | 특징                                                   |
+| ------------------------------------------------------------------- | ----- | ------------------------------------------------------ |
+| [liquidos-ai/AutoAgents](https://github.com/liquidos-ai/AutoAgents) | 489   | 멀티에이전트, Python 대비 36% 높은 rps, 5x 메모리 절감 |
+| [Rig](https://rig.rs/)                                              | —     | 모듈러 LLM 앱 프레임워크, MCP 통합                     |
+| [ldclabs/anda](https://github.com/ldclabs/anda)                     | —     | AI agent + ICP 블록체인 + TEE                          |
 
 ### 1.3 Rust MCP 개발 참고 글
 
@@ -39,16 +39,16 @@
 
 ### 2.1 CodeLens 구현 상태
 
-| 기능 | 스펙 상태 | CodeLens 상태 | 우선순위 |
-|------|----------|--------------|---------|
-| Tool Annotations | 확정 | ✅ 구현 완료 (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) | — |
-| JSON-RPC Batching | 확정 | ✅ 구현 완료 (stdio 배열 감지) | — |
-| Resources | 확정 | ✅ 구현 완료 (3개: project/overview, symbols/index, tools/list) | — |
-| Prompts | 확정 | ✅ 구현 완료 (3개: review-file, onboard-project, analyze-impact) | — |
-| ProgressNotification | 확정 | ⚠️ 수신만 가능, 발신 미구현 | **High** |
-| Streamable HTTP | 확정 | ❌ 미구현 (현재 POST only) | Low (stdio가 주 사용처) |
-| Elicitation | 확정 | ❌ 미구현 | Low |
-| OAuth 2.1 | 확정 | ❌ 미구현 | 해당없음 (로컬 전용) |
+| 기능                 | 스펙 상태 | CodeLens 상태                                                                       | 우선순위                |
+| -------------------- | --------- | ----------------------------------------------------------------------------------- | ----------------------- |
+| Tool Annotations     | 확정      | ✅ 구현 완료 (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`) | —                       |
+| JSON-RPC Batching    | 확정      | ✅ 구현 완료 (stdio 배열 감지)                                                      | —                       |
+| Resources            | 확정      | ✅ 구현 완료 (3개: project/overview, symbols/index, tools/list)                     | —                       |
+| Prompts              | 확정      | ✅ 구현 완료 (3개: review-file, onboard-project, analyze-impact)                    | —                       |
+| ProgressNotification | 확정      | ⚠️ 수신만 가능, 발신 미구현                                                         | **High**                |
+| Streamable HTTP      | 확정      | ❌ 미구현 (현재 POST only)                                                          | Low (stdio가 주 사용처) |
+| Elicitation          | 확정      | ❌ 미구현                                                                           | Low                     |
+| OAuth 2.1            | 확정      | ❌ 미구현                                                                           | 해당없음 (로컬 전용)    |
 
 ### 2.2 참고 문서
 
@@ -64,16 +64,17 @@
 
 ### 3.1 Claude Code 생태계 (2026 Q1)
 
-| 기능 | 설명 | CodeLens 활용 |
-|------|------|--------------|
-| Skills | 재사용 가능한 명령 세트, 1,367+ 커뮤니티 | CodeLens에 3개 Skill 구현 완료 |
-| Plugins | Skills + Agents + Hooks + MCP 번들, 340+ | **Marketplace 등록 최우선** |
-| Hooks | 이벤트 기반 자동화 (PostToolUse 등) | post-edit-diagnostics.sh 구현 완료 |
-| Agent Teams | 병렬 멀티에이전트 조율 | codelens-explorer 구현 완료 |
-| Scheduled Tasks (/loop) | 크론 스타일 반복 자동화 | 자동 인덱스 갱신에 활용 가능 |
-| Remote Control | 웹에서 로컬 세션 원격 제어 | 해당없음 |
+| 기능                    | 설명                                     | CodeLens 활용                      |
+| ----------------------- | ---------------------------------------- | ---------------------------------- |
+| Skills                  | 재사용 가능한 명령 세트, 1,367+ 커뮤니티 | CodeLens에 3개 Skill 구현 완료     |
+| Plugins                 | Skills + Agents + Hooks + MCP 번들, 340+ | **Marketplace 등록 최우선**        |
+| Hooks                   | 이벤트 기반 자동화 (PostToolUse 등)      | post-edit-diagnostics.sh 구현 완료 |
+| Agent Teams             | 병렬 멀티에이전트 조율                   | codelens-explorer 구현 완료        |
+| Scheduled Tasks (/loop) | 크론 스타일 반복 자동화                  | 자동 인덱스 갱신에 활용 가능       |
+| Remote Control          | 웹에서 로컬 세션 원격 제어               | 해당없음                           |
 
 **참고:**
+
 - [Claude Code Docs - Scheduled Tasks](https://code.claude.com/docs/en/web-scheduled-tasks)
 - [Claude Agent SDK Overview](https://platform.claude.com/docs/en/agent-sdk/overview)
 - [Mental Model for Skills, Subagents, Plugins](https://levelup.gitconnected.com/a-mental-model-for-claude-code-skills-subagents-and-plugins-3dea9924bf05)
@@ -82,16 +83,17 @@
 
 ### 3.2 경쟁 코딩 도구 비교
 
-| 도구 | 월 구독 | 강점 | SWE-bench | 사용자 |
-|------|--------|------|-----------|-------|
-| Claude Code | $100-200 | Opus 4.6, 1M 토큰 컨텍스트, 에이전트 팀 | 80.8% | 엔터프라이즈 |
-| Cursor | $20 | IDE 통합, Supermaven 자동완성, Composer | — | 1M+ |
-| Windsurf | $15 | SWE-1.5 추론 13x 빠름, 예산형 | — | 성장 중 |
-| Cline | 모델비용 | 오픈소스, VS Code 500만 설치 | — | 개발자 |
+| 도구        | 월 구독  | 강점                                    | SWE-bench | 사용자       |
+| ----------- | -------- | --------------------------------------- | --------- | ------------ |
+| Claude Code | $100-200 | Opus 4.6, 1M 토큰 컨텍스트, 에이전트 팀 | 80.8%     | 엔터프라이즈 |
+| Cursor      | $20      | IDE 통합, Supermaven 자동완성, Composer | —         | 1M+          |
+| Windsurf    | $15      | SWE-1.5 추론 13x 빠름, 예산형           | —         | 성장 중      |
+| Cline       | 모델비용 | 오픈소스, VS Code 500만 설치            | —         | 개발자       |
 
 **핵심 인사이트:** 대부분의 개발자가 2+ 도구 병행 사용. CodeLens의 멀티 클라이언트 지원 전략(Claude Code, Cursor, Windsurf, Cline) 유효.
 
 **참고:**
+
 - [Cursor vs Windsurf vs Claude Code 2026 비교](https://dev.to/pockit_tools/cursor-vs-windsurf-vs-claude-code-in-2026-the-honest-comparison-after-using-all-three-3gof)
 - [Best AI Coding Agents 2026 (Faros)](https://www.faros.ai/blog/best-ai-coding-agents-2026)
 - [AI Dev Tool Power Rankings (LogRocket)](https://blog.logrocket.com/ai-dev-tool-power-rankings/)
@@ -105,6 +107,7 @@
 에이전트가 독립적으로 계획 → 실행 → 자기검증. 인간의 매 단계 프롬프트가 불필요해지는 패턴.
 
 **CodeLens 매핑:**
+
 - Plan: `get_symbols_overview` → `get_ranked_context` (컨텍스트 파악)
 - Execute: `rename_symbol`, `replace_symbol_body` (코드 변경)
 - Validate: `get_file_diagnostics`, `find_referencing_symbols` (영향 확인)
@@ -122,9 +125,10 @@ Feature Author ─→ Test Generator ─→ Code Reviewer ─→ Security Scanne
 
 "정확한 솔루션까지의 총 토큰 비용"이 핵심 지표.
 CodeLens의 기여:
+
 - `get_ranked_context`: 토큰 예산 내 최적 컨텍스트 선택
 - `suggested_next_tools`: 도구 체이닝 가이드로 불필요한 호출 감소
-- 프리셋 시스템: Minimal(21) → Balanced(34) → Full(50)로 토큰 경쟁 최소화
+- 프리셋 시스템: Minimal(20) → Balanced(55) → Full(89)로 토큰 경쟁 최소화
 
 ### 4.4 참고 문서
 
@@ -150,6 +154,7 @@ CodeLens의 기여:
 MCP 서버 공급망 보안이 2026년 주요 거버넌스 이슈.
 
 **CodeLens 시사점:**
+
 - 코드 서명 또는 체크섬 제공 고려
 - 빌드 재현성 (reproducible builds) 확보
 - `#![deny(unsafe_code)]` 적용으로 신뢰도 향상
@@ -226,30 +231,30 @@ static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> =
 
 ### 즉시 (이번 주)
 
-| # | 작업 | 예상 시간 | 근거 |
-|---|------|----------|------|
-| 1 | **Plugin Marketplace 등록** | 1시간 | 코드 변경 0, 노출도 최대 |
-| 2 | **`tools()` → `LazyLock` 캐싱** | 15분 | 3줄 수정, 확실한 개선 |
-| 3 | **BALANCED 프리셋 카운트 통일** (CLAUDE.md vs 코드 주석) | 5분 | 문서 정합성 |
+| #   | 작업                                                     | 예상 시간 | 근거                     |
+| --- | -------------------------------------------------------- | --------- | ------------------------ |
+| 1   | **Plugin Marketplace 등록**                              | 1시간     | 코드 변경 0, 노출도 최대 |
+| 2   | **`tools()` → `LazyLock` 캐싱**                          | 15분      | 3줄 수정, 확실한 개선    |
+| 3   | **BALANCED 프리셋 카운트 통일** (CLAUDE.md vs 코드 주석) | 5분       | 문서 정합성              |
 
 ### 단기 (2주 내)
 
-| # | 작업 | 예상 시간 | 근거 |
-|---|------|----------|------|
-| 4 | **ProgressNotification 발신** (`refresh_symbol_index`에만) | 2시간 | 대형 프로젝트 UX |
-| 5 | **벤치마크 수치 README 추가** (자체 수치만, 경쟁사 비교 없이) | 1시간 | cold start, indexing, query latency |
-| 6 | **`#![deny(unsafe_code)]` 적용** (`codelens-mcp` 크레이트) | 30분 | 신뢰도, ffi 모듈 이미 분리됨 |
+| #   | 작업                                                          | 예상 시간 | 근거                                |
+| --- | ------------------------------------------------------------- | --------- | ----------------------------------- |
+| 4   | **ProgressNotification 발신** (`refresh_symbol_index`에만)    | 2시간     | 대형 프로젝트 UX                    |
+| 5   | **벤치마크 수치 README 추가** (자체 수치만, 경쟁사 비교 없이) | 1시간     | cold start, indexing, query latency |
+| 6   | **`#![deny(unsafe_code)]` 적용** (`codelens-mcp` 크레이트)    | 30분      | 신뢰도, ffi 모듈 이미 분리됨        |
 
 ### 하지 않을 것
 
-| 작업 | 이유 |
-|------|------|
-| proc macro 자체 구현 | rmcp 1.0 기다리면 됨 |
-| Streamable HTTP/SSE | 사용할 클라이언트 없음 (YAGNI) |
-| rmcp 마이그레이션 | 0.16.0 불안정 |
-| Security Scanner 에이전트 | 기대치 대비 실효성 부족 |
-| OAuth 2.1 | 로컬 전용 서버에 불필요 |
-| 경쟁사 벤치마크 비교표 | 공정한 비교 불가, 오해 소지 |
+| 작업                      | 이유                           |
+| ------------------------- | ------------------------------ |
+| proc macro 자체 구현      | rmcp 1.0 기다리면 됨           |
+| Streamable HTTP/SSE       | 사용할 클라이언트 없음 (YAGNI) |
+| rmcp 마이그레이션         | 0.16.0 불안정                  |
+| Security Scanner 에이전트 | 기대치 대비 실효성 부족        |
+| OAuth 2.1                 | 로컬 전용 서버에 불필요        |
+| 경쟁사 벤치마크 비교표    | 공정한 비교 불가, 오해 소지    |
 
 ---
 
@@ -257,22 +262,22 @@ static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> =
 
 ### 코드 인텔리전스 MCP 서버
 
-| 프로젝트 | 언어 | 도구 수 | 특징 | 위협도 |
-|----------|------|---------|------|--------|
-| [wrale/mcp-server-tree-sitter](https://github.com/wrale/mcp-server-tree-sitter) | Python | ~10 | tree-sitter 기반, 15+ 언어 | 중 |
-| [nendotools/tree-sitter-mcp](https://github.com/nendotools/tree-sitter-mcp) | — | — | 구조적 데이터 노출 | 낮 |
-| mcp-language-server | TypeScript | ~15 | LSP 통합 | 중 |
-| jCodeMunch | — | — | $79+ 유료 | 낮 (가격 장벽) |
+| 프로젝트                                                                        | 언어       | 도구 수 | 특징                       | 위협도         |
+| ------------------------------------------------------------------------------- | ---------- | ------- | -------------------------- | -------------- |
+| [wrale/mcp-server-tree-sitter](https://github.com/wrale/mcp-server-tree-sitter) | Python     | ~10     | tree-sitter 기반, 15+ 언어 | 중             |
+| [nendotools/tree-sitter-mcp](https://github.com/nendotools/tree-sitter-mcp)     | —          | —       | 구조적 데이터 노출         | 낮             |
+| mcp-language-server                                                             | TypeScript | ~15     | LSP 통합                   | 중             |
+| jCodeMunch                                                                      | —          | —       | $79+ 유료                  | 낮 (가격 장벽) |
 
 **CodeLens 차별점:** Rust(성능), 50개 도구(범위), 프리셋(유연성), 플러그인 생태계(Skills/Agent/Hook)
 
 ### Rust 개발자 도구 트렌드
 
-| 프로젝트 | 분야 | 참고 |
-|----------|------|------|
-| Zed | 에디터 | Tree-sitter 창시자들이 만든 에디터 |
-| rust-analyzer-mcp | Rust 분석 | Rust 전용 MCP 통합 |
-| Qdrant | 벡터 DB | CodeLens semantic search와 유사 도메인 |
+| 프로젝트          | 분야      | 참고                                   |
+| ----------------- | --------- | -------------------------------------- |
+| Zed               | 에디터    | Tree-sitter 창시자들이 만든 에디터     |
+| rust-analyzer-mcp | Rust 분석 | Rust 전용 MCP 통합                     |
+| Qdrant            | 벡터 DB   | CodeLens semantic search와 유사 도메인 |
 
 ---
 
@@ -280,26 +285,26 @@ static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> =
 
 현재 의존성 중 주의가 필요한 항목:
 
-| 크레이트 | 현재 버전 | 상태 | 조치 |
-|----------|----------|------|------|
-| `sqlite-vec` | 0.1.8-alpha.1 | **alpha** | safe API 제공 시 transmute 제거 |
-| `fastembed` | — | semantic feature 전용 | 23MB 모델 다운로드, 오프라인 빌드 주의 |
-| `tree-sitter` | — | 안정 | 16개 언어 바인딩 유지 비용 확인 |
-| `thiserror` | 2 | 안정 | ✅ |
-| `rayon` | — | 안정 | ✅ |
-| `petgraph` | — | 안정 | ✅ |
+| 크레이트      | 현재 버전     | 상태                  | 조치                                   |
+| ------------- | ------------- | --------------------- | -------------------------------------- |
+| `sqlite-vec`  | 0.1.8-alpha.1 | **alpha**             | safe API 제공 시 transmute 제거        |
+| `fastembed`   | —             | semantic feature 전용 | 23MB 모델 다운로드, 오프라인 빌드 주의 |
+| `tree-sitter` | —             | 안정                  | 16개 언어 바인딩 유지 비용 확인        |
+| `thiserror`   | 2             | 안정                  | ✅                                     |
+| `rayon`       | —             | 안정                  | ✅                                     |
+| `petgraph`    | —             | 안정                  | ✅                                     |
 
 ---
 
 ## 10. 유용한 Rust 크레이트 (미채택, 고려 대상)
 
-| 크레이트 | 용도 | 도입 시기 |
-|----------|------|----------|
-| `schemars` | Rust 타입에서 JSON Schema 자동 생성 | rmcp 전환 시 |
-| `tracing` | 구조화된 로깅 (현재 eprintln) | 디버깅 어려워질 때 |
-| `tower` | 미들웨어 스택 (auth, rate-limit) | 원격 서버 모드 시 |
-| `axum-sse` | SSE 스트리밍 | Streamable HTTP 필요 시 |
+| 크레이트   | 용도                                | 도입 시기               |
+| ---------- | ----------------------------------- | ----------------------- |
+| `schemars` | Rust 타입에서 JSON Schema 자동 생성 | rmcp 전환 시            |
+| `tracing`  | 구조화된 로깅 (현재 eprintln)       | 디버깅 어려워질 때      |
+| `tower`    | 미들웨어 스택 (auth, rate-limit)    | 원격 서버 모드 시       |
+| `axum-sse` | SSE 스트리밍                        | Streamable HTTP 필요 시 |
 
 ---
 
-*이 문서는 CodeLens MCP 개발 참고용이며, 트렌드와 링크는 2026년 3월 29일 기준입니다.*
+_이 문서는 CodeLens MCP 개발 참고용이며, 트렌드와 링크는 2026년 3월 29일 기준입니다._

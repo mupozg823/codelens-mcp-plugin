@@ -394,3 +394,127 @@ pub(super) fn analysis_job_output_schema() -> serde_json::Value {
         }
     })
 }
+
+pub(super) fn replace_content_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "content": {"type": "string", "description": "Full updated file content after replacement"},
+            "replacements": {"type": "integer", "description": "Number of replacements performed (text mode only)"}
+        }
+    })
+}
+
+pub(super) fn create_text_file_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "created": {"type": "string", "description": "Relative path of the newly created file"}
+        }
+    })
+}
+
+pub(super) fn add_import_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "success": {"type": "boolean"},
+            "file_path": {"type": "string"},
+            "content_length": {"type": "integer", "description": "Byte length of the updated file content"}
+        }
+    })
+}
+
+pub(super) fn find_similar_code_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "query_symbol": {"type": "string"},
+            "file": {"type": "string"},
+            "min_similarity": {"type": "number"},
+            "similar": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "symbol_name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "signature": {"type": "string"},
+                        "name_path": {"type": "string"},
+                        "score": {"type": "number", "description": "Cosine similarity score 0.0-1.0"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn find_code_duplicates_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "threshold": {"type": "number"},
+            "duplicates": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "symbol_a": {"type": "string"},
+                        "symbol_b": {"type": "string"},
+                        "file_a": {"type": "string"},
+                        "file_b": {"type": "string"},
+                        "line_a": {"type": "integer"},
+                        "line_b": {"type": "integer"},
+                        "similarity": {"type": "number"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn classify_symbol_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "symbol": {"type": "string"},
+            "file": {"type": "string"},
+            "classifications": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "category": {"type": "string"},
+                        "score": {"type": "number", "description": "Zero-shot cosine similarity score"}
+                    }
+                }
+            }
+        }
+    })
+}
+
+pub(super) fn find_misplaced_code_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "outliers": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {"type": "string"},
+                        "symbol_name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "avg_similarity_to_file": {"type": "number", "description": "Lower values indicate stronger semantic outliers"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}

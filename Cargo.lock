@@ -264,7 +264,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
-name = "codelens-core"
+name = "codelens-engine"
 version = "1.4.0"
 dependencies = [
  "anyhow",
@@ -332,7 +332,7 @@ version = "1.4.0"
 dependencies = [
  "anyhow",
  "axum",
- "codelens-core",
+ "codelens-engine",
  "http-body-util",
  "serde",
  "serde_json",

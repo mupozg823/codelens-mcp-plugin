@@ -1,7 +1,7 @@
 use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_core::{
+use codelens_engine::{
     add_import, analyze_missing_imports, create_text_file, delete_lines, insert_after_symbol,
     insert_at_line, insert_before_symbol, rename, replace_content, replace_lines,
     replace_symbol_body,

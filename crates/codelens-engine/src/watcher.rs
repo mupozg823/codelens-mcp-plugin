@@ -3,11 +3,11 @@ use crate::symbols::SymbolIndex;
 use crate::vfs;
 use anyhow::Result;
 use notify::RecommendedWatcher;
-use notify_debouncer_mini::{DebouncedEventKind, Debouncer, new_debouncer};
+use notify_debouncer_mini::{new_debouncer, DebouncedEventKind, Debouncer};
 use std::path::{Path, PathBuf};
 use std::sync::{
-    Arc,
     atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc,
 };
 use std::time::Duration;
 use tracing::{debug, warn};
@@ -223,6 +223,7 @@ fn is_lock_contention_error(error: &anyhow::Error) -> bool {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::is_lock_contention_error;
 

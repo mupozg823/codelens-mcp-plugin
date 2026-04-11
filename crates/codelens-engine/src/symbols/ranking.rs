@@ -258,6 +258,7 @@ fn file_path_prior(query_lower: &str, file_path: &str) -> f64 {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{auto_weights_with_semantic_count, symbol_kind_prior};
     use crate::{SymbolInfo, SymbolKind};

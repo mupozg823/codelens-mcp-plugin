@@ -1,12 +1,12 @@
-use crate::AppState;
-use crate::tool_runtime::{ToolResult, required_string};
+use crate::tool_runtime::{required_string, ToolResult};
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use crate::tools::symbols::{
     semantic_query_for_retrieval, semantic_results_for_query, semantic_status,
 };
-use codelens_core::search::{SEMANTIC_COUPLING_THRESHOLD, SEMANTIC_NEW_RESULT_THRESHOLD};
-use serde_json::{Value, json};
+use crate::AppState;
+use codelens_engine::search::{SEMANTIC_COUPLING_THRESHOLD, SEMANTIC_NEW_RESULT_THRESHOLD};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 fn semantic_status_is_ready(status: &Value) -> bool {
@@ -326,7 +326,7 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         .map(|p| {
             (
                 p.as_str(),
-                codelens_core::git::classify_change_kind(&project, p),
+                codelens_engine::git::classify_change_kind(&project, p),
             )
         })
         .collect();
@@ -470,7 +470,10 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
     )
 }
 
+// Historical layout: helper production functions follow the test module.
+// Reordering would churn ~330 lines of unrelated code; keep the allow local.
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{build_dead_code_semantic_query, build_module_semantic_query};
 
@@ -566,13 +569,11 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         0.9,
         next_actions,
         sections,
-        vec![
-            arguments
-                .get("file_path")
-                .and_then(|value| value.as_str())
-                .unwrap_or(path)
-                .to_owned(),
-        ],
+        vec![arguments
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or(path)
+            .to_owned()],
         symbol.map(ToOwned::to_owned),
     )
 }

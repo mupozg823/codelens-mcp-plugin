@@ -1,11 +1,11 @@
 use super::{
-    AppState, ToolResult, default_lsp_command_for_path, parse_lsp_args, required_string,
-    success_meta,
+    AppState, ToolResult, default_lsp_command_for_path, optional_bool, optional_string,
+    optional_usize, parse_lsp_args, required_string, success_meta,
 };
 use crate::authority::{meta_degraded, meta_for_backend};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_core::{
+use codelens_engine::{
     LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspTypeHierarchyRequest,
     LspWorkspaceSymbolRequest, check_lsp_status as core_check_lsp_status, extract_word_at_position,
     find_referencing_symbols_via_text, get_lsp_recipe as core_get_lsp_recipe,
@@ -14,7 +14,7 @@ use codelens_core::{
 use serde_json::json;
 
 fn compact_text_references(
-    references: Vec<codelens_core::TextReference>,
+    references: Vec<codelens_engine::TextReference>,
     include_context: bool,
     full_results: bool,
     sample_limit: usize,
@@ -105,27 +105,12 @@ fn enhance_lsp_error(err: anyhow::Error, command: &str) -> CodeLensError {
 /// requires external server installation, and fails on incomplete code.
 pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?.to_owned();
-    let symbol_name_param = arguments.get("symbol_name").and_then(|v| v.as_str());
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20) as usize;
-    let use_lsp = arguments
-        .get("use_lsp")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let include_context = arguments
-        .get("include_context")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let full_results = arguments
-        .get("full_results")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let sample_limit = arguments
-        .get("sample_limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(8) as usize;
+    let symbol_name_param = optional_string(arguments, "symbol_name");
+    let max_results = optional_usize(arguments, "max_results", 20);
+    let use_lsp = optional_bool(arguments, "use_lsp", false);
+    let include_context = optional_bool(arguments, "include_context", false);
+    let full_results = optional_bool(arguments, "full_results", false);
+    let sample_limit = optional_usize(arguments, "sample_limit", 8);
 
     let has_position = arguments.get("line").is_some() && arguments.get("column").is_some();
 
@@ -137,10 +122,10 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
 
         // JS/TS: use oxc_semantic for precise scope-aware reference resolution
         let resolved = state.project().resolve(&file_path)?;
-        if codelens_core::oxc_analysis::is_js_ts(&resolved)
+        if codelens_engine::oxc_analysis::is_js_ts(&resolved)
             && let Ok(source) = std::fs::read_to_string(&resolved)
             && let Ok(refs) =
-                codelens_core::oxc_analysis::find_references_precise(&source, &file_path, sym_name)
+                codelens_engine::oxc_analysis::find_references_precise(&source, &file_path, sym_name)
             && !refs.is_empty()
         {
             let refs_limited: Vec<_> = refs.into_iter().take(max_results).collect();
@@ -197,9 +182,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         }
     };
 
-    let command = arguments
-        .get("command")
-        .and_then(|v| v.as_str())
+    let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_path(&file_path));
 
@@ -274,17 +257,12 @@ fn resolve_symbol_position(
 
 pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?.to_owned();
-    let command = arguments
-        .get("command")
-        .and_then(|v| v.as_str())
+    let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_path(&file_path))
         .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
     let args = parse_lsp_args(arguments, &command);
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(200) as usize;
+    let max_results = optional_usize(arguments, "max_results", 200);
 
     let command_ref = command.clone();
     state
@@ -308,10 +286,7 @@ pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value)
     let query = required_string(arguments, "query")?.to_owned();
     let command = required_string(arguments, "command")?.to_owned();
     let args = parse_lsp_args(arguments, &command);
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+    let max_results = optional_usize(arguments, "max_results", 50);
 
     let command_ref = command.clone();
     state
@@ -338,19 +313,12 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
         .and_then(|v| v.as_str())
         .ok_or_else(|| CodeLensError::MissingParam("name_path or fully_qualified_name".into()))?
         .to_owned();
-    let relative_path = arguments
-        .get("relative_path")
-        .and_then(|v| v.as_str())
-        .map(ToOwned::to_owned);
-    let hierarchy_type = arguments
-        .get("hierarchy_type")
-        .and_then(|v| v.as_str())
+    let relative_path = optional_string(arguments, "relative_path").map(ToOwned::to_owned);
+    let hierarchy_type = optional_string(arguments, "hierarchy_type")
         .unwrap_or("both")
         .to_owned();
-    let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
-    let command = arguments
-        .get("command")
-        .and_then(|v| v.as_str())
+    let depth = optional_usize(arguments, "depth", 1);
+    let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
         .or_else(|| {
             relative_path
@@ -418,13 +386,8 @@ pub fn plan_symbol_rename(state: &AppState, arguments: &serde_json::Value) -> To
         .get("column")
         .and_then(|v| v.as_u64())
         .ok_or_else(|| CodeLensError::MissingParam("column".into()))? as usize;
-    let new_name = arguments
-        .get("new_name")
-        .and_then(|v| v.as_str())
-        .map(ToOwned::to_owned);
-    let command = arguments
-        .get("command")
-        .and_then(|v| v.as_str())
+    let new_name = optional_string(arguments, "new_name").map(ToOwned::to_owned);
+    let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_path(&file_path))
         .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;

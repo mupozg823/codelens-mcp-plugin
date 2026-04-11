@@ -74,6 +74,7 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 - `ci-audit` — diff-aware review/report surface
 
 For `refactor-full`, use a preflight-first path:
+
 1. `verify_change_readiness`
 2. `safe_rename_report` or `unresolved_reference_check` for rename-heavy changes
 3. `get_analysis_section` for extra evidence
@@ -83,9 +84,9 @@ Recent matching preflight is required before `refactor-full` content mutations e
 
 **Legacy presets (current default semantic build):**
 
-- `minimal` — 22 tools, fastest, read-only exploration + safe edits
-- `balanced` — 60 tools, default, excludes niche analysis + Claude built-in overlaps
-- `full` — 88 tools, full registry
+- `minimal` — 20 tools, fastest, read-only exploration + safe edits
+- `balanced` — 55 tools, default, excludes niche analysis + Claude built-in overlaps
+- `full` — 89 tools, full registry
 
 ---
 
@@ -142,6 +143,7 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 - `refactor-full` — preview-first refactoring surface
 
 For `refactor-full`, use a preflight-first path:
+
 1. `verify_change_readiness`
 2. `safe_rename_report` or `unresolved_reference_check` for rename-heavy changes
 3. `get_analysis_section` for extra evidence
@@ -202,8 +204,8 @@ Recent matching preflight is required before `refactor-full` content mutations e
 ```json
 {
   "codelens": {
-      "type": "http",
-      "url": "http://127.0.0.1:7837/mcp"
+    "type": "http",
+    "url": "http://127.0.0.1:7837/mcp"
   }
 }
 ```
@@ -268,13 +270,13 @@ agent = client.agents.create(
 
 ## Environment Variables
 
-| Variable             | Default    | Description                                     |
-| -------------------- | ---------- | ----------------------------------------------- |
-| `CODELENS_LOG`       | `warn`     | Log level (trace/debug/info/warn/error)         |
-| `CODELENS_PRESET`    | `balanced` | Legacy preset default (overridden by --preset)  |
+| Variable             | Default    | Description                                                                                                   |
+| -------------------- | ---------- | ------------------------------------------------------------------------------------------------------------- |
+| `CODELENS_LOG`       | `warn`     | Log level (trace/debug/info/warn/error)                                                                       |
+| `CODELENS_PRESET`    | `balanced` | Legacy preset default (overridden by --preset)                                                                |
 | `CODELENS_PROFILE`   | unset      | Preferred role profile (`planner-readonly`, `builder-minimal`, `reviewer-graph`, `refactor-full`, `ci-audit`) |
-| `CLAUDE_PROJECT_DIR` | unset      | Auto-detected project root (set by Claude Code) |
-| `MCP_PROJECT_DIR`    | unset      | Generic project root override                   |
+| `CLAUDE_PROJECT_DIR` | unset      | Auto-detected project root (set by Claude Code)                                                               |
+| `MCP_PROJECT_DIR`    | unset      | Generic project root override                                                                                 |
 
 ## vNext Workflow Defaults
 

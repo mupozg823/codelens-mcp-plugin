@@ -49,7 +49,7 @@ echo ""
 # 4. CodeLens get_impact_analysis
 echo "--- Method 4: get_impact_analysis ---"
 T1=$(date +%s%N)
-R4=$($BIN . --cmd get_impact_analysis --args '{"file_path":"crates/codelens-core/src/rename.rs"}' 2>/dev/null)
+R4=$($BIN . --cmd get_impact_analysis --args '{"file_path":"crates/codelens-engine/src/rename.rs"}' 2>/dev/null)
 T2=$(date +%s%N)
 TOKENS4=$(echo "$R4" | wc -c)
 MS4=$(((T2 - T1) / 1000000))
@@ -60,7 +60,7 @@ echo ""
 # 5. Manual: agent would read the file + grep for imports
 echo "--- Method 5: Read file + grep imports (no CodeLens) ---"
 T1=$(date +%s%N)
-R5A=$(cat crates/codelens-core/src/rename.rs)
+R5A=$(cat crates/codelens-engine/src/rename.rs)
 R5B=$(grep -rn "use.*rename\|rename::" crates/ --include="*.rs" 2>/dev/null)
 T2=$(date +%s%N)
 TOKENS5=$(($(echo "$R5A" | wc -c) + $(echo "$R5B" | wc -c)))
@@ -87,7 +87,7 @@ echo ""
 echo "--- Method 7: Manual exploration (no CodeLens) ---"
 T1=$(date +%s%N)
 R7A=$(find crates/ -name "*.rs" -type f | head -30)
-R7B=$(cat crates/codelens-core/src/lib.rs)
+R7B=$(cat crates/codelens-engine/src/lib.rs)
 R7C=$(cat crates/codelens-mcp/src/main.rs)
 R7D=$(cat Cargo.toml)
 R7E=$(head -50 README.md)

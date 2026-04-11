@@ -176,6 +176,7 @@ fn parse_tsconfig_paths(root: &Path) -> Vec<(String, Vec<PathBuf>)> {
 }
 
 /// Cached tsconfig paths per project root (parsed once).
+#[allow(clippy::type_complexity)]
 static TSCONFIG_CACHE: LazyLock<Mutex<HashMap<PathBuf, Vec<(String, Vec<PathBuf>)>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
@@ -361,7 +362,7 @@ pub(super) fn find_workspace_crate_dir(project: &ProjectRoot, crate_name: &str) 
 
 /// Rust: `use crate::foo::bar` -> look for src/foo/bar.rs or src/foo/bar/mod.rs.
 ///       `mod foo;` -> look for foo.rs or foo/mod.rs relative to source dir.
-///       `use codelens_core::ProjectRoot` -> strip workspace crate prefix and look in that crate's src/.
+///       `use codelens_engine::ProjectRoot` -> strip workspace crate prefix and look in that crate's src/.
 fn resolve_rust_module(project: &ProjectRoot, source_file: &Path, module: &str) -> Option<String> {
     let stripped = module
         .trim_start_matches("crate::")

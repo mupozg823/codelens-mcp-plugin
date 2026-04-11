@@ -5,6 +5,7 @@ use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 
 /// Append a mutation audit event to `mutation-audit.jsonl` in the given audit directory.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn record_mutation_audit(
     audit_dir: &Path,
     now_ms: u64,

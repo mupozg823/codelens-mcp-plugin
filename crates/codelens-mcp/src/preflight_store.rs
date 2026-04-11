@@ -22,6 +22,7 @@ impl RecentPreflightStore {
     }
 
     /// Record a preflight result extracted from a tool response payload.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_from_payload(
         &self,
         key: String,

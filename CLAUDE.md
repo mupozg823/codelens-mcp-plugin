@@ -73,11 +73,31 @@ The server detects identical tool+args called 3+ times consecutively:
 
 - `budget_hint` warns about the repetition
 - `suggested_next_tools` switches to alternative high-level tools
+- **Rapid burst detection**: 3+ identical calls within 10 seconds triggers async job fallback suggestions (`start_analysis_job`)
 - Applies only in persistent MCP stdio mode (not CLI one-shot)
+
+## Schema Pre-Validation
+
+Dispatch validates `required` fields from `input_schema` before the handler runs.
+Missing required params fail immediately with `MissingParam` error (no handler execution cost).
+
+## MCP Response Annotations
+
+Responses include `_meta["anthropic/maxResultSizeChars"]` per MCP spec (Claude Code v2.1.91+).
+Values scale by tool tier: Workflow=200K, Analysis=100K, Primitive=50K chars.
+
+## Effort Level
+
+Controls compression aggressiveness. Set via `CODELENS_EFFORT_LEVEL` env var.
+
+- `low` — compress earlier (thresholds -10pp), budget ×0.6
+- `medium` — default thresholds
+- `high` — compress later (thresholds +10pp), budget ×1.3 **(default, matching Claude Code v2.1.94)**
 
 ## Adaptive Token Compression (OpenDev 5-Stage)
 
-Response payloads are compressed based on budget usage:
+Response payloads are compressed based on budget usage.
+Thresholds are adjusted by effort level offset (Low=-10, Medium=0, High=+10):
 
 - Stage 1 (<75%): pass through
 - Stage 2 (75-85%): light structured content summarization

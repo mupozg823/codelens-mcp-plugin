@@ -1,8 +1,11 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{
+    optional_bool, optional_string, optional_usize, required_string, success_meta, AppState,
+    ToolResult,
+};
 use crate::client_profile::ClientProfile;
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_core::{
+use codelens_engine::{
     detect_frameworks, detect_workspace_packages, find_files, list_dir, read_file,
     search_for_pattern, search_for_pattern_smart,
 };
@@ -54,10 +57,7 @@ pub fn read_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRe
 
 pub fn list_dir_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let path = required_string(arguments, "relative_path")?;
-    let recursive = arguments
-        .get("recursive")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let recursive = optional_bool(arguments, "recursive", false);
     Ok(list_dir(&state.project(), path, recursive).map(|value| {
         (
             json!({ "entries": value, "count": value.len() }),
@@ -68,7 +68,7 @@ pub fn list_dir_tool(state: &AppState, arguments: &serde_json::Value) -> ToolRes
 
 pub fn find_file_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let pattern = required_string(arguments, "wildcard_pattern")?;
-    let dir = arguments.get("relative_dir").and_then(|v| v.as_str());
+    let dir = optional_string(arguments, "relative_dir");
     Ok(find_files(&state.project(), pattern, dir).map(|value| {
         (
             json!({ "files": value, "count": value.len() }),
@@ -83,29 +83,12 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
         .or_else(|| arguments.get("substring_pattern"))
         .and_then(|v| v.as_str())
         .ok_or_else(|| CodeLensError::MissingParam("pattern".into()))?;
-    let file_glob = arguments.get("file_glob").and_then(|v| v.as_str());
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
-    let smart = arguments
-        .get("smart")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let ctx_fallback = arguments
-        .get("context_lines")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0) as usize;
-    let ctx_before = arguments
-        .get("context_lines_before")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as usize)
-        .unwrap_or(ctx_fallback);
-    let ctx_after = arguments
-        .get("context_lines_after")
-        .and_then(|v| v.as_u64())
-        .map(|v| v as usize)
-        .unwrap_or(ctx_fallback);
+    let file_glob = optional_string(arguments, "file_glob");
+    let max_results = optional_usize(arguments, "max_results", 50);
+    let smart = optional_bool(arguments, "smart", false);
+    let ctx_fallback = optional_usize(arguments, "context_lines", 0);
+    let ctx_before = optional_usize(arguments, "context_lines_before", ctx_fallback);
+    let ctx_after = optional_usize(arguments, "context_lines_after", ctx_fallback);
 
     if smart {
         Ok(search_for_pattern_smart(
@@ -141,14 +124,8 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
 }
 
 pub fn find_annotations(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let tags = arguments
-        .get("tags")
-        .and_then(|v| v.as_str())
-        .unwrap_or("TODO,FIXME,HACK,DEPRECATED,XXX,NOTE");
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(100) as usize;
+    let tags = optional_string(arguments, "tags").unwrap_or("TODO,FIXME,HACK,DEPRECATED,XXX,NOTE");
+    let max_results = optional_usize(arguments, "max_results", 100);
     let tag_list = tags
         .split(',')
         .map(str::trim)
@@ -190,10 +167,7 @@ pub fn find_annotations(state: &AppState, arguments: &serde_json::Value) -> Tool
 }
 
 pub fn find_tests(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(100) as usize;
+    let max_results = optional_usize(arguments, "max_results", 100);
     let pattern = r"\b(def test_|func Test|@Test\b|it\s*\(|describe\s*\(|test\s*\()";
     Ok(
         search_for_pattern(&state.project(), pattern, None, max_results, 0, 0).map(|value| {

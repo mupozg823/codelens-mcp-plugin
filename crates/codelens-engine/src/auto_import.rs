@@ -5,7 +5,7 @@
 
 use crate::import_graph::extract_imports_for_file;
 use crate::project::ProjectRoot;
-use crate::symbols::{get_symbols_overview, language_for_path, SymbolIndex, SymbolInfo};
+use crate::symbols::{SymbolIndex, SymbolInfo, get_symbols_overview, language_for_path};
 use anyhow::Result;
 use regex::Regex;
 use serde::Serialize;
@@ -59,9 +59,10 @@ pub fn analyze_missing_imports(
 
     // Return cached result if file content unchanged
     if let Ok(cache) = IMPORT_ANALYSIS_CACHE.lock()
-        && let Some(cached) = cache.get(&cache_key) {
-            return Ok(cached.clone());
-        }
+        && let Some(cached) = cache.get(&cache_key)
+    {
+        return Ok(cached.clone());
+    }
 
     let ext = resolved
         .extension()
@@ -123,9 +124,10 @@ pub fn analyze_missing_imports(
     // Store in cache, evict oldest if at capacity
     if let Ok(mut cache) = IMPORT_ANALYSIS_CACHE.lock() {
         if cache.len() >= IMPORT_CACHE_CAPACITY
-            && let Some(&oldest_key) = cache.keys().next() {
-                cache.remove(&oldest_key);
-            }
+            && let Some(&oldest_key) = cache.keys().next()
+        {
+            cache.remove(&oldest_key);
+        }
         cache.insert(cache_key, result.clone());
     }
 
@@ -342,23 +344,13 @@ fn generate_import_statement(symbol_name: &str, source_file: &str, target_ext: &
     match target_ext {
         "py" => format!("from {module} import {symbol_name}"),
         "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" => {
-            let rel_path = if source_file.starts_with("src/") {
-                format!(
-                    "./{}",
-                    source_file
-                        .trim_end_matches(".ts")
-                        .trim_end_matches(".tsx")
-                        .trim_end_matches(".js")
-                )
-            } else {
-                format!(
-                    "./{}",
-                    source_file
-                        .trim_end_matches(".ts")
-                        .trim_end_matches(".tsx")
-                        .trim_end_matches(".js")
-                )
-            };
+            let rel_path = format!(
+                "./{}",
+                source_file
+                    .trim_end_matches(".ts")
+                    .trim_end_matches(".tsx")
+                    .trim_end_matches(".js")
+            );
             format!("import {{ {} }} from '{}';", symbol_name, rel_path)
         }
         "java" => format!("import {};", module),
@@ -608,7 +600,7 @@ mod tests {
         let lines: Vec<&str> = result.lines().collect();
         // Should be inserted after existing imports (line 3)
         assert!(
-            lines.iter().any(|l| *l == "from models import User"),
+            lines.contains(&"from models import User"),
             "should contain new import: {:?}",
             lines
         );

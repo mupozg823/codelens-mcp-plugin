@@ -167,17 +167,16 @@ fn update_deferred_state(
 ) {
     if full_listing {
         session.enable_full_tool_exposure();
-    } else if let Some(namespace) = requested_namespace {
-        if crate::tool_defs::visible_namespaces(session.surface()).contains(&namespace) {
-            session.record_loaded_namespace(namespace);
-        }
+    } else if let Some(namespace) = requested_namespace
+        && crate::tool_defs::visible_namespaces(session.surface()).contains(&namespace)
+    {
+        session.record_loaded_namespace(namespace);
     }
-    if !full_listing {
-        if let Some(tier) = requested_tier {
-            if crate::tool_defs::parse_tier_label(tier).is_some() {
-                session.record_loaded_tier(tier);
-            }
-        }
+    if !full_listing
+        && let Some(tier) = requested_tier
+        && crate::tool_defs::parse_tier_label(tier).is_some()
+    {
+        session.record_loaded_tier(tier);
     }
 }
 

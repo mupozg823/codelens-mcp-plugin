@@ -124,8 +124,12 @@ fn collect_file_scope_edits(
     let word_re = Regex::new(&format!(r"\b{}\b", regex::escape(symbol_name)))?;
     let mut edits = Vec::new();
 
-    for line_idx in start_line.saturating_sub(1)..end_line.min(lines.len()) {
-        let line = lines[line_idx];
+    for (line_idx, line) in lines
+        .iter()
+        .enumerate()
+        .take(end_line.min(lines.len()))
+        .skip(start_line.saturating_sub(1))
+    {
         for mat in word_re.find_iter(line) {
             edits.push(RenameEdit {
                 file_path: file_path.to_string(),
@@ -207,12 +211,12 @@ pub fn find_all_word_matches(
 }
 
 fn collect_candidate_files(project: &ProjectRoot) -> Result<Vec<String>> {
-    Ok(
-        collect_files(project.as_path(), |path| crate::lang_config::language_for_path(path).is_some())?
-            .into_iter()
-            .map(|path| project.to_relative(path))
-            .collect(),
-    )
+    Ok(collect_files(project.as_path(), |path| {
+        crate::lang_config::language_for_path(path).is_some()
+    })?
+    .into_iter()
+    .map(|path| project.to_relative(path))
+    .collect())
 }
 
 /// Fast path: scan only indexed files (from DB).

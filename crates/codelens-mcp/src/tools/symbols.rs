@@ -1,7 +1,10 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{
+    AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
+    success_meta,
+};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_core::{
+use codelens_engine::{
     RankedContextResult, SemanticMatch, SymbolInfo, SymbolKind, read_file,
     search_symbols_hybrid_with_semantic,
 };
@@ -402,7 +405,7 @@ pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
 
 #[cfg(feature = "semantic")]
 pub(crate) fn semantic_status(state: &AppState) -> Value {
-    let configured_model = codelens_core::configured_embedding_model_name();
+    let configured_model = codelens_engine::configured_embedding_model_name();
     let guard = state.embedding_ref();
     if let Some(engine) = guard.as_ref() {
         let info = engine.index_info();
@@ -425,7 +428,7 @@ pub(crate) fn semantic_status(state: &AppState) -> Value {
     }
     drop(guard);
 
-    match codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
+    match codelens_engine::EmbeddingEngine::inspect_existing_index(&state.project())
         .ok()
         .flatten()
     {
@@ -461,8 +464,8 @@ pub(crate) fn semantic_status(state: &AppState) -> Value {
 
 #[cfg(not(feature = "semantic"))]
 pub(crate) fn semantic_status(state: &AppState) -> Value {
-    let configured_model = codelens_core::configured_embedding_model_name();
-    let indexed = codelens_core::EmbeddingEngine::inspect_existing_index(&state.project())
+    let configured_model = codelens_engine::configured_embedding_model_name();
+    let indexed = codelens_engine::EmbeddingEngine::inspect_existing_index(&state.project())
         .ok()
         .flatten();
 
@@ -604,7 +607,7 @@ fn merge_semantic_ranked_entries(
         }
 
         let idx = result.symbols.len();
-        result.symbols.push(codelens_core::RankedContextEntry {
+        result.symbols.push(codelens_engine::RankedContextEntry {
             name: sem.symbol_name,
             kind: sem.kind,
             file: sem.file_path,
@@ -789,35 +792,17 @@ pub fn get_symbols_overview(state: &AppState, arguments: &serde_json::Value) -> 
 }
 
 pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let symbol_id = arguments.get("symbol_id").and_then(|v| v.as_str());
+    let symbol_id = optional_string(arguments, "symbol_id");
     let name = symbol_id
-        .or_else(|| arguments.get("name").and_then(|v| v.as_str()))
+        .or_else(|| optional_string(arguments, "name"))
         .ok_or_else(|| CodeLensError::MissingParam("symbol_id or name".into()))?;
-    let file_path = arguments.get("file_path").and_then(|v| v.as_str());
-    let include_body = arguments
-        .get("include_body")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let exact_match = arguments
-        .get("exact_match")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let max_matches = arguments
-        .get("max_matches")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
-    let body_full = arguments
-        .get("body_full")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let body_line_limit = arguments
-        .get("body_line_limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(12) as usize;
-    let body_char_limit = arguments
-        .get("body_char_limit")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(600) as usize;
+    let file_path = optional_string(arguments, "file_path");
+    let include_body = optional_bool(arguments, "include_body", false);
+    let exact_match = optional_bool(arguments, "exact_match", false);
+    let max_matches = optional_usize(arguments, "max_matches", 50);
+    let body_full = optional_bool(arguments, "body_full", false);
+    let body_line_limit = optional_usize(arguments, "body_line_limit", 12);
+    let body_char_limit = optional_usize(arguments, "body_char_limit", 600);
     Ok(state
         .symbol_index()
         .find_symbol_cached(name, file_path, include_body, exact_match, max_matches)
@@ -843,22 +828,16 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     let query = required_string(arguments, "query")?;
     let expanded_query = expanded_query_for_retrieval(query);
     let semantic_query = semantic_query_for_retrieval(query);
-    let path = arguments.get("path").and_then(|v| v.as_str());
+    let path = optional_string(arguments, "path");
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let max_tokens = arguments
         .get("max_tokens")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
         .unwrap_or_else(|| state.execution_token_budget(&session));
-    let include_body = arguments
-        .get("include_body")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let depth = arguments.get("depth").and_then(|v| v.as_u64()).unwrap_or(2) as usize;
-    let disable_semantic = arguments
-        .get("disable_semantic")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let include_body = optional_bool(arguments, "include_body", false);
+    let depth = optional_usize(arguments, "depth", 2);
+    let disable_semantic = optional_bool(arguments, "disable_semantic", false);
     let effective_disable_semantic = disable_semantic || query_prefers_lexical_only(query);
     let use_semantic_in_core = !effective_disable_semantic;
     // Build semantic scores for hybrid ranking if embeddings are available.
@@ -944,7 +923,7 @@ pub fn refresh_symbol_index(state: &AppState, _arguments: &serde_json::Value) ->
 
 pub fn get_complexity(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
-    let symbol_name = arguments.get("symbol_name").and_then(|v| v.as_str());
+    let symbol_name = optional_string(arguments, "symbol_name");
     let file_result = read_file(&state.project(), path, None, None)?;
     let lines = file_result.content.lines().collect::<Vec<_>>();
     let symbols = state.symbol_index().get_symbols_overview_cached(path, 2)?;
@@ -1018,18 +997,12 @@ pub fn get_project_structure(state: &AppState, _arguments: &serde_json::Value) -
 
 pub fn search_symbols_fuzzy(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = required_string(arguments, "query")?;
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(30) as usize;
+    let max_results = optional_usize(arguments, "max_results", 30);
     let fuzzy_threshold = arguments
         .get("fuzzy_threshold")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.6);
-    let disable_semantic = arguments
-        .get("disable_semantic")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let disable_semantic = optional_bool(arguments, "disable_semantic", false);
     // Build semantic scores if embeddings are available (same pattern as get_ranked_context)
     let semantic_scores = semantic_scores_for_query(state, query, 50, disable_semantic);
 
@@ -1116,7 +1089,7 @@ mod tests {
         query_prefers_lexical_only, semantic_adjusted_score_parts, semantic_query_for_retrieval,
         truncate_body_preview,
     };
-    use codelens_core::{RankedContextEntry, RankedContextResult, SemanticMatch};
+    use codelens_engine::{RankedContextEntry, RankedContextResult, SemanticMatch};
     use serde_json::json;
 
     #[test]

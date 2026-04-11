@@ -1,6 +1,6 @@
-use crate::AppState;
 use crate::error::CodeLensError;
 use crate::protocol::{BackendKind, ToolResponseMeta};
+use crate::AppState;
 
 /// Tool handler result type — every handler returns this.
 pub type ToolResult = Result<(serde_json::Value, ToolResponseMeta), CodeLensError>;
@@ -28,3 +28,30 @@ pub fn required_string<'a>(
 }
 
 pub type ToolHandler = fn(&AppState, &serde_json::Value) -> ToolResult;
+
+// ── Common argument extractors ────────────────────────────────────────
+
+/// Extract an optional string argument.
+pub fn optional_string<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(|v| v.as_str())
+}
+
+/// Extract an optional u64 argument with a default value.
+#[allow(dead_code)]
+pub fn optional_u64(value: &serde_json::Value, key: &str, default: u64) -> u64 {
+    value.get(key).and_then(|v| v.as_u64()).unwrap_or(default)
+}
+
+/// Extract an optional usize argument with a default value.
+pub fn optional_usize(value: &serde_json::Value, key: &str, default: usize) -> usize {
+    value
+        .get(key)
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(default)
+}
+
+/// Extract an optional bool argument with a default value.
+pub fn optional_bool(value: &serde_json::Value, key: &str, default: bool) -> bool {
+    value.get(key).and_then(|v| v.as_bool()).unwrap_or(default)
+}

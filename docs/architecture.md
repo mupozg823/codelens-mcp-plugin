@@ -1,7 +1,7 @@
 # CodeLens MCP — Architecture & Project Overview
 
 > Pure Rust MCP server and harness optimization tool for code intelligence
-> 63 tools | 25 languages | tree-sitter-first | ~22K LOC
+> 89 tools | 25 languages | tree-sitter-first | 46K LOC (38.8K prod + 7.2K test)
 
 ---
 
@@ -13,42 +13,43 @@
 │  Claude Code / OpenAI Agents / LangGraph / Custom Agent SDK         │
 ├───────────────────────┬─────────────────────────────────────────────┤
 │    A2A (future)       │              MCP Protocol                   │
-│  Agent ↔ Agent        │  JSON-RPC 2.0 over stdio / Streamable HTTP │
+│  Agent ↔ Agent        │  JSON-RPC 2.0 over stdio / Streamable HTTP  │
 ├───────────────────────┴─────────────────────────────────────────────┤
 │                                                                     │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │          codelens-mcp (Harness Optimization Server)          │  │
+│  │          codelens-mcp (Harness Optimization Server)           │  │
 │  │                                                               │  │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐ │  │
-│  │  │ Dispatch │→ │  Tools   │→ │  State   │→ │  Telemetry   │ │  │
-│  │  │  Table   │  │ (63개)   │  │ AppState │  │  Metrics     │ │  │
-│  │  └──────────┘  └────┬─────┘  └──────────┘  └──────────────┘ │  │
+│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │  │
+│  │  │ Dispatch │→ │  Tools   │→ │  State   │→ │  Telemetry   │  │  │
+│  │  │  Table   │  │ (89)     │  │ AppState │  │  Metrics     │  │  │
+│  │  └──────────┘  └────┬─────┘  └──────────┘  └──────────────┘  │  │
 │  │                     │                                         │  │
-│  │  ┌─────────────────────────────────────────────────────────┐ │  │
-│  │  │              Tool Categories                             │ │  │
-│  │  │  Symbol(14) │ Edit(12) │ Analysis(7) │ File(7)          │ │  │
-│  │  │  Memory(5)  │ Session(12) │ Composite(1) │ Semantic(2)  │ │  │
-│  │  └─────────────────────────────────────────────────────────┘ │  │
+│  │  ┌─────────────────────────────────────────────────────────┐  │  │
+│  │  │              Tool Categories (83 base + 6 semantic)     │  │  │
+│  │  │  File(7) │ Symbol(7) │ LSP(7) │ Analysis(7) │ Edit(17)  │  │  │
+│  │  │  Workflow(17) │ Memory(5) │ Session(16) │ Semantic(6*)  │  │  │
+│  │  │                         * cfg-gated                     │  │  │
+│  │  └─────────────────────────────────────────────────────────┘  │  │
 │  └───────────────────────────────┬───────────────────────────────┘  │
 │                                  │                                   │
 │  ┌───────────────────────────────▼───────────────────────────────┐  │
-│  │                   codelens-core (Engine)                       │  │
+│  │                 codelens-engine (Engine)                      │  │
 │  │                                                               │  │
-│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌───────────────┐  │  │
-│  │  │ Symbols │  │  Search  │  │   DB    │  │ Import Graph  │  │  │
-│  │  │ Parser  │  │ FTS5 +  │  │ SQLite  │  │ PageRank,SCC  │  │  │
-│  │  │ Ranking │  │ Scoring │  │ Schema  │  │ Dead Code     │  │  │
-│  │  │ Reader  │  │ Hybrid  │  │  v4     │  │ Call Graph    │  │  │
-│  │  │ Writer  │  │         │  │         │  │ Coupling      │  │  │
-│  │  └────┬────┘  └────┬────┘  └────┬────┘  └──────┬────────┘  │  │
-│  │       │            │            │               │            │  │
-│  │  ┌────▼────────────▼────────────▼───────────────▼────────┐  │  │
-│  │  │              Foundation Layer                          │  │  │
-│  │  │  tree-sitter (25 lang) │ LSP pool (opt-in)           │  │  │
-│  │  │  Lang Registry         │ Scope Analysis              │  │  │
-│  │  │  Lang Config           │ File Watcher (notify)       │  │  │
-│  │  │  VFS / Project Root    │ Embedding (fastembed)       │  │  │
-│  │  └───────────────────────────────────────────────────────┘  │  │
+│  │  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌───────────────┐    │  │
+│  │  │ Symbols │  │ Search  │  │   DB    │  │ Import Graph  │    │  │
+│  │  │ Parser  │  │ FTS5 +  │  │ SQLite  │  │ PageRank,SCC  │    │  │
+│  │  │ Ranking │  │ Scoring │  │ Schema  │  │ Dead Code     │    │  │
+│  │  │ Reader  │  │ Hybrid  │  │ + vec   │  │ Call Graph    │    │  │
+│  │  │ Writer  │  │         │  │ v4 + heal│ │ Coupling      │    │  │
+│  │  └────┬────┘  └────┬────┘  └────┬────┘  └──────┬────────┘    │  │
+│  │       │            │            │               │             │  │
+│  │  ┌────▼────────────▼────────────▼───────────────▼────────┐    │  │
+│  │  │              Foundation Layer                          │    │  │
+│  │  │  tree-sitter (25 lang) │ LSP pool (opt-in)            │    │  │
+│  │  │  Lang Registry         │ Scope Analysis               │    │  │
+│  │  │  Lang Config           │ File Watcher (notify)        │    │  │
+│  │  │  VFS / Project Root    │ Embedding (MiniLM + fastembed)│   │  │
+│  │  └───────────────────────────────────────────────────────┘    │  │
 │  └───────────────────────────────────────────────────────────────┘  │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -61,140 +62,169 @@ It is the bounded MCP tool that optimizes harnesses by compressing context, prod
 
 Use repo-local contracts alongside this document:
 
-- `PROJECT_AGENT_POLICY.md`
 - `EVAL_CONTRACT.md`
-- `HARNESS_MODES.md`
-- `DEVELOPMENT_PIPELINE.md`
-- `HARNESS_ARCHITECTURE.md`
+- `docs/platform-setup.md`
+- `docs/REFERENCE-2026-03.md`
+- Project `CLAUDE.md` (harness routing + mutation gates)
+- Project `AGENTS.md`
 
 ## 2. Project Directory Structure
 
 ```
 codelens-mcp-plugin/
-├── Cargo.toml                          # Workspace: 2 crates, 25+ tree-sitter deps
-├── CLAUDE.md                           # AI agent instructions
-├── README.md                           # Project documentation
-├── install.sh                          # Installation script
+├── Cargo.toml                            # Workspace: 2 crates, 25 tree-sitter deps
+├── CLAUDE.md                             # AI agent instructions (harness routing)
+├── AGENTS.md                             # Agent role contracts
+├── EVAL_CONTRACT.md                      # Verification command contracts
+├── README.md                             # Public documentation
+├── install.sh                            # One-line installer
 │
 ├── crates/
-│   ├── codelens-core/                  # Engine (~15K LOC)
-│   │   ├── Cargo.toml                  # deps: tree-sitter x25, rusqlite, rayon
-│   │   ├── benches/indexing.rs         # Performance benchmarks
-│   │   ├── tests/
-│   │   │   ├── rename_real.rs          # Real-world rename validation
-│   │   │   ├── rename_vs_grep.rs       # Rename vs grep comparison
-│   │   │   └── snapshot_golden.rs      # Golden snapshot tests
+│   ├── codelens-engine/                  # Engine crate (~32K LOC)
+│   │   ├── Cargo.toml                    # deps: tree-sitter x25, rusqlite, rayon, ort
+│   │   ├── benches/                      # Performance benchmarks
+│   │   ├── tests/                        # Integration suites
 │   │   └── src/
-│   │       ├── lib.rs                  # Public API surface
-│   │       ├── project.rs              # ProjectRoot, framework detection
+│   │       ├── lib.rs                    # Public API surface
+│   │       ├── project.rs                # ProjectRoot, framework detection
 │   │       │
-│   │       ├── lang_registry.rs        # 25 languages: ext → canonical → config
-│   │       ├── lang_config.rs          # tree-sitter Language + Query per lang
+│   │       ├── lang_registry.rs          # 25 languages: ext → canonical → config
+│   │       ├── lang_config.rs            # tree-sitter Language + Query per lang
 │   │       │
-│   │       ├── symbols/                # Symbol extraction & ranking
-│   │       │   ├── mod.rs              # SymbolIndex — central API
-│   │       │   ├── parser.rs           # tree-sitter query execution
-│   │       │   ├── writer.rs           # Index builder (refresh_all)
-│   │       │   ├── reader.rs           # Symbol queries (find/overview)
-│   │       │   ├── ranking.rs          # 4-signal ranking engine
-│   │       │   ├── scoring.rs          # Score computation
-│   │       │   ├── types.rs            # SymbolInfo, SymbolKind, etc.
-│   │       │   └── tests.rs            # Symbol subsystem tests
+│   │       ├── symbols/                  # Symbol extraction & ranking
+│   │       │   ├── mod.rs                # SymbolIndex — central API
+│   │       │   ├── parser.rs             # tree-sitter query execution
+│   │       │   ├── writer.rs             # Index builder (refresh_all)
+│   │       │   ├── reader.rs             # Symbol queries (find/overview)
+│   │       │   ├── ranking.rs            # 4-signal ranking engine
+│   │       │   └── scoring.rs            # Score computation
 │   │       │
-│   │       ├── db/                     # SQLite + FTS5
-│   │       │   ├── mod.rs              # IndexDb — schema v4, migrations
-│   │       │   ├── ops.rs              # CRUD operations
-│   │       │   └── tests.rs            # DB tests
+│   │       ├── db/                       # SQLite + FTS5 + sqlite-vec
+│   │       │   ├── mod.rs                # IndexDb — schema v4, self-heal, migrations
+│   │       │   ├── ops.rs                # CRUD operations (1K+ LOC)
+│   │       │   └── tests.rs              # DB suite (incl. self-heal)
 │   │       │
-│   │       ├── search.rs              # Hybrid search: FTS5 + jaro_winkler
+│   │       ├── search.rs                 # Hybrid search: FTS5 + jaro_winkler
 │   │       │
-│   │       ├── import_graph/          # Dependency analysis
-│   │       │   ├── mod.rs             # Graph builder (petgraph)
-│   │       │   ├── parsers.rs         # Import statement parsing
-│   │       │   ├── resolvers.rs       # Path resolution per language
-│   │       │   └── dead_code.rs       # Multi-pass dead code detection
+│   │       ├── import_graph/             # Dependency analysis
+│   │       │   ├── mod.rs                # Graph builder (petgraph)
+│   │       │   ├── parsers.rs            # Import statement parsing
+│   │       │   ├── resolvers.rs          # Path resolution per language
+│   │       │   └── dead_code.rs          # Multi-pass dead code detection
 │   │       │
-│   │       ├── lsp/                   # LSP integration (opt-in)
-│   │       │   ├── mod.rs             # LspSessionPool
-│   │       │   ├── session.rs         # Single LSP session lifecycle
-│   │       │   ├── protocol.rs        # JSON-RPC for LSP
-│   │       │   ├── parsers.rs         # LSP response parsing
-│   │       │   ├── registry.rs        # 22 LSP recipes (install hints)
-│   │       │   ├── types.rs           # Request/response types
-│   │       │   └── tests.rs           # LSP tests
+│   │       ├── lsp/                      # LSP integration (opt-in)
+│   │       │   ├── mod.rs                # LspSessionPool
+│   │       │   ├── session.rs            # Single LSP session lifecycle
+│   │       │   ├── protocol.rs           # JSON-RPC for LSP
+│   │       │   └── registry.rs           # 22 LSP recipes
 │   │       │
-│   │       ├── file_ops/              # File operations
-│   │       │   ├── mod.rs             # Text reference search
-│   │       │   ├── reader.rs          # File reading utilities
-│   │       │   └── writer.rs          # File mutation (replace, insert)
+│   │       ├── file_ops/                 # File I/O + mutation writers
+│   │       │   ├── mod.rs
+│   │       │   ├── reader.rs
+│   │       │   └── writer.rs
 │   │       │
-│   │       ├── scope_analysis.rs      # def/read/write/import classification
-│   │       ├── call_graph.rs          # Function call graph (7 languages)
-│   │       ├── circular.rs            # Tarjan SCC cycle detection
-│   │       ├── coupling.rs            # Git temporal coupling
-│   │       ├── type_hierarchy.rs      # Native inheritance analysis
-│   │       ├── rename.rs              # Multi-file rename engine
-│   │       ├── auto_import.rs         # Missing import detection
-│   │       ├── git.rs                 # Git diff/changed files
-│   │       ├── embedding.rs           # bundled CodeSearchNet + optional fastembed indexing
-│   │       ├── embedding_store.rs     # sqlite-vec storage
-│   │       ├── vfs.rs                 # Virtual filesystem normalization
-│   │       └── watcher.rs             # File watcher (notify + debounce)
+│   │       ├── scope_analysis.rs         # def/read/write/import classification
+│   │       ├── call_graph.rs             # Function call graph
+│   │       ├── circular.rs               # Tarjan SCC cycle detection
+│   │       ├── coupling.rs               # Git temporal coupling
+│   │       ├── type_hierarchy.rs         # Native inheritance analysis
+│   │       ├── rename.rs                 # Multi-file rename engine
+│   │       ├── auto_import.rs            # Missing import detection
+│   │       ├── change_signature.rs       # Refactoring: change signature
+│   │       ├── inline.rs                 # Refactoring: inline function
+│   │       ├── move_symbol.rs            # Refactoring: move to file
+│   │       ├── git.rs                    # Git diff/changed files
+│   │       ├── community.rs              # Community detection for clustering
+│   │       ├── embedding.rs              # bundled MiniLM + optional fastembed (2.9K LOC)
+│   │       ├── embedding_store.rs        # sqlite-vec storage
+│   │       ├── memory.rs                 # Project memory store
+│   │       ├── vfs.rs                    # Virtual filesystem normalization
+│   │       ├── watcher.rs                # File watcher (notify + debounce)
+│   │       └── oxc_analysis.rs           # JS/TS semantic analysis (oxc)
 │   │
-│   └── codelens-mcp/                  # MCP Server (~7K LOC)
-│       ├── Cargo.toml                 # deps: axum, tokio, serde_json
+│   └── codelens-mcp/                     # MCP server crate (~14K LOC)
+│       ├── Cargo.toml                    # deps: axum, tokio, serde_json
 │       └── src/
-│           ├── main.rs                # Entry: CLI args, transport selection
-│           ├── state.rs               # AppState + ProjectOverride (runtime switching)
-│           ├── dispatch.rs            # Dispatcher: _profile, telemetry, auto-invalidate
-│           ├── protocol.rs            # Tool, ToolAnnotations, OutputSchema
-│           ├── tool_defs.rs           # 63 tool definitions + presets
-│           ├── error.rs               # CodeLensError enum
-│           ├── authority.rs           # Backend metadata helpers
-│           ├── telemetry.rs           # ToolMetricsRegistry
-│           ├── prompts.rs             # MCP prompt templates
-│           ├── resources.rs           # MCP resource endpoints
-│           ├── integration_tests.rs   # 41 integration tests
+│           ├── main.rs                   # Entry: CLI args, transport selection
+│           ├── state.rs                  # AppState + ProjectOverride
+│           ├── dispatch.rs               # Dispatcher: profile, telemetry, budget
+│           ├── dispatch_access.rs        # Capability gates
+│           ├── dispatch_response.rs      # Truncation + annotation envelope
+│           ├── dispatch_response_support.rs
+│           ├── protocol.rs               # Tool, ToolAnnotations, OutputSchema
+│           ├── error.rs                  # CodeLensError enum
+│           ├── telemetry.rs              # ToolMetricsRegistry (in-memory session)
+│           ├── mutation_gate.rs          # verify_change_readiness enforcement
+│           ├── mutation_audit.rs         # .codelens/audit/mutation-audit.jsonl
+│           ├── preflight_store.rs        # Preflight TTL cache
+│           ├── analysis_queue.rs         # Durable analysis job queue
+│           ├── artifact_store.rs         # Analysis handle storage
+│           ├── job_store.rs              # Job persistence
+│           ├── session_context.rs        # Per-session state
+│           ├── session_metrics_payload.rs
+│           ├── recent_buffer.rs          # Doom-loop detection
+│           ├── client_profile.rs         # Client identity heuristics
+│           ├── authority.rs              # Backend metadata helpers
+│           ├── resource_catalog.rs       # MCP resource registry
+│           ├── resource_context.rs       # Profile-scoped resource access
+│           ├── resource_profiles.rs
+│           ├── resource_analysis.rs
+│           ├── resources.rs              # MCP resource endpoints
+│           ├── prompts.rs                # MCP prompt templates
+│           ├── runtime_types.rs
+│           ├── tool_runtime.rs
+│           ├── test_helpers.rs           # Shared test utilities
 │           │
-│           ├── server/                # Transport layer
-│           │   ├── mod.rs             # Server module exports
-│           │   ├── router.rs          # JSON-RPC method routing
-│           │   ├── transport_stdio.rs # stdio transport
-│           │   ├── transport_http.rs  # Streamable HTTP + SSE + Server Card
-│           │   ├── session.rs         # HTTP session management (UUID, TTL)
-│           │   ├── oneshot.rs         # CLI one-shot mode
-│           │   └── http_tests.rs      # HTTP transport tests
+│           ├── tool_defs/                # Tool registration
+│           │   ├── mod.rs
+│           │   ├── build.rs              # 89 tool definitions (central registry)
+│           │   ├── output_schemas.rs     # 45 output schemas
+│           │   └── presets.rs            # FULL/BALANCED/MINIMAL + profiles
 │           │
-│           └── tools/                 # Tool implementations
-│               ├── mod.rs             # Dispatch table + suggest_next_tools
-│               ├── symbols.rs         # Symbol lookup tools (7)
-│               ├── lsp.rs             # LSP tools (7) — tree-sitter-first
-│               ├── graph.rs           # Analysis tools (14)
-│               ├── filesystem.rs      # File I/O tools (7)
-│               ├── mutation.rs        # Code editing tools (11)
-│               ├── memory.rs          # Project memory tools (5)
-│               ├── session.rs         # Session/config tools (12)
-│               └── composite.rs       # Multi-step workflow tools (3)
+│           ├── server/                   # Transport layer
+│           │   ├── mod.rs
+│           │   ├── router.rs             # JSON-RPC method routing
+│           │   ├── transport_stdio.rs    # stdio transport
+│           │   ├── transport_http.rs     # Streamable HTTP + SSE + Server Card
+│           │   ├── session.rs            # HTTP session management (UUID, TTL)
+│           │   └── oneshot.rs            # CLI one-shot mode
+│           │
+│           └── tools/                    # Tool handler implementations
+│               ├── mod.rs                # Dispatch table + suggest_next_tools
+│               ├── symbols.rs            # Symbol lookup handlers
+│               ├── lsp.rs                # LSP-backed handlers
+│               ├── graph.rs              # Analysis graph handlers
+│               ├── filesystem.rs         # File I/O handlers
+│               ├── mutation.rs           # Code edit handlers
+│               ├── memory.rs             # Memory handlers
+│               ├── composite.rs          # Composite workflow handlers
+│               ├── report_contract.rs    # Analysis-handle contract
+│               ├── report_jobs.rs        # Job lifecycle handlers
+│               ├── report_payload.rs     # Report shaping
+│               ├── report_utils.rs
+│               ├── report_verifier.rs    # Verifier-first mutation gate
+│               ├── reports/              # Workflow report implementations
+│               │   ├── context_reports.rs
+│               │   ├── impact_reports.rs
+│               │   └── verifier_reports.rs
+│               └── session/              # Session-scoped handlers
+│                   ├── metrics_config.rs
+│                   └── project_ops.rs
 │
-├── skills/                            # Claude Code skills
-│   ├── code-review/SKILL.md           # /codelens-review
-│   ├── onboard/SKILL.md               # /codelens-onboard
-│   └── analyze/SKILL.md               # /codelens-analyze
-│
-├── agents/
-│   └── codelens-explorer.md           # Read-only code exploration agent
-│
-├── hooks/
-│   └── post-edit-diagnostics.sh       # Auto-diagnose after file edits
+├── docs/
+│   ├── architecture.md                   # this file
+│   ├── platform-setup.md                 # per-platform install/config
+│   └── REFERENCE-2026-03.md              # architecture reference snapshot
 │
 ├── benchmarks/
-│   ├── bench.sh                       # CLI benchmark runner
-│   └── README.md                      # Benchmark documentation
+│   ├── token-efficiency.py               # MCP vs Read/Grep A/B (tiktoken cl100k_base)
+│   ├── embedding-quality.py              # MRR / Acc@k
+│   ├── embedding-runtime.py              # latency/throughput
+│   ├── embedding-quality-dataset-self.json  # 89 self-matching queries
+│   └── *.json                            # result snapshots
 │
-└── .claude/
-    ├── settings.local.json            # Claude Code settings
-    ├── agents/codelens-explorer.md    # Agent definition
-    └── skills/lsp-setup.md            # LSP setup skill
+├── models/                               # ONNX model assets, INT8
+└── install.sh                            # Homebrew / one-line installer
 ```
 
 ---
@@ -203,99 +233,154 @@ codelens-mcp-plugin/
 
 ```
                  ┌─────────────────────┐
-                 │   AI Agent Request   │
-                 │  "find dispatch_tool │
-                 │   function"          │
+                 │   AI Agent Request  │
+                 │ "find dispatch_tool │
+                 │   function"         │
                  └──────────┬──────────┘
                             │
               ┌─────────────▼─────────────┐
-              │     Transport Layer        │
-              │  stdio │ HTTP+SSE │ CLI    │
+              │     Transport Layer       │
+              │  stdio │ HTTP+SSE │ CLI   │
               └─────────────┬─────────────┘
                             │
               ┌─────────────▼─────────────┐
-              │     router.rs              │
-              │  initialize / tools/list   │
-              │  tools/call → dispatch     │
+              │     server/router.rs      │
+              │  initialize / tools/list  │
+              │  tools/call → dispatch    │
               └─────────────┬─────────────┘
                             │
               ┌─────────────▼─────────────┐
-              │     dispatch.rs            │
-              │  ┌─────────────────────┐   │
-              │  │ _profile override   │   │  ← token budget control
-              │  │ DISPATCH_TABLE      │   │  ← handler lookup
-              │  │ telemetry record    │   │  ← latency tracking
-              │  │ response envelope   │   │  ← truncation safety net
-              │  └─────────────────────┘   │
+              │       dispatch.rs         │
+              │  ┌─────────────────────┐  │
+              │  │ schema pre-validate │  │  ← MissingParam fast-fail
+              │  │ _profile override   │  │  ← token budget control
+              │  │ preflight gate      │  │  ← mutation_gate checks
+              │  │ DISPATCH_TABLE      │  │  ← handler lookup
+              │  │ telemetry record    │  │  ← latency tracking
+              │  │ doom-loop detect    │  │  ← recent_buffer
+              │  │ response envelope   │  │  ← truncation + _meta
+              │  └─────────────────────┘  │
               └─────────────┬─────────────┘
                             │
               ┌─────────────▼─────────────┐
-              │     Tool Handler           │
-              │  symbols.rs / lsp.rs /     │
-              │  graph.rs / mutation.rs    │
+              │      Tool Handler         │
+              │  tools/symbols.rs         │
+              │  tools/lsp.rs             │
+              │  tools/graph.rs           │
+              │  tools/mutation.rs        │
+              │  tools/reports/*.rs       │
               └─────────────┬─────────────┘
                             │
         ┌───────────────────┼───────────────────┐
         │                   │                   │
-   ┌────▼────┐        ┌────▼────┐        ┌────▼────┐
-   │SymbolIdx│        │ ImportGr│        │   LSP   │
-   │ SQLite  │        │ petgraph│        │  (opt)  │
-   │  FTS5   │        │PageRank │        │         │
-   └────┬────┘        └────┬────┘        └────┬────┘
+   ┌────▼────┐         ┌────▼────┐        ┌────▼────┐
+   │SymbolIdx│         │ImportGr │        │   LSP   │
+   │ SQLite  │         │petgraph │        │  (opt)  │
+   │  FTS5   │         │PageRank │        │         │
+   └────┬────┘         └────┬────┘        └────┬────┘
         │                   │                   │
    ┌────▼───────────────────▼───────────────────▼────┐
-   │              tree-sitter (25 languages)          │
-   │         Statically linked, zero-config           │
-   │         Error recovery, millisecond parsing      │
+   │              tree-sitter (25 languages)         │
+   │         Statically linked, zero-config          │
+   │         Error recovery, millisecond parsing     │
    └──────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 4. Tool Ecosystem (63 tools)
+## 4. Tool Ecosystem (89 tools)
 
 ### Preset Distribution
 
 ```
-FULL (63)        ████████████████████████████████████████████  100%
-BALANCED (39)    █████████████████████████                      62%
-MINIMAL (20)     ███████████████                                33%
+FULL     (89)   ████████████████████████████████████████████  100%
+BALANCED (55)   ██████████████████████████████                 62%
+MINIMAL  (20)   ██████████████                                 22%
 ```
 
-### Tool Categories
+### Tool Categories (counted from tool_defs/build.rs)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        63 Tools                                  │
-├──────────────┬──────────────┬──────────────┬────────────────────┤
-│ [Symbol] 14  │ [Edit] 12    │ [Analysis] 7 │ [Session] 13       │
-│              │              │              │                    │
-│ find_symbol  │ rename_symbol│ get_impact   │ activate_project   │
-│ get_symbols  │ replace_body │ find_dead    │ onboard_project    │
-│ get_ranked   │ replace_cont │ find_circular│ set_preset         │
-│ find_refs    │ replace_lines│ get_coupling │ get_capabilities   │
-│ get_diag     │ delete_lines │ get_importance│ query_project     │
-│ search_ws    │ insert_at    │ find_scoped  │ add/remove project │
-│ get_type_h   │ insert_before│ get_changed  │ list_projects      │
-│ plan_rename  │ insert_after │              │ prepare_new_conv   │
-│ check_lsp    │ create_file  │              │ summarize_changes  │
-│ get_lsp_rec  │ add_import   │              │ get_watch_status   │
-│ refresh_idx  │ missing_imp  │              │ get_tool_metrics   │
-│ get_proj_str │ extract_func │              │ summarize_file     │
-│ get_complex  │              │              │                    │
-│ fuzzy_search │              │              │                    │
-├──────────────┼──────────────┼──────────────┼────────────────────┤
-│ [File] 7     │ [Memory] 5   │ [Semantic] 2 │                    │
-│              │              │              │                    │
-│ read_file    │ list_memories│ semantic_srch│                    │
-│ list_dir     │ read_memory  │ index_embed  │                    │
-│ find_file    │ write_memory │              │                    │
-│ search_pat   │ delete_memory│              │                    │
-│ find_annot   │ rename_memory│              │                    │
-│ find_tests   │              │              │                    │
-│ get_config   │              │              │                    │
-└──────────────┴──────────────┴──────────────┴────────────────────┘
+│                         89 Tools                                 │
+├───────────────────┬─────────────────┬───────────────────────────┤
+│ File (7)          │ Symbol (7)      │ LSP (7)                   │
+│  read_file        │  get_symbols_   │  find_referencing_symbols │
+│  list_dir         │   overview      │  get_file_diagnostics     │
+│  find_file        │  find_symbol    │  search_workspace_symbols │
+│  search_for_      │  get_ranked_    │  get_type_hierarchy       │
+│   pattern         │   context       │  plan_symbol_rename       │
+│  find_annotations │  search_symbols_│  check_lsp_status         │
+│  find_tests       │   fuzzy         │  get_lsp_recipe           │
+│  get_current_     │  get_complexity │                           │
+│   config          │  get_project_   │                           │
+│                   │   structure     │                           │
+│                   │  refresh_symbol │                           │
+│                   │   _index        │                           │
+├───────────────────┼─────────────────┼───────────────────────────┤
+│ Analysis (7)      │ Edit (17)       │ Workflow/Composite (17)   │
+│  get_changed_     │  rename_symbol  │  onboard_project          │
+│   files           │  replace_symbol │  analyze_change_request   │
+│  get_impact_      │   _body         │  verify_change_readiness  │
+│   analysis        │  replace_content│  find_minimal_context_    │
+│  find_scoped_     │  replace_lines  │   for_change              │
+│   references      │  delete_lines   │  summarize_symbol_impact  │
+│  get_symbol_      │  insert_at_line │  module_boundary_report   │
+│   importance      │  insert_before_ │  safe_rename_report       │
+│  find_dead_code   │   symbol        │  unresolved_reference_    │
+│  find_circular_   │  insert_after_  │   check                   │
+│   dependencies    │   symbol        │  dead_code_report         │
+│  get_change_      │  insert_content │  impact_report            │
+│   coupling        │  replace        │  refactor_safety_report   │
+│                   │  create_text_   │  diff_aware_references    │
+│                   │   file          │  semantic_code_review     │
+│                   │  analyze_       │  start_analysis_job       │
+│                   │   missing_      │  get_analysis_job         │
+│                   │   imports       │  cancel_analysis_job      │
+│                   │  add_import     │  get_analysis_section     │
+│                   │  refactor_      │                           │
+│                   │   extract/      │                           │
+│                   │   inline/       │                           │
+│                   │   move_to_file/ │                           │
+│                   │   change_       │                           │
+│                   │   signature     │                           │
+├───────────────────┼─────────────────┼───────────────────────────┤
+│ Memory (5)        │ Session (16)    │ Semantic (6, cfg-gated)   │
+│  list_memories    │  activate_      │  semantic_search          │
+│  read_memory      │   project       │  index_embeddings         │
+│  write_memory     │  prepare_       │  find_similar_code        │
+│  delete_memory    │   harness_      │  find_code_duplicates     │
+│  rename_memory    │   session       │  classify_symbol          │
+│                   │  prepare_for_   │  find_misplaced_code      │
+│                   │   new_          │                           │
+│                   │   conversation  │                           │
+│                   │  summarize_     │                           │
+│                   │   changes       │                           │
+│                   │  get_watch_     │                           │
+│                   │   status        │                           │
+│                   │  prune_index_   │                           │
+│                   │   failures      │                           │
+│                   │  add/remove/    │                           │
+│                   │   query/list    │                           │
+│                   │   _queryable_   │                           │
+│                   │   project (4)   │                           │
+│                   │  set_preset     │                           │
+│                   │  set_profile    │                           │
+│                   │  get_           │                           │
+│                   │   capabilities  │                           │
+│                   │  get_tool_      │                           │
+│                   │   metrics       │                           │
+│                   │  export_session │                           │
+│                   │   _markdown     │                           │
+│                   │  summarize_file │                           │
+└───────────────────┴─────────────────┴───────────────────────────┘
 ```
+
+### Output Schemas
+
+- **45 of 89 tools** declare a JSON output schema (Phase 8-1 complete, 2026-04-11)
+- All read handles (`analysis_handle`), mutation results, and primary symbol/reference payloads are schema-typed
+- Response annotations include `_meta["anthropic/maxResultSizeChars"]` per MCP v2.1.91+
 
 ---
 
@@ -316,7 +401,7 @@ Each language has:
   ├── tree-sitter grammar (statically linked)
   ├── Symbol extraction query (lang_config.rs)
   ├── Extension mapping (lang_registry.rs)
-  └── LSP recipe + command mapping (opt-in)
+  └── LSP recipe + command mapping (opt-in, 22 recipes)
 ```
 
 ---
@@ -326,22 +411,41 @@ Each language has:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                  tree-sitter-first                           │
-│                                                             │
-│  "MCP 도구의 소비자는 IDE 사용자가 아니라 AI 에이전트"       │
-│                                                             │
-│  ┌──────────────────┐      ┌──────────────────┐            │
-│  │  tree-sitter     │      │  LSP (opt-in)    │            │
-│  │  ✓ 0ms 시작     │      │  ✗ 2-30s 콜드   │            │
-│  │  ✓ 제로 설정    │      │  ✗ 서버 설치    │            │
-│  │  ✓ 25개 내장    │      │  ✗ 설정 필요    │            │
-│  │  ✓ 에러 복구    │      │  ✗ 빌드 실패시  │            │
-│  │  ✓ 결정적      │      │    무응답        │            │
-│  │  DEFAULT ←──────┤      │  use_lsp=true    │            │
-│  └──────────────────┘      └──────────────────┘            │
-│                                                             │
-│  에이전트 우선순위: 속도 > 가용성 > 안정성 > 정밀도        │
+│                                                              │
+│  "MCP 도구의 소비자는 IDE 사용자가 아니라 AI 에이전트"        │
+│                                                              │
+│  ┌──────────────────┐      ┌──────────────────┐             │
+│  │  tree-sitter     │      │  LSP (opt-in)    │             │
+│  │  ✓ 0ms 시작      │      │  ✗ 2-30s 콜드    │             │
+│  │  ✓ 제로 설정     │      │  ✗ 서버 설치     │             │
+│  │  ✓ 25개 내장     │      │  ✗ 설정 필요     │             │
+│  │  ✓ 에러 복구     │      │  ✗ 빌드 실패시   │             │
+│  │  ✓ 결정적        │      │    무응답        │             │
+│  │  DEFAULT ←───────┤      │  use_lsp=true    │             │
+│  └──────────────────┘      └──────────────────┘             │
+│                                                              │
+│  에이전트 우선순위: 속도 > 가용성 > 안정성 > 정밀도          │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Bounded Answer Principle
+
+CodeLens is no longer a "more tools" MCP — it is a **bounded-answer MCP**.
+
+- Workflow tools return pre-synthesized reports (impact_report, refactor_safety_report, module_boundary_report)
+- Analysis handles let agents expand only one section at a time (`get_analysis_section`)
+- Durable analysis jobs (`start_analysis_job` → `get_analysis_job`) keep heavy reports out of the response envelope
+- Role profiles + token budget (`_profile`) cap response size before serialization
+- Adaptive compression (5-stage OpenDev) kicks in when budget usage approaches 100%
+
+### Mutation Gate Protocol
+
+All mutation tools are gated:
+
+1. `verify_change_readiness` (or `safe_rename_report` for rename) must return `mutation_ready: "ready"` or `"caution"`
+2. `preflight_store` caches readiness with TTL (override via `CODELENS_PREFLIGHT_TTL_SECS`)
+3. Mutation audit log at `.codelens/audit/mutation-audit.jsonl`
+4. Post-mutation `suggested_next_tools` always includes `get_file_diagnostics`
 
 ---
 
@@ -349,37 +453,42 @@ Each language has:
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│              2026 Agentic Architecture                   │
+│              2026 Agentic Architecture                  │
 │                                                         │
 │  ┌───────────────────────────────────────────────────┐  │
 │  │ Agent SDK (Claude/OpenAI/LangGraph/ADK)           │  │
 │  └───────────────────────┬───────────────────────────┘  │
-│                          │                               │
+│                          │                              │
 │  ┌───────────────────────▼───────────────────────────┐  │
 │  │ A2A Protocol (Agent ↔ Agent)           [future]   │  │
-│  │ Agent Cards, Task lifecycle, Discovery             │  │
+│  │ Agent Cards, Task lifecycle, Discovery            │  │
 │  └───────────────────────┬───────────────────────────┘  │
-│                          │                               │
+│                          │                              │
 │  ┌───────────────────────▼───────────────────────────┐  │
-│  │ MCP Protocol (Agent ↔ Tool)                        │  │
-│  │ JSON-RPC 2.0, stdio/HTTP+SSE                       │  │
+│  │ MCP Protocol (Agent ↔ Tool)                       │  │
+│  │ JSON-RPC 2.0, stdio/HTTP+SSE                      │  │
 │  └───────────────────────┬───────────────────────────┘  │
-│                          │                               │
+│                          │                              │
 │  ┌───────────────────────▼───────────────────────────┐  │
-│  │ CodeLens MCP Server                                │  │
-│  │                                                    │  │
-│  │  ✅ Streamable HTTP + SSE                          │  │
-│  │  ✅ Tool Annotations (readOnly/destructive)        │  │
-│  │  ✅ Tool Output Schemas (7 core tools)             │  │
-│  │  ✅ Preset-based capability subsetting             │  │
-│  │  ✅ Token budget control (_profile)                │  │
-│  │  ✅ Session management (UUID, TTL)                 │  │
-│  │  ✅ .well-known/mcp.json Server Card               │  │
-│  │  ✅ Telemetry (per-tool metrics)                   │  │
-│  │  ✅ suggest_next_tools (contextual chaining)       │  │
-│  │  ⬜ Stateless session tokens (spec pending)        │  │
-│  │  ⬜ A2A Agent Card (long-term)                     │  │
-│  └────────────────────────────────────────────────────┘  │
+│  │ CodeLens MCP Server                               │  │
+│  │                                                   │  │
+│  │  ✅ Streamable HTTP + SSE                         │  │
+│  │  ✅ Tool Annotations (readOnly/destructive)       │  │
+│  │  ✅ Tool Output Schemas (45/89 tools)             │  │
+│  │  ✅ Preset + Role Profile subsetting              │  │
+│  │  ✅ Token budget control (_profile)               │  │
+│  │  ✅ Adaptive compression (OpenDev 5-stage)        │  │
+│  │  ✅ Session management (UUID, TTL)                │  │
+│  │  ✅ .well-known/mcp.json Server Card              │  │
+│  │  ✅ Deferred tool loading (bootstrap-aware)       │  │
+│  │  ✅ In-memory telemetry (per-tool metrics)        │  │
+│  │  ✅ suggest_next_tools (contextual chaining)      │  │
+│  │  ✅ v2.1.91+ `_meta` annotation                   │  │
+│  │  ✅ Doom-loop detection (rapid-burst → async)     │  │
+│  │  ⬜ Persistent telemetry (JSONL, planned)         │  │
+│  │  ⬜ Stateless session tokens (spec pending)       │  │
+│  │  ⬜ A2A Agent Card (long-term)                    │  │
+│  └───────────────────────────────────────────────────┘  │
 │                                                         │
 │  AAIF (Linux Foundation) — 146 member organizations     │
 │  Anthropic, Google, OpenAI, Microsoft, AWS              │
@@ -388,20 +497,68 @@ Each language has:
 
 ---
 
-## 8. Key Metrics
+## 8. Key Metrics (2026-04-11)
 
-| Metric                        | Value                                           |
-| ----------------------------- | ----------------------------------------------- |
-| Total LOC                     | ~22,500                                         |
-| Rust source files             | 73                                              |
-| Total symbols (self)          | 1,007                                           |
-| Tools (Full/Balanced/Minimal) | 63 / 39 / 21                                    |
-| Languages                     | 25 (+ Perl deferred)                            |
-| Tests                         | 197 (core 156 + mcp 41)                         |
-| DB schema version             | v4 (FTS5)                                       |
-| tree-sitter grammars          | 25 (statically linked)                          |
-| LSP recipes                   | 22 servers                                      |
-| Ranking signals               | 4 (text + pagerank + recency + semantic)        |
-| Import resolvers              | 11 languages (with tsconfig.json, go.mod, src/) |
-| Transport                     | stdio, Streamable HTTP + SSE, CLI oneshot       |
-| Binary size (release)         | Single binary, zero runtime deps                |
+| Metric                            | Value                                                                                  |
+| --------------------------------- | -------------------------------------------------------------------------------------- |
+| Total LOC                         | 46,045 (38,820 prod + 7,225 test)                                                      |
+| Rust source files                 | 115                                                                                    |
+| Tools (FULL / BALANCED / MINIMAL) | 89 / 55 / 20                                                                           |
+| Tool categories (base)            | File 7 · Symbol 7 · LSP 7 · Analysis 7 · Edit 17 · Workflow 17 · Memory 5 · Session 16 |
+| Semantic tools (cfg-gated)        | 6                                                                                      |
+| Output schemas                    | 45 / 89 (51%)                                                                          |
+| Languages                         | 25 (+ Perl deferred)                                                                   |
+| Tests                             | 537 (engine 222 + mcp 136 + mcp-http 179)                                              |
+| Clippy                            | 0 warnings (default + http feature)                                                    |
+| DB schema version                 | v4 (FTS5 + sqlite-vec + self-heal)                                                     |
+| tree-sitter grammars              | 25 (statically linked)                                                                 |
+| LSP recipes                       | 22 servers                                                                             |
+| Ranking signals                   | 4 (text + pagerank + recency + semantic)                                               |
+| Import resolvers                  | 11 languages (tsconfig.json, go.mod, src/)                                             |
+| Transport                         | stdio, Streamable HTTP + SSE, CLI oneshot                                              |
+| Preset/Profile budgets            | planner / builder / reviewer / refactor / ci-audit                                     |
+| Binary size (release, default)    | ~76 MB (bundled ONNX embedding model)                                                  |
+| Binary size (release, minimal)    | ~23 MB (`--no-default-features`)                                                       |
+
+### Performance Snapshot
+
+| Operation            | Latency                            | Source                       |
+| -------------------- | ---------------------------------- | ---------------------------- |
+| find_symbol          | <1ms                               | SQLite FTS5                  |
+| get_symbols_overview | <1ms                               | Cached                       |
+| get_ranked_context   | ~265ms (hybrid) / ~168ms (lexical) | benchmarks/embedding-quality |
+| get_impact_analysis  | ~1ms                               | Graph cache                  |
+| semantic_search      | ~574ms                             | warm, workload-dependent     |
+| Project onboard      | ~21ms                              | benchmarks/token-efficiency  |
+| Cold start           | ~12ms                              | No LSP boot                  |
+
+### Quality Snapshot (MRR, self-matching dataset, 89 queries)
+
+| Method                         | MRR       | Acc@1 | Acc@5 |
+| ------------------------------ | --------- | ----- | ----- |
+| `semantic_search`              | 0.598     | 0.539 | 0.663 |
+| `get_ranked_context` (lexical) | 0.604     | 0.528 | 0.697 |
+| `get_ranked_context` (hybrid)  | **0.664** | 0.584 | 0.775 |
+
+- By query type (hybrid): identifier **0.960** · short_phrase **0.676** · natural_language **0.528**
+- NL 쿼리는 구조적 약점 — 임베딩 모델 교체 또는 AST-aware chunking으로 개선 대상
+
+### Token Efficiency Snapshot (vs Read/Grep, tiktoken cl100k_base)
+
+| Task               | Baseline | CodeLens | Savings        |
+| ------------------ | -------- | -------- | -------------- |
+| Find symbol        | 616      | 309      | 2.0x           |
+| File structure     | 5,988    | 1,612    | 3.7x           |
+| Impact analysis    | 5,321    | 1,651    | 3.2x           |
+| Find references    | 616      | 240      | 2.6x           |
+| Project onboarding | 7,972    | 763      | 10.4x          |
+| Context retrieval  | 7,692    | 46       | **167.2x**     |
+| **Total**          | 28,205   | 4,621    | **6.1x (84%)** |
+
+Workflow profile compression (Balanced vs Profile):
+
+- Planner change request: 15.6x
+- Reviewer impact analysis: 16.3x
+- Refactor safety: 4.4x
+
+Re-run: `python3 benchmarks/token-efficiency.py <project>`

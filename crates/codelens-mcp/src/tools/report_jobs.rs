@@ -183,13 +183,27 @@ fn run_simple_report_job(
     arguments: &Value,
     delay_ms: u64,
 ) -> Result<Value, String> {
-    if !advance_job_progress(state, scope, job_id, 30, &format!("starting {kind}"), delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope,
+        job_id,
+        30,
+        &format!("starting {kind}"),
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     let result = run_job_kind(state, kind, arguments)
         .map(|(payload, _meta)| payload)
         .map_err(|error| error.to_string())?;
-    if !advance_job_progress(state, scope, job_id, 90, &format!("finalizing {kind}"), delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope,
+        job_id,
+        90,
+        &format!("finalizing {kind}"),
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     Ok(result)
@@ -287,7 +301,14 @@ fn run_impact_report_job(
     arguments: &Value,
     delay_ms: u64,
 ) -> Result<Value, String> {
-    if !advance_job_progress(state, scope, job_id, 20, "collecting changed files", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope,
+        job_id,
+        20,
+        "collecting changed files",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     let changed_files = strings_from_array(
@@ -312,7 +333,14 @@ fn run_impact_report_job(
             8,
         )
     };
-    if !advance_job_progress(state, scope, job_id, 45, "measuring impact surface", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope,
+        job_id,
+        45,
+        "measuring impact surface",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     let mut impact_rows = Vec::new();
@@ -331,7 +359,7 @@ fn run_impact_report_job(
             .get("total_affected_files")
             .and_then(|value| value.as_u64())
             .unwrap_or_default();
-        let change_kind = codelens_core::git::classify_change_kind(&state.project(), path);
+        let change_kind = codelens_engine::git::classify_change_kind(&state.project(), path);
         let kind_label = if change_kind == "additive" {
             " (additive)"
         } else {
@@ -362,7 +390,14 @@ fn run_impact_report_job(
         "impact_rows".to_owned(),
         json!({"files": target_files, "impacts": impact_rows}),
     );
-    if !advance_job_progress(state, scope, job_id, 90, "writing impact analysis", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope,
+        job_id,
+        90,
+        "writing impact analysis",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     super::report_contract::make_handle_response(
@@ -394,13 +429,27 @@ fn run_refactor_safety_report_job(
         .unwrap_or(".");
     let task = arguments.get("task").and_then(|value| value.as_str());
     let symbol = arguments.get("symbol").and_then(|value| value.as_str());
-    if !advance_job_progress(state, scope, job_id, 20, "analyzing module boundaries", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope,
+        job_id,
+        20,
+        "analyzing module boundaries",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     let boundary = super::reports::module_boundary_report(state, &json!({"path": path}))
         .map(|output| output.0)
         .map_err(|error| error.to_string())?;
-    if !advance_job_progress(state, scope, job_id, 40, "summarizing symbol impact", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope,
+        job_id,
+        40,
+        "summarizing symbol impact",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     let symbol_impact = if let Some(symbol) = symbol {
@@ -413,7 +462,14 @@ fn run_refactor_safety_report_job(
     } else {
         json!({"skipped": true, "reason": "no symbol provided"})
     };
-    if !advance_job_progress(state, scope, job_id, 60, "ranking refactor context", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope,
+        job_id,
+        60,
+        "ranking refactor context",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     let change_request = task
@@ -424,7 +480,14 @@ fn run_refactor_safety_report_job(
         .transpose()
         .map_err(|error| error.to_string())?
         .unwrap_or_else(|| json!({"skipped": true, "reason": "no task provided"}));
-    if !advance_job_progress(state, scope, job_id, 80, "collecting related tests", delay_ms)? {
+    if !advance_job_progress(
+        state,
+        scope,
+        job_id,
+        80,
+        "collecting related tests",
+        delay_ms,
+    )? {
         return Ok(json!({}));
     }
     let tests = super::filesystem::find_tests(state, &json!({"path": path, "max_results": 10}))
@@ -528,8 +591,7 @@ pub(crate) fn run_analysis_job_from_queue(
             let mut last_err = None;
             let mut result = None;
             for attempt in 0..3 {
-                match run_job_kind_with_progress(worker_state, &scope, &job_id, &kind, &arguments)
-                {
+                match run_job_kind_with_progress(worker_state, &scope, &job_id, &kind, &arguments) {
                     Ok(payload) => {
                         result = Some(payload);
                         break;

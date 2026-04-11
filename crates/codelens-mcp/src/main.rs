@@ -13,6 +13,7 @@ mod mutation_gate;
 mod preflight_store;
 mod prompts;
 mod protocol;
+mod recent_buffer;
 mod resource_analysis;
 mod resource_catalog;
 mod resource_context;
@@ -24,6 +25,7 @@ mod session_context;
 mod session_metrics_payload;
 mod state;
 mod telemetry;
+mod test_helpers;
 mod tool_defs;
 mod tool_runtime;
 mod tools;
@@ -31,7 +33,7 @@ mod tools;
 pub(crate) use state::AppState;
 
 use anyhow::{Context, Result};
-use codelens_core::ProjectRoot;
+use codelens_engine::ProjectRoot;
 use server::oneshot::run_oneshot;
 use server::transport_stdio::run_stdio;
 use state::RuntimeDaemonMode;
@@ -121,16 +123,13 @@ fn resolve_startup_project(source: &StartupProjectSource) -> Result<ProjectRoot>
     match source {
         StartupProjectSource::Cli(path)
         | StartupProjectSource::ClaudeEnv(path)
-        | StartupProjectSource::McpEnv(path) => ProjectRoot::new(path)
-            .map_err(anyhow::Error::from)
-            .with_context(|| {
+        | StartupProjectSource::McpEnv(path) => ProjectRoot::new(path).with_context(|| {
                 format!(
                     "failed to resolve explicit project root from {}",
                     source.label()
                 )
             }),
         StartupProjectSource::Cwd(path) => ProjectRoot::new(path)
-            .map_err(anyhow::Error::from)
             .with_context(|| format!("failed to resolve project root from {}", path.display())),
     }
 }

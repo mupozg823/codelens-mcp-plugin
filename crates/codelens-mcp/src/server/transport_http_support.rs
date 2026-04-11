@@ -1,5 +1,3 @@
-#![cfg(feature = "http")]
-
 use super::session::{SessionClientMetadata, SessionStore};
 use crate::client_profile::ClientProfile;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
@@ -160,19 +158,19 @@ fn annotate_initialize_response(
     session: &InitializeSession,
     daemon_mode: &str,
 ) -> JsonRpcResponse {
-    if let Some(result) = resp.result.as_mut() {
-        if let Some(obj) = result.as_object_mut() {
-            obj.insert(
-                "session".to_owned(),
-                serde_json::json!({
-                    "id": session.id,
-                    "resumed": session.resumed,
-                    "active_sessions": session.active_sessions,
-                    "timeout_seconds": session.timeout_secs,
-                    "daemon_mode": daemon_mode
-                }),
-            );
-        }
+    if let Some(result) = resp.result.as_mut()
+        && let Some(obj) = result.as_object_mut()
+    {
+        obj.insert(
+            "session".to_owned(),
+            serde_json::json!({
+                "id": session.id,
+                "resumed": session.resumed,
+                "active_sessions": session.active_sessions,
+                "timeout_seconds": session.timeout_secs,
+                "daemon_mode": daemon_mode
+            }),
+        );
     }
     resp
 }

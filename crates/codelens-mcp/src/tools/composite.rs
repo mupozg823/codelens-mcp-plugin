@@ -1,12 +1,12 @@
-use super::{required_string, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_core::change_signature::{change_signature, ParamSpec};
-use codelens_core::inline::inline_function;
-use codelens_core::move_symbol::move_symbol;
-use codelens_core::{
-    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
-    get_symbols_overview, SymbolKind,
+use codelens_engine::change_signature::{ParamSpec, change_signature};
+use codelens_engine::inline::inline_function;
+use codelens_engine::move_symbol::move_symbol;
+use codelens_engine::{
+    SymbolKind, find_circular_dependencies, get_callees, get_callers, get_importance,
+    get_importers, get_symbols_overview,
 };
 use serde_json::json;
 
@@ -322,7 +322,7 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
     let semantic_status = {
         let total_files: usize = structure.iter().map(|d| d.files).sum();
         const MAX_AUTO_EMBED_FILES: usize = 2000;
-        let configured_model = codelens_core::configured_embedding_model_name();
+        let configured_model = codelens_engine::configured_embedding_model_name();
         if total_files > MAX_AUTO_EMBED_FILES {
             json!({
                 "status": "skipped",
@@ -330,7 +330,7 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
                 "reason": format!("project too large ({total_files} files > {MAX_AUTO_EMBED_FILES}), call index_embeddings explicitly")
             })
         } else {
-            let existing = codelens_core::EmbeddingEngine::inspect_existing_index(&project)
+            let existing = codelens_engine::EmbeddingEngine::inspect_existing_index(&project)
                 .ok()
                 .flatten();
             if let Some(info) = existing {
@@ -399,8 +399,8 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
     };
     #[cfg(not(feature = "semantic"))]
     let semantic_status = {
-        let configured_model = codelens_core::configured_embedding_model_name();
-        match codelens_core::EmbeddingEngine::inspect_existing_index(&project)
+        let configured_model = codelens_engine::configured_embedding_model_name();
+        match codelens_engine::EmbeddingEngine::inspect_existing_index(&project)
             .ok()
             .flatten()
         {

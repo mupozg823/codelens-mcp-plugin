@@ -1,7 +1,7 @@
-use super::SymbolIndex;
 use super::parser::{flatten_symbol_infos, slice_source};
-use super::ranking::{RankingContext, prune_to_budget, rank_symbols};
-use super::types::{RankedContextResult, SymbolInfo, SymbolKind, make_symbol_id, parse_symbol_id};
+use super::ranking::{prune_to_budget, rank_symbols, RankingContext};
+use super::types::{make_symbol_id, parse_symbol_id, RankedContextResult, SymbolInfo, SymbolKind};
+use super::SymbolIndex;
 use crate::db::IndexDb;
 use crate::project::ProjectRoot;
 use anyhow::Result;
@@ -251,6 +251,7 @@ impl SymbolIndex {
     /// Ranked context from DB without lazy indexing.
     /// If `graph_cache` is provided, PageRank scores boost symbols in highly-imported files.
     /// If `semantic_scores` is non-empty, vector similarity is blended into ranking.
+    #[allow(clippy::too_many_arguments)]
     pub fn get_ranked_context_cached(
         &self,
         query: &str,

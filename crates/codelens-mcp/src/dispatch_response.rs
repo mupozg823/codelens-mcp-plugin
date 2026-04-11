@@ -1,14 +1,14 @@
-use crate::AppState;
 use crate::dispatch_response_support::{
     apply_contextual_guidance, bounded_result_payload, budget_hint, compact_response_payload,
-    effective_budget_for_tool, routing_hint_for_payload, success_jsonrpc_response,
-    text_payload_for_response,
+    effective_budget_for_tool, max_result_size_chars_for_tool, routing_hint_for_payload,
+    success_jsonrpc_response, text_payload_for_response,
 };
 use crate::error::CodeLensError;
-use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
+use crate::mutation_gate::{is_verifier_source_tool, MutationGateAllowance, MutationGateFailure};
 use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};
-use crate::tool_defs::{ToolSurface, tool_definition};
+use crate::tool_defs::{tool_definition, ToolSurface};
 use crate::tools;
+use crate::AppState;
 use serde_json::json;
 
 pub(crate) struct SuccessResponseInput<'a> {
@@ -29,6 +29,8 @@ pub(crate) struct SuccessResponseInput<'a> {
     pub id: Option<serde_json::Value>,
     /// Consecutive same-tool+args call count for doom-loop detection.
     pub doom_loop_count: usize,
+    /// True when 3+ identical calls happen within 10 seconds (agent retry loop).
+    pub doom_loop_rapid: bool,
 }
 
 pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpcResponse {
@@ -49,6 +51,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         start,
         id,
         doom_loop_count,
+        doom_loop_rapid,
     } = input;
 
     let elapsed_ms = start.elapsed().as_millis();
@@ -89,9 +92,17 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         hint = format!("{hint} Tip: run verify_change_readiness before mutations for safer edits.");
     }
     if doom_loop_count >= 3 {
-        hint = format!(
-            "{hint} Repeated low-level chain detected. Prefer verify_change_readiness, find_minimal_context_for_change, analyze_change_request for compressed context before continuing."
-        );
+        if doom_loop_rapid {
+            hint = format!(
+                "{hint} Rapid retry burst detected ({doom_loop_count}x in <10s). \
+                 Use start_analysis_job for heavy analysis, or narrow scope with path/max_tokens."
+            );
+        } else {
+            hint = format!(
+                "{hint} Repeated low-level chain detected. Prefer verify_change_readiness, \
+                 find_minimal_context_for_change, analyze_change_request for compressed context."
+            );
+        }
     }
     resp.token_estimate = Some(payload_estimate);
     resp.budget_hint = Some(hint);
@@ -103,20 +114,35 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
 
     // Self-evolution: when doom-loop detected, override suggestions with alternative tools
     if doom_loop_count >= 3 {
-        resp.suggested_next_tools = Some(vec![
-            "verify_change_readiness".to_owned(),
-            "find_minimal_context_for_change".to_owned(),
-            "analyze_change_request".to_owned(),
-        ]);
+        if doom_loop_rapid {
+            // Rapid burst: suggest async path to break the retry loop
+            resp.suggested_next_tools = Some(vec![
+                "start_analysis_job".to_owned(),
+                "find_minimal_context_for_change".to_owned(),
+                "get_ranked_context".to_owned(),
+            ]);
+        } else {
+            resp.suggested_next_tools = Some(vec![
+                "verify_change_readiness".to_owned(),
+                "find_minimal_context_for_change".to_owned(),
+                "analyze_change_request".to_owned(),
+            ]);
+        }
     }
 
     if compact {
         compact_response_payload(&mut resp);
     }
 
+    let effort_offset = state.effort_level().compression_threshold_offset();
     let text = text_payload_for_response(&resp, structured_content.as_ref());
-    let (text, structured_content, truncated) =
-        bounded_result_payload(text, structured_content, payload_estimate, effective_budget);
+    let (text, structured_content, truncated) = bounded_result_payload(
+        text,
+        structured_content,
+        payload_estimate,
+        effective_budget,
+        effort_offset,
+    );
 
     state.metrics().record_call_with_tokens(
         name,
@@ -125,12 +151,14 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         payload_estimate,
         active_surface,
         truncated,
+        harness_phase,
     );
     if emitted_composite_guidance {
         state.metrics().record_composite_guidance_emitted();
     }
 
-    success_jsonrpc_response(id, text, structured_content)
+    let max_result_size = max_result_size_chars_for_tool(name, truncated);
+    success_jsonrpc_response(id, text, structured_content, Some(max_result_size))
 }
 
 pub(crate) fn build_error_response(
@@ -151,6 +179,7 @@ pub(crate) fn build_error_response(
         0,
         active_surface,
         false,
+        None,
     );
 
     if error.is_protocol_error() {

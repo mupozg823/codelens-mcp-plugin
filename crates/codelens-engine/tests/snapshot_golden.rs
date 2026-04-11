@@ -2,8 +2,8 @@
 //! Uses insta for deterministic output comparison.
 //! Run `cargo insta review` to approve new snapshots.
 
-use codelens_core::symbols::{find_symbol, get_symbols_overview};
-use codelens_core::{ProjectRoot, SymbolIndex};
+use codelens_engine::symbols::{find_symbol, get_symbols_overview};
+use codelens_engine::{ProjectRoot, SymbolIndex};
 
 fn fixture_project() -> ProjectRoot {
     let path =

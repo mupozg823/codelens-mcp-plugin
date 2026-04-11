@@ -284,84 +284,90 @@ pub fn resolve_call_edges(
 
         // Stage 1: Import map — callee's prefix matches an import in caller file (0.95)
         if let Some(graph) = import_graph
-            && let Some(node) = graph.get(caller_file) {
-                for imported_file in &node.imports {
-                    // Check if imported file defines callee
-                    if let Some(defs) = symbol_index.get(callee)
-                        && defs.iter().any(|f| f == imported_file) {
-                            edge.resolved_file = Some(imported_file.clone());
-                            edge.confidence = 0.95;
-                            edge.resolution_strategy = Some("import_map");
-                            break;
-                        }
+            && let Some(node) = graph.get(caller_file)
+        {
+            for imported_file in &node.imports {
+                // Check if imported file defines callee
+                if let Some(defs) = symbol_index.get(callee)
+                    && defs.iter().any(|f| f == imported_file)
+                {
+                    edge.resolved_file = Some(imported_file.clone());
+                    edge.confidence = 0.95;
+                    edge.resolution_strategy = Some("import_map");
+                    break;
                 }
             }
+        }
         if edge.confidence > 0.0 {
             continue;
         }
 
         // Stage 2: Same file — callee defined in the same file (0.90)
         if let Some(defs) = symbol_index.get(callee)
-            && defs.iter().any(|f| f == caller_file) {
-                edge.resolved_file = Some(caller_file.clone());
-                edge.confidence = 0.90;
-                edge.resolution_strategy = Some("same_file");
-                continue;
-            }
+            && defs.iter().any(|f| f == caller_file)
+        {
+            edge.resolved_file = Some(caller_file.clone());
+            edge.confidence = 0.90;
+            edge.resolution_strategy = Some("same_file");
+            continue;
+        }
 
         // Stage 3: Unique name — only one definition exists project-wide (0.75)
         if let Some(defs) = symbol_index.get(callee)
-            && defs.len() == 1 {
-                edge.resolved_file = Some(defs[0].clone());
-                edge.confidence = 0.75;
-                edge.resolution_strategy = Some("unique_name");
-                continue;
-            }
+            && defs.len() == 1
+        {
+            edge.resolved_file = Some(defs[0].clone());
+            edge.confidence = 0.75;
+            edge.resolution_strategy = Some("unique_name");
+            continue;
+        }
 
         // Stage 4: Import suffix — callee matches suffix of an imported module (0.60)
         if let Some(graph) = import_graph
             && let Some(node) = graph.get(caller_file)
-                && let Some(defs) = symbol_index.get(callee) {
-                    // Pick the candidate that is also imported (transitively)
-                    for def_file in defs {
-                        if node.imports.iter().any(|imp| {
-                            // Match on full path suffix, not just filename
-                            def_file.ends_with(imp)
-                                || def_file.ends_with(&format!("/{imp}"))
-                                || imp.ends_with(def_file)
-                                || imp.ends_with(&format!("/{def_file}"))
-                        }) {
-                            edge.resolved_file = Some(def_file.clone());
-                            edge.confidence = 0.60;
-                            edge.resolution_strategy = Some("import_suffix");
-                            break;
-                        }
-                    }
+            && let Some(defs) = symbol_index.get(callee)
+        {
+            // Pick the candidate that is also imported (transitively)
+            for def_file in defs {
+                if node.imports.iter().any(|imp| {
+                    // Match on full path suffix, not just filename
+                    def_file.ends_with(imp)
+                        || def_file.ends_with(&format!("/{imp}"))
+                        || imp.ends_with(def_file)
+                        || imp.ends_with(&format!("/{def_file}"))
+                }) {
+                    edge.resolved_file = Some(def_file.clone());
+                    edge.confidence = 0.60;
+                    edge.resolution_strategy = Some("import_suffix");
+                    break;
                 }
+            }
+        }
         if edge.confidence > 0.0 {
             continue;
         }
 
         // Stage 5: Multiple candidates — pick closest by path similarity (0.40)
         if let Some(defs) = symbol_index.get(callee)
-            && !defs.is_empty() {
-                // Pick the one with the most shared path prefix with caller_file
-                let best = defs
-                    .iter()
-                    .max_by_key(|f| {
-                        f.chars()
-                            .zip(caller_file.chars())
-                            .take_while(|(a, b)| a == b)
-                            .count()
-                    })
-                    .cloned();
-                if let Some(f) = best {
-                    edge.resolved_file = Some(f);
-                    edge.confidence = 0.40;
-                    edge.resolution_strategy = Some("path_proximity");
-                    continue;
-                }
+            && !defs.is_empty()
+        {
+            // Pick the one with the most shared path prefix with caller_file
+            let best = defs
+                .iter()
+                .max_by_key(|f| {
+                    f.chars()
+                        .zip(caller_file.chars())
+                        .take_while(|(a, b)| a == b)
+                        .count()
+                })
+                .cloned();
+            if let Some(f) = best {
+                edge.resolved_file = Some(f);
+                edge.confidence = 0.40;
+                edge.resolution_strategy = Some("path_proximity");
+                continue;
             }
+        }
 
         // Stage 6: Unresolved — callee not found in symbol DB (0.10)
         edge.confidence = 0.10;
