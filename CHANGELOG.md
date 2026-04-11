@@ -7,6 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 4b — binary build metadata in `get_capabilities`)
+
+Adds four new fields to `get_capabilities` so downstream tooling can detect the exact Phase 4a failure mode (a long-running daemon's memory image is drift-stale relative to the source + disk binary) in a single tool call. The trigger was Phase 4a debugging: a running daemon PID 78810 was launched 2026-04-10 21:20, Phase 4a commit `5a3082c` landed 2026-04-11, and the user had no single-call way to confirm whether the daemon they were hitting actually contained the fix. This PR closes that gap.
+
+- **`build.rs` at `crates/codelens-mcp/build.rs`** — new build script emits three `cargo:rustc-env=KEY=VALUE` directives at compile time:
+  - `CODELENS_BUILD_GIT_SHA` — short git SHA (7 chars), or `"unknown"` if the source tree is not a git checkout or `git` is unavailable
+  - `CODELENS_BUILD_TIME` — RFC 3339 UTC timestamp of the build, formatted by pure integer arithmetic (Howard Hinnant's days-since-civil-epoch algorithm) to avoid a `chrono` build-dependency
+  - `CODELENS_BUILD_GIT_DIRTY` — `"true"` / `"false"` depending on whether `git status --porcelain` had any uncommitted changes at build time
+  - Re-runs on `.git/HEAD` and `.git/refs/heads` changes, so a local rebuild after `git commit` picks up the new SHA
+- **`crates/codelens-mcp/src/build_info.rs`** — new module exposes compile-time constants via `env!()` (infallible — build script guarantees they exist):
+  - `BUILD_VERSION` (`env!("CARGO_PKG_VERSION")`)
+  - `BUILD_GIT_SHA` (`env!("CODELENS_BUILD_GIT_SHA")`)
+  - `BUILD_TIME` (`env!("CODELENS_BUILD_TIME")`)
+  - `BUILD_GIT_DIRTY` raw string + `build_git_dirty() -> bool` parser
+- **`AppState::daemon_started_at: String`** — new field captured once at `AppState::build()` via a new helper `now_rfc3339_utc()` (same algorithm as `build.rs::format_iso8601_utc`, so build time and daemon start time use the same string format and can be compared lexicographically). `clone_for_worker()` inherits the parent daemon's start time so worker clones report a consistent value. Accessed via new `AppState::daemon_started_at()` method.
+- **`get_capabilities` payload additions** (`crates/codelens-mcp/src/tools/session/metrics_config.rs`): five new top-level fields, all additive (no existing field removed or renamed):
+  - `binary_version` (string)
+  - `binary_git_sha` (string, 7 chars or `"unknown"`)
+  - `binary_build_time` (RFC 3339 UTC string)
+  - `daemon_started_at` (RFC 3339 UTC string)
+  - `binary_build_info` (nested object with `version` / `git_sha` / `git_dirty` / `build_time` — flat fields are for jq scrapers, nested object is for grouped consumers)
+- **Stale-daemon detection recipe**: downstream tooling (CLI dashboards, agent harnesses) can now do a single `get_capabilities` call and compare `binary_build_time` against `daemon_started_at`. If `daemon_started_at` is older than `binary_build_time`, the daemon is running a pre-build image — exactly the Phase 4a failure mode. The comparison is lexicographic on RFC 3339 UTC strings (safe for ASCII-ordered timestamps, no date parsing required).
+- **Smoke test (HTTP, `/tmp/ripgrep-ext` daemon via `--profile builder-minimal --transport http --port 7837`)**:
+  ```
+  lsp_attached: True
+  semantic_in_available: True              ← Phase 4a fix still live
+  binary_version: 1.5.0
+  binary_git_sha: 5a3082c                  ← matches current HEAD
+  binary_build_time: 2026-04-11T19:31:31Z
+  daemon_started_at: 2026-04-11T19:32:21Z  ← daemon restarted 50s after build → fresh
+  git_dirty: true                          ← Phase 4b changes were uncommitted at build
+  ```
+  `daemon_started_at > binary_build_time` → daemon is current. If a future rebuild produces a new binary while this daemon keeps running, `daemon_started_at` will stay at the same timestamp while `binary_build_time` advances, letting tooling detect the drift.
+- **One new unit test** `build_info_constants_are_populated`: asserts all four build-info constants are non-empty, `BUILD_TIME` is exactly 20 chars (`YYYY-MM-DDTHH:MM:SSZ` format), ends with `Z` (UTC marker), and `build_git_dirty()` parses without panicking. MCP test count: 153 → **154**.
+- **No API breakage**: all additions are new top-level fields. The existing Phase 4a `unavailable[].status` field and all pre-Phase-4a fields are unchanged. Existing `get_capabilities` consumers (composite workflow tools) continue to parse correctly.
+
+### Fixed (Phase 4a — capability reporting correctness + LSP daemon PATH)
+
+Fixes a set of reporting-layer bugs where `get_capabilities` misrepresented the actual runtime state of CodeLens for both LSP and semantic_search. None of these were performance or index-corruption issues — the retrieval engine and on-disk index were always healthy. The bugs lived in the telemetry / surface-policy layer, which caused downstream agents to avoid perfectly functional features.
+
+- **LSP daemon PATH mismatch** (`crates/codelens-mcp/src/tools/session/metrics_config.rs:resolve_lsp_binary_exists`): the old `get_capabilities` implementation used `std::process::Command::new("which").arg(cmd)` to check LSP availability. `which` resolves against the spawning process's inherited `PATH`, which for the MCP daemon under launchd/systemd is typically `/usr/bin:/bin:/usr/sbin:/sbin` — explicitly excluding Homebrew (`/opt/homebrew/bin`), Cargo (`~/.cargo/bin`), and every Node version manager's install directory. Machines with `rust-analyzer`, `gopls`, `typescript-language-server`, etc. installed were still reporting `lsp_attached = false`. The new helper falls through `which` → standard install dirs (`/opt/homebrew/bin`, `/usr/local/bin`, `~/.cargo/bin`, `~/.fnm/aliases/default/bin`, `~/.nvm/versions/node/current/bin`) → optional `CODELENS_LSP_PATH_EXTRA=/path1:/path2` env override. Smoke-tested on `/tmp/ripgrep-ext` with `rust-analyzer` installed via Homebrew — reports `lsp_attached: True` as expected. Two unit tests cover the env-override positive path and the unknown-binary negative path.
+- **`semantic_search` reason decomposition** (`SemanticSearchStatus` enum, `determine_semantic_search_status` helper): the old unavailable reason was a single hardcoded string `"embeddings not loaded — call index_embeddings first"`. That message conflated four root causes, only one of which the user could act on (`IndexMissing`). The new decomposition returns one of:
+  - `ModelAssetsUnavailable` — CodeSearchNet ONNX not on disk. Remediation: reinstall or set `CODELENS_MODEL_DIR`.
+  - `NotInActiveSurface` — current profile/preset does not include `semantic_search`. Remediation: `set_profile` / `set_preset`.
+  - `IndexMissing` — on-disk symbol index has zero embedding rows. Remediation: call `index_embeddings`.
+  - `FeatureDisabled` — binary built without `--features semantic`. Remediation: rebuild.
+
+  The status is exposed as both a structured `status` field (e.g. `"IndexMissing"`) and a human-readable `reason` string in `unavailable[].reason`.
+
+- **Lazy-init semantics correctly reflected** (the actual meat of the bug): the old code reported `semantic_search` as unavailable whenever `state.embedding_ref().is_some() == false`, i.e. whenever the engine was not currently pinned in memory. But the real `dispatch.rs:semantic_search_handler` calls `state.embedding_engine()` which **lazy-initializes the engine on first call via `EmbeddingEngine::new(&project)`**. A cold engine + healthy on-disk index is fully functional — the first `semantic_search` call just pays a one-time load cost. The new `determine_semantic_search_status` uses `EmbeddingEngine::inspect_existing_index(&project)` (already public in `codelens-engine`) to probe the on-disk row count without touching the in-memory engine, and reports `Available` whenever (a) model assets exist, (b) surface includes `semantic_search`, and (c) on-disk index has ≥ 1 row — regardless of whether `embedding_ref()` is `Some` or `None`. The `embeddings_loaded` bool field is retained in the JSON payload for backwards compatibility but its semantics are now explicitly "is the engine pinned in memory?", not "can I run semantic_search?".
+- **Codex profiles expose `semantic_search` + `index_embeddings`** (`crates/codelens-mcp/src/tool_defs/presets.rs`): `PLANNER_READONLY_TOOLS` and `BUILDER_MINIMAL_TOOLS` previously did not list `semantic_search`, which meant even when the engine was healthy and the index was populated, the surface policy filter at `is_tool_in_profile` would block the tool from showing up in `tools/list`. Users on Codex profiles saw a permanent "semantic not available" experience despite everything being fine. Added `semantic_search` and `index_embeddings` to both lists with inline comments justifying the choice. A guard test `planner_readonly_and_builder_minimal_expose_semantic_search` prevents accidental regression in future preset edits.
+- **Smoke-test verification on `/tmp/ripgrep-ext`**:
+  - Before indexing: `lsp_attached: true`, `embedding_indexed: false`, `embeddings_loaded: false`, semantic_search unavailable with `reason: "index missing — call index_embeddings to build the embedding index"`, `status: "IndexMissing"`. Actionable message; previous message was just "call index_embeddings first" with no status discriminator.
+  - After `index_embeddings` (indexed_symbols=2482): `lsp_attached: true`, `embedding_indexed: true`, **`embeddings_loaded: false`** (subprocess one-shot CLI — cold engine), **`available: [..., semantic_search]`**, `unavailable: []`. The cold-engine-with-populated-index case correctly reports Available, which the old code path would have misreported as unavailable.
+  - Both `--profile builder-minimal` and `--profile planner-readonly` return `available: [..., semantic_search]`, confirming the surface-policy fix.
+- **Five new unit tests** (all under `metrics_config::capability_reporting_tests`): `resolve_lsp_binary_exists_finds_via_env_override`, `resolve_lsp_binary_exists_returns_false_for_unknown_binary`, `semantic_search_status_reason_strings_are_distinct`, `semantic_search_status_is_available_only_for_available_variant`, `planner_readonly_and_builder_minimal_expose_semantic_search`. MCP test count: 148 → **153**. Engine test count unchanged at 257.
+- **No API breakage**: the `get_capabilities` JSON payload adds a `status` field to `unavailable[]` entries for `semantic_search` but retains the existing `feature` and `reason` keys, so existing consumers (including the `get_capabilities` callers in composite workflow tools) continue to parse correctly. The `embeddings_loaded` boolean is unchanged in meaning (engine in memory), only its interpretation in the capability decision is now narrower.
+
 ### Changed (v1.6.0 default flip — `CODELENS_EMBED_HINT_AUTO=1` becomes the default, §8.14)
 
 - **Default behaviour flipped** (`crates/codelens-engine/src/embedding/mod.rs:auto_hint_mode_enabled`): `parse_bool_env("CODELENS_EMBED_HINT_AUTO").unwrap_or(false)` → `unwrap_or(true)`. After the five-dataset measurement arc (§8.2–§8.13) justified it, the v1.5.x opt-in default-off semantics flip to v1.6.0 default-on. A supported-language project (Rust / C / C++ / Go / Java / Kotlin / Scala / C# / TypeScript / JavaScript) now silently starts producing the §8.7 / §8.13 stacked results without any env-var configuration. A Python / Ruby / PHP / Lua / shell / unknown-language project silently stays on baseline via the §8.11 language gate + conservative default-off branch of `language_supports_nl_stack`.

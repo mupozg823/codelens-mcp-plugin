@@ -139,6 +139,7 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "activate_project",
     "prepare_harness_session",
     "get_current_config",
+    "get_capabilities",
     "set_profile",
     "set_preset",
     "get_tool_metrics",
@@ -147,6 +148,14 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "get_symbols_overview",
     "get_ranked_context",
     "find_referencing_symbols",
+    // Phase 4a §capability-reporting: semantic_search belongs in
+    // planner surface. Planners are read-only/exploratory — natural-
+    // language search is the primary use case, and the engine now
+    // lazy-initializes on first call so there is no startup cost.
+    // `index_embeddings` is exposed alongside so planners whose
+    // project lacks an on-disk index can remediate directly.
+    "semantic_search",
+    "index_embeddings",
     // Graph / impact
     "get_impact_analysis",
     "get_changed_files",
@@ -178,6 +187,14 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "get_file_diagnostics",
     "find_tests",
     "refresh_symbol_index",
+    // Phase 4a §capability-reporting: builders occasionally need NL
+    // lookups ("where is the error handler for invalid credentials?"
+    // type questions during mid-edit debugging). Exposing
+    // `semantic_search` + `index_embeddings` keeps the builder
+    // surface aligned with planner surface and removes the
+    // "surface policy blocks a healthy feature" reporting mismatch.
+    "semantic_search",
+    "index_embeddings",
     "plan_symbol_rename",
     "rename_symbol",
     "replace_symbol_body",

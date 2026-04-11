@@ -1,11 +1,195 @@
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
+    default_budget_for_preset, default_budget_for_profile, is_tool_in_surface, ToolPreset,
+    ToolProfile, ToolSurface,
 };
 use crate::tool_runtime::{success_meta, ToolResult};
 use crate::AppState;
 use serde_json::json;
+
+/// Return `true` when the given LSP binary is resolvable either via the
+/// daemon's inherited `PATH` (the `which` fast-path) or via a set of
+/// common macOS/Linux install locations (`/opt/homebrew/bin`,
+/// `/usr/local/bin`, `~/.cargo/bin`, `~/.fnm/aliases/default/bin`,
+/// `~/.nvm/versions/node/current/bin`) or via the user-supplied
+/// `CODELENS_LSP_PATH_EXTRA` environment variable (`:`-separated list).
+///
+/// Motivation (Phase 4a, §capability-reporting): the MCP daemon on
+/// launchd / systemd typically inherits a minimal `PATH`
+/// (`/usr/bin:/bin:/usr/sbin:/sbin`), which excludes Homebrew,
+/// cargo, and every Node version manager's install directory. Using
+/// `which` alone was reporting `lsp_attached = false` on machines
+/// where the LSP binary was installed and functional — a reporting
+/// bug, not a real feature absence.
+pub(crate) fn resolve_lsp_binary_exists(cmd: &str) -> bool {
+    // Fast path: delegate to the daemon's PATH. This is the common case
+    // when the daemon is started from an interactive shell or when PATH
+    // has been explicitly propagated.
+    if std::process::Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    // Slow path: try a conservative allow-list of standard install
+    // directories. Each entry is checked as `<dir>/<cmd>` with
+    // `Path::exists()` — no execution, just a stat.
+    let home = std::env::var("HOME").unwrap_or_default();
+    let fallback_dirs: Vec<String> = vec![
+        "/opt/homebrew/bin".to_string(),
+        "/usr/local/bin".to_string(),
+        format!("{home}/.cargo/bin"),
+        format!("{home}/.fnm/aliases/default/bin"),
+        format!("{home}/.nvm/versions/node/current/bin"),
+    ];
+    for dir in &fallback_dirs {
+        if dir.is_empty() {
+            continue;
+        }
+        if std::path::Path::new(dir).join(cmd).exists() {
+            return true;
+        }
+    }
+
+    // User escape hatch: colon-separated extra directories. Applied
+    // after the standard allow-list so users can point at an unusual
+    // install location (monorepo-local LSP, custom prefix, etc.).
+    if let Ok(extra) = std::env::var("CODELENS_LSP_PATH_EXTRA") {
+        for dir in extra.split(':').filter(|p| !p.is_empty()) {
+            if std::path::Path::new(dir).join(cmd).exists() {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+/// Four-way decomposition of why `semantic_search` might not be
+/// currently runnable. Phase 4a, §capability-reporting: the previous
+/// single reason string "embeddings not loaded — call
+/// index_embeddings first" conflated four distinct root causes, the
+/// only one of which the user could actually act on was
+/// `index_missing`. This enum keeps them separate so the caller can
+/// suggest the right remediation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SemanticSearchStatus {
+    /// The `semantic_search` handler is reachable, either because the
+    /// engine is already loaded in memory or because an on-disk index
+    /// exists and the engine will be lazy-initialized on first call.
+    Available,
+    /// The bundled CodeSearchNet ONNX model file is missing or
+    /// corrupt. User remediation: reinstall with a binary that ships
+    /// the model, or set `CODELENS_MODEL_DIR`.
+    ModelAssetsUnavailable,
+    /// The active tool surface (preset or profile) does not include
+    /// `semantic_search`. User remediation: switch profile via
+    /// `set_profile` / `set_preset`, or use a client that activates a
+    /// richer surface.
+    NotInActiveSurface,
+    /// The on-disk symbol index has no embedding rows yet. User
+    /// remediation: call `index_embeddings` to build the index.
+    IndexMissing,
+    /// The binary was built without the `semantic` cargo feature.
+    /// User remediation: rebuild with `cargo build --features semantic`.
+    ///
+    /// Only constructed in the `#[cfg(not(feature = "semantic"))]`
+    /// branch of `determine_semantic_search_status`. The default
+    /// feature set for this crate enables `semantic`, so under a
+    /// normal build this variant is unreachable — `#[allow(dead_code)]`
+    /// silences the warning without dropping the variant, which we
+    /// still want available for no-feature builds and for
+    /// `semantic_search_status_reason_strings_are_distinct` to pin
+    /// its reason text.
+    #[allow(dead_code)]
+    FeatureDisabled,
+}
+
+impl SemanticSearchStatus {
+    pub(crate) fn reason_str(&self) -> Option<&'static str> {
+        match self {
+            Self::Available => None,
+            Self::ModelAssetsUnavailable => Some(
+                "model assets unavailable — reinstall with bundled model or set CODELENS_MODEL_DIR",
+            ),
+            Self::NotInActiveSurface => Some(
+                "not in active surface — call set_profile/set_preset to include semantic_search",
+            ),
+            Self::IndexMissing => {
+                Some("index missing — call index_embeddings to build the embedding index")
+            }
+            Self::FeatureDisabled => {
+                Some("feature disabled — rebuild with `cargo build --features semantic`")
+            }
+        }
+    }
+
+    pub(crate) fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+}
+
+/// Compute the current `SemanticSearchStatus` from three observations:
+///   1. whether the binary was built with the `semantic` feature,
+///   2. whether the CodeSearchNet model assets are on disk,
+///   3. whether `semantic_search` is in the active tool surface,
+///   4. whether the on-disk symbol-index contains embedding rows.
+///
+/// The precedence order is deliberately "fix the easiest thing first":
+/// feature → model assets → surface → index. A user hitting
+/// `FeatureDisabled` must rebuild; a user hitting `IndexMissing` just
+/// has to run one tool call.
+///
+/// **Important (§capability-reporting AC3)**: when the engine is not
+/// yet loaded in memory but the on-disk index exists and the surface
+/// includes `semantic_search`, the status is `Available` — the actual
+/// handler code path calls `state.embedding_engine()` which
+/// lazy-initializes the engine under a write lock. Reporting
+/// "engine not loaded yet" would be a misleading telemetry-vs-runtime
+/// mismatch.
+#[cfg(feature = "semantic")]
+pub(crate) fn determine_semantic_search_status(
+    state: &AppState,
+    surface: ToolSurface,
+) -> SemanticSearchStatus {
+    if !codelens_engine::embedding_model_assets_available() {
+        return SemanticSearchStatus::ModelAssetsUnavailable;
+    }
+    if !is_tool_in_surface("semantic_search", surface) {
+        return SemanticSearchStatus::NotInActiveSurface;
+    }
+    // Check on-disk index status without loading the engine. If the
+    // engine is already loaded, `index_info().indexed_symbols` is the
+    // authoritative count; otherwise fall back to the on-disk
+    // `inspect_existing_index` probe which opens the SQLite file read-only.
+    let indexed_count = {
+        let guard = state.embedding_ref();
+        match guard.as_ref() {
+            Some(engine) => engine.index_info().indexed_symbols,
+            None => codelens_engine::EmbeddingEngine::inspect_existing_index(&state.project())
+                .ok()
+                .flatten()
+                .map(|info| info.indexed_symbols)
+                .unwrap_or(0),
+        }
+    };
+    if indexed_count == 0 {
+        return SemanticSearchStatus::IndexMissing;
+    }
+    SemanticSearchStatus::Available
+}
+
+#[cfg(not(feature = "semantic"))]
+pub(crate) fn determine_semantic_search_status(
+    _state: &AppState,
+    _surface: ToolSurface,
+) -> SemanticSearchStatus {
+    SemanticSearchStatus::FeatureDisabled
+}
 
 pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let failure_health = state.watcher_failure_health();
@@ -83,23 +267,38 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         })
         .map(|ext| ext.to_ascii_lowercase());
 
-    // Check LSP availability
+    // Check LSP availability via the Phase 4a PATH-tolerant helper.
+    // The old code used `which` alone, which depends on the MCP
+    // daemon's inherited PATH — typically `/usr/bin:/bin:/usr/sbin:/sbin`
+    // on launchd, excluding Homebrew / cargo / Node version managers.
+    // The new helper falls through to standard install locations
+    // (§capability-reporting AC1).
     let lsp_attached = file_path
         .and_then(crate::tools::default_lsp_command_for_path)
-        .map(|cmd| {
-            std::process::Command::new("which")
-                .arg(&cmd)
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false)
-        })
+        .map(|cmd| resolve_lsp_binary_exists(&cmd))
         .unwrap_or(false);
 
-    // Check embeddings
+    // Phase 4a: `embeddings_loaded` is retained for backwards
+    // compatibility — it answers "is the engine currently pinned in
+    // memory?" not "can I call semantic_search right now?". The
+    // actual runtime-capability question is answered by
+    // `semantic_status` below, which decomposes four root causes.
     #[cfg(feature = "semantic")]
     let embeddings_loaded = state.embedding_ref().is_some();
     #[cfg(not(feature = "semantic"))]
     let embeddings_loaded = false;
+
+    // Phase 4a §capability-reporting AC2/AC3: decompose the single
+    // "semantic_search unavailable" reason into four distinct causes.
+    // The decision here is independent of `embeddings_loaded` — a
+    // project with an on-disk index but a cold engine is
+    // **available**, because the `semantic_search` handler in
+    // `dispatch.rs` calls `state.embedding_engine()` which
+    // lazy-initializes the engine on first use. Reporting
+    // "engine not loaded yet" would be a telemetry-vs-runtime
+    // mismatch.
+    let active_surface = *state.surface();
+    let semantic_status = determine_semantic_search_status(state, active_surface);
 
     let configured_embedding_model = codelens_engine::configured_embedding_model_name();
     let embedding_runtime = {
@@ -162,15 +361,39 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         available.push("type_hierarchy_native");
     }
 
-    if embeddings_loaded {
+    // Phase 4a: decide semantic_search availability from the
+    // `semantic_status` decomposition, not from `embeddings_loaded`.
+    // Lazy-init means a cold engine with a healthy on-disk index is
+    // available even though `embedding_ref()` returns `None`.
+    if semantic_status.is_available() {
         available.push("semantic_search");
-    } else {
-        unavailable.push(json!({"feature": "semantic_search", "reason": "embeddings not loaded — call index_embeddings first"}));
+    } else if let Some(reason) = semantic_status.reason_str() {
+        unavailable.push(json!({
+            "feature": "semantic_search",
+            "reason": reason,
+            "status": format!("{:?}", semantic_status),
+        }));
     }
 
     if !index_fresh {
         unavailable.push(json!({"feature": "cached_queries", "reason": "index may be stale — call refresh_symbol_index"}));
     }
+
+    // Phase 4b (§capability-reporting follow-up): surface build
+    // metadata + daemon start time. Downstream tooling can compare
+    // `binary_build_time` against `daemon_started_at` to detect the
+    // exact Phase 4a failure mode ("daemon has been running since
+    // before the binary was rebuilt"). We expose both as RFC 3339
+    // UTC strings, plus the git SHA / version for human-readable
+    // identification. A nested `binary_build_info` object keeps the
+    // top-level JSON from growing unbounded while still letting
+    // CLI scrapers jq-path directly.
+    let binary_build_info = json!({
+        "version": crate::build_info::BUILD_VERSION,
+        "git_sha": crate::build_info::BUILD_GIT_SHA,
+        "git_dirty": crate::build_info::build_git_dirty(),
+        "build_time": crate::build_info::BUILD_TIME,
+    });
 
     Ok((
         json!({
@@ -195,6 +418,14 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "indexed_files": index_stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),
             "available": available,
             "unavailable": unavailable,
+            // Phase 4b: flat top-level fields for easy jq-scraping
+            // plus the nested `binary_build_info` object for
+            // grouped access.
+            "binary_version": crate::build_info::BUILD_VERSION,
+            "binary_git_sha": crate::build_info::BUILD_GIT_SHA,
+            "binary_build_time": crate::build_info::BUILD_TIME,
+            "daemon_started_at": state.daemon_started_at(),
+            "binary_build_info": binary_build_info,
         }),
         success_meta(BackendKind::Config, 0.95),
     ))
@@ -445,4 +676,172 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
+}
+
+// ── Phase 4a tests: capability reporting correctness ─────────────────
+
+#[cfg(test)]
+mod capability_reporting_tests {
+    use super::*;
+
+    /// Phase 4a AC1: the LSP fallback helper must resolve a binary
+    /// that exists in a known install directory even when the daemon
+    /// `PATH` does not include it. We synthesise this situation with
+    /// the `CODELENS_LSP_PATH_EXTRA` env var pointing at a temp
+    /// directory containing a dummy file named after the query.
+    #[test]
+    fn resolve_lsp_binary_exists_finds_via_env_override() {
+        let tempdir = std::env::temp_dir().join(format!(
+            "codelens-phase4a-lsp-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&tempdir).expect("mkdir tempdir");
+        let fake_binary = tempdir.join("phase4a-fake-lsp-server");
+        std::fs::write(&fake_binary, "").expect("touch fake binary");
+
+        let previous = std::env::var("CODELENS_LSP_PATH_EXTRA").ok();
+        // SAFETY: this test is synchronous and does not spawn worker
+        // threads that race against env mutation.
+        unsafe {
+            std::env::set_var(
+                "CODELENS_LSP_PATH_EXTRA",
+                tempdir.to_string_lossy().as_ref(),
+            );
+        }
+
+        // Fast path (`which`) will fail for this fabricated binary
+        // name; the env-override fallback must catch it.
+        assert!(
+            resolve_lsp_binary_exists("phase4a-fake-lsp-server"),
+            "env override fallback must resolve the dummy binary"
+        );
+
+        // Restore env
+        unsafe {
+            match previous {
+                Some(v) => std::env::set_var("CODELENS_LSP_PATH_EXTRA", v),
+                None => std::env::remove_var("CODELENS_LSP_PATH_EXTRA"),
+            }
+        }
+        let _ = std::fs::remove_file(&fake_binary);
+        let _ = std::fs::remove_dir(&tempdir);
+    }
+
+    /// Phase 4a AC1 negative: unknown binaries should still return
+    /// false so we don't produce false positives in the capability
+    /// report.
+    #[test]
+    fn resolve_lsp_binary_exists_returns_false_for_unknown_binary() {
+        let unique = format!(
+            "phase4a-definitely-not-installed-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
+        assert!(
+            !resolve_lsp_binary_exists(&unique),
+            "helper must not return true for a nonexistent binary"
+        );
+    }
+
+    /// Phase 4a AC2/AC4: the `SemanticSearchStatus::reason_str`
+    /// mapping must emit a distinct remediation message for each
+    /// non-available variant, and `None` for `Available`.
+    #[test]
+    fn semantic_search_status_reason_strings_are_distinct() {
+        assert_eq!(SemanticSearchStatus::Available.reason_str(), None);
+        let reasons = [
+            SemanticSearchStatus::ModelAssetsUnavailable
+                .reason_str()
+                .unwrap(),
+            SemanticSearchStatus::NotInActiveSurface
+                .reason_str()
+                .unwrap(),
+            SemanticSearchStatus::IndexMissing.reason_str().unwrap(),
+            SemanticSearchStatus::FeatureDisabled.reason_str().unwrap(),
+        ];
+        // All four distinct, all four mention an actionable remediation
+        for (i, r) in reasons.iter().enumerate() {
+            for (j, s) in reasons.iter().enumerate() {
+                if i != j {
+                    assert_ne!(
+                        r, s,
+                        "SemanticSearchStatus reasons at indices {i} and {j} must be distinct"
+                    );
+                }
+            }
+            assert!(
+                !r.is_empty(),
+                "SemanticSearchStatus reason {i} must be non-empty"
+            );
+        }
+    }
+
+    /// Phase 4a AC3: `is_available` returns true only for
+    /// `Available`.
+    #[test]
+    fn semantic_search_status_is_available_only_for_available_variant() {
+        assert!(SemanticSearchStatus::Available.is_available());
+        assert!(!SemanticSearchStatus::ModelAssetsUnavailable.is_available());
+        assert!(!SemanticSearchStatus::NotInActiveSurface.is_available());
+        assert!(!SemanticSearchStatus::IndexMissing.is_available());
+        assert!(!SemanticSearchStatus::FeatureDisabled.is_available());
+    }
+
+    /// Phase 4a AC4: both Codex profiles must now expose
+    /// `semantic_search` and `index_embeddings`. This guards against
+    /// accidental removal in future preset edits.
+    #[test]
+    fn planner_readonly_and_builder_minimal_expose_semantic_search() {
+        use crate::tool_defs::{is_tool_in_surface, ToolProfile, ToolSurface};
+
+        for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
+            let surface = ToolSurface::Profile(profile);
+            assert!(
+                is_tool_in_surface("semantic_search", surface),
+                "{profile:?} must expose semantic_search (Phase 4a §capability-reporting AC4)"
+            );
+            assert!(
+                is_tool_in_surface("index_embeddings", surface),
+                "{profile:?} must expose index_embeddings (Phase 4a §capability-reporting AC4)"
+            );
+        }
+    }
+
+    /// Phase 4b AC5: the compile-time `build_info` constants must
+    /// be populated (non-empty) so `get_capabilities` can report
+    /// meaningful values. A `"unknown"` git SHA is acceptable
+    /// (e.g. `cargo publish` outside a git checkout), but an empty
+    /// string would indicate the build script did not run.
+    #[test]
+    fn build_info_constants_are_populated() {
+        assert!(
+            !crate::build_info::BUILD_VERSION.is_empty(),
+            "BUILD_VERSION must match CARGO_PKG_VERSION and be non-empty"
+        );
+        assert!(
+            !crate::build_info::BUILD_GIT_SHA.is_empty(),
+            "BUILD_GIT_SHA must be non-empty (at minimum 'unknown')"
+        );
+        assert!(
+            !crate::build_info::BUILD_TIME.is_empty(),
+            "BUILD_TIME must be non-empty RFC 3339 UTC"
+        );
+        // BUILD_TIME shape: YYYY-MM-DDTHH:MM:SSZ, 20 chars
+        assert_eq!(
+            crate::build_info::BUILD_TIME.len(),
+            20,
+            "BUILD_TIME should be exactly 20 chars (RFC 3339 UTC)"
+        );
+        assert!(
+            crate::build_info::BUILD_TIME.ends_with('Z'),
+            "BUILD_TIME should end with Z (UTC marker)"
+        );
+        // BUILD_GIT_DIRTY parses to bool without panicking
+        let _ = crate::build_info::build_git_dirty();
+    }
 }
