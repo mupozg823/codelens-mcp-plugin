@@ -92,6 +92,13 @@ jobs:
             --markdown-output benchmarks/embedding-quality-summary.md | tee benchmarks/embedding-quality-ci.txt
           cat benchmarks/embedding-quality-summary.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: external phase3 matrix summary
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          python3 benchmarks/embedding-quality-matrix.py \
+            --require-datasets ripgrep,requests,jest,typescript,next-js,react-core,django,axum
+          cat benchmarks/embedding-quality-phase3-matrix.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: upload benchmark artifacts
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
@@ -104,3 +111,5 @@ jobs:
             benchmarks/embedding-quality-results.json
             benchmarks/embedding-quality-ci.txt
             benchmarks/embedding-quality-summary.md
+            benchmarks/embedding-quality-phase3-matrix.json
+            benchmarks/embedding-quality-phase3-matrix.md

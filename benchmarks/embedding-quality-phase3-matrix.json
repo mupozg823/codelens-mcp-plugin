@@ -1,13 +1,15 @@
 {
   "report_glob": "benchmarks/embedding-quality-v1.*-phase3*-*.json",
-  "source_report_count": 28,
+  "source_report_count": 32,
   "flat_relative_threshold_pct": 1.0,
   "strong_relative_threshold_pct": 5.0,
-  "dataset_count": 7,
+  "dataset_count": 8,
+  "include_unregistered": false,
+  "skipped_unregistered": [],
   "effect_counts": {
     "positive": 3,
     "negative": 2,
-    "flat": 2
+    "flat": 3
   },
   "rows": [
     {
@@ -401,6 +403,62 @@
       "delta_abs": -0.005228758169934622,
       "delta_rel_pct": -1.780445953085617,
       "effect_band": "mild negative"
+    },
+    {
+      "version": "v1.6",
+      "phase": "phase3h",
+      "dataset_slug": "axum",
+      "label": "axum external",
+      "language": "Rust",
+      "archetype": "framework library",
+      "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-axum.json",
+      "dataset_size": 34,
+      "runtime_model": {
+        "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+        "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+        "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+        "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+        "size_bytes": 34000281,
+        "num_hidden_layers": 12,
+        "hidden_size": 384
+      },
+      "arms": {
+        "baseline": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3h-axum-baseline.json",
+          "hybrid_mrr": 0.28078948354557454,
+          "hybrid_acc1": 0.17647058823529413,
+          "hybrid_acc3": 0.2647058823529412,
+          "semantic_mrr": 0.19215686274509802,
+          "lexical_mrr": 0.20316399286987522
+        },
+        "2e-only": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3h-axum-2e-only.json",
+          "hybrid_mrr": 0.28131469362960815,
+          "hybrid_acc1": 0.17647058823529413,
+          "hybrid_acc3": 0.2647058823529412,
+          "semantic_mrr": 0.19215686274509802,
+          "lexical_mrr": 0.21545390883626175
+        },
+        "2b2c-only": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3h-axum-2b2c-only.json",
+          "hybrid_mrr": 0.28078948354557454,
+          "hybrid_acc1": 0.17647058823529413,
+          "hybrid_acc3": 0.2647058823529412,
+          "semantic_mrr": 0.19215686274509802,
+          "lexical_mrr": 0.20316399286987522
+        },
+        "stacked": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3h-axum-stacked.json",
+          "hybrid_mrr": 0.28131469362960815,
+          "hybrid_acc1": 0.17647058823529413,
+          "hybrid_acc3": 0.2647058823529412,
+          "semantic_mrr": 0.19215686274509802,
+          "lexical_mrr": 0.21545390883626175
+        }
+      },
+      "delta_abs": 0.0005252100840336116,
+      "delta_rel_pct": 0.18704763348032066,
+      "effect_band": "flat"
     }
   ]
 }

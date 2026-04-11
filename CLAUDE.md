@@ -23,7 +23,7 @@
 
 ```bash
 cargo check
-cargo test -p codelens-core
+cargo test -p codelens-engine
 cargo test -p codelens-mcp
 # Extended:
 cargo test -p codelens-mcp --features http

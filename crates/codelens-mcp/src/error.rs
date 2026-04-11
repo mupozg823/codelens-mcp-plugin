@@ -23,6 +23,7 @@ pub enum CodeLensError {
 
     // ── Capability errors ─────────────────────────────────────────────
     /// Feature not available (e.g., semantic search without embeddings).
+    #[cfg(feature = "semantic")]
     #[error("Feature unavailable: {0}")]
     FeatureUnavailable(String),
 
@@ -79,6 +80,7 @@ impl CodeLensError {
             Self::NotFound(_) => -32000,
             Self::Validation(_) => -32003,
             // Capability errors
+            #[cfg(feature = "semantic")]
             Self::FeatureUnavailable(_) => -32002,
             Self::LanguageUnsupported { .. } => -32002,
             Self::LspNotAttached(_) => -32001,
