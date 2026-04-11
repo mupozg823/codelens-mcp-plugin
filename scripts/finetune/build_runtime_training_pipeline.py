@@ -83,7 +83,7 @@ PRODUCT_SOURCE_HINTS = {
     "repo_local_adversarial",
 }
 PRODUCT_FILE_HINTS = (
-    "crates/codelens-core/",
+    "crates/codelens-engine/",
     "crates/codelens-mcp/",
     "benchmarks/harness/",
     "scripts/finetune/",
@@ -413,7 +413,9 @@ def is_quality_query(query: str) -> bool:
         return False
     if low.startswith("returns the value associated to the passed property"):
         return False
-    if low.count("@param") >= 4 and ("custom_headers" in low or "request syntax" in low):
+    if low.count("@param") >= 4 and (
+        "custom_headers" in low or "request syntax" in low
+    ):
         return False
     if q.startswith(("def ", "func ", "fn ", "function ")):
         return False
@@ -626,7 +628,9 @@ def copy_training_overrides(pair: dict, obj: dict) -> dict:
 def is_product_pair(pair: dict) -> bool:
     if pair.get("product_focus"):
         return True
-    if pair.get("adversarial_focus") or normalize_space(str(pair.get("role_focus") or "")):
+    if pair.get("adversarial_focus") or normalize_space(
+        str(pair.get("role_focus") or "")
+    ):
         return True
     source = (pair.get("source") or "").lower()
     if source in PRODUCT_SOURCE_HINTS or "codelens" in source:
@@ -809,7 +813,9 @@ def annotate_product_focus(rows: list[dict]) -> list[dict]:
     annotated = []
     for row in rows:
         updated = dict(row)
-        updated["product_focus"] = bool(updated.get("product_focus")) or is_product_pair(updated)
+        updated["product_focus"] = bool(
+            updated.get("product_focus")
+        ) or is_product_pair(updated)
         annotated.append(updated)
     return annotated
 
@@ -865,7 +871,9 @@ def rebalance_train_base_pairs(train_pairs: list[dict], seed: int) -> list[dict]
         len(generic_pairs),
         max(MIN_GENERIC_FLOOR, len(product_pairs) * GENERIC_PRODUCT_RATIO),
     )
-    generic_selected = sample_balanced_generic_pairs(generic_pairs, generic_target, seed)
+    generic_selected = sample_balanced_generic_pairs(
+        generic_pairs, generic_target, seed
+    )
     rebalanced = product_pairs + generic_selected
     rebalanced.sort(key=lambda item: item["id"])
     return rebalanced
@@ -881,7 +889,9 @@ def expand_train_views(train_pairs: list[dict], seed: int) -> list[dict]:
 
         seen_positive = set()
         view_profiles = (
-            PRODUCT_VIEW_PROFILES if pair.get("product_focus") else DEFAULT_VIEW_PROFILES
+            PRODUCT_VIEW_PROFILES
+            if pair.get("product_focus")
+            else DEFAULT_VIEW_PROFILES
         )
         for view_name, probability in view_profiles:
             if view_name != "full":
@@ -989,7 +999,9 @@ def build_semantic_polish_rows(
     ]
     generic_target = min(
         len(generic_candidates),
-        max(MIN_SEMANTIC_GENERIC_FLOOR, len(product_candidates) * SEMANTIC_GENERIC_RATIO),
+        max(
+            MIN_SEMANTIC_GENERIC_FLOOR, len(product_candidates) * SEMANTIC_GENERIC_RATIO
+        ),
     )
     generic_selected = sample_balanced_generic_pairs(
         generic_candidates,
@@ -1299,9 +1311,7 @@ def build_coverage_warnings(stats: dict) -> list[str]:
         )
 
     product_ratio = train["product_focus"] / train_count
-    if product_ratio < 0.12 and not (
-        recipe == "v6-aligned" and polish_input_pairs > 0
-    ):
+    if product_ratio < 0.12 and not (recipe == "v6-aligned" and polish_input_pairs > 0):
         warnings.append(
             f"low product-focus ratio: {product_ratio:.1%} of train rows are product-aligned"
         )

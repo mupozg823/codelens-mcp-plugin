@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "crates/codelens-core",
+    "crates/codelens-engine",
     "crates/codelens-mcp",
 ]
 resolver = "2"
@@ -9,7 +9,7 @@ resolver = "2"
 edition = "2024"
 license = "Apache-2.0"
 version = "1.4.0"
-description = "Pure Rust MCP server for code intelligence — 94 tools, 30 languages, tree-sitter-first, 50-87% fewer tokens"
+description = "Pure Rust MCP server for code intelligence — 89 tools (+6 semantic), 25 languages, tree-sitter-first, 50-87% fewer tokens"
 repository = "https://github.com/mupozg823/codelens-mcp-plugin"
 homepage = "https://github.com/mupozg823/codelens-mcp-plugin"
 readme = "README.md"
