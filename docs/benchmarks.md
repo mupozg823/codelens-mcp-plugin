@@ -965,7 +965,7 @@ The filter runs **only** inside `extract_nl_tokens_inner` Pass 2 (string literal
 | short_phrase Acc@3 |    0.600 |               0.400 |            0.400 |      ±0.0000 |       −0.2000 |
 | identifier Acc@1   |    1.000 |               1.000 |            1.000 |      ±0.0000 |        ±0.000 |
 
-**Recovery on MRR-type metrics, no recovery on Acc@k**: the filter lifts `semantic_search` MRR by +0.009, hybrid MRR by +0.007, NL hybrid MRR by +0.010. These are small absolute numbers but every one is in the _correct direction_ and no metric regresses vs the unfiltered stack. Accuracy metrics (Acc@1, Acc@3, short_phrase Acc@3) are unchanged — the filter is changing _how confident_ the right answer's rank is, not moving it between buckets.
+**Recovery on MRR-type metrics, no recovery on Acc@k**: the filter lifts `semantic_search` MRR by +0.009, hybrid MRR by +0.007, NL hybrid MRR by +0.010. These are small absolute numbers but every one is in the _correct direction_ and no metric regresses vs the unfiltered stack. Accuracy metrics (Acc@1, Acc@3, short*phrase Acc@3) are unchanged — the filter is changing \_how confident* the right answer's rank is, not moving it between buckets.
 
 **Verdict — partial confirmation, not a full fix**:
 
@@ -1029,6 +1029,105 @@ Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase2h-{ripgrep,reque
 - **Phase 2j — auto-detection gating**. Rather than refining the filters, auto-detect the project's dominant language (probably via `get_capabilities` language counts) and flip Phase 2b/2c/2e on when the dominant language is in `{rust, cpp, go}` and off otherwise. This is mechanism-level give-up on "one stack fits all" and policy-level acceptance of "measure per language family". Simpler to implement than Phase 2i; less informative about the underlying mechanism.
 - **Phase 3c — JS/TS validation** (unchanged).
 - **Phase 2d** — unchanged (brief baseline still covers four datasets).
+
+### 8.10 v1.5 Phase 2i experiment — strict comment filter (hypothesis rejected)
+
+**Hypothesis** (from §8.9 "still-open work"): Phase 2h recovered ~8 % of the Python regression by filtering format/error/log string literals on Pass 2. The remaining ~92 % was attributed by the §8.9 post-mortem to one of two candidates: Pass-1 comments (Python `# TODO` / `# HACK` / `# FIXME` annotations) or Phase 2e coverage-bonus threshold tuning. Phase 2i tests the first candidate with the comment-side analogue of the Phase 2h filter.
+
+**Implementation**: a new env gate `CODELENS_EMBED_HINT_STRICT_COMMENTS=1` (default OFF, orthogonal to `CODELENS_EMBED_HINT_STRICT_LITERALS`) wraps a comment filter inside `extract_nl_tokens_inner` Pass 1. Helper `looks_like_meta_annotation(body)` rejects comments whose first word (case-insensitive) matches a conservative 10-entry reject list:
+
+- **Rejected**: `TODO`, `FIXME`, `HACK`, `XXX`, `BUG`, `REVIEW`, `REFACTOR`, `TEMP`, `TEMPORARY`, `DEPRECATED`
+- **Preserved** (deliberately): `NOTE`, `NOTES`, `WARN`, `WARNING`, `SAFETY`, `PANIC`
+
+The exclusion list is based on the Rust observation that `// SAFETY: caller must hold the lock` and `// NOTE: this branch handles empty input` carry exactly the behaviour-descriptive text Phase 2b is trying to capture. The inclusion list targets "I'll fix this later" noise that poisons embeddings without describing what the function does.
+
+5 new unit tests cover the gate-off default, the helper's accept/reject invariants, the full extraction path, and orthogonality vs the Phase 2h literal filter (`strict_comments` must not touch Pass 2). Test count: 244 → **249**.
+
+**Setup**: same release binary rebuilt with Phase 2i, same `ripgrep` / `requests` datasets and four-arm methodology, Phase 2e parameters held at `(threshold = 40, max = 40)`. Two runs: ripgrep and requests, each with the full v1.5 stack **plus both** `CODELENS_EMBED_HINT_STRICT_LITERALS=1` and `CODELENS_EMBED_HINT_STRICT_COMMENTS=1`.
+
+**Result on ripgrep (Rust)** — the comment filter is completely transparent:
+
+| Metric           | baseline | v1.5 stacked | Phase 2h (strict lit) | Phase 2i (strict lit + strict cmt) | Δ vs stacked |
+| ---------------- | -------: | -----------: | --------------------: | ---------------------------------: | -----------: |
+| hybrid MRR       |   0.4594 |       0.5292 |                0.5292 |                             0.5292 |  **±0.0000** |
+| hybrid Acc@3     |    0.583 |        0.667 |                 0.667 |                              0.667 |  **±0.0000** |
+| NL hybrid MRR    |   0.4750 |       0.5539 |                0.5539 |                             0.5539 |  **±0.0000** |
+| NL Acc@3         |    0.588 |        0.706 |                 0.706 |                              0.706 |  **±0.0000** |
+| identifier Acc@1 |    0.500 |        0.500 |                 0.500 |                              0.500 |  **±0.0000** |
+
+**Every metric bit-identical to the stacked-without-filter and the Phase 2h arms to four decimals.** Rust ripgrep has few meta-annotation comments that pass `is_nl_shaped` in the first place, and the conservative reject list avoids any Rust content that does carry behaviour signal. The Rust wins are preserved, as intended.
+
+**Result on requests (Python)** — essentially no change vs Phase 2h:
+
+| Metric           | baseline | v1.5 stacked | Phase 2h | Phase 2i |  Δ 2i vs 2h | Δ 2i vs base |
+| ---------------- | -------: | -----------: | -------: | -------: | ----------: | -----------: |
+| `s_search` MRR   |   0.5410 |       0.3935 |   0.4024 |   0.4024 |     ±0.0000 |      −0.1385 |
+| hybrid MRR       |   0.5837 |       0.4948 |   0.5021 |   0.5017 | **−0.0004** |      −0.0820 |
+| hybrid Acc@3     |    0.708 |        0.625 |    0.625 |    0.625 |     ±0.0000 |      −0.0833 |
+| NL hybrid MRR    |   0.6147 |       0.5169 |   0.5272 |   0.5266 |     −0.0006 |      −0.0881 |
+| NL Acc@3         |    0.706 |        0.647 |    0.647 |    0.647 |     ±0.0000 |      −0.0588 |
+| identifier Acc@1 |    1.000 |        1.000 |    1.000 |    1.000 |     ±0.0000 |       ±0.000 |
+
+Phase 2i's additional contribution on Python is **−0.0004 hybrid MRR and −0.0006 NL MRR** — noise, well inside the measurement-to-measurement variation. Of the original −0.0889 §8.8 regression, Phase 2h closed +0.0073 (≈ 8 %) and Phase 2i closes an additional **+0 %**. The remaining ~92 % of the regression is not caused by meta-annotation comments.
+
+**Verdict — hypothesis rejected**:
+
+| Success criterion                               | Target              | Achieved            |
+| ----------------------------------------------- | ------------------- | ------------------- |
+| Rust ripgrep hybrid MRR preserved               | ≥ 0.5292            | ✅ 0.5292 exactly   |
+| Python requests additional recovery vs Phase 2h | ≥ +0.010 hybrid MRR | ❌ −0.0004          |
+| Python requests baseline recovery               | ≥ 0.5837            | ❌ 0.5017 (−0.0820) |
+
+Meta-annotation comments are **not** the remaining Python regression source. The Phase 2b Pass-1 comment path on Python contributes too little to `requests` for its filtering to move any metric meaningfully. Two possibilities remain for the ~92 % that neither Phase 2h nor Phase 2i recovered:
+
+1. **Phase 2b content-vs-signature ratio on Python**. Python's triple-quote docstrings are already captured by `extract_leading_doc` in the baseline embedding. Phase 2b `extract_nl_tokens` then adds a partial copy of the same docstring body through its Pass-1 comment path (`"""` is not a comment in the sense of `//` or `#`, but Python's class/function docstrings sit in the body and some of their internal lines look NL-shaped after the leading `"""` is stripped). The duplication increases the weight of the docstring vs the signature — if the signature is what the CodeSearchNet-INT8 model was optimised to embed, doubling the docstring weight pushes the representation off the model's learned mode for that symbol class.
+2. **Phase 2e coverage-bonus threshold on Python symbol names**. §8.8 noted that the Python baseline hybrid MRR (0.5837) is the highest of any dataset tested — Python's API surface is already close to the retrieval ceiling. The Phase 2e sparse coverage pass at `threshold = 40` reorders top-K candidates whose ratio crosses 40 %; on a dataset where most queries already land their correct answer in the top-3, forcing a re-order can only _move_ correct answers down, not lift incorrect ones up. The Phase 2g sweep (§8.6) locked `(40, 40)` as the Rust optimum, but no sweep was run on Python.
+
+Neither cause is attempted in Phase 2i. **Phase 2j auto-detection gating is now the most practical path forward**: rather than continuing to refine individual filters, accept that the v1.5 mechanism is Rust-optimised and gate it per-language at the MCP tool layer.
+
+**Updated Phase 2i policy**:
+
+Phase 2i **ships the opt-in knob but changes no defaults**. The knob has three intended uses:
+
+1. **Rust infrastructure**. Enabling `CODELENS_EMBED_HINT_STRICT_COMMENTS=1` on Rust projects is a zero-cost no-op today, matching Phase 2h's transparency. Future Phase 2j auto-detection can then flip both strict knobs under the same umbrella env var without re-measuring.
+2. **Conservative safety net**. Users with project styles heavy on TODO/FIXME/HACK noise (e.g. very old monorepos) can enable the knob as a targeted cleanup, independent of the Phase 2j auto-detection policy.
+3. **Negative-result evidence**. Merging the Phase 2i code + §8.10 narrative makes the rejection bisectable and cite-able. A future contributor who asks "what if we filter out comment annotations?" will find the answer without having to repeat the measurement.
+
+**Updated still-open work**:
+
+- **Phase 2j — auto-detection gating** (now the priority next step). Detect the project's dominant language from the existing symbol index (which already knows `language_for_path` per file) and auto-flip Phase 2b/2c/2e on for `{rust, cpp, go}`, off otherwise. Add a single `CODELENS_EMBED_HINT_AUTO=1` env var that enables the auto-detection, with explicit env overrides still winning for users who want to force a specific configuration. This is mechanism-level acceptance of "the v1.5 stack is Rust-tuned" plus a policy-level fix that unblocks default-ON for the subset of users who run predominantly Rust codebases.
+- **Phase 2k — docstring de-duplication on Python** (longer shot). If Phase 2j ships but users still want the stack on mixed-language projects, a future patch could detect when `extract_leading_doc` and `extract_nl_tokens` Pass 1 are producing overlapping content (same paragraph on the same symbol) and drop the duplicate from Pass 1.
+- **Phase 3c — JS/TS validation** (still open, unchanged).
+
+**Reproduce either arm**:
+
+```bash
+# ripgrep — expected bit-identical to §8.9 (and to plain stacked)
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_EMBED_HINT_STRICT_LITERALS=1 \
+CODELENS_EMBED_HINT_STRICT_COMMENTS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/ripgrep-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-ripgrep.json
+
+# requests — expected bit-identical to §8.9 (not a fix for Python)
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_EMBED_HINT_STRICT_LITERALS=1 \
+CODELENS_EMBED_HINT_STRICT_COMMENTS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/requests-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-requests.json
+```
+
+Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase2i-{ripgrep,requests}-full-strict.json`.
 
 ---
 
