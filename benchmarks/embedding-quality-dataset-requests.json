@@ -1,0 +1,146 @@
+[
+  {
+    "query": "send HTTP GET request to a URL",
+    "expected_symbol": "get",
+    "expected_file_suffix": "src/requests/api.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "send HTTP POST request with JSON body",
+    "expected_symbol": "post",
+    "expected_file_suffix": "src/requests/api.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "send HTTP request with custom method",
+    "expected_symbol": "request",
+    "expected_file_suffix": "src/requests/api.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "delete resource over HTTP",
+    "expected_symbol": "delete",
+    "expected_file_suffix": "src/requests/api.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "send HTTP PATCH request to update resource",
+    "expected_symbol": "patch",
+    "expected_file_suffix": "src/requests/api.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "HTTP session object that reuses connections",
+    "expected_symbol": "Session",
+    "expected_file_suffix": "src/requests/sessions.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "prepare HTTP request before sending it",
+    "expected_symbol": "PreparedRequest",
+    "expected_file_suffix": "src/requests/models.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "HTTP response from the server",
+    "expected_symbol": "Response",
+    "expected_file_suffix": "src/requests/models.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "HTTP adapter that manages connection pool",
+    "expected_symbol": "HTTPAdapter",
+    "expected_file_suffix": "src/requests/adapters.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "basic authentication for HTTP requests",
+    "expected_symbol": "HTTPBasicAuth",
+    "expected_file_suffix": "src/requests/auth.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "digest authentication scheme",
+    "expected_symbol": "HTTPDigestAuth",
+    "expected_file_suffix": "src/requests/auth.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "proxy authentication for requests",
+    "expected_symbol": "HTTPProxyAuth",
+    "expected_file_suffix": "src/requests/auth.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "cookie jar that stores cookies across requests",
+    "expected_symbol": "RequestsCookieJar",
+    "expected_file_suffix": "src/requests/cookies.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "create a cookie from name and value",
+    "expected_symbol": "create_cookie",
+    "expected_file_suffix": "src/requests/cookies.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "extract cookies from HTTP response",
+    "expected_symbol": "extract_cookies_to_jar",
+    "expected_file_suffix": "src/requests/cookies.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "merge two cookie jars together",
+    "expected_symbol": "merge_cookies",
+    "expected_file_suffix": "src/requests/cookies.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "build cookie jar from a dictionary",
+    "expected_symbol": "cookiejar_from_dict",
+    "expected_file_suffix": "src/requests/cookies.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "http session",
+    "expected_symbol": "Session",
+    "expected_file_suffix": "src/requests/sessions.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "prepared request",
+    "expected_symbol": "PreparedRequest",
+    "expected_file_suffix": "src/requests/models.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "http adapter",
+    "expected_symbol": "HTTPAdapter",
+    "expected_file_suffix": "src/requests/adapters.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "cookie jar",
+    "expected_symbol": "RequestsCookieJar",
+    "expected_file_suffix": "src/requests/cookies.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "basic auth",
+    "expected_symbol": "HTTPBasicAuth",
+    "expected_file_suffix": "src/requests/auth.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "Session",
+    "expected_symbol": "Session",
+    "expected_file_suffix": "src/requests/sessions.py",
+    "query_type": "identifier"
+  },
+  {
+    "query": "HTTPAdapter",
+    "expected_symbol": "HTTPAdapter",
+    "expected_file_suffix": "src/requests/adapters.py",
+    "query_type": "identifier"
+  }
+]

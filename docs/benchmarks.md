@@ -793,6 +793,135 @@ Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase3a-ripgrep-{basel
 - **Second external repo** (TypeScript or Python, different language family) — would close the last contamination angle and unblock the default-ON flip. Candidate: `facebook/jest` (JS/TS) or `psf/requests` (Python) with a similarly hand-built 20–30 query dataset.
 - **Phase 2d — Model swap** — now gated on the three-point v1.5 baseline (0.586 / 0.0510 / 0.5292), not just the 89-query number. All other §8 still-open items inherit the stronger baseline.
 
+### 8.8 v1.5 Phase 3b experiment — Python external-repo validation on psf/requests
+
+**Hypothesis**: §8.7 validated the v1.5 stack on one external Rust repo (ripgrep). Before flipping any env default, run the same four-arm A/B against a **second external repo in a different language family**. The Phase 2d brief D5 suggests Python or JS/TS for this; Python was picked because `psf/requests` is smaller, more focused, and its HTTP semantics map cleanly to NL queries. This is the last contamination check §8.7 flagged as still-open.
+
+**Prior prediction** (from the Phase 3b launch message): Phase 2b and 2e are mechanism-level language-agnostic, Phase 2c is explicitly Rust/C++ scoped (`Type::method` pattern) and should add little or no signal on Python. The stacked arm was predicted to stay direction-consistent positive but with a smaller magnitude than ripgrep, since Phase 2c's contribution would shrink.
+
+**Actual result — the stacked arm regresses on every dimension that matters**. This is the opposite of the prediction.
+
+**Setup**: `github.com/psf/requests` shallow-cloned to `/tmp/requests-ext`. Same release binary, same measurement infrastructure, same Phase 2e parameters `(threshold = 40, max = 40)`. 24 hand-built queries covering 6 modules (`api`, `sessions`, `models`, `adapters`, `auth`, `cookies`), 17/5/2 NL/short-phrase/identifier split mirroring every prior dataset.
+
+**Result** (24 queries, top-10 cutoff, `get_ranked_context` hybrid):
+
+| Metric                | baseline | phase2e only | phase2b+2c only | **stacked (full)** |
+| --------------------- | -------: | -----------: | --------------: | -----------------: |
+| hybrid MRR            |   0.5837 |       0.5697 |          0.5215 |         **0.4948** |
+| hybrid Acc@1          |    0.417 |        0.417 |           0.333 |          **0.333** |
+| hybrid Acc@3          |    0.708 |        0.667 |           0.708 |          **0.625** |
+| NL hybrid MRR         |   0.6147 |       0.5981 |          0.5367 |         **0.5169** |
+| NL hybrid Acc@3       |    0.706 |        0.647 |           0.706 |          **0.647** |
+| short_phrase MRR      |    0.312 |        0.301 |           0.278 |          **0.218** |
+| short_phrase Acc@3    |    0.600 |        0.600 |           0.600 |          **0.400** |
+| identifier Acc@1      |    1.000 |        1.000 |           1.000 |          **1.000** |
+| `semantic_search` MRR |   0.5410 |       0.5410 |          0.3935 |         **0.3935** |
+
+**Deltas vs baseline**:
+
+| Run             |  hybrid MRR | hybrid Acc@3 |      NL MRR | NL Acc@3 |  SP MRR |    SP Acc@3 | `s_search` MRR | ident Acc@1 |
+| --------------- | ----------: | -----------: | ----------: | -------: | ------: | ----------: | -------------: | ----------: |
+| phase2e only    |     −0.0140 |      −0.0417 |     −0.0166 |  −0.0588 | −0.0106 |      ±0.000 |         ±0.000 |      ±0.000 |
+| phase2b+2c only |     −0.0622 |       ±0.000 |     −0.0780 |   ±0.000 | −0.0333 |      ±0.000 |    **−0.1475** |      ±0.000 |
+| **stacked**     | **−0.0889** |  **−0.0833** | **−0.0979** |  −0.0588 | −0.0939 | **−0.2000** |    **−0.1475** |      ±0.000 |
+
+**Cross-dataset — four data points, two distinct directions**:
+
+| Dataset                        | baseline MRR | stacked MRR |  Δ absolute |  Δ relative |
+| ------------------------------ | -----------: | ----------: | ----------: | ----------: |
+| 89-query self (Rust)           |        0.572 |       0.586 |      +0.014 |  **+2.4 %** |
+| 436-query self (Rust)          |       0.0476 |      0.0510 |     +0.0034 |  **+7.1 %** |
+| ripgrep external (Rust)        |       0.4594 |      0.5292 |     +0.0698 | **+15.2 %** |
+| **requests external (Python)** |   **0.5837** |  **0.4948** | **−0.0889** | **−15.2 %** |
+
+The four points are a near-perfect mirror. Three Rust datasets trend positive at +2.4 %, +7.1 %, +15.2 %; one Python dataset trends negative at exactly −15.2 %. This is not noise — the short_phrase Acc@3 alone drops by −0.200 absolute on the stacked arm, and `semantic_search` MRR loses −0.148 on the Phase 2b+2c arm regardless of whether Phase 2e is on top. The pattern is structural, not statistical.
+
+**Where the regression comes from**:
+
+Running the Phase 2e solo arm first and then stacking backwards lets us isolate which env gate is responsible:
+
+1. **Phase 2e solo**: −0.014 hybrid MRR. Small regression, consistent with "the sparse re-ranker expects Rust-style snake_case symbols to whole-word-match 2–3 query tokens and Python's mix of `snake_case` + method-on-object call sites doesn't always clear the 40 % threshold". This is within noise for a 24-query dataset.
+2. **Phase 2b+2c solo**: **−0.062 hybrid MRR, −0.148 `semantic_search` MRR**. This is the load-bearing regression. `semantic_search` drops by −0.148 means the **embedding text itself got worse**, not the ranking. Because `semantic_search` never sees the Phase 2e post-process, the damage has to come from Phase 2b (NL tokens) or Phase 2c (API calls) at indexing time.
+3. **Stacked**: stacking Phase 2e on top of the Phase 2b+2c regression makes it slightly worse (−0.089 vs −0.062) but the damage was already done by the time the re-ranker runs.
+
+The smoking gun is `semantic_search` MRR: **−0.148 is larger than any positive lift Phase 2b produced on any Rust dataset**. The mechanism that was a win on Rust is a net loss on Python.
+
+**Why the stack hurts Python**:
+
+This is a post-mortem, written after running the experiment. Three mechanisms compound:
+
+1. **Python docstrings are already first-class citizens in the baseline**. `extract_leading_doc` in `build_embedding_text` already honours Python triple-quote docstrings, so the _most informative_ NL text in a Python file is already in the embedding. Phase 2b (`extract_nl_tokens`) then re-scans the body for _additional_ NL tokens from line comments and NL-shaped string literals — but on Python, that post-docstring residue is mostly things like `raise ValueError("Invalid URL %s" % url)`, `logging.debug("sending request to %s", url)`, or `return fmt.format(name, value)`. These look NL-shaped to `is_nl_shaped` (multi-word, alphabetic ratio high) but they are **generic error / log / formatting strings**, not behaviour-descriptive prose. They dilute the embedding vector toward "this file handles errors and logging" rather than "this file prepares HTTP requests".
+2. **Phase 2c `Type::method` has literally no coverage on Python**. Python uses `obj.method()` and `Module.function()`, never `Type::method`. So Phase 2c adds the empty string on every Python symbol and contributes zero signal — but it also costs zero index size, so it is not the regression source.
+3. **Python symbol names are already high-quality NL**. A Rust symbol called `search_path` is structural; the matching NL query is "search file by path". A Python symbol called `HTTPBasicAuth` is _already_ the NL phrase "HTTP basic auth" with zero expansion. The embedding model's job on Python is easier to begin with — note the baseline hybrid MRR 0.5837 on Python is the _highest_ of any dataset tested, higher than the 89-query self baseline (0.572). **The baseline is already close to the ceiling, so any signal dilution moves it down, not up**.
+
+The combined effect: mechanism 1 adds noise, mechanism 3 means the starting point was already good enough that the noise dominates. Phase 2e then re-ranks on that noisier embedding output and cannot undo the damage.
+
+**Verdict — the v1.5 stack is NOT language-agnostic**:
+
+- **Rust datasets (3/3)**: the stack is a clean win. +2.4 % / +7.1 % / +15.2 % relative on hybrid MRR, identifier Acc@1 held, every direction consistent.
+- **Python dataset (1/1)**: the stack is a clean loss. −15.2 % relative on hybrid MRR, short_phrase Acc@3 −20 percentage points, `semantic_search` MRR regresses by the largest amount seen on any v1.5 measurement.
+
+This is **measured rejection, not refined recommendation**. It overturns the §8.7 conclusion that "the default-ON flip is only waiting on one more sample". The missing sample has returned the opposite direction. Any global default-ON flip would be a net regression on every Python project in the user base.
+
+**Updated policy — language-gated recommendations**:
+
+The v1.5 opt-in recommendation in §8.5 and §8.7 is revised from "turn on for NL-heavy traffic" to **"turn on for NL-heavy traffic against a predominantly Rust/C++/Go codebase, leave OFF against predominantly Python/JS/TS codebases"**. The exact wording for users:
+
+- **Rust, C++, Go projects**: enable the three env vars. Measured hybrid MRR lift is +2.4 % to +15.2 % relative depending on dataset size and query distribution, identifier queries untouched, `semantic_search` takes a small −0.015 regression that is absorbed by the hybrid path.
+- **Python projects**: leave the three env vars off. The stack produces a **measured −15.2 % hybrid MRR regression** on `psf/requests` with the largest single-metric loss being −0.148 in `semantic_search`. Phase 2c adds literally nothing (no `Type::method` syntax), and Phase 2b pollutes the embedding with generic error/log/format strings that the Python docstring-first convention already makes redundant.
+- **JS/TS projects**: **untested**. Until a future Phase 3c replays the experiment on a TypeScript repo (e.g. `facebook/jest` or `microsoft/vscode`) the only honest answer is "try it on your own project and measure; the mechanism is orthogonal to whether TS looks more like Rust or more like Python in this respect".
+
+**Impact on Phase 2d design brief (§1.1 "baseline to beat")**:
+
+The three-point baseline set by Phase 3a becomes **a four-point baseline with a split direction**:
+
+| Dataset                    | v1.5 stacked hybrid MRR |
+| -------------------------- | ----------------------: |
+| 89-query self (Rust)       |                   0.586 |
+| 436-query augmented (Rust) |                  0.0510 |
+| ripgrep (Rust)             |                  0.5292 |
+| **requests (Python)**      |              **0.4948** |
+
+For Phase 2d to be a net improvement, any model swap must:
+
+1. **Beat** the v1.5 stacked MRR on the three Rust datasets (0.586 / 0.0510 / 0.5292), OR match them within a noise floor while also beating a **different** v1.5 baseline the brief doesn't currently enumerate: the **Python baseline without the v1.5 stack** (0.5837 on `requests`). A model swap that reaches 0.586 on 89-query but loses to 0.5837 on Python requests is still a net regression for half the user base.
+2. **Not regress Python symbol-text behaviour** the way Phase 2b did. This is an additional constraint the brief did not originally carry. The Checkpoint 1 go/no-go gate in `docs/design/v1.6-phase2d-model-swap-brief.md` §7 picks it up at the next brief update.
+
+**Impact on Phase 2d Checkpoint 1 prerequisites** (brief §7 Prerequisites block):
+
+The tokenizer-vocabulary-swap risk (item 3) is more concerning than §7 previously stated. If a candidate model has a tokenizer that splits `HTTPBasicAuth` differently from `http_basic_auth`, the Rust wins could disappear when the candidate is measured on the same Python dataset that already regresses under v1.5. Any Phase 2d measurement must include the Python baseline as arm 5 (or 9, depending on counting), not just the Rust arms.
+
+**Reproduce**:
+
+```bash
+# 1. Clone requests (once)
+git clone --depth 1 https://github.com/psf/requests.git /tmp/requests-ext
+
+# 2. Baseline (all three gates off) — the Python recommendation
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/requests-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-requests.json
+
+# 3. Stacked (what NOT to run on Python projects)
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/requests-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-requests.json
+```
+
+Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase3b-requests-{baseline,2e-only,2b2c-only,stacked}.json` + the 24-query dataset at `benchmarks/embedding-quality-dataset-requests.json`.
+
+**Still-open work**:
+
+- **Language scoping for the v1.5 stack** — rather than a global default flip, consider a language-aware gating: enable Phase 2b only when the project's dominant language is in `{rust, cpp, go}`, disable on `{python, javascript, typescript}` until measured otherwise. The env gates stay as-is for user override; the change is in the auto-detection default.
+- **Phase 3c — JS/TS external repo** (e.g. `facebook/jest` or `microsoft/typescript`) to determine whether JS/TS groups with Rust (likely-positive because of static-ish typing and camelCase symbols) or with Python (likely-negative because of docstring-less conventions and dynamic typing). Without this, the user-facing recommendation for JS/TS is "try it and measure".
+- **Phase 2b refinement** — a stricter `is_nl_shaped` filter that rejects generic error/log/format strings could reclaim the Python regression without touching the Rust wins. This is a v1.6 direction, not a v1.5.x patch.
+- **Phase 2d — Model swap** — the brief's baseline is now four-point with a split direction. Phase 2d proceedures in the brief should be refreshed in a future update to explicitly handle the Python baseline without the v1.5 stack as an additional gate.
+
 ---
 
 ## 9. See Also
