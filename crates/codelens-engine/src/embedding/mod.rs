@@ -1657,9 +1657,10 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         .unwrap_or_default();
 
     if docstring.is_empty() {
-        // Fallback: extract the first meaningful line from the function body.
-        // This captures key API calls (e.g. "tree_sitter::Parser", "stdin()")
-        // that help the embedding model match NL queries to symbols without docs.
+        // Fallback: extract the first few meaningful lines from the function
+        // body. This captures key API calls (e.g. "tree_sitter::Parser",
+        // "stdin()") that help the embedding model match NL queries to
+        // symbols without docs.
         let body_hint = source
             .and_then(|src| extract_body_hint(src, sym.start_byte as usize, sym.end_byte as usize))
             .unwrap_or_default();
@@ -1669,20 +1670,75 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
             format!("{} — {}", base, body_hint)
         }
     } else {
-        let first_line = docstring.lines().next().unwrap_or(&docstring);
-        let truncated = if first_line.chars().count() > 60 {
-            let s: String = first_line.chars().take(60).collect();
-            format!("{s}...")
+        // Collect up to hint_line_budget() non-empty docstring lines
+        // (rather than only the first) so the embedding model sees
+        // multi-sentence explanations in full — up to
+        // HINT_TOTAL_CHAR_BUDGET chars via join_hint_lines.
+        let line_budget = hint_line_budget();
+        let lines: Vec<String> = docstring
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .take(line_budget)
+            .map(str::to_string)
+            .collect();
+        let hint = join_hint_lines(&lines);
+        if hint.is_empty() {
+            base
         } else {
-            first_line.to_string()
-        };
-        format!("{} — {}", base, truncated)
+            format!("{} — {}", base, hint)
+        }
     }
 }
 
-/// Extract the first meaningful line from a function body (skipping braces, whitespace, comments).
-/// Used as a fallback when no docstring is available, to give the embedding model
-/// a hint about what the function actually does (e.g. "let parser = tree_sitter::Parser::new()").
+/// Maximum total characters collected from body-hint or docstring lines.
+/// Tuned to leave room for signature / file context within the
+/// embedding model's effective input window.
+const HINT_TOTAL_CHAR_BUDGET: usize = 180;
+
+/// Maximum number of meaningful lines to collect from a function body.
+/// Overridable via `CODELENS_EMBED_HINT_LINES` (clamped to 1..=10).
+const DEFAULT_HINT_LINES: usize = 3;
+
+fn hint_line_budget() -> usize {
+    std::env::var("CODELENS_EMBED_HINT_LINES")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .map(|n| n.clamp(1, 10))
+        .unwrap_or(DEFAULT_HINT_LINES)
+}
+
+/// Join collected hint lines, capping at HINT_TOTAL_CHAR_BUDGET chars.
+///
+/// Each line is separated by " · " so the embedding model sees a small
+/// structural boundary between logically distinct body snippets. The final
+/// result is truncated with a trailing "..." on char-boundaries only.
+fn join_hint_lines(lines: &[String]) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+    let joined = lines
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join(" · ");
+    if joined.chars().count() > HINT_TOTAL_CHAR_BUDGET {
+        let truncated: String = joined.chars().take(HINT_TOTAL_CHAR_BUDGET).collect();
+        format!("{truncated}...")
+    } else {
+        joined
+    }
+}
+
+/// Extract up to `hint_line_budget()` meaningful lines from a function body
+/// (skipping braces, blank lines, and comments). Used as a fallback when no
+/// docstring is available so the embedding model still sees the core API
+/// calls / return values.
+///
+/// Historically this returned only the first meaningful line clipped at 60
+/// chars. The 180-char / 3-line budget was introduced in v1.5 Phase 2 to
+/// close the NL-query gap (MRR 0.528) on cases where the discriminating
+/// keyword lives in line 2 or 3 of the body.
 fn extract_body_hint(source: &str, start: usize, end: usize) -> Option<String> {
     if start >= source.len() || end > source.len() || start >= end {
         return None;
@@ -1699,6 +1755,9 @@ fn extract_body_hint(source: &str, start: usize, end: usize) -> Option<String> {
         source.floor_char_boundary(safe_end)
     };
     let body = &source[safe_start..safe_end];
+
+    let max_lines = hint_line_budget();
+    let mut collected: Vec<String> = Vec::with_capacity(max_lines);
 
     // Skip past the signature: everything until we see a line ending with '{' or ':'
     // (opening brace of the function body), then start looking for meaningful lines.
@@ -1722,16 +1781,17 @@ fn extract_body_hint(source: &str, start: usize, end: usize) -> Option<String> {
         {
             continue;
         }
-        // Found a meaningful line
-        let hint = if trimmed.chars().count() > 60 {
-            let s: String = trimmed.chars().take(60).collect();
-            format!("{s}...")
-        } else {
-            trimmed.to_string()
-        };
-        return Some(hint);
+        collected.push(trimmed.to_string());
+        if collected.len() >= max_lines {
+            break;
+        }
     }
-    None
+
+    if collected.is_empty() {
+        None
+    } else {
+        Some(join_hint_lines(&collected))
+    }
 }
 
 /// Extract the leading docstring or comment block from a symbol's body.
@@ -2050,6 +2110,70 @@ mod tests {
         let source = "fn empty() {\n}\n";
         let hint = extract_body_hint(source, 0, source.len());
         assert!(hint.is_none());
+    }
+
+    #[test]
+    fn extract_body_hint_collects_multiple_meaningful_lines() {
+        let source = "\
+fn route_request() {
+    let kind = detect_request_kind();
+    let target = dispatch_table.get(&kind);
+    return target.handle();
+}
+";
+        let hint = extract_body_hint(source, 0, source.len()).expect("hint present");
+        // All three non-comment body lines should appear in the hint.
+        assert!(
+            hint.contains("detect_request_kind"),
+            "missing line 1 discriminator: {hint}"
+        );
+        assert!(
+            hint.contains("dispatch_table"),
+            "missing line 2 discriminator: {hint}"
+        );
+        assert!(
+            hint.contains("target.handle"),
+            "missing line 3 discriminator: {hint}"
+        );
+        // Separator is a middle dot so the embedding model sees structural
+        // boundaries between snippets.
+        assert!(hint.contains(" · "));
+    }
+
+    #[test]
+    fn extract_body_hint_respects_180_char_total_budget() {
+        // Five very long lines — only the first 180 chars of the joined
+        // output should survive, with a trailing "..." truncation marker.
+        let long_line = "a".repeat(80);
+        let source = format!(
+            "fn many_lines() {{\n    {l};\n    {l};\n    {l};\n    {l};\n    {l};\n}}\n",
+            l = long_line
+        );
+        let hint = extract_body_hint(&source, 0, source.len()).expect("hint present");
+        assert!(
+            hint.chars().count() <= super::HINT_TOTAL_CHAR_BUDGET + 3,
+            "hint exceeds budget: {} chars",
+            hint.chars().count()
+        );
+        assert!(hint.ends_with("..."), "expected truncation marker: {hint}");
+    }
+
+    #[test]
+    fn hint_line_budget_respects_env_override() {
+        // SAFETY: test block is serialized by crate-level test harness; we
+        // restore the variable on exit.
+        let previous = std::env::var("CODELENS_EMBED_HINT_LINES").ok();
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_LINES", "1");
+        }
+        let budget = super::hint_line_budget();
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_LINES", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_LINES"),
+            }
+        }
+        assert_eq!(budget, 1);
     }
 
     #[test]
