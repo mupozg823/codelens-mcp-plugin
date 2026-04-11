@@ -321,6 +321,87 @@ python3 benchmarks/embedding-quality.py . --isolated-copy \
 
 The two positive signals from this experiment (hybrid path improvement, NL Acc@3 jump) validate the RCA direction: the right layer to attack is _content scope_, not _line count_.
 
+### 8.3 v1.5 Phase 2c experiment — `Type::method` API-call extractor
+
+**Hypothesis**: Phase 2b validated that _natural language_ content (comments, string literals) is a productive layer to widen. Phase 2c tests an orthogonal layer — _type identifiers_ harvested from static-method call sites (`Parser::new`, `HashMap::with_capacity`, `Connection::open`). NL queries like `"parse json"` or `"open database"` should gain a lexical bridge to symbols whose body references the matching type, even when neither the signature nor the doc comment mentions it.
+
+**Setup**: Same 89-query self dataset (`embedding-quality-dataset-self.json`), same release binary, same bundled CodeSearchNet-INT8 model, same day (2026-04-11). Four arms measured via `--isolated-copy` to guarantee fresh indexes:
+
+- **A — baseline**: both env gates off (current default).
+- **B — phase2c only**: `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1`, `CODELENS_EMBED_HINT_INCLUDE_COMMENTS` unset.
+- **C — phase2b only**: `CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1`, `CODELENS_EMBED_HINT_INCLUDE_API_CALLS` unset. Included as a second reference so Phase 2c's marginal value can be computed against the already-proven Phase 2b opt-in.
+- **D — stacked**: both env gates set to `1`.
+
+The new extractor walks the body byte-by-byte, captures ASCII `Type::method` pairs where `Type` starts with an uppercase letter, deduplicates, and appends ` · API: ...` to the embedding text. Module-prefixed free functions (`std::fs::read_to_string`) are filtered out by the `is_static_method_ident` PascalCase check to keep the hint high-precision.
+
+**Result** (89 queries, top-10 cutoff):
+
+| Method                      | A base |  B 2c |  C 2b | D stacked |
+| --------------------------- | -----: | ----: | ----: | --------: |
+| `semantic_search` MRR       |  0.528 | 0.527 | 0.517 |     0.522 |
+| `get_ranked_context` hybrid |  0.572 | 0.569 | 0.570 |     0.572 |
+| hybrid Acc@3                |  0.607 | 0.618 | 0.629 |     0.629 |
+| **NL hybrid MRR**           |  0.471 | 0.466 | 0.467 |     0.468 |
+| **NL hybrid Acc@3**         |  0.491 | 0.509 | 0.509 |     0.509 |
+
+**Deltas vs baseline**:
+
+| Run         | s_search MRR | hybrid MRR | hybrid Acc@3 | NL hybrid MRR | NL hybrid Acc@3 |
+| ----------- | -----------: | ---------: | -----------: | ------------: | --------------: |
+| phase2c     |       −0.001 |     −0.003 |       +0.011 |        −0.005 |          +0.018 |
+| phase2b     |       −0.011 |     −0.003 |       +0.022 |        −0.004 |          +0.018 |
+| **stacked** |   **−0.006** | **±0.000** |   **+0.022** |    **−0.003** |      **+0.018** |
+
+**Phase 2c marginal value on top of Phase 2b** (`stacked − phase2b only`):
+
+- `semantic_search` MRR: **+0.005**
+- `get_ranked_context` hybrid MRR: **+0.003**
+- NL hybrid MRR: **+0.001**
+- Acc@3 metrics: unchanged (already at the Phase 2b ceiling for this dataset)
+
+**Verdict — mixed when solo, recovers the hybrid ceiling when stacked**:
+
+1. **Phase 2c alone** improves NL Acc@3 by +1.8 percentage points (matching Phase 2b's Acc@3 contribution on its own) but its MRR deltas sit at or below noise (−0.003 hybrid, −0.005 NL). Top-1 / top-5 ordering changes are inconsistent.
+2. **Phase 2b alone** wins Acc@3 more strongly (+2.2pp hybrid, reproducing the Phase 2b experiment) but `semantic_search` MRR regresses the most here (−0.011).
+3. **Stacked (2b + 2c)** restores the `get_ranked_context` hybrid MRR to the baseline value (0.5722, ±0.000) while keeping the Acc@3 uplift (+2.2pp). In other words, Phase 2c partially _patches_ Phase 2b's MRR regression on the hybrid path without sacrificing its recall gains. This is the only arm where hybrid MRR is not worse than baseline.
+4. **Identifier queries are unchanged** (0.800 → 0.800 across all four arms), matching expectation — the API-call hint only lives inside function bodies, not in the signature seen by identifier queries.
+
+**Why Phase 2c's signal is smaller than Phase 2b's**: Phase 2b widens the _content scope_ from code into prose, which the CodeSearchNet model's NL path was explicitly missing (RCA item 2). Phase 2c instead injects PascalCase identifiers that are _already_ discoverable by the lexical ranker when the query mentions a type by name. The net effect is a small bump on queries where neither the signature nor the docstring references the type, plus a partial offset of Phase 2b's MRR cost on the hybrid path.
+
+**Default policy**: Phase 2c stays **opt-in** (`CODELENS_EMBED_HINT_INCLUDE_API_CALLS` default OFF) for the same two reasons Phase 2b did:
+
+1. The solo MRR deltas are at noise and the marginal value is conditional on Phase 2b also being on. A silent default would force an index rebuild for a contingent win.
+2. Projects already running Phase 2b opt-in can add `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1` to their launcher to capture the hybrid-MRR recovery without further changes.
+
+**Reproduce any arm**:
+
+```bash
+# Arm A — baseline (current default)
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
+
+# Arm B — Phase 2c solo
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
+
+# Arm D — Phase 2b + Phase 2c stacked (recommended when opting in)
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
+```
+
+Measurement artefacts live in `benchmarks/embedding-quality-v1.5-phase2c-self-{baseline,on,phase2b-only,stacked}.{json,md}` for audit and future reproducibility.
+
+**Next candidate experiments** (unchanged from §8.2):
+
+- **Phase 2d — Model swap**: CodeSearchNet-INT8 → E5-large / BGE-base. Directly addresses RCA item 1 (the embedding model itself). Largest ceiling uplift but costs binary size + install weight.
+- **Phase 2e — Sparse term weighting**: if the stacked-arm result holds on more repos, a short term-frequency re-weighting pass on top of the existing BM25+dense hybrid may be the cheapest next step.
+
 ---
 
 ## 9. See Also

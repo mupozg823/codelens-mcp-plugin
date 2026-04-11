@@ -1702,6 +1702,19 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         text.push_str(&nl_tokens);
     }
 
+    // v1.5 Phase 2c experiment: optionally append `Type::method` call-site
+    // hints harvested from the body. Disabled by default; enable with
+    // `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1` to A/B. Orthogonal to
+    // Phase 2b — both can be stacked.
+    if let Some(src) = source
+        && let Some(api_calls) =
+            extract_api_calls(src, sym.start_byte as usize, sym.end_byte as usize)
+        && !api_calls.is_empty()
+    {
+        text.push_str(" · API: ");
+        text.push_str(&api_calls);
+    }
+
     text
 }
 
@@ -1955,6 +1968,160 @@ pub(super) fn extract_nl_tokens_inner(
         return None;
     }
     Some(join_hint_lines(&tokens))
+}
+
+/// Return true when API-call extraction is enabled via
+/// `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1` (or `true`/`yes`/`on`).
+///
+/// v1.5 Phase 2c infrastructure — kept off by default pending A/B
+/// measurement. Orthogonal to `CODELENS_EMBED_HINT_INCLUDE_COMMENTS`
+/// so both may be stacked.
+fn api_calls_enabled() -> bool {
+    std::env::var("CODELENS_EMBED_HINT_INCLUDE_API_CALLS")
+        .map(|raw| {
+            let lowered = raw.to_ascii_lowercase();
+            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
+/// Heuristic: does `ident` look like a Rust/C++ *type* (PascalCase) rather
+/// than a module or free function (snake_case)?
+///
+/// Phase 2c API-call extractor relies on this filter to keep the hint
+/// focused on static-method call sites (`Parser::new`, `HashMap::with_capacity`)
+/// and drop module-scoped free functions (`std::fs::read_to_string`).
+/// We intentionally accept only an ASCII uppercase first letter; stricter
+/// than PascalCase detection but deliberate — the goal is high-precision
+/// Type filtering, not lexical accuracy.
+pub(super) fn is_static_method_ident(ident: &str) -> bool {
+    ident
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_uppercase())
+}
+
+/// Collect `Type::method` call sites from a function body.
+///
+/// v1.5 Phase 2c experiment. Hypothesis: exposing the Types a function
+/// interacts with (via their static-method call sites) adds a lexical
+/// bridge between NL queries ("parse json", "open database") and symbols
+/// whose body references the relevant type (`Parser::new`, `Connection::open`).
+/// This is orthogonal to Phase 2b (comments + NL-shaped literals), which
+/// targets *explanatory* natural language rather than *type* hints.
+///
+/// Gated by `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1`. Returns `None` when
+/// the gate is off so the default embedding text is untouched.
+fn extract_api_calls(source: &str, start: usize, end: usize) -> Option<String> {
+    if !api_calls_enabled() {
+        return None;
+    }
+    extract_api_calls_inner(source, start, end)
+}
+
+/// Env-independent core of `extract_api_calls`, exposed to the test module
+/// so unit tests can run deterministically without touching env vars
+/// (which would race with other tests that set
+/// `CODELENS_EMBED_HINT_INCLUDE_API_CALLS`).
+///
+/// Scans the body for `Type::method` byte patterns where:
+/// - `Type` starts with an ASCII uppercase letter and consists of
+///   `[A-Za-z0-9_]*` (plain ASCII — non-ASCII identifiers are skipped
+///   on purpose to minimise noise).
+/// - `method` is any identifier (start `[A-Za-z_]`, continue `[A-Za-z0-9_]*`).
+///
+/// Duplicate `Type::method` pairs collapse into a single entry to avoid
+/// biasing the embedding toward repeated calls in hot loops.
+pub(super) fn extract_api_calls_inner(
+    source: &str,
+    start: usize,
+    end: usize,
+) -> Option<String> {
+    if start >= source.len() || end > source.len() || start >= end {
+        return None;
+    }
+    let safe_start = if source.is_char_boundary(start) {
+        start
+    } else {
+        source.floor_char_boundary(start)
+    };
+    let safe_end = end.min(source.len());
+    let safe_end = if source.is_char_boundary(safe_end) {
+        safe_end
+    } else {
+        source.floor_char_boundary(safe_end)
+    };
+    if safe_start >= safe_end {
+        return None;
+    }
+    let body = &source[safe_start..safe_end];
+    let bytes = body.as_bytes();
+    let len = bytes.len();
+
+    let mut calls: Vec<String> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    let mut i = 0usize;
+    while i < len {
+        let b = bytes[i];
+        // Walk forward until we find the start of an ASCII identifier.
+        if !(b == b'_' || b.is_ascii_alphabetic()) {
+            i += 1;
+            continue;
+        }
+        let ident_start = i;
+        while i < len {
+            let bb = bytes[i];
+            if bb == b'_' || bb.is_ascii_alphanumeric() {
+                i += 1;
+            } else {
+                break;
+            }
+        }
+        let ident_end = i;
+
+        // Must be immediately followed by `::`.
+        if i + 1 >= len || bytes[i] != b':' || bytes[i + 1] != b':' {
+            continue;
+        }
+
+        let type_ident = &body[ident_start..ident_end];
+        if !is_static_method_ident(type_ident) {
+            // `snake_module::foo` — not a Type. Skip past the `::` so we
+            // don't rescan the same characters, but keep walking.
+            i += 2;
+            continue;
+        }
+
+        // Skip the `::`
+        let mut j = i + 2;
+        if j >= len || !(bytes[j] == b'_' || bytes[j].is_ascii_alphabetic()) {
+            i = j;
+            continue;
+        }
+        let method_start = j;
+        while j < len {
+            let bb = bytes[j];
+            if bb == b'_' || bb.is_ascii_alphanumeric() {
+                j += 1;
+            } else {
+                break;
+            }
+        }
+        let method_end = j;
+
+        let method_ident = &body[method_start..method_end];
+        let call = format!("{type_ident}::{method_ident}");
+        if seen.insert(call.clone()) {
+            calls.push(call);
+        }
+        i = j;
+    }
+
+    if calls.is_empty() {
+        return None;
+    }
+    Some(join_hint_lines(&calls))
 }
 
 /// Peel the comment prefix off a trimmed line, returning the inner text
@@ -2467,6 +2634,121 @@ fn skip_things() {
             }
         }
         assert!(result.is_none(), "gate leaked: {result:?}");
+    }
+
+    #[test]
+    fn is_static_method_ident_accepts_pascal_and_rejects_snake() {
+        assert!(super::is_static_method_ident("HashMap"));
+        assert!(super::is_static_method_ident("Parser"));
+        assert!(super::is_static_method_ident("A"));
+        // snake_case / module-like — the filter must reject these so
+        // `std::fs::read_to_string` does not leak into API hints.
+        assert!(!super::is_static_method_ident("std"));
+        assert!(!super::is_static_method_ident("fs"));
+        assert!(!super::is_static_method_ident("_private"));
+        assert!(!super::is_static_method_ident(""));
+    }
+
+    #[test]
+    fn extract_api_calls_gated_off_by_default() {
+        // Default: no env, no API-call hint regardless of body content.
+        let previous = std::env::var("CODELENS_EMBED_HINT_INCLUDE_API_CALLS").ok();
+        unsafe {
+            std::env::remove_var("CODELENS_EMBED_HINT_INCLUDE_API_CALLS");
+        }
+        let source = "\
+fn make_parser() {
+    let p = Parser::new();
+    let _ = HashMap::with_capacity(8);
+}
+";
+        let result = extract_api_calls(source, 0, source.len());
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("CODELENS_EMBED_HINT_INCLUDE_API_CALLS", value);
+            }
+        }
+        assert!(result.is_none(), "gate leaked: {result:?}");
+    }
+
+    #[test]
+    fn extract_api_calls_captures_type_method_patterns() {
+        // Uses the env-independent inner to avoid racing with other tests.
+        let source = "\
+fn open_db() {
+    let p = Parser::new();
+    let map = HashMap::with_capacity(16);
+    let _ = tree_sitter::Parser::new();
+}
+";
+        let hint = super::extract_api_calls_inner(source, 0, source.len())
+            .expect("api calls should be produced");
+        assert!(hint.contains("Parser::new"), "missing Parser::new: {hint}");
+        assert!(
+            hint.contains("HashMap::with_capacity"),
+            "missing HashMap::with_capacity: {hint}"
+        );
+    }
+
+    #[test]
+    fn extract_api_calls_rejects_module_prefixed_free_functions() {
+        // Pure module paths must not surface as Type hints — the whole
+        // point of `is_static_method_ident` is to drop these.
+        let source = "\
+fn read_config() {
+    let _ = std::fs::read_to_string(\"foo\");
+    let _ = crate::util::parse();
+}
+";
+        let hint = super::extract_api_calls_inner(source, 0, source.len());
+        // If any API hint is produced, it must not contain the snake_case
+        // module prefixes; otherwise `None` is acceptable too.
+        if let Some(hint) = hint {
+            assert!(
+                !hint.contains("std::fs"),
+                "lowercase module leaked: {hint}"
+            );
+            assert!(
+                !hint.contains("fs::read_to_string"),
+                "module-prefixed free function leaked: {hint}"
+            );
+            assert!(
+                !hint.contains("crate::util"),
+                "crate path leaked: {hint}"
+            );
+        }
+    }
+
+    #[test]
+    fn extract_api_calls_deduplicates_repeated_calls() {
+        let source = "\
+fn hot_loop() {
+    for _ in 0..10 {
+        let _ = Parser::new();
+        let _ = Parser::new();
+    }
+    let _ = Parser::new();
+}
+";
+        let hint = super::extract_api_calls_inner(source, 0, source.len())
+            .expect("api calls should be produced");
+        let first = hint.find("Parser::new").expect("hit");
+        let rest = &hint[first + "Parser::new".len()..];
+        assert!(
+            !rest.contains("Parser::new"),
+            "duplicate not deduplicated: {hint}"
+        );
+    }
+
+    #[test]
+    fn extract_api_calls_returns_none_when_body_has_no_type_calls() {
+        let source = "\
+fn plain() {
+    let x = 1;
+    let y = x + 2;
+}
+";
+        assert!(super::extract_api_calls_inner(source, 0, source.len()).is_none());
     }
 
     #[test]
