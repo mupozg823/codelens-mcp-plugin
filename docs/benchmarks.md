@@ -922,6 +922,114 @@ Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase3b-requests-{base
 - **Phase 2b refinement** — a stricter `is_nl_shaped` filter that rejects generic error/log/format strings could reclaim the Python regression without touching the Rust wins. This is a v1.6 direction, not a v1.5.x patch.
 - **Phase 2d — Model swap** — the brief's baseline is now four-point with a split direction. Phase 2d proceedures in the brief should be refreshed in a future update to explicitly handle the Python baseline without the v1.5 stack as an additional gate.
 
+### 8.9 v1.5 Phase 2h experiment — strict NL literal filter (partial Python recovery)
+
+**Hypothesis** (from the Phase 3b post-mortem in §8.8): the Python regression is caused primarily by Phase 2b `extract_nl_tokens` collecting **string literals** that look NL-shaped but carry no behaviour-descriptive signal (format templates, generic error messages, log lines). If so, adding a filter that rejects those specific patterns on the Pass-2 string-literal path — while leaving the Pass-1 comment path untouched — should:
+
+1. **Recover Python hybrid MRR to baseline or better** (§8.8 stacked arm was 0.4948 vs baseline 0.5837, a −0.0889 absolute / −15.2 % relative regression).
+2. **Preserve every Rust win** — on ripgrep, the §8.7 stacked arm was +0.0698 / +15.2 % and on the 89/436-query self datasets the stacked wins were +0.014 / +0.0034 absolute. If the filter is correctly scoped to the string-literal path, Rust wins should not move.
+
+**Implementation**: a new env gate `CODELENS_EMBED_HINT_STRICT_LITERALS=1` (default OFF) wraps two helpers inside `crates/codelens-engine/src/embedding/mod.rs`:
+
+- `contains_format_specifier(s)` — detects C / Python `%` specifiers (`%s %d %r %f %x %o %i %u`) and `{}` / `{name}` / `{0}` / `{:fmt}` / `{name:fmt}` format placeholders. JSON-like `{name: foo, id: 1}` content is distinguished from format placeholders by the "any whitespace inside braces → reject as format" rule.
+- `looks_like_error_or_log_prefix(s)` — case-insensitive prefix match against a short list of common failure / log / notification patterns (`Invalid `, `Cannot `, `Could not `, `Unable to `, `Failed to `, `Expected `, `Unexpected `, `Missing `, `Not found`, `Error: `, `Warning: `, `Sending `, `Received `, `Starting `, `Stopping `, `Calling `, `Connecting `, `Disconnecting `).
+
+The filter runs **only** inside `extract_nl_tokens_inner` Pass 2 (string literals). Pass 1 (comments — the load-bearing Rust signal) is left untouched on purpose. Six new unit tests cover gate-off default, both helpers, the combined reject rule, the string-literal filter path, and the comment-pass-through invariant.
+
+**Setup**: same release binary rebuilt from the Phase 2h branch, same `ripgrep` / `requests` datasets and infrastructure as §8.7 / §8.8, Phase 2e parameters held at `(threshold = 40, max = 40)`. Two runs, one per external repo, each with the full v1.5 stack **plus** `CODELENS_EMBED_HINT_STRICT_LITERALS=1`.
+
+**Result on ripgrep (Rust)** — the strict filter is completely transparent:
+
+| Metric           | baseline | v1.5 stacked | strict + stacked | Δ vs stacked |
+| ---------------- | -------: | -----------: | ---------------: | -----------: |
+| hybrid MRR       |   0.4594 |       0.5292 |           0.5292 |  **±0.0000** |
+| hybrid Acc@3     |    0.583 |        0.667 |            0.667 |  **±0.0000** |
+| NL hybrid MRR    |   0.4750 |       0.5539 |           0.5539 |  **±0.0000** |
+| NL Acc@3         |    0.588 |        0.706 |            0.706 |  **±0.0000** |
+| short_phrase MRR |    0.340 |        0.407 |            0.407 |  **±0.0000** |
+| identifier Acc@1 |    0.500 |        0.500 |            0.500 |  **±0.0000** |
+
+**Every metric is bit-identical to the stacked-without-filter arm.** The Rust wins are preserved to four-decimal precision. This rules out the "strict filter accidentally drops behaviour-descriptive literals that Rust relied on" failure mode — the load-bearing Rust signal lives in Pass-1 comments, and the filter never touches Pass 1.
+
+**Result on requests (Python)** — partial recovery, ~8 % of the regression closed:
+
+| Metric             | baseline | v1.5 stacked (§8.8) | strict + stacked | Δ vs stacked | Δ vs baseline |
+| ------------------ | -------: | ------------------: | ---------------: | -----------: | ------------: |
+| `s_search` MRR     |   0.5410 |              0.3935 |           0.4024 |  **+0.0089** |       −0.1385 |
+| hybrid MRR         |   0.5837 |              0.4948 |           0.5021 |  **+0.0073** |       −0.0816 |
+| hybrid Acc@1       |    0.417 |               0.333 |            0.333 |      ±0.0000 |       −0.0833 |
+| hybrid Acc@3       |    0.708 |               0.625 |            0.625 |      ±0.0000 |       −0.0833 |
+| NL hybrid MRR      |   0.6147 |              0.5169 |           0.5272 |  **+0.0103** |       −0.0875 |
+| NL Acc@3           |    0.706 |               0.647 |            0.647 |      ±0.0000 |       −0.0588 |
+| short_phrase MRR   |    0.312 |               0.218 |            0.218 |      ±0.0000 |       −0.0939 |
+| short_phrase Acc@3 |    0.600 |               0.400 |            0.400 |      ±0.0000 |       −0.2000 |
+| identifier Acc@1   |    1.000 |               1.000 |            1.000 |      ±0.0000 |        ±0.000 |
+
+**Recovery on MRR-type metrics, no recovery on Acc@k**: the filter lifts `semantic_search` MRR by +0.009, hybrid MRR by +0.007, NL hybrid MRR by +0.010. These are small absolute numbers but every one is in the _correct direction_ and no metric regresses vs the unfiltered stack. Accuracy metrics (Acc@1, Acc@3, short_phrase Acc@3) are unchanged — the filter is changing _how confident_ the right answer's rank is, not moving it between buckets.
+
+**Verdict — partial confirmation, not a full fix**:
+
+| Success criterion                  | Target                   | Achieved                        |
+| ---------------------------------- | ------------------------ | ------------------------------- |
+| Rust ripgrep hybrid MRR preserved  | ≥ 0.5292 (no regression) | ✅ 0.5292 exactly               |
+| Python requests recovery direction | positive vs v1.5 stack   | ✅ +0.0073 hybrid MRR           |
+| Python requests baseline recovery  | ≥ 0.5837 (full recovery) | ❌ 0.5021 (−0.0816 vs baseline) |
+| Python requests Acc@3 recovery     | ≥ 0.708                  | ❌ 0.625 (unchanged)            |
+
+The hypothesis in §8.8 — "string literals are the main regression source" — is **partially confirmed**. String literals contribute ~8 % of the Python regression; the remaining 92 % lives somewhere else. The two most likely remaining sources are:
+
+1. **Phase 2b Pass-1 comments on Python**. Python has fewer body `#` comments than Rust, but when they exist they are often low-value — `# TODO: handle this`, `# HACK: workaround for ...`, `# FIXME: broken in edge case`. These pass `is_nl_shaped` (multi-word prose) but add noise rather than signal. A future Phase 2i could apply a comment-side analogue of the strict filter, targeting TODO/HACK/FIXME prefixes and noting-style markers.
+2. **Phase 2e coverage-bonus threshold on Python symbol names**. Python API surface has a lot of short, high-quality symbol names (`get`, `post`, `put`, `Session`, `Response`) whose Phase 2e coverage ratio is dominated by the short symbol name itself — the 40 % threshold may be too low for a symbol class where the baseline already gets most cases right (§8.8 noted Python baseline hybrid MRR 0.5837 is the highest of any dataset tested). A Python-tuned threshold (e.g. 60 %) might reduce the re-ranker's impact on already-correct rankings.
+
+Neither of these is attempted in Phase 2h — the brief asked for a literal-only filter, and Phase 2h delivers exactly that, honestly measured. Further investigation is left for v1.6+ (either Phase 2i comment-filter or Phase 2j auto-detection gating — both described as still-open work below).
+
+**Updated default policy and opt-in recommendation**:
+
+The strict filter is shipped as a new opt-in env knob, default OFF. The updated §8.8 recommendation:
+
+- **Rust / C++ / Go projects**: enable the v1.5 stack. Adding `CODELENS_EMBED_HINT_STRICT_LITERALS=1` is **zero-cost** (bit-identical results on ripgrep) and is therefore safe to enable pre-emptively — future Python cross-validation will benefit.
+- **Python projects**: **leave the v1.5 stack off**. Enabling the stack with `CODELENS_EMBED_HINT_STRICT_LITERALS=1` recovers only ~8 % of the §8.8 regression — the net result is still a −0.082 absolute / −14 % relative hybrid MRR loss. The correct user-facing answer is still "keep Phase 2b/2c/2e off on Python" until a Phase 2i comment-filter or Phase 2j auto-detection gating lands.
+- **JS / TS projects**: **still untested**. Phase 3c remains the gating measurement for that language family.
+
+**Impact on Phase 2d design brief baseline (§1.1)**:
+
+No change. Phase 2h produces partial Python recovery but does not exceed the `requests` baseline-without-stack of 0.5837. The four-point Phase 2d baseline from §8.8 stands: 0.586 / 0.0510 / 0.5292 / **0.5837 (no stack)** for requests. A Phase 2d model swap still has to beat all four.
+
+**Reproduce**:
+
+```bash
+# Rust — strict + stack, expected bit-identical to plain stack
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_EMBED_HINT_STRICT_LITERALS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/ripgrep-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-ripgrep.json
+
+# Python — strict + stack, expected partial recovery
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_EMBED_HINT_STRICT_LITERALS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/requests-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-requests.json
+```
+
+Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase2h-{ripgrep,requests}-strict-stacked.json`.
+
+**Still-open work**:
+
+- **Phase 2i — comment-side strict filter**. Reject TODO / HACK / FIXME / noting-style comment patterns on Pass 1, mirroring the Phase 2h Pass-2 filter. If Python has enough of those, Phase 2i could close the remaining ~92 % of the regression. Rust ripgrep already shows Pass-1 comments are the load-bearing signal; the risk is that a too-aggressive comment filter accidentally drops the Rust wins. Same 4-arm measurement methodology applies.
+- **Phase 2j — auto-detection gating**. Rather than refining the filters, auto-detect the project's dominant language (probably via `get_capabilities` language counts) and flip Phase 2b/2c/2e on when the dominant language is in `{rust, cpp, go}` and off otherwise. This is mechanism-level give-up on "one stack fits all" and policy-level acceptance of "measure per language family". Simpler to implement than Phase 2i; less informative about the underlying mechanism.
+- **Phase 3c — JS/TS validation** (unchanged).
+- **Phase 2d** — unchanged (brief baseline still covers four datasets).
+
 ---
 
 ## 9. See Also
