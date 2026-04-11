@@ -1,0 +1,406 @@
+{
+  "report_glob": "benchmarks/embedding-quality-v1.*-phase3*-*.json",
+  "source_report_count": 28,
+  "flat_relative_threshold_pct": 1.0,
+  "strong_relative_threshold_pct": 5.0,
+  "dataset_count": 7,
+  "effect_counts": {
+    "positive": 3,
+    "negative": 2,
+    "flat": 2
+  },
+  "rows": [
+    {
+      "version": "v1.5",
+      "phase": "phase3a",
+      "dataset_slug": "ripgrep",
+      "label": "ripgrep external",
+      "language": "Rust",
+      "archetype": "tooling",
+      "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-ripgrep.json",
+      "dataset_size": 24,
+      "runtime_model": {
+        "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+        "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+        "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+        "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+        "size_bytes": 34000281,
+        "num_hidden_layers": 12,
+        "hidden_size": 384
+      },
+      "arms": {
+        "baseline": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3a-ripgrep-baseline.json",
+          "hybrid_mrr": 0.45937500000000003,
+          "hybrid_acc1": 0.25,
+          "hybrid_acc3": 0.5833333333333334,
+          "semantic_mrr": 0.4052579365079365,
+          "lexical_mrr": 0.32799168424168423
+        },
+        "2e-only": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3a-ripgrep-2e-only.json",
+          "hybrid_mrr": 0.48784722222222227,
+          "hybrid_acc1": 0.2916666666666667,
+          "hybrid_acc3": 0.625,
+          "semantic_mrr": 0.4052579365079365,
+          "lexical_mrr": 0.38453930328930325
+        },
+        "2b2c-only": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3a-ripgrep-2b2c-only.json",
+          "hybrid_mrr": 0.5104166666666666,
+          "hybrid_acc1": 0.2916666666666667,
+          "hybrid_acc3": 0.6666666666666666,
+          "semantic_mrr": 0.3972222222222222,
+          "lexical_mrr": 0.32799168424168423
+        },
+        "stacked": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3a-ripgrep-stacked.json",
+          "hybrid_mrr": 0.5291666666666667,
+          "hybrid_acc1": 0.3333333333333333,
+          "hybrid_acc3": 0.6666666666666666,
+          "semantic_mrr": 0.3972222222222222,
+          "lexical_mrr": 0.38453930328930325
+        }
+      },
+      "delta_abs": 0.06979166666666664,
+      "delta_rel_pct": 15.192743764172329,
+      "effect_band": "strong positive"
+    },
+    {
+      "version": "v1.5",
+      "phase": "phase3b",
+      "dataset_slug": "requests",
+      "label": "requests external",
+      "language": "Python",
+      "archetype": "app library",
+      "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-requests.json",
+      "dataset_size": 24,
+      "runtime_model": {
+        "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+        "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+        "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+        "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+        "size_bytes": 34000281,
+        "num_hidden_layers": 12,
+        "hidden_size": 384
+      },
+      "arms": {
+        "baseline": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3b-requests-baseline.json",
+          "hybrid_mrr": 0.5837009803921568,
+          "hybrid_acc1": 0.4166666666666667,
+          "hybrid_acc3": 0.7083333333333334,
+          "semantic_mrr": 0.5409722222222222,
+          "lexical_mrr": 0.3945034497666076
+        },
+        "2e-only": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3b-requests-2e-only.json",
+          "hybrid_mrr": 0.5697475749559083,
+          "hybrid_acc1": 0.4166666666666667,
+          "hybrid_acc3": 0.6666666666666666,
+          "semantic_mrr": 0.5409722222222222,
+          "lexical_mrr": 0.4041369084132242
+        },
+        "2b2c-only": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3b-requests-2b2c-only.json",
+          "hybrid_mrr": 0.5215166369578134,
+          "hybrid_acc1": 0.3333333333333333,
+          "hybrid_acc3": 0.7083333333333334,
+          "semantic_mrr": 0.39351851851851855,
+          "lexical_mrr": 0.3945034497666076
+        },
+        "stacked": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3b-requests-stacked.json",
+          "hybrid_mrr": 0.49482293169793173,
+          "hybrid_acc1": 0.3333333333333333,
+          "hybrid_acc3": 0.625,
+          "semantic_mrr": 0.39351851851851855,
+          "lexical_mrr": 0.4041369084132242
+        }
+      },
+      "delta_abs": -0.08887804869422505,
+      "delta_rel_pct": -15.226640296974104,
+      "effect_band": "strong negative"
+    },
+    {
+      "version": "v1.5",
+      "phase": "phase3c",
+      "dataset_slug": "jest",
+      "label": "jest external",
+      "language": "TS/JS",
+      "archetype": "tooling",
+      "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-jest.json",
+      "dataset_size": 24,
+      "runtime_model": {
+        "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+        "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+        "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+        "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+        "size_bytes": 34000281,
+        "num_hidden_layers": 12,
+        "hidden_size": 384
+      },
+      "arms": {
+        "baseline": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3c-jest-baseline.json",
+          "hybrid_mrr": 0.1545848267622461,
+          "hybrid_acc1": 0.041666666666666664,
+          "hybrid_acc3": 0.20833333333333334,
+          "semantic_mrr": 0.08680555555555557,
+          "lexical_mrr": 0.15476190476190477
+        },
+        "2e-only": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3c-jest-2e-only.json",
+          "hybrid_mrr": 0.15666816009557946,
+          "hybrid_acc1": 0.041666666666666664,
+          "hybrid_acc3": 0.20833333333333334,
+          "semantic_mrr": 0.08680555555555557,
+          "lexical_mrr": 0.16170634920634921
+        },
+        "2b2c-only": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3c-jest-2b2c-only.json",
+          "hybrid_mrr": 0.16372007808499744,
+          "hybrid_acc1": 0.041666666666666664,
+          "hybrid_acc3": 0.20833333333333334,
+          "semantic_mrr": 0.08888888888888889,
+          "lexical_mrr": 0.15476190476190477
+        },
+        "stacked": {
+          "path": "benchmarks/embedding-quality-v1.5-phase3c-jest-stacked.json",
+          "hybrid_mrr": 0.16580341141833077,
+          "hybrid_acc1": 0.041666666666666664,
+          "hybrid_acc3": 0.20833333333333334,
+          "semantic_mrr": 0.08888888888888889,
+          "lexical_mrr": 0.16170634920634921
+        }
+      },
+      "delta_abs": 0.011218584656084662,
+      "delta_rel_pct": 7.2572353257794315,
+      "effect_band": "strong positive"
+    },
+    {
+      "version": "v1.6",
+      "phase": "phase3d",
+      "dataset_slug": "typescript",
+      "label": "typescript external",
+      "language": "TS/JS",
+      "archetype": "compiler",
+      "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-typescript.json",
+      "dataset_size": 34,
+      "runtime_model": {
+        "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+        "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+        "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+        "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+        "size_bytes": 34000281,
+        "num_hidden_layers": 12,
+        "hidden_size": 384
+      },
+      "arms": {
+        "baseline": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3d-typescript-baseline.json",
+          "hybrid_mrr": 0.0983551029107295,
+          "hybrid_acc1": 0.058823529411764705,
+          "hybrid_acc3": 0.08823529411764706,
+          "semantic_mrr": 0.17091503267973857,
+          "lexical_mrr": 0.1201155462184874
+        },
+        "2e-only": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3d-typescript-2e-only.json",
+          "hybrid_mrr": 0.08855118134210206,
+          "hybrid_acc1": 0.058823529411764705,
+          "hybrid_acc3": 0.058823529411764705,
+          "semantic_mrr": 0.17091503267973857,
+          "lexical_mrr": 0.1397233893557423
+        },
+        "2b2c-only": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3d-typescript-2b2c-only.json",
+          "hybrid_mrr": 0.20098039215686272,
+          "hybrid_acc1": 0.14705882352941177,
+          "hybrid_acc3": 0.23529411764705882,
+          "semantic_mrr": 0.17091503267973857,
+          "lexical_mrr": 0.1201155462184874
+        },
+        "stacked": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3d-typescript-stacked.json",
+          "hybrid_mrr": 0.20098039215686272,
+          "hybrid_acc1": 0.14705882352941177,
+          "hybrid_acc3": 0.23529411764705882,
+          "semantic_mrr": 0.17091503267973857,
+          "lexical_mrr": 0.1397233893557423
+        }
+      },
+      "delta_abs": 0.10262528924613322,
+      "delta_rel_pct": 104.34160120729017,
+      "effect_band": "strong positive"
+    },
+    {
+      "version": "v1.6",
+      "phase": "phase3e",
+      "dataset_slug": "next-js",
+      "label": "next-js external",
+      "language": "TS/JS",
+      "archetype": "typical app",
+      "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-next-js.json",
+      "dataset_size": 34,
+      "runtime_model": {
+        "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+        "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+        "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+        "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+        "size_bytes": 34000281,
+        "num_hidden_layers": 12,
+        "hidden_size": 384
+      },
+      "arms": {
+        "baseline": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3e-next-js-baseline.json",
+          "hybrid_mrr": 0.19785660675753555,
+          "hybrid_acc1": 0.14705882352941177,
+          "hybrid_acc3": 0.20588235294117646,
+          "semantic_mrr": 0.14640522875816994,
+          "lexical_mrr": 0.22940513644323435
+        },
+        "2e-only": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3e-next-js-2e-only.json",
+          "hybrid_mrr": 0.19620761720219923,
+          "hybrid_acc1": 0.14705882352941177,
+          "hybrid_acc3": 0.20588235294117646,
+          "semantic_mrr": 0.14640522875816994,
+          "lexical_mrr": 0.23124140006879945
+        },
+        "2b2c-only": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3e-next-js-2b2c-only.json",
+          "hybrid_mrr": 0.19785660675753555,
+          "hybrid_acc1": 0.14705882352941177,
+          "hybrid_acc3": 0.20588235294117646,
+          "semantic_mrr": 0.14640522875816994,
+          "lexical_mrr": 0.22940513644323435
+        },
+        "stacked": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3e-next-js-stacked.json",
+          "hybrid_mrr": 0.19620761720219923,
+          "hybrid_acc1": 0.14705882352941177,
+          "hybrid_acc3": 0.20588235294117646,
+          "semantic_mrr": 0.14640522875816994,
+          "lexical_mrr": 0.23124140006879945
+        }
+      },
+      "delta_abs": -0.001648989555336322,
+      "delta_rel_pct": -0.8334265821899419,
+      "effect_band": "flat"
+    },
+    {
+      "version": "v1.6",
+      "phase": "phase3f",
+      "dataset_slug": "react-core",
+      "label": "react-core external",
+      "language": "TS/JS",
+      "archetype": "short runtime",
+      "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-react-core.json",
+      "dataset_size": 34,
+      "runtime_model": {
+        "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+        "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+        "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+        "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+        "size_bytes": 34000281,
+        "num_hidden_layers": 12,
+        "hidden_size": 384
+      },
+      "arms": {
+        "baseline": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3f-react-core-baseline.json",
+          "hybrid_mrr": 0.12254901960784315,
+          "hybrid_acc1": 0.11764705882352941,
+          "hybrid_acc3": 0.11764705882352941,
+          "semantic_mrr": 0.12254901960784315,
+          "lexical_mrr": 0.08431372549019608
+        },
+        "2e-only": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3f-react-core-2e-only.json",
+          "hybrid_mrr": 0.12254901960784315,
+          "hybrid_acc1": 0.11764705882352941,
+          "hybrid_acc3": 0.11764705882352941,
+          "semantic_mrr": 0.12254901960784315,
+          "lexical_mrr": 0.08431372549019608
+        },
+        "2b2c-only": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3f-react-core-2b2c-only.json",
+          "hybrid_mrr": 0.12254901960784315,
+          "hybrid_acc1": 0.11764705882352941,
+          "hybrid_acc3": 0.11764705882352941,
+          "semantic_mrr": 0.12254901960784315,
+          "lexical_mrr": 0.08431372549019608
+        },
+        "stacked": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3f-react-core-stacked.json",
+          "hybrid_mrr": 0.12254901960784315,
+          "hybrid_acc1": 0.11764705882352941,
+          "hybrid_acc3": 0.11764705882352941,
+          "semantic_mrr": 0.12254901960784315,
+          "lexical_mrr": 0.08431372549019608
+        }
+      },
+      "delta_abs": 0.0,
+      "delta_rel_pct": 0.0,
+      "effect_band": "flat"
+    },
+    {
+      "version": "v1.6",
+      "phase": "phase3g",
+      "dataset_slug": "django",
+      "label": "django external",
+      "language": "Python",
+      "archetype": "framework",
+      "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-django.json",
+      "dataset_size": 34,
+      "runtime_model": {
+        "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+        "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+        "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+        "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+        "size_bytes": 34000281,
+        "num_hidden_layers": 12,
+        "hidden_size": 384
+      },
+      "arms": {
+        "baseline": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3g-django-baseline.json",
+          "hybrid_mrr": 0.29367688251771296,
+          "hybrid_acc1": 0.23529411764705882,
+          "hybrid_acc3": 0.3235294117647059,
+          "semantic_mrr": 0.28508403361344536,
+          "lexical_mrr": 0.1339273640490679
+        },
+        "2e-only": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3g-django-2e-only.json",
+          "hybrid_mrr": 0.29367688251771296,
+          "hybrid_acc1": 0.23529411764705882,
+          "hybrid_acc3": 0.3235294117647059,
+          "semantic_mrr": 0.28508403361344536,
+          "lexical_mrr": 0.13539795228436202
+        },
+        "2b2c-only": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3g-django-2b2c-only.json",
+          "hybrid_mrr": 0.2859398483100905,
+          "hybrid_acc1": 0.23529411764705882,
+          "hybrid_acc3": 0.29411764705882354,
+          "semantic_mrr": 0.2867647058823529,
+          "lexical_mrr": 0.1339273640490679
+        },
+        "stacked": {
+          "path": "benchmarks/embedding-quality-v1.6-phase3g-django-stacked.json",
+          "hybrid_mrr": 0.28844812434777833,
+          "hybrid_acc1": 0.23529411764705882,
+          "hybrid_acc3": 0.29411764705882354,
+          "semantic_mrr": 0.2867647058823529,
+          "lexical_mrr": 0.13539795228436202
+        }
+      },
+      "delta_abs": -0.005228758169934622,
+      "delta_rel_pct": -1.780445953085617,
+      "effect_band": "mild negative"
+    }
+  ]
+}

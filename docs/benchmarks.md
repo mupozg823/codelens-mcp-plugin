@@ -1831,21 +1831,21 @@ python3 benchmarks/embedding-quality.py /tmp/next-js/packages/next/src --isolate
 
 **Dataset**: 34 hand-built queries in `benchmarks/embedding-quality-dataset-react-core.json`, again keeping the §8.15 / §8.16 shape for apples-to-apples comparison: **26 `natural_language` + 6 `short_phrase` + 2 `identifier`**. The symbols cover the public React surface that ordinary users search for:
 
-| Area                  | Example queries                                                                 | Count |
-| --------------------- | ------------------------------------------------------------------------------- | ----: |
-| Core hooks            | `useState`, `useEffect`, `useMemo`, `useTransition`, `useDeferredValue`, ...   |    16 |
-| Element / ref API     | `createRef`, `createElement`, `cloneElement`, `isValidElement`, `forwardRef`   |     5 |
-| Context / memo / lazy | `createContext`, `memo`, `lazy`                                                 |     3 |
-| Transitions / testing | `startTransition`, `act`                                                        |     2 |
-| Short phrases + ids   | `state hook`, `lazy component`, `useState`, `createElement`                     |     8 |
+| Area                  | Example queries                                                              | Count |
+| --------------------- | ---------------------------------------------------------------------------- | ----: |
+| Core hooks            | `useState`, `useEffect`, `useMemo`, `useTransition`, `useDeferredValue`, ... |    16 |
+| Element / ref API     | `createRef`, `createElement`, `cloneElement`, `isValidElement`, `forwardRef` |     5 |
+| Context / memo / lazy | `createContext`, `memo`, `lazy`                                              |     3 |
+| Transitions / testing | `startTransition`, `act`                                                     |     2 |
+| Short phrases + ids   | `state hook`, `lazy component`, `useState`, `createElement`                  |     8 |
 
 **Measurement**:
 
-| arm         |   hybrid MRR | Δ abs vs baseline | Δ rel | semantic MRR | lexical-only MRR |
-| ----------- | -----------: | ----------------: | ----: | -----------: | ---------------: |
-| baseline    |     0.122549 |                 — |     — |     0.122549 |         0.084314 |
-| 2e only     |     0.122549 |          0.000000 | +0.0 % |     0.122549 |         0.084314 |
-| 2b+2c only  |     0.122549 |          0.000000 | +0.0 % |     0.122549 |         0.084314 |
+| arm         |   hybrid MRR | Δ abs vs baseline |      Δ rel | semantic MRR | lexical-only MRR |
+| ----------- | -----------: | ----------------: | ---------: | -----------: | ---------------: |
+| baseline    |     0.122549 |                 — |          — |     0.122549 |         0.084314 |
+| 2e only     |     0.122549 |          0.000000 |     +0.0 % |     0.122549 |         0.084314 |
+| 2b+2c only  |     0.122549 |          0.000000 |     +0.0 % |     0.122549 |         0.084314 |
 | **stacked** | **0.122549** |      **0.000000** | **+0.0 %** | **0.122549** |     **0.084314** |
 
 This is a **stronger null result than Next.js**. In Phase 3e, the aggregate moved by a small amount under `2e`. In Phase 3f, **every arm is row-for-row identical to baseline across all three methods** (`semantic_search`, `get_ranked_context_no_semantic`, and `get_ranked_context`). There are **zero per-query rank changes** and **zero top-candidate changes** between baseline and any candidate arm.
@@ -1880,21 +1880,21 @@ This is almost a pure retrieval-floor dataset. The stack has nothing to work wit
   - `createRef` `5 → 6`
   - `createElement` `2 → 1`
   - `cloneElement` `6 → 1`
-  Everything else is either a miss in both paths or the same rank in both.
+    Everything else is either a miss in both paths or the same rank in both.
 
 So the React core result says something narrower but stronger than §8.16: **on short-file JS runtime code, the v1.5 stack is not mildly weaker or mildly stronger; it is functionally inert.**
 
 **Updated eight-dataset baseline matrix**:
 
-| Dataset                              | Language / archetype     | baseline MRR | stacked MRR |      Δ abs |      Δ rel |
-| ------------------------------------ | ------------------------ | -----------: | ----------: | ---------: | ---------: |
-| 89-query self                        | Rust / self              |        0.572 |       0.586 |     +0.014 |     +2.4 % |
-| 436-query self                       | Rust / self              |       0.0476 |      0.0510 |    +0.0034 |     +7.1 % |
-| ripgrep external                     | Rust / tooling           |        0.459 |       0.529 |     +0.070 |    +15.2 % |
-| requests external                    | Python / app library     |        0.584 |       0.495 |     −0.089 |    −15.2 % |
-| jest external                        | TS/JS / tooling          |        0.155 |       0.166 |     +0.011 |     +7.3 % |
-| typescript external                  | TS/JS / compiler         |        0.098 |       0.201 |     +0.103 |   +104.3 % |
-| next-js external                     | TS/JS / typical app      |        0.198 |       0.196 |     −0.002 |     −0.8 % |
+| Dataset                              | Language / archetype      | baseline MRR | stacked MRR |      Δ abs |      Δ rel |
+| ------------------------------------ | ------------------------- | -----------: | ----------: | ---------: | ---------: |
+| 89-query self                        | Rust / self               |        0.572 |       0.586 |     +0.014 |     +2.4 % |
+| 436-query self                       | Rust / self               |       0.0476 |      0.0510 |    +0.0034 |     +7.1 % |
+| ripgrep external                     | Rust / tooling            |        0.459 |       0.529 |     +0.070 |    +15.2 % |
+| requests external                    | Python / app library      |        0.584 |       0.495 |     −0.089 |    −15.2 % |
+| jest external                        | TS/JS / tooling           |        0.155 |       0.166 |     +0.011 |     +7.3 % |
+| typescript external                  | TS/JS / compiler          |        0.098 |       0.201 |     +0.103 |   +104.3 % |
+| next-js external                     | TS/JS / typical app       |        0.198 |       0.196 |     −0.002 |     −0.8 % |
 | **react-core external (new, §8.17)** | **TS/JS / short runtime** |    **0.123** |   **0.123** | **+0.000** | **+0.0 %** |
 
 Pattern: **5 positive / 1 negative / 2 inert**. The positive JS/TS evidence is now clearly concentrated in **tooling/compiler-style** code, while the two shortest-file runtime/app-style datasets measured so far are inert.
@@ -1969,21 +1969,21 @@ python3 benchmarks/embedding-quality.py /tmp/react-core-bench --isolated-copy \
 
 **Dataset**: 34 hand-built queries in `benchmarks/embedding-quality-dataset-django.json`, keeping the now-standard external-repo shape for direct comparison: **26 `natural_language` + 6 `short_phrase` + 2 `identifier`**. Coverage spans four framework surfaces:
 
-| Area                 | Example targets                                                   | Count |
-| -------------------- | ----------------------------------------------------------------- | ----: |
-| ORM / model layer    | `QuerySet`, `Manager`, `Model`, `ForeignKey`                      |    10 |
-| HTTP / shortcuts     | `HttpRequest`, `HttpResponse`, `JsonResponse`, `redirect`, `render` |     8 |
+| Area                 | Example targets                                                           | Count |
+| -------------------- | ------------------------------------------------------------------------- | ----: |
+| ORM / model layer    | `QuerySet`, `Manager`, `Model`, `ForeignKey`                              |    10 |
+| HTTP / shortcuts     | `HttpRequest`, `HttpResponse`, `JsonResponse`, `redirect`, `render`       |     8 |
 | URL + auth           | `reverse`, `resolve`, `login`, `logout`, `authenticate`, `login_required` |     8 |
-| Views / forms / misc | `View`, `ListView`, `DetailView`, `Form`, `ModelForm`, `csrf_exempt` |     8 |
+| Views / forms / misc | `View`, `ListView`, `DetailView`, `Form`, `ModelForm`, `csrf_exempt`      |     8 |
 
 **Measurement**:
 
-| arm         |   hybrid MRR | Δ abs vs baseline | Δ rel | semantic MRR | lexical-only MRR |
-| ----------- | -----------: | ----------------: | ----: | -----------: | ---------------: |
-| baseline    |     0.293677 |                 — |     — |     0.285084 |         0.133927 |
-| 2e only     |     0.293677 |          0.000000 | +0.0 % |     0.285084 |         0.135398 |
-| 2b+2c only  |     0.285940 |         -0.007737 | -2.6 % |     0.286765 |         0.133927 |
-| **stacked** | **0.288448** |      **-0.005229** | **-1.8 %** | **0.286765** |     **0.135398** |
+| arm         |   hybrid MRR | Δ abs vs baseline |      Δ rel | semantic MRR | lexical-only MRR |
+| ----------- | -----------: | ----------------: | ---------: | -----------: | ---------------: |
+| baseline    |     0.293677 |                 — |          — |     0.285084 |         0.133927 |
+| 2e only     |     0.293677 |          0.000000 |     +0.0 % |     0.285084 |         0.135398 |
+| 2b+2c only  |     0.285940 |         -0.007737 |     -2.6 % |     0.286765 |         0.133927 |
+| **stacked** | **0.288448** |     **-0.005229** | **-1.8 %** | **0.286765** |     **0.135398** |
 
 Django is a **third regime**, distinct from both Next.js and TypeScript:
 
@@ -2020,27 +2020,33 @@ Representative stacked changes:
 
 The query-type split explains the sign:
 
-| query type          | baseline hybrid MRR | stacked hybrid MRR |      Δ |
-| ------------------- | ------------------: | -----------------: | -----: |
-| natural_language    |            0.172501 |           0.175278 | +0.0028 |
-| short_phrase        |            0.750000 |           0.708333 | -0.0417 |
-| identifier          |            0.500000 |           0.500000 | +0.0000 |
+| query type       | baseline hybrid MRR | stacked hybrid MRR |       Δ |
+| ---------------- | ------------------: | -----------------: | ------: |
+| natural_language |            0.172501 |           0.175278 | +0.0028 |
+| short_phrase     |            0.750000 |           0.708333 | -0.0417 |
+| identifier       |            0.500000 |           0.500000 | +0.0000 |
 
 So Django is not "uniformly worse"; it is more specific than that. The stack rescues a handful of natural-language framework lookups, but the gain is too small to offset short-phrase regressions on queries that Django's baseline already handled reasonably well.
 
 **Updated nine-dataset baseline matrix**:
 
-| Dataset                           | Language / archetype      | baseline MRR | stacked MRR |      Δ abs |      Δ rel |
-| --------------------------------- | ------------------------- | -----------: | ----------: | ---------: | ---------: |
-| 89-query self                     | Rust / self               |        0.572 |       0.586 |     +0.014 |     +2.4 % |
-| 436-query self                    | Rust / self               |       0.0476 |      0.0510 |    +0.0034 |     +7.1 % |
-| ripgrep external                  | Rust / tooling            |        0.459 |       0.529 |     +0.070 |    +15.2 % |
-| requests external                 | Python / app library      |        0.584 |       0.495 |     -0.089 |    -15.2 % |
-| **django external (new, §8.18)**  | **Python / framework**    |    **0.294** |   **0.288** | **-0.005** | **-1.8 %** |
-| jest external                     | TS/JS / tooling           |        0.155 |       0.166 |     +0.011 |     +7.3 % |
-| typescript external               | TS/JS / compiler          |        0.098 |       0.201 |     +0.103 |   +104.3 % |
-| next-js external                  | TS/JS / typical app       |        0.198 |       0.196 |     -0.002 |     -0.8 % |
-| react-core external               | TS/JS / short runtime     |        0.123 |       0.123 |     +0.000 |     +0.0 % |
+| Dataset                          | Language / archetype   | baseline MRR | stacked MRR |      Δ abs |      Δ rel |
+| -------------------------------- | ---------------------- | -----------: | ----------: | ---------: | ---------: |
+| 89-query self                    | Rust / self            |        0.572 |       0.586 |     +0.014 |     +2.4 % |
+| 436-query self                   | Rust / self            |       0.0476 |      0.0510 |    +0.0034 |     +7.1 % |
+| ripgrep external                 | Rust / tooling         |        0.459 |       0.529 |     +0.070 |    +15.2 % |
+| requests external                | Python / app library   |        0.584 |       0.495 |     -0.089 |    -15.2 % |
+| **django external (new, §8.18)** | **Python / framework** |    **0.294** |   **0.288** | **-0.005** | **-1.8 %** |
+| jest external                    | TS/JS / tooling        |        0.155 |       0.166 |     +0.011 |     +7.3 % |
+| typescript external              | TS/JS / compiler       |        0.098 |       0.201 |     +0.103 |   +104.3 % |
+| next-js external                 | TS/JS / typical app    |        0.198 |       0.196 |     -0.002 |     -0.8 % |
+| react-core external              | TS/JS / short runtime  |        0.123 |       0.123 |     +0.000 |     +0.0 % |
+
+Machine-generated counterpart: `python3 benchmarks/embedding-quality-matrix.py --require-datasets ripgrep,requests,jest,typescript,next-js,react-core,django`
+
+- JSON artefact: `benchmarks/embedding-quality-phase3-matrix.json`
+- Markdown artefact: `benchmarks/embedding-quality-phase3-matrix.md`
+- This does not replace the narrative analysis in §8.18, but it does make the arm-level matrix reproducible from the underlying benchmark JSONs instead of hand-maintained tables.
 
 Pattern is now **5 positive / 2 negative / 2 inert**.
 
@@ -2099,6 +2105,70 @@ python3 benchmarks/embedding-quality.py /tmp/django-src/django --isolated-copy \
 ```
 
 **Artefacts**: `benchmarks/embedding-quality-v1.6-phase3g-django-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-django.json`.
+
+### §8.19 — Phase 2n: unified Phase 2e-only evidence across 8 datasets, and the Phase 2m decision audit
+
+**Purpose**: Phase 2m (the §8.17 code change) narrowed the Phase 2e sparse re-ranker auto-gate to the Rust family of languages, after an evidence arc that spanned §8.12 → §8.13 → §8.15 → §8.16 → §8.17. That evidence arc was spread across seven measurement sections with different framings. This section collects the 2e-only column from every 4-arm A/B the project has ever run into a single narrative table so future decisions about Phase 2e (rollback, removal, further narrowing, or extension) can be made against one source of truth instead of reconstructing it from the phase-by-phase text.
+
+**Earlier sections compared the full stacked arm to the baseline**, which blends three effects (Phase 2b NL token extraction, Phase 2c API-call extraction, Phase 2e sparse re-rank). Phase 2m is exclusively about Phase 2e, so only the `2e-only vs baseline` delta is load-bearing here. Everything below uses **hybrid `get_ranked_context` MRR** so that numbers are directly comparable across sections.
+
+A machine-generated companion of this table lives at `benchmarks/embedding-quality-phase3-matrix.json` / `.md`, generated by `benchmarks/embedding-quality-matrix.py`. That script diffs the full stacked arm against baseline for each `phase3*` dataset. The table below covers a slightly different slice — Phase 2e-only specifically, including the §8.2 / §8.7 Rust measurements that predate the `phase3*` naming convention — so it is still hand-aggregated from the archived result JSONs. The two views agree on every dataset they both cover.
+
+**Eight-dataset unified table** (hybrid `get_ranked_context` MRR, 2e-only vs baseline):
+
+| § ref | Dataset                    | Archetype            | Lang | baseline | 2e-only |   Δ abs |       Δ rel |
+| ----- | -------------------------- | -------------------- | ---- | -------: | ------: | ------: | ----------: |
+| §8.2  | 89-query self (phase2e v2) | Rust / self          | rs   |   0.5716 |  0.5787 | +0.0071 |      +1.2 % |
+| §8.7  | ripgrep external           | Rust / tooling       | rs   |   0.4594 |  0.4878 | +0.0284 |  **+6.2 %** |
+| §8.8  | requests external          | Python / app library | py   |   0.5837 |  0.5697 | −0.0140 |      −2.4 % |
+| §8.13 | jest external              | TS / tooling         | ts   |   0.1546 |  0.1567 | +0.0021 |      +1.3 % |
+| §8.15 | typescript external        | TS / compiler        | ts   |   0.0984 |  0.0886 | −0.0098 | **−10.0 %** |
+| §8.16 | next-js external           | TS / typical app     | ts   |   0.1979 |  0.1962 | −0.0017 |      −0.8 % |
+| §8.17 | react-core external        | TS / short runtime   | ts   |   0.1225 |  0.1225 | +0.0000 |      +0.0 % |
+| §8.18 | django external            | Python / framework   | py   |   0.2937 |  0.2937 | +0.0000 |      +0.0 % |
+
+Every row is reproducible from an archived 4-arm result JSON: run `benchmarks/embedding-quality-matrix.py` for the seven `phase3*` rows, and read the `benchmarks/embedding-quality-v1.5-phase2e-v2-{baseline,on}.json` pair directly for the §8.2 row. None of the numbers are hand-copied from prior narrative sections.
+
+**By-language aggregation**:
+
+| Language family | Datasets | Positive | Zero/Inert | Negative |   Best |   Worst |
+| --------------- | -------: | -------: | ---------: | -------: | -----: | ------: |
+| Rust            |        2 |      2/2 |          0 |        0 | +6.2 % |  +1.2 % |
+| TypeScript / JS |        4 |      1/4 |        1/4 |      2/4 | +1.3 % | −10.0 % |
+| Python          |        2 |      0/2 |        1/2 |      1/2 |  0.0 % |  −2.4 % |
+
+**What this table actually says**:
+
+1. **Rust is unambiguously positive**. Both the 89-query self dataset and the external ripgrep dataset put Phase 2e on the correct side of zero. Rust is the only family in the table with a 2/2 positive record, and its best case (+6.2 %) is also the single largest positive Phase 2e contribution across all measured datasets. The Rust auto-on branch of Phase 2m is load-bearing evidence, not aspirational policy.
+2. **TypeScript / JS is mixed at best and net-negative at worst**. One marginal positive (jest, a test-tooling codebase), one zero, two negatives. The one positive is jest's **+1.3 %**, which is smaller in absolute terms than Rust's weakest positive — Rust self-89 at **+0.0071 absolute** vs jest at **+0.0021 absolute**. The worst case is the TypeScript compiler at **−10.0 %**, which is the single largest negative Phase 2e effect across all eight datasets, nearly three times the size of the next largest negative. Even without the follow-up app measurements, a narrow Rust-only auto-gate was defensible; with §8.16 and §8.17 added, keeping JS/TS in the 2e auto-gate would be indefensible.
+3. **Python is never positive**. One small negative, one exact zero. Phase 2m's JS/TS split happened to also match the Python story because `language_supports_nl_stack` already excludes Python, so Python never reaches the Phase 2e auto-on path in practice. The table makes it explicit: if Python were ever added back to `language_supports_nl_stack` (it is not on the roadmap), the 2e gate would still have to stay off on the current evidence.
+4. **Phase 2e is mechanism-inert when baseline hybrid MRR is already saturated against lexical signal**. react-core (0.1225 → 0.1225) and django (0.2937 → 0.2937) both show Phase 2e producing literally zero change at full float precision, despite moving pure `get_ranked_context_no_semantic` slightly upward on some arms. The sparse re-ranker's output is already subsumed by the hybrid combiner on those corpora.
+
+**Phase 2m decision audit — should the Rust auto-on gate be kept, narrowed, or removed?**
+
+Three alternative policies were considered during the §8.17 review:
+
+- **Policy A — "Remove Phase 2e entirely"**. Cheap from a maintenance perspective; loses the 2/2 positive Rust signal (+0.0071 on self-89, +0.0284 on ripgrep). The absolute magnitudes are small on one dataset and non-trivial on the other. Removal would be a strictly net-negative move on measured Rust corpora, which is the archetype most project-internal users run CodeLens on.
+- **Policy B — "Narrow Rust auto-on to tooling only"**. Would require a new classifier (is this a Rust CLI / library / compiler / editor vs a Rust application?). Both measured Rust datasets are already in the tooling/self category, so the policy has no evidence base to calibrate against. Deferred until a Phase 3h Rust app measurement justifies or contradicts it.
+- **Policy C — "Keep current Phase 2m scope (Rust family on, JS/TS off, Python off, everything else off)"**. Matches every positive in the table and excludes every negative. This is what landed in PR #36 and is the status quo.
+
+Policy C is the minimum-commitment choice that the table supports. It also has the property that it can be revisited cheaply: all future decisions (removal, narrowing, or extension) are **one allowlist edit away** because the split lives in a pair of `language_supports_*` functions in `crates/codelens-engine/src/embedding/mod.rs`. No schema migration, no index rebuild, no MCP protocol change.
+
+**What would change this decision**:
+
+- A Rust application-style measurement (Phase 3h on `tokio-rs/axum`, `SergioBenitez/Rocket`, or a comparable non-tooling Rust framework) that lands Phase 2e as non-positive would reduce Rust's 2/2 streak to 2/3 and re-open Policy B as an evidence-backed option.
+- A future TypeScript / JavaScript measurement — e.g. a Vite + React production app, or a Node.js service — that lands Phase 2e as a large positive would push the TS/JS record to 2/5 positive. That would still not justify re-adding JS/TS to the auto-gate: the asymmetry from §8.15 (−10.0 %) is too large to overcome with a single new positive. Two separate large JS/TS positives would be needed.
+- A model swap (Phase 2d) that fundamentally changes the baseline candidate pool. The current Phase 2e contribution is a function of whether the re-ranker has useful slack above the lexical-only floor; a different embedding model could redraw that slack completely, which would make this entire table stale.
+
+**Pointer-forward**:
+
+§8.19 closes the §8.12 → §8.18 Phase 2e evidence arc. The phase candidates that remain open after this section are:
+
+1. **Phase 3h** — a Rust app-style dataset (counterpart to §8.16 / §8.17 for the Rust family). This is the only measurement that could move Policy B out of "deferred".
+2. **Phase 2d** — an embedding model swap addressing the retrieval-failure floor that §8.15 / §8.16 / §8.17 surfaced (15 / 26 NL queries unreachable on next-js, 29 / 34 on react-core). This is the largest potential quality lever remaining.
+3. **Operational hardening** — tracking items independent of the measurement campaign (the §8.14 language-switch process-scope limitation, Phase 4d single-instance guard follow-ups, etc.).
+
+None of these three change the §8.19 decision about the Phase 2m rollout. They all presuppose that the auto-gate split landed in PR #36 stays in place.
 
 ---
 
