@@ -884,6 +884,39 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         merge_semantic_ranked_entries(query, &mut result, semantic_results.clone(), 8);
     }
 
+    // v1.5 Phase 2e: sparse term coverage bonus — post-process
+    // re-ordering pass. Runs on the ORIGINAL user `query`, not the
+    // MCP-expanded retrieval string, because the expansion adds dozens
+    // of derivative tokens (snake_case, CamelCase, alias groups) that
+    // dilute the coverage ratio below any reasonable threshold — the
+    // 4-arm pilot that measured zero effect used the expanded query
+    // and confirmed this dilution. Running the pass here (after
+    // `get_ranked_context_cached` + `merge_semantic_ranked_entries`)
+    // also keeps the engine layer free of query-semantics knowledge —
+    // the engine ranks, the MCP layer decides what "the query" means.
+    if codelens_engine::sparse_weighting_enabled() {
+        let query_lower_for_sparse = query.to_lowercase();
+        let mut changed = false;
+        for entry in result.symbols.iter_mut() {
+            let bonus = codelens_engine::sparse_coverage_bonus_from_fields(
+                &query_lower_for_sparse,
+                &entry.name,
+                &entry.name, // no name_path on RankedContextEntry; reuse name
+                &entry.signature,
+                &entry.file,
+            );
+            if bonus > 0.0 {
+                entry.relevance_score = entry.relevance_score.saturating_add(bonus as i32);
+                changed = true;
+            }
+        }
+        if changed {
+            result
+                .symbols
+                .sort_unstable_by(|a, b| b.relevance_score.cmp(&a.relevance_score));
+        }
+    }
+
     let semantic_evidence = if effective_disable_semantic {
         Vec::new()
     } else {

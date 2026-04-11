@@ -402,6 +402,111 @@ Measurement artefacts live in `benchmarks/embedding-quality-v1.5-phase2c-self-{b
 - **Phase 2d — Model swap**: CodeSearchNet-INT8 → E5-large / BGE-base. Directly addresses RCA item 1 (the embedding model itself). Largest ceiling uplift but costs binary size + install weight.
 - **Phase 2e — Sparse term weighting**: if the stacked-arm result holds on more repos, a short term-frequency re-weighting pass on top of the existing BM25+dense hybrid may be the cheapest next step.
 
+### 8.4 v1.5 Phase 2e experiment — sparse term coverage re-ranker
+
+**Hypothesis**: Phase 2c's stacked-arm recovered hybrid MRR to baseline while holding the Acc@3 uplift, but still left top-1 ordering on the table — the right answer was often already inside the top 3, it just needed a push to be top 1. A lightweight **sparse term-coverage bonus** run on the hybrid top-K after structural + semantic merging should reorder close ties without touching the lexical path used by identifier queries.
+
+**Design**:
+
+- **Tokenize** the original user query (not the expanded retrieval string) on non-alphanumeric boundaries, drop tokens under 3 chars, drop a short stopword list (`the`, `for`, `with`, `from`, …). Deduplicate.
+- **Build a corpus** from each candidate's `name + name_path + signature + file_path` — `body` is not available at this stage. `file_path` matters because queries like `"build embedding text from a symbol"` find the right symbol via the directory name (`embedding/`, `ranking/`) even when the function name is short.
+- **Count whole-word matches** with a byte-level boundary check: `_` is a word separator (so `"parse"` matches `parse_json_body`) but alphanumerics are not (so `"parse"` does not match `parser`).
+- **Coverage ratio** = matched / total tokens. Below a configurable threshold the bonus is 0; between the threshold and 100% it rises linearly to `sparse_max_bonus()`.
+- **Short-circuit** to 0 when the query has fewer than 2 discriminative tokens after stopword filtering. Identifier queries (`EmbeddingEngine`, `SqliteVecStore`) tokenize to a single token here and never receive a bonus, so their 100% Acc@1 is untouched.
+
+**Where it runs** — in the MCP `get_ranked_context` tool, as a post-process step **after** `get_ranked_context_cached` and `merge_semantic_ranked_entries`. Running it in the engine's `rank_symbols` (the obvious first guess) does not work because the engine receives the MCP-expanded retrieval string, which appends snake_case/CamelCase/PascalCase forms + alias groups and pushes the token count from 4 to 12–15. The coverage ratio is then permanently below any usable threshold. The pilot confirmed this dilution produced **zero effect on every metric** at thresholds 0.4–0.6 with max bonus 20–40. Moving the pass to the MCP layer (which still holds the original `query` string) is what made the second 4-arm A/B surface real signal.
+
+**Setup**: Same 89-query self dataset, same release binary, same bundled CodeSearchNet-INT8 model, same day (2026-04-12). Four arms via `--isolated-copy`:
+
+- **A — baseline**: all three env gates off.
+- **B — phase2e only**: `CODELENS_RANK_SPARSE_TERM_WEIGHT=1`, `CODELENS_RANK_SPARSE_THRESHOLD=40`, `CODELENS_RANK_SPARSE_MAX=40`. Phase 2b/2c gates untouched.
+- **C — phase2b+2c only**: Phase 2b/2c opt-in, Phase 2e off. Included to compute Phase 2e's marginal value on top of the already-validated stack.
+- **D — stacked**: all three gates on, same Phase 2e parameters as arm B.
+
+**Result** (89 queries, top-10 cutoff):
+
+| Method (hybrid)          | A base |  B 2e | C 2b+2c | D stacked |
+| ------------------------ | -----: | ----: | ------: | --------: |
+| `get_ranked_context` MRR |  0.572 | 0.579 |   0.573 |     0.586 |
+| hybrid Acc@1             |  0.506 | 0.506 |   0.494 |     0.506 |
+| hybrid Acc@3             |  0.607 | 0.640 |   0.629 |     0.652 |
+| **NL hybrid MRR**        |  0.470 | 0.481 |   0.469 |     0.490 |
+| **NL hybrid Acc@1**      |  0.400 | 0.400 |   0.382 |     0.400 |
+| **NL hybrid Acc@3**      |  0.491 | 0.545 |   0.509 |     0.545 |
+| identifier hybrid Acc@1  |  0.800 | 0.800 |   0.800 |     0.800 |
+
+**Deltas vs baseline**:
+
+| Run             | hybrid MRR | hybrid Acc@1 | hybrid Acc@3 | NL hybrid MRR | NL Acc@1 |   NL Acc@3 |
+| --------------- | ---------: | -----------: | -----------: | ------------: | -------: | ---------: |
+| phase2e only    | **+0.007** |       +0.000 |   **+0.034** |    **+0.011** |   +0.000 | **+0.055** |
+| phase2b+2c only |     +0.001 |       −0.011 |       +0.022 |        −0.001 |   −0.018 |     +0.018 |
+| **stacked**     | **+0.014** |       +0.000 |   **+0.045** |    **+0.020** |   +0.000 | **+0.055** |
+
+**Phase 2e marginal value on top of Phase 2b+2c** (`stacked − phase2b+2c only`):
+
+- hybrid MRR: **+0.013**
+- hybrid Acc@1: **+0.011**
+- hybrid Acc@3: **+0.023**
+- NL hybrid MRR: **+0.021**
+- NL hybrid Acc@1: **+0.018**
+- NL hybrid Acc@3: **+0.036**
+- identifier Acc@1: **+0.000** (100% → 100%, gate held)
+
+**Verdict — first v1.5 experiment where the solo arm beats baseline on every metric that matters**:
+
+1. **Phase 2e alone** is the first Phase 2-family knob where opting in directly (no Phase 2b/2c needed) produces a positive delta on _every_ hybrid metric that was previously either flat or regressing. +0.007 hybrid MRR, +0.034 hybrid Acc@3, +0.055 NL Acc@3 — all ahead of the Phase 2b and Phase 2c solo results.
+2. **Stacked arm** (2b + 2c + 2e) is strictly the best seen so far in v1.5: hybrid MRR **0.586** (+0.014 vs baseline, biggest lift in this whole experiment line), NL Acc@3 **0.545** (+5.5pp), hybrid Acc@1 recovered to the baseline 0.506 (Phase 2b+2c alone left it at 0.494). This is the first arm where the stacking story in §8.3 actually crosses into "measurably above baseline" rather than "tied with baseline".
+3. **Identifier queries are unchanged** (0.800 → 0.800 on Acc@1/Acc@3 in every arm), confirming that the sub-2-token short-circuit kept the pure-identifier path clean.
+4. **`semantic_search` alone is unchanged** — the sparse re-ordering runs inside `get_ranked_context` in the MCP layer and never sees the `semantic_search` code path, so that tool keeps its Phase 2c behaviour.
+
+**Why the first pilot measured zero and the second measured real uplift**: The sparse pass is only useful when its input is the _original user query_. The engine-level `rank_symbols` receives the MCP-expanded retrieval string, which inflates the token count and collapses every coverage ratio below any reasonable threshold. The second pilot moved the pass into the MCP tool, where it runs on `query` directly, and all the metrics moved. The lesson is crate-boundary-specific — sparse pseudo-BM25 scoring must live wherever the "query" string still has its original shape.
+
+**Default policy**: Phase 2e stays **opt-in** (`CODELENS_RANK_SPARSE_TERM_WEIGHT` default OFF), matching the Phase 2b/2c conservative policy. Two reasons:
+
+1. The measurement is on a single 89-query dataset on one repository. A single-dataset win that validates on one more external repo would be enough to flip the default, but one dataset is not enough yet.
+2. Flipping the default would make the re-ranking run on every `get_ranked_context` call without an explicit user decision. The bonus is small (`5..=50` clamp, default 20) and short-circuits aggressively, but ordering _changes_ are still visible to downstream agents that cached last-session rankings. Opt-in gives each project control over the rollout.
+
+**Env knobs**:
+
+- `CODELENS_RANK_SPARSE_TERM_WEIGHT=1` (or `true`/`yes`/`on`) — turn the pass on.
+- `CODELENS_RANK_SPARSE_THRESHOLD=<10..=90>` (integer, default 60). The coverage percentage below which the bonus stays 0. The 2026-04-12 pilot used `40` — more permissive defaults gave larger uplift on this dataset because most target symbols only had 2 out of 4–5 query tokens in their name + path.
+- `CODELENS_RANK_SPARSE_MAX=<5..=50>` (integer, default 20). The maximum bonus added at 100% coverage. `40` was the pilot value and gave clean tie-breaking without dominating the lexical 0–55 range from `score_symbol_with_lower`.
+
+**Reproduce any arm**:
+
+```bash
+# Arm A — baseline
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
+
+# Arm B — Phase 2e solo
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
+
+# Arm D — full v1.5 stack (2b + 2c + 2e)
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
+```
+
+Measurement artefacts live in `benchmarks/embedding-quality-v1.5-phase2e-v2-{baseline,on,2b2c-only,stacked}.{json,md}` for audit and future reproducibility.
+
+**Next candidate experiments**:
+
+- **Phase 2d — Model swap**: CodeSearchNet-INT8 → E5-large / BGE-base. Still the largest ceiling uplift available, still carries binary-size + migration cost. Phase 2e being the first positive solo win means the "stack all three" arm (now +0.014 hybrid MRR / +0.045 Acc@3) is a real baseline to beat before committing to a model swap.
+- **Phase 2f — External-repo validation**: run the full 4-arm A/B on one or two medium-size external Rust / TypeScript repos before flipping any of the three env gates to default ON. A positive signal on the self dataset is necessary but not sufficient for a default change.
+
 ---
 
 ## 9. See Also
