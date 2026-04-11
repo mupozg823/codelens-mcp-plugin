@@ -213,3 +213,319 @@ pub(crate) fn score_symbol_with_lower(
 
     Some(base_score + kind_boost)
 }
+
+/// Return true when v1.5 Phase 2e sparse term weighting is enabled via
+/// `CODELENS_RANK_SPARSE_TERM_WEIGHT=1` (or `true`/`yes`/`on`).
+///
+/// Default OFF, mirroring the Phase 2b/2c opt-in policy. Projects that
+/// already opt into the Phase 2b/2c embedding hints can stack this knob
+/// to tighten top-1 ordering without another index rebuild — the sparse
+/// pass reads `SymbolInfo` fields that are already populated on the
+/// ranking path.
+pub fn sparse_weighting_enabled() -> bool {
+    std::env::var("CODELENS_RANK_SPARSE_TERM_WEIGHT")
+        .map(|raw| {
+            let lowered = raw.to_ascii_lowercase();
+            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
+/// Maximum sparse coverage bonus added to the blended score when a query
+/// reaches 100% term coverage against a symbol's `name + name_path +
+/// signature` corpus. Override via `CODELENS_RANK_SPARSE_MAX` (clamped
+/// to 5..=50).
+///
+/// Kept deliberately modest (default 20) because the existing lexical
+/// score in `score_symbol_with_lower` already reaches 55 for signature
+/// hits. The sparse bonus is a *tie-breaker* — it re-orders the top-K
+/// after the main scoring has selected them, not a replacement for the
+/// lexical signal.
+pub fn sparse_max_bonus() -> f64 {
+    std::env::var("CODELENS_RANK_SPARSE_MAX")
+        .ok()
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .map(|n| n.clamp(5, 50))
+        .unwrap_or(20) as f64
+}
+
+/// Minimum query-term coverage (as a percentage, 10..=90) a symbol must
+/// reach before it receives any sparse bonus. Below this threshold the
+/// bonus is `0.0`. Between the threshold and 100% the bonus rises
+/// linearly from `0.0` to `sparse_max_bonus()`.
+///
+/// The default of 60 was a conservative first guess. An initial 4-arm
+/// A/B on the 89-query self dataset found that the bonus never fired at
+/// 60 because most NL queries only share 1–2 discriminative tokens with
+/// their target symbol's `name + name_path + signature` corpus.
+/// Override via `CODELENS_RANK_SPARSE_THRESHOLD` for tuning experiments.
+pub fn sparse_threshold() -> f64 {
+    std::env::var("CODELENS_RANK_SPARSE_THRESHOLD")
+        .ok()
+        .and_then(|raw| raw.parse::<u32>().ok())
+        .map(|n| n.clamp(10, 90))
+        .unwrap_or(60) as f64
+        / 100.0
+}
+
+/// English/pseudo-stopwords that add no discriminative signal when used
+/// as query tokens. Intentionally short — real NL stopwords lists contain
+/// ~150 entries, but most of them never show up in code-search queries.
+/// We only need the ones that regularly dilute query coverage ("find the
+/// function that opens a file" — `the` and `that` are the problem).
+const SPARSE_STOPWORDS: &[&str] = &[
+    "the", "for", "with", "from", "that", "this", "into", "onto", "over", "not", "and", "any",
+    "all", "are", "was", "were", "has", "have", "had", "how", "what", "when", "where", "which",
+    "who", "why", "but", "its", "can", "use", "using", "used", "gets", "set", "sets", "new", "let",
+];
+
+/// Return true when `token` is found in `corpus` as a whole word — that is,
+/// the characters surrounding each occurrence are NOT alphanumeric or `_`.
+///
+/// Phase 2e uses this instead of `str::contains` so that a query token like
+/// `"parse"` matches `parse_json` (snake separator) but not `parser` or
+/// `parseRequest` (would already be caught by the lexical `contains` path,
+/// which is where we want them scored — not via the sparse bonus).
+pub fn has_whole_word(corpus: &str, token: &str) -> bool {
+    if token.is_empty() || corpus.len() < token.len() {
+        return false;
+    }
+    let corpus_bytes = corpus.as_bytes();
+    let token_bytes = token.as_bytes();
+    let mut start = 0;
+    while start + token_bytes.len() <= corpus_bytes.len() {
+        // Find next occurrence from `start`
+        let remaining = &corpus[start..];
+        let Some(local_idx) = remaining.find(token) else {
+            return false;
+        };
+        let abs = start + local_idx;
+        let end = abs + token_bytes.len();
+        let before_ok = abs == 0 || !is_word_byte(corpus_bytes[abs - 1]);
+        let after_ok = end == corpus_bytes.len() || !is_word_byte(corpus_bytes[end]);
+        if before_ok && after_ok {
+            return true;
+        }
+        start = abs + 1;
+    }
+    false
+}
+
+/// Byte-level helper: true when the byte is part of an ASCII word
+/// ([A-Za-z0-9]). `_` is deliberately excluded so that snake_case
+/// separators count as word boundaries — e.g. `"parse"` should match
+/// `"parse_json_body"` but not `"parser"`. Non-ASCII bytes (UTF-8
+/// continuation) default to "word" so multi-byte identifiers stay
+/// conservative (no false positives from partial UTF-8 matches).
+fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || (b & 0x80) != 0
+}
+
+/// Tokenize `query_lower` into distinct discriminative terms for the
+/// Phase 2e sparse pass:
+/// - split on any non-alphanumeric character
+/// - drop tokens shorter than 3 characters
+/// - drop tokens in `SPARSE_STOPWORDS`
+/// - deduplicate while preserving order
+///
+/// Returns `Vec<String>` (not `Vec<&str>`) so callers can own the tokens
+/// independently of the query lifetime — the rank loop already has to
+/// outlive the borrow anyway.
+pub fn sparse_query_tokens(query_lower: &str) -> Vec<String> {
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    for raw in query_lower.split(|c: char| !c.is_alphanumeric()) {
+        if raw.len() < 3 {
+            continue;
+        }
+        if SPARSE_STOPWORDS.contains(&raw) {
+            continue;
+        }
+        if seen.insert(raw.to_string()) {
+            out.push(raw.to_string());
+        }
+    }
+    out
+}
+
+/// Text-first variant of the Phase 2e sparse coverage bonus. Does NOT
+/// take a `SymbolInfo` so that callers outside the engine crate (notably
+/// the MCP `get_ranked_context` post-process) can feed it whatever fields
+/// are actually available on their entry type.
+///
+/// `query_lower` MUST already be lower-cased — the function does not
+/// re-lowercase so that callers with a long query can amortise the
+/// allocation outside the loop. Pass the *original user query*, not the
+/// MCP-expanded retrieval string: the expansion adds dozens of
+/// derivative tokens (snake_case, CamelCase, alias groups) that dilute
+/// the coverage ratio below any reasonable threshold — that dilution
+/// was the exact reason the first 4-arm pilot measured zero effect.
+///
+/// Returns `0.0` whenever:
+/// - the query has fewer than 2 discriminative tokens after stopword
+///   filtering (single-token queries already resolve well via the
+///   lexical path — `sparse_query_tokens` deduplicates + drops <3 chars),
+/// - the coverage ratio is below `sparse_threshold()` (default 0.6).
+///
+/// Between the threshold and 100% coverage the bonus rises linearly
+/// from 0 to `sparse_max_bonus()`. The caller is responsible for
+/// gating the whole call with `sparse_weighting_enabled()` so test
+/// code can run the inner logic deterministically.
+pub fn sparse_coverage_bonus_from_fields(
+    query_lower: &str,
+    name: &str,
+    name_path: &str,
+    signature: &str,
+    file_path: &str,
+) -> f64 {
+    let tokens = sparse_query_tokens(query_lower);
+    if tokens.len() < 2 {
+        return 0.0;
+    }
+    let mut corpus =
+        String::with_capacity(name.len() + name_path.len() + signature.len() + file_path.len() + 3);
+    corpus.push_str(name);
+    corpus.push(' ');
+    corpus.push_str(name_path);
+    corpus.push(' ');
+    corpus.push_str(signature);
+    corpus.push(' ');
+    corpus.push_str(file_path);
+    let corpus_lower = corpus.to_lowercase();
+
+    let matched = tokens
+        .iter()
+        .filter(|t| has_whole_word(&corpus_lower, t))
+        .count() as f64;
+    let total = tokens.len() as f64;
+    let coverage = matched / total;
+
+    let threshold = sparse_threshold();
+    if coverage < threshold {
+        return 0.0;
+    }
+    // threshold → 0, 100% → sparse_max_bonus(), linear between. Guard
+    // against threshold == 1.0 (would divide by zero) by clamping.
+    let span = (1.0 - threshold).max(0.01);
+    (coverage - threshold) / span * sparse_max_bonus()
+}
+
+/// Back-compat wrapper kept for the existing `SymbolInfo`-based unit
+/// tests. New call sites should prefer `sparse_coverage_bonus_from_fields`.
+#[cfg(test)]
+pub(crate) fn sparse_coverage_bonus(query_lower: &str, symbol: &SymbolInfo) -> f64 {
+    sparse_coverage_bonus_from_fields(
+        query_lower,
+        &symbol.name,
+        &symbol.name_path,
+        &symbol.signature,
+        &symbol.file_path,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::types::{SymbolInfo, SymbolKind};
+    use super::*;
+
+    fn mk_symbol(name: &str, signature: &str) -> SymbolInfo {
+        SymbolInfo {
+            name: name.to_string(),
+            kind: SymbolKind::Function,
+            file_path: "test.rs".into(),
+            line: 1,
+            column: 0,
+            signature: signature.to_string(),
+            name_path: name.to_string(),
+            id: format!("test.rs#function:{name}"),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        }
+    }
+
+    #[test]
+    fn sparse_weighting_gated_off_by_default() {
+        let previous = std::env::var("CODELENS_RANK_SPARSE_TERM_WEIGHT").ok();
+        unsafe {
+            std::env::remove_var("CODELENS_RANK_SPARSE_TERM_WEIGHT");
+        }
+        let enabled = sparse_weighting_enabled();
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("CODELENS_RANK_SPARSE_TERM_WEIGHT", value);
+            }
+        }
+        assert!(!enabled, "sparse weighting gate leaked");
+    }
+
+    #[test]
+    fn sparse_query_tokens_drops_stopwords_and_short_tokens() {
+        let tokens = sparse_query_tokens("find the function that opens a file");
+        // "find", "function", "opens", "file" survive. "the", "that", "a" dropped.
+        assert_eq!(tokens, vec!["find", "function", "opens", "file"]);
+    }
+
+    #[test]
+    fn sparse_query_tokens_deduplicates() {
+        let tokens = sparse_query_tokens("parse json parse xml parse");
+        assert_eq!(tokens, vec!["parse", "json", "xml"]);
+    }
+
+    #[test]
+    fn has_whole_word_respects_word_boundaries() {
+        // snake_case separator counts as non-word → match
+        assert!(has_whole_word("parse_json_body", "parse"));
+        // substring inside a larger identifier → no match
+        assert!(!has_whole_word("parser", "parse"));
+        assert!(!has_whole_word("parserequest", "parse"));
+        // leading/trailing whitespace
+        assert!(has_whole_word("parse the file", "parse"));
+        assert!(has_whole_word("open file", "file"));
+        // empty token / short corpus
+        assert!(!has_whole_word("xyz", ""));
+        assert!(!has_whole_word("ab", "abc"));
+    }
+
+    #[test]
+    fn sparse_coverage_bonus_zero_for_single_token_query() {
+        let sym = mk_symbol("parse_json", "fn parse_json(input: &str) -> Value");
+        // Single token after stopword filtering — short-circuit to 0.
+        let bonus = sparse_coverage_bonus("parse", &sym);
+        assert_eq!(bonus, 0.0);
+    }
+
+    #[test]
+    fn sparse_coverage_bonus_zero_below_threshold() {
+        let sym = mk_symbol("parse_json", "fn parse_json(input: &str) -> Value");
+        // Two query tokens: "parse", "rename". Only "parse" matches → 50% coverage.
+        // 50% < 60% threshold → bonus 0.
+        let bonus = sparse_coverage_bonus("parse rename", &sym);
+        assert_eq!(bonus, 0.0);
+    }
+
+    #[test]
+    fn sparse_coverage_bonus_full_match_reaches_max() {
+        let sym = mk_symbol(
+            "parse_json_body",
+            "fn parse_json_body(input: &str) -> Value",
+        );
+        // Tokens: "parse", "json", "body". All three match.
+        // coverage = 1.0 → bonus = (1.0 - 0.6) / 0.4 * 20 = 20
+        let bonus = sparse_coverage_bonus("parse json body", &sym);
+        // Allow small float tolerance for default max = 20
+        assert!((bonus - 20.0).abs() < 0.01, "expected ~20, got {bonus}");
+    }
+
+    #[test]
+    fn sparse_coverage_bonus_ignores_whole_word_false_positives() {
+        // "parser" should NOT match token "parse" via the sparse path —
+        // word-boundary precision is the whole point of Phase 2e.
+        // Two tokens ("parse", "json"), only "json" matches via the
+        // signature → 50% coverage → 0 bonus (below threshold).
+        let sym = mk_symbol("parser", "fn parser(input: &str) -> Json");
+        let bonus = sparse_coverage_bonus("parse json", &sym);
+        assert_eq!(bonus, 0.0);
+    }
+}
