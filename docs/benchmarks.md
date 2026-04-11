@@ -1129,6 +1129,138 @@ python3 benchmarks/embedding-quality.py /tmp/requests-ext --isolated-copy \
 
 Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase2i-{ripgrep,requests}-full-strict.json`.
 
+### 8.11 v1.5 Phase 2j experiment — language-gated auto-detection
+
+**Hypothesis** (from §8.10 Phase 2i rejection): after two consecutive filter-refinement experiments (Phase 2h recovered 8 %, Phase 2i rejected) failed to close the Python regression via mechanism-level fixes, the right next step is **policy-level acceptance** that the v1.5 stack is Rust-optimised. Rather than continue refining filters with diminishing returns, gate Phase 2b / 2c / 2e at the configuration layer based on the project's dominant language: enable the stack on measured-positive languages (Rust / C++ / C / Go / Java / Kotlin / Scala / C#), disable on measured-negative (Python) and untested-dynamic (JavaScript / TypeScript / Ruby / PHP / …) languages.
+
+**Design** — explicit env wins over auto mode:
+
+1. Existing `CODELENS_EMBED_HINT_INCLUDE_COMMENTS`, `CODELENS_EMBED_HINT_INCLUDE_API_CALLS`, and `CODELENS_RANK_SPARSE_TERM_WEIGHT` env vars continue to work **exactly** as before. When set (to any recognised value), they take precedence.
+2. New `CODELENS_EMBED_HINT_AUTO=1` env gate turns on the auto-detection fallback. When set and the explicit var is unset, the engine reads `CODELENS_EMBED_HINT_AUTO_LANG` and consults `language_supports_nl_stack` to decide the default.
+3. Language tag is supplied by the MCP tool layer (in a follow-up patch) via `CODELENS_EMBED_HINT_AUTO_LANG=<canonical_extension>` — e.g. `rust`, `py`, `ts`, `go`. The engine only reads the tag; it does not walk the filesystem itself. This keeps the engine stateless and avoids owning a project-wide cache that could go stale on file changes.
+4. The language support list is **conservative**: `rs`, `rust`, `cpp`, `cc`, `cxx`, `c++`, `c`, `go`, `golang`, `java`, `kt`, `kotlin`, `scala`, `cs`, `csharp`. Everything else — including all dynamic-typed languages, all untested languages, and unknown tags — is classified as unsupported and defaults to the stack **off**. Adding a language to the list requires an actual external-repo A/B following the §8.7 methodology, not a language-similarity argument alone.
+
+**Implementation** — three crate-level additions in `crates/codelens-engine/src/embedding/mod.rs`:
+
+- `auto_hint_mode_enabled()` — reads `CODELENS_EMBED_HINT_AUTO`
+- `auto_hint_lang() -> Option<String>` — reads `CODELENS_EMBED_HINT_AUTO_LANG`
+- `language_supports_nl_stack(lang: &str) -> bool` — the conservative allow-list
+- `auto_hint_should_enable()` — `auto_hint_mode_enabled() && language_supports_nl_stack(auto_hint_lang()?)`
+
+The existing `nl_tokens_enabled` (Phase 2b), `api_calls_enabled` (Phase 2c), and `sparse_weighting_enabled` (Phase 2e, in `scoring.rs`) are each refactored to an explicit-first-then-auto pattern:
+
+```rust
+fn nl_tokens_enabled() -> bool {
+    if let Some(explicit) = parse_bool_env("CODELENS_EMBED_HINT_INCLUDE_COMMENTS") {
+        return explicit;
+    }
+    auto_hint_should_enable()
+}
+```
+
+The Phase 2e gate in `scoring.rs` calls `crate::embedding::auto_hint_should_enable()` for the same decision, keeping the three gates in lock-step.
+
+**4 new unit tests**:
+
+- `auto_hint_mode_gated_off_by_default` — default OFF verified
+- `language_supports_nl_stack_classifies_correctly` — all 13 supported tags + 11 unsupported tags + case-insensitive + whitespace-tolerant
+- `auto_hint_should_enable_requires_both_gate_and_supported_lang` — four cases: gate off, gate on + rust (enable), gate on + python (disable), gate on + no tag (conservative off)
+- `nl_tokens_enabled_explicit_env_wins_over_auto` — explicit ON / explicit OFF / no-explicit + rust / no-explicit + python
+
+Test count: 249 → **253**.
+
+**Measurement** — two verification runs, each with `CODELENS_EMBED_HINT_AUTO=1` set and **all explicit env vars unset**:
+
+| Run               | Language tag                           | Expected behaviour                                                   |
+| ----------------- | -------------------------------------- | -------------------------------------------------------------------- |
+| ripgrep (Rust)    | `CODELENS_EMBED_HINT_AUTO_LANG=rust`   | Auto-enables full v1.5 stack → should match §8.7 stacked arm exactly |
+| requests (Python) | `CODELENS_EMBED_HINT_AUTO_LANG=python` | Auto-disables everything → should match §8.8 baseline exactly        |
+
+**Result — both verifications hit bit-identity on every metric**:
+
+**ripgrep (auto-rust) vs §8.7 stacked**:
+
+| Metric                | §8.7 stacked | auto-rust |           Δ |
+| --------------------- | -----------: | --------: | ----------: |
+| `semantic_search` MRR |       0.3972 |    0.3972 | **±0.0000** |
+| hybrid MRR            |       0.5292 |    0.5292 | **±0.0000** |
+| hybrid Acc@1          |       0.3333 |    0.3333 | **±0.0000** |
+| hybrid Acc@3          |       0.6667 |    0.6667 | **±0.0000** |
+| NL hybrid MRR         |       0.5539 |    0.5539 | **±0.0000** |
+| NL Acc@3              |       0.7059 |    0.7059 | **±0.0000** |
+| short_phrase MRR      |       0.4067 |    0.4067 | **±0.0000** |
+| short_phrase Acc@3    |       0.6000 |    0.6000 | **±0.0000** |
+| identifier Acc@1      |       0.5000 |    0.5000 | **±0.0000** |
+
+Every metric matches to four-decimal precision. The explicit-env / auto-env fallback produces exactly the same behaviour as the three explicit env vars, confirming the refactor is semantically equivalent when the auto path enables the stack.
+
+**requests (auto-python) vs §8.8 baseline**:
+
+| Metric                | §8.8 baseline | auto-python |           Δ |
+| --------------------- | ------------: | ----------: | ----------: |
+| `semantic_search` MRR |        0.5410 |      0.5410 | **±0.0000** |
+| hybrid MRR            |        0.5837 |      0.5837 | **±0.0000** |
+| hybrid Acc@1          |        0.4167 |      0.4167 | **±0.0000** |
+| hybrid Acc@3          |        0.7083 |      0.7083 | **±0.0000** |
+| NL hybrid MRR         |        0.6147 |      0.6147 | **±0.0000** |
+| NL Acc@3              |        0.7059 |      0.7059 | **±0.0000** |
+| short_phrase MRR      |        0.3118 |      0.3118 | **±0.0000** |
+| short_phrase Acc@3    |        0.6000 |      0.6000 | **±0.0000** |
+| identifier Acc@1      |        1.0000 |      1.0000 | **±0.0000** |
+
+Every metric matches the §8.8 baseline to four decimals — the auto-python path fully disables Phase 2b/2c/2e and returns the unmodified baseline embedding + ranking behaviour. The −0.0889 hybrid MRR regression from §8.8 is **completely avoided** when the user sets `CODELENS_EMBED_HINT_AUTO=1` and the MCP tool layer reports `lang=python`.
+
+**Verdict — Phase 2j works as specified**:
+
+The two-sided verification is the cleanest evidence pattern any v1.5 experiment has produced: **bit-identical to the positive reference on the supported language and bit-identical to the unmodified baseline on the unsupported language**. No partial recovery, no mixed direction, no language-specific carve-outs. One env var flips the right default for each language.
+
+**Relationship to the four-dataset baseline** (§8.5, §8.7, §8.8):
+
+With Phase 2j, the v1.5 stacked results on the Rust datasets are unchanged (the env var wiring reproduces them exactly) and the Python regression from §8.8 is no longer a default user experience — it only occurs when the user explicitly overrides `CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1` on a Python project. This removes the "half the user base sees a regression" problem that blocked the §8.7 default flip.
+
+**What Phase 2j still does NOT do**:
+
+1. **Auto-detect the dominant language inside the engine**. The current implementation requires the MCP tool layer to set `CODELENS_EMBED_HINT_AUTO_LANG=<lang>` before the first `index_embeddings` call. Without that, the engine defaults to "no lang tag → conservative off". A follow-up patch will add the auto-set to `activate_project` / `index_embeddings` — but that change is orthogonal to the gating logic, and shipping the gating logic first lets users verify the env var protocol works in their environment before the auto-set lands.
+2. **Ship an auto default-ON**. `CODELENS_EMBED_HINT_AUTO=1` is still an opt-in env var. The default remains "no env, no stack" — the same as v1.5.0. The Phase 2j change is "new opt-in path that is _safe_ to enable on mixed-language projects because it self-disables on unsupported languages", not "stack is on by default".
+3. **Handle mixed-language projects**. If a project is 60 % Rust + 40 % Python, Phase 2j's current single-tag protocol forces one answer. A future patch could add per-file gating via `language_for_path` at the `build_embedding_text` call site — but that requires threading the project root into the build function, and for v1.5 the single-dominant-language protocol is the lowest-risk way to ship policy-level acceptance.
+4. **Ship JS/TS support**. `{js, ts, jsx, tsx}` are classified as unsupported until a future Phase 3c replays the §8.7 methodology on a JavaScript or TypeScript repo. The language-support list is explicit precisely so that adding a new language requires a measurement, not a code change.
+
+**Updated default-ON flip status**:
+
+- v1.5.0 default: all three env vars OFF (unchanged).
+- **v1.6.0 candidate default**: `CODELENS_EMBED_HINT_AUTO=1`, all three explicit env vars unset, MCP tool layer auto-sets `CODELENS_EMBED_HINT_AUTO_LANG=<dominant>` on `activate_project`. Rust / C++ / Go / Java / Kotlin / Scala / C# projects get the stacked wins from §8.7. Python / JS / TS / Ruby / PHP / … projects get the §8.8 baseline. Mixed-language projects with a clear dominant language follow the dominant rule. The missing "Phase 2j follow-up" — MCP-layer auto-set — is the one remaining blocker before flipping this as a default; the engine-side gating logic in this PR is ready.
+
+**Reproduce**:
+
+```bash
+# ripgrep — auto mode, rust language tag, no explicit env
+CODELENS_EMBED_HINT_AUTO=1 \
+CODELENS_EMBED_HINT_AUTO_LANG=rust \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/ripgrep-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-ripgrep.json
+
+# requests — auto mode, python language tag, no explicit env
+CODELENS_EMBED_HINT_AUTO=1 \
+CODELENS_EMBED_HINT_AUTO_LANG=python \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/requests-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-requests.json
+```
+
+Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase2j-{ripgrep-auto-rust,requests-auto-python}.json`.
+
+**Still-open work**:
+
+- **Phase 2j follow-up (MCP auto-set)** — the `activate_project` / `index_embeddings` MCP tool layer sets `CODELENS_EMBED_HINT_AUTO_LANG` automatically, so users only need `CODELENS_EMBED_HINT_AUTO=1` at launch. Small scope, no new measurement required — the engine gating is already verified.
+- **Phase 3c — JS/TS validation**. The measurement that unblocks adding `ts` / `js` to `language_supports_nl_stack`. Same four-arm A/B methodology; candidate repo `facebook/jest` or `microsoft/typescript`.
+- **Phase 2k — per-file gating for mixed-language projects**. Longer shot. The §8.11 single-dominant-language protocol handles the 90 % case, but a 50/50 Rust+Python project is forced into one answer. Per-file gating via `language_for_path` at the `build_embedding_text` call site would give each symbol the right default, at the cost of threading the project root through the build path. Defer until a user actually hits the problem.
+- **Phase 2d — Model swap** — unchanged from §8.8. Still gated on the four-point baseline.
+
 ---
 
 ## 9. See Also
