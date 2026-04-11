@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-04-12
+
+### Release summary
+
+Closes the Phase 2j → 3c → v1.6.0 flip → 4a–4d arc. Five themes:
+
+1. **Language-gated v1.5 stack is now the default** (Phase 2j + Phase 2j follow-up + v1.6.0 default flip, §8.11 / §8.12 / §8.14). `CODELENS_EMBED_HINT_AUTO=1` is the default behaviour; supported-language projects (Rust / C / C++ / Go / Java / Kotlin / Scala / C# / TypeScript / JavaScript) silently gain the §8.7 / §8.13 stacked-arm results, Python / Ruby / PHP / Lua / shell / unknown-language projects silently stay on the §8.8 baseline via the language gate. Opt-out: set `CODELENS_EMBED_HINT_AUTO=0`. Five datasets measurement-validated (4 positive : 1 Python negative).
+2. **TypeScript / JavaScript are measurement-validated** (Phase 3c, §8.13). One external-repo A/B on `facebook/jest` with 24 hand-built queries, `+7.3%` relative hybrid MRR over baseline, 7 : 1 per-query positive : negative ratio. Added `ts` / `typescript` / `tsx` / `js` / `javascript` / `jsx` to `language_supports_nl_stack`. Evidence tier acknowledged — single-dataset, moderate confidence — Phase 3d on `microsoft/typescript` remains open.
+3. **Filter-refinement experiments merged as negative results** (Phase 2h partial, Phase 2i rejected, §8.9 / §8.10). Phase 2h strict literal filter recovered ~8% of the Python regression on `requests`; Phase 2i strict comment filter closed an additional 0%. The negative results are shipped as opt-in knobs anyway so future contributors can bisect and so Rust users who want defensive safety nets can enable them at zero cost.
+4. **Capability reporting is now truthful** (Phase 4a / 4b, §capability-reporting). `get_capabilities` no longer lies about semantic search ("call index_embeddings first" → four-way decomposition with `status` field) or about LSP availability (daemon PATH fallback via `/opt/homebrew/bin`, `~/.cargo/bin`, `~/.fnm/aliases/default/bin`, etc. plus `CODELENS_LSP_PATH_EXTRA`). `PLANNER_READONLY` and `BUILDER_MINIMAL` surfaces now expose `semantic_search` + `index_embeddings` so the Codex surface is in lock-step with the engine's actual capabilities. Binary build metadata (`binary_version`, `binary_git_sha`, `binary_build_time`, `daemon_started_at`) is added to the capability payload so downstream tooling can detect a stale running daemon in a single tool call.
+5. **HTTP transport is operationally observable and single-instance safe** (Phase 4c / 4d, §observability). Single-line `CODELENS_SESSION_START` marker at `warn!` level gives append-only daemon logs (launchd / systemd) an explicit session boundary with pid / port / project_root / project_source / surface / build-identity / daemon_started_at. HTTP bind and serve failures now carry structured tracing fields (port / project_root / git_sha / daemon_started_at) for the same reason. On top of that, `run_http()` now probes the target port before `bind()` and gracefully exits `0` on duplicate detection with `existing_instance_detected=true`, catching the two-launcher race that Phase 4c observability made visible in the first place. Smoke test: **376 μs** from second-launcher startup banner to graceful exit 0; existing daemon uninterrupted.
+
+Test totals at release:
+
+| Suite                              |   Count |
+| ---------------------------------- | ------: |
+| `codelens-engine`                  |     257 |
+| `codelens-mcp` (default)           |     155 |
+| `codelens-mcp` (`--features http`) | **201** |
+
+All `cargo clippy --all-targets --features http -- -D warnings` clean. Release binary builds cleanly for both default and http feature sets.
+
+**Opt-out / migration notes** for v1.5.x users:
+
+- **Most users**: no action required. Supported-language projects silently gain the Phase 2j stack. Python / Ruby / PHP / Lua / shell / unknown-language projects silently stay on baseline.
+- **v1.5.x users who had `CODELENS_EMBED_HINT_AUTO=1` explicit**: no change, explicit always wins.
+- **Restore v1.5.x default-off semantics**: set `CODELENS_EMBED_HINT_AUTO=0` (also accepts `false` / `no` / `off`).
+- **Per-gate explicit overrides still win**: `CODELENS_EMBED_HINT_INCLUDE_COMMENTS`, `_API_CALLS`, `CODELENS_RANK_SPARSE_TERM_WEIGHT` all take precedence over the auto decision — same explicit-first-then-auto rule as §8.11.
+- **launchd user agent users** (the Phase 4d reader audience): if you use `~/Library/LaunchAgents/com.bagjaeseog.codelens-mcp.http.plist` or similar, update `<key>KeepAlive</key><true/>` to a dict with `<key>SuccessfulExit</key><false/>` so launchd respects the Phase 4d graceful-exit path and does not trigger a retry loop on duplicate detection. See §8.14 / Phase 4d write-up for the full plist snippet.
+
+---
+
 ### Added (Phase 4d — single-instance port guard for HTTP transport)
 
 Closes the duplicate-launcher failure mode that Phase 4c's structured logging **made visible but did not resolve**. Phase 4c observability confirmed two launchers racing on port 7837 (`project_source="MCP_PROJECT_DIR"` and `project_source="CLI path"`, 27 μs apart). The `CLI path` source maps to the launchd user agent `com.bagjaeseog.codelens-mcp.http.plist` (`RunAtLoad+KeepAlive`), while the `MCP_PROJECT_DIR` source is not tracked to any persistent config. Since source elimination is impossible without project-wide user-config policy, Phase 4d adds an **application-level single-instance guarantee** instead: whoever loses the race exits gracefully (`exit 0`) with a structured marker, leaving the existing daemon undisturbed.
