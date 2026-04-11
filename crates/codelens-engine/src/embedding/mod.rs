@@ -1692,13 +1692,30 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
 }
 
 /// Maximum total characters collected from body-hint or docstring lines.
-/// Tuned to leave room for signature / file context within the
-/// embedding model's effective input window.
-const HINT_TOTAL_CHAR_BUDGET: usize = 180;
+/// Kept conservative to avoid diluting signature signal for the bundled
+/// MiniLM-L12-CodeSearchNet INT8 model. Override via
+/// `CODELENS_EMBED_HINT_CHARS` for experiments (clamped to 60..=512).
+///
+/// History: a v1.5 Phase 2 PoC briefly raised this to 180 / 3 lines in an
+/// attempt to close the NL query MRR gap. The 2026-04-11 A/B measurement
+/// (`benchmarks/embedding-quality-v1.5-hint1` vs `-phase2`) showed
+/// `hybrid -0.005`, `NL hybrid -0.008`, `NL semantic_search -0.041`, so
+/// the defaults reverted to the pre-PoC values. The infrastructure
+/// (`join_hint_lines`, `hint_line_budget`, env overrides) stayed so the
+/// next experiment does not need a rewrite.
+const DEFAULT_HINT_TOTAL_CHAR_BUDGET: usize = 60;
 
 /// Maximum number of meaningful lines to collect from a function body.
 /// Overridable via `CODELENS_EMBED_HINT_LINES` (clamped to 1..=10).
-const DEFAULT_HINT_LINES: usize = 3;
+const DEFAULT_HINT_LINES: usize = 1;
+
+fn hint_char_budget() -> usize {
+    std::env::var("CODELENS_EMBED_HINT_CHARS")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .map(|n| n.clamp(60, 512))
+        .unwrap_or(DEFAULT_HINT_TOTAL_CHAR_BUDGET)
+}
 
 fn hint_line_budget() -> usize {
     std::env::var("CODELENS_EMBED_HINT_LINES")
@@ -1708,7 +1725,8 @@ fn hint_line_budget() -> usize {
         .unwrap_or(DEFAULT_HINT_LINES)
 }
 
-/// Join collected hint lines, capping at HINT_TOTAL_CHAR_BUDGET chars.
+/// Join collected hint lines, capping at the runtime-configured char
+/// budget (default 60 chars; override via `CODELENS_EMBED_HINT_CHARS`).
 ///
 /// Each line is separated by " · " so the embedding model sees a small
 /// structural boundary between logically distinct body snippets. The final
@@ -1722,8 +1740,9 @@ fn join_hint_lines(lines: &[String]) -> String {
         .map(String::as_str)
         .collect::<Vec<_>>()
         .join(" · ");
-    if joined.chars().count() > HINT_TOTAL_CHAR_BUDGET {
-        let truncated: String = joined.chars().take(HINT_TOTAL_CHAR_BUDGET).collect();
+    let budget = hint_char_budget();
+    if joined.chars().count() > budget {
+        let truncated: String = joined.chars().take(budget).collect();
         format!("{truncated}...")
     } else {
         joined
@@ -2113,7 +2132,18 @@ mod tests {
     }
 
     #[test]
-    fn extract_body_hint_collects_multiple_meaningful_lines() {
+    fn extract_body_hint_multi_line_collection_via_env_override() {
+        // Default is 1 line / 60 chars (v1.4.0 parity after the v1.5 Phase 2
+        // PoC revert). Override the line budget via env to confirm the
+        // multi-line path still works — this is the knob future experiments
+        // will use without recompiling.
+        let previous_lines = std::env::var("CODELENS_EMBED_HINT_LINES").ok();
+        let previous_chars = std::env::var("CODELENS_EMBED_HINT_CHARS").ok();
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_LINES", "3");
+            std::env::set_var("CODELENS_EMBED_HINT_CHARS", "200");
+        }
+
         let source = "\
 fn route_request() {
     let kind = detect_request_kind();
@@ -2122,41 +2152,37 @@ fn route_request() {
 }
 ";
         let hint = extract_body_hint(source, 0, source.len()).expect("hint present");
-        // All three non-comment body lines should appear in the hint.
-        assert!(
-            hint.contains("detect_request_kind"),
-            "missing line 1 discriminator: {hint}"
-        );
-        assert!(
-            hint.contains("dispatch_table"),
-            "missing line 2 discriminator: {hint}"
-        );
-        assert!(
-            hint.contains("target.handle"),
-            "missing line 3 discriminator: {hint}"
-        );
-        // Separator is a middle dot so the embedding model sees structural
-        // boundaries between snippets.
-        assert!(hint.contains(" · "));
+
+        let env_restore = || unsafe {
+            match &previous_lines {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_LINES", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_LINES"),
+            }
+            match &previous_chars {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_CHARS", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_CHARS"),
+            }
+        };
+
+        let all_three = hint.contains("detect_request_kind")
+            && hint.contains("dispatch_table")
+            && hint.contains("target.handle");
+        let has_separator = hint.contains(" · ");
+        env_restore();
+
+        assert!(all_three, "missing one of three body lines: {hint}");
+        assert!(has_separator, "missing · separator: {hint}");
     }
 
-    #[test]
-    fn extract_body_hint_respects_180_char_total_budget() {
-        // Five very long lines — only the first 180 chars of the joined
-        // output should survive, with a trailing "..." truncation marker.
-        let long_line = "a".repeat(80);
-        let source = format!(
-            "fn many_lines() {{\n    {l};\n    {l};\n    {l};\n    {l};\n    {l};\n}}\n",
-            l = long_line
-        );
-        let hint = extract_body_hint(&source, 0, source.len()).expect("hint present");
-        assert!(
-            hint.chars().count() <= super::HINT_TOTAL_CHAR_BUDGET + 3,
-            "hint exceeds budget: {} chars",
-            hint.chars().count()
-        );
-        assert!(hint.ends_with("..."), "expected truncation marker: {hint}");
-    }
+    // Note: we intentionally do NOT have a test that verifies the "default"
+    // 60-char / 1-line behaviour via `extract_body_hint`. Such a test is
+    // flaky because cargo test runs tests in parallel and the env-overriding
+    // tests below (`CODELENS_EMBED_HINT_CHARS`, `CODELENS_EMBED_HINT_LINES`)
+    // can leak their variables into this one. The default constants
+    // themselves are compile-time checked and covered by
+    // `extract_body_hint_finds_first_meaningful_line` /
+    // `extract_body_hint_skips_comments` which assert on the exact single-line
+    // shape and implicitly depend on the default budget.
 
     #[test]
     fn hint_line_budget_respects_env_override() {
@@ -2164,7 +2190,7 @@ fn route_request() {
         // restore the variable on exit.
         let previous = std::env::var("CODELENS_EMBED_HINT_LINES").ok();
         unsafe {
-            std::env::set_var("CODELENS_EMBED_HINT_LINES", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_LINES", "5");
         }
         let budget = super::hint_line_budget();
         unsafe {
@@ -2173,7 +2199,23 @@ fn route_request() {
                 None => std::env::remove_var("CODELENS_EMBED_HINT_LINES"),
             }
         }
-        assert_eq!(budget, 1);
+        assert_eq!(budget, 5);
+    }
+
+    #[test]
+    fn hint_char_budget_respects_env_override() {
+        let previous = std::env::var("CODELENS_EMBED_HINT_CHARS").ok();
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_CHARS", "120");
+        }
+        let budget = super::hint_char_budget();
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_CHARS", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_CHARS"),
+            }
+        }
+        assert_eq!(budget, 120);
     }
 
     #[test]

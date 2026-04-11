@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing yet — the next entry will appear here when work begins on v1.5.0.
+### Added (v1.5 work-in-progress)
+
+- **`embedding/vec_store.rs` submodule** — split `SqliteVecStore` + its `EmbeddingStore` impl out of `embedding.rs` (2,934 LOC → 2,501 + 451). Pure structural refactor, git rename-detected at 84% similarity. Phase 1 of the planned embedding-crate decomposition.
+- **Embedding hint infrastructure** — new `join_hint_lines`, `hint_line_budget`, `hint_char_budget` helpers plus `CODELENS_EMBED_HINT_LINES` (1..=10) and `CODELENS_EMBED_HINT_CHARS` (60..=512) env overrides. Multi-line body hints separated by `·` when a future PoC needs more than one line. The defaults stay at 1 line / 60 chars (v1.4.0 parity) — see "Changed" below for the reasoning.
+- **Dataset path fix** — `benchmarks/embedding-quality-dataset-self.json` rewritten from `crates/codelens-core/...` to `crates/codelens-engine/...` so `expected_file_suffix` actually matches real files after the v1.4.0 crate rename. Without this fix every NL query scored `rank=None` on current main.
+
+### Changed
+
+- **`extract_body_hint` refactor** — now goes through `join_hint_lines` and respects the runtime budgets above. Behaviour at default budgets is unchanged: still returns a single meaningful body line truncated at 60 chars. Future experiments can crank the budgets via env without a rebuild.
+
+### Measured (no behaviour change — evidence log)
+
+- **v1.5 Phase 2 "cAST PoC" reverted** based on A/B measurement on the fixed dataset (2026-04-11):
+
+  | Method                        | HINT_LINES=1 | HINT_LINES=3 |          Δ |
+  | ----------------------------- | -----------: | -----------: | ---------: |
+  | `get_ranked_context` (hybrid) |        0.573 |        0.568 |     −0.005 |
+  | **NL hybrid MRR**             |    **0.472** |    **0.464** | **−0.008** |
+  | NL `semantic_search`          |        0.422 |        0.381 |     −0.041 |
+  | identifier (hybrid)           |        0.800 |        0.800 |          0 |
+
+  Hypothesis: "more body text lines → higher NL recall". **Rejected** — the bundled CodeSearchNet-INT8 is signature-optimised and extra body tokens dilute signal for natural-language queries. Full experiment log, reproduce commands, and follow-up candidates in [`docs/benchmarks.md` §8.1](docs/benchmarks.md).
+
+- **v1.5 baseline for all future v1.5.x measurements** is **`get_ranked_context` hybrid MRR = 0.573** on the fixed 89-query self-matching dataset. The `0.664` number in earlier memos is from the pre-rename dataset and is no longer apples-to-apples — see the §8 footnote in `docs/benchmarks.md`.
+
+### Rationale
+
+These changes are bundled into a single Unreleased block because the refactor (`vec_store.rs` split), the new env knobs, the dataset fix, and the PoC revert all arrived in the same 2026-04-11 iteration. Each item is its own commit/PR so `git log` and GitHub PR history stay bisectable.
 
 ## [1.4.0] — 2026-04-11
 
