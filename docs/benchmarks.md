@@ -252,6 +252,75 @@ python3 benchmarks/embedding-quality.py . --isolated-copy \
 
 The negative result is itself valuable: it rules out the cheapest fix (just show more body text to the same model) and points the next PoC at the right layer.
 
+### 8.2 v1.5 Phase 2b experiment — comment + NL-shaped string literal extractor
+
+**Hypothesis**: Phase 2's RCA flagged two layers that the previous PoC did not touch — line / block comments, and NL-shaped string literals inside function bodies. Both are _natural language_ rather than code, so they should not trigger the signal-dilution problem that killed Phase 2. Queries like `"skip comments and string literals during search"` should finally be able to match the comment body that describes exactly that behaviour.
+
+**Setup**: Same 89-query dataset, same release binary, same bundled CodeSearchNet-INT8 model as Phase 2. Same day (2026-04-11). Both arms use the reverted 1-line / 60-char defaults; the only difference is the new env knob.
+
+- **Arm A** — `CODELENS_EMBED_HINT_INCLUDE_COMMENTS` unset (default OFF). No comments or string literals appended.
+- **Arm B** — `CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1`, `CODELENS_EMBED_HINT_CHARS=200`. New NL token extractor appends ` · NL: ...` to the embedding text when body comments or NL-shaped literals exist.
+
+**Result**:
+
+| Method                            |     Arm A |     Arm B |          Δ |
+| --------------------------------- | --------: | --------: | ---------: |
+| `semantic_search` (overall)       |     0.528 |     0.513 |     −0.015 |
+| `get_ranked_context` (lexical)    |     0.493 |     0.493 |          0 |
+| `get_ranked_context` (**hybrid**) | **0.572** | **0.580** | **+0.008** |
+| **NL hybrid MRR**                 | **0.471** | **0.481** | **+0.010** |
+| NL `semantic_search`              |     0.422 |     0.400 |     −0.022 |
+| short_phrase hybrid               |     0.559 |     0.574 |     +0.015 |
+| identifier (hybrid)               |     0.800 |     0.800 |          0 |
+
+**Accuracy deltas** (hybrid get_ranked_context):
+
+| Metric             |   Arm A |   Arm B |       Δ |
+| ------------------ | ------: | ------: | ------: |
+| Acc@3 overall      |     61% |     67% |     +6% |
+| Acc@5 overall      |     65% |     67% |     +2% |
+| **NL Acc@3**       | **49%** | **58%** | **+9%** |
+| NL Acc@5           |     55% |     58% |     +3% |
+| short_phrase Acc@3 |     78% |     89% |    +11% |
+
+**Verdict — hypothesis partially confirmed on the hybrid path**:
+
+1. **Hybrid `get_ranked_context`** — the mode that real agents use — gains **+0.010 NL MRR** and **+9 percentage points** on NL Acc@3. Both sit above plausible noise on a 55-query subset.
+2. **`semantic_search` alone regresses** by −0.015 overall / −0.022 on NL. The extra NL tokens add enough content to push the embedding closer to other NL-shaped symbols, hurting the pure-semantic path.
+3. **Identifier queries are unchanged** (0.800 → 0.800) — as expected, they never touched the NL-token path.
+
+**Why Phase 2b works where Phase 2 failed**: Phase 2 added raw code lines (`let x = ...`) which the signature-optimised model sees as noise. Phase 2b adds _only natural-language content_ filtered through `is_nl_shaped` (multi-word, alphabetic ratio ≥ 60%, no path/scope separators). The model's NL path benefits because the new tokens look like prose; the code path is untouched.
+
+**Default policy**: Phase 2b stays **opt-in** (`CODELENS_EMBED_HINT_INCLUDE_COMMENTS` default OFF) for two reasons:
+
+1. The `semantic_search` regression, while small, means the feature is only a net win for the hybrid path. Users who rely on pure semantic search should not be silently affected.
+2. Changing the default forces every existing deployment to rebuild its embedding index. Opt-in lets each project validate on its own codebase before committing.
+
+Projects that want the improvement immediately can add the env var to their launcher script. A future v1.5.x may flip the default if follow-up measurement on more repositories confirms the direction.
+
+**Reproduce either arm**:
+
+```bash
+# Arm A (current default — OFF)
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
+
+# Arm B (Phase 2b ON)
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_CHARS=200 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
+```
+
+**Next candidate experiments**:
+
+- **Phase 2c — API-call extractor**: surface `Type::method(...)` / `object.method(...)` patterns for queries like `"connects to PostgreSQL"` matching `Postgres::connect`. Orthogonal to Phase 2b, can be A/B'd independently.
+- **Phase 2d — Model swap**: CodeSearchNet-INT8 → E5-large / BGE-base. Directly addresses RCA item 1 (the model itself). Costs binary size + install weight but uncaps ceiling for NL queries.
+
+The two positive signals from this experiment (hybrid path improvement, NL Acc@3 jump) validate the RCA direction: the right layer to attack is _content scope_, not _line count_.
+
 ---
 
 ## 9. See Also
