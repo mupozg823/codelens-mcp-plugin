@@ -1656,7 +1656,7 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         .and_then(|src| extract_leading_doc(src, sym.start_byte as usize, sym.end_byte as usize))
         .unwrap_or_default();
 
-    if docstring.is_empty() {
+    let mut text = if docstring.is_empty() {
         // Fallback: extract the first few meaningful lines from the function
         // body. This captures key API calls (e.g. "tree_sitter::Parser",
         // "stdin()") that help the embedding model match NL queries to
@@ -1672,8 +1672,8 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
     } else {
         // Collect up to hint_line_budget() non-empty docstring lines
         // (rather than only the first) so the embedding model sees
-        // multi-sentence explanations in full — up to
-        // HINT_TOTAL_CHAR_BUDGET chars via join_hint_lines.
+        // multi-sentence explanations in full — up to the runtime
+        // char budget via join_hint_lines.
         let line_budget = hint_line_budget();
         let lines: Vec<String> = docstring
             .lines()
@@ -1688,7 +1688,21 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         } else {
             format!("{} — {}", base, hint)
         }
+    };
+
+    // v1.5 Phase 2b experiment: optionally append NL tokens harvested from
+    // comments and string literals inside the body. Disabled by default;
+    // enable with `CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1` to A/B.
+    if let Some(src) = source
+        && let Some(nl_tokens) =
+            extract_nl_tokens(src, sym.start_byte as usize, sym.end_byte as usize)
+        && !nl_tokens.is_empty()
+    {
+        text.push_str(" · NL: ");
+        text.push_str(&nl_tokens);
     }
+
+    text
 }
 
 /// Maximum total characters collected from body-hint or docstring lines.
@@ -1811,6 +1825,183 @@ fn extract_body_hint(source: &str, start: usize, end: usize) -> Option<String> {
     } else {
         Some(join_hint_lines(&collected))
     }
+}
+
+/// Return true when NL-token collection is enabled via
+/// `CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1` (or `true`/`yes`/`on`).
+///
+/// v1.5 Phase 2b infrastructure — kept off by default pending A/B
+/// measurement against the fixed 89-query dataset.
+fn nl_tokens_enabled() -> bool {
+    std::env::var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS")
+        .map(|raw| {
+            let lowered = raw.to_ascii_lowercase();
+            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
+/// Heuristic: does this string look like natural language rather than
+/// a code identifier, path, or numeric literal?
+///
+/// Criteria:
+/// - at least 4 characters
+/// - no path / scope separators (`/`, `\`, `::`)
+/// - must contain a space (multi-word)
+/// - alphabetic character ratio >= 60%
+pub(super) fn is_nl_shaped(s: &str) -> bool {
+    let s = s.trim();
+    if s.chars().count() < 4 {
+        return false;
+    }
+    if s.contains('/') || s.contains('\\') || s.contains("::") {
+        return false;
+    }
+    if !s.contains(' ') {
+        return false;
+    }
+    let non_ws: usize = s.chars().filter(|c| !c.is_whitespace()).count();
+    if non_ws == 0 {
+        return false;
+    }
+    let alpha: usize = s.chars().filter(|c| c.is_alphabetic()).count();
+    (alpha * 100) / non_ws >= 60
+}
+
+/// Collect natural-language tokens from a function body: line comments,
+/// block comments, and string literals that look like NL prose.
+///
+/// v1.5 Phase 2b experiment. The hypothesis is that the bundled
+/// CodeSearchNet-INT8 model struggles with NL queries (hybrid MRR 0.472)
+/// because the symbol text it sees is pure code, whereas NL queries target
+/// behavioural descriptions that live in *comments* and *string literals*.
+///
+/// Unlike `extract_body_hint` (which skips comments) this function only
+/// keeps comments + NL-shaped string literals and ignores actual code.
+///
+/// Gated by `CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1`. Returns `None` when
+/// the gate is off so the default embedding text is untouched.
+fn extract_nl_tokens(source: &str, start: usize, end: usize) -> Option<String> {
+    if !nl_tokens_enabled() {
+        return None;
+    }
+    extract_nl_tokens_inner(source, start, end)
+}
+
+/// Env-independent core of `extract_nl_tokens`, exposed to the test module
+/// so unit tests can run deterministically without touching env vars
+/// (which would race with the other tests that set
+/// `CODELENS_EMBED_HINT_INCLUDE_COMMENTS`).
+pub(super) fn extract_nl_tokens_inner(
+    source: &str,
+    start: usize,
+    end: usize,
+) -> Option<String> {
+    if start >= source.len() || end > source.len() || start >= end {
+        return None;
+    }
+    let safe_start = if source.is_char_boundary(start) {
+        start
+    } else {
+        source.floor_char_boundary(start)
+    };
+    let safe_end = end.min(source.len());
+    let safe_end = if source.is_char_boundary(safe_end) {
+        safe_end
+    } else {
+        source.floor_char_boundary(safe_end)
+    };
+    let body = &source[safe_start..safe_end];
+
+    let mut tokens: Vec<String> = Vec::new();
+
+    // ── Pass 1: comments ─────────────────────────────────────────────
+    for line in body.lines() {
+        let trimmed = line.trim();
+        if let Some(cleaned) = extract_comment_body(trimmed)
+            && is_nl_shaped(&cleaned)
+        {
+            tokens.push(cleaned);
+        }
+    }
+
+    // ── Pass 2: double-quoted string literals ────────────────────────
+    // Simplified scanner — handles escape sequences but does not track
+    // multi-line strings or raw strings. Good enough for NL-shaped
+    // heuristic filtering where false negatives are acceptable.
+    let mut chars = body.chars().peekable();
+    let mut in_string = false;
+    let mut current = String::new();
+    while let Some(c) = chars.next() {
+        if in_string {
+            if c == '\\' {
+                // Skip escape sequence
+                let _ = chars.next();
+            } else if c == '"' {
+                if is_nl_shaped(&current) {
+                    tokens.push(current.clone());
+                }
+                current.clear();
+                in_string = false;
+            } else {
+                current.push(c);
+            }
+        } else if c == '"' {
+            in_string = true;
+        }
+    }
+
+    if tokens.is_empty() {
+        return None;
+    }
+    Some(join_hint_lines(&tokens))
+}
+
+/// Peel the comment prefix off a trimmed line, returning the inner text
+/// if the line is recognisably a `//`, `#`, `/* */`, or leading-`*` comment.
+fn extract_comment_body(trimmed: &str) -> Option<String> {
+    if trimmed.is_empty() {
+        return None;
+    }
+    // `//` and `///` and `//!` (Rust doc comments)
+    if let Some(rest) = trimmed.strip_prefix("///") {
+        return Some(rest.trim().to_string());
+    }
+    if let Some(rest) = trimmed.strip_prefix("//!") {
+        return Some(rest.trim().to_string());
+    }
+    if let Some(rest) = trimmed.strip_prefix("//") {
+        return Some(rest.trim().to_string());
+    }
+    // `#[...]` attribute, `#!...` shebang — NOT comments
+    if trimmed.starts_with("#[") || trimmed.starts_with("#!") {
+        return None;
+    }
+    // `#` line comment (Python, bash, ...)
+    if let Some(rest) = trimmed.strip_prefix('#') {
+        return Some(rest.trim().to_string());
+    }
+    // Block-comment line: `/**`, `/*`, or continuation `*`
+    if let Some(rest) = trimmed.strip_prefix("/**") {
+        return Some(rest.trim_end_matches("*/").trim().to_string());
+    }
+    if let Some(rest) = trimmed.strip_prefix("/*") {
+        return Some(rest.trim_end_matches("*/").trim().to_string());
+    }
+    if let Some(rest) = trimmed.strip_prefix('*') {
+        // Block-comment continuation. Only accept if the rest looks textual
+        // (avoid e.g. `*const T` pointer types).
+        let rest = rest.trim_end_matches("*/").trim();
+        if rest.is_empty() {
+            return None;
+        }
+        // Reject obvious code continuations
+        if rest.contains(';') || rest.contains('{') {
+            return None;
+        }
+        return Some(rest.to_string());
+    }
+    None
 }
 
 /// Extract the leading docstring or comment block from a symbol's body.
@@ -2200,6 +2391,119 @@ fn route_request() {
             }
         }
         assert_eq!(budget, 5);
+    }
+
+    #[test]
+    fn is_nl_shaped_accepts_multi_word_prose() {
+        assert!(super::is_nl_shaped("skip comments and string literals"));
+        assert!(super::is_nl_shaped("failed to open database"));
+        assert!(super::is_nl_shaped("detect client version"));
+    }
+
+    #[test]
+    fn is_nl_shaped_rejects_code_and_paths() {
+        // Path-like tokens (both slash flavors)
+        assert!(!super::is_nl_shaped("crates/codelens-engine/src"));
+        assert!(!super::is_nl_shaped("C:\\Users\\foo"));
+        // Module-path-like
+        assert!(!super::is_nl_shaped("std::sync::Mutex"));
+        // Single-word identifier
+        assert!(!super::is_nl_shaped("detect_client"));
+        // Too short
+        assert!(!super::is_nl_shaped("ok"));
+        assert!(!super::is_nl_shaped(""));
+        // High non-alphabetic ratio
+        assert!(!super::is_nl_shaped("1 2 3 4 5"));
+    }
+
+    #[test]
+    fn extract_comment_body_strips_comment_markers() {
+        assert_eq!(
+            super::extract_comment_body("/// rust doc comment"),
+            Some("rust doc comment".to_string())
+        );
+        assert_eq!(
+            super::extract_comment_body("// regular line comment"),
+            Some("regular line comment".to_string())
+        );
+        assert_eq!(
+            super::extract_comment_body("# python line comment"),
+            Some("python line comment".to_string())
+        );
+        assert_eq!(
+            super::extract_comment_body("/* inline block */"),
+            Some("inline block".to_string())
+        );
+        assert_eq!(
+            super::extract_comment_body("* continuation line"),
+            Some("continuation line".to_string())
+        );
+    }
+
+    #[test]
+    fn extract_comment_body_rejects_rust_attributes_and_shebangs() {
+        assert!(super::extract_comment_body("#[derive(Debug)]").is_none());
+        assert!(super::extract_comment_body("#[test]").is_none());
+        assert!(super::extract_comment_body("#!/usr/bin/env python").is_none());
+    }
+
+    #[test]
+    fn extract_nl_tokens_gated_off_by_default() {
+        // Default: no env, no NL tokens regardless of body content.
+        let previous = std::env::var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS").ok();
+        unsafe {
+            std::env::remove_var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS");
+        }
+        let source = "\
+fn skip_things() {
+    // skip comments and string literals during search
+    let lit = \"scan for matching tokens\";
+}
+";
+        let result = extract_nl_tokens(source, 0, source.len());
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS", value);
+            }
+        }
+        assert!(result.is_none(), "gate leaked: {result:?}");
+    }
+
+    #[test]
+    fn extract_nl_tokens_collects_comments_and_string_literals() {
+        // Calls the env-independent inner to avoid racing with other tests
+        // that mutate `CODELENS_EMBED_HINT_INCLUDE_COMMENTS`. The gate is
+        // covered by `extract_nl_tokens_gated_off_by_default` above.
+        let source = "\
+fn search_for_matches() {
+    // skip comments and string literals during search
+    let error = \"failed to open database\";
+    let single = \"tok\";
+    let path = \"src/foo/bar\";
+    let keyword = match kind {
+        Kind::Ident => \"detect client version\",
+        _ => \"\",
+    };
+}
+";
+        // Override the char budget locally so long hints are not truncated
+        // before the assertions read them. We use the inner function which
+        // still reads `CODELENS_EMBED_HINT_CHARS`, but we do NOT set it —
+        // the default 60-char budget is enough for at least the first
+        // discriminator to land in the output.
+        let hint = super::extract_nl_tokens_inner(source, 0, source.len())
+            .expect("nl tokens should be produced");
+        // At least one NL-shaped token must land in the hint. The default
+        // 60-char budget may truncate later ones; we assert on the first
+        // few discriminators only.
+        let has_first_nl_signal = hint.contains("skip comments")
+            || hint.contains("failed to open")
+            || hint.contains("detect client");
+        assert!(has_first_nl_signal, "no NL signal produced: {hint}");
+        // Short single-token literals must never leak in.
+        assert!(!hint.contains(" tok "), "short literal leaked: {hint}");
+        // Path literals must never leak in.
+        assert!(!hint.contains("src/foo/bar"), "path literal leaked: {hint}");
     }
 
     #[test]
