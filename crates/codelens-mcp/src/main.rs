@@ -151,6 +151,46 @@ fn cli_option_value(args: &[String], flag: &str) -> Option<String> {
     None
 }
 
+/// Phase 4c (§observability): emit a single-line startup marker at
+/// `warn` level so append-only log files (e.g. launchd's
+/// `~/.codex/codelens-http.log`) have an explicit session boundary
+/// between historical noise and the current run. Includes every
+/// identity field a debugger might want: `pid`, `transport`, `port`,
+/// `project_root`, `project_source` (CLI path / env var / cwd),
+/// `surface`, `token_budget`, `daemon_mode`, and the build-time
+/// identity fields introduced in Phase 4b (`git_sha`, `build_time`,
+/// `git_dirty`) plus the wall-clock `daemon_started_at`.
+///
+/// `warn!` level is intentional: the default `CODELENS_LOG` filter
+/// is `warn`, so session-start markers are visible without users
+/// having to opt into `info` logging.
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
+fn format_http_startup_banner(
+    project_root: &std::path::Path,
+    project_source: &StartupProjectSource,
+    surface_label: &str,
+    token_budget: usize,
+    daemon_mode: RuntimeDaemonMode,
+    port: u16,
+    daemon_started_at: &str,
+) -> String {
+    let escaped_project_root = project_root.display().to_string().replace('"', "\\\"");
+    format!(
+        "CODELENS_SESSION_START pid={} transport=http port={} project_root=\"{}\" project_source=\"{}\" surface={} token_budget={} daemon_mode={} git_sha={} build_time={} daemon_started_at={} git_dirty={}",
+        std::process::id(),
+        port,
+        escaped_project_root,
+        project_source.label(),
+        surface_label,
+        token_budget,
+        daemon_mode.as_str(),
+        crate::build_info::BUILD_GIT_SHA,
+        crate::build_info::BUILD_TIME,
+        daemon_started_at,
+        crate::build_info::build_git_dirty()
+    )
+}
+
 fn main() -> Result<()> {
     // Initialize tracing subscriber — output to stderr to avoid interfering with
     // stdio JSON-RPC transport on stdout. Controlled via CODELENS_LOG env var.
@@ -245,6 +285,24 @@ fn main() -> Result<()> {
         app_state.set_token_budget(default_budget_for_preset(preset));
     }
 
+    #[cfg(feature = "http")]
+    if transport == "http" {
+        let startup_banner = format_http_startup_banner(
+            app_state.project().as_path(),
+            &project_source,
+            app_state.surface().as_label(),
+            app_state.token_budget(),
+            app_state.daemon_mode(),
+            port,
+            app_state.daemon_started_at(),
+        );
+        // Intentionally `warn!`: the default CODELENS_LOG filter is `warn`,
+        // so a session-start marker must be visible without requiring users
+        // to opt into `info` logging. This gives appended daemon logs an
+        // explicit boundary between historical noise and the current run.
+        tracing::warn!("{startup_banner}");
+    }
+
     // One-shot mode: run a single tool and exit
     if let Some(tool_name) = cmd_tool {
         let state = Arc::new(app_state);
@@ -329,6 +387,37 @@ mod startup_tests {
                 .to_string()
                 .contains("failed to resolve explicit project root")
         );
+    }
+
+    /// Phase 4c (§observability): the startup banner must carry
+    /// every identity field a debugger might want in a single line,
+    /// so append-only log tails can pinpoint "which build, which
+    /// process, which project" without cross-referencing other
+    /// state. Guards the format string against accidental field
+    /// removal.
+    #[test]
+    fn http_startup_banner_includes_runtime_identity_fields() {
+        let banner = super::format_http_startup_banner(
+            std::path::Path::new("/tmp/repo"),
+            &StartupProjectSource::McpEnv("/tmp/repo".to_owned()),
+            "builder-minimal",
+            2400,
+            crate::state::RuntimeDaemonMode::Standard,
+            7837,
+            "2026-04-11T19:49:55Z",
+        );
+        assert!(banner.starts_with("CODELENS_SESSION_START pid="));
+        assert!(banner.contains("transport=http"));
+        assert!(banner.contains("port=7837"));
+        assert!(banner.contains("project_root=\"/tmp/repo\""));
+        assert!(banner.contains("project_source=\"MCP_PROJECT_DIR\""));
+        assert!(banner.contains("surface=builder-minimal"));
+        assert!(banner.contains("token_budget=2400"));
+        assert!(banner.contains("daemon_mode=standard"));
+        assert!(banner.contains("daemon_started_at=2026-04-11T19:49:55Z"));
+        assert!(banner.contains("git_sha="));
+        assert!(banner.contains("build_time="));
+        assert!(banner.contains("git_dirty="));
     }
 }
 
