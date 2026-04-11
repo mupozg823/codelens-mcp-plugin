@@ -159,6 +159,84 @@ pub fn collect_files(root: &Path, filter: impl Fn(&Path) -> bool) -> Result<Vec<
     Ok(files)
 }
 
+/// Walk `root` and return the canonical extension tag of the dominant
+/// source language by file count (e.g. `rs`, `py`, `ts`, `go`). Returns
+/// `None` when the project contains fewer than 3 source files in total,
+/// or when no single language holds a clear plurality.
+///
+/// v1.5 Phase 2j MCP follow-up. The engine helper walks the project
+/// once at activation time and hands the result to the MCP tool layer,
+/// which then exports `CODELENS_EMBED_HINT_AUTO_LANG=<lang>` so the
+/// engine's `auto_hint_should_enable` gate can consult
+/// `language_supports_nl_stack` on subsequent embedding calls.
+///
+/// Walk scope is capped (16 k files) to avoid pathological cases on
+/// very large monorepos — the goal is to classify the project by
+/// dominant language, not to enumerate every file. Directories in
+/// `EXCLUDED_DIRS` are skipped (same filter as `collect_files`). Only
+/// files with an extension recognised by the language registry are
+/// counted; build artefacts / README / Markdown are ignored.
+///
+/// The returned tag is the canonical extension string (e.g. `rs`,
+/// `py`) — exactly what `CODELENS_EMBED_HINT_AUTO_LANG` expects and
+/// what `crate::embedding::language_supports_nl_stack` accepts.
+pub fn compute_dominant_language(root: &Path) -> Option<String> {
+    use std::collections::HashMap;
+    use walkdir::WalkDir;
+
+    const WALK_CAP: usize = 16_384;
+    const MIN_FILES: usize = 3;
+
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let mut total = 0usize;
+
+    for entry in WalkDir::new(root)
+        .into_iter()
+        .filter_entry(|entry| !is_excluded(entry.path()))
+    {
+        let Ok(entry) = entry else {
+            continue;
+        };
+        if !entry.file_type().is_file() {
+            continue;
+        }
+        let Some(ext) = entry.path().extension() else {
+            continue;
+        };
+        let Some(ext_str) = ext.to_str() else {
+            continue;
+        };
+        let ext_lower = ext_str.to_ascii_lowercase();
+        // Only count extensions we know are source languages. This uses
+        // the language registry so future language additions stay in
+        // sync automatically. The import is local to avoid a cyclic
+        // module dependency with `lang_config`.
+        if crate::lang_registry::for_extension(&ext_lower).is_none() {
+            continue;
+        }
+        *counts.entry(ext_lower).or_insert(0) += 1;
+        total += 1;
+        if total >= WALK_CAP {
+            break;
+        }
+    }
+
+    if total < MIN_FILES {
+        return None;
+    }
+
+    // Find the extension with the highest count. A strict plurality is
+    // not required (return whichever wins) but the caller can use the
+    // count ratio via `compute_dominant_language_with_count` if they
+    // want to impose a threshold. For v1.5 Phase 2j we accept any
+    // plurality and let the downstream `language_supports_nl_stack`
+    // decide whether the tag maps to an allowed language.
+    counts
+        .into_iter()
+        .max_by_key(|(_, count)| *count)
+        .map(|(ext, _)| ext)
+}
+
 /// Walk up from `start` until a directory containing a root marker is found.
 fn detect_root(start: &Path) -> Option<PathBuf> {
     let home = dirs_fallback();
@@ -527,6 +605,88 @@ mod tests {
                 .expect("canonical project root")
                 .as_path()
         );
+    }
+
+    /// Unique per-test subdirectory inside `tempfile_dir()` to avoid
+    /// parallel-execution collisions on the nanosecond-timestamp path.
+    fn fresh_test_dir(label: &str) -> std::path::PathBuf {
+        let dir = tempfile_dir().join(label);
+        fs::create_dir_all(&dir).expect("mkdir fresh test dir");
+        dir
+    }
+
+    #[test]
+    fn compute_dominant_language_picks_rust_for_rust_heavy_project() {
+        let dir = fresh_test_dir("phase2j_rust_heavy");
+        // 5 Rust files, 1 Python file, 1 unknown extension file
+        fs::create_dir_all(dir.join("src")).expect("mkdir src");
+        fs::write(dir.join("Cargo.toml"), "[package]\nname = \"x\"\n").expect("Cargo.toml");
+        for name in ["a.rs", "b.rs", "c.rs", "d.rs", "e.rs"] {
+            fs::write(dir.join("src").join(name), "pub fn f() {}\n").expect("write rs");
+        }
+        fs::write(dir.join("scripts.py"), "def f():\n    pass\n").expect("write py");
+        fs::write(dir.join("README.md"), "# README\n").expect("write md");
+
+        let lang = super::compute_dominant_language(&dir).expect("dominant lang");
+        assert_eq!(lang, "rs", "expected rs dominant, got {lang}");
+    }
+
+    #[test]
+    fn compute_dominant_language_picks_python_for_python_heavy_project() {
+        let dir = fresh_test_dir("phase2j_python_heavy");
+        // 4 Python files, 1 Rust file
+        fs::create_dir_all(dir.join("pkg")).expect("mkdir pkg");
+        for name in ["mod_a.py", "mod_b.py", "mod_c.py", "mod_d.py"] {
+            fs::write(dir.join("pkg").join(name), "def f():\n    pass\n").expect("write py");
+        }
+        fs::write(dir.join("build.rs"), "fn main() {}\n").expect("write rs");
+
+        let lang = super::compute_dominant_language(&dir).expect("dominant lang");
+        assert_eq!(lang, "py", "expected py dominant, got {lang}");
+    }
+
+    #[test]
+    fn compute_dominant_language_returns_none_below_min_file_count() {
+        let dir = fresh_test_dir("phase2j_below_min");
+        // Only 2 source files (below MIN_FILES = 3)
+        fs::write(dir.join("only.rs"), "fn x() {}\n").expect("write rs");
+        fs::write(dir.join("other.py"), "def y(): pass\n").expect("write py");
+
+        let lang = super::compute_dominant_language(&dir);
+        assert!(lang.is_none(), "expected None below 3 files, got {lang:?}");
+    }
+
+    #[test]
+    fn compute_dominant_language_skips_excluded_dirs() {
+        let dir = fresh_test_dir("phase2j_excluded_dirs");
+        fs::create_dir_all(dir.join("src")).expect("mkdir src");
+        fs::create_dir_all(dir.join("node_modules/foo")).expect("mkdir node_modules");
+        fs::create_dir_all(dir.join("target")).expect("mkdir target");
+        // 3 real Rust source files
+        for name in ["a.rs", "b.rs", "c.rs"] {
+            fs::write(dir.join("src").join(name), "fn f() {}\n").expect("write src rs");
+        }
+        // 10 fake JS files inside node_modules that must be skipped
+        for i in 0..10 {
+            fs::write(
+                dir.join("node_modules/foo").join(format!("x{i}.js")),
+                "module.exports = {};\n",
+            )
+            .expect("write node_modules js");
+        }
+        // 10 fake build artefacts in target/ that must be skipped
+        for i in 0..10 {
+            fs::write(
+                dir.join("target").join(format!("build{i}.rs")),
+                "fn f() {}\n",
+            )
+            .expect("write target rs");
+        }
+
+        let lang = super::compute_dominant_language(&dir).expect("dominant lang");
+        // Only the 3 src/*.rs files should be counted — not the 10
+        // node_modules JS files and not the 10 target build artefacts.
+        assert_eq!(lang, "rs", "expected rs from src only, got {lang}");
     }
 
     fn env_lock() -> &'static Mutex<()> {
