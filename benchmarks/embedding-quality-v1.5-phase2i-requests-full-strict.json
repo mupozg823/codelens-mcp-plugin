@@ -1,0 +1,1097 @@
+{
+  "project": "/tmp/requests-ext",
+  "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-embed-quality-7w360b0z/requests-ext",
+  "isolated_copy": true,
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-requests.json",
+  "dataset_size": 24,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.40243055555555557,
+      "acc1": 0.3333333333333333,
+      "acc3": 0.4583333333333333,
+      "acc5": 0.5,
+      "avg_elapsed_ms": 143.50708333333333,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 105.895
+        },
+        "natural_language": {
+          "count": 17,
+          "mrr": 0.4387254901960784,
+          "acc1": 0.35294117647058826,
+          "acc3": 0.5294117647058824,
+          "acc5": 0.5294117647058824,
+          "avg_elapsed_ms": 154.93
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.04,
+          "acc1": 0.0,
+          "acc3": 0.0,
+          "acc5": 0.2,
+          "avg_elapsed_ms": 119.71400000000001
+        }
+      },
+      "rows": [
+        {
+          "query": "send HTTP GET request to a URL",
+          "query_type": "natural_language",
+          "expected_symbol": "get",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 1,
+          "elapsed_ms": 167.71,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "get",
+            "file": "src/requests/api.py"
+          }
+        },
+        {
+          "query": "send HTTP POST request with JSON body",
+          "query_type": "natural_language",
+          "expected_symbol": "post",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 2,
+          "elapsed_ms": 149.42,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "body",
+            "file": "src/requests/models.py"
+          }
+        },
+        {
+          "query": "send HTTP request with custom method",
+          "query_type": "natural_language",
+          "expected_symbol": "request",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": null,
+          "elapsed_ms": 171.75,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "test_custom_redirect_mixin",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "delete resource over HTTP",
+          "query_type": "natural_language",
+          "expected_symbol": "delete",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": null,
+          "elapsed_ms": 150.98,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "httpbin_secure",
+            "file": "tests/conftest.py"
+          }
+        },
+        {
+          "query": "send HTTP PATCH request to update resource",
+          "query_type": "natural_language",
+          "expected_symbol": "patch",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 1,
+          "elapsed_ms": 171.35,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "patch",
+            "file": "src/requests/api.py"
+          }
+        },
+        {
+          "query": "HTTP session object that reuses connections",
+          "query_type": "natural_language",
+          "expected_symbol": "Session",
+          "expected_file_suffix": "src/requests/sessions.py",
+          "rank": null,
+          "elapsed_ms": 167.76,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "session",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "prepare HTTP request before sending it",
+          "query_type": "natural_language",
+          "expected_symbol": "PreparedRequest",
+          "expected_file_suffix": "src/requests/models.py",
+          "rank": null,
+          "elapsed_ms": 161.04,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "prepare",
+            "file": "src/requests/models.py"
+          }
+        },
+        {
+          "query": "HTTP response from the server",
+          "query_type": "natural_language",
+          "expected_symbol": "Response",
+          "expected_file_suffix": "src/requests/models.py",
+          "rank": 2,
+          "elapsed_ms": 160.73,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "response",
+            "file": "src/requests/adapters.py"
+          }
+        },
+        {
+          "query": "HTTP adapter that manages connection pool",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPAdapter",
+          "expected_file_suffix": "src/requests/adapters.py",
+          "rank": null,
+          "elapsed_ms": 166.08,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "init_poolmanager",
+            "file": "src/requests/adapters.py"
+          }
+        },
+        {
+          "query": "basic authentication for HTTP requests",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPBasicAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": 8,
+          "elapsed_ms": 160.83,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "test_set_basicauth",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "digest authentication scheme",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPDigestAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": null,
+          "elapsed_ms": 108.94,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "parsed",
+            "file": "src/requests/utils.py"
+          }
+        },
+        {
+          "query": "proxy authentication for requests",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPProxyAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": 3,
+          "elapsed_ms": 142.47,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "test_proxy_auth",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "cookie jar that stores cookies across requests",
+          "query_type": "natural_language",
+          "expected_symbol": "RequestsCookieJar",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": null,
+          "elapsed_ms": 130.64,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "jar",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "create a cookie from name and value",
+          "query_type": "natural_language",
+          "expected_symbol": "create_cookie",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 1,
+          "elapsed_ms": 152.87,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "create_cookie",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "extract cookies from HTTP response",
+          "query_type": "natural_language",
+          "expected_symbol": "extract_cookies_to_jar",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 1,
+          "elapsed_ms": 175.06,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "extract_cookies_to_jar",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "merge two cookie jars together",
+          "query_type": "natural_language",
+          "expected_symbol": "merge_cookies",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 1,
+          "elapsed_ms": 148.63,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "merge_cookies",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "build cookie jar from a dictionary",
+          "query_type": "natural_language",
+          "expected_symbol": "cookiejar_from_dict",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 1,
+          "elapsed_ms": 147.55,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "cookiejar_from_dict",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "http session",
+          "query_type": "short_phrase",
+          "expected_symbol": "Session",
+          "expected_file_suffix": "src/requests/sessions.py",
+          "rank": null,
+          "elapsed_ms": 114.72,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "session",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "prepared request",
+          "query_type": "short_phrase",
+          "expected_symbol": "PreparedRequest",
+          "expected_file_suffix": "src/requests/models.py",
+          "rank": 5,
+          "elapsed_ms": 133.33,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "prepare",
+            "file": "src/requests/models.py"
+          }
+        },
+        {
+          "query": "http adapter",
+          "query_type": "short_phrase",
+          "expected_symbol": "HTTPAdapter",
+          "expected_file_suffix": "src/requests/adapters.py",
+          "rank": null,
+          "elapsed_ms": 117.65,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "adapter",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "cookie jar",
+          "query_type": "short_phrase",
+          "expected_symbol": "RequestsCookieJar",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": null,
+          "elapsed_ms": 116.48,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "jar",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "basic auth",
+          "query_type": "short_phrase",
+          "expected_symbol": "HTTPBasicAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": null,
+          "elapsed_ms": 116.39,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "authstr",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "Session",
+          "query_type": "identifier",
+          "expected_symbol": "Session",
+          "expected_file_suffix": "src/requests/sessions.py",
+          "rank": 1,
+          "elapsed_ms": 106.74,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "Session",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "HTTPAdapter",
+          "query_type": "identifier",
+          "expected_symbol": "HTTPAdapter",
+          "expected_file_suffix": "src/requests/adapters.py",
+          "rank": 1,
+          "elapsed_ms": 105.05,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "HTTPAdapter",
+            "file": "src/requests/adapters.py"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.4041369084132242,
+      "acc1": 0.3333333333333333,
+      "acc3": 0.4166666666666667,
+      "acc5": 0.4166666666666667,
+      "avg_elapsed_ms": 17.263749999999998,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 11.719999999999999
+        },
+        "natural_language": {
+          "count": 17,
+          "mrr": 0.3009383805049439,
+          "acc1": 0.23529411764705882,
+          "acc3": 0.29411764705882354,
+          "acc5": 0.29411764705882354,
+          "avg_elapsed_ms": 18.80529411764706
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.5166666666666667,
+          "acc1": 0.4,
+          "acc3": 0.6,
+          "acc5": 0.6,
+          "avg_elapsed_ms": 14.24
+        }
+      },
+      "rows": [
+        {
+          "query": "send HTTP GET request to a URL",
+          "query_type": "natural_language",
+          "expected_symbol": "get",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 30,
+          "elapsed_ms": 20.42,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "request_url",
+            "file": "src/requests/adapters.py"
+          }
+        },
+        {
+          "query": "send HTTP POST request with JSON body",
+          "query_type": "natural_language",
+          "expected_symbol": "post",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 19,
+          "elapsed_ms": 17.43,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "_r",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "send HTTP request with custom method",
+          "query_type": "natural_language",
+          "expected_symbol": "request",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 13,
+          "elapsed_ms": 19.9,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "_r",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "delete resource over HTTP",
+          "query_type": "natural_language",
+          "expected_symbol": "delete",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 7,
+          "elapsed_ms": 17.0,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "httpbin",
+            "file": "tests/conftest.py"
+          }
+        },
+        {
+          "query": "send HTTP PATCH request to update resource",
+          "query_type": "natural_language",
+          "expected_symbol": "patch",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 11,
+          "elapsed_ms": 20.65,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "_r",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "HTTP session object that reuses connections",
+          "query_type": "natural_language",
+          "expected_symbol": "Session",
+          "expected_file_suffix": "src/requests/sessions.py",
+          "rank": null,
+          "elapsed_ms": 23.4,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "session",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "prepare HTTP request before sending it",
+          "query_type": "natural_language",
+          "expected_symbol": "PreparedRequest",
+          "expected_file_suffix": "src/requests/models.py",
+          "rank": null,
+          "elapsed_ms": 20.32,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "_r",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "HTTP response from the server",
+          "query_type": "natural_language",
+          "expected_symbol": "Response",
+          "expected_file_suffix": "src/requests/models.py",
+          "rank": null,
+          "elapsed_ms": 17.84,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "text_response_server",
+            "file": "tests/testserver/server.py"
+          }
+        },
+        {
+          "query": "HTTP adapter that manages connection pool",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPAdapter",
+          "expected_file_suffix": "src/requests/adapters.py",
+          "rank": null,
+          "elapsed_ms": 23.4,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "build_connection_pool_key_attributes",
+            "file": "src/requests/adapters.py"
+          }
+        },
+        {
+          "query": "basic authentication for HTTP requests",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPBasicAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": null,
+          "elapsed_ms": 19.42,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "_r",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "digest authentication scheme",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPDigestAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": 1,
+          "elapsed_ms": 13.14,
+          "candidate_count": 20,
+          "top_candidate": {
+            "name": "HTTPDigestAuth",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "proxy authentication for requests",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPProxyAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": 19,
+          "elapsed_ms": 17.23,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "_r",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "cookie jar that stores cookies across requests",
+          "query_type": "natural_language",
+          "expected_symbol": "RequestsCookieJar",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 6,
+          "elapsed_ms": 15.53,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "_r",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "create a cookie from name and value",
+          "query_type": "natural_language",
+          "expected_symbol": "create_cookie",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 1,
+          "elapsed_ms": 17.92,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "create_cookie",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "extract cookies from HTTP response",
+          "query_type": "natural_language",
+          "expected_symbol": "extract_cookies_to_jar",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 1,
+          "elapsed_ms": 21.52,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "extract_cookies_to_jar",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "merge two cookie jars together",
+          "query_type": "natural_language",
+          "expected_symbol": "merge_cookies",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 1,
+          "elapsed_ms": 17.39,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "merge_cookies",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "build cookie jar from a dictionary",
+          "query_type": "natural_language",
+          "expected_symbol": "cookiejar_from_dict",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 2,
+          "elapsed_ms": 17.18,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "dict_from_cookiejar",
+            "file": "src/requests/utils.py"
+          }
+        },
+        {
+          "query": "http session",
+          "query_type": "short_phrase",
+          "expected_symbol": "Session",
+          "expected_file_suffix": "src/requests/sessions.py",
+          "rank": 1,
+          "elapsed_ms": 15.21,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "Session",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "prepared request",
+          "query_type": "short_phrase",
+          "expected_symbol": "PreparedRequest",
+          "expected_file_suffix": "src/requests/models.py",
+          "rank": 8,
+          "elapsed_ms": 14.54,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "prepared_request",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "http adapter",
+          "query_type": "short_phrase",
+          "expected_symbol": "HTTPAdapter",
+          "expected_file_suffix": "src/requests/adapters.py",
+          "rank": 1,
+          "elapsed_ms": 14.14,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "HTTPAdapter",
+            "file": "src/requests/adapters.py"
+          }
+        },
+        {
+          "query": "cookie jar",
+          "query_type": "short_phrase",
+          "expected_symbol": "RequestsCookieJar",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 8,
+          "elapsed_ms": 13.54,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "_copy_cookie_jar",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "basic auth",
+          "query_type": "short_phrase",
+          "expected_symbol": "HTTPBasicAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": 3,
+          "elapsed_ms": 13.77,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "_basic_auth_str",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "Session",
+          "query_type": "identifier",
+          "expected_symbol": "Session",
+          "expected_file_suffix": "src/requests/sessions.py",
+          "rank": 1,
+          "elapsed_ms": 12.94,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "Session",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "HTTPAdapter",
+          "query_type": "identifier",
+          "expected_symbol": "HTTPAdapter",
+          "expected_file_suffix": "src/requests/adapters.py",
+          "rank": 1,
+          "elapsed_ms": 10.5,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "HTTPAdapter",
+            "file": "src/requests/adapters.py"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.5017252886002886,
+      "acc1": 0.3333333333333333,
+      "acc3": 0.625,
+      "acc5": 0.7083333333333334,
+      "avg_elapsed_ms": 104.40541666666667,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 12.285
+        },
+        "natural_language": {
+          "count": 17,
+          "mrr": 0.5265953654188947,
+          "acc1": 0.35294117647058826,
+          "acc3": 0.6470588235294118,
+          "acc5": 0.7058823529411765,
+          "avg_elapsed_ms": 114.42529411764706
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.21785714285714283,
+          "acc1": 0.0,
+          "acc3": 0.4,
+          "acc5": 0.6,
+          "avg_elapsed_ms": 107.186
+        }
+      },
+      "rows": [
+        {
+          "query": "send HTTP GET request to a URL",
+          "query_type": "natural_language",
+          "expected_symbol": "get",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 1,
+          "elapsed_ms": 113.2,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "get",
+            "file": "src/requests/api.py"
+          }
+        },
+        {
+          "query": "send HTTP POST request with JSON body",
+          "query_type": "natural_language",
+          "expected_symbol": "post",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 2,
+          "elapsed_ms": 112.2,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "body",
+            "file": "src/requests/models.py"
+          }
+        },
+        {
+          "query": "send HTTP request with custom method",
+          "query_type": "natural_language",
+          "expected_symbol": "request",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 2,
+          "elapsed_ms": 115.16,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "send",
+            "file": "src/requests/adapters.py"
+          }
+        },
+        {
+          "query": "delete resource over HTTP",
+          "query_type": "natural_language",
+          "expected_symbol": "delete",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 1,
+          "elapsed_ms": 111.0,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "delete",
+            "file": "src/requests/api.py"
+          }
+        },
+        {
+          "query": "send HTTP PATCH request to update resource",
+          "query_type": "natural_language",
+          "expected_symbol": "patch",
+          "expected_file_suffix": "src/requests/api.py",
+          "rank": 1,
+          "elapsed_ms": 115.71,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "patch",
+            "file": "src/requests/api.py"
+          }
+        },
+        {
+          "query": "HTTP session object that reuses connections",
+          "query_type": "natural_language",
+          "expected_symbol": "Session",
+          "expected_file_suffix": "src/requests/sessions.py",
+          "rank": 2,
+          "elapsed_ms": 118.75,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "session",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "prepare HTTP request before sending it",
+          "query_type": "natural_language",
+          "expected_symbol": "PreparedRequest",
+          "expected_file_suffix": "src/requests/models.py",
+          "rank": 10,
+          "elapsed_ms": 114.52,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "prepare",
+            "file": "src/requests/models.py"
+          }
+        },
+        {
+          "query": "HTTP response from the server",
+          "query_type": "natural_language",
+          "expected_symbol": "Response",
+          "expected_file_suffix": "src/requests/models.py",
+          "rank": 22,
+          "elapsed_ms": 115.52,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "response",
+            "file": "src/requests/adapters.py"
+          }
+        },
+        {
+          "query": "HTTP adapter that manages connection pool",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPAdapter",
+          "expected_file_suffix": "src/requests/adapters.py",
+          "rank": null,
+          "elapsed_ms": 118.87,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "conn",
+            "file": "src/requests/adapters.py"
+          }
+        },
+        {
+          "query": "basic authentication for HTTP requests",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPBasicAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": 2,
+          "elapsed_ms": 117.52,
+          "candidate_count": 34,
+          "top_candidate": {
+            "name": "authstr",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "digest authentication scheme",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPDigestAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": 5,
+          "elapsed_ms": 105.58,
+          "candidate_count": 20,
+          "top_candidate": {
+            "name": "digest_auth_algo",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "proxy authentication for requests",
+          "query_type": "natural_language",
+          "expected_symbol": "HTTPProxyAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": 15,
+          "elapsed_ms": 114.36,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "test_proxy_auth",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "cookie jar that stores cookies across requests",
+          "query_type": "natural_language",
+          "expected_symbol": "RequestsCookieJar",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 25,
+          "elapsed_ms": 114.69,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "jar",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "create a cookie from name and value",
+          "query_type": "natural_language",
+          "expected_symbol": "create_cookie",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 1,
+          "elapsed_ms": 116.81,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "create_cookie",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "extract cookies from HTTP response",
+          "query_type": "natural_language",
+          "expected_symbol": "extract_cookies_to_jar",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 1,
+          "elapsed_ms": 116.88,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "extract_cookies_to_jar",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "merge two cookie jars together",
+          "query_type": "natural_language",
+          "expected_symbol": "merge_cookies",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 2,
+          "elapsed_ms": 111.68,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "cookiejar",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "build cookie jar from a dictionary",
+          "query_type": "natural_language",
+          "expected_symbol": "cookiejar_from_dict",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 1,
+          "elapsed_ms": 112.78,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "cookiejar_from_dict",
+            "file": "src/requests/cookies.py"
+          }
+        },
+        {
+          "query": "http session",
+          "query_type": "short_phrase",
+          "expected_symbol": "Session",
+          "expected_file_suffix": "src/requests/sessions.py",
+          "rank": 3,
+          "elapsed_ms": 108.51,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "session",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "prepared request",
+          "query_type": "short_phrase",
+          "expected_symbol": "PreparedRequest",
+          "expected_file_suffix": "src/requests/models.py",
+          "rank": 8,
+          "elapsed_ms": 107.37,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "prepared_request",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "http adapter",
+          "query_type": "short_phrase",
+          "expected_symbol": "HTTPAdapter",
+          "expected_file_suffix": "src/requests/adapters.py",
+          "rank": 4,
+          "elapsed_ms": 106.56,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "adapter",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "cookie jar",
+          "query_type": "short_phrase",
+          "expected_symbol": "RequestsCookieJar",
+          "expected_file_suffix": "src/requests/cookies.py",
+          "rank": 21,
+          "elapsed_ms": 106.74,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "jar",
+            "file": "tests/test_requests.py"
+          }
+        },
+        {
+          "query": "basic auth",
+          "query_type": "short_phrase",
+          "expected_symbol": "HTTPBasicAuth",
+          "expected_file_suffix": "src/requests/auth.py",
+          "rank": 3,
+          "elapsed_ms": 106.75,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "authstr",
+            "file": "src/requests/auth.py"
+          }
+        },
+        {
+          "query": "Session",
+          "query_type": "identifier",
+          "expected_symbol": "Session",
+          "expected_file_suffix": "src/requests/sessions.py",
+          "rank": 1,
+          "elapsed_ms": 13.64,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "Session",
+            "file": "src/requests/sessions.py"
+          }
+        },
+        {
+          "query": "HTTPAdapter",
+          "query_type": "identifier",
+          "expected_symbol": "HTTPAdapter",
+          "expected_file_suffix": "src/requests/adapters.py",
+          "rank": 1,
+          "elapsed_ms": 10.93,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "HTTPAdapter",
+            "file": "src/requests/adapters.py"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": 0.09758838018706445,
+    "acc1_delta": 0.0,
+    "acc3_delta": 0.20833333333333331,
+    "acc5_delta": 0.2916666666666667
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": 0.2256569849139508,
+      "acc1_delta": 0.11764705882352944,
+      "acc3_delta": 0.35294117647058826,
+      "acc5_delta": 0.411764705882353
+    },
+    "short_phrase": {
+      "mrr_delta": -0.29880952380952386,
+      "acc1_delta": -0.4,
+      "acc3_delta": -0.19999999999999996,
+      "acc5_delta": 0.0
+    }
+  }
+}

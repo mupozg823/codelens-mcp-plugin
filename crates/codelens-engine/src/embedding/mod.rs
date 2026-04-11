@@ -1881,6 +1881,76 @@ pub(super) fn is_nl_shaped(s: &str) -> bool {
     (alpha * 100) / non_ws >= 60
 }
 
+/// Return true when the v1.5 Phase 2i strict comment filter is enabled
+/// via `CODELENS_EMBED_HINT_STRICT_COMMENTS=1` (or `true`/`yes`/`on`).
+///
+/// Phase 2i extends Phase 2h (§8.9) with a comment-side analogue of the
+/// literal filter. Phase 2h recovered ~8 % of the Python regression by
+/// rejecting format/error/log string literals in Pass 2; Phase 2i
+/// targets the remaining ~92 % by rejecting meta-annotation comments
+/// (`# TODO`, `# FIXME`, `# HACK`, `# XXX`, `# BUG`, `# REVIEW`,
+/// `# REFACTOR`, `# TEMP`, `# DEPRECATED`) in Pass 1. Conservative
+/// prefix list — `# NOTE`, `# WARN`, `# SAFETY` are retained because
+/// they often carry behaviour-descriptive content even on Rust.
+///
+/// Default OFF (same policy as every Phase 2 knob). Orthogonal to
+/// `CODELENS_EMBED_HINT_STRICT_LITERALS` so both may be stacked.
+fn strict_comments_enabled() -> bool {
+    std::env::var("CODELENS_EMBED_HINT_STRICT_COMMENTS")
+        .map(|raw| {
+            let lowered = raw.to_ascii_lowercase();
+            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
+/// Heuristic: does `body` (the comment text *after* the `//` / `#` prefix
+/// has been stripped by `extract_comment_body`) look like a meta-annotation
+/// rather than behaviour-descriptive prose?
+///
+/// Recognises the following prefixes (case-insensitive, followed by
+/// `:`, `(`, or whitespace):
+/// - `TODO`, `FIXME`, `HACK`, `XXX`, `BUG`
+/// - `REVIEW`, `REFACTOR`, `TEMP`, `TEMPORARY`, `DEPRECATED`
+///
+/// Deliberately excluded (kept as behaviour signal):
+/// - `NOTE`, `NOTES`, `WARN`, `WARNING`
+/// - `SAFETY` (Rust `unsafe` block justifications)
+/// - `PANIC` (Rust invariant docs)
+///
+/// The exclusion list is based on the observation that Rust projects
+/// use `// SAFETY:` and `// NOTE:` to document *why* a block behaves a
+/// certain way — that text is exactly the NL retrieval signal Phase 2b
+/// is trying to capture. The inclusion list targets the "I'll fix this
+/// later" noise that poisons the embedding on both languages but is
+/// especially common on mature Python projects.
+pub(super) fn looks_like_meta_annotation(body: &str) -> bool {
+    let trimmed = body.trim_start();
+    // Find the end of the first "word" (alphanumerics only — a colon,
+    // paren, or whitespace terminates the marker).
+    let word_end = trimmed
+        .find(|c: char| !c.is_ascii_alphabetic())
+        .unwrap_or(trimmed.len());
+    if word_end == 0 {
+        return false;
+    }
+    let first_word = &trimmed[..word_end];
+    let upper = first_word.to_ascii_uppercase();
+    matches!(
+        upper.as_str(),
+        "TODO"
+            | "FIXME"
+            | "HACK"
+            | "XXX"
+            | "BUG"
+            | "REVIEW"
+            | "REFACTOR"
+            | "TEMP"
+            | "TEMPORARY"
+            | "DEPRECATED"
+    )
+}
+
 /// Return true when the v1.5 Phase 2h strict NL literal filter is enabled
 /// via `CODELENS_EMBED_HINT_STRICT_LITERALS=1` (or `true`/`yes`/`on`).
 ///
@@ -2065,10 +2135,18 @@ pub(super) fn extract_nl_tokens_inner(
     let mut tokens: Vec<String> = Vec::new();
 
     // ── Pass 1: comments ─────────────────────────────────────────────
+    // v1.5 Phase 2i: when CODELENS_EMBED_HINT_STRICT_COMMENTS=1 is set,
+    // reject meta-annotation comments (`# TODO`, `# FIXME`, `# HACK`,
+    // ...) while keeping behaviour-descriptive comments untouched. This
+    // is the comment-side analogue of the Phase 2h literal filter
+    // (§8.9) and targets the remaining ~92 % of the Python regression
+    // that Phase 2h's literal-only filter left behind.
+    let strict_comments = strict_comments_enabled();
     for line in body.lines() {
         let trimmed = line.trim();
         if let Some(cleaned) = extract_comment_body(trimmed)
             && is_nl_shaped(&cleaned)
+            && (!strict_comments || !looks_like_meta_annotation(&cleaned))
         {
             tokens.push(cleaned);
         }
@@ -2780,6 +2858,138 @@ fn skip_things() {
             }
         }
         assert!(result.is_none(), "gate leaked: {result:?}");
+    }
+
+    #[test]
+    fn strict_comments_gated_off_by_default() {
+        let previous = std::env::var("CODELENS_EMBED_HINT_STRICT_COMMENTS").ok();
+        unsafe {
+            std::env::remove_var("CODELENS_EMBED_HINT_STRICT_COMMENTS");
+        }
+        let enabled = super::strict_comments_enabled();
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("CODELENS_EMBED_HINT_STRICT_COMMENTS", value);
+            }
+        }
+        assert!(!enabled, "strict comments gate leaked");
+    }
+
+    #[test]
+    fn looks_like_meta_annotation_detects_rejected_prefixes() {
+        // All case variants of the rejected prefix list must match.
+        assert!(super::looks_like_meta_annotation("TODO: fix later"));
+        assert!(super::looks_like_meta_annotation("todo handle edge case"));
+        assert!(super::looks_like_meta_annotation("FIXME this is broken"));
+        assert!(super::looks_like_meta_annotation("HACK: workaround for bug"));
+        assert!(super::looks_like_meta_annotation("XXX not implemented yet"));
+        assert!(super::looks_like_meta_annotation("BUG in the upstream crate"));
+        assert!(super::looks_like_meta_annotation("REVIEW before merging"));
+        assert!(super::looks_like_meta_annotation("REFACTOR this block later"));
+        assert!(super::looks_like_meta_annotation("TEMP: remove before v2"));
+        assert!(super::looks_like_meta_annotation("DEPRECATED use new_api instead"));
+        // Leading whitespace inside the comment body is handled.
+        assert!(super::looks_like_meta_annotation("   TODO: with leading ws"));
+    }
+
+    #[test]
+    fn looks_like_meta_annotation_preserves_behaviour_prefixes() {
+        // Explicitly-excluded prefixes — kept as behaviour signal.
+        assert!(!super::looks_like_meta_annotation("NOTE: this branch handles empty input"));
+        assert!(!super::looks_like_meta_annotation("WARN: overflow is possible"));
+        assert!(!super::looks_like_meta_annotation("SAFETY: caller must hold the lock"));
+        assert!(!super::looks_like_meta_annotation("PANIC: unreachable by construction"));
+        // Behaviour-descriptive prose must pass through.
+        assert!(!super::looks_like_meta_annotation("parse json body from request"));
+        assert!(!super::looks_like_meta_annotation("walk directory respecting gitignore"));
+        assert!(!super::looks_like_meta_annotation("compute cosine similarity between vectors"));
+        // Empty / edge inputs
+        assert!(!super::looks_like_meta_annotation(""));
+        assert!(!super::looks_like_meta_annotation("   "));
+        assert!(!super::looks_like_meta_annotation("123 numeric prefix"));
+    }
+
+    #[test]
+    fn strict_comments_filters_meta_annotations_during_extraction() {
+        let previous = std::env::var("CODELENS_EMBED_HINT_STRICT_COMMENTS").ok();
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_STRICT_COMMENTS", "1");
+        }
+        let source = "\
+fn handle_request() {
+    // TODO: handle the error path properly
+    // parse json body from the incoming request
+    // FIXME: this can panic on empty input
+    // walk directory respecting the gitignore rules
+    let _x = 1;
+}
+";
+        let result = super::extract_nl_tokens_inner(source, 0, source.len());
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_STRICT_COMMENTS", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_STRICT_COMMENTS"),
+            }
+        }
+        let hint = result.expect("behaviour comments must survive");
+        // The first real behaviour comment must appear. The hint is capped
+        // by the default 60-char budget, so we only assert on a short
+        // substring that's guaranteed to fit.
+        assert!(
+            hint.contains("parse json body"),
+            "behaviour comment dropped: {hint}"
+        );
+        // TODO / FIXME must NOT appear anywhere in the hint (they were
+        // rejected before join, so they cannot be there even partially).
+        assert!(
+            !hint.contains("TODO"),
+            "TODO annotation leaked: {hint}"
+        );
+        assert!(
+            !hint.contains("FIXME"),
+            "FIXME annotation leaked: {hint}"
+        );
+    }
+
+    #[test]
+    fn strict_comments_is_orthogonal_to_strict_literals() {
+        // Enabling strict_comments must NOT affect the Pass-2 literal path.
+        // A format-specifier literal should still pass through Pass 2
+        // when the literal filter is off, regardless of the comment gate.
+        let prev_c = std::env::var("CODELENS_EMBED_HINT_STRICT_COMMENTS").ok();
+        let prev_l = std::env::var("CODELENS_EMBED_HINT_STRICT_LITERALS").ok();
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_STRICT_COMMENTS", "1");
+            std::env::remove_var("CODELENS_EMBED_HINT_STRICT_LITERALS");
+        }
+        // Source kept short so the 60-char hint budget does not truncate
+        // either of the two substrings we assert on.
+        let source = "\
+fn handle() {
+    // handles real behaviour
+    let fmt = \"format error string\";
+}
+";
+        let result = super::extract_nl_tokens_inner(source, 0, source.len());
+        unsafe {
+            match prev_c {
+                Some(v) => std::env::set_var("CODELENS_EMBED_HINT_STRICT_COMMENTS", v),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_STRICT_COMMENTS"),
+            }
+            match prev_l {
+                Some(v) => std::env::set_var("CODELENS_EMBED_HINT_STRICT_LITERALS", v),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_STRICT_LITERALS"),
+            }
+        }
+        let hint = result.expect("tokens must exist");
+        // Comment survives (not a meta-annotation).
+        assert!(hint.contains("handles real"), "comment dropped: {hint}");
+        // String literal still appears — strict_literals was OFF, so the
+        // Pass-2 filter is inactive for this test.
+        assert!(
+            hint.contains("format error string"),
+            "literal dropped: {hint}"
+        );
     }
 
     #[test]
