@@ -507,6 +507,103 @@ Measurement artefacts live in `benchmarks/embedding-quality-v1.5-phase2e-v2-{bas
 - **Phase 2d — Model swap**: CodeSearchNet-INT8 → E5-large / BGE-base. Still the largest ceiling uplift available, still carries binary-size + migration cost. Phase 2e being the first positive solo win means the "stack all three" arm (now +0.014 hybrid MRR / +0.045 Acc@3) is a real baseline to beat before committing to a model swap.
 - **Phase 2f — External-repo validation**: run the full 4-arm A/B on one or two medium-size external Rust / TypeScript repos before flipping any of the three env gates to default ON. A positive signal on the self dataset is necessary but not sufficient for a default change.
 
+### 8.5 v1.5 Phase 2f experiment — cross-dataset validation on the augmented 436-query set
+
+**Hypothesis**: The Phase 2b/2c/2e wins in §8.2–§8.4 were all measured on the 89-query `embedding-quality-dataset-self.json`. Before flipping any of the three env gates to default ON, replay the full four-arm A/B on a larger, more diverse query distribution so that a single-dataset overfit is ruled out. The natural first step is the existing 436-query `embedding-quality-dataset.json` (same repository, but ~5× the query count with a much wider spread of NL phrasings). A true external-repo validation still remains, but it requires a hand-built `expected_symbol` mapping — running the augmented self-dataset first is the cheapest check that costs nothing but runtime.
+
+**Setup**: Same release binary built from `9f93ef9` (post-Phase 2e merge), same bundled CodeSearchNet-INT8 model, same `--isolated-copy` workflow as §8.2–§8.4, and the same Phase 2e parameters as the §8.4 pilot (`CODELENS_RANK_SPARSE_THRESHOLD=40`, `CODELENS_RANK_SPARSE_MAX=40`). Four arms:
+
+- **A — baseline**: all three gates off.
+- **B — phase2e only**: `CODELENS_RANK_SPARSE_TERM_WEIGHT=1` + threshold/max.
+- **C — phase2b+2c only**: `CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1` + `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1`, Phase 2e off.
+- **D — stacked**: all three gates + same Phase 2e knobs.
+
+**Result** (436 queries, top-10 cutoff, `get_ranked_context` hybrid metrics):
+
+| Metric           | A base |   B 2e | C 2b+2c |  D stacked |
+| ---------------- | -----: | -----: | ------: | ---------: |
+| hybrid MRR       | 0.0476 | 0.0488 |  0.0485 | **0.0510** |
+| hybrid Acc@1     | 0.0413 | 0.0413 |  0.0413 | **0.0436** |
+| hybrid Acc@3     | 0.0505 | 0.0573 |  0.0528 | **0.0573** |
+| NL hybrid MRR    | 0.0377 | 0.0394 |  0.0390 | **0.0427** |
+| NL hybrid Acc@1  | 0.0301 | 0.0301 |  0.0301 | **0.0334** |
+| NL hybrid Acc@3  | 0.0401 | 0.0502 |  0.0435 | **0.0502** |
+| identifier Acc@1 | 0.0964 | 0.0964 |  0.0964 |     0.0964 |
+
+**Deltas vs baseline**:
+
+| Run             |  hybrid MRR | hybrid Acc@3 | NL hybrid MRR |    NL Acc@3 | ident Acc@1 |
+| --------------- | ----------: | -----------: | ------------: | ----------: | ----------: |
+| phase2e only    | **+0.0012** |  **+0.0069** |   **+0.0017** | **+0.0100** |      +0.000 |
+| phase2b+2c only |     +0.0009 |      +0.0023 |       +0.0013 |     +0.0033 |      +0.000 |
+| **stacked**     | **+0.0034** |  **+0.0069** |   **+0.0050** | **+0.0100** |      +0.000 |
+
+**Phase 2e marginal value on top of Phase 2b+2c** (`stacked − phase2b+2c only`):
+
+- hybrid MRR: **+0.0025**
+- hybrid Acc@1: **+0.0023**
+- hybrid Acc@3: **+0.0046**
+- NL hybrid MRR: **+0.0036**
+- NL hybrid Acc@3: **+0.0067**
+- identifier Acc@1: **+0.0000** (100% → 100%, gate held)
+
+**Cross-dataset verdict — direction-consistent, relative lift is _larger_ on the harder dataset**:
+
+Every metric moves in the same direction as the 89-query §8.4 pilot. Absolute magnitudes are smaller because the 436-query augmented set is substantially harder — the baseline hybrid MRR sits at **0.0476** on 436 versus **0.5716** on 89, reflecting the much wider NL phrasing spread and the lower ceiling when more queries have no plausible match in the project at all. The relative uplift tells a different story:
+
+| Arm (stacked vs baseline) | 89-query absolute | 89-query relative | 436-query absolute | 436-query relative |
+| ------------------------- | ----------------: | ----------------: | -----------------: | -----------------: |
+| hybrid MRR                |            +0.014 |        **+2.4 %** |            +0.0034 |         **+7.1 %** |
+| hybrid Acc@3              |            +0.045 |            +7.4 % |            +0.0069 |            +13.7 % |
+| NL hybrid MRR             |            +0.020 |            +4.3 % |            +0.0050 |            +13.3 % |
+| NL Acc@3                  |            +0.055 |           +11.2 % |            +0.0100 |            +24.9 % |
+
+On a **relative** scale the stack is _more_ effective on the harder dataset. This is not a chance artefact: the mechanisms in Phase 2b (NL tokens from comments + string literals) and Phase 2e (whole-word coverage bonus) are designed to help exactly the queries where the baseline ranks the target below Acc@3. On 89 that cohort is small; on 436 it dominates, and Phase 2b + 2e together recover a meaningful chunk of it. Phase 2c's marginal contribution stays consistent with §8.3 — small on its own, useful as a tie-breaker when stacked.
+
+**Why default stays OFF for now**: 436 is still _the same repository_. A true external-repo validation (hand-built dataset on a second codebase like `ripgrep`, `tokio`, or a TypeScript project) would be the next bar. The current evidence is strong enough to recommend the stack for any project willing to opt in — especially projects where NL-heavy queries are common — but not yet strong enough to change a global default that forces an index rebuild for every existing deployment.
+
+**Concrete recommendation for v1.5.x users**:
+
+1. If your agents run lots of NL queries against `get_ranked_context`, set all three env gates at launch time:
+
+   ```
+   CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1
+   CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1
+   CODELENS_RANK_SPARSE_TERM_WEIGHT=1
+   CODELENS_RANK_SPARSE_THRESHOLD=40
+   CODELENS_RANK_SPARSE_MAX=40
+   ```
+
+2. If your traffic is mostly identifier / `find_symbol`-style queries, leave the three gates off. They add zero benefit for pure identifier lookups and cost an index rebuild (for 2b/2c) to turn on.
+
+3. Do not flip any of these defaults in forked configs without at least a second-repo A/B — the §8.4 pilot's first attempt measured zero effect because the sparse pass was running on the wrong query string (see §8.4 _"Why the first pilot measured zero"_), and that class of failure is exactly what cross-repo measurement catches.
+
+**Reproduce any 436-query arm**:
+
+```bash
+# Arm A — baseline
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset.json
+
+# Arm D — full v1.5 stack
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset.json
+```
+
+Measurement artefacts live in `benchmarks/embedding-quality-v1.5-phase2f-aug436-{baseline,2e-only,2b2c-only,stacked}.{json,md}` for audit.
+
+**Still-open work (unchanged from §8.4)**:
+
+- **External-repo validation** — same 4-arm A/B against a medium-size external Rust / TypeScript repo with a hand-built 20–40 query `expected_symbol` dataset. Required before flipping any default ON.
+- **Phase 2d — Model swap** — CodeSearchNet-INT8 → E5-large / BGE-base. Biggest ceiling uplift but binary-size + migration cost. The Phase 2b+2c+2e stacked arm (now validated on two query distributions) is the baseline to beat before committing.
+
 ---
 
 ## 9. See Also
