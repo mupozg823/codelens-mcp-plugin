@@ -1,6 +1,6 @@
 #[cfg(feature = "semantic")]
-use codelens_core::EmbeddingEngine;
-use codelens_core::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
+use codelens_engine::EmbeddingEngine;
+use codelens_engine::{FileWatcher, GraphCache, LspSessionPool, ProjectRoot, SymbolIndex};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -32,7 +32,7 @@ pub(crate) fn preflight_ttl_ms() -> u64 {
         .unwrap_or(10 * 60 * 1000) // default 10 min
 }
 
-pub(crate) use crate::client_profile::ClientProfile;
+pub(crate) use crate::client_profile::{ClientProfile, EffortLevel};
 pub(crate) use crate::runtime_types::{
     AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisSummary, AnalysisVerifierCheck,
     RecentPreflight, RuntimeDaemonMode, RuntimeTransportMode, WatcherFailureHealth,
@@ -110,11 +110,11 @@ impl ProjectContextCache {
             };
             if protected_scopes.iter().any(|scope| *scope == oldest) {
                 self.access_order.push_back(oldest);
-                if self
-                    .access_order
-                    .iter()
-                    .all(|scope| protected_scopes.iter().any(|protected| protected == &scope.as_str()))
-                {
+                if self.access_order.iter().all(|scope| {
+                    protected_scopes
+                        .iter()
+                        .any(|protected| protected == &scope.as_str())
+                }) {
                     break;
                 }
                 continue;
@@ -143,6 +143,7 @@ pub(crate) struct AppState {
     transport_mode: Mutex<RuntimeTransportMode>,
     daemon_mode: Mutex<RuntimeDaemonMode>,
     client_profile: ClientProfile,
+    effort_level: std::sync::atomic::AtomicU8,
     surface: Mutex<ToolSurface>,
     /// Global token budget for response size control.
     /// Tools that produce variable-length output respect this limit.
@@ -151,13 +152,13 @@ pub(crate) struct AppState {
     job_store: crate::job_store::AnalysisJobStore,
     pub(crate) metrics: Arc<ToolMetricsRegistry>,
     /// Recent tool call names for context-aware suggestions (max 5).
-    recent_tools: Mutex<VecDeque<String>>,
+    recent_tools: crate::recent_buffer::RecentRingBuffer,
     /// Recent file paths accessed in this session (max 20) for ranking boost.
-    recent_files: Mutex<VecDeque<String>>,
+    recent_files: crate::recent_buffer::RecentRingBuffer,
     /// Recent analysis IDs for cross-phase context (max 5).
-    recent_analysis_ids: Mutex<VecDeque<String>>,
-    /// Doom-loop detection: (tool_name, args_hash, consecutive_count)
-    doom_loop_counter: Mutex<(String, u64, usize)>,
+    recent_analysis_ids: crate::recent_buffer::RecentRingBuffer,
+    /// Doom-loop detection: (tool_name, args_hash, consecutive_count, first_occurrence_ms)
+    doom_loop_counter: Mutex<(String, u64, usize, u64)>,
     preflight_store: RecentPreflightStore,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,
@@ -379,12 +380,15 @@ impl AppState {
         self.recent_file_paths()
     }
 
+    /// Returns (consecutive_count, is_rapid_burst).
+    /// `is_rapid_burst` is true when 3+ identical calls happen within 10 seconds,
+    /// indicating an agent retry loop rather than deliberate repeated usage.
     pub(crate) fn doom_loop_count_for_session(
         &self,
         _session: &crate::session_context::SessionRequestContext,
         name: &str,
         args_hash: u64,
-    ) -> usize {
+    ) -> (usize, bool) {
         #[cfg(feature = "http")]
         if let Some(session_state) = self.http_session_state(_session) {
             return session_state.doom_loop_count(name, args_hash);
@@ -537,11 +541,10 @@ impl AppState {
         logical_session: &str,
         timestamp_ms: u64,
     ) {
-        self.preflight_store
-            .set_timestamp_for_test(
-                &self.preflight_key_for_scope(&self.current_project_scope(), logical_session),
-                timestamp_ms,
-            );
+        self.preflight_store.set_timestamp_for_test(
+            &self.preflight_key_for_scope(&self.current_project_scope(), logical_session),
+            timestamp_ms,
+        );
     }
 
     // ── Embedding engine accessors ──────────────────────────────────────
@@ -672,7 +675,7 @@ impl AppState {
             .unwrap_or_else(|| self.default_audit_dir.clone())
     }
 
-    pub(crate) fn watcher_stats(&self) -> Option<codelens_core::WatcherStats> {
+    pub(crate) fn watcher_stats(&self) -> Option<codelens_engine::WatcherStats> {
         self.active_project_context()
             .as_ref()
             .and_then(|context| context.watcher.as_ref().map(FileWatcher::stats))
@@ -680,7 +683,9 @@ impl AppState {
     }
 
     pub(crate) fn watcher_running(&self) -> bool {
-        self.watcher_stats().map(|stats| stats.running).unwrap_or(false)
+        self.watcher_stats()
+            .map(|stats| stats.running)
+            .unwrap_or(false)
     }
 
     /// Switch the active project at runtime. Creates a new index and graph cache.
@@ -797,6 +802,28 @@ impl AppState {
         self.client_profile
     }
 
+    pub(crate) fn effort_level(&self) -> EffortLevel {
+        match self
+            .effort_level
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            0 => EffortLevel::Low,
+            1 => EffortLevel::Medium,
+            _ => EffortLevel::High,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn set_effort_level(&self, level: EffortLevel) {
+        let val = match level {
+            EffortLevel::Low => 0u8,
+            EffortLevel::Medium => 1,
+            EffortLevel::High => 2,
+        };
+        self.effort_level
+            .store(val, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub(crate) fn mutation_allowed_in_runtime(&self) -> bool {
         !matches!(self.daemon_mode(), RuntimeDaemonMode::ReadOnly)
     }
@@ -842,79 +869,50 @@ impl AppState {
 
     /// Record a tool call in the recent tools ring buffer.
     pub(crate) fn push_recent_tool(&self, name: &str) {
-        let mut q = self.recent_tools.lock().unwrap_or_else(|p| p.into_inner());
-        if q.len() >= 5 {
-            q.pop_front();
-        }
-        q.push_back(name.to_owned());
+        self.recent_tools.push(name.to_owned());
     }
 
-    /// Doom-loop detection: returns the repeat count if the same tool+args_hash
-    /// has been called consecutively. Threshold of 3 triggers a warning.
-    pub(crate) fn doom_loop_count(&self, name: &str, args_hash: u64) -> usize {
+    /// Doom-loop detection: returns (repeat_count, is_rapid_burst).
+    /// Threshold of 3 triggers a warning. `is_rapid_burst` is true when
+    /// 3+ identical calls occur within 10 seconds (agent retry loop).
+    pub(crate) fn doom_loop_count(&self, name: &str, args_hash: u64) -> (usize, bool) {
         let mut counter = self
             .doom_loop_counter
             .lock()
             .unwrap_or_else(|p| p.into_inner());
+        let now = Self::now_ms();
         if counter.0 == name && counter.1 == args_hash {
             counter.2 += 1;
         } else {
-            *counter = (name.to_owned(), args_hash, 1);
+            *counter = (name.to_owned(), args_hash, 1, now);
         }
-        counter.2
+        let is_rapid = counter.2 >= 3 && (now.saturating_sub(counter.3) < 10_000);
+        (counter.2, is_rapid)
     }
 
     /// Get the recent tool call names (up to 5).
     pub(crate) fn recent_tools(&self) -> Vec<String> {
-        self.recent_tools
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter()
-            .cloned()
-            .collect()
+        self.recent_tools.snapshot()
     }
 
     /// Record a file path as recently accessed (for ranking boost).
     pub(crate) fn record_file_access(&self, path: &str) {
-        let mut files = self.recent_files.lock().unwrap_or_else(|p| p.into_inner());
-        // Deduplicate: remove if already present, then push to back
-        files.retain(|f| f != path);
-        if files.len() >= 20 {
-            files.pop_front();
-        }
-        files.push_back(path.to_owned());
+        self.recent_files.push_dedup(path);
     }
 
     /// Get recently accessed file paths (most recent last).
     pub(crate) fn recent_file_paths(&self) -> Vec<String> {
-        self.recent_files
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter()
-            .cloned()
-            .collect()
+        self.recent_files.snapshot()
     }
 
     /// Record an analysis_id for cross-phase context.
     pub(crate) fn push_recent_analysis_id(&self, id: String) {
-        let mut ids = self
-            .recent_analysis_ids
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        if ids.len() >= 5 {
-            ids.pop_front();
-        }
-        ids.push_back(id);
+        self.recent_analysis_ids.push(id);
     }
 
     /// Get recent analysis IDs (most recent last).
     pub(crate) fn recent_analysis_ids(&self) -> Vec<String> {
-        self.recent_analysis_ids
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .iter()
-            .cloned()
-            .collect()
+        self.recent_analysis_ids.snapshot()
     }
 
     // ── Job Store delegations ────────────────────────────────────────────
@@ -941,6 +939,7 @@ impl AppState {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn store_analysis_job(
         &self,
         scope: &str,
@@ -966,7 +965,10 @@ impl AppState {
         )
     }
 
+    // Test-only delegate: matches the param list of store_analysis_job so
+    // refactoring to a struct would cascade into the production caller path.
     #[cfg(test)]
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn store_analysis_job_for_current_scope(
         &self,
         kind: &str,
@@ -996,11 +998,15 @@ impl AppState {
         scope: &str,
         status_filter: Option<&str>,
     ) -> Vec<AnalysisJob> {
-        self.job_store.list(status_filter, Some(&scope))
+        self.job_store.list(status_filter, Some(scope))
     }
 
-    pub(crate) fn get_analysis_job_for_scope(&self, scope: &str, job_id: &str) -> Option<AnalysisJob> {
-        let job = self.job_store.get(job_id, Some(&scope))?;
+    pub(crate) fn get_analysis_job_for_scope(
+        &self,
+        scope: &str,
+        job_id: &str,
+    ) -> Option<AnalysisJob> {
+        let job = self.job_store.get(job_id, Some(scope))?;
         // Cross-concern: warm artifact cache when job references an analysis
         if let Some(analysis_id) = job.analysis_id.as_deref() {
             let _ = self.get_analysis_for_scope(scope, analysis_id);
@@ -1018,13 +1024,14 @@ impl AppState {
         scope: &str,
         job_id: &str,
     ) -> Result<AnalysisJob, CodeLensError> {
-        let job = self.job_store.cancel(job_id, Some(&scope))?;
+        let job = self.job_store.cancel(job_id, Some(scope))?;
         if job.status == JobLifecycle::Cancelled {
             self.metrics.record_analysis_job_cancelled(0, 0);
         }
         Ok(job)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn update_analysis_job(
         &self,
         scope: &str,
@@ -1044,7 +1051,7 @@ impl AppState {
             estimated_sections,
             analysis_id,
             error,
-            Some(&scope),
+            Some(scope),
         )
     }
 
@@ -1069,6 +1076,7 @@ impl AppState {
 
     // ── Artifact Store delegations ────────────────────────────────────────
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn store_analysis(
         &self,
         scope: &str,
@@ -1105,6 +1113,7 @@ impl AppState {
         Ok(artifact)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn store_analysis_for_current_scope(
         &self,
         tool_name: &str,
@@ -1162,7 +1171,7 @@ impl AppState {
         scope: &str,
         analysis_id: &str,
     ) -> Option<AnalysisArtifact> {
-        self.artifact_store.get(analysis_id, Some(&scope))
+        self.artifact_store.get(analysis_id, Some(scope))
     }
 
     pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
@@ -1170,7 +1179,7 @@ impl AppState {
     }
 
     pub(crate) fn list_analysis_summaries_for_scope(&self, scope: &str) -> Vec<AnalysisSummary> {
-        self.artifact_store.list_summaries(Some(&scope))
+        self.artifact_store.list_summaries(Some(scope))
     }
 
     pub(crate) fn list_analysis_summaries(&self) -> Vec<AnalysisSummary> {
@@ -1219,15 +1228,18 @@ impl AppState {
             transport_mode: Mutex::new(self.transport_mode()),
             daemon_mode: Mutex::new(self.daemon_mode()),
             client_profile: self.client_profile,
+            effort_level: std::sync::atomic::AtomicU8::new(
+                self.effort_level.load(std::sync::atomic::Ordering::Relaxed),
+            ),
             surface: Mutex::new(*self.surface()),
             token_budget: std::sync::atomic::AtomicUsize::new(self.token_budget()),
             artifact_store: AnalysisArtifactStore::new(analysis_dir.clone()),
             job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
             metrics: Arc::clone(&self.metrics),
-            recent_tools: Mutex::new(VecDeque::with_capacity(5)),
-            recent_analysis_ids: Mutex::new(VecDeque::with_capacity(5)),
-            doom_loop_counter: Mutex::new((String::new(), 0, 0)),
-            recent_files: Mutex::new(VecDeque::with_capacity(20)),
+            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
+            recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
+            doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
+            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
             preflight_store: RecentPreflightStore::new(),
             analysis_queue: OnceLock::new(),
             watcher_maintenance: Mutex::new(HashMap::new()),
@@ -1244,10 +1256,7 @@ impl AppState {
         let context = Self::build_project_runtime_context(project, true)
             .expect("startup project context should initialize");
 
-        let state = Self::build(
-            context,
-            preset,
-        );
+        let state = Self::build(context, preset);
         state.configure_transport_mode("stdio");
         state.artifact_store.cleanup_stale_dirs(Self::now_ms());
         let scope = state.current_project_scope();
@@ -1264,18 +1273,12 @@ impl AppState {
         let context = Self::build_project_runtime_context(project, false)
             .expect("test project context should initialize");
 
-        let state = Self::build(
-            context,
-            preset,
-        );
+        let state = Self::build(context, preset);
         state.configure_transport_mode("stdio");
         state
     }
 
-    fn build(
-        context: ProjectRuntimeContext,
-        preset: ToolPreset,
-    ) -> Self {
+    fn build(context: ProjectRuntimeContext, preset: ToolPreset) -> Self {
         let default_project = context.project.clone();
         let default_symbol_index = Arc::clone(&context.symbol_index);
         let default_graph_cache = Arc::clone(&context.graph_cache);
@@ -1298,6 +1301,11 @@ impl AppState {
             transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
             daemon_mode: Mutex::new(RuntimeDaemonMode::Standard),
             client_profile: ClientProfile::detect(None),
+            effort_level: std::sync::atomic::AtomicU8::new(match EffortLevel::detect() {
+                EffortLevel::Low => 0,
+                EffortLevel::Medium => 1,
+                EffortLevel::High => 2,
+            }),
             surface: Mutex::new(ToolSurface::Preset(preset)),
             token_budget: std::sync::atomic::AtomicUsize::new(
                 crate::tool_defs::default_budget_for_preset(preset),
@@ -1305,10 +1313,10 @@ impl AppState {
             artifact_store: AnalysisArtifactStore::new(default_analysis_dir.clone()),
             job_store: crate::job_store::AnalysisJobStore::new(default_analysis_dir.join("jobs")),
             metrics: Arc::new(ToolMetricsRegistry::new()),
-            recent_tools: Mutex::new(VecDeque::with_capacity(5)),
-            recent_analysis_ids: Mutex::new(VecDeque::with_capacity(5)),
-            doom_loop_counter: Mutex::new((String::new(), 0, 0)),
-            recent_files: Mutex::new(VecDeque::with_capacity(20)),
+            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
+            recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
+            doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
+            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
             preflight_store: RecentPreflightStore::new(),
             analysis_queue: OnceLock::new(),
             watcher_maintenance: Mutex::new(HashMap::new()),
@@ -1371,7 +1379,7 @@ impl AppState {
         project_name: &str,
         symbol_name: &str,
         max_results: usize,
-    ) -> anyhow::Result<Vec<codelens_core::SymbolInfo>> {
+    ) -> anyhow::Result<Vec<codelens_engine::SymbolInfo>> {
         let map = self
             .secondary_projects
             .lock()
@@ -1444,19 +1452,7 @@ impl AppState {
 mod tests {
     use super::*;
 
-    fn temp_project_root(label: &str) -> ProjectRoot {
-        let dir = std::env::temp_dir().join(format!(
-            "codelens-state-{label}-{}-{:?}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos(),
-            std::thread::current().id(),
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("lib.rs"), "fn sample() {}\n").unwrap();
-        ProjectRoot::new(&dir).unwrap()
-    }
+    use crate::test_helpers::fixtures::temp_project_root;
 
     #[test]
     fn switch_project_reuses_cached_symbol_index_and_lsp_pool() {

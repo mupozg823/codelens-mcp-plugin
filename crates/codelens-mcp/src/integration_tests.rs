@@ -5,7 +5,7 @@
 
 use crate::server::router::handle_request;
 use crate::tool_defs::tools;
-use codelens_core::ProjectRoot;
+use codelens_engine::ProjectRoot;
 use serde_json::json;
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static TEST_PROJECT_SEQ: AtomicU64 = AtomicU64::new(0);
 
 fn embedding_model_available_for_test() -> bool {
-    if !codelens_core::embedding_model_assets_available() {
+    if !codelens_engine::embedding_model_assets_available() {
         eprintln!("skipping integration test: CodeSearchNet model assets unavailable");
         return false;
     }
@@ -204,10 +204,8 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(
-        encoded
-            .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]")
-    );
+    assert!(encoded
+        .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"impact_report\""));
@@ -440,12 +438,10 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("blocked by daemon mode")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("blocked by daemon mode"));
 }
 
 #[test]
@@ -464,12 +460,10 @@ fn hidden_tools_are_blocked_at_call_time() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("not available in active surface")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("not available in active surface"));
 }
 
 #[test]
@@ -494,11 +488,9 @@ fn watch_status_reports_lock_contention_field() {
     assert!(payload["data"].get("stale_index_failures").is_some());
     assert!(payload["data"].get("persistent_index_failures").is_some());
     assert!(payload["data"].get("pruned_missing_failures").is_some());
-    assert!(
-        payload["data"]
-            .get("recent_failure_window_seconds")
-            .is_some()
-    );
+    assert!(payload["data"]
+        .get("recent_failure_window_seconds")
+        .is_some());
 }
 
 #[test]
@@ -1194,7 +1186,7 @@ fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
     .unwrap();
     let _bootstrap = make_state(&project);
 
-    let engine = codelens_core::EmbeddingEngine::new(&project).unwrap();
+    let engine = codelens_engine::EmbeddingEngine::new(&project).unwrap();
     let indexed = engine.index_from_project(&project).unwrap();
     assert!(indexed > 0);
     drop(engine);
@@ -1234,23 +1226,19 @@ fn impact_report_surfaces_unavailable_semantic_status() {
     let analysis_id = payload["data"]["analysis_id"]
         .as_str()
         .expect("analysis_id should be present");
-    assert!(
-        payload["data"]["available_sections"]
-            .as_array()
-            .map(|sections| sections.iter().any(|section| section == "semantic_status"))
-            .unwrap_or(false)
-    );
-    assert!(
-        payload["data"]["next_actions"]
-            .as_array()
-            .map(|actions| {
-                actions
-                    .iter()
-                    .filter_map(|value| value.as_str())
-                    .any(|value| value.contains("index_embeddings"))
-            })
-            .unwrap_or(false)
-    );
+    assert!(payload["data"]["available_sections"]
+        .as_array()
+        .map(|sections| sections.iter().any(|section| section == "semantic_status"))
+        .unwrap_or(false));
+    assert!(payload["data"]["next_actions"]
+        .as_array()
+        .map(|actions| {
+            actions
+                .iter()
+                .filter_map(|value| value.as_str())
+                .any(|value| value.contains("index_embeddings"))
+        })
+        .unwrap_or(false));
 
     let section = call_tool(
         &state,
@@ -1259,12 +1247,10 @@ fn impact_report_surfaces_unavailable_semantic_status() {
     );
     assert_eq!(section["success"], json!(true));
     assert_eq!(section["data"]["content"]["status"], json!("unavailable"));
-    assert!(
-        section["data"]["content"]["reason"]
-            .as_str()
-            .unwrap_or("")
-            .contains("index_embeddings")
-    );
+    assert!(section["data"]["content"]["reason"]
+        .as_str()
+        .unwrap_or("")
+        .contains("index_embeddings"));
 }
 
 #[test]
@@ -1280,7 +1266,7 @@ fn impact_report_uses_existing_embedding_index_for_semantic_status() {
     .unwrap();
     let _bootstrap = make_state(&project);
 
-    let engine = codelens_core::EmbeddingEngine::new(&project).unwrap();
+    let engine = codelens_engine::EmbeddingEngine::new(&project).unwrap();
     let indexed = engine.index_from_project(&project).unwrap();
     assert!(indexed > 0);
     drop(engine);
@@ -1342,7 +1328,7 @@ fn get_capabilities_reports_existing_embedding_index_without_loading_engine() {
     )
     .unwrap();
     let _bootstrap = make_state(&project);
-    let engine = codelens_core::EmbeddingEngine::new(&project).unwrap();
+    let engine = codelens_engine::EmbeddingEngine::new(&project).unwrap();
     let indexed = engine.index_from_project(&project).unwrap();
     assert!(indexed > 0);
     drop(engine);
@@ -1400,13 +1386,11 @@ fn analyze_change_request_returns_handle_and_section() {
     );
     assert_eq!(section["success"], json!(true));
     assert_eq!(section["data"]["analysis_id"], json!(analysis_id));
-    assert!(
-        state
-            .analysis_dir()
-            .join(analysis_id)
-            .join("ranked_files.json")
-            .exists()
-    );
+    assert!(state
+        .analysis_dir()
+        .join(analysis_id)
+        .join("ranked_files.json")
+        .exists());
 }
 
 #[test]
@@ -1983,7 +1967,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(24_1)),
+            id: Some(json!(241)),
             method: "resources/read".to_owned(),
             params: Some(json!({"uri": "codelens://session/http"})),
         },
@@ -2245,7 +2229,7 @@ fn verifier_tools_return_structured_content_payload() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(3102_1)),
+            id: Some(json!(31021)),
             method: "tools/call".to_owned(),
             params: Some(json!({
                 "name": "verify_change_readiness",
@@ -2270,7 +2254,7 @@ fn verifier_tools_return_structured_content_payload() {
         &state,
         crate::protocol::JsonRpcRequest {
             jsonrpc: "2.0".to_owned(),
-            id: Some(json!(3102_2)),
+            id: Some(json!(31022)),
             method: "tools/call".to_owned(),
             params: Some(json!({
                 "name": "unresolved_reference_check",
@@ -2357,11 +2341,9 @@ fn oversized_analysis_handle_keeps_structured_content_schema_shape() {
         json!(true)
     );
     assert_eq!(value["result"]["structuredContent"].get("truncated"), None);
-    assert!(
-        value["result"]["structuredContent"]["analysis_id"]
-            .as_str()
-            .is_some()
-    );
+    assert!(value["result"]["structuredContent"]["analysis_id"]
+        .as_str()
+        .is_some());
     assert!(
         value["result"]["structuredContent"]["readiness"]["mutation_ready"]
             .as_str()
@@ -2527,11 +2509,9 @@ fn foreign_project_scoped_analysis_is_ignored_for_reuse() {
     .unwrap();
 
     assert!(state.get_analysis(analysis_id).is_none());
-    assert!(
-        state
-            .find_reusable_analysis_for_current_scope("analyze_change_request", &cache_key)
-            .is_none()
-    );
+    assert!(state
+        .find_reusable_analysis_for_current_scope("analyze_change_request", &cache_key)
+        .is_none());
 }
 
 #[test]
@@ -2607,12 +2587,10 @@ fn analysis_artifacts_expire_by_ttl() {
 
     assert!(state.get_analysis(&analysis_id).is_none());
     assert!(!state.analysis_dir().join(&analysis_id).exists());
-    assert!(
-        state
-            .list_analysis_summaries()
-            .into_iter()
-            .all(|summary| summary.id != analysis_id)
-    );
+    assert!(state
+        .list_analysis_summaries()
+        .into_iter()
+        .all(|summary| summary.id != analysis_id));
 }
 
 #[test]
@@ -2798,12 +2776,10 @@ fn refactor_surface_requires_preflight_before_create_text_file() {
         json!({"relative_path": "mutated.txt", "content": "hello"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("requires a fresh preflight")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("requires a fresh preflight"));
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2851,11 +2827,9 @@ fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
         }),
     );
     assert_eq!(payload["success"], json!(true));
-    assert!(
-        fs::read_to_string(project.as_path().join("gated.py"))
-            .unwrap()
-            .contains("new")
-    );
+    assert!(fs::read_to_string(project.as_path().join("gated.py"))
+        .unwrap()
+        .contains("new"));
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2903,12 +2877,10 @@ fn safe_rename_report_blocked_preflight_blocks_rename_symbol() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("blocked by verifier readiness")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("blocked by verifier readiness"));
 }
 
 #[test]
@@ -2943,12 +2915,10 @@ fn rename_symbol_requires_symbol_aware_preflight() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("symbol-aware preflight")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("symbol-aware preflight"));
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -3027,12 +2997,10 @@ fn session_scoped_preflight_does_not_cross_sessions() {
         "session-b",
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("requires a fresh preflight")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("requires a fresh preflight"));
 }
 
 #[test]
@@ -3065,7 +3033,7 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
     )
     .unwrap();
     let _bootstrap = make_state(&project);
-    let engine = codelens_core::EmbeddingEngine::new(&project).unwrap();
+    let engine = codelens_engine::EmbeddingEngine::new(&project).unwrap();
     let indexed = engine.index_from_project(&project).unwrap();
     assert!(indexed > 0);
     drop(engine);
@@ -3095,22 +3063,20 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
         search["data"]["retrieval"]["semantic_query"],
         json!("ember archive delta")
     );
-    assert!(
-        search["data"]["results"]
-            .as_array()
-            .map(|results| {
-                results
+    assert!(search["data"]["results"]
+        .as_array()
+        .map(|results| {
+            results
+                .iter()
+                .all(|result| result["provenance"]["source"] == json!("semantic"))
+                && results
                     .iter()
-                    .all(|result| result["provenance"]["source"] == json!("semantic"))
-                    && results
-                        .iter()
-                        .all(|result| result["provenance"]["adjusted_score"].is_number())
-                    && results.iter().any(|result| {
-                        result.get("symbol_name") == Some(&json!("ember_archive_delta"))
-                    })
-            })
-            .unwrap_or(false)
-    );
+                    .all(|result| result["provenance"]["adjusted_score"].is_number())
+                && results
+                    .iter()
+                    .any(|result| result.get("symbol_name") == Some(&json!("ember_archive_delta")))
+        })
+        .unwrap_or(false));
 }
 
 // ── Test helpers ─────────────────────────────────────────────────────

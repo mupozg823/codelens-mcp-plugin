@@ -1,7 +1,10 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{
+    optional_bool, optional_string, optional_usize, required_string, success_meta, AppState,
+    ToolResult,
+};
 use crate::protocol::BackendKind;
 use crate::tools::symbols::flatten_symbols;
-use codelens_core::{
+use codelens_engine::{
     find_circular_dependencies, find_dead_code_v2, find_scoped_references, get_blast_radius,
     get_callees, get_callers, get_change_coupling, get_changed_files, get_importance,
     get_importers, search_for_pattern,
@@ -9,11 +12,8 @@ use codelens_core::{
 use serde_json::json;
 
 pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let git_ref = arguments.get("ref").and_then(|v| v.as_str());
-    let include_untracked = arguments
-        .get("include_untracked")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
+    let git_ref = optional_string(arguments, "ref");
+    let include_untracked = optional_bool(arguments, "include_untracked", true);
     let changed = get_changed_files(&state.project(), git_ref, include_untracked)?;
     let ref_label = git_ref.unwrap_or("HEAD");
     Ok((
@@ -24,10 +24,7 @@ pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -
 
 pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
-    let max_depth = arguments
-        .get("max_depth")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(3) as usize;
+    let max_depth = optional_usize(arguments, "max_depth", 3);
 
     let blast = get_blast_radius(&state.project(), file_path, max_depth, &state.graph_cache())
         .unwrap_or_default();
@@ -68,10 +65,7 @@ pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> T
 
 pub fn find_importers_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+    let max_results = optional_usize(arguments, "max_results", 50);
     Ok(get_importers(
         &state.project(),
         file_path,
@@ -87,10 +81,7 @@ pub fn find_importers_tool(state: &AppState, arguments: &serde_json::Value) -> T
 }
 
 pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let top_n = arguments
-        .get("top_n")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(20) as usize;
+    let top_n = optional_usize(arguments, "top_n", 20);
     Ok(
         get_importance(&state.project(), top_n, &state.graph_cache()).map(|value| {
             (
@@ -102,10 +93,7 @@ pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) ->
 }
 
 pub fn find_dead_code_v2_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+    let max_results = optional_usize(arguments, "max_results", 50);
     Ok(
         find_dead_code_v2(&state.project(), max_results, &state.graph_cache()).map(|value| {
             (
@@ -121,15 +109,9 @@ pub fn find_referencing_code_snippets(
     arguments: &serde_json::Value,
 ) -> ToolResult {
     let symbol_name = required_string(arguments, "symbol_name")?;
-    let file_glob = arguments.get("file_glob").and_then(|v| v.as_str());
-    let context_lines = arguments
-        .get("context_lines")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(2) as usize;
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+    let file_glob = optional_string(arguments, "file_glob");
+    let context_lines = optional_usize(arguments, "context_lines", 2);
+    let max_results = optional_usize(arguments, "max_results", 50);
     Ok(search_for_pattern(
         &state.project(),
         symbol_name,
@@ -167,11 +149,8 @@ pub fn find_referencing_code_snippets(
 
 pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let symbol_name = required_string(arguments, "symbol_name")?;
-    let file_path = arguments.get("file_path").and_then(|v| v.as_str());
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+    let file_path = optional_string(arguments, "file_path");
+    let max_results = optional_usize(arguments, "max_results", 50);
     Ok(
         find_scoped_references(&state.project(), symbol_name, file_path, max_results).map(
             |refs| {
@@ -186,10 +165,7 @@ pub fn find_scoped_references_tool(state: &AppState, arguments: &serde_json::Val
 
 pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let function_name = required_string(arguments, "function_name")?;
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+    let max_results = optional_usize(arguments, "max_results", 50);
     Ok(
         get_callers(&state.project(), function_name, max_results).map(|value| {
             (
@@ -202,11 +178,8 @@ pub fn get_callers_tool(state: &AppState, arguments: &serde_json::Value) -> Tool
 
 pub fn get_callees_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let function_name = required_string(arguments, "function_name")?;
-    let file_path = arguments.get("file_path").and_then(|v| v.as_str());
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+    let file_path = optional_string(arguments, "file_path");
+    let max_results = optional_usize(arguments, "max_results", 50);
     Ok(
         get_callees(&state.project(), function_name, file_path, max_results).map(|value| {
             (
@@ -221,10 +194,7 @@ pub fn find_circular_dependencies_tool(
     state: &AppState,
     arguments: &serde_json::Value,
 ) -> ToolResult {
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(50) as usize;
+    let max_results = optional_usize(arguments, "max_results", 50);
     Ok(
         find_circular_dependencies(&state.project(), max_results, &state.graph_cache()).map(
             |value| {
@@ -238,22 +208,13 @@ pub fn find_circular_dependencies_tool(
 }
 
 pub fn get_change_coupling_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
-    let months = arguments
-        .get("months")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(6) as usize;
+    let months = optional_usize(arguments, "months", 6);
     let min_strength = arguments
         .get("min_strength")
         .and_then(|v| v.as_f64())
         .unwrap_or(0.3);
-    let min_commits = arguments
-        .get("min_commits")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(3) as usize;
-    let max_results = arguments
-        .get("max_results")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(30) as usize;
+    let min_commits = optional_usize(arguments, "min_commits", 3);
+    let max_results = optional_usize(arguments, "max_results", 30);
     Ok(get_change_coupling(
         &state.project(),
         months,
@@ -276,7 +237,7 @@ pub fn get_architecture_tool(state: &AppState, arguments: &serde_json::Value) ->
         .unwrap_or(2) as usize;
 
     let graph = state.graph_cache().get_or_build(&state.project())?;
-    let overview = codelens_core::community::detect_communities(&graph, min_size)?;
+    let overview = codelens_engine::community::detect_communities(&graph, min_size)?;
 
     Ok((
         json!({

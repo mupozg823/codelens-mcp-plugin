@@ -1,12 +1,12 @@
-use crate::AppState;
 use crate::protocol::BackendKind;
-use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile};
-use crate::tool_runtime::{ToolResult, required_string, success_meta};
 use crate::resource_context::{
-    ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
+    build_http_session_payload, build_visible_tool_context, ResourceRequestContext,
 };
-use codelens_core::detect_frameworks;
-use codelens_core::memory::list_memory_names;
+use crate::tool_defs::{default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface};
+use crate::tool_runtime::{required_string, success_meta, ToolResult};
+use crate::AppState;
+use codelens_engine::detect_frameworks;
+use codelens_engine::memory::list_memory_names;
 use serde_json::json;
 
 pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -123,6 +123,16 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
 
     let (activate_payload, _) = activate_project(state, arguments)?;
 
+    // Apply effort_level if provided (before preset/profile for budget calculation)
+    if let Some(effort_str) = arguments.get("effort_level").and_then(|v| v.as_str()) {
+        let level = match effort_str {
+            "low" => crate::client_profile::EffortLevel::Low,
+            "medium" => crate::client_profile::EffortLevel::Medium,
+            _ => crate::client_profile::EffortLevel::High,
+        };
+        state.set_effort_level(level);
+    }
+
     if arguments.get("profile").and_then(|v| v.as_str()).is_some() {
         crate::tools::session::set_profile(state, arguments)?;
     } else if arguments.get("preset").and_then(|v| v.as_str()).is_some() {
@@ -234,6 +244,15 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 "preferred_entrypoints": preferred_entrypoints,
                 "preferred_entrypoints_visible": preferred_entrypoints_visible,
                 "recommended_entrypoint": recommended_entrypoint,
+            },
+            "harness": {
+                "effort_level": state.effort_level().as_str(),
+                "compression_offset": state.effort_level().compression_threshold_offset(),
+                "meta_max_result_size": true,
+                "rapid_burst_detection": true,
+                "schema_pre_validation": true,
+                "doom_loop_threshold": 3,
+                "preflight_ttl_seconds": state.preflight_ttl_seconds(),
             }
         }),
         success_meta(BackendKind::Session, 1.0),

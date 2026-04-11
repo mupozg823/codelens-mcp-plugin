@@ -9,7 +9,7 @@ use crate::resource_context::{ResourceRequestContext, build_http_session_payload
 use crate::resource_profiles::{profile_guide, profile_guide_summary, profile_resource_entries};
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{ToolProfile, visible_tools};
-use codelens_core::{detect_frameworks, detect_workspace_packages};
+use codelens_engine::{detect_frameworks, detect_workspace_packages};
 use serde_json::{Value, json};
 
 pub(crate) fn resources(state: &AppState) -> Vec<Value> {

@@ -5,7 +5,7 @@ use crate::tools::symbols::{
     semantic_query_for_retrieval, semantic_results_for_query, semantic_status,
 };
 use crate::AppState;
-use codelens_core::search::{SEMANTIC_COUPLING_THRESHOLD, SEMANTIC_NEW_RESULT_THRESHOLD};
+use codelens_engine::search::{SEMANTIC_COUPLING_THRESHOLD, SEMANTIC_NEW_RESULT_THRESHOLD};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
@@ -326,7 +326,7 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         .map(|p| {
             (
                 p.as_str(),
-                codelens_core::git::classify_change_kind(&project, p),
+                codelens_engine::git::classify_change_kind(&project, p),
             )
         })
         .collect();

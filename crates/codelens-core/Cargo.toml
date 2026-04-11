@@ -1,5 +1,5 @@
 [package]
-name = "codelens-core"
+name = "codelens-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,14 @@ readme.workspace = true
 keywords.workspace = true
 categories.workspace = true
 homepage.workspace = true
+# Runtime artifacts (downloaded model weights, fastembed cache, per-project index)
+# are excluded so `cargo publish` does not try to package symlinks pointing
+# outside the crate root or oversize ONNX blobs above the crates.io 10MB cap.
+exclude = [
+    "models/**",
+    ".fastembed_cache/**",
+    ".codelens/**",
+]
 
 [dependencies]
 anyhow.workspace = true

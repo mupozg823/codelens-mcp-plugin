@@ -2,7 +2,7 @@
 
 #[cfg(test)]
 pub(crate) mod fixtures {
-    use codelens_core::ProjectRoot;
+    use codelens_engine::ProjectRoot;
 
     /// Create a unique temporary directory with a sample source file,
     /// suitable for constructing a `ProjectRoot` in tests.
