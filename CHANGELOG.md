@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Measured (Phase 3a — external-repo validation on ripgrep, no behaviour change)
+
+- **v1.5 opt-in stack cross-repo validated on `github.com/BurntSushi/ripgrep`** (2026-04-12). 24 hand-built queries against ripgrep's `regex` / `searcher` / `ignore` / `globset` / `printer` crates, 17/5/2 NL/short-phrase/identifier split mirroring the 89-query self shape. Four-arm A/B (`baseline` / `phase2e only` / `phase2b+2c only` / `stacked`) using the release binary from `7896f93` and the §8.6 optimum parameters `CODELENS_RANK_SPARSE_THRESHOLD=40` / `CODELENS_RANK_SPARSE_MAX=40`. **Every hybrid metric moves positive** and — critically — **the relative lift is _larger_ on ripgrep than on either self dataset**:
+
+  | Dataset                  | baseline MRR | stacked MRR |  Δ absolute |  Δ relative |
+  | ------------------------ | -----------: | ----------: | ----------: | ----------: |
+  | 89-query self            |        0.572 |       0.586 |      +0.014 |  **+2.4 %** |
+  | 436-query augmented self |       0.0476 |      0.0510 |     +0.0034 |  **+7.1 %** |
+  | **ripgrep external**     |       0.4594 |      0.5292 | **+0.0698** | **+15.2 %** |
+
+  Identifier Acc@1 stays at 0.500 in every ripgrep arm (the sub-2-token short-circuit continues to hold on a different codebase's name space). Phase 2e marginal on top of Phase 2b+2c: **+0.019 hybrid MRR, +0.042 hybrid Acc@1, +0.029 NL MRR** — direction-consistent with §8.4 / §8.5. This is the **first measurement that directly answers "is the v1.5 stack just memorising our self-phrasing?"** — the answer is no. A codebase with different authorship, different comment style, and different API naming still gets a meaningful uplift from the same three env vars, and the magnitude is stronger than on the author's own datasets.
+
+  **Impact on Phase 2d baseline**: `docs/design/v1.6-phase2d-model-swap-brief.md` §1.1 "baseline to beat" now formally covers three datasets, not one. Any Phase 2d candidate must exceed **all three** v1.5 stacked MRRs simultaneously (0.586 on 89-query, 0.0510 on 436-query, **0.5292 on ripgrep**). A model swap that wins one and loses another is not a valid winner. The Checkpoint 1 go/no-go gate inherits the stronger three-point baseline.
+
+  **Default-ON status**: the evidence pattern is now strong enough that **§8.5 users waiting for an external-repo signal before opting in have one**. The opt-in defaults themselves stay OFF for one more release cycle until a second external repo in a different language family (JS/TS or Python) replays the result — one sample is still one sample, and the §8.1 "measure before flipping" discipline applies to defaults as well as implementations. Full experiment log in [`docs/benchmarks.md` §8.7](docs/benchmarks.md), 24-query dataset at `benchmarks/embedding-quality-dataset-ripgrep.json`, four-arm artefacts at `benchmarks/embedding-quality-v1.5-phase3a-ripgrep-{baseline,2e-only,2b2c-only,stacked}.json`.
+
 ### Docs
 
 - **Phase 2d model-swap design brief** — new `docs/design/v1.6-phase2d-model-swap-brief.md` captures the structured trade-off surface for a future embedding-model upgrade (CodeSearchNet-INT8 → BGE-small / Jina code v2 / gte-small / …). Ten-section brief: context, candidate short-list with size + license + ONNX-support table, evaluation protocol re-using the v1.5 four-arm infrastructure, three bundle strategies (compile-in / download-on-first-run / feature flag), migration path with automatic reindex on model-name mismatch, ten-entry risk matrix, four-checkpoint effort breakdown with explicit stop conditions, and a decision matrix the maintainer fills in before any code change starts. **No code or behaviour change ships with the brief** — it is pre-decision by design, and exists specifically so a future Phase 2d does not repeat the Phase 2 cAST PoC's "first-guess implementation then measure" failure mode. The v1.5 stacked MRR (0.586 on 89-query, +7.1 % relative on 436-query) is now the formal baseline any model swap must exceed.

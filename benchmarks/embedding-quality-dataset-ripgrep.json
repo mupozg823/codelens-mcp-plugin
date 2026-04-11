@@ -1,0 +1,146 @@
+[
+  {
+    "query": "build regex matcher from pattern string",
+    "expected_symbol": "build",
+    "expected_file_suffix": "crates/regex/src/matcher.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "case insensitive regex matching",
+    "expected_symbol": "case_insensitive",
+    "expected_file_suffix": "crates/regex/src/matcher.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "match multiple regex patterns at once",
+    "expected_symbol": "build_many",
+    "expected_file_suffix": "crates/regex/src/matcher.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "ignore whitespace inside regex pattern",
+    "expected_symbol": "ignore_whitespace",
+    "expected_file_suffix": "crates/regex/src/matcher.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "match a whole line only not substring",
+    "expected_symbol": "whole_line",
+    "expected_file_suffix": "crates/regex/src/matcher.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "treat patterns as fixed strings not regex",
+    "expected_symbol": "fixed_strings",
+    "expected_file_suffix": "crates/regex/src/matcher.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "set regex memory size limit",
+    "expected_symbol": "size_limit",
+    "expected_file_suffix": "crates/regex/src/matcher.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "search file content for regex matches",
+    "expected_symbol": "search_file",
+    "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "search file by path on the filesystem",
+    "expected_symbol": "search_path",
+    "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "search an input reader line by line",
+    "expected_symbol": "search_reader",
+    "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "walk directory tree respecting gitignore rules",
+    "expected_symbol": "WalkBuilder",
+    "expected_file_suffix": "crates/ignore/src/walk.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "build parallel directory traversal",
+    "expected_symbol": "build_parallel",
+    "expected_file_suffix": "crates/ignore/src/walk.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "parallel directory walker across threads",
+    "expected_symbol": "WalkParallel",
+    "expected_file_suffix": "crates/ignore/src/walk.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if a path matches gitignore rules",
+    "expected_symbol": "Gitignore",
+    "expected_file_suffix": "crates/ignore/src/gitignore.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "build set of glob patterns for matching",
+    "expected_symbol": "GlobSetBuilder",
+    "expected_file_suffix": "crates/globset/src/lib.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "match file path against multiple glob patterns",
+    "expected_symbol": "GlobSet",
+    "expected_file_suffix": "crates/globset/src/lib.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "escape glob special characters in a string",
+    "expected_symbol": "escape",
+    "expected_file_suffix": "crates/globset/src/lib.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "regex builder",
+    "expected_symbol": "RegexMatcherBuilder",
+    "expected_file_suffix": "crates/regex/src/matcher.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "file searcher",
+    "expected_symbol": "Searcher",
+    "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "directory walker",
+    "expected_symbol": "Walk",
+    "expected_file_suffix": "crates/ignore/src/walk.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "gitignore builder",
+    "expected_symbol": "GitignoreBuilder",
+    "expected_file_suffix": "crates/ignore/src/gitignore.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "standard printer",
+    "expected_symbol": "Standard",
+    "expected_file_suffix": "crates/printer/src/standard.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "RegexMatcher",
+    "expected_symbol": "RegexMatcher",
+    "expected_file_suffix": "crates/regex/src/matcher.rs",
+    "query_type": "identifier"
+  },
+  {
+    "query": "GlobSet",
+    "expected_symbol": "GlobSet",
+    "expected_file_suffix": "crates/globset/src/lib.rs",
+    "query_type": "identifier"
+  }
+]

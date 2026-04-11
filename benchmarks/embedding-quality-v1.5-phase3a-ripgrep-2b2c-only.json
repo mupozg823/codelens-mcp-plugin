@@ -1,0 +1,1097 @@
+{
+  "project": "/tmp/ripgrep-ext",
+  "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-embed-quality-gqxhg5a0/ripgrep-ext",
+  "isolated_copy": true,
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-ripgrep.json",
+  "dataset_size": 24,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.3972222222222222,
+      "acc1": 0.20833333333333334,
+      "acc3": 0.5833333333333334,
+      "acc5": 0.625,
+      "avg_elapsed_ms": 200.08541666666667,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.75,
+          "acc1": 0.5,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 116.57
+        },
+        "natural_language": {
+          "count": 17,
+          "mrr": 0.38431372549019605,
+          "acc1": 0.17647058823529413,
+          "acc3": 0.5882352941176471,
+          "acc5": 0.6470588235294118,
+          "avg_elapsed_ms": 223.31823529411764
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.3,
+          "acc1": 0.2,
+          "acc3": 0.4,
+          "acc5": 0.4,
+          "avg_elapsed_ms": 154.5
+        }
+      },
+      "rows": [
+        {
+          "query": "build regex matcher from pattern string",
+          "query_type": "natural_language",
+          "expected_symbol": "build",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 2,
+          "elapsed_ms": 204.04,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "build",
+            "file": "crates/pcre2/src/matcher.rs"
+          }
+        },
+        {
+          "query": "case insensitive regex matching",
+          "query_type": "natural_language",
+          "expected_symbol": "case_insensitive",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 1,
+          "elapsed_ms": 168.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "case_insensitive",
+            "file": "crates/regex/src/matcher.rs"
+          }
+        },
+        {
+          "query": "match multiple regex patterns at once",
+          "query_type": "natural_language",
+          "expected_symbol": "build_many",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": null,
+          "elapsed_ms": 183.95,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "matcher",
+            "file": "crates/regex/src/lib.rs"
+          }
+        },
+        {
+          "query": "ignore whitespace inside regex pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "ignore_whitespace",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 1,
+          "elapsed_ms": 202.19,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "ignore_whitespace",
+            "file": "crates/regex/src/matcher.rs"
+          }
+        },
+        {
+          "query": "match a whole line only not substring",
+          "query_type": "natural_language",
+          "expected_symbol": "whole_line",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 2,
+          "elapsed_ms": 202.6,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "whole_line",
+            "file": "crates/pcre2/src/matcher.rs"
+          }
+        },
+        {
+          "query": "treat patterns as fixed strings not regex",
+          "query_type": "natural_language",
+          "expected_symbol": "fixed_strings",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 2,
+          "elapsed_ms": 196.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "is_fixed_strings",
+            "file": "crates/regex/src/config.rs"
+          }
+        },
+        {
+          "query": "set regex memory size limit",
+          "query_type": "natural_language",
+          "expected_symbol": "size_limit",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": null,
+          "elapsed_ms": 181.24,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "set_before",
+            "file": "crates/core/flags/lowargs.rs"
+          }
+        },
+        {
+          "query": "search file content for regex matches",
+          "query_type": "natural_language",
+          "expected_symbol": "search_file",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": null,
+          "elapsed_ms": 209.54,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "search",
+            "file": "crates/core/main.rs"
+          }
+        },
+        {
+          "query": "search file by path on the filesystem",
+          "query_type": "natural_language",
+          "expected_symbol": "search_path",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": 5,
+          "elapsed_ms": 213.67,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "search_path",
+            "file": "crates/core/search.rs"
+          }
+        },
+        {
+          "query": "search an input reader line by line",
+          "query_type": "natural_language",
+          "expected_symbol": "search_reader",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": 2,
+          "elapsed_ms": 215.48,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "search_reader",
+            "file": "crates/core/search.rs"
+          }
+        },
+        {
+          "query": "walk directory tree respecting gitignore rules",
+          "query_type": "natural_language",
+          "expected_symbol": "WalkBuilder",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": 2,
+          "elapsed_ms": 212.86,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "walkdir_is_dir",
+            "file": "crates/ignore/src/walk.rs"
+          }
+        },
+        {
+          "query": "build parallel directory traversal",
+          "query_type": "natural_language",
+          "expected_symbol": "build_parallel",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": 1,
+          "elapsed_ms": 166.95,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "build_parallel",
+            "file": "crates/ignore/src/walk.rs"
+          }
+        },
+        {
+          "query": "parallel directory walker across threads",
+          "query_type": "natural_language",
+          "expected_symbol": "WalkParallel",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": null,
+          "elapsed_ms": 120.84,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "walk_collect_entries_parallel",
+            "file": "crates/ignore/src/walk.rs"
+          }
+        },
+        {
+          "query": "check if a path matches gitignore rules",
+          "query_type": "natural_language",
+          "expected_symbol": "Gitignore",
+          "expected_file_suffix": "crates/ignore/src/gitignore.rs",
+          "rank": 3,
+          "elapsed_ms": 570.93,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "gitignore",
+            "file": "crates/ignore/src/lib.rs"
+          }
+        },
+        {
+          "query": "build set of glob patterns for matching",
+          "query_type": "natural_language",
+          "expected_symbol": "GlobSetBuilder",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": null,
+          "elapsed_ms": 204.76,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "GlobMatcher",
+            "file": "crates/globset/src/glob.rs"
+          }
+        },
+        {
+          "query": "match file path against multiple glob patterns",
+          "query_type": "natural_language",
+          "expected_symbol": "GlobSet",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": null,
+          "elapsed_ms": 161.39,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "matched",
+            "file": "crates/ignore/src/gitignore.rs"
+          }
+        },
+        {
+          "query": "escape glob special characters in a string",
+          "query_type": "natural_language",
+          "expected_symbol": "escape",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": 2,
+          "elapsed_ms": 381.43,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "char_to_escaped_literal",
+            "file": "crates/globset/src/glob.rs"
+          }
+        },
+        {
+          "query": "regex builder",
+          "query_type": "short_phrase",
+          "expected_symbol": "RegexMatcherBuilder",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 1,
+          "elapsed_ms": 133.74,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "RegexMatcherBuilder",
+            "file": "crates/regex/src/matcher.rs"
+          }
+        },
+        {
+          "query": "file searcher",
+          "query_type": "short_phrase",
+          "expected_symbol": "Searcher",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": null,
+          "elapsed_ms": 164.02,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "search_file",
+            "file": "crates/searcher/src/searcher/mod.rs"
+          }
+        },
+        {
+          "query": "directory walker",
+          "query_type": "short_phrase",
+          "expected_symbol": "Walk",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": null,
+          "elapsed_ms": 212.39,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "name",
+            "file": ".github/workflows/release.yml"
+          }
+        },
+        {
+          "query": "gitignore builder",
+          "query_type": "short_phrase",
+          "expected_symbol": "GitignoreBuilder",
+          "expected_file_suffix": "crates/ignore/src/gitignore.rs",
+          "rank": 2,
+          "elapsed_ms": 131.59,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "gitignore",
+            "file": "crates/ignore/src/lib.rs"
+          }
+        },
+        {
+          "query": "standard printer",
+          "query_type": "short_phrase",
+          "expected_symbol": "Standard",
+          "expected_file_suffix": "crates/printer/src/standard.rs",
+          "rank": null,
+          "elapsed_ms": 130.76,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "printer_standard",
+            "file": "crates/core/flags/hiargs.rs"
+          }
+        },
+        {
+          "query": "RegexMatcher",
+          "query_type": "identifier",
+          "expected_symbol": "RegexMatcher",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 2,
+          "elapsed_ms": 116.7,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "RegexMatcher",
+            "file": "crates/searcher/src/testutil.rs"
+          }
+        },
+        {
+          "query": "GlobSet",
+          "query_type": "identifier",
+          "expected_symbol": "GlobSet",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": 1,
+          "elapsed_ms": 116.44,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "GlobSet",
+            "file": "crates/globset/src/lib.rs"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.32799168424168423,
+      "acc1": 0.20833333333333334,
+      "acc3": 0.3333333333333333,
+      "acc5": 0.5,
+      "avg_elapsed_ms": 23.0425,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.625,
+          "acc1": 0.5,
+          "acc3": 0.5,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 16.575
+        },
+        "natural_language": {
+          "count": 17,
+          "mrr": 0.278173134055487,
+          "acc1": 0.17647058823529413,
+          "acc3": 0.29411764705882354,
+          "acc5": 0.4117647058823529,
+          "avg_elapsed_ms": 25.3
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.37857142857142856,
+          "acc1": 0.2,
+          "acc3": 0.4,
+          "acc5": 0.6,
+          "avg_elapsed_ms": 17.954
+        }
+      },
+      "rows": [
+        {
+          "query": "build regex matcher from pattern string",
+          "query_type": "natural_language",
+          "expected_symbol": "build",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": null,
+          "elapsed_ms": 26.23,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "from_pattern",
+            "file": "crates/regex/src/ast.rs"
+          }
+        },
+        {
+          "query": "case insensitive regex matching",
+          "query_type": "natural_language",
+          "expected_symbol": "case_insensitive",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 5,
+          "elapsed_ms": 23.54,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "case_insensitive",
+            "file": "crates/globset/src/glob.rs"
+          }
+        },
+        {
+          "query": "match multiple regex patterns at once",
+          "query_type": "natural_language",
+          "expected_symbol": "build_many",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": null,
+          "elapsed_ms": 24.65,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "regex",
+            "file": "crates/regex/src/error.rs"
+          }
+        },
+        {
+          "query": "ignore whitespace inside regex pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "ignore_whitespace",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 1,
+          "elapsed_ms": 25.53,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "ignore_whitespace",
+            "file": "crates/regex/src/matcher.rs"
+          }
+        },
+        {
+          "query": "match a whole line only not substring",
+          "query_type": "natural_language",
+          "expected_symbol": "whole_line",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 2,
+          "elapsed_ms": 25.4,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "whole_line",
+            "file": "crates/pcre2/src/matcher.rs"
+          }
+        },
+        {
+          "query": "treat patterns as fixed strings not regex",
+          "query_type": "natural_language",
+          "expected_symbol": "fixed_strings",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 2,
+          "elapsed_ms": 25.16,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "fixed_strings",
+            "file": "crates/pcre2/src/matcher.rs"
+          }
+        },
+        {
+          "query": "set regex memory size limit",
+          "query_type": "natural_language",
+          "expected_symbol": "size_limit",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 1,
+          "elapsed_ms": 24.31,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "size_limit",
+            "file": "crates/regex/src/matcher.rs"
+          }
+        },
+        {
+          "query": "search file content for regex matches",
+          "query_type": "natural_language",
+          "expected_symbol": "search_file",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": null,
+          "elapsed_ms": 26.46,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "build_format",
+            "file": "crates/printer/src/hyperlink/mod.rs"
+          }
+        },
+        {
+          "query": "search file by path on the filesystem",
+          "query_type": "natural_language",
+          "expected_symbol": "search_path",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": null,
+          "elapsed_ms": 25.81,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "path",
+            "file": "crates/ignore/src/gitignore.rs"
+          }
+        },
+        {
+          "query": "search an input reader line by line",
+          "query_type": "natural_language",
+          "expected_symbol": "search_reader",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": 4,
+          "elapsed_ms": 39.0,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "by_line",
+            "file": "crates/searcher/src/testutil.rs"
+          }
+        },
+        {
+          "query": "walk directory tree respecting gitignore rules",
+          "query_type": "natural_language",
+          "expected_symbol": "WalkBuilder",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": 11,
+          "elapsed_ms": 29.5,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "Gitignore",
+            "file": "crates/ignore/src/gitignore.rs"
+          }
+        },
+        {
+          "query": "build parallel directory traversal",
+          "query_type": "natural_language",
+          "expected_symbol": "build_parallel",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": 1,
+          "elapsed_ms": 20.19,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "build_parallel",
+            "file": "crates/ignore/src/walk.rs"
+          }
+        },
+        {
+          "query": "parallel directory walker across threads",
+          "query_type": "natural_language",
+          "expected_symbol": "WalkParallel",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": 9,
+          "elapsed_ms": 21.31,
+          "candidate_count": 13,
+          "top_candidate": {
+            "name": "build_parallel",
+            "file": "crates/ignore/src/walk.rs"
+          }
+        },
+        {
+          "query": "check if a path matches gitignore rules",
+          "query_type": "natural_language",
+          "expected_symbol": "Gitignore",
+          "expected_file_suffix": "crates/ignore/src/gitignore.rs",
+          "rank": 13,
+          "elapsed_ms": 23.63,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "nmatches",
+            "file": "crates/globset/src/glob.rs"
+          }
+        },
+        {
+          "query": "build set of glob patterns for matching",
+          "query_type": "natural_language",
+          "expected_symbol": "GlobSetBuilder",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": null,
+          "elapsed_ms": 24.82,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "build_format",
+            "file": "crates/printer/src/hyperlink/mod.rs"
+          }
+        },
+        {
+          "query": "match file path against multiple glob patterns",
+          "query_type": "natural_language",
+          "expected_symbol": "GlobSet",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": null,
+          "elapsed_ms": 20.72,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "GlobMatcher",
+            "file": "crates/globset/src/glob.rs"
+          }
+        },
+        {
+          "query": "escape glob special characters in a string",
+          "query_type": "natural_language",
+          "expected_symbol": "escape",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": null,
+          "elapsed_ms": 23.84,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "Glob",
+            "file": "crates/globset/src/glob.rs"
+          }
+        },
+        {
+          "query": "regex builder",
+          "query_type": "short_phrase",
+          "expected_symbol": "RegexMatcherBuilder",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 4,
+          "elapsed_ms": 18.53,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "FormatBuilder",
+            "file": "crates/printer/src/hyperlink/mod.rs"
+          }
+        },
+        {
+          "query": "file searcher",
+          "query_type": "short_phrase",
+          "expected_symbol": "Searcher",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": 2,
+          "elapsed_ms": 18.17,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "SearcherBuilder",
+            "file": "crates/searcher/src/searcher/mod.rs"
+          }
+        },
+        {
+          "query": "directory walker",
+          "query_type": "short_phrase",
+          "expected_symbol": "Walk",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": null,
+          "elapsed_ms": 16.64,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "working-directory",
+            "file": ".github/workflows/ci.yml"
+          }
+        },
+        {
+          "query": "gitignore builder",
+          "query_type": "short_phrase",
+          "expected_symbol": "GitignoreBuilder",
+          "expected_file_suffix": "crates/ignore/src/gitignore.rs",
+          "rank": 1,
+          "elapsed_ms": 18.08,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "GitignoreBuilder",
+            "file": "crates/ignore/src/gitignore.rs"
+          }
+        },
+        {
+          "query": "standard printer",
+          "query_type": "short_phrase",
+          "expected_symbol": "Standard",
+          "expected_file_suffix": "crates/printer/src/standard.rs",
+          "rank": 7,
+          "elapsed_ms": 18.35,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "PrinterPath",
+            "file": "crates/printer/src/util.rs"
+          }
+        },
+        {
+          "query": "RegexMatcher",
+          "query_type": "identifier",
+          "expected_symbol": "RegexMatcher",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 4,
+          "elapsed_ms": 15.78,
+          "candidate_count": 7,
+          "top_candidate": {
+            "name": "RegexMatcher",
+            "file": "crates/matcher/tests/util.rs"
+          }
+        },
+        {
+          "query": "GlobSet",
+          "query_type": "identifier",
+          "expected_symbol": "GlobSet",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": 1,
+          "elapsed_ms": 17.37,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "GlobSet",
+            "file": "crates/globset/src/lib.rs"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.5104166666666666,
+      "acc1": 0.2916666666666667,
+      "acc3": 0.6666666666666666,
+      "acc5": 0.7916666666666666,
+      "avg_elapsed_ms": 107.84458333333333,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.625,
+          "acc1": 0.5,
+          "acc3": 0.5,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 18.25
+        },
+        "natural_language": {
+          "count": 17,
+          "mrr": 0.5245098039215685,
+          "acc1": 0.29411764705882354,
+          "acc3": 0.7058823529411765,
+          "acc5": 0.7647058823529411,
+          "avg_elapsed_ms": 117.55705882352942
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.4166666666666667,
+          "acc1": 0.2,
+          "acc3": 0.6,
+          "acc5": 0.8,
+          "avg_elapsed_ms": 110.66
+        }
+      },
+      "rows": [
+        {
+          "query": "build regex matcher from pattern string",
+          "query_type": "natural_language",
+          "expected_symbol": "build",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 2,
+          "elapsed_ms": 116.05,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "build",
+            "file": "crates/pcre2/src/matcher.rs"
+          }
+        },
+        {
+          "query": "case insensitive regex matching",
+          "query_type": "natural_language",
+          "expected_symbol": "case_insensitive",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 1,
+          "elapsed_ms": 115.27,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "case_insensitive",
+            "file": "crates/regex/src/matcher.rs"
+          }
+        },
+        {
+          "query": "match multiple regex patterns at once",
+          "query_type": "natural_language",
+          "expected_symbol": "build_many",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": null,
+          "elapsed_ms": 118.75,
+          "candidate_count": 35,
+          "top_candidate": {
+            "name": "matcher",
+            "file": "crates/regex/src/lib.rs"
+          }
+        },
+        {
+          "query": "ignore whitespace inside regex pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "ignore_whitespace",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 1,
+          "elapsed_ms": 118.42,
+          "candidate_count": 34,
+          "top_candidate": {
+            "name": "ignore_whitespace",
+            "file": "crates/regex/src/matcher.rs"
+          }
+        },
+        {
+          "query": "match a whole line only not substring",
+          "query_type": "natural_language",
+          "expected_symbol": "whole_line",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 2,
+          "elapsed_ms": 121.44,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "whole_line",
+            "file": "crates/pcre2/src/matcher.rs"
+          }
+        },
+        {
+          "query": "treat patterns as fixed strings not regex",
+          "query_type": "natural_language",
+          "expected_symbol": "fixed_strings",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 2,
+          "elapsed_ms": 117.02,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "is_fixed_strings",
+            "file": "crates/regex/src/config.rs"
+          }
+        },
+        {
+          "query": "set regex memory size limit",
+          "query_type": "natural_language",
+          "expected_symbol": "size_limit",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 1,
+          "elapsed_ms": 116.03,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "size_limit",
+            "file": "crates/regex/src/matcher.rs"
+          }
+        },
+        {
+          "query": "search file content for regex matches",
+          "query_type": "natural_language",
+          "expected_symbol": "search_file",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 117.61,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "search_file",
+            "file": "crates/searcher/src/searcher/mod.rs"
+          }
+        },
+        {
+          "query": "search file by path on the filesystem",
+          "query_type": "natural_language",
+          "expected_symbol": "search_path",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": 4,
+          "elapsed_ms": 118.93,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "search_file",
+            "file": "crates/searcher/src/searcher/mod.rs"
+          }
+        },
+        {
+          "query": "search an input reader line by line",
+          "query_type": "natural_language",
+          "expected_symbol": "search_reader",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": 2,
+          "elapsed_ms": 121.33,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "search_reader",
+            "file": "crates/core/search.rs"
+          }
+        },
+        {
+          "query": "walk directory tree respecting gitignore rules",
+          "query_type": "natural_language",
+          "expected_symbol": "WalkBuilder",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": 2,
+          "elapsed_ms": 122.38,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "walkdir_is_dir",
+            "file": "crates/ignore/src/walk.rs"
+          }
+        },
+        {
+          "query": "build parallel directory traversal",
+          "query_type": "natural_language",
+          "expected_symbol": "build_parallel",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": 1,
+          "elapsed_ms": 114.22,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "build_parallel",
+            "file": "crates/ignore/src/walk.rs"
+          }
+        },
+        {
+          "query": "parallel directory walker across threads",
+          "query_type": "natural_language",
+          "expected_symbol": "WalkParallel",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": 6,
+          "elapsed_ms": 114.48,
+          "candidate_count": 13,
+          "top_candidate": {
+            "name": "ParallelVisitor",
+            "file": "crates/ignore/src/walk.rs"
+          }
+        },
+        {
+          "query": "check if a path matches gitignore rules",
+          "query_type": "natural_language",
+          "expected_symbol": "Gitignore",
+          "expected_file_suffix": "crates/ignore/src/gitignore.rs",
+          "rank": 2,
+          "elapsed_ms": 116.96,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "gitignore",
+            "file": "crates/ignore/src/lib.rs"
+          }
+        },
+        {
+          "query": "build set of glob patterns for matching",
+          "query_type": "natural_language",
+          "expected_symbol": "GlobSetBuilder",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": null,
+          "elapsed_ms": 118.54,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "compile_matcher",
+            "file": "crates/globset/src/glob.rs"
+          }
+        },
+        {
+          "query": "match file path against multiple glob patterns",
+          "query_type": "natural_language",
+          "expected_symbol": "GlobSet",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": null,
+          "elapsed_ms": 114.26,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "MatchStrategy",
+            "file": "crates/globset/src/glob.rs"
+          }
+        },
+        {
+          "query": "escape glob special characters in a string",
+          "query_type": "natural_language",
+          "expected_symbol": "escape",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": 2,
+          "elapsed_ms": 116.78,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "char_to_escaped_literal",
+            "file": "crates/globset/src/glob.rs"
+          }
+        },
+        {
+          "query": "regex builder",
+          "query_type": "short_phrase",
+          "expected_symbol": "RegexMatcherBuilder",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 1,
+          "elapsed_ms": 110.61,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "RegexMatcherBuilder",
+            "file": "crates/regex/src/matcher.rs"
+          }
+        },
+        {
+          "query": "file searcher",
+          "query_type": "short_phrase",
+          "expected_symbol": "Searcher",
+          "expected_file_suffix": "crates/searcher/src/searcher/mod.rs",
+          "rank": 3,
+          "elapsed_ms": 111.3,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "search_file",
+            "file": "crates/searcher/src/searcher/mod.rs"
+          }
+        },
+        {
+          "query": "directory walker",
+          "query_type": "short_phrase",
+          "expected_symbol": "Walk",
+          "expected_file_suffix": "crates/ignore/src/walk.rs",
+          "rank": null,
+          "elapsed_ms": 109.48,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "working-directory",
+            "file": ".github/workflows/ci.yml"
+          }
+        },
+        {
+          "query": "gitignore builder",
+          "query_type": "short_phrase",
+          "expected_symbol": "GitignoreBuilder",
+          "expected_file_suffix": "crates/ignore/src/gitignore.rs",
+          "rank": 2,
+          "elapsed_ms": 111.37,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "gitignore",
+            "file": "crates/ignore/src/lib.rs"
+          }
+        },
+        {
+          "query": "standard printer",
+          "query_type": "short_phrase",
+          "expected_symbol": "Standard",
+          "expected_file_suffix": "crates/printer/src/standard.rs",
+          "rank": 4,
+          "elapsed_ms": 110.54,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "printer_standard",
+            "file": "crates/core/flags/hiargs.rs"
+          }
+        },
+        {
+          "query": "RegexMatcher",
+          "query_type": "identifier",
+          "expected_symbol": "RegexMatcher",
+          "expected_file_suffix": "crates/regex/src/matcher.rs",
+          "rank": 4,
+          "elapsed_ms": 17.64,
+          "candidate_count": 7,
+          "top_candidate": {
+            "name": "RegexMatcher",
+            "file": "crates/matcher/tests/util.rs"
+          }
+        },
+        {
+          "query": "GlobSet",
+          "query_type": "identifier",
+          "expected_symbol": "GlobSet",
+          "expected_file_suffix": "crates/globset/src/lib.rs",
+          "rank": 1,
+          "elapsed_ms": 18.86,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "GlobSet",
+            "file": "crates/globset/src/lib.rs"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": 0.1824249824249824,
+    "acc1_delta": 0.08333333333333334,
+    "acc3_delta": 0.3333333333333333,
+    "acc5_delta": 0.29166666666666663
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": 0.24633666986608155,
+      "acc1_delta": 0.11764705882352941,
+      "acc3_delta": 0.411764705882353,
+      "acc5_delta": 0.3529411764705882
+    },
+    "short_phrase": {
+      "mrr_delta": 0.038095238095238126,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.19999999999999996,
+      "acc5_delta": 0.20000000000000007
+    }
+  }
+}
