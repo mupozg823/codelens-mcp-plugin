@@ -225,6 +225,14 @@ fn main() -> Result<()> {
             "Refusing to start CodeLens on `/` without an explicit project root. Pass a path or set MCP_PROJECT_DIR/CLAUDE_PROJECT_DIR."
         );
     }
+
+    // v1.5 Phase 2j MCP follow-up: auto-detect the dominant language so
+    // `CODELENS_EMBED_HINT_AUTO=1` alone (without an explicit
+    // `CODELENS_EMBED_HINT_AUTO_LANG`) becomes the v1.6.0 default flip
+    // candidate. Applies to both one-shot CLI (`--cmd`) and stdio MCP.
+    // `activate_project` calls the same helper for MCP-driven switches.
+    crate::tools::session::auto_set_embed_hint_lang(project.as_path());
+
     let app_state = AppState::new(project, preset);
     app_state.configure_transport_mode(&transport);
     app_state.configure_daemon_mode(daemon_mode);

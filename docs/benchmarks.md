@@ -1256,10 +1256,85 @@ Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase2j-{ripgrep-auto-
 
 **Still-open work**:
 
-- **Phase 2j follow-up (MCP auto-set)** — the `activate_project` / `index_embeddings` MCP tool layer sets `CODELENS_EMBED_HINT_AUTO_LANG` automatically, so users only need `CODELENS_EMBED_HINT_AUTO=1` at launch. Small scope, no new measurement required — the engine gating is already verified.
 - **Phase 3c — JS/TS validation**. The measurement that unblocks adding `ts` / `js` to `language_supports_nl_stack`. Same four-arm A/B methodology; candidate repo `facebook/jest` or `microsoft/typescript`.
 - **Phase 2k — per-file gating for mixed-language projects**. Longer shot. The §8.11 single-dominant-language protocol handles the 90 % case, but a 50/50 Rust+Python project is forced into one answer. Per-file gating via `language_for_path` at the `build_embedding_text` call site would give each symbol the right default, at the cost of threading the project root through the build path. Defer until a user actually hits the problem.
 - **Phase 2d — Model swap** — unchanged from §8.8. Still gated on the four-point baseline.
+
+---
+
+### §8.12 — Phase 2j MCP follow-up: one-env-var auto-detection
+
+**Hypothesis** (from §8.11 "Still-open work"): §8.11 proved the engine-side language gate is bit-identical to the explicit stacked / baseline measurements when the user supplies both `CODELENS_EMBED_HINT_AUTO=1` and `CODELENS_EMBED_HINT_AUTO_LANG=<lang>`. The remaining blocker before flipping `AUTO=1` as a v1.6.0 default is that **users should not have to hand-write the language tag** — the MCP tool layer should detect the project's dominant language on startup or `activate_project` and set the env var automatically. Phase 2j follow-up wires that detection into two entry points (`main.rs` startup for one-shot CLI + stdio MCP, `activate_project` for MCP-driven project switches) and replays the §8.11 benchmarks with **only** `CODELENS_EMBED_HINT_AUTO=1` set (no explicit `AUTO_LANG`) to confirm bit-identical parity.
+
+**Implementation**:
+
+1. New engine helper `codelens_engine::compute_dominant_language(&Path) → Option<String>` — walks the project tree with a 16 k file cap, counts files by extension (filtered to known `lang_registry` extensions, respecting `EXCLUDED_DIRS` like `node_modules`, `.git`, `target`, `.venv`, …), returns the most common extension tag or `None` if fewer than 3 source files are found. Conservative default — no answer means the engine falls through to stack OFF.
+2. New MCP-layer helper `crate::tools::session::auto_set_embed_hint_lang(&Path)` — short-circuits if `CODELENS_EMBED_HINT_AUTO ≠ 1` or if the user has already set `CODELENS_EMBED_HINT_AUTO_LANG` explicitly (explicit > auto, same rule as the three per-gate env vars). Otherwise calls `compute_dominant_language`, and on a hit sets `CODELENS_EMBED_HINT_AUTO_LANG` for the rest of the process.
+3. Wired into two call sites:
+   - `main.rs` — right after `resolve_startup_project`, before `AppState::new`. Covers one-shot CLI (`codelens-mcp /path --cmd <tool>`) and stdio MCP initial binding.
+   - `activate_project` MCP tool — covers project switches mid-session. Short-circuits via `user_forced_lang` check if the env var is already set, so the common case of "one project per process" costs one walk.
+4. Four unit tests on the engine helper: Rust-heavy → `"rs"`, Python-heavy → `"py"`, below 3 files → `None`, files inside `EXCLUDED_DIRS` → ignored.
+
+No change to engine ranking or indexing behaviour — this is purely a wiring patch that makes the §8.11 gate reachable from a single env var.
+
+**Measurement**: Replay the §8.11 ripgrep and requests benchmarks with the new binary, setting only `CODELENS_EMBED_HINT_AUTO=1` (plus the Phase 2e tuning knobs `SPARSE_THRESHOLD=40` / `SPARSE_MAX=40` to match the §8.7 stacked arm).
+
+| Dataset           | Language tag the MCP layer should detect | Expected hybrid MRR |
+| ----------------- | ---------------------------------------- | ------------------: |
+| ripgrep (Rust)    | `rs` → stack ON                          |  0.5291666666666667 |
+| requests (Python) | `py` → stack OFF                         |  0.5837009803921568 |
+
+**ripgrep (MCP auto-detect) vs §8.11 explicit `AUTO_LANG=rust`**:
+
+| Metric                             | §8.11 auto-rust | §8.12 MCP auto-detect |     Δ |
+| ---------------------------------- | --------------: | --------------------: | ----: |
+| semantic_search MRR                |        0.397222 |              0.397222 | 0.000 |
+| get_ranked_context_no_semantic MRR |        0.384539 |              0.384539 | 0.000 |
+| get_ranked_context MRR (hybrid)    | **0.529166666** |       **0.529166666** | 0.000 |
+
+**requests (MCP auto-detect) vs §8.11 explicit `AUTO_LANG=python`**:
+
+| Metric                             | §8.11 auto-python | §8.12 MCP auto-detect |     Δ |
+| ---------------------------------- | ----------------: | --------------------: | ----: |
+| semantic_search MRR                |          0.540972 |              0.540972 | 0.000 |
+| get_ranked_context_no_semantic MRR |          0.394503 |              0.394503 | 0.000 |
+| get_ranked_context MRR (hybrid)    |   **0.583700980** |       **0.583700980** | 0.000 |
+
+Every metric matches to the tenth decimal place. The MCP tool layer's `compute_dominant_language` correctly detects `rs` for ripgrep and `py` for requests, the engine's `auto_hint_should_enable` gate correctly flips to ON on Rust and OFF on Python, and the downstream embedding + ranking paths produce exactly the same indices and results. **Bit-identical parity confirmed** — no behaviour difference between hand-typing `AUTO_LANG=rust` and letting the MCP layer detect it.
+
+**Reproduce**:
+
+```bash
+# ripgrep — auto mode, MCP layer detects "rs", no explicit AUTO_LANG
+CODELENS_EMBED_HINT_AUTO=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/ripgrep-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-ripgrep.json \
+  --output benchmarks/embedding-quality-v1.5-phase2j-ripgrep-mcpauto.json
+
+# requests — auto mode, MCP layer detects "py", no explicit AUTO_LANG
+CODELENS_EMBED_HINT_AUTO=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/requests-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-requests.json \
+  --output benchmarks/embedding-quality-v1.5-phase2j-requests-mcpauto.json
+```
+
+Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase2j-{ripgrep,requests}-mcpauto.json`.
+
+**Implications for the v1.6.0 default flip**:
+
+The §8.11 "one remaining blocker" is now resolved. A user with a Rust (or C++ / C / Go / Java / Kotlin / Scala / C#) project can flip `CODELENS_EMBED_HINT_AUTO=1` once — in their shell profile, their MCP client config, or the eventual v1.6.0 default — and get the §8.7 stacked win without any per-project configuration. A user with a Python / JS / TS / Ruby / PHP / unknown project getting the same env var will hit the §8.11 auto-disable path and see the §8.8 baseline, avoiding the −0.0889 hybrid MRR regression. The policy-level acceptance from §8.11 now ships as a policy-level mechanism with zero user effort.
+
+Left unchanged:
+
+1. Default-ON still parked — `v1.5.x` ships `CODELENS_EMBED_HINT_AUTO=0` as the default. §8.12 is the engineering pre-work for flipping it; the flip itself is a one-line change to `auto_hint_mode_enabled()` that happens in `v1.6.0`.
+2. JS / TS remain unsupported — `language_supports_nl_stack` still classifies them as OFF pending Phase 3c measurement.
+3. Mixed-language projects still fall under §8.11's single-dominant-language protocol. Phase 2k (per-file gating) is the longer-shot solution deferred to a later release.
 
 ---
 

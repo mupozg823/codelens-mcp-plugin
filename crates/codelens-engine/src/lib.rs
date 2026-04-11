@@ -52,7 +52,10 @@ pub use lsp::{
     find_referencing_symbols_via_lsp, get_diagnostics_via_lsp, get_lsp_recipe,
     get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
 };
-pub use project::{ProjectRoot, WorkspacePackage, detect_frameworks, detect_workspace_packages};
+pub use project::{
+    ProjectRoot, WorkspacePackage, compute_dominant_language, detect_frameworks,
+    detect_workspace_packages,
+};
 pub use rename::{
     RenameEdit, RenameResult, RenameScope, apply_edits, find_all_word_matches, rename_symbol,
 };
