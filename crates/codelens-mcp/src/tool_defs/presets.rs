@@ -156,6 +156,7 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "verify_change_readiness",
     "find_minimal_context_for_change",
     "impact_report",
+    "mermaid_module_graph",
     // Async analysis
     "start_analysis_job",
     "get_analysis_job",
@@ -214,6 +215,8 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "summarize_symbol_impact",
     "diff_aware_references",
     "semantic_code_review",
+    "module_boundary_report",
+    "mermaid_module_graph",
     // Async analysis
     "start_analysis_job",
     "get_analysis_job",
@@ -419,6 +422,7 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "find_minimal_context_for_change"
         | "summarize_symbol_impact"
         | "module_boundary_report"
+        | "mermaid_module_graph"
         | "safe_rename_report"
         | "unresolved_reference_check"
         | "dead_code_report"
