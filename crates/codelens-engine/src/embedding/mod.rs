@@ -1881,6 +1881,142 @@ pub(super) fn is_nl_shaped(s: &str) -> bool {
     (alpha * 100) / non_ws >= 60
 }
 
+/// Return true when the v1.5 Phase 2h strict NL literal filter is enabled
+/// via `CODELENS_EMBED_HINT_STRICT_LITERALS=1` (or `true`/`yes`/`on`).
+///
+/// Phase 2h addresses the Phase 3b Python regression (§8.8). The default
+/// Phase 2b Pass 2 scanner accepts any `is_nl_shaped` string literal from
+/// the body, which on Python captures a lot of generic error / log / format
+/// strings (`raise ValueError("Invalid URL %s" % url)`, `logging.debug(...)`,
+/// `fmt.format(...)`). These pass the NL-shape test but carry zero
+/// behaviour-descriptive signal and pollute the embedding. The strict
+/// filter rejects string literals that look like format templates or
+/// common error / log prefixes, while leaving comments (Pass 1) untouched.
+///
+/// Default OFF (same policy as every Phase 2 knob — opt-in first,
+/// measure, then consider flipping the default).
+fn strict_literal_filter_enabled() -> bool {
+    std::env::var("CODELENS_EMBED_HINT_STRICT_LITERALS")
+        .map(|raw| {
+            let lowered = raw.to_ascii_lowercase();
+            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(false)
+}
+
+/// Heuristic: does `s` contain a C / Python / Rust format specifier?
+///
+/// Recognises:
+/// - C / Python `%` style: `%s`, `%d`, `%r`, `%f`, `%x`, `%o`, `%i`, `%u`
+/// - Python `.format` / f-string style: `{name}`, `{0}`, `{:fmt}`, `{name:fmt}`
+///
+/// Rust `format!` / `println!` style `{}` / `{:?}` / `{name}` is caught by
+/// the same `{...}` branch. Generic `{...}` braces used for JSON-like
+/// content (e.g. `"{name: foo, id: 1}"`) are distinguished from format
+/// placeholders by requiring the inside to be either empty, prefix-colon
+/// (`:fmt`), a single identifier, or an identifier followed by `:fmt`.
+pub(super) fn contains_format_specifier(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+    while i + 1 < len {
+        if bytes[i] == b'%' {
+            let next = bytes[i + 1];
+            if matches!(
+                next,
+                b's' | b'd' | b'r' | b'f' | b'x' | b'o' | b'i' | b'u'
+            ) {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    // Python `.format` / f-string / Rust `format!` style `{...}`
+    //
+    // Real format placeholders never contain whitespace inside the braces:
+    // `{}`, `{0}`, `{name}`, `{:?}`, `{:.2f}`, `{name:fmt}`. JSON-like
+    // content such as `{name: foo, id: 1}` DOES contain whitespace. The
+    // whitespace check is therefore the single simplest and most robust
+    // way to distinguish the two without a full format-spec parser.
+    for window in s.split('{').skip(1) {
+        let Some(close_idx) = window.find('}') else {
+            continue;
+        };
+        let inside = &window[..close_idx];
+        // `{}` — Rust empty placeholder
+        if inside.is_empty() {
+            return true;
+        }
+        // Any whitespace inside the braces → JSON-like, not a format spec.
+        if inside.chars().any(|c| c.is_whitespace()) {
+            continue;
+        }
+        // `{:fmt}` — anonymous format spec
+        if inside.starts_with(':') {
+            return true;
+        }
+        // `{name}`, `{0}`, `{name:fmt}` — identifier (or digit), optionally
+        // followed by `:fmt`. We already rejected whitespace-containing
+        // inputs above, so here we only need to check the identifier chars.
+        let ident_end = inside.find(':').unwrap_or(inside.len());
+        let ident = &inside[..ident_end];
+        if !ident.is_empty()
+            && ident
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// Heuristic: does `s` look like a generic error message, log line, or
+/// low-value imperative string that an NL query would never try to match?
+///
+/// The prefix list is intentionally short — covering the patterns the
+/// Phase 3b `psf/requests` post-mortem flagged as the largest regression
+/// sources. False negatives (real behaviour strings misclassified as
+/// errors) would cost retrieval quality, but because the filter only
+/// runs on string literals and leaves comments alone, a missed NL string
+/// in one symbol will typically have a comment covering the same
+/// behaviour on the same symbol.
+pub(super) fn looks_like_error_or_log_prefix(s: &str) -> bool {
+    let lower = s.trim().to_lowercase();
+    const PREFIXES: &[&str] = &[
+        "invalid ",
+        "cannot ",
+        "could not ",
+        "unable to ",
+        "failed to ",
+        "expected ",
+        "unexpected ",
+        "missing ",
+        "not found",
+        "error: ",
+        "error ",
+        "warning: ",
+        "warning ",
+        "sending ",
+        "received ",
+        "starting ",
+        "stopping ",
+        "calling ",
+        "connecting ",
+        "disconnecting ",
+    ];
+    PREFIXES.iter().any(|p| lower.starts_with(p))
+}
+
+/// Test-only variant: bypass the env gate so the unit tests can exercise
+/// the filter logic deterministically (mirrors `extract_nl_tokens_inner`
+/// vs `extract_nl_tokens` policy). Inlined here instead of a `#[cfg(test)]`
+/// helper so the release binary path never calls it.
+#[cfg(test)]
+pub(super) fn should_reject_literal_strict(s: &str) -> bool {
+    contains_format_specifier(s) || looks_like_error_or_log_prefix(s)
+}
+
 /// Collect natural-language tokens from a function body: line comments,
 /// block comments, and string literals that look like NL prose.
 ///
@@ -1942,6 +2078,12 @@ pub(super) fn extract_nl_tokens_inner(
     // Simplified scanner — handles escape sequences but does not track
     // multi-line strings or raw strings. Good enough for NL-shaped
     // heuristic filtering where false negatives are acceptable.
+    //
+    // v1.5 Phase 2h: when CODELENS_EMBED_HINT_STRICT_LITERALS=1 is set,
+    // also reject format templates and generic error / log prefixes. This
+    // addresses the Phase 3b Python regression documented in §8.8 —
+    // comments (Pass 1) stay untouched so Rust projects keep their wins.
+    let strict_literals = strict_literal_filter_enabled();
     let mut chars = body.chars().peekable();
     let mut in_string = false;
     let mut current = String::new();
@@ -1951,7 +2093,11 @@ pub(super) fn extract_nl_tokens_inner(
                 // Skip escape sequence
                 let _ = chars.next();
             } else if c == '"' {
-                if is_nl_shaped(&current) {
+                if is_nl_shaped(&current)
+                    && (!strict_literals
+                        || (!contains_format_specifier(&current)
+                            && !looks_like_error_or_log_prefix(&current)))
+                {
                     tokens.push(current.clone());
                 }
                 current.clear();
@@ -2634,6 +2780,157 @@ fn skip_things() {
             }
         }
         assert!(result.is_none(), "gate leaked: {result:?}");
+    }
+
+    #[test]
+    fn strict_literal_filter_gated_off_by_default() {
+        let previous = std::env::var("CODELENS_EMBED_HINT_STRICT_LITERALS").ok();
+        unsafe {
+            std::env::remove_var("CODELENS_EMBED_HINT_STRICT_LITERALS");
+        }
+        let enabled = super::strict_literal_filter_enabled();
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("CODELENS_EMBED_HINT_STRICT_LITERALS", value);
+            }
+        }
+        assert!(!enabled, "strict literal filter gate leaked");
+    }
+
+    #[test]
+    fn contains_format_specifier_detects_c_and_python_style() {
+        // C / Python `%` style
+        assert!(super::contains_format_specifier("Invalid URL %s"));
+        assert!(super::contains_format_specifier("got %d matches"));
+        assert!(super::contains_format_specifier("value=%r"));
+        assert!(super::contains_format_specifier("size=%f"));
+        // Python `.format` / f-string / Rust `format!` style
+        assert!(super::contains_format_specifier("sending request to {url}"));
+        assert!(super::contains_format_specifier("got {0} items"));
+        assert!(super::contains_format_specifier("{:?}"));
+        assert!(super::contains_format_specifier("value: {x:.2f}"));
+        assert!(super::contains_format_specifier("{}"));
+        // Plain prose with no format specifier
+        assert!(!super::contains_format_specifier("skip comments and string literals"));
+        assert!(!super::contains_format_specifier("failed to open database"));
+        // JSON-like brace content should not count as a format specifier
+        // (multi-word content inside braces)
+        assert!(!super::contains_format_specifier("{name: foo, id: 1}"));
+    }
+
+    #[test]
+    fn looks_like_error_or_log_prefix_rejects_common_patterns() {
+        assert!(super::looks_like_error_or_log_prefix("Invalid URL format"));
+        assert!(super::looks_like_error_or_log_prefix("Cannot decode response"));
+        assert!(super::looks_like_error_or_log_prefix("could not open file"));
+        assert!(super::looks_like_error_or_log_prefix("Failed to send request"));
+        assert!(super::looks_like_error_or_log_prefix("Expected int, got str"));
+        assert!(super::looks_like_error_or_log_prefix("sending request to server"));
+        assert!(super::looks_like_error_or_log_prefix("received response headers"));
+        assert!(super::looks_like_error_or_log_prefix("starting worker pool"));
+        // Real behaviour strings must pass
+        assert!(!super::looks_like_error_or_log_prefix("parse json body from request"));
+        assert!(!super::looks_like_error_or_log_prefix("compute cosine similarity between vectors"));
+        assert!(!super::looks_like_error_or_log_prefix("walk directory tree respecting gitignore"));
+    }
+
+    #[test]
+    fn strict_mode_rejects_format_and_error_literals_during_extraction() {
+        // The env gate is bypassed by calling the inner function directly,
+        // BUT the inner function still reads the strict-literal env var.
+        // So we have to set it explicitly for this test.
+        let previous = std::env::var("CODELENS_EMBED_HINT_STRICT_LITERALS").ok();
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_STRICT_LITERALS", "1");
+        }
+        let source = "\
+fn handle_request() {
+    let err = \"Invalid URL %s\";
+    let log = \"sending request to the upstream server\";
+    let fmt = \"received {count} items in batch\";
+    let real = \"parse json body from the incoming request\";
+}
+";
+        let result = super::extract_nl_tokens_inner(source, 0, source.len());
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_STRICT_LITERALS", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_STRICT_LITERALS"),
+            }
+        }
+        let hint = result.expect("some token should survive");
+        // The one real behaviour-descriptive literal must land in the hint.
+        assert!(
+            hint.contains("parse json body"),
+            "real literal was filtered out: {hint}"
+        );
+        // None of the three low-value literals should appear.
+        assert!(
+            !hint.contains("Invalid URL"),
+            "format-specifier literal leaked: {hint}"
+        );
+        assert!(
+            !hint.contains("sending request"),
+            "log-prefix literal leaked: {hint}"
+        );
+        assert!(
+            !hint.contains("received {count}"),
+            "python fstring literal leaked: {hint}"
+        );
+    }
+
+    #[test]
+    fn strict_mode_leaves_comments_untouched() {
+        // Comments (Pass 1) should NOT be filtered by the strict flag —
+        // the §8.8 post-mortem identified string literals as the
+        // regression source, not comments.
+        let previous = std::env::var("CODELENS_EMBED_HINT_STRICT_LITERALS").ok();
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_STRICT_LITERALS", "1");
+        }
+        let source = "\
+fn do_work() {
+    // Invalid inputs are rejected by this guard clause.
+    // sending requests in parallel across worker threads.
+    let _lit = \"format spec %s\";
+}
+";
+        let result = super::extract_nl_tokens_inner(source, 0, source.len());
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_STRICT_LITERALS", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_STRICT_LITERALS"),
+            }
+        }
+        let hint = result.expect("comments should survive strict mode");
+        // Both comments should land in the hint even though they start with
+        // error/log-style prefixes — the filter only touches string literals.
+        assert!(
+            hint.contains("Invalid inputs") || hint.contains("rejected by this guard"),
+            "strict mode swallowed a comment: {hint}"
+        );
+        // And the low-value string literal should NOT be in the hint.
+        assert!(
+            !hint.contains("format spec"),
+            "format-specifier literal leaked under strict mode: {hint}"
+        );
+    }
+
+    #[test]
+    fn should_reject_literal_strict_composes_format_and_prefix() {
+        // The test-only helper must mirror the production filter logic:
+        // a literal is rejected iff it is a format specifier OR an error/log
+        // prefix (the production filter uses exactly this disjunction).
+        assert!(super::should_reject_literal_strict("Invalid URL %s"));
+        assert!(super::should_reject_literal_strict("sending request to server"));
+        assert!(super::should_reject_literal_strict("value: {x:.2f}"));
+        // Real behaviour strings pass through.
+        assert!(!super::should_reject_literal_strict(
+            "parse json body from the incoming request"
+        ));
+        assert!(!super::should_reject_literal_strict(
+            "compute cosine similarity between vectors"
+        ));
     }
 
     #[test]
