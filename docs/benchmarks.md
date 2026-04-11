@@ -1574,6 +1574,17 @@ Total: 6 improved, 0 regressed, 28 unchanged — 6 : 0 positive : negative ratio
 
 **Zero regressions.** This is a cleaner signal than jest's 7 : 1 — every baseline ranking either stayed put or moved closer to rank 1. The 20 NL queries that remain `None` in both arms (e.g. `createProgram`, `getCompletionsAtPosition`, `getRenameInfo`) are cases where the CodeSearchNet-INT8 embedding + lexical signal combined cannot find the target at all within the top 10 candidates — these are **retrieval failures**, not ranking failures, and they are by definition unfixable by Phase 2b/2c/2e since those knobs re-rank existing candidates rather than expanding the candidate pool. A larger `max_results` cap (beyond 10) might help some of them, but that is outside the v1.5 stack's scope.
 
+**Where the lift actually comes from (semantic vs hybrid decomposition)**:
+
+A subtlety worth flagging: the `semantic_search` aggregate MRR on this dataset is **identical across all four arms** (0.170915 to 16 decimal digits — baseline, 2e-only, 2b+2c-only, and stacked all produce the same number). The entire +104 % hybrid lift lives in `get_ranked_context`, which moves from **0.0984 → 0.2010** under Phase 2b+2c. Pure `get_ranked_context_no_semantic` (lexical-only) is also unchanged between baseline and 2b+2c. So Phase 2b+2c is not discovering new candidates that semantic missed — it is changing how the hybrid re-ranker combines the existing semantic and lexical evidence.
+
+Two concrete per-query patterns illustrate the mechanism:
+
+- **`getSyntacticDiagnostics`** — `semantic_search` rank is **1 in every arm**, but baseline `get_ranked_context` demotes it to rank **10** and only under Phase 2b+2c does hybrid rank recover to **1** (Δ MRR +0.900). Here the top hit was sitting in the semantic result set the whole time; the hybrid re-ranker was actively suppressing it, and Phase 2b's NL-token body extraction tips the lexical agreement just enough for the re-ranker to stop demoting it.
+- **`SourceFile`** — `semantic_search` rank is **`None` in every arm** (the target never enters the top 10 on semantic alone), yet hybrid rank moves from **14 → 1** under Phase 2b+2c (Δ MRR +0.929). Here the hybrid candidate pool is broader than semantic's, and Phase 2b/2c enrich the embedded text for chunks that the re-ranker was previously scoring below rank 10.
+
+So the Phase 3d lift is best characterised as "the hybrid re-ranker recovering cases that it previously down-weighted" rather than "the retrieval layer finding new answers". This is consistent with Phase 2b/2c being index-time extractors that affect the embedding input but not the `semantic_search` top-k ordering at the aggregate level on this particular dataset.
+
 **Why is the lift so much larger on TypeScript than on jest or ripgrep?**
 
 Three compounding factors:

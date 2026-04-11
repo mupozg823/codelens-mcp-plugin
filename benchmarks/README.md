@@ -120,6 +120,13 @@ python3 benchmarks/embedding-quality.py . \
   - `short_phrase`
   - `natural_language`
 
+외부 저장소 follow-up 데이터셋 (v1.5 / v1.6 phase 측정용):
+
+- `benchmarks/embedding-quality-dataset-typescript.json`
+  - `microsoft/typescript` 34-query TS/JS dataset (Phase 3d, landed)
+  - 4-arm A/B 측정 완료 — 전체 결과와 해석은 `docs/benchmarks.md` §8.15 참조
+  - arm별 결과 파일: `benchmarks/embedding-quality-v1.6-phase3d-typescript-{baseline,2e-only,2b2c-only,stacked}.json`
+
 리포트는 전체 평균 외에 질의 유형별 MRR / Acc@k와 hybrid uplift도 같이 보여준다.
 
 현재 정책:
