@@ -6,6 +6,7 @@ use crate::tool_defs::{ToolProfile, ToolSurface};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn make_handle_response(
     state: &AppState,
     tool_name: &str,

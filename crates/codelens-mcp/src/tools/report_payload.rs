@@ -1,8 +1,9 @@
 use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::report_verifier::{VERIFIER_BLOCKED, VERIFIER_READY};
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_handle_payload(
     tool_name: &str,
     analysis_id: &str,
@@ -112,15 +113,13 @@ pub(crate) fn build_handle_payload(
             "recommended_check_count": payload["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
             "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map(|v| v.len()).unwrap_or(0),
         });
-        payload["evidence_handles"] = json!(
-            available_sections
-                .iter()
-                .map(|section| json!({
-                    "section": section,
-                    "uri": format!("codelens://analysis/{analysis_id}/{section}"),
-                }))
-                .collect::<Vec<_>>()
-        );
+        payload["evidence_handles"] = json!(available_sections
+            .iter()
+            .map(|section| json!({
+                "section": section,
+                "uri": format!("codelens://analysis/{analysis_id}/{section}"),
+            }))
+            .collect::<Vec<_>>());
     }
     payload
 }

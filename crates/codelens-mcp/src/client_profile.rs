@@ -1,3 +1,52 @@
+/// Effort level controls response depth and compression aggressiveness.
+/// Claude Code v2.1.94 changed the default from Medium to High for most users.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub(crate) enum EffortLevel {
+    Low,
+    Medium,
+    High,
+}
+
+#[allow(dead_code)]
+impl EffortLevel {
+    /// Detect from `CODELENS_EFFORT_LEVEL` env var. Default: High (matching Claude Code v2.1.94).
+    pub(crate) fn detect() -> Self {
+        match std::env::var("CODELENS_EFFORT_LEVEL").ok().as_deref() {
+            Some("low") => Self::Low,
+            Some("medium") => Self::Medium,
+            _ => Self::High,
+        }
+    }
+
+    /// Multiplier applied to base token budget.
+    pub(crate) fn budget_multiplier(&self) -> f64 {
+        match self {
+            Self::Low => 0.6,
+            Self::Medium => 1.0,
+            Self::High => 1.3,
+        }
+    }
+
+    /// Offset for the 5-stage compression thresholds (percentage points).
+    /// Positive values delay compression (higher effort = more context).
+    pub(crate) fn compression_threshold_offset(&self) -> i32 {
+        match self {
+            Self::Low => -10,
+            Self::Medium => 0,
+            Self::High => 10,
+        }
+    }
+
+    pub(crate) fn as_str(&self) -> &'static str {
+        match self {
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ClientProfile {
     /// Claude Code — tighter budget, balanced preset excludes builtins

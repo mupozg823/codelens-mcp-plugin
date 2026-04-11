@@ -201,6 +201,7 @@ impl AnalysisArtifactStore {
         self.order.lock().unwrap_or_else(|p| p.into_inner()).clear();
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn store(
         &self,
         tool_name: &str,

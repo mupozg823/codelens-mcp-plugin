@@ -94,6 +94,7 @@ fn browser_or_ssr_sensitive(
     .any(|needle| combined.contains(needle))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_verifier_contract(
     state: &AppState,
     tool_name: &str,

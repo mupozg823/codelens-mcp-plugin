@@ -1,7 +1,7 @@
 # CodeLens MCP — Architecture & Project Overview
 
 > Pure Rust MCP server and harness optimization tool for code intelligence
-> 63 tools | 25 languages | tree-sitter-first | ~22K LOC
+> 89 tools | 25 languages | tree-sitter-first | ~22K LOC
 
 ---
 
@@ -252,23 +252,23 @@ codelens-mcp-plugin/
 
 ---
 
-## 4. Tool Ecosystem (63 tools)
+## 4. Tool Ecosystem (89 tools)
 
 ### Preset Distribution
 
 ```
-FULL (63)        ████████████████████████████████████████████  100%
-BALANCED (39)    █████████████████████████                      62%
-MINIMAL (20)     ███████████████                                33%
+FULL (89)        ████████████████████████████████████████████  100%
+BALANCED (55)    ██████████████████████████████                  62%
+MINIMAL (20)     ██████████████                                  22%
 ```
 
 ### Tool Categories
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                        63 Tools                                  │
+│                        89 Tools                                  │
 ├──────────────┬──────────────┬──────────────┬────────────────────┤
-│ [Symbol] 14  │ [Edit] 12    │ [Analysis] 7 │ [Session] 13       │
+│ [Symbol] 14  │ [Edit] 15    │ [Analysis] 12│ [Session] 16       │
 │              │              │              │                    │
 │ find_symbol  │ rename_symbol│ get_impact   │ activate_project   │
 │ get_symbols  │ replace_body │ find_dead    │ onboard_project    │
@@ -285,7 +285,7 @@ MINIMAL (20)     ███████████████                  
 │ get_complex  │              │              │                    │
 │ fuzzy_search │              │              │                    │
 ├──────────────┼──────────────┼──────────────┼────────────────────┤
-│ [File] 7     │ [Memory] 5   │ [Semantic] 2 │                    │
+│ [File] 7     │ [Memory] 5   │ [Semantic] 6 │ [Reports] 19       │
 │              │              │              │                    │
 │ read_file    │ list_memories│ semantic_srch│                    │
 │ list_dir     │ read_memory  │ index_embed  │                    │

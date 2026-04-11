@@ -15,7 +15,10 @@ pub mod symbols;
 
 use crate::AppState;
 use crate::tool_defs::{ToolProfile, ToolSurface};
-pub use crate::tool_runtime::{ToolHandler, ToolResult, required_string, success_meta};
+pub use crate::tool_runtime::{
+    ToolHandler, ToolResult, optional_bool, optional_string, optional_usize, required_string,
+    success_meta,
+};
 use std::collections::HashMap;
 
 /// Declarative tool registry macro — reduces boilerplate and prevents drift.

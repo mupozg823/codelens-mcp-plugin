@@ -29,6 +29,9 @@ pub struct ToolInvocation {
     pub tokens: usize,
     pub success: bool,
     pub truncated: bool,
+    /// Harness phase at invocation time (plan/build/review/eval).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Clone)]
@@ -186,10 +189,11 @@ impl ToolMetricsRegistry {
     /// Record a single tool invocation (per-tool + session).
     #[allow(dead_code)] // used in tests and as convenience wrapper
     pub fn record_call(&self, name: &str, elapsed_ms: u64, success: bool) {
-        self.record_call_with_tokens(name, elapsed_ms, success, 0, "unknown", false);
+        self.record_call_with_tokens(name, elapsed_ms, success, 0, "unknown", false, None);
     }
 
     /// Record a tool invocation with token estimate.
+    #[allow(clippy::too_many_arguments)]
     pub fn record_call_with_tokens(
         &self,
         name: &str,
@@ -198,6 +202,7 @@ impl ToolMetricsRegistry {
         tokens: usize,
         surface: &str,
         truncated: bool,
+        phase: Option<&str>,
     ) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -303,6 +308,7 @@ impl ToolMetricsRegistry {
                     tokens,
                     success,
                     truncated,
+                    phase: phase.map(ToOwned::to_owned),
                 });
             } else {
                 session.timeline.remove(0);
@@ -313,6 +319,7 @@ impl ToolMetricsRegistry {
                     tokens,
                     success,
                     truncated,
+                    phase: phase.map(ToOwned::to_owned),
                 });
             }
             if truncated {
@@ -706,7 +713,7 @@ mod tests {
     #[test]
     fn session_metrics_accumulate() {
         let reg = ToolMetricsRegistry::new();
-        reg.record_call_with_tokens("find_symbol", 15, true, 500, "planner-readonly", false);
+        reg.record_call_with_tokens("find_symbol", 15, true, 500, "planner-readonly", false, None);
         reg.record_call_with_tokens(
             "get_ranked_context",
             42,
@@ -714,8 +721,9 @@ mod tests {
             2000,
             "planner-readonly",
             false,
+            None,
         );
-        reg.record_call_with_tokens("rename_symbol", 8, false, 0, "refactor-full", false);
+        reg.record_call_with_tokens("rename_symbol", 8, false, 0, "refactor-full", false, None);
 
         let session = reg.session_snapshot();
         assert_eq!(session.total_calls, 3);
@@ -771,7 +779,7 @@ mod tests {
     #[test]
     fn session_reset_clears() {
         let reg = ToolMetricsRegistry::new();
-        reg.record_call_with_tokens("a", 10, true, 100, "planner-readonly", false);
+        reg.record_call_with_tokens("a", 10, true, 100, "planner-readonly", false, None);
         assert_eq!(reg.session_snapshot().total_calls, 1);
 
         reg.reset();
@@ -791,6 +799,7 @@ mod tests {
             1200,
             "planner-readonly",
             true,
+            Some("review"),
         );
         reg.record_call_with_tokens(
             "analyze_change_request",
@@ -799,8 +808,17 @@ mod tests {
             800,
             "planner-readonly",
             false,
+            Some("review"),
         );
-        reg.record_call_with_tokens("impact_report", 10, true, 500, "reviewer-graph", true);
+        reg.record_call_with_tokens(
+            "impact_report",
+            10,
+            true,
+            500,
+            "reviewer-graph",
+            true,
+            None,
+        );
         reg.record_analysis_read(true);
 
         let session = reg.session_snapshot();

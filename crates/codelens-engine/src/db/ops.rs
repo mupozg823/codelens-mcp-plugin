@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use super::{DirStats, FileRow, IndexDb, NewCall, NewImport, NewSymbol, SymbolRow, SymbolWithFile};
 
@@ -659,6 +659,7 @@ impl IndexDb {
     }
 
     /// Return all symbols as (name, kind, file_path, line, signature, name_path).
+    #[allow(clippy::type_complexity)]
     pub fn all_symbol_names(&self) -> Result<Vec<(String, String, String, i64, String, String)>> {
         let mut stmt = self.conn.prepare_cached(
             "SELECT s.name, s.kind, f.relative_path, s.line, s.signature, s.name_path
@@ -768,9 +769,10 @@ impl IndexDb {
             };
 
             if current_file.as_deref() != Some(symbol.file_path.as_str())
-                && let Some(previous_file) = current_file.replace(symbol.file_path.clone()) {
-                    callback(previous_file, std::mem::take(&mut current_symbols))?;
-                }
+                && let Some(previous_file) = current_file.replace(symbol.file_path.clone())
+            {
+                callback(previous_file, std::mem::take(&mut current_symbols))?;
+            }
 
             current_symbols.push(symbol);
             count += 1;
@@ -873,6 +875,7 @@ impl IndexDb {
     }
 
     /// Build the full import graph from the database.
+    #[allow(clippy::type_complexity)]
     pub fn build_import_graph(
         &self,
     ) -> Result<std::collections::HashMap<String, (Vec<String>, Vec<String>)>> {

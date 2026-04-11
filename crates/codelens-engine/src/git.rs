@@ -124,8 +124,7 @@ pub fn get_changed_files(
 /// `"breaking"` if it was deleted, or `"mixed"` otherwise.
 pub fn classify_change_kind(project: &ProjectRoot, file_path: &str) -> String {
     // New/untracked files are always additive
-    let status = run_git(project, &["status", "--porcelain", "--", file_path])
-        .unwrap_or_default();
+    let status = run_git(project, &["status", "--porcelain", "--", file_path]).unwrap_or_default();
     let status_char = status.trim().chars().next().unwrap_or('M');
     if status_char == '?' || status_char == 'A' {
         return "additive".to_owned();
@@ -134,8 +133,8 @@ pub fn classify_change_kind(project: &ProjectRoot, file_path: &str) -> String {
         return "breaking".to_owned();
     }
     // For modified files: check numstat (additions/deletions)
-    let numstat = run_git(project, &["diff", "--numstat", "HEAD", "--", file_path])
-        .unwrap_or_default();
+    let numstat =
+        run_git(project, &["diff", "--numstat", "HEAD", "--", file_path]).unwrap_or_default();
     if let Some(line) = numstat.lines().next() {
         let parts: Vec<&str> = line.split('\t').collect();
         if parts.len() >= 2 {

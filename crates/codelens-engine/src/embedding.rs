@@ -22,9 +22,14 @@ mod ffi {
 
     pub fn register_sqlite_vec() -> Result<()> {
         let rc = unsafe {
-            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute(
-                sqlite_vec::sqlite3_vec_init as *const (),
-            )))
+            rusqlite::ffi::sqlite3_auto_extension(Some(std::mem::transmute::<
+                *const (),
+                unsafe extern "C" fn(
+                    *mut rusqlite::ffi::sqlite3,
+                    *mut *mut i8,
+                    *const rusqlite::ffi::sqlite3_api_routines,
+                ) -> i32,
+            >(sqlite_vec::sqlite3_vec_init as *const ())))
         };
         if rc != rusqlite::ffi::SQLITE_OK {
             anyhow::bail!("failed to register sqlite-vec extension (SQLite error code: {rc})");
@@ -1957,7 +1962,6 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
 /// - No "passage:" prefix (model not trained with prefixes)
 /// - Include file context for disambiguation
 /// - Signature-focused (body inclusion hurts quality for this model)
-/// Build the text to embed for a symbol.
 ///
 /// When `CODELENS_EMBED_DOCSTRINGS=1` is set, leading docstrings/comments are
 /// appended. Disabled by default because the bundled CodeSearchNet-INT8 model
@@ -2483,7 +2487,7 @@ mod tests {
 
     #[test]
     fn embedding_to_bytes_roundtrip() {
-        let floats = vec![1.0f32, -0.5, 0.0, 3.14];
+        let floats = vec![1.0f32, -0.5, 0.0, 3.25];
         let bytes = embedding_to_bytes(&floats);
         assert_eq!(bytes.len(), 4 * 4);
         // Verify roundtrip
@@ -2917,11 +2921,7 @@ mod tests {
     fn recommended_embed_threads_caps_macos_style_load() {
         let threads = recommended_embed_threads();
         assert!(threads >= 1);
-        if cfg!(target_os = "macos") {
-            assert!(threads <= 8);
-        } else {
-            assert!(threads <= 8);
-        }
+        assert!(threads <= 8);
     }
 
     #[test]

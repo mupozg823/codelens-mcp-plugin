@@ -143,7 +143,10 @@ pub fn search_symbols_hybrid_with_semantic(
                 continue;
             }
             let sem_key = format!("{file_path}:{name}");
-            if let Some(&sem_score) = scores.get(&sem_key).filter(|&&s| s > SEMANTIC_NEW_RESULT_THRESHOLD) {
+            if let Some(&sem_score) = scores
+                .get(&sem_key)
+                .filter(|&&s| s > SEMANTIC_NEW_RESULT_THRESHOLD)
+            {
                 seen.insert(key);
                 results.push(SearchResult {
                     name,

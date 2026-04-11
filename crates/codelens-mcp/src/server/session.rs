@@ -1,15 +1,13 @@
 //! MCP session management for Streamable HTTP transport.
 //! Each client gets a unique session ID on `initialize`.
 
-#![cfg(feature = "http")]
 #![allow(dead_code)] // fields/methods used by transport_http handlers
 
 use crate::tool_defs::{ToolPreset, ToolSurface};
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::sync::{
-    Arc, Mutex, RwLock,
     atomic::{AtomicUsize, Ordering},
+    Arc, Mutex, RwLock,
 };
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
@@ -46,9 +44,9 @@ pub struct SessionState {
     pub token_budget: AtomicUsize,
     resume_count: AtomicUsize,
     client_metadata: RwLock<SessionClientMetadata>,
-    recent_tools: Mutex<VecDeque<String>>,
-    recent_files: Mutex<VecDeque<String>>,
-    doom_loop_counter: Mutex<(String, u64, usize)>,
+    recent_tools: crate::recent_buffer::RecentRingBuffer,
+    recent_files: crate::recent_buffer::RecentRingBuffer,
+    doom_loop_counter: Mutex<(String, u64, usize, u64)>,
     /// SSE sender for server→client push on the GET stream.
     pub sse_tx: Mutex<Option<mpsc::Sender<SseEvent>>>,
 }
@@ -64,9 +62,9 @@ impl SessionState {
             token_budget: AtomicUsize::new(4000),
             resume_count: AtomicUsize::new(0),
             client_metadata: RwLock::new(SessionClientMetadata::default()),
-            recent_tools: Mutex::new(VecDeque::with_capacity(5)),
-            recent_files: Mutex::new(VecDeque::with_capacity(20)),
-            doom_loop_counter: Mutex::new((String::new(), 0, 0)),
+            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
+            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
+            doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
             sse_tx: Mutex::new(None),
         }
     }
@@ -128,24 +126,23 @@ impl SessionState {
     }
 
     pub fn record_loaded_namespace(&self, namespace: &str) {
-        if let Ok(mut current) = self.client_metadata.write() {
-            if !current
+        if let Ok(mut current) = self.client_metadata.write()
+            && !current
                 .loaded_namespaces
                 .iter()
                 .any(|value| value == namespace)
-            {
-                current.loaded_namespaces.push(namespace.to_owned());
-                current.loaded_namespaces.sort();
-            }
+        {
+            current.loaded_namespaces.push(namespace.to_owned());
+            current.loaded_namespaces.sort();
         }
     }
 
     pub fn record_loaded_tier(&self, tier: &str) {
-        if let Ok(mut current) = self.client_metadata.write() {
-            if !current.loaded_tiers.iter().any(|value| value == tier) {
-                current.loaded_tiers.push(tier.to_owned());
-                current.loaded_tiers.sort();
-            }
+        if let Ok(mut current) = self.client_metadata.write()
+            && !current.loaded_tiers.iter().any(|value| value == tier)
+        {
+            current.loaded_tiers.push(tier.to_owned());
+            current.loaded_tiers.sort();
         }
     }
 
@@ -163,57 +160,37 @@ impl SessionState {
     }
 
     pub fn push_recent_tool(&self, name: &str) {
-        let mut q = self
-            .recent_tools
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if q.len() >= 5 {
-            q.pop_front();
-        }
-        q.push_back(name.to_owned());
+        self.recent_tools.push(name.to_owned());
     }
 
     pub fn recent_tools(&self) -> Vec<String> {
-        self.recent_tools
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .iter()
-            .cloned()
-            .collect()
+        self.recent_tools.snapshot()
     }
 
     pub fn record_file_access(&self, path: &str) {
-        let mut files = self
-            .recent_files
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        files.retain(|value| value != path);
-        if files.len() >= 20 {
-            files.pop_front();
-        }
-        files.push_back(path.to_owned());
+        self.recent_files.push_dedup(path);
     }
 
     pub fn recent_file_paths(&self) -> Vec<String> {
-        self.recent_files
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .iter()
-            .cloned()
-            .collect()
+        self.recent_files.snapshot()
     }
 
-    pub fn doom_loop_count(&self, name: &str, args_hash: u64) -> usize {
+    pub fn doom_loop_count(&self, name: &str, args_hash: u64) -> (usize, bool) {
         let mut counter = self
             .doom_loop_counter
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
         if counter.0 == name && counter.1 == args_hash {
             counter.2 += 1;
         } else {
-            *counter = (name.to_owned(), args_hash, 1);
+            *counter = (name.to_owned(), args_hash, 1, now_ms);
         }
-        counter.2
+        let is_rapid = counter.2 >= 3 && (now_ms.saturating_sub(counter.3) < 10_000);
+        (counter.2, is_rapid)
     }
 
     pub fn mark_resumed(&self) -> usize {
@@ -260,8 +237,8 @@ impl SessionStore {
                 sessions.retain(|_, s| !s.is_expired(timeout));
             }
             // If still over limit, remove oldest
-            if sessions.len() >= MAX_SESSIONS {
-                if let Some(oldest_id) = sessions
+            if sessions.len() >= MAX_SESSIONS
+                && let Some(oldest_id) = sessions
                     .iter()
                     .min_by_key(|(_, s)| {
                         s.last_active
@@ -270,9 +247,8 @@ impl SessionStore {
                             .unwrap_or(std::time::Instant::now())
                     })
                     .map(|(id, _)| id.clone())
-                {
-                    sessions.remove(&oldest_id);
-                }
+            {
+                sessions.remove(&oldest_id);
             }
             sessions.insert(id, Arc::clone(&session));
         }
@@ -280,11 +256,11 @@ impl SessionStore {
     }
 
     pub fn create_or_resume(&self, existing_id: Option<&str>) -> (Arc<SessionState>, bool) {
-        if let Some(id) = existing_id {
-            if let Some(session) = self.get(id) {
-                session.mark_resumed();
-                return (session, true);
-            }
+        if let Some(id) = existing_id
+            && let Some(session) = self.get(id)
+        {
+            session.mark_resumed();
+            return (session, true);
         }
         (self.create(), false)
     }

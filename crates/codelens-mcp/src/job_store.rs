@@ -140,6 +140,7 @@ impl AnalysisJobStore {
         self.order.lock().unwrap_or_else(|p| p.into_inner()).clear();
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn store(
         &self,
         kind: &str,
@@ -256,6 +257,7 @@ impl AnalysisJobStore {
             .collect()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update(
         &self,
         job_id: &str,
@@ -332,7 +334,10 @@ mod tests {
 
         store.cleanup_stale_files(AnalysisJobStore::now_ms(), None);
 
-        assert!(tmp_path.exists(), "cleanup should not remove inflight tmp files");
+        assert!(
+            tmp_path.exists(),
+            "cleanup should not remove inflight tmp files"
+        );
         let _ = fs::remove_file(tmp_path);
         let _ = fs::remove_dir_all(dir);
     }

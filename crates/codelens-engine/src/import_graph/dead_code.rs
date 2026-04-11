@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use super::parsers::collect_top_level_funcs;
-use super::{collect_candidate_files, DeadCodeEntry, GraphCache};
+use super::{DeadCodeEntry, GraphCache, collect_candidate_files};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DeadCodeEntryV2 {
