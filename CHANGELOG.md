@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added (v1.5 work-in-progress)
+## [1.5.0] — 2026-04-12
+
+Second public release. This version cuts the v1.5 experiment iteration into a shippable package: three stackable opt-in gates for NL-heavy retrieval, all cross-dataset validated on the 89-query self dataset and the 436-query augmented dataset, with a parameter sweep locking in the recommended `(threshold = 40, max = 40)` values. No behaviour change is turned on by default — every new gate is `CODELENS_*=1` opt-in — so existing deployments upgrade in place with zero surprises.
+
+### Headline stacked result (89-query self dataset)
+
+| Metric                          | v1.4.0 baseline | v1.5.0 stacked |          Δ |
+| ------------------------------- | --------------: | -------------: | ---------: |
+| `get_ranked_context` hybrid MRR |           0.572 |      **0.586** | **+0.014** |
+| hybrid Acc@3                    |           0.607 |      **0.652** | **+0.045** |
+| NL hybrid MRR                   |           0.470 |      **0.490** | **+0.020** |
+| NL hybrid Acc@3                 |           0.491 |      **0.545** | **+0.055** |
+| identifier Acc@1                |           0.800 |          0.800 |     +0.000 |
+
+Opt-in configuration (all three env vars, threshold + max at the Phase 2g optimum):
+
+```
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1
+CODELENS_RANK_SPARSE_THRESHOLD=40
+CODELENS_RANK_SPARSE_MAX=40
+```
+
+### Added (v1.5)
 
 - **`embedding/vec_store.rs` submodule** — split `SqliteVecStore` + its `EmbeddingStore` impl out of `embedding.rs` (2,934 LOC → 2,501 + 451). Pure structural refactor, git rename-detected at 84% similarity. Phase 1 of the planned embedding-crate decomposition.
 - **Embedding hint infrastructure** — new `join_hint_lines`, `hint_line_budget`, `hint_char_budget` helpers plus `CODELENS_EMBED_HINT_LINES` (1..=10) and `CODELENS_EMBED_HINT_CHARS` (60..=512) env overrides. Multi-line body hints separated by `·` when a future PoC needs more than one line. The defaults stay at 1 line / 60 chars (v1.4.0 parity) — see "Changed" below for the reasoning.
@@ -55,7 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Rationale
 
-These changes are bundled into a single Unreleased block because the refactor (`vec_store.rs` split), the new env knobs, the dataset fix, and the PoC revert all arrived in the same 2026-04-11 iteration. Each item is its own commit/PR so `git log` and GitHub PR history stay bisectable.
+v1.5 is an **NL-retrieval quality** release, not a feature release. Every new env knob is opt-in by design: the underlying embedding model (bundled CodeSearchNet-INT8) was chosen in v1.4 for its install footprint, and v1.5 treats that choice as fixed while improving what can be improved on top — the text the model sees at indexing time (Phase 2b NL tokens, Phase 2c `Type::method` hints) and the way the final results are re-ordered (Phase 2e sparse coverage bonus). Because each gate is OFF by default, upgrading v1.4.0 → v1.5.0 is a zero-behaviour-change drop-in. Users who want the uplift flip the three env vars at launch and pay one index rebuild; the stacked config is cross-dataset validated on both the 89-query self set (+2.4 % hybrid MRR, +11.2 % NL Acc@3 relative) and the 436-query augmented set (+7.1 % hybrid MRR, +24.9 % NL Acc@3 relative). The Phase 2g sweep locked in `(threshold = 40, max = 40)` as the minimal-aggressive optimum inside a four-cell plateau, so the recommended configuration is grounded in measurement rather than a first guess. The entire v1.5 iteration — Phase 1 refactor, rejected Phase 2 cAST PoC, revived Phase 2b NL-token extractor, orthogonal Phase 2c API-call extractor, MCP-layer Phase 2e sparse re-ranker, Phase 2f cross-dataset validation, Phase 2g parameter sweep — is bisectable PR-by-PR in the GitHub history (#10–#17) and reproducible via the measurement artefacts checked into `benchmarks/embedding-quality-v1.5-*.{json,md}`.
 
 ## [1.4.0] — 2026-04-11
 
