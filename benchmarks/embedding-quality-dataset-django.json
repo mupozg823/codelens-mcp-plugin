@@ -1,0 +1,206 @@
+[
+  {
+    "query": "query rows from a database model",
+    "expected_symbol": "QuerySet",
+    "expected_file_suffix": "db/models/query.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "default manager that provides access to objects",
+    "expected_symbol": "Manager",
+    "expected_file_suffix": "db/models/manager.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "base class for all database models",
+    "expected_symbol": "Model",
+    "expected_file_suffix": "db/models/base.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "declare a foreign-key relationship to another model",
+    "expected_symbol": "ForeignKey",
+    "expected_file_suffix": "db/models/fields/related.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "HTTP response with body headers and status",
+    "expected_symbol": "HttpResponse",
+    "expected_file_suffix": "http/response.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "return a JSON encoded response to the client",
+    "expected_symbol": "JsonResponse",
+    "expected_file_suffix": "http/response.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "object representing an incoming HTTP request",
+    "expected_symbol": "HttpRequest",
+    "expected_file_suffix": "http/request.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "render a template with a context into a response",
+    "expected_symbol": "render",
+    "expected_file_suffix": "shortcuts.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "get a model instance or raise 404",
+    "expected_symbol": "get_object_or_404",
+    "expected_file_suffix": "shortcuts.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "issue an HTTP redirect to a URL or view",
+    "expected_symbol": "redirect",
+    "expected_file_suffix": "shortcuts.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "match a URL path against the URL configuration",
+    "expected_symbol": "resolve",
+    "expected_file_suffix": "urls/base.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "look up a URL path from its view name",
+    "expected_symbol": "reverse",
+    "expected_file_suffix": "urls/base.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "mount a sub-URL configuration into the URL tree",
+    "expected_symbol": "include",
+    "expected_file_suffix": "urls/conf.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "log a user in for the current session",
+    "expected_symbol": "login",
+    "expected_file_suffix": "contrib/auth/__init__.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "log a user out and clear the session",
+    "expected_symbol": "logout",
+    "expected_file_suffix": "contrib/auth/__init__.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "verify a username and password against backends",
+    "expected_symbol": "authenticate",
+    "expected_file_suffix": "contrib/auth/__init__.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "require a logged in user to access a view",
+    "expected_symbol": "login_required",
+    "expected_file_suffix": "contrib/auth/decorators.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check that a plain password matches a stored hash",
+    "expected_symbol": "check_password",
+    "expected_file_suffix": "contrib/auth/hashers.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "hash a password for storage in the database",
+    "expected_symbol": "make_password",
+    "expected_file_suffix": "contrib/auth/hashers.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "generic base class for all class-based views",
+    "expected_symbol": "View",
+    "expected_file_suffix": "views/generic/base.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "display a paginated list of model instances",
+    "expected_symbol": "ListView",
+    "expected_file_suffix": "views/generic/list.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "display a single object retrieved from a model",
+    "expected_symbol": "DetailView",
+    "expected_file_suffix": "views/generic/detail.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "render a template without any extra view logic",
+    "expected_symbol": "TemplateView",
+    "expected_file_suffix": "views/generic/base.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "exempt a view from CSRF protection",
+    "expected_symbol": "csrf_exempt",
+    "expected_file_suffix": "views/decorators/csrf.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "declarative form with field validation",
+    "expected_symbol": "Form",
+    "expected_file_suffix": "forms/forms.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "form that is bound to a model for create and update",
+    "expected_symbol": "ModelForm",
+    "expected_file_suffix": "forms/models.py",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "get object or 404",
+    "expected_symbol": "get_object_or_404",
+    "expected_file_suffix": "shortcuts.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "login required",
+    "expected_symbol": "login_required",
+    "expected_file_suffix": "contrib/auth/decorators.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "http response",
+    "expected_symbol": "HttpResponse",
+    "expected_file_suffix": "http/response.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "query set",
+    "expected_symbol": "QuerySet",
+    "expected_file_suffix": "db/models/query.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "reverse url",
+    "expected_symbol": "reverse",
+    "expected_file_suffix": "urls/base.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "make password",
+    "expected_symbol": "make_password",
+    "expected_file_suffix": "contrib/auth/hashers.py",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "QuerySet",
+    "expected_symbol": "QuerySet",
+    "expected_file_suffix": "db/models/query.py",
+    "query_type": "identifier"
+  },
+  {
+    "query": "HttpResponse",
+    "expected_symbol": "HttpResponse",
+    "expected_file_suffix": "http/response.py",
+    "query_type": "identifier"
+  }
+]
