@@ -222,13 +222,17 @@ pub(crate) fn score_symbol_with_lower(
 /// to tighten top-1 ordering without another index rebuild — the sparse
 /// pass reads `SymbolInfo` fields that are already populated on the
 /// ranking path.
+///
+/// v1.5 Phase 2j: when no explicit env var is set, fall through to
+/// `crate::embedding::auto_hint_should_enable()` for language-gated
+/// defaults (same fallback as `nl_tokens_enabled` and
+/// `api_calls_enabled`). Explicit env always wins.
 pub fn sparse_weighting_enabled() -> bool {
-    std::env::var("CODELENS_RANK_SPARSE_TERM_WEIGHT")
-        .map(|raw| {
-            let lowered = raw.to_ascii_lowercase();
-            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
-        })
-        .unwrap_or(false)
+    if let Ok(raw) = std::env::var("CODELENS_RANK_SPARSE_TERM_WEIGHT") {
+        let lowered = raw.trim().to_ascii_lowercase();
+        return matches!(lowered.as_str(), "1" | "true" | "yes" | "on");
+    }
+    crate::embedding::auto_hint_should_enable()
 }
 
 /// Maximum sparse coverage bonus added to the blended score when a query

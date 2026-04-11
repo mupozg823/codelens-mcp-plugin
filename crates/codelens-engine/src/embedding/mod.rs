@@ -1845,13 +1845,121 @@ fn extract_body_hint(source: &str, start: usize, end: usize) -> Option<String> {
 ///
 /// v1.5 Phase 2b infrastructure — kept off by default pending A/B
 /// measurement against the fixed 89-query dataset.
+///
+/// v1.5 Phase 2j: when no explicit env var is set, fall through to
+/// `auto_hint_should_enable()` which consults `CODELENS_EMBED_HINT_AUTO` +
+/// `CODELENS_EMBED_HINT_AUTO_LANG` for language-gated defaults.
 fn nl_tokens_enabled() -> bool {
-    std::env::var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS")
-        .map(|raw| {
-            let lowered = raw.to_ascii_lowercase();
-            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
-        })
-        .unwrap_or(false)
+    if let Some(explicit) = parse_bool_env("CODELENS_EMBED_HINT_INCLUDE_COMMENTS") {
+        return explicit;
+    }
+    auto_hint_should_enable()
+}
+
+/// Return true when v1.5 Phase 2j auto-detection mode is enabled via
+/// `CODELENS_EMBED_HINT_AUTO=1` (or `true`/`yes`/`on`).
+///
+/// Phase 2j accepts the measured reality that the v1.5 opt-in stack is
+/// Rust-optimised (§8.2–§8.10): three Rust datasets win at +2.4 % /
+/// +7.1 % / +15.2 % relative hybrid MRR, one Python dataset loses at
+/// −15.2 %, and the Phase 2h / 2i filter refinements only recover
+/// ~8 % of the Python regression. Rather than ship a global default
+/// that is right half the time, Phase 2j flips Phase 2b / 2c / 2e
+/// on or off based on the project's dominant language — auto-enabled
+/// for `rust`, `cpp`, `c`, `go`, `java`, `kotlin`, `scala`, `cs` and
+/// disabled for everything else.
+///
+/// The dominant language is supplied by the MCP tool layer via the
+/// `CODELENS_EMBED_HINT_AUTO_LANG` env var (set once per process on
+/// `activate_project` / `index_embeddings`). The engine only reads
+/// the env var — it does not walk the filesystem itself.
+///
+/// Explicit `CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1` /
+/// `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1` /
+/// `CODELENS_RANK_SPARSE_TERM_WEIGHT=1` (or their `=0` counterparts)
+/// always win over the auto decision — users who want to force a
+/// configuration still can, the auto mode is a better default, not
+/// a lock-in.
+pub(super) fn auto_hint_mode_enabled() -> bool {
+    parse_bool_env("CODELENS_EMBED_HINT_AUTO").unwrap_or(false)
+}
+
+/// Return the language tag supplied by the MCP tool layer via
+/// `CODELENS_EMBED_HINT_AUTO_LANG`, or `None` when unset. The tag is
+/// compared against `language_supports_nl_stack` to decide whether
+/// the Phase 2b / 2c / 2e stack should be auto-enabled.
+///
+/// Accepted tags are the canonical extensions from
+/// `crates/codelens-engine/src/lang_config.rs` (`rs`, `py`, `js`,
+/// `ts`, `go`, `rb`, `java`, `kt`, `scala`, `cs`, `cpp`, `c`, …) plus
+/// a handful of long-form aliases (`rust`, `python`, `javascript`,
+/// `typescript`, `golang`) for users who set the env var by hand.
+pub(super) fn auto_hint_lang() -> Option<String> {
+    std::env::var("CODELENS_EMBED_HINT_AUTO_LANG")
+        .ok()
+        .map(|raw| raw.trim().to_ascii_lowercase())
+}
+
+/// Return true when `lang` is a language where the v1.5 opt-in stack
+/// has been measured to net-positive (§8.2, §8.4, §8.6, §8.7) or where
+/// the language's static typing + snake_case naming + comment-first
+/// culture makes the Phase 2b mechanism behave the same way it does on
+/// Rust. The list is intentionally conservative — additions require
+/// an actual external-repo A/B following the §8.7 methodology, not a
+/// language-similarity argument alone.
+///
+/// **Supported** (measured or by static-typing analogy):
+/// - `rs`, `rust`
+/// - `cpp`, `cc`, `cxx`, `c++`
+/// - `c`
+/// - `go`, `golang`
+/// - `java`
+/// - `kt`, `kotlin`
+/// - `scala`
+/// - `cs`, `csharp`
+///
+/// **Unsupported** (measured regression or untested dynamic-typed):
+/// - `py`, `python` (§8.8 regression)
+/// - `js`, `javascript`, `jsx`
+/// - `ts`, `typescript`, `tsx`
+/// - `rb`, `ruby`
+/// - `php`
+/// - `lua`, `r`, `jl`
+/// - `sh`, `bash`
+/// - anything else
+pub(super) fn language_supports_nl_stack(lang: &str) -> bool {
+    matches!(
+        lang.trim().to_ascii_lowercase().as_str(),
+        "rs" | "rust"
+            | "cpp"
+            | "cc"
+            | "cxx"
+            | "c++"
+            | "c"
+            | "go"
+            | "golang"
+            | "java"
+            | "kt"
+            | "kotlin"
+            | "scala"
+            | "cs"
+            | "csharp"
+    )
+}
+
+/// Combined decision: Phase 2j auto mode is enabled AND the detected
+/// language supports the stack. This is the `else` branch that
+/// `nl_tokens_enabled`, `api_calls_enabled`, and
+/// `sparse_weighting_enabled` (via its re-export) fall through to
+/// when no explicit env var is set.
+pub(super) fn auto_hint_should_enable() -> bool {
+    if !auto_hint_mode_enabled() {
+        return false;
+    }
+    match auto_hint_lang() {
+        Some(lang) => language_supports_nl_stack(&lang),
+        None => false, // auto mode on but no language tag → conservative OFF
+    }
 }
 
 /// Heuristic: does this string look like natural language rather than
@@ -2200,13 +2308,13 @@ pub(super) fn extract_nl_tokens_inner(
 /// v1.5 Phase 2c infrastructure — kept off by default pending A/B
 /// measurement. Orthogonal to `CODELENS_EMBED_HINT_INCLUDE_COMMENTS`
 /// so both may be stacked.
+///
+/// v1.5 Phase 2j: explicit env > auto mode, same policy as Phase 2b.
 fn api_calls_enabled() -> bool {
-    std::env::var("CODELENS_EMBED_HINT_INCLUDE_API_CALLS")
-        .map(|raw| {
-            let lowered = raw.to_ascii_lowercase();
-            matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
-        })
-        .unwrap_or(false)
+    if let Some(explicit) = parse_bool_env("CODELENS_EMBED_HINT_INCLUDE_API_CALLS") {
+        return explicit;
+    }
+    auto_hint_should_enable()
 }
 
 /// Heuristic: does `ident` look like a Rust/C++ *type* (PascalCase) rather
@@ -2858,6 +2966,185 @@ fn skip_things() {
             }
         }
         assert!(result.is_none(), "gate leaked: {result:?}");
+    }
+
+    #[test]
+    fn auto_hint_mode_gated_off_by_default() {
+        let previous = std::env::var("CODELENS_EMBED_HINT_AUTO").ok();
+        unsafe {
+            std::env::remove_var("CODELENS_EMBED_HINT_AUTO");
+        }
+        let enabled = super::auto_hint_mode_enabled();
+        unsafe {
+            if let Some(value) = previous {
+                std::env::set_var("CODELENS_EMBED_HINT_AUTO", value);
+            }
+        }
+        assert!(!enabled, "auto hint mode gate leaked");
+    }
+
+    #[test]
+    fn language_supports_nl_stack_classifies_correctly() {
+        // Supported — measured or static-typed analogue
+        assert!(super::language_supports_nl_stack("rs"));
+        assert!(super::language_supports_nl_stack("rust"));
+        assert!(super::language_supports_nl_stack("cpp"));
+        assert!(super::language_supports_nl_stack("c++"));
+        assert!(super::language_supports_nl_stack("c"));
+        assert!(super::language_supports_nl_stack("go"));
+        assert!(super::language_supports_nl_stack("golang"));
+        assert!(super::language_supports_nl_stack("java"));
+        assert!(super::language_supports_nl_stack("kt"));
+        assert!(super::language_supports_nl_stack("kotlin"));
+        assert!(super::language_supports_nl_stack("scala"));
+        assert!(super::language_supports_nl_stack("cs"));
+        assert!(super::language_supports_nl_stack("csharp"));
+        // Case-insensitive
+        assert!(super::language_supports_nl_stack("Rust"));
+        assert!(super::language_supports_nl_stack("RUST"));
+        // Leading/trailing whitespace is tolerated
+        assert!(super::language_supports_nl_stack("  rust  "));
+
+        // Unsupported — measured regression or untested dynamic
+        assert!(!super::language_supports_nl_stack("py"));
+        assert!(!super::language_supports_nl_stack("python"));
+        assert!(!super::language_supports_nl_stack("js"));
+        assert!(!super::language_supports_nl_stack("javascript"));
+        assert!(!super::language_supports_nl_stack("ts"));
+        assert!(!super::language_supports_nl_stack("typescript"));
+        assert!(!super::language_supports_nl_stack("rb"));
+        assert!(!super::language_supports_nl_stack("ruby"));
+        assert!(!super::language_supports_nl_stack("php"));
+        assert!(!super::language_supports_nl_stack("lua"));
+        assert!(!super::language_supports_nl_stack("sh"));
+        // Unknown defaults to unsupported
+        assert!(!super::language_supports_nl_stack("klingon"));
+        assert!(!super::language_supports_nl_stack(""));
+    }
+
+    #[test]
+    fn auto_hint_should_enable_requires_both_gate_and_supported_lang() {
+        let prev_auto = std::env::var("CODELENS_EMBED_HINT_AUTO").ok();
+        let prev_lang = std::env::var("CODELENS_EMBED_HINT_AUTO_LANG").ok();
+
+        // Case 1: gate off → never enable, regardless of language
+        unsafe {
+            std::env::remove_var("CODELENS_EMBED_HINT_AUTO");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "rust");
+        }
+        assert!(
+            !super::auto_hint_should_enable(),
+            "gate-off with lang=rust must stay disabled"
+        );
+
+        // Case 2: gate on, supported language → enable
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "rust");
+        }
+        assert!(
+            super::auto_hint_should_enable(),
+            "gate-on + lang=rust must enable"
+        );
+
+        // Case 3: gate on, unsupported language → disable
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "python");
+        }
+        assert!(
+            !super::auto_hint_should_enable(),
+            "gate-on + lang=python must stay disabled"
+        );
+
+        // Case 4: gate on, no language tag → conservative disable
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::remove_var("CODELENS_EMBED_HINT_AUTO_LANG");
+        }
+        assert!(
+            !super::auto_hint_should_enable(),
+            "gate-on + no lang tag must stay disabled"
+        );
+
+        // Restore
+        unsafe {
+            match prev_auto {
+                Some(v) => std::env::set_var("CODELENS_EMBED_HINT_AUTO", v),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO"),
+            }
+            match prev_lang {
+                Some(v) => std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", v),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO_LANG"),
+            }
+        }
+    }
+
+    #[test]
+    fn nl_tokens_enabled_explicit_env_wins_over_auto() {
+        let prev_explicit = std::env::var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS").ok();
+        let prev_auto = std::env::var("CODELENS_EMBED_HINT_AUTO").ok();
+        let prev_lang = std::env::var("CODELENS_EMBED_HINT_AUTO_LANG").ok();
+
+        // Explicit ON beats auto-OFF-for-python
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "python");
+        }
+        assert!(
+            super::nl_tokens_enabled(),
+            "explicit=1 must win over auto+python=off"
+        );
+
+        // Explicit OFF beats auto-ON-for-rust
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS", "0");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "rust");
+        }
+        assert!(
+            !super::nl_tokens_enabled(),
+            "explicit=0 must win over auto+rust=on"
+        );
+
+        // No explicit, auto+rust → on via fallback
+        unsafe {
+            std::env::remove_var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "rust");
+        }
+        assert!(
+            super::nl_tokens_enabled(),
+            "no explicit + auto+rust must enable"
+        );
+
+        // No explicit, auto+python → off via fallback
+        unsafe {
+            std::env::remove_var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "python");
+        }
+        assert!(
+            !super::nl_tokens_enabled(),
+            "no explicit + auto+python must stay disabled"
+        );
+
+        // Restore
+        unsafe {
+            match prev_explicit {
+                Some(v) => std::env::set_var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS", v),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS"),
+            }
+            match prev_auto {
+                Some(v) => std::env::set_var("CODELENS_EMBED_HINT_AUTO", v),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO"),
+            }
+            match prev_lang {
+                Some(v) => std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", v),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO_LANG"),
+            }
+        }
     }
 
     #[test]
