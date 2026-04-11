@@ -143,13 +143,14 @@ python3 benchmarks/embedding-quality.py . \
 
 ```bash
 python3 benchmarks/embedding-quality-matrix.py \
-  --require-datasets ripgrep,requests,jest,typescript,next-js,react-core,django
+  --require-datasets ripgrep,requests,jest,typescript,next-js,react-core,django,axum
 ```
 
 - JSON 요약: `benchmarks/embedding-quality-phase3-matrix.json`
 - Markdown 요약: `benchmarks/embedding-quality-phase3-matrix.md`
-- 목적: ripgrep / requests / jest / typescript / next-js / react-core / django 외부 측정값을 수동 표 대신 artefact에서 직접 집계
-- completeness gate: `--require-datasets ...` 를 주면 dataset 누락/예상 외 slug가 있으면 즉시 실패
+- 목적: ripgrep / requests / jest / typescript / next-js / react-core / django / axum 같은 **registry에 등록된 landed external datasets**를 수동 표 대신 artefact에서 직접 집계
+- completeness gate: `--require-datasets ...` 를 주면 registry에 등록된 canonical dataset 누락 시 즉시 실패
+- exploratory phase artefact까지 포함해 보려면 `--include-unregistered` 추가
 
 리포트는 전체 평균 외에 질의 유형별 MRR / Acc@k와 hybrid uplift도 같이 보여준다.
 

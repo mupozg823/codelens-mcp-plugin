@@ -92,6 +92,7 @@ pub(super) fn ranked_context_output_schema() -> serde_json::Value {
     })
 }
 
+#[cfg(feature = "semantic")]
 pub(super) fn semantic_search_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -425,6 +426,7 @@ pub(super) fn add_import_output_schema() -> serde_json::Value {
     })
 }
 
+#[cfg(feature = "semantic")]
 pub(super) fn find_similar_code_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -452,6 +454,7 @@ pub(super) fn find_similar_code_output_schema() -> serde_json::Value {
     })
 }
 
+#[cfg(feature = "semantic")]
 pub(super) fn find_code_duplicates_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -477,6 +480,7 @@ pub(super) fn find_code_duplicates_output_schema() -> serde_json::Value {
     })
 }
 
+#[cfg(feature = "semantic")]
 pub(super) fn classify_symbol_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -497,6 +501,7 @@ pub(super) fn classify_symbol_output_schema() -> serde_json::Value {
     })
 }
 
+#[cfg(feature = "semantic")]
 pub(super) fn find_misplaced_code_output_schema() -> serde_json::Value {
     json!({
         "type": "object",

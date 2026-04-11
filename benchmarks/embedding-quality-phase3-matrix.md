@@ -1,6 +1,6 @@
 # External Embedding Quality Matrix
 
-- Datasets: 7 (`positive=3`, `negative=2`, `flat=2`)
+- Datasets: 8 (`positive=3`, `negative=2`, `flat=3`)
 - Flat band: relative delta under `1.0%`
 - Strong band: relative delta at or above `5.0%`
 
@@ -13,6 +13,7 @@
 | phase3e | next-js external | TS/JS / typical app | 0.198 | 0.196 | 0.198 | 0.196 | -0.002 | -0.8% | flat |
 | phase3f | react-core external | TS/JS / short runtime | 0.123 | 0.123 | 0.123 | 0.123 | 0.000 | +0.0% | flat |
 | phase3g | django external | Python / framework | 0.294 | 0.294 | 0.286 | 0.288 | -0.005 | -1.8% | mild negative |
+| phase3h | axum external | Rust / framework library | 0.281 | 0.281 | 0.281 | 0.281 | 0.001 | +0.2% | flat |
 
 ## Artefacts
 
@@ -51,4 +52,9 @@
   - `2e-only`: `benchmarks/embedding-quality-v1.6-phase3g-django-2e-only.json`
   - `2b2c-only`: `benchmarks/embedding-quality-v1.6-phase3g-django-2b2c-only.json`
   - `stacked`: `benchmarks/embedding-quality-v1.6-phase3g-django-stacked.json`
+- `phase3h` / `axum external`
+  - `baseline`: `benchmarks/embedding-quality-v1.6-phase3h-axum-baseline.json`
+  - `2e-only`: `benchmarks/embedding-quality-v1.6-phase3h-axum-2e-only.json`
+  - `2b2c-only`: `benchmarks/embedding-quality-v1.6-phase3h-axum-2b2c-only.json`
+  - `stacked`: `benchmarks/embedding-quality-v1.6-phase3h-axum-stacked.json`
 

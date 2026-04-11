@@ -90,12 +90,15 @@ RUN_PY_GATE=0
 RUN_HTTP_GATE=0
 RUN_CLIPPY_GATE=0
 RUN_RELEASE_GATE=0
+RUN_PHASE3_MATRIX_GATE=0
+PHASE3_REQUIRED_DATASETS="ripgrep,requests,jest,typescript,next-js,react-core,django,axum"
 
 if [[ "$MODE" == "ci" ]]; then
 	RUN_RUST_GATE=1
 	RUN_PY_GATE=1
 	RUN_CLIPPY_GATE=1
 	RUN_RELEASE_GATE=1
+	RUN_PHASE3_MATRIX_GATE=1
 elif [[ "$MODE" == "build" ]]; then
 	RUN_RUST_GATE=1
 	RUN_RELEASE_GATE=1
@@ -106,6 +109,14 @@ else
 
 	if matches_any "benchmarks/*.py" "benchmarks/**/*.py" "scripts/*.py"; then
 		RUN_PY_GATE=1
+	fi
+
+	if matches_any "benchmarks/embedding-quality-matrix.py" \
+		"benchmarks/embedding-quality-v1.*-phase3*.json" \
+		"benchmarks/embedding-quality-dataset-*.json" \
+		"benchmarks/README.md" \
+		"docs/benchmarks.md"; then
+		RUN_PHASE3_MATRIX_GATE=1
 	fi
 
 	if matches_any "crates/codelens-mcp/src/server/*" "crates/codelens-mcp/src/transport*" "crates/codelens-mcp/src/resources*" "crates/codelens-mcp/src/dispatch*" "crates/codelens-mcp/src/session*" "crates/codelens-mcp/src/*http*" "crates/codelens-mcp/src/*resource*" "crates/codelens-mcp/src/state.rs"; then
@@ -142,6 +153,16 @@ if [[ "$RUN_PY_GATE" -eq 1 ]]; then
 	fi
 fi
 
+if [[ "$RUN_PHASE3_MATRIX_GATE" -eq 1 ]]; then
+	if has_cmd python3; then
+		echo "[gate] validating external phase3 embedding matrix"
+		python3 benchmarks/embedding-quality-matrix.py \
+			--require-datasets "$PHASE3_REQUIRED_DATASETS" >/dev/null
+	else
+		echo "[gate] python3 not installed; skipping phase3 matrix gate."
+	fi
+fi
+
 if [[ "$RUN_RUST_GATE" -eq 1 ]]; then
 	if ! has_cmd cargo; then
 		echo "[gate] cargo not installed; cannot run Rust gate."
@@ -151,16 +172,16 @@ if [[ "$RUN_RUST_GATE" -eq 1 ]]; then
 	if [[ "$MODE" == "ci" ]]; then
 		echo "[gate] running CI Rust gate from EVAL_CONTRACT.md"
 		cargo check
-		cargo test -p codelens-core
+		cargo test -p codelens-engine
 		cargo test -p codelens-mcp
 	elif [[ "$MODE" == "build" ]]; then
 		echo "[gate] running build workflow Rust gate from EVAL_CONTRACT.md"
-		cargo test -p codelens-core
+		cargo test -p codelens-engine
 		cargo test -p codelens-mcp -- --skip returns_lsp_diagnostics --skip returns_workspace_symbols --skip returns_rename_plan
 	else
 		echo "[gate] running local stop-hook Rust gate from EVAL_CONTRACT.md"
 		cargo check
-		cargo test -p codelens-core
+		cargo test -p codelens-engine
 		cargo test -p codelens-mcp
 	fi
 

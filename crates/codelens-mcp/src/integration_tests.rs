@@ -1207,6 +1207,7 @@ fn onboard_project_uses_existing_embedding_index_without_loading_engine() {
     assert_eq!(payload["data"]["semantic"]["loaded"], json!(false));
 }
 
+#[cfg(feature = "semantic")]
 #[test]
 fn impact_report_surfaces_unavailable_semantic_status() {
     let project = project_root();
@@ -1246,13 +1247,22 @@ fn impact_report_surfaces_unavailable_semantic_status() {
         json!({"analysis_id": analysis_id, "section": "semantic_status"}),
     );
     assert_eq!(section["success"], json!(true));
-    assert_eq!(section["data"]["content"]["status"], json!("unavailable"));
+    #[cfg(feature = "semantic")]
+    let expected_status = "unavailable";
+    #[cfg(not(feature = "semantic"))]
+    let expected_status = "not_compiled";
+    assert_eq!(section["data"]["content"]["status"], json!(expected_status));
+    #[cfg(feature = "semantic")]
+    let expected_reason_fragment = "index_embeddings";
+    #[cfg(not(feature = "semantic"))]
+    let expected_reason_fragment = "not compiled";
     assert!(section["data"]["content"]["reason"]
         .as_str()
         .unwrap_or("")
-        .contains("index_embeddings"));
+        .contains(expected_reason_fragment));
 }
 
+#[cfg(feature = "semantic")]
 #[test]
 fn impact_report_uses_existing_embedding_index_for_semantic_status() {
     if !embedding_model_available_for_test() {
@@ -3021,6 +3031,7 @@ fn builder_minimal_mutation_behavior_unchanged() {
     assert_eq!(payload["success"], json!(true));
 }
 
+#[cfg(feature = "semantic")]
 #[test]
 fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded() {
     if !embedding_model_available_for_test() {

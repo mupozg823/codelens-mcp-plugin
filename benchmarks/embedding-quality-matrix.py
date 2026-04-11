@@ -49,6 +49,11 @@ DATASET_REGISTRY = {
         "language": "Python",
         "archetype": "framework",
     },
+    "axum": {
+        "label": "axum external",
+        "language": "Rust",
+        "archetype": "framework library",
+    },
 }
 
 FILENAME_RE = re.compile(
@@ -83,6 +88,11 @@ def parse_args() -> argparse.Namespace:
         "--require-datasets",
         default="",
         help="Comma-separated dataset slugs that must appear in the aggregated matrix.",
+    )
+    parser.add_argument(
+        "--include-unregistered",
+        action="store_true",
+        help="Include phase reports whose dataset slug is not present in DATASET_REGISTRY.",
     )
     return parser.parse_args()
 
@@ -129,8 +139,10 @@ def build_matrix(
     flat_threshold_pct: float,
     strong_threshold_pct: float,
     report_glob: str,
+    include_unregistered: bool,
 ) -> dict:
     groups: dict[tuple[str, str, str], dict[str, dict]] = {}
+    skipped_unregistered: list[dict] = []
     for path in paths:
         match = FILENAME_RE.match(path.name)
         if not match:
@@ -138,6 +150,16 @@ def build_matrix(
         info = match.groupdict()
         report = load_report(path)
         slug = dataset_slug_from_path(report["raw"]["dataset_path"])
+        if slug not in DATASET_REGISTRY and not include_unregistered:
+            skipped_unregistered.append(
+                {
+                    "path": str(path),
+                    "dataset_slug": slug,
+                    "phase": info["phase"],
+                    "version": info["version"],
+                }
+            )
+            continue
         key = (info["version"], info["phase"], slug)
         groups.setdefault(key, {})
         groups[key][info["arm"]] = report
@@ -211,6 +233,8 @@ def build_matrix(
         "flat_relative_threshold_pct": flat_threshold_pct,
         "strong_relative_threshold_pct": strong_threshold_pct,
         "dataset_count": len(rows),
+        "include_unregistered": include_unregistered,
+        "skipped_unregistered": skipped_unregistered,
         "effect_counts": counts,
         "rows": rows,
     }
@@ -284,6 +308,7 @@ def main() -> None:
         flat_threshold_pct=args.flat_relative_threshold_pct,
         strong_threshold_pct=args.strong_relative_threshold_pct,
         report_glob=args.glob,
+        include_unregistered=args.include_unregistered,
     )
 
     if args.require_datasets.strip():

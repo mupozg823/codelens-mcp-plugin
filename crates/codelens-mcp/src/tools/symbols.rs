@@ -93,10 +93,12 @@ pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
     trimmed.to_owned()
 }
 
+#[cfg(feature = "semantic")]
 fn is_natural_language_semantic_query(query: &str) -> bool {
     query.split_whitespace().count() >= 4
 }
 
+#[cfg(feature = "semantic")]
 fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     if !is_natural_language_semantic_query(query_lower) {
         return 0.0;
@@ -191,15 +193,18 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     prior.clamp(-0.10_f64, 0.19_f64)
 }
 
+#[cfg(feature = "semantic")]
 fn semantic_adjusted_score_with_lower(query_lower: &str, result: &SemanticMatch) -> (f64, f64) {
     let prior = semantic_result_prior(query_lower, result);
     (prior, result.score + prior)
 }
 
+#[cfg(feature = "semantic")]
 pub(crate) fn semantic_adjusted_score_parts(query: &str, result: &SemanticMatch) -> (f64, f64) {
     semantic_adjusted_score_with_lower(&query.to_ascii_lowercase(), result)
 }
 
+#[cfg(feature = "semantic")]
 pub(crate) fn rerank_semantic_matches(
     query: &str,
     mut results: Vec<SemanticMatch>,
@@ -1119,11 +1124,13 @@ fn count_word_occurrences(line: &str, needle: &str) -> i32 {
 mod tests {
     use super::{
         annotate_ranked_context_provenance, merge_semantic_ranked_entries,
-        query_prefers_lexical_only, semantic_adjusted_score_parts, semantic_query_for_retrieval,
-        truncate_body_preview,
+        query_prefers_lexical_only, semantic_query_for_retrieval, truncate_body_preview,
     };
     use codelens_engine::{RankedContextEntry, RankedContextResult, SemanticMatch};
     use serde_json::json;
+
+    #[cfg(feature = "semantic")]
+    use super::semantic_adjusted_score_parts;
 
     #[test]
     fn identifier_queries_prefer_lexical_only() {
@@ -1275,6 +1282,7 @@ mod tests {
         assert!(!semantic.contains("run_stdio"));
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn semantic_adjusted_score_exposes_positive_prior_for_dispatch_entrypoint() {
         let match_ = SemanticMatch {
@@ -1295,6 +1303,7 @@ mod tests {
         assert!(adjusted > match_.score);
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn semantic_prior_is_bounded_for_high_bonus_entrypoints() {
         let match_ = SemanticMatch {

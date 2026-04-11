@@ -1,12 +1,14 @@
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    default_budget_for_preset, default_budget_for_profile, is_tool_in_surface, ToolPreset,
-    ToolProfile, ToolSurface,
+    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
 };
 use crate::tool_runtime::{success_meta, ToolResult};
 use crate::AppState;
 use serde_json::json;
+
+#[cfg(feature = "semantic")]
+use crate::tool_defs::is_tool_in_surface;
 
 /// Return `true` when the given LSP binary is resolvable either via the
 /// daemon's inherited `PATH` (the `which` fast-path) or via a set of
@@ -81,18 +83,22 @@ pub(crate) enum SemanticSearchStatus {
     /// The `semantic_search` handler is reachable, either because the
     /// engine is already loaded in memory or because an on-disk index
     /// exists and the engine will be lazy-initialized on first call.
+    #[cfg(feature = "semantic")]
     Available,
     /// The bundled CodeSearchNet ONNX model file is missing or
     /// corrupt. User remediation: reinstall with a binary that ships
     /// the model, or set `CODELENS_MODEL_DIR`.
+    #[cfg(feature = "semantic")]
     ModelAssetsUnavailable,
     /// The active tool surface (preset or profile) does not include
     /// `semantic_search`. User remediation: switch profile via
     /// `set_profile` / `set_preset`, or use a client that activates a
     /// richer surface.
+    #[cfg(feature = "semantic")]
     NotInActiveSurface,
     /// The on-disk symbol index has no embedding rows yet. User
     /// remediation: call `index_embeddings` to build the index.
+    #[cfg(feature = "semantic")]
     IndexMissing,
     /// The binary was built without the `semantic` cargo feature.
     /// User remediation: rebuild with `cargo build --features semantic`.
@@ -112,13 +118,17 @@ pub(crate) enum SemanticSearchStatus {
 impl SemanticSearchStatus {
     pub(crate) fn reason_str(&self) -> Option<&'static str> {
         match self {
+            #[cfg(feature = "semantic")]
             Self::Available => None,
+            #[cfg(feature = "semantic")]
             Self::ModelAssetsUnavailable => Some(
                 "model assets unavailable — reinstall with bundled model or set CODELENS_MODEL_DIR",
             ),
+            #[cfg(feature = "semantic")]
             Self::NotInActiveSurface => Some(
                 "not in active surface — call set_profile/set_preset to include semantic_search",
             ),
+            #[cfg(feature = "semantic")]
             Self::IndexMissing => {
                 Some("index missing — call index_embeddings to build the embedding index")
             }
@@ -129,7 +139,14 @@ impl SemanticSearchStatus {
     }
 
     pub(crate) fn is_available(&self) -> bool {
-        matches!(self, Self::Available)
+        #[cfg(feature = "semantic")]
+        {
+            matches!(self, Self::Available)
+        }
+        #[cfg(not(feature = "semantic"))]
+        {
+            false
+        }
     }
 }
 
@@ -301,6 +318,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     let semantic_status = determine_semantic_search_status(state, active_surface);
 
     let configured_embedding_model = codelens_engine::configured_embedding_model_name();
+    #[cfg(feature = "semantic")]
     let embedding_runtime = {
         let guard = state.embedding_ref();
         guard
@@ -308,6 +326,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             .map(|engine| engine.runtime_info().clone())
             .unwrap_or_else(codelens_engine::configured_embedding_runtime_info)
     };
+    #[cfg(not(feature = "semantic"))]
+    let embedding_runtime = codelens_engine::configured_embedding_runtime_info();
 
     #[cfg(feature = "semantic")]
     let embedding_index_info = {
@@ -751,6 +771,7 @@ mod capability_reporting_tests {
     /// Phase 4a AC2/AC4: the `SemanticSearchStatus::reason_str`
     /// mapping must emit a distinct remediation message for each
     /// non-available variant, and `None` for `Available`.
+    #[cfg(feature = "semantic")]
     #[test]
     fn semantic_search_status_reason_strings_are_distinct() {
         assert_eq!(SemanticSearchStatus::Available.reason_str(), None);
@@ -783,6 +804,7 @@ mod capability_reporting_tests {
 
     /// Phase 4a AC3: `is_available` returns true only for
     /// `Available`.
+    #[cfg(feature = "semantic")]
     #[test]
     fn semantic_search_status_is_available_only_for_available_variant() {
         assert!(SemanticSearchStatus::Available.is_available());
@@ -795,6 +817,7 @@ mod capability_reporting_tests {
     /// Phase 4a AC4: both Codex profiles must now expose
     /// `semantic_search` and `index_embeddings`. This guards against
     /// accidental removal in future preset edits.
+    #[cfg(feature = "semantic")]
     #[test]
     fn planner_readonly_and_builder_minimal_expose_semantic_search() {
         use crate::tool_defs::{is_tool_in_surface, ToolProfile, ToolSurface};

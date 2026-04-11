@@ -3,7 +3,7 @@
 ## Local Stop-Hook Gate
 
 - `cargo check`
-- `cargo test -p codelens-core`
+- `cargo test -p codelens-engine`
 - `cargo test -p codelens-mcp`
 
 ## Local Extended Gate
@@ -19,7 +19,7 @@
 
 ## Build Workflow Gate
 
-- `cargo test -p codelens-core`
+- `cargo test -p codelens-engine`
 - `cargo test -p codelens-mcp -- --skip returns_lsp_diagnostics --skip returns_workspace_symbols --skip returns_rename_plan`
 - `cargo build --release`
 

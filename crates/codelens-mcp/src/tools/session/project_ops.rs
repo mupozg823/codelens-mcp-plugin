@@ -98,6 +98,11 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         state.set_token_budget(auto_budget);
     }
 
+    #[cfg(feature = "semantic")]
+    let embedding_ready = state.embedding_ref().is_some();
+    #[cfg(not(feature = "semantic"))]
+    let embedding_ready = false;
+
     Ok((
         json!({
             "activated": true,
@@ -112,7 +117,7 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
             "auto_surface": auto_label,
             "auto_budget": auto_budget,
             "indexed_files": file_count,
-            "embedding_ready": state.embedding_ref().is_some()
+            "embedding_ready": embedding_ready
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
