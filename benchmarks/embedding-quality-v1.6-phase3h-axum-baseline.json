@@ -1,0 +1,1487 @@
+{
+  "project": "/tmp/axum-bench",
+  "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-embed-quality-yrz_9bqs/axum-bench",
+  "isolated_copy": true,
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-axum.json",
+  "dataset_size": 34,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.19215686274509802,
+      "acc1": 0.14705882352941177,
+      "acc3": 0.23529411764705882,
+      "acc5": 0.2647058823529412,
+      "avg_elapsed_ms": 248.44470588235296,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 135.87
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.09743589743589744,
+          "acc1": 0.07692307692307693,
+          "acc3": 0.11538461538461539,
+          "acc5": 0.15384615384615385,
+          "avg_elapsed_ms": 280.8076923076923
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.3333333333333333,
+          "acc1": 0.16666666666666666,
+          "acc3": 0.5,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 145.73
+        }
+      },
+      "rows": [
+        {
+          "query": "HTTP request router and main entry point",
+          "query_type": "natural_language",
+          "expected_symbol": "Router",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": null,
+          "elapsed_ms": 180.15,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "echo_app",
+            "file": "axum/extract/ws.rs"
+          }
+        },
+        {
+          "query": "trait for types that can become an HTTP response",
+          "query_type": "natural_language",
+          "expected_symbol": "IntoResponse",
+          "expected_file_suffix": "axum-core/response/into_response.rs",
+          "rank": null,
+          "elapsed_ms": 184.14,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "make_response",
+            "file": "axum/form.rs"
+          }
+        },
+        {
+          "query": "trait to extract data from an incoming request",
+          "query_type": "natural_language",
+          "expected_symbol": "FromRequest",
+          "expected_file_suffix": "axum-core/extract/mod.rs",
+          "rank": null,
+          "elapsed_ms": 226.08,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "extract",
+            "file": "axum-core/ext_traits/request.rs"
+          }
+        },
+        {
+          "query": "extract a subset of request parts without consuming the body",
+          "query_type": "natural_language",
+          "expected_symbol": "FromRequestParts",
+          "expected_file_suffix": "axum-core/extract/mod.rs",
+          "rank": null,
+          "elapsed_ms": 165.9,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "extract_parts",
+            "file": "axum-core/ext_traits/request.rs"
+          }
+        },
+        {
+          "query": "trait for request handlers",
+          "query_type": "natural_language",
+          "expected_symbol": "Handler",
+          "expected_file_suffix": "axum/handler/mod.rs",
+          "rank": null,
+          "elapsed_ms": 181.78,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "format_str_from_path",
+            "file": "axum-macros/typed_path.rs"
+          }
+        },
+        {
+          "query": "additional response parts that can be inserted",
+          "query_type": "natural_language",
+          "expected_symbol": "IntoResponseParts",
+          "expected_file_suffix": "axum-core/response/into_response_parts.rs",
+          "rank": null,
+          "elapsed_ms": 185.17,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "into_response_parts",
+            "file": "axum-core/response/mod.rs"
+          }
+        },
+        {
+          "query": "a JSON extractor and response body wrapper",
+          "query_type": "natural_language",
+          "expected_symbol": "Json",
+          "expected_file_suffix": "axum/json.rs",
+          "rank": null,
+          "elapsed_ms": 213.66,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "extract",
+            "file": "axum-core/ext_traits/request.rs"
+          }
+        },
+        {
+          "query": "method router for a single path with multiple verbs",
+          "query_type": "natural_language",
+          "expected_symbol": "MethodRouter",
+          "expected_file_suffix": "axum/routing/method_routing.rs",
+          "rank": null,
+          "elapsed_ms": 184.23,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "method_routing",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "URL path parameter extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "Path",
+          "expected_file_suffix": "axum/extract/path/mod.rs",
+          "rank": null,
+          "elapsed_ms": 185.56,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check_extractor_count",
+            "file": "axum-macros/debug_handler.rs"
+          }
+        },
+        {
+          "query": "URL query string extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "Query",
+          "expected_file_suffix": "axum/extract/query.rs",
+          "rank": null,
+          "elapsed_ms": 189.42,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "from_extractor",
+            "file": "axum/middleware/from_extractor.rs"
+          }
+        },
+        {
+          "query": "shared application state extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "State",
+          "expected_file_suffix": "axum/extract/state.rs",
+          "rank": null,
+          "elapsed_ms": 176.34,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "from_extractor_with_state",
+            "file": "axum/middleware/from_extractor.rs"
+          }
+        },
+        {
+          "query": "form data extractor from the request body",
+          "query_type": "natural_language",
+          "expected_symbol": "Form",
+          "expected_file_suffix": "axum/form.rs",
+          "rank": null,
+          "elapsed_ms": 166.37,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "extract",
+            "file": "axum-core/ext_traits/request_parts.rs"
+          }
+        },
+        {
+          "query": "request scoped extension data",
+          "query_type": "natural_language",
+          "expected_symbol": "Extension",
+          "expected_file_suffix": "axum/extension.rs",
+          "rank": null,
+          "elapsed_ms": 183.95,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "status_header_array_extension_mixed_body",
+            "file": "axum/response/mod.rs"
+          }
+        },
+        {
+          "query": "multipart form data extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "Multipart",
+          "expected_file_suffix": "axum/extract/multipart.rs",
+          "rank": null,
+          "elapsed_ms": 199.85,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "test_from_extractor",
+            "file": "axum/middleware/from_extractor.rs"
+          }
+        },
+        {
+          "query": "websocket upgrade from an HTTP request",
+          "query_type": "natural_language",
+          "expected_symbol": "WebSocketUpgrade",
+          "expected_file_suffix": "axum/extract/ws.rs",
+          "rank": 3,
+          "elapsed_ms": 187.74,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "on_upgrade",
+            "file": "axum/extract/ws.rs"
+          }
+        },
+        {
+          "query": "active websocket connection",
+          "query_type": "natural_language",
+          "expected_symbol": "WebSocket",
+          "expected_file_suffix": "axum/extract/ws.rs",
+          "rank": null,
+          "elapsed_ms": 118.29,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "on_failed_upgrade",
+            "file": "axum/extract/ws.rs"
+          }
+        },
+        {
+          "query": "HTTP redirect response helper",
+          "query_type": "natural_language",
+          "expected_symbol": "Redirect",
+          "expected_file_suffix": "axum/response/redirect.rs",
+          "rank": null,
+          "elapsed_ms": 183.52,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "redirect",
+            "file": "axum/response/mod.rs"
+          }
+        },
+        {
+          "query": "HTML response body wrapper",
+          "query_type": "natural_language",
+          "expected_symbol": "Html",
+          "expected_file_suffix": "axum/response/mod.rs",
+          "rank": null,
+          "elapsed_ms": 312.87,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "deserialize_body",
+            "file": "axum-extra/extract/json_deserializer.rs"
+          }
+        },
+        {
+          "query": "server sent events response stream",
+          "query_type": "natural_language",
+          "expected_symbol": "Sse",
+          "expected_file_suffix": "axum/response/sse.rs",
+          "rank": null,
+          "elapsed_ms": 1518.2,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "serve",
+            "file": "axum/serve/mod.rs"
+          }
+        },
+        {
+          "query": "start an HTTP server bound to a listener",
+          "query_type": "natural_language",
+          "expected_symbol": "serve",
+          "expected_file_suffix": "axum/serve/mod.rs",
+          "rank": null,
+          "elapsed_ms": 458.36,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "listener",
+            "file": "axum/serve/mod.rs"
+          }
+        },
+        {
+          "query": "add a route to a specific path on the router",
+          "query_type": "natural_language",
+          "expected_symbol": "route",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 5,
+          "elapsed_ms": 551.59,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "path_router",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "mount another router under a path prefix",
+          "query_type": "natural_language",
+          "expected_symbol": "nest",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": null,
+          "elapsed_ms": 321.91,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "path_router",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "combine another router into this one",
+          "query_type": "natural_language",
+          "expected_symbol": "merge",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": null,
+          "elapsed_ms": 366.97,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "combine",
+            "file": "axum-macros/from_request/attr.rs"
+          }
+        },
+        {
+          "query": "catch all fallback handler for unmatched routes",
+          "query_type": "natural_language",
+          "expected_symbol": "fallback",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 209.04,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "fallback",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "inject typed state into the router",
+          "query_type": "natural_language",
+          "expected_symbol": "with_state",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 222.07,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "with_state",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "handle a route with a custom method filter",
+          "query_type": "natural_language",
+          "expected_symbol": "on",
+          "expected_file_suffix": "axum/routing/method_routing.rs",
+          "rank": null,
+          "elapsed_ms": 227.84,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "method_filter",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "json body",
+          "query_type": "short_phrase",
+          "expected_symbol": "Json",
+          "expected_file_suffix": "axum/json.rs",
+          "rank": null,
+          "elapsed_ms": 140.4,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "json",
+            "file": "axum/lib.rs"
+          }
+        },
+        {
+          "query": "method router",
+          "query_type": "short_phrase",
+          "expected_symbol": "MethodRouter",
+          "expected_file_suffix": "axum/routing/method_routing.rs",
+          "rank": 2,
+          "elapsed_ms": 151.24,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "method_routing",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "into response",
+          "query_type": "short_phrase",
+          "expected_symbol": "IntoResponse",
+          "expected_file_suffix": "axum-core/response/into_response.rs",
+          "rank": null,
+          "elapsed_ms": 135.56,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "into_response",
+            "file": "axum-core/response/into_response.rs"
+          }
+        },
+        {
+          "query": "websocket upgrade",
+          "query_type": "short_phrase",
+          "expected_symbol": "WebSocketUpgrade",
+          "expected_file_suffix": "axum/extract/ws.rs",
+          "rank": 2,
+          "elapsed_ms": 135.08,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "WEBSOCKET",
+            "file": "axum/extract/ws.rs"
+          }
+        },
+        {
+          "query": "serve listener",
+          "query_type": "short_phrase",
+          "expected_symbol": "serve",
+          "expected_file_suffix": "axum/serve/mod.rs",
+          "rank": null,
+          "elapsed_ms": 143.71,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "listener",
+            "file": "axum/serve/mod.rs"
+          }
+        },
+        {
+          "query": "path extractor",
+          "query_type": "short_phrase",
+          "expected_symbol": "Path",
+          "expected_file_suffix": "axum/extract/path/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 168.39,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "Path",
+            "file": "axum/extract/path/mod.rs"
+          }
+        },
+        {
+          "query": "Router",
+          "query_type": "identifier",
+          "expected_symbol": "Router",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 138.47,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "Router",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "IntoResponse",
+          "query_type": "identifier",
+          "expected_symbol": "IntoResponse",
+          "expected_file_suffix": "axum-core/response/into_response.rs",
+          "rank": 1,
+          "elapsed_ms": 133.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "IntoResponse",
+            "file": "axum-core/response/into_response.rs"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.20316399286987522,
+      "acc1": 0.14705882352941177,
+      "acc3": 0.20588235294117646,
+      "acc5": 0.29411764705882354,
+      "avg_elapsed_ms": 23.178235294117645,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 22.3
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.125,
+          "acc1": 0.07692307692307693,
+          "acc3": 0.15384615384615385,
+          "acc5": 0.19230769230769232,
+          "avg_elapsed_ms": 24.012307692307694
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.27626262626262627,
+          "acc1": 0.16666666666666666,
+          "acc3": 0.16666666666666666,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 19.856666666666666
+        }
+      },
+      "rows": [
+        {
+          "query": "HTTP request router and main entry point",
+          "query_type": "natural_language",
+          "expected_symbol": "Router",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": null,
+          "elapsed_ms": 26.18,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "_",
+            "file": "axum/handler/service.rs"
+          }
+        },
+        {
+          "query": "trait for types that can become an HTTP response",
+          "query_type": "natural_language",
+          "expected_symbol": "IntoResponse",
+          "expected_file_suffix": "axum-core/response/into_response.rs",
+          "rank": null,
+          "elapsed_ms": 25.03,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "from_http_method",
+            "file": "axum/routing/method_filter.rs"
+          }
+        },
+        {
+          "query": "trait to extract data from an incoming request",
+          "query_type": "natural_language",
+          "expected_symbol": "FromRequest",
+          "expected_file_suffix": "axum-core/extract/mod.rs",
+          "rank": null,
+          "elapsed_ms": 24.4,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "from_extractor",
+            "file": "axum/middleware/from_extractor.rs"
+          }
+        },
+        {
+          "query": "extract a subset of request parts without consuming the body",
+          "query_type": "natural_language",
+          "expected_symbol": "FromRequestParts",
+          "expected_file_suffix": "axum-core/extract/mod.rs",
+          "rank": null,
+          "elapsed_ms": 22.24,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "request_parts",
+            "file": "axum-core/extract/mod.rs"
+          }
+        },
+        {
+          "query": "trait for request handlers",
+          "query_type": "natural_language",
+          "expected_symbol": "Handler",
+          "expected_file_suffix": "axum/handler/mod.rs",
+          "rank": 24,
+          "elapsed_ms": 22.79,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "RequestPartsExt",
+            "file": "axum-core/ext_traits/request_parts.rs"
+          }
+        },
+        {
+          "query": "additional response parts that can be inserted",
+          "query_type": "natural_language",
+          "expected_symbol": "IntoResponseParts",
+          "expected_file_suffix": "axum-core/response/into_response_parts.rs",
+          "rank": 1,
+          "elapsed_ms": 23.42,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "IntoResponseParts",
+            "file": "axum-core/response/into_response_parts.rs"
+          }
+        },
+        {
+          "query": "a JSON extractor and response body wrapper",
+          "query_type": "natural_language",
+          "expected_symbol": "Json",
+          "expected_file_suffix": "axum/json.rs",
+          "rank": null,
+          "elapsed_ms": 27.16,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "consume_body_to_json_requires_json_content_type",
+            "file": "axum-extra/extract/json_deserializer.rs"
+          }
+        },
+        {
+          "query": "method router for a single path with multiple verbs",
+          "query_type": "natural_language",
+          "expected_symbol": "MethodRouter",
+          "expected_file_suffix": "axum/routing/method_routing.rs",
+          "rank": null,
+          "elapsed_ms": 22.12,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "can_extract_nested_matched_path_with_prefix_and_suffix_in_middleware_on_nested_router",
+            "file": "axum/extract/matched_path.rs"
+          }
+        },
+        {
+          "query": "URL path parameter extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "Path",
+          "expected_file_suffix": "axum/extract/path/mod.rs",
+          "rank": null,
+          "elapsed_ms": 25.61,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "two_path_extractors",
+            "file": "axum/extract/path/mod.rs"
+          }
+        },
+        {
+          "query": "URL query string extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "Query",
+          "expected_file_suffix": "axum/extract/query.rs",
+          "rank": null,
+          "elapsed_ms": 25.22,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "test_parse_seq_tuple_string_parse",
+            "file": "axum/extract/path/de.rs"
+          }
+        },
+        {
+          "query": "shared application state extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "State",
+          "expected_file_suffix": "axum/extract/state.rs",
+          "rank": null,
+          "elapsed_ms": 24.49,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "from_extractor_with_state",
+            "file": "axum/middleware/from_extractor.rs"
+          }
+        },
+        {
+          "query": "form data extractor from the request body",
+          "query_type": "natural_language",
+          "expected_symbol": "Form",
+          "expected_file_suffix": "axum/form.rs",
+          "rank": null,
+          "elapsed_ms": 24.03,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "from_extractor",
+            "file": "axum/middleware/from_extractor.rs"
+          }
+        },
+        {
+          "query": "request scoped extension data",
+          "query_type": "natural_language",
+          "expected_symbol": "Extension",
+          "expected_file_suffix": "axum/extension.rs",
+          "rank": 3,
+          "elapsed_ms": 23.47,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "FromRequestContainerAttrs",
+            "file": "axum-macros/from_request/attr.rs"
+          }
+        },
+        {
+          "query": "multipart form data extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "Multipart",
+          "expected_file_suffix": "axum/extract/multipart.rs",
+          "rank": null,
+          "elapsed_ms": 24.85,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "from_extractor",
+            "file": "axum/middleware/from_extractor.rs"
+          }
+        },
+        {
+          "query": "websocket upgrade from an HTTP request",
+          "query_type": "natural_language",
+          "expected_symbol": "WebSocketUpgrade",
+          "expected_file_suffix": "axum/extract/ws.rs",
+          "rank": null,
+          "elapsed_ms": 24.33,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "from_http_method",
+            "file": "axum/routing/method_filter.rs"
+          }
+        },
+        {
+          "query": "active websocket connection",
+          "query_type": "natural_language",
+          "expected_symbol": "WebSocket",
+          "expected_file_suffix": "axum/extract/ws.rs",
+          "rank": 4,
+          "elapsed_ms": 18.53,
+          "candidate_count": 7,
+          "top_candidate": {
+            "name": "limit_connections",
+            "file": "axum/serve/listener.rs"
+          }
+        },
+        {
+          "query": "HTTP redirect response helper",
+          "query_type": "natural_language",
+          "expected_symbol": "Redirect",
+          "expected_file_suffix": "axum/response/redirect.rs",
+          "rank": null,
+          "elapsed_ms": 23.06,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "into_response",
+            "file": "axum/response/redirect.rs"
+          }
+        },
+        {
+          "query": "HTML response body wrapper",
+          "query_type": "natural_language",
+          "expected_symbol": "Html",
+          "expected_file_suffix": "axum/response/mod.rs",
+          "rank": null,
+          "elapsed_ms": 21.37,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "ResponseAxumBody",
+            "file": "axum/middleware/response_axum_body.rs"
+          }
+        },
+        {
+          "query": "server sent events response stream",
+          "query_type": "natural_language",
+          "expected_symbol": "Sse",
+          "expected_file_suffix": "axum/response/sse.rs",
+          "rank": null,
+          "elapsed_ms": 24.24,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "into_response",
+            "file": "axum-core/response/append_headers.rs"
+          }
+        },
+        {
+          "query": "start an HTTP server bound to a listener",
+          "query_type": "natural_language",
+          "expected_symbol": "serve",
+          "expected_file_suffix": "axum/serve/mod.rs",
+          "rank": null,
+          "elapsed_ms": 22.86,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "_",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "add a route to a specific path on the router",
+          "query_type": "natural_language",
+          "expected_symbol": "route",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 8,
+          "elapsed_ms": 25.59,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "can_extract_nested_matched_path_in_middleware_on_nested_router",
+            "file": "axum/extract/matched_path.rs"
+          }
+        },
+        {
+          "query": "mount another router under a path prefix",
+          "query_type": "natural_language",
+          "expected_symbol": "nest",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": null,
+          "elapsed_ms": 25.28,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "can_extract_nested_matched_path_with_prefix_in_middleware_on_nested_router",
+            "file": "axum/extract/matched_path.rs"
+          }
+        },
+        {
+          "query": "combine another router into this one",
+          "query_type": "natural_language",
+          "expected_symbol": "merge",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": null,
+          "elapsed_ms": 24.62,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "combine_unary_attribute",
+            "file": "axum-macros/attr_parsing.rs"
+          }
+        },
+        {
+          "query": "catch all fallback handler for unmatched routes",
+          "query_type": "natural_language",
+          "expected_symbol": "fallback",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 2,
+          "elapsed_ms": 22.88,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "_",
+            "file": "axum/handler/service.rs"
+          }
+        },
+        {
+          "query": "inject typed state into the router",
+          "query_type": "natural_language",
+          "expected_symbol": "with_state",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 25.54,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "with_state",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "handle a route with a custom method filter",
+          "query_type": "natural_language",
+          "expected_symbol": "on",
+          "expected_file_suffix": "axum/routing/method_routing.rs",
+          "rank": null,
+          "elapsed_ms": 25.01,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "method_filter",
+            "file": "axum/routing/method_routing.rs"
+          }
+        },
+        {
+          "query": "json body",
+          "query_type": "short_phrase",
+          "expected_symbol": "Json",
+          "expected_file_suffix": "axum/json.rs",
+          "rank": 15,
+          "elapsed_ms": 19.04,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "consume_body_to_json_requires_json_content_type",
+            "file": "axum-extra/extract/json_deserializer.rs"
+          }
+        },
+        {
+          "query": "method router",
+          "query_type": "short_phrase",
+          "expected_symbol": "MethodRouter",
+          "expected_file_suffix": "axum/routing/method_routing.rs",
+          "rank": 5,
+          "elapsed_ms": 18.77,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "_",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "into response",
+          "query_type": "short_phrase",
+          "expected_symbol": "IntoResponse",
+          "expected_file_suffix": "axum-core/response/into_response.rs",
+          "rank": 20,
+          "elapsed_ms": 17.38,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "into_response",
+            "file": "axum-extra/response/erased_json.rs"
+          }
+        },
+        {
+          "query": "websocket upgrade",
+          "query_type": "short_phrase",
+          "expected_symbol": "WebSocketUpgrade",
+          "expected_file_suffix": "axum/extract/ws.rs",
+          "rank": 1,
+          "elapsed_ms": 16.42,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "WebSocketUpgrade",
+            "file": "axum/extract/ws.rs"
+          }
+        },
+        {
+          "query": "serve listener",
+          "query_type": "short_phrase",
+          "expected_symbol": "serve",
+          "expected_file_suffix": "axum/serve/mod.rs",
+          "rank": 4,
+          "elapsed_ms": 18.29,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "ListenerExt",
+            "file": "axum/serve/listener.rs"
+          }
+        },
+        {
+          "query": "path extractor",
+          "query_type": "short_phrase",
+          "expected_symbol": "Path",
+          "expected_file_suffix": "axum/extract/path/mod.rs",
+          "rank": 11,
+          "elapsed_ms": 29.24,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "two_path_extractors",
+            "file": "axum/extract/path/mod.rs"
+          }
+        },
+        {
+          "query": "Router",
+          "query_type": "identifier",
+          "expected_symbol": "Router",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 27.59,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "Router",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "IntoResponse",
+          "query_type": "identifier",
+          "expected_symbol": "IntoResponse",
+          "expected_file_suffix": "axum-core/response/into_response.rs",
+          "rank": 1,
+          "elapsed_ms": 17.01,
+          "candidate_count": 5,
+          "top_candidate": {
+            "name": "IntoResponse",
+            "file": "axum-core/response/into_response.rs"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.28078948354557454,
+      "acc1": 0.17647058823529413,
+      "acc3": 0.2647058823529412,
+      "acc5": 0.4117647058823529,
+      "avg_elapsed_ms": 123.80088235294119,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 16.185000000000002
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.1998785554057513,
+          "acc1": 0.11538461538461539,
+          "acc3": 0.15384615384615385,
+          "acc5": 0.3076923076923077,
+          "avg_elapsed_ms": 132.96576923076924
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.39166666666666666,
+          "acc1": 0.16666666666666666,
+          "acc3": 0.5,
+          "acc5": 0.6666666666666666,
+          "avg_elapsed_ms": 119.95833333333333
+        }
+      },
+      "rows": [
+        {
+          "query": "HTTP request router and main entry point",
+          "query_type": "natural_language",
+          "expected_symbol": "Router",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": null,
+          "elapsed_ms": 129.4,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "request_parts",
+            "file": "axum-core/ext_traits/mod.rs"
+          }
+        },
+        {
+          "query": "trait for types that can become an HTTP response",
+          "query_type": "natural_language",
+          "expected_symbol": "IntoResponse",
+          "expected_file_suffix": "axum-core/response/into_response.rs",
+          "rank": null,
+          "elapsed_ms": 129.23,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "response",
+            "file": "axum/lib.rs"
+          }
+        },
+        {
+          "query": "trait to extract data from an incoming request",
+          "query_type": "natural_language",
+          "expected_symbol": "FromRequest",
+          "expected_file_suffix": "axum-core/extract/mod.rs",
+          "rank": 8,
+          "elapsed_ms": 130.83,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "extract",
+            "file": "axum-core/ext_traits/request.rs"
+          }
+        },
+        {
+          "query": "extract a subset of request parts without consuming the body",
+          "query_type": "natural_language",
+          "expected_symbol": "FromRequestParts",
+          "expected_file_suffix": "axum-core/extract/mod.rs",
+          "rank": 21,
+          "elapsed_ms": 133.38,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "extract_parts",
+            "file": "axum-core/ext_traits/request.rs"
+          }
+        },
+        {
+          "query": "trait for request handlers",
+          "query_type": "natural_language",
+          "expected_symbol": "Handler",
+          "expected_file_suffix": "axum/handler/mod.rs",
+          "rank": 6,
+          "elapsed_ms": 131.17,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "handler",
+            "file": "axum/serve/mod.rs"
+          }
+        },
+        {
+          "query": "additional response parts that can be inserted",
+          "query_type": "natural_language",
+          "expected_symbol": "IntoResponseParts",
+          "expected_file_suffix": "axum-core/response/into_response_parts.rs",
+          "rank": 7,
+          "elapsed_ms": 129.55,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "into_response_parts",
+            "file": "axum-core/response/mod.rs"
+          }
+        },
+        {
+          "query": "a JSON extractor and response body wrapper",
+          "query_type": "natural_language",
+          "expected_symbol": "Json",
+          "expected_file_suffix": "axum/json.rs",
+          "rank": null,
+          "elapsed_ms": 133.07,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "extract",
+            "file": "axum-core/ext_traits/request_parts.rs"
+          }
+        },
+        {
+          "query": "method router for a single path with multiple verbs",
+          "query_type": "natural_language",
+          "expected_symbol": "MethodRouter",
+          "expected_file_suffix": "axum/routing/method_routing.rs",
+          "rank": 5,
+          "elapsed_ms": 129.58,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "method_routing",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "URL path parameter extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "Path",
+          "expected_file_suffix": "axum/extract/path/mod.rs",
+          "rank": 23,
+          "elapsed_ms": 128.86,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "url_params",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "URL query string extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "Query",
+          "expected_file_suffix": "axum/extract/query.rs",
+          "rank": null,
+          "elapsed_ms": 169.18,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "from_extractor",
+            "file": "axum/middleware/from_extractor.rs"
+          }
+        },
+        {
+          "query": "shared application state extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "State",
+          "expected_file_suffix": "axum/extract/state.rs",
+          "rank": 5,
+          "elapsed_ms": 130.92,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "from_extractor_with_state",
+            "file": "axum/middleware/from_extractor.rs"
+          }
+        },
+        {
+          "query": "form data extractor from the request body",
+          "query_type": "natural_language",
+          "expected_symbol": "Form",
+          "expected_file_suffix": "axum/form.rs",
+          "rank": null,
+          "elapsed_ms": 126.74,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "extract",
+            "file": "axum-core/ext_traits/request_parts.rs"
+          }
+        },
+        {
+          "query": "request scoped extension data",
+          "query_type": "natural_language",
+          "expected_symbol": "Extension",
+          "expected_file_suffix": "axum/extension.rs",
+          "rank": 4,
+          "elapsed_ms": 130.01,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "extension",
+            "file": "axum/lib.rs"
+          }
+        },
+        {
+          "query": "multipart form data extractor",
+          "query_type": "natural_language",
+          "expected_symbol": "Multipart",
+          "expected_file_suffix": "axum/extract/multipart.rs",
+          "rank": 19,
+          "elapsed_ms": 134.93,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "extract",
+            "file": "axum-core/ext_traits/request_parts.rs"
+          }
+        },
+        {
+          "query": "websocket upgrade from an HTTP request",
+          "query_type": "natural_language",
+          "expected_symbol": "WebSocketUpgrade",
+          "expected_file_suffix": "axum/extract/ws.rs",
+          "rank": 3,
+          "elapsed_ms": 135.34,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "WEBSOCKET",
+            "file": "axum/extract/ws.rs"
+          }
+        },
+        {
+          "query": "active websocket connection",
+          "query_type": "natural_language",
+          "expected_symbol": "WebSocket",
+          "expected_file_suffix": "axum/extract/ws.rs",
+          "rank": 1,
+          "elapsed_ms": 130.23,
+          "candidate_count": 7,
+          "top_candidate": {
+            "name": "WebSocket",
+            "file": "axum/extract/ws.rs"
+          }
+        },
+        {
+          "query": "HTTP redirect response helper",
+          "query_type": "natural_language",
+          "expected_symbol": "Redirect",
+          "expected_file_suffix": "axum/response/redirect.rs",
+          "rank": 8,
+          "elapsed_ms": 140.58,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "redirect",
+            "file": "axum/response/mod.rs"
+          }
+        },
+        {
+          "query": "HTML response body wrapper",
+          "query_type": "natural_language",
+          "expected_symbol": "Html",
+          "expected_file_suffix": "axum/response/mod.rs",
+          "rank": null,
+          "elapsed_ms": 133.47,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "response_axum_body",
+            "file": "axum/middleware/mod.rs"
+          }
+        },
+        {
+          "query": "server sent events response stream",
+          "query_type": "natural_language",
+          "expected_symbol": "Sse",
+          "expected_file_suffix": "axum/response/sse.rs",
+          "rank": null,
+          "elapsed_ms": 129.04,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "Event",
+            "file": "axum/response/sse.rs"
+          }
+        },
+        {
+          "query": "start an HTTP server bound to a listener",
+          "query_type": "natural_language",
+          "expected_symbol": "serve",
+          "expected_file_suffix": "axum/serve/mod.rs",
+          "rank": 6,
+          "elapsed_ms": 130.88,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "listener",
+            "file": "axum/serve/mod.rs"
+          }
+        },
+        {
+          "query": "add a route to a specific path on the router",
+          "query_type": "natural_language",
+          "expected_symbol": "route",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 5,
+          "elapsed_ms": 133.3,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "path_router",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "mount another router under a path prefix",
+          "query_type": "natural_language",
+          "expected_symbol": "nest",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": null,
+          "elapsed_ms": 133.77,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "path_router",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "combine another router into this one",
+          "query_type": "natural_language",
+          "expected_symbol": "merge",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 13,
+          "elapsed_ms": 132.5,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "combine",
+            "file": "axum-macros/from_request/attr.rs"
+          }
+        },
+        {
+          "query": "catch all fallback handler for unmatched routes",
+          "query_type": "natural_language",
+          "expected_symbol": "fallback",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 128.61,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "fallback",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "inject typed state into the router",
+          "query_type": "natural_language",
+          "expected_symbol": "with_state",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 130.15,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "with_state",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "handle a route with a custom method filter",
+          "query_type": "natural_language",
+          "expected_symbol": "on",
+          "expected_file_suffix": "axum/routing/method_routing.rs",
+          "rank": 15,
+          "elapsed_ms": 132.39,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "method_filter",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "json body",
+          "query_type": "short_phrase",
+          "expected_symbol": "Json",
+          "expected_file_suffix": "axum/json.rs",
+          "rank": 10,
+          "elapsed_ms": 120.64,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "json",
+            "file": "axum/lib.rs"
+          }
+        },
+        {
+          "query": "method router",
+          "query_type": "short_phrase",
+          "expected_symbol": "MethodRouter",
+          "expected_file_suffix": "axum/routing/method_routing.rs",
+          "rank": 2,
+          "elapsed_ms": 119.72,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "method_routing",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "into response",
+          "query_type": "short_phrase",
+          "expected_symbol": "IntoResponse",
+          "expected_file_suffix": "axum-core/response/into_response.rs",
+          "rank": 20,
+          "elapsed_ms": 120.38,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "into_response",
+            "file": "axum-core/response/into_response.rs"
+          }
+        },
+        {
+          "query": "websocket upgrade",
+          "query_type": "short_phrase",
+          "expected_symbol": "WebSocketUpgrade",
+          "expected_file_suffix": "axum/extract/ws.rs",
+          "rank": 2,
+          "elapsed_ms": 119.05,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "WEBSOCKET",
+            "file": "axum/extract/ws.rs"
+          }
+        },
+        {
+          "query": "serve listener",
+          "query_type": "short_phrase",
+          "expected_symbol": "serve",
+          "expected_file_suffix": "axum/serve/mod.rs",
+          "rank": 5,
+          "elapsed_ms": 118.79,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "listener",
+            "file": "axum/serve/mod.rs"
+          }
+        },
+        {
+          "query": "path extractor",
+          "query_type": "short_phrase",
+          "expected_symbol": "Path",
+          "expected_file_suffix": "axum/extract/path/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 121.17,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "Path",
+            "file": "axum/extract/path/mod.rs"
+          }
+        },
+        {
+          "query": "Router",
+          "query_type": "identifier",
+          "expected_symbol": "Router",
+          "expected_file_suffix": "axum/routing/mod.rs",
+          "rank": 1,
+          "elapsed_ms": 16.41,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "Router",
+            "file": "axum/routing/mod.rs"
+          }
+        },
+        {
+          "query": "IntoResponse",
+          "query_type": "identifier",
+          "expected_symbol": "IntoResponse",
+          "expected_file_suffix": "axum-core/response/into_response.rs",
+          "rank": 1,
+          "elapsed_ms": 15.96,
+          "candidate_count": 5,
+          "top_candidate": {
+            "name": "IntoResponse",
+            "file": "axum-core/response/into_response.rs"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": 0.07762549067569932,
+    "acc1_delta": 0.02941176470588236,
+    "acc3_delta": 0.05882352941176472,
+    "acc5_delta": 0.11764705882352938
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": 0.07487855540575131,
+      "acc1_delta": 0.038461538461538464,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.11538461538461539
+    },
+    "short_phrase": {
+      "mrr_delta": 0.1154040404040404,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.33333333333333337,
+      "acc5_delta": 0.16666666666666663
+    }
+  }
+}

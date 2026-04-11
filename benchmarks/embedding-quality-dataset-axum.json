@@ -1,0 +1,206 @@
+[
+  {
+    "query": "HTTP request router and main entry point",
+    "expected_symbol": "Router",
+    "expected_file_suffix": "axum/routing/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "trait for types that can become an HTTP response",
+    "expected_symbol": "IntoResponse",
+    "expected_file_suffix": "axum-core/response/into_response.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "trait to extract data from an incoming request",
+    "expected_symbol": "FromRequest",
+    "expected_file_suffix": "axum-core/extract/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "extract a subset of request parts without consuming the body",
+    "expected_symbol": "FromRequestParts",
+    "expected_file_suffix": "axum-core/extract/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "trait for request handlers",
+    "expected_symbol": "Handler",
+    "expected_file_suffix": "axum/handler/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "additional response parts that can be inserted",
+    "expected_symbol": "IntoResponseParts",
+    "expected_file_suffix": "axum-core/response/into_response_parts.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "a JSON extractor and response body wrapper",
+    "expected_symbol": "Json",
+    "expected_file_suffix": "axum/json.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "method router for a single path with multiple verbs",
+    "expected_symbol": "MethodRouter",
+    "expected_file_suffix": "axum/routing/method_routing.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "URL path parameter extractor",
+    "expected_symbol": "Path",
+    "expected_file_suffix": "axum/extract/path/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "URL query string extractor",
+    "expected_symbol": "Query",
+    "expected_file_suffix": "axum/extract/query.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "shared application state extractor",
+    "expected_symbol": "State",
+    "expected_file_suffix": "axum/extract/state.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "form data extractor from the request body",
+    "expected_symbol": "Form",
+    "expected_file_suffix": "axum/form.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "request scoped extension data",
+    "expected_symbol": "Extension",
+    "expected_file_suffix": "axum/extension.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "multipart form data extractor",
+    "expected_symbol": "Multipart",
+    "expected_file_suffix": "axum/extract/multipart.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "websocket upgrade from an HTTP request",
+    "expected_symbol": "WebSocketUpgrade",
+    "expected_file_suffix": "axum/extract/ws.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "active websocket connection",
+    "expected_symbol": "WebSocket",
+    "expected_file_suffix": "axum/extract/ws.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "HTTP redirect response helper",
+    "expected_symbol": "Redirect",
+    "expected_file_suffix": "axum/response/redirect.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "HTML response body wrapper",
+    "expected_symbol": "Html",
+    "expected_file_suffix": "axum/response/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "server sent events response stream",
+    "expected_symbol": "Sse",
+    "expected_file_suffix": "axum/response/sse.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "start an HTTP server bound to a listener",
+    "expected_symbol": "serve",
+    "expected_file_suffix": "axum/serve/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "add a route to a specific path on the router",
+    "expected_symbol": "route",
+    "expected_file_suffix": "axum/routing/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "mount another router under a path prefix",
+    "expected_symbol": "nest",
+    "expected_file_suffix": "axum/routing/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "combine another router into this one",
+    "expected_symbol": "merge",
+    "expected_file_suffix": "axum/routing/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "catch all fallback handler for unmatched routes",
+    "expected_symbol": "fallback",
+    "expected_file_suffix": "axum/routing/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "inject typed state into the router",
+    "expected_symbol": "with_state",
+    "expected_file_suffix": "axum/routing/mod.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "handle a route with a custom method filter",
+    "expected_symbol": "on",
+    "expected_file_suffix": "axum/routing/method_routing.rs",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "json body",
+    "expected_symbol": "Json",
+    "expected_file_suffix": "axum/json.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "method router",
+    "expected_symbol": "MethodRouter",
+    "expected_file_suffix": "axum/routing/method_routing.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "into response",
+    "expected_symbol": "IntoResponse",
+    "expected_file_suffix": "axum-core/response/into_response.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "websocket upgrade",
+    "expected_symbol": "WebSocketUpgrade",
+    "expected_file_suffix": "axum/extract/ws.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "serve listener",
+    "expected_symbol": "serve",
+    "expected_file_suffix": "axum/serve/mod.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "path extractor",
+    "expected_symbol": "Path",
+    "expected_file_suffix": "axum/extract/path/mod.rs",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "Router",
+    "expected_symbol": "Router",
+    "expected_file_suffix": "axum/routing/mod.rs",
+    "query_type": "identifier"
+  },
+  {
+    "query": "IntoResponse",
+    "expected_symbol": "IntoResponse",
+    "expected_file_suffix": "axum-core/response/into_response.rs",
+    "query_type": "identifier"
+  }
+]
