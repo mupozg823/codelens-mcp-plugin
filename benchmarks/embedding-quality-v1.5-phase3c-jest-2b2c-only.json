@@ -1,0 +1,1097 @@
+{
+  "project": "/tmp/jest-ext",
+  "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-embed-quality-79gnu6m8/jest-ext",
+  "isolated_copy": true,
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-jest.json",
+  "dataset_size": 24,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.08888888888888889,
+      "acc1": 0.041666666666666664,
+      "acc3": 0.08333333333333333,
+      "acc5": 0.20833333333333334,
+      "avg_elapsed_ms": 912.8554166666667,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.625,
+          "acc1": 0.5,
+          "acc3": 0.5,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 230.55
+        },
+        "natural_language": {
+          "count": 17,
+          "mrr": 0.051960784313725486,
+          "acc1": 0.0,
+          "acc3": 0.058823529411764705,
+          "acc5": 0.17647058823529413,
+          "avg_elapsed_ms": 1135.5576470588235
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.0,
+          "acc1": 0.0,
+          "acc3": 0.0,
+          "acc5": 0.0,
+          "avg_elapsed_ms": 428.59
+        }
+      },
+      "rows": [
+        {
+          "query": "check if value is strictly equal to expected",
+          "query_type": "natural_language",
+          "expected_symbol": "toBe",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 1228.42,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check",
+            "file": "packages/jest-cli/src/args.ts"
+          }
+        },
+        {
+          "query": "check deep structural equality of two values",
+          "query_type": "natural_language",
+          "expected_symbol": "toEqual",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 1253.77,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "CheckboxWithLabel",
+            "file": "examples/react-testing-library/CheckboxWithLabel.js"
+          }
+        },
+        {
+          "query": "check if number is close to expected with precision",
+          "query_type": "natural_language",
+          "expected_symbol": "toBeCloseTo",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 1269.22,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "close",
+            "file": "packages/jest-haste-map/src/watchers/NodeWatcher.js"
+          }
+        },
+        {
+          "query": "check if value is an instance of a specific class",
+          "query_type": "natural_language",
+          "expected_symbol": "toBeInstanceOf",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 1086.98,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check",
+            "file": "packages/jest-cli/src/args.ts"
+          }
+        },
+        {
+          "query": "check if array or string contains a given item",
+          "query_type": "natural_language",
+          "expected_symbol": "toContain",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 1280.02,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check",
+            "file": "packages/jest-reporters/src/CoverageReporter.ts"
+          }
+        },
+        {
+          "query": "check if string matches a regular expression pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "toMatch",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 1260.08,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "_onChange",
+            "file": "packages/jest-watcher/src/PatternPrompt.ts"
+          }
+        },
+        {
+          "query": "check if array or string has specific length",
+          "query_type": "natural_language",
+          "expected_symbol": "toHaveLength",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 1265.16,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check",
+            "file": "packages/jest-reporters/src/CoverageReporter.ts"
+          }
+        },
+        {
+          "query": "check if object has a nested property at path",
+          "query_type": "natural_language",
+          "expected_symbol": "toHaveProperty",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 1256.86,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check",
+            "file": "packages/jest-reporters/src/CoverageReporter.ts"
+          }
+        },
+        {
+          "query": "assert an object contains these matching properties",
+          "query_type": "natural_language",
+          "expected_symbol": "objectContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": null,
+          "elapsed_ms": 1254.1,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "assertSyncTransformer",
+            "file": "packages/jest-transform/src/ScriptTransformer.ts"
+          }
+        },
+        {
+          "query": "assert an array contains specific elements",
+          "query_type": "natural_language",
+          "expected_symbol": "arrayContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": null,
+          "elapsed_ms": 1082.42,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "assert",
+            "file": "packages/jest-console/src/CustomConsole.ts"
+          }
+        },
+        {
+          "query": "assert a string contains given substring",
+          "query_type": "natural_language",
+          "expected_symbol": "stringContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": null,
+          "elapsed_ms": 1086.85,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "assertSyncTransformer",
+            "file": "packages/jest-transform/src/ScriptTransformer.ts"
+          }
+        },
+        {
+          "query": "class responsible for creating and managing mocks",
+          "query_type": "natural_language",
+          "expected_symbol": "ModuleMocker",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": null,
+          "elapsed_ms": 634.61,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "Mocked",
+            "file": "e2e/babel-plugin-jest-hoist/__test_modules__/Mocked.js"
+          }
+        },
+        {
+          "query": "spy on a method of an existing object",
+          "query_type": "natural_language",
+          "expected_symbol": "spyOn",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": 4,
+          "elapsed_ms": 915.87,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "method",
+            "file": "e2e/error-on-deprecated/__tests__/spyOnProperty.test.js"
+          }
+        },
+        {
+          "query": "normalize user config with defaults and validation",
+          "query_type": "natural_language",
+          "expected_symbol": "normalize",
+          "expected_file_suffix": "packages/jest-config/src/normalize.ts",
+          "rank": 3,
+          "elapsed_ms": 638.38,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "normalizeStdoutAndStderrOnResult",
+            "file": "e2e/runJest.ts"
+          }
+        },
+        {
+          "query": "define jest configuration with type inference",
+          "query_type": "natural_language",
+          "expected_symbol": "defineConfig",
+          "expected_file_suffix": "packages/jest-config/src/index.ts",
+          "rank": 10,
+          "elapsed_ms": 1282.53,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "jest",
+            "file": "packages/jest-globals/src/index.ts"
+          }
+        },
+        {
+          "query": "parameterize test cases with table of arguments",
+          "query_type": "natural_language",
+          "expected_symbol": "bind",
+          "expected_file_suffix": "packages/jest-each/src/bind.ts",
+          "rank": null,
+          "elapsed_ms": 1253.4,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "Table",
+            "file": "packages/jest-types/src/Global.ts"
+          }
+        },
+        {
+          "query": "worker process for parallel test execution",
+          "query_type": "natural_language",
+          "expected_symbol": "Worker",
+          "expected_file_suffix": "packages/jest-worker/src/index.ts",
+          "rank": 5,
+          "elapsed_ms": 1255.81,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "_processFile",
+            "file": "packages/jest-haste-map/src/index.ts"
+          }
+        },
+        {
+          "query": "exact equality",
+          "query_type": "short_phrase",
+          "expected_symbol": "toBe",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 351.87,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "DIR",
+            "file": "e2e/__tests__/cliHandlesExactFilenames.test.ts"
+          }
+        },
+        {
+          "query": "deep equality",
+          "query_type": "short_phrase",
+          "expected_symbol": "toEqual",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 350.06,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "deepEqualityName",
+            "file": "packages/expect/src/matchers.ts"
+          }
+        },
+        {
+          "query": "mock function spy",
+          "query_type": "short_phrase",
+          "expected_symbol": "spyOn",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": null,
+          "elapsed_ms": 740.23,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "spy",
+            "file": "packages/jest-mock/__typetests__/mock-functions.test.ts"
+          }
+        },
+        {
+          "query": "object containing",
+          "query_type": "short_phrase",
+          "expected_symbol": "objectContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": null,
+          "elapsed_ms": 354.42,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "obj",
+            "file": "packages/jest-runtime/src/index.ts"
+          }
+        },
+        {
+          "query": "module mocker",
+          "query_type": "short_phrase",
+          "expected_symbol": "ModuleMocker",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": null,
+          "elapsed_ms": 346.37,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "module",
+            "file": "packages/jest-runtime/src/index.ts"
+          }
+        },
+        {
+          "query": "Resolver",
+          "query_type": "identifier",
+          "expected_symbol": "Resolver",
+          "expected_file_suffix": "packages/jest-resolve/src/resolver.ts",
+          "rank": 4,
+          "elapsed_ms": 229.72,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "Resolver",
+            "file": "packages/jest-config/src/__tests__/normalize.test.ts"
+          }
+        },
+        {
+          "query": "Runtime",
+          "query_type": "identifier",
+          "expected_symbol": "Runtime",
+          "expected_file_suffix": "packages/jest-runtime/src/index.ts",
+          "rank": 1,
+          "elapsed_ms": 231.38,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "Runtime",
+            "file": "packages/jest-runtime/src/index.ts"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.15476190476190477,
+      "acc1": 0.08333333333333333,
+      "acc3": 0.20833333333333334,
+      "acc5": 0.20833333333333334,
+      "avg_elapsed_ms": 135.23375000000001,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 83.045
+        },
+        "natural_language": {
+          "count": 17,
+          "mrr": 0.07142857142857142,
+          "acc1": 0.058823529411764705,
+          "acc3": 0.058823529411764705,
+          "acc5": 0.058823529411764705,
+          "avg_elapsed_ms": 155.06941176470588
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.3,
+          "acc1": 0.2,
+          "acc3": 0.4,
+          "acc5": 0.4,
+          "avg_elapsed_ms": 88.66799999999999
+        }
+      },
+      "rows": [
+        {
+          "query": "check if value is strictly equal to expected",
+          "query_type": "natural_language",
+          "expected_symbol": "toBe",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 99.78,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "equals",
+            "file": "packages/expect-utils/src/jasmineUtils.ts"
+          }
+        },
+        {
+          "query": "check deep structural equality of two values",
+          "query_type": "natural_language",
+          "expected_symbol": "toEqual",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 101.69,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "deepMergeArray",
+            "file": "packages/jest-snapshot/src/utils.ts"
+          }
+        },
+        {
+          "query": "check if number is close to expected with precision",
+          "query_type": "natural_language",
+          "expected_symbol": "toBeCloseTo",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": 6,
+          "elapsed_ms": 99.88,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "notCloseTo",
+            "file": "packages/expect/src/asymmetricMatchers.ts"
+          }
+        },
+        {
+          "query": "check if value is an instance of a specific class",
+          "query_type": "natural_language",
+          "expected_symbol": "toBeInstanceOf",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 96.7,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "check",
+            "file": "e2e/runJest.ts"
+          }
+        },
+        {
+          "query": "check if array or string contains a given item",
+          "query_type": "natural_language",
+          "expected_symbol": "toContain",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 101.09,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "check",
+            "file": "e2e/runJest.ts"
+          }
+        },
+        {
+          "query": "check if string matches a regular expression pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "toMatch",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 101.24,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "matches",
+            "file": "packages/expect/src/asymmetricMatchers.ts"
+          }
+        },
+        {
+          "query": "check if array or string has specific length",
+          "query_type": "natural_language",
+          "expected_symbol": "toHaveLength",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 111.96,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "length",
+            "file": "packages/expect-utils/src/jasmineUtils.ts"
+          }
+        },
+        {
+          "query": "check if object has a nested property at path",
+          "query_type": "natural_language",
+          "expected_symbol": "toHaveProperty",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 477.46,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "relative",
+            "file": "packages/jest-haste-map/src/lib/fast_path.ts"
+          }
+        },
+        {
+          "query": "assert an object contains these matching properties",
+          "query_type": "natural_language",
+          "expected_symbol": "objectContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": null,
+          "elapsed_ms": 107.0,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "StringMatching",
+            "file": "packages/expect/src/asymmetricMatchers.ts"
+          }
+        },
+        {
+          "query": "assert an array contains specific elements",
+          "query_type": "natural_language",
+          "expected_symbol": "arrayContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": null,
+          "elapsed_ms": 103.94,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "shuffleArray",
+            "file": "packages/jest-circus/src/shuffleArray.ts"
+          }
+        },
+        {
+          "query": "assert a string contains given substring",
+          "query_type": "natural_language",
+          "expected_symbol": "stringContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": null,
+          "elapsed_ms": 101.88,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "string",
+            "file": "packages/jest-reporters/src/DefaultReporter.ts"
+          }
+        },
+        {
+          "query": "class responsible for creating and managing mocks",
+          "query_type": "natural_language",
+          "expected_symbol": "ModuleMocker",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": null,
+          "elapsed_ms": 92.49,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "format",
+            "file": "packages/pretty-format/src/index.ts"
+          }
+        },
+        {
+          "query": "spy on a method of an existing object",
+          "query_type": "natural_language",
+          "expected_symbol": "spyOn",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": null,
+          "elapsed_ms": 110.87,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "Spy",
+            "file": "packages/jest-jasmine2/src/types.ts"
+          }
+        },
+        {
+          "query": "normalize user config with defaults and validation",
+          "query_type": "natural_language",
+          "expected_symbol": "normalize",
+          "expected_file_suffix": "packages/jest-config/src/normalize.ts",
+          "rank": null,
+          "elapsed_ms": 456.99,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "packageJsonWithDefaults",
+            "file": "e2e/Utils.ts"
+          }
+        },
+        {
+          "query": "define jest configuration with type inference",
+          "query_type": "natural_language",
+          "expected_symbol": "defineConfig",
+          "expected_file_suffix": "packages/jest-config/src/index.ts",
+          "rank": 1,
+          "elapsed_ms": 106.49,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "defineConfig",
+            "file": "packages/jest-config/src/index.ts"
+          }
+        },
+        {
+          "query": "parameterize test cases with table of arguments",
+          "query_type": "natural_language",
+          "expected_symbol": "bind",
+          "expected_file_suffix": "packages/jest-each/src/bind.ts",
+          "rank": null,
+          "elapsed_ms": 231.97,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "TestPathCases",
+            "file": "packages/jest-core/src/types.ts"
+          }
+        },
+        {
+          "query": "worker process for parallel test execution",
+          "query_type": "natural_language",
+          "expected_symbol": "Worker",
+          "expected_file_suffix": "packages/jest-worker/src/index.ts",
+          "rank": 21,
+          "elapsed_ms": 134.75,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "format",
+            "file": "packages/pretty-format/src/index.ts"
+          }
+        },
+        {
+          "query": "exact equality",
+          "query_type": "short_phrase",
+          "expected_symbol": "toBe",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 87.96,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "getCustomEqualityTesters",
+            "file": "packages/expect/src/jestMatchersObject.ts"
+          }
+        },
+        {
+          "query": "deep equality",
+          "query_type": "short_phrase",
+          "expected_symbol": "toEqual",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 87.64,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "deepEqualityName",
+            "file": "packages/expect/src/matchers.ts"
+          }
+        },
+        {
+          "query": "mock function spy",
+          "query_type": "short_phrase",
+          "expected_symbol": "spyOn",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": null,
+          "elapsed_ms": 95.48,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "Spy",
+            "file": "packages/jest-jasmine2/src/types.ts"
+          }
+        },
+        {
+          "query": "object containing",
+          "query_type": "short_phrase",
+          "expected_symbol": "objectContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": 2,
+          "elapsed_ms": 86.63,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "ObjectContaining",
+            "file": "packages/expect/src/asymmetricMatchers.ts"
+          }
+        },
+        {
+          "query": "module mocker",
+          "query_type": "short_phrase",
+          "expected_symbol": "ModuleMocker",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": 1,
+          "elapsed_ms": 85.63,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "ModuleMocker",
+            "file": "packages/jest-mock/src/index.ts"
+          }
+        },
+        {
+          "query": "Resolver",
+          "query_type": "identifier",
+          "expected_symbol": "Resolver",
+          "expected_file_suffix": "packages/jest-resolve/src/resolver.ts",
+          "rank": 2,
+          "elapsed_ms": 84.31,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "Resolver",
+            "file": "packages/jest-resolve/src/defaultResolver.ts"
+          }
+        },
+        {
+          "query": "Runtime",
+          "query_type": "identifier",
+          "expected_symbol": "Runtime",
+          "expected_file_suffix": "packages/jest-runtime/src/index.ts",
+          "rank": 2,
+          "elapsed_ms": 81.78,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "runTime",
+            "file": "packages/jest-reporters/src/getResultHeader.ts"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.16372007808499744,
+      "acc1": 0.041666666666666664,
+      "acc3": 0.20833333333333334,
+      "acc5": 0.3333333333333333,
+      "avg_elapsed_ms": 187.0925,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 80.715
+        },
+        "natural_language": {
+          "count": 17,
+          "mrr": 0.10613422788470227,
+          "acc1": 0.0,
+          "acc3": 0.11764705882352941,
+          "acc5": 0.29411764705882354,
+          "avg_elapsed_ms": 200.12470588235294
+        },
+        "short_phrase": {
+          "count": 5,
+          "mrr": 0.225,
+          "acc1": 0.2,
+          "acc3": 0.2,
+          "acc5": 0.2,
+          "avg_elapsed_ms": 185.334
+        }
+      },
+      "rows": [
+        {
+          "query": "check if value is strictly equal to expected",
+          "query_type": "natural_language",
+          "expected_symbol": "toBe",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 200.35,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "expected",
+            "file": "packages/pretty-format/src/__tests__/Immutable.test.ts"
+          }
+        },
+        {
+          "query": "check deep structural equality of two values",
+          "query_type": "natural_language",
+          "expected_symbol": "toEqual",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": 16,
+          "elapsed_ms": 205.56,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "deepEqualityName",
+            "file": "packages/expect/src/matchers.ts"
+          }
+        },
+        {
+          "query": "check if number is close to expected with precision",
+          "query_type": "natural_language",
+          "expected_symbol": "toBeCloseTo",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": 5,
+          "elapsed_ms": 203.05,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "precision",
+            "file": "packages/expect/src/__tests__/matchers.test.js"
+          }
+        },
+        {
+          "query": "check if value is an instance of a specific class",
+          "query_type": "natural_language",
+          "expected_symbol": "toBeInstanceOf",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 198.28,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "value",
+            "file": ".github/ISSUE_TEMPLATE/bug.yml"
+          }
+        },
+        {
+          "query": "check if array or string contains a given item",
+          "query_type": "natural_language",
+          "expected_symbol": "toContain",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": 4,
+          "elapsed_ms": 203.01,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "isMatch",
+            "file": "packages/jest-pattern/src/TestPathPatterns.ts"
+          }
+        },
+        {
+          "query": "check if string matches a regular expression pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "toMatch",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 203.24,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "isMatch",
+            "file": "packages/jest-pattern/src/TestPathPatterns.ts"
+          }
+        },
+        {
+          "query": "check if array or string has specific length",
+          "query_type": "natural_language",
+          "expected_symbol": "toHaveLength",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": 5,
+          "elapsed_ms": 201.25,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "length",
+            "file": "e2e/expect-async-matcher/matchers.js"
+          }
+        },
+        {
+          "query": "check if object has a nested property at path",
+          "query_type": "natural_language",
+          "expected_symbol": "toHaveProperty",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": 7,
+          "elapsed_ms": 201.07,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "propertyC",
+            "file": "packages/jest-types/__typetests__/jest.test.ts"
+          }
+        },
+        {
+          "query": "assert an object contains these matching properties",
+          "query_type": "natural_language",
+          "expected_symbol": "objectContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": null,
+          "elapsed_ms": 202.18,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "matchArity",
+            "file": "packages/jest-mock/src/index.ts"
+          }
+        },
+        {
+          "query": "assert an array contains specific elements",
+          "query_type": "natural_language",
+          "expected_symbol": "arrayContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": null,
+          "elapsed_ms": 199.53,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "assert",
+            "file": "packages/jest-console/src/CustomConsole.ts"
+          }
+        },
+        {
+          "query": "assert a string contains given substring",
+          "query_type": "natural_language",
+          "expected_symbol": "stringContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": null,
+          "elapsed_ms": 198.97,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "assertCommonSubstring",
+            "file": "packages/diff-sequences/src/__tests__/index.test.ts"
+          }
+        },
+        {
+          "query": "class responsible for creating and managing mocks",
+          "query_type": "natural_language",
+          "expected_symbol": "ModuleMocker",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": null,
+          "elapsed_ms": 188.73,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "Mocked",
+            "file": "e2e/babel-plugin-jest-hoist/__test_modules__/Mocked.js"
+          }
+        },
+        {
+          "query": "spy on a method of an existing object",
+          "query_type": "natural_language",
+          "expected_symbol": "spyOn",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": 2,
+          "elapsed_ms": 195.97,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "spyOn",
+            "file": "packages/jest-jasmine2/src/jasmine/jasmineLight.ts"
+          }
+        },
+        {
+          "query": "normalize user config with defaults and validation",
+          "query_type": "natural_language",
+          "expected_symbol": "normalize",
+          "expected_file_suffix": "packages/jest-config/src/normalize.ts",
+          "rank": 3,
+          "elapsed_ms": 190.75,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "validateExtensionsToTreatAsEsm",
+            "file": "packages/jest-config/src/normalize.ts"
+          }
+        },
+        {
+          "query": "define jest configuration with type inference",
+          "query_type": "natural_language",
+          "expected_symbol": "defineConfig",
+          "expected_file_suffix": "packages/jest-config/src/index.ts",
+          "rank": 12,
+          "elapsed_ms": 200.72,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "jest",
+            "file": "packages/jest-globals/src/index.ts"
+          }
+        },
+        {
+          "query": "parameterize test cases with table of arguments",
+          "query_type": "natural_language",
+          "expected_symbol": "bind",
+          "expected_file_suffix": "packages/jest-each/src/bind.ts",
+          "rank": null,
+          "elapsed_ms": 201.67,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "TESTS_DIR",
+            "file": "e2e/__tests__/toThrowErrorMatchingInlineSnapshot.test.ts"
+          }
+        },
+        {
+          "query": "worker process for parallel test execution",
+          "query_type": "natural_language",
+          "expected_symbol": "Worker",
+          "expected_file_suffix": "packages/jest-worker/src/index.ts",
+          "rank": 31,
+          "elapsed_ms": 207.79,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "worker",
+            "file": "packages/jest-runner/src/testWorker.ts"
+          }
+        },
+        {
+          "query": "exact equality",
+          "query_type": "short_phrase",
+          "expected_symbol": "toBe",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 184.04,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "typeEquality",
+            "file": "packages/expect-utils/src/utils.ts"
+          }
+        },
+        {
+          "query": "deep equality",
+          "query_type": "short_phrase",
+          "expected_symbol": "toEqual",
+          "expected_file_suffix": "packages/expect/src/matchers.ts",
+          "rank": null,
+          "elapsed_ms": 184.76,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "deepEqualityName",
+            "file": "packages/expect/src/matchers.ts"
+          }
+        },
+        {
+          "query": "mock function spy",
+          "query_type": "short_phrase",
+          "expected_symbol": "spyOn",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": null,
+          "elapsed_ms": 191.37,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "spy",
+            "file": "packages/jest-mock/__typetests__/mock-functions.test.ts"
+          }
+        },
+        {
+          "query": "object containing",
+          "query_type": "short_phrase",
+          "expected_symbol": "objectContaining",
+          "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+          "rank": 1,
+          "elapsed_ms": 184.51,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "objectContaining",
+            "file": "packages/expect/src/asymmetricMatchers.ts"
+          }
+        },
+        {
+          "query": "module mocker",
+          "query_type": "short_phrase",
+          "expected_symbol": "ModuleMocker",
+          "expected_file_suffix": "packages/jest-mock/src/index.ts",
+          "rank": 8,
+          "elapsed_ms": 181.99,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "module",
+            "file": "packages/jest-runtime/src/index.ts"
+          }
+        },
+        {
+          "query": "Resolver",
+          "query_type": "identifier",
+          "expected_symbol": "Resolver",
+          "expected_file_suffix": "packages/jest-resolve/src/resolver.ts",
+          "rank": 2,
+          "elapsed_ms": 81.02,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "Resolver",
+            "file": "packages/jest-resolve/src/defaultResolver.ts"
+          }
+        },
+        {
+          "query": "Runtime",
+          "query_type": "identifier",
+          "expected_symbol": "Runtime",
+          "expected_file_suffix": "packages/jest-runtime/src/index.ts",
+          "rank": 2,
+          "elapsed_ms": 80.41,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "runTime",
+            "file": "packages/jest-reporters/src/getResultHeader.ts"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": 0.008958173323092677,
+    "acc1_delta": -0.041666666666666664,
+    "acc3_delta": 0.0,
+    "acc5_delta": 0.12499999999999997
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": 0.03470565645613084,
+      "acc1_delta": -0.058823529411764705,
+      "acc3_delta": 0.058823529411764705,
+      "acc5_delta": 0.23529411764705882
+    },
+    "short_phrase": {
+      "mrr_delta": -0.07499999999999998,
+      "acc1_delta": 0.0,
+      "acc3_delta": -0.2,
+      "acc5_delta": -0.2
+    }
+  }
+}

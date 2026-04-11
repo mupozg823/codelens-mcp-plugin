@@ -1,0 +1,146 @@
+[
+  {
+    "query": "check if value is strictly equal to expected",
+    "expected_symbol": "toBe",
+    "expected_file_suffix": "packages/expect/src/matchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check deep structural equality of two values",
+    "expected_symbol": "toEqual",
+    "expected_file_suffix": "packages/expect/src/matchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if number is close to expected with precision",
+    "expected_symbol": "toBeCloseTo",
+    "expected_file_suffix": "packages/expect/src/matchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if value is an instance of a specific class",
+    "expected_symbol": "toBeInstanceOf",
+    "expected_file_suffix": "packages/expect/src/matchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if array or string contains a given item",
+    "expected_symbol": "toContain",
+    "expected_file_suffix": "packages/expect/src/matchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if string matches a regular expression pattern",
+    "expected_symbol": "toMatch",
+    "expected_file_suffix": "packages/expect/src/matchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if array or string has specific length",
+    "expected_symbol": "toHaveLength",
+    "expected_file_suffix": "packages/expect/src/matchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check if object has a nested property at path",
+    "expected_symbol": "toHaveProperty",
+    "expected_file_suffix": "packages/expect/src/matchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "assert an object contains these matching properties",
+    "expected_symbol": "objectContaining",
+    "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "assert an array contains specific elements",
+    "expected_symbol": "arrayContaining",
+    "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "assert a string contains given substring",
+    "expected_symbol": "stringContaining",
+    "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "class responsible for creating and managing mocks",
+    "expected_symbol": "ModuleMocker",
+    "expected_file_suffix": "packages/jest-mock/src/index.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "spy on a method of an existing object",
+    "expected_symbol": "spyOn",
+    "expected_file_suffix": "packages/jest-mock/src/index.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "normalize user config with defaults and validation",
+    "expected_symbol": "normalize",
+    "expected_file_suffix": "packages/jest-config/src/normalize.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "define jest configuration with type inference",
+    "expected_symbol": "defineConfig",
+    "expected_file_suffix": "packages/jest-config/src/index.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "parameterize test cases with table of arguments",
+    "expected_symbol": "bind",
+    "expected_file_suffix": "packages/jest-each/src/bind.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "worker process for parallel test execution",
+    "expected_symbol": "Worker",
+    "expected_file_suffix": "packages/jest-worker/src/index.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "exact equality",
+    "expected_symbol": "toBe",
+    "expected_file_suffix": "packages/expect/src/matchers.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "deep equality",
+    "expected_symbol": "toEqual",
+    "expected_file_suffix": "packages/expect/src/matchers.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "mock function spy",
+    "expected_symbol": "spyOn",
+    "expected_file_suffix": "packages/jest-mock/src/index.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "object containing",
+    "expected_symbol": "objectContaining",
+    "expected_file_suffix": "packages/expect/src/asymmetricMatchers.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "module mocker",
+    "expected_symbol": "ModuleMocker",
+    "expected_file_suffix": "packages/jest-mock/src/index.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "Resolver",
+    "expected_symbol": "Resolver",
+    "expected_file_suffix": "packages/jest-resolve/src/resolver.ts",
+    "query_type": "identifier"
+  },
+  {
+    "query": "Runtime",
+    "expected_symbol": "Runtime",
+    "expected_file_suffix": "packages/jest-runtime/src/index.ts",
+    "query_type": "identifier"
+  }
+]

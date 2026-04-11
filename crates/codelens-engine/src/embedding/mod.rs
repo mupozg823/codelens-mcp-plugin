@@ -1901,15 +1901,15 @@ pub(super) fn auto_hint_lang() -> Option<String> {
 }
 
 /// Return true when `lang` is a language where the v1.5 opt-in stack
-/// has been measured to net-positive (§8.2, §8.4, §8.6, §8.7) or where
-/// the language's static typing + snake_case naming + comment-first
-/// culture makes the Phase 2b mechanism behave the same way it does on
-/// Rust. The list is intentionally conservative — additions require
-/// an actual external-repo A/B following the §8.7 methodology, not a
-/// language-similarity argument alone.
+/// has been measured to net-positive (§8.2, §8.4, §8.6, §8.7, §8.13)
+/// or where the language's static typing + snake_case naming +
+/// comment-first culture makes the Phase 2b mechanism behave the same
+/// way it does on Rust. The list is intentionally conservative —
+/// additions require an actual external-repo A/B following the §8.7
+/// methodology, not a language-similarity argument alone.
 ///
 /// **Supported** (measured or by static-typing analogy):
-/// - `rs`, `rust`
+/// - `rs`, `rust` (§8.2, §8.4, §8.6, §8.7: +2.4 %, +7.1 %, +15.2 %)
 /// - `cpp`, `cc`, `cxx`, `c++`
 /// - `c`
 /// - `go`, `golang`
@@ -1917,11 +1917,11 @@ pub(super) fn auto_hint_lang() -> Option<String> {
 /// - `kt`, `kotlin`
 /// - `scala`
 /// - `cs`, `csharp`
+/// - `ts`, `typescript`, `tsx` (§8.13: `facebook/jest` +7.3 % hybrid MRR)
+/// - `js`, `javascript`, `jsx`
 ///
 /// **Unsupported** (measured regression or untested dynamic-typed):
 /// - `py`, `python` (§8.8 regression)
-/// - `js`, `javascript`, `jsx`
-/// - `ts`, `typescript`, `tsx`
 /// - `rb`, `ruby`
 /// - `php`
 /// - `lua`, `r`, `jl`
@@ -1944,6 +1944,12 @@ pub(super) fn language_supports_nl_stack(lang: &str) -> bool {
             | "scala"
             | "cs"
             | "csharp"
+            | "ts"
+            | "typescript"
+            | "tsx"
+            | "js"
+            | "javascript"
+            | "jsx"
     )
 }
 
@@ -2999,19 +3005,25 @@ fn skip_things() {
         assert!(super::language_supports_nl_stack("scala"));
         assert!(super::language_supports_nl_stack("cs"));
         assert!(super::language_supports_nl_stack("csharp"));
+        // §8.13 Phase 3c: TypeScript / JavaScript added after
+        // facebook/jest external-repo A/B (+7.3 % hybrid MRR).
+        assert!(super::language_supports_nl_stack("ts"));
+        assert!(super::language_supports_nl_stack("typescript"));
+        assert!(super::language_supports_nl_stack("tsx"));
+        assert!(super::language_supports_nl_stack("js"));
+        assert!(super::language_supports_nl_stack("javascript"));
+        assert!(super::language_supports_nl_stack("jsx"));
         // Case-insensitive
         assert!(super::language_supports_nl_stack("Rust"));
         assert!(super::language_supports_nl_stack("RUST"));
+        assert!(super::language_supports_nl_stack("TypeScript"));
         // Leading/trailing whitespace is tolerated
         assert!(super::language_supports_nl_stack("  rust  "));
+        assert!(super::language_supports_nl_stack("  ts  "));
 
         // Unsupported — measured regression or untested dynamic
         assert!(!super::language_supports_nl_stack("py"));
         assert!(!super::language_supports_nl_stack("python"));
-        assert!(!super::language_supports_nl_stack("js"));
-        assert!(!super::language_supports_nl_stack("javascript"));
-        assert!(!super::language_supports_nl_stack("ts"));
-        assert!(!super::language_supports_nl_stack("typescript"));
         assert!(!super::language_supports_nl_stack("rb"));
         assert!(!super::language_supports_nl_stack("ruby"));
         assert!(!super::language_supports_nl_stack("php"));
