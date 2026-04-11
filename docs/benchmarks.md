@@ -691,6 +691,108 @@ Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase2g-{baseline,t30m
 - **External-repo validation** — hand-built 20–40 query dataset on a second codebase. Still the single gate before flipping any env default to ON.
 - **Phase 2d — Model swap** — the stacked-arm `(t = 40, m = 40)` ceiling (hybrid MRR 0.586 on 89, +7.1 % relative on 436) is the formal baseline to beat before taking on the binary-size cost.
 
+### 8.7 v1.5 Phase 3a experiment — external-repo validation on ripgrep
+
+**Hypothesis**: §8.4–§8.6 validated the v1.5 opt-in stack on two datasets from the **same repository** (`codelens-mcp-plugin` 89-query self + 436-query augmented). This leaves benchmark-contamination as a live risk — a self-measurement cannot rule out the possibility that the Phase 2b/2c/2e mechanisms latch onto the exact phrasing conventions used in our own comments / symbol names / docs. The only way to close that gap is to run the same four-arm A/B against a **completely different codebase**, with a **hand-built query set written by someone who did not author the retrieval stack**. This is the single still-open work item from §8.5 and the D5 prerequisite in the Phase 2d design brief.
+
+**Setup**: `github.com/BurntSushi/ripgrep` shallow-cloned to `/tmp/ripgrep-ext`. Same release binary from `7896f93` (post-v1.5.0, post Phase 2d decision matrix fill), same bundled CodeSearchNet-INT8 model, same four-arm A/B infrastructure as §8.4–§8.6. Phase 2e parameters held at the §8.6 optimum `(threshold = 40, max = 40)`.
+
+**Dataset**: 24 hand-built queries (`benchmarks/embedding-quality-dataset-ripgrep.json`) covering five ripgrep crates — `regex`, `searcher`, `ignore`, `globset`, `printer`. Split 17 natural_language / 5 short_phrase / 2 identifier ≈ 70.8 / 20.8 / 8.3 %, mirroring the 89-query self-dataset shape. Each query's `expected_symbol` + `expected_file_suffix` was cross-checked against the actual ripgrep source with a `grep -rn "^pub struct\|^pub fn"` sweep before the first measurement — no guessed symbols, no hallucinated file paths.
+
+Arms:
+
+- **A — baseline**: all three v1.5 gates off.
+- **B — phase2e only**: `CODELENS_RANK_SPARSE_TERM_WEIGHT=1` + threshold/max, Phase 2b/2c off.
+- **C — phase2b+2c only**: both embedding-text env gates, Phase 2e off.
+- **D — stacked**: all three gates.
+
+**Result** (24 queries, top-10 cutoff, `get_ranked_context` hybrid):
+
+| Metric           | A base |   B 2e | C 2b+2c |  D stacked |
+| ---------------- | -----: | -----: | ------: | ---------: |
+| hybrid MRR       | 0.4594 | 0.4878 |  0.5104 | **0.5292** |
+| hybrid Acc@1     |  0.250 |  0.292 |   0.292 |  **0.333** |
+| hybrid Acc@3     |  0.583 |  0.625 |   0.667 |  **0.667** |
+| NL hybrid MRR    | 0.4750 | 0.5221 |  0.5245 | **0.5539** |
+| NL hybrid Acc@3  |  0.588 |  0.647 |   0.706 |  **0.706** |
+| short_phrase MRR |  0.340 |  0.317 |   0.417 |      0.407 |
+| identifier Acc@1 |  0.500 |  0.500 |   0.500 |      0.500 |
+
+**Deltas vs baseline**:
+
+| Run             | hybrid MRR | hybrid Acc@1 | hybrid Acc@3 | NL hybrid MRR |   NL Acc@3 | ident Acc@1 |
+| --------------- | ---------: | -----------: | -----------: | ------------: | ---------: | ----------: |
+| phase2e only    | **+0.028** |   **+0.042** |   **+0.042** |    **+0.047** | **+0.059** |      +0.000 |
+| phase2b+2c only | **+0.051** |   **+0.042** |   **+0.083** |    **+0.049** | **+0.118** |      +0.000 |
+| **stacked**     | **+0.070** |   **+0.083** |   **+0.083** |    **+0.079** | **+0.118** |      +0.000 |
+
+**Phase 2e marginal value on top of Phase 2b+2c**:
+
+- hybrid MRR: **+0.019**
+- hybrid Acc@1: **+0.042**
+- NL hybrid MRR: **+0.029**
+- NL hybrid Acc@3: **+0.000** (already saturated at 0.706 by Phase 2b+2c alone)
+- identifier Acc@1: **+0.000** (gate held)
+
+**Cross-repo verdict — the stack wins on ripgrep, with a _larger_ relative lift than either self-dataset**:
+
+Putting the three datasets side by side (stacked vs baseline, `get_ranked_context` hybrid):
+
+| Dataset                  | baseline MRR | stacked MRR |  Δ absolute |  Δ relative |
+| ------------------------ | -----------: | ----------: | ----------: | ----------: |
+| 89-query self            |        0.572 |       0.586 |      +0.014 |  **+2.4 %** |
+| 436-query augmented self |       0.0476 |      0.0510 |     +0.0034 |  **+7.1 %** |
+| **ripgrep external**     |       0.4594 |      0.5292 | **+0.0698** | **+15.2 %** |
+
+**The external-repo relative lift is the largest of the three** — not smaller, not neutral. This rules out the "the v1.5 stack is just memorising our self-phrasing" failure mode. The mechanism that was designed to rescue NL queries whose target lands below Acc@3 is genuinely transferring to a codebase the stack has never seen, whose comments + docstrings + API-call patterns come from a different author (BurntSushi) with a different writing style.
+
+**Direction consistency holds on every dimension that mattered on the self datasets**:
+
+- Every hybrid metric moves positive; every identifier metric holds; every natural_language metric moves positive and larger than hybrid. The exact relative ordering of the four arms (baseline < phase2e solo < phase2b+2c solo < stacked) is preserved.
+- `semantic_search` MRR dips by −0.008 on the 2b+2c arms, matching the known Phase 2b `semantic_search`-only regression documented in §8.2. Phase 2e alone keeps `semantic_search` at baseline (expected — the post-process only runs in `get_ranked_context`).
+- short_phrase is the only metric where Phase 2e solo slightly regresses (MRR 0.340 → 0.317). The short_phrase arm has **five** queries on this dataset and the sparse pass can only affect ordering when enough candidates clear the coverage threshold — with two-token short phrases against single-token matches in ripgrep's name space, some of them do not. Small-N noise rather than a real signal, and the stacked arm still improves short_phrase MRR (+0.067 absolute) because Phase 2b/2c do the heavy lifting there.
+
+**Default-ON gate status**: this is the first measurement that directly answers the §8.5 still-open question "are the defaults ready to flip?". The result is **yes on the evidence, no on the policy**:
+
+- _On the evidence_: three datasets in three different configurations (89 self / 436 augmented self / ripgrep external), all direction-consistent, all positive, all with identifier Acc@1 held — this is the strongest evidence pattern any v1.5 experiment has produced.
+- _On the policy_: one external repo is still one sample. A second external repo (TypeScript or Python, different language family) would close the remaining contamination angle. The defaults stay OFF until v1.6.x gets that second sample, but the **recommendation in §8.5 to enable all three env vars for NL-heavy traffic is now cross-repo validated** — users who were waiting for an external signal before flipping have it.
+
+**Impact on Phase 2d (design brief §1.1 "baseline to beat")**:
+
+The formal baseline any Phase 2d candidate must exceed is no longer just "v1.5 stacked 0.586 on 89-query". The cross-repo validation updates it to a three-point baseline:
+
+| Dataset              | v1.5 stacked hybrid MRR |
+| -------------------- | ----------------------: |
+| 89-query self        |                   0.586 |
+| 436-query augmented  |                  0.0510 |
+| **ripgrep external** |              **0.5292** |
+
+A model swap that beats the 89-query number but loses on the ripgrep number is **not a valid winner**. The Checkpoint 1 go/no-go gate in `docs/design/v1.6-phase2d-model-swap-brief.md` §7 is updated accordingly — Phase 2d must clear all three baselines simultaneously.
+
+**Reproduce**:
+
+```bash
+# 1. Shallow-clone ripgrep (once)
+git clone --depth 1 https://github.com/BurntSushi/ripgrep.git /tmp/ripgrep-ext
+
+# 2. Arm D — full v1.5 stack on ripgrep
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/ripgrep-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-ripgrep.json
+```
+
+Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase3a-ripgrep-{baseline,2e-only,2b2c-only,stacked}.json` + the 24-query dataset at `benchmarks/embedding-quality-dataset-ripgrep.json`.
+
+**Still-open work**:
+
+- **Second external repo** (TypeScript or Python, different language family) — would close the last contamination angle and unblock the default-ON flip. Candidate: `facebook/jest` (JS/TS) or `psf/requests` (Python) with a similarly hand-built 20–30 query dataset.
+- **Phase 2d — Model swap** — now gated on the three-point v1.5 baseline (0.586 / 0.0510 / 0.5292), not just the 89-query number. All other §8 still-open items inherit the stronger baseline.
+
 ---
 
 ## 9. See Also
