@@ -128,6 +128,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "find_minimal_context_for_change" => reports::find_minimal_context_for_change,
         "summarize_symbol_impact"      => reports::summarize_symbol_impact,
         "module_boundary_report"       => reports::module_boundary_report,
+        "mermaid_module_graph"         => reports::mermaid_module_graph,
         "safe_rename_report"           => reports::safe_rename_report,
         "unresolved_reference_check"   => reports::unresolved_reference_check,
         "dead_code_report"             => reports::dead_code_report,
@@ -612,7 +613,17 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         ],
         "find_minimal_context_for_change" => &["get_analysis_section", "analyze_change_request"],
         "summarize_symbol_impact" => &["get_analysis_section", "safe_rename_report"],
-        "module_boundary_report" => &["get_analysis_section", "impact_report", "dead_code_report"],
+        "module_boundary_report" => &[
+            "get_analysis_section",
+            "mermaid_module_graph",
+            "impact_report",
+            "dead_code_report",
+        ],
+        "mermaid_module_graph" => &[
+            "get_analysis_section",
+            "module_boundary_report",
+            "impact_report",
+        ],
         "safe_rename_report" => &[
             "get_analysis_section",
             "unresolved_reference_check",

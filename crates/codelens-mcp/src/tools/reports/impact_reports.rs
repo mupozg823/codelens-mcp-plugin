@@ -77,6 +77,135 @@ fn build_dead_code_semantic_query(name: &str, file: Option<&str>) -> String {
     semantic_query_for_retrieval(&query)
 }
 
+/// Extract a file-path-like string from an impact-analysis entry,
+/// tolerating schemas that use `file`, `file_path`, or `path`.
+fn impact_entry_file(value: &Value) -> Option<&str> {
+    value
+        .get("file")
+        .and_then(Value::as_str)
+        .or_else(|| value.get("file_path").and_then(Value::as_str))
+        .or_else(|| value.get("path").and_then(Value::as_str))
+}
+
+/// Sanitise a label for safe embedding inside a Mermaid `["..."]` node body.
+/// Mermaid does not accept unescaped double-quotes inside quoted labels.
+fn mermaid_escape_label(raw: &str) -> String {
+    raw.replace('"', "'")
+}
+
+/// Render a Mermaid `flowchart LR` diagram summarising direct importers
+/// (upstream) and blast-radius dependencies (downstream) of a target file.
+///
+/// The output is pure text and can be embedded directly into a fenced
+/// ```mermaid block to render in GitHub, GitLab, VS Code, or any Markdown
+/// host that supports Mermaid. Both sides are capped independently by
+/// `max_nodes` so the resulting diagram stays readable even on hub files
+/// with hundreds of importers.
+pub(crate) fn render_module_mermaid(
+    target: &str,
+    importers: &[Value],
+    downstream: &[Value],
+    max_nodes: usize,
+) -> String {
+    let mut out = String::from("flowchart LR\n");
+    out.push_str(&format!(
+        "    target0[\"{}\"]\n",
+        mermaid_escape_label(target)
+    ));
+
+    for (idx, entry) in importers.iter().take(max_nodes).enumerate() {
+        let file = impact_entry_file(entry).unwrap_or("<unknown>");
+        out.push_str(&format!(
+            "    up{idx}[\"{}\"]\n",
+            mermaid_escape_label(file)
+        ));
+        out.push_str(&format!("    up{idx} --> target0\n"));
+    }
+
+    for (idx, entry) in downstream.iter().take(max_nodes).enumerate() {
+        let file = impact_entry_file(entry).unwrap_or("<unknown>");
+        out.push_str(&format!(
+            "    down{idx}[\"{}\"]\n",
+            mermaid_escape_label(file)
+        ));
+        out.push_str(&format!("    target0 --> down{idx}\n"));
+    }
+
+    out
+}
+
+pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
+    let path = required_string(arguments, "path")?;
+    let max_nodes = arguments
+        .get("max_nodes")
+        .and_then(Value::as_u64)
+        .unwrap_or(10) as usize;
+
+    let impact = crate::tools::graph::get_impact_analysis(
+        state,
+        &json!({"file_path": path, "max_depth": 2}),
+    )
+    .map(|out| out.0)
+    .unwrap_or_else(|_| json!({"blast_radius": [], "direct_importers": []}));
+
+    let importers: Vec<Value> = impact
+        .get("direct_importers")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let downstream: Vec<Value> = impact
+        .get("blast_radius")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let mermaid = render_module_mermaid(path, &importers, &downstream, max_nodes);
+    let importer_count = importers.len();
+    let downstream_count = downstream.len();
+
+    let top_findings = vec![format!(
+        "{} upstream, {} downstream (rendered up to {} per side)",
+        importer_count, downstream_count, max_nodes
+    )];
+
+    let mut sections = BTreeMap::new();
+    sections.insert(
+        "diagram".to_owned(),
+        json!({
+            "format": "mermaid",
+            "syntax": "flowchart",
+            "content": mermaid,
+            "hint": "Embed the `content` field in a fenced ```mermaid block to render in GitHub / GitLab / VS Code Markdown.",
+        }),
+    );
+    sections.insert(
+        "stats".to_owned(),
+        json!({
+            "target": path,
+            "upstream_total": importer_count,
+            "downstream_total": downstream_count,
+            "max_nodes_rendered": max_nodes,
+        }),
+    );
+    sections.insert("raw_impact".to_owned(), impact);
+
+    make_handle_response(
+        state,
+        "mermaid_module_graph",
+        stable_cache_key("mermaid_module_graph", arguments, &["path", "max_nodes"]),
+        format!("Mermaid flowchart of module dependency boundaries for `{path}`."),
+        top_findings,
+        0.90,
+        vec![
+            "Embed the diagram in a PR body to visualise module risk".to_owned(),
+            "Call module_boundary_report for structural coupling + cycle evidence".to_owned(),
+        ],
+        sections,
+        vec![path.to_owned()],
+        None,
+    )
+}
+
 pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
     let impact = crate::tools::graph::get_impact_analysis(
@@ -475,7 +604,11 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)]
 mod tests {
-    use super::{build_dead_code_semantic_query, build_module_semantic_query};
+    use super::{
+        build_dead_code_semantic_query, build_module_semantic_query, impact_entry_file,
+        mermaid_escape_label, render_module_mermaid,
+    };
+    use serde_json::json;
 
     #[test]
     fn module_semantic_query_keeps_module_intent() {
@@ -494,6 +627,83 @@ mod tests {
         assert!(query.contains("similar live code for"));
         assert!(query.contains("rename_symbol"));
         assert!(query.contains("rename"));
+    }
+
+    #[test]
+    fn mermaid_header_and_target_node_are_first() {
+        let out = render_module_mermaid("src/foo.rs", &[], &[], 10);
+        assert!(out.starts_with("flowchart LR\n"));
+        assert!(out.contains("target0[\"src/foo.rs\"]"));
+        // Zero upstream / downstream → only the target node, no edges.
+        assert!(!out.contains("-->"));
+    }
+
+    #[test]
+    fn mermaid_renders_upstream_and_downstream_edges() {
+        let importers = vec![
+            json!({"file": "src/a.rs"}),
+            json!({"file_path": "src/b.rs"}),
+        ];
+        let downstream = vec![json!({"path": "src/c.rs"})];
+        let out = render_module_mermaid("src/target.rs", &importers, &downstream, 10);
+
+        assert!(out.contains("src/a.rs"));
+        assert!(out.contains("src/b.rs"));
+        assert!(out.contains("src/c.rs"));
+        assert!(out.contains("up0 --> target0"));
+        assert!(out.contains("up1 --> target0"));
+        assert!(out.contains("target0 --> down0"));
+    }
+
+    #[test]
+    fn mermaid_respects_max_nodes_cap_per_side() {
+        let importers: Vec<serde_json::Value> = (0..20)
+            .map(|i| json!({"file": format!("src/a{i}.rs")}))
+            .collect();
+        let out = render_module_mermaid("src/target.rs", &importers, &[], 5);
+        assert!(out.contains("up0["));
+        assert!(out.contains("up4["));
+        // Node index 5 must be capped out.
+        assert!(!out.contains("up5["));
+        // Exactly 5 upstream edges.
+        let edges = out.matches("--> target0").count();
+        assert_eq!(edges, 5);
+    }
+
+    #[test]
+    fn mermaid_escapes_double_quotes_in_labels() {
+        let importers = vec![json!({ "file": r#"src/weird"path.rs"# })];
+        let out = render_module_mermaid("src/target.rs", &importers, &[], 10);
+        // Raw double quote inside the importer label must be replaced.
+        assert!(!out.contains(r#"weird"path.rs"#));
+        assert!(out.contains("weird'path.rs"));
+    }
+
+    #[test]
+    fn mermaid_handles_missing_file_field_gracefully() {
+        let importers = vec![json!({"unexpected": 42})];
+        let out = render_module_mermaid("src/target.rs", &importers, &[], 10);
+        assert!(out.contains("<unknown>"));
+        assert!(out.contains("up0 --> target0"));
+    }
+
+    #[test]
+    fn impact_entry_file_prefers_file_over_fallbacks() {
+        let v = json!({"file": "a.rs", "file_path": "b.rs", "path": "c.rs"});
+        assert_eq!(impact_entry_file(&v), Some("a.rs"));
+        let v2 = json!({"file_path": "b.rs", "path": "c.rs"});
+        assert_eq!(impact_entry_file(&v2), Some("b.rs"));
+        let v3 = json!({"path": "c.rs"});
+        assert_eq!(impact_entry_file(&v3), Some("c.rs"));
+        let v4 = json!({});
+        assert_eq!(impact_entry_file(&v4), None);
+    }
+
+    #[test]
+    fn mermaid_escape_label_replaces_quotes_only() {
+        assert_eq!(mermaid_escape_label("plain"), "plain");
+        assert_eq!(mermaid_escape_label(r#"with "quote""#), "with 'quote'");
+        assert_eq!(mermaid_escape_label(""), "");
     }
 }
 
