@@ -1,0 +1,1487 @@
+{
+  "project": "/tmp/django-src/django",
+  "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-embed-quality-hy04sosg/django",
+  "isolated_copy": true,
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-django.json",
+  "dataset_size": 34,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.28508403361344536,
+      "acc1": 0.2647058823529412,
+      "acc3": 0.2647058823529412,
+      "acc5": 0.3235294117647059,
+      "avg_elapsed_ms": 1249.9423529411765,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 318.21500000000003
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.10357142857142858,
+          "acc1": 0.07692307692307693,
+          "acc3": 0.07692307692307693,
+          "acc5": 0.15384615384615385,
+          "avg_elapsed_ms": 1478.069230769231
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.8333333333333334,
+          "acc1": 0.8333333333333334,
+          "acc3": 0.8333333333333334,
+          "acc5": 0.8333333333333334,
+          "avg_elapsed_ms": 571.9683333333334
+        }
+      },
+      "rows": [
+        {
+          "query": "query rows from a database model",
+          "query_type": "natural_language",
+          "expected_symbol": "QuerySet",
+          "expected_file_suffix": "db/models/query.py",
+          "rank": null,
+          "elapsed_ms": 1969.63,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "query",
+            "file": "db/models/query.py"
+          }
+        },
+        {
+          "query": "default manager that provides access to objects",
+          "query_type": "natural_language",
+          "expected_symbol": "Manager",
+          "expected_file_suffix": "db/models/manager.py",
+          "rank": null,
+          "elapsed_ms": 1701.67,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "_default_manager",
+            "file": "db/models/base.py"
+          }
+        },
+        {
+          "query": "base class for all database models",
+          "query_type": "natural_language",
+          "expected_symbol": "Model",
+          "expected_file_suffix": "db/models/base.py",
+          "rank": null,
+          "elapsed_ms": 1730.55,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "ModelBase",
+            "file": "db/models/base.py"
+          }
+        },
+        {
+          "query": "declare a foreign-key relationship to another model",
+          "query_type": "natural_language",
+          "expected_symbol": "ForeignKey",
+          "expected_file_suffix": "db/models/fields/related.py",
+          "rank": null,
+          "elapsed_ms": 1896.55,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "_get_foreign_key",
+            "file": "forms/models.py"
+          }
+        },
+        {
+          "query": "HTTP response with body headers and status",
+          "query_type": "natural_language",
+          "expected_symbol": "HttpResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": null,
+          "elapsed_ms": 1293.5,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "body",
+            "file": "http/request.py"
+          }
+        },
+        {
+          "query": "return a JSON encoded response to the client",
+          "query_type": "natural_language",
+          "expected_symbol": "JsonResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": null,
+          "elapsed_ms": 2126.05,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "_encode_json",
+            "file": "test/client.py"
+          }
+        },
+        {
+          "query": "object representing an incoming HTTP request",
+          "query_type": "natural_language",
+          "expected_symbol": "HttpRequest",
+          "expected_file_suffix": "http/request.py",
+          "rank": 10,
+          "elapsed_ms": 1961.23,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "__init__",
+            "file": "http/response.py"
+          }
+        },
+        {
+          "query": "render a template with a context into a response",
+          "query_type": "natural_language",
+          "expected_symbol": "render",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": null,
+          "elapsed_ms": 1735.41,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "context",
+            "file": "template/response.py"
+          }
+        },
+        {
+          "query": "get a model instance or raise 404",
+          "query_type": "natural_language",
+          "expected_symbol": "get_object_or_404",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": null,
+          "elapsed_ms": 1476.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "get_model",
+            "file": "apps/config.py"
+          }
+        },
+        {
+          "query": "issue an HTTP redirect to a URL or view",
+          "query_type": "natural_language",
+          "expected_symbol": "redirect",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": 5,
+          "elapsed_ms": 1921.41,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "redirect_to_str",
+            "file": "http/response.py"
+          }
+        },
+        {
+          "query": "match a URL path against the URL configuration",
+          "query_type": "natural_language",
+          "expected_symbol": "resolve",
+          "expected_file_suffix": "urls/base.py",
+          "rank": null,
+          "elapsed_ms": 889.14,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "match_url",
+            "file": "contrib/admin/templatetags/admin_urls.py"
+          }
+        },
+        {
+          "query": "look up a URL path from its view name",
+          "query_type": "natural_language",
+          "expected_symbol": "reverse",
+          "expected_file_suffix": "urls/base.py",
+          "rank": null,
+          "elapsed_ms": 890.77,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "view",
+            "file": "views/generic/base.py"
+          }
+        },
+        {
+          "query": "mount a sub-URL configuration into the URL tree",
+          "query_type": "natural_language",
+          "expected_symbol": "include",
+          "expected_file_suffix": "urls/conf.py",
+          "rank": null,
+          "elapsed_ms": 967.53,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "urls",
+            "file": "contrib/admin/sites.py"
+          }
+        },
+        {
+          "query": "log a user in for the current session",
+          "query_type": "natural_language",
+          "expected_symbol": "login",
+          "expected_file_suffix": "contrib/auth/__init__.py",
+          "rank": 7,
+          "elapsed_ms": 1767.64,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "login",
+            "file": "contrib/admin/sites.py"
+          }
+        },
+        {
+          "query": "log a user out and clear the session",
+          "query_type": "natural_language",
+          "expected_symbol": "logout",
+          "expected_file_suffix": "contrib/auth/__init__.py",
+          "rank": 4,
+          "elapsed_ms": 899.48,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "logout",
+            "file": "test/client.py"
+          }
+        },
+        {
+          "query": "verify a username and password against backends",
+          "query_type": "natural_language",
+          "expected_symbol": "authenticate",
+          "expected_file_suffix": "contrib/auth/__init__.py",
+          "rank": null,
+          "elapsed_ms": 1789.77,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "verify",
+            "file": "contrib/auth/hashers.py"
+          }
+        },
+        {
+          "query": "require a logged in user to access a view",
+          "query_type": "natural_language",
+          "expected_symbol": "login_required",
+          "expected_file_suffix": "contrib/auth/decorators.py",
+          "rank": null,
+          "elapsed_ms": 1549.21,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "view",
+            "file": "views/generic/base.py"
+          }
+        },
+        {
+          "query": "check that a plain password matches a stored hash",
+          "query_type": "natural_language",
+          "expected_symbol": "check_password",
+          "expected_file_suffix": "contrib/auth/hashers.py",
+          "rank": null,
+          "elapsed_ms": 895.67,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check",
+            "file": "contrib/admin/options.py"
+          }
+        },
+        {
+          "query": "hash a password for storage in the database",
+          "query_type": "natural_language",
+          "expected_symbol": "make_password",
+          "expected_file_suffix": "contrib/auth/hashers.py",
+          "rank": null,
+          "elapsed_ms": 1729.25,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "__hash__",
+            "file": "db/models/manager.py"
+          }
+        },
+        {
+          "query": "generic base class for all class-based views",
+          "query_type": "natural_language",
+          "expected_symbol": "View",
+          "expected_file_suffix": "views/generic/base.py",
+          "rank": 1,
+          "elapsed_ms": 959.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "View",
+            "file": "views/generic/base.py"
+          }
+        },
+        {
+          "query": "display a paginated list of model instances",
+          "query_type": "natural_language",
+          "expected_symbol": "ListView",
+          "expected_file_suffix": "views/generic/list.py",
+          "rank": null,
+          "elapsed_ms": 1494.19,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "display",
+            "file": "template/defaulttags.py"
+          }
+        },
+        {
+          "query": "display a single object retrieved from a model",
+          "query_type": "natural_language",
+          "expected_symbol": "DetailView",
+          "expected_file_suffix": "views/generic/detail.py",
+          "rank": null,
+          "elapsed_ms": 1772.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "display",
+            "file": "template/defaulttags.py"
+          }
+        },
+        {
+          "query": "render a template without any extra view logic",
+          "query_type": "natural_language",
+          "expected_symbol": "TemplateView",
+          "expected_file_suffix": "views/generic/base.py",
+          "rank": null,
+          "elapsed_ms": 926.08,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "render",
+            "file": "template/backends/dummy.py"
+          }
+        },
+        {
+          "query": "exempt a view from CSRF protection",
+          "query_type": "natural_language",
+          "expected_symbol": "csrf_exempt",
+          "expected_file_suffix": "views/decorators/csrf.py",
+          "rank": 1,
+          "elapsed_ms": 1542.31,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "csrf_exempt",
+            "file": "views/decorators/csrf.py"
+          }
+        },
+        {
+          "query": "declarative form with field validation",
+          "query_type": "natural_language",
+          "expected_symbol": "Form",
+          "expected_file_suffix": "forms/forms.py",
+          "rank": null,
+          "elapsed_ms": 1549.59,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "form_valid",
+            "file": "views/generic/edit.py"
+          }
+        },
+        {
+          "query": "form that is bound to a model for create and update",
+          "query_type": "natural_language",
+          "expected_symbol": "ModelForm",
+          "expected_file_suffix": "forms/models.py",
+          "rank": null,
+          "elapsed_ms": 995.36,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "form",
+            "file": "forms/models.py"
+          }
+        },
+        {
+          "query": "get object or 404",
+          "query_type": "short_phrase",
+          "expected_symbol": "get_object_or_404",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": 1,
+          "elapsed_ms": 1009.43,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "get_object_or_404",
+            "file": "shortcuts.py"
+          }
+        },
+        {
+          "query": "login required",
+          "query_type": "short_phrase",
+          "expected_symbol": "login_required",
+          "expected_file_suffix": "contrib/auth/decorators.py",
+          "rank": 1,
+          "elapsed_ms": 478.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "login_required",
+            "file": "contrib/auth/decorators.py"
+          }
+        },
+        {
+          "query": "http response",
+          "query_type": "short_phrase",
+          "expected_symbol": "HttpResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": 1,
+          "elapsed_ms": 488.09,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "HttpResponse",
+            "file": "http/response.py"
+          }
+        },
+        {
+          "query": "query set",
+          "query_type": "short_phrase",
+          "expected_symbol": "QuerySet",
+          "expected_file_suffix": "db/models/query.py",
+          "rank": null,
+          "elapsed_ms": 489.02,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "queryset",
+            "file": "db/models/query.py"
+          }
+        },
+        {
+          "query": "reverse url",
+          "query_type": "short_phrase",
+          "expected_symbol": "reverse",
+          "expected_file_suffix": "urls/base.py",
+          "rank": 1,
+          "elapsed_ms": 479.39,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "reverse",
+            "file": "urls/base.py"
+          }
+        },
+        {
+          "query": "make password",
+          "query_type": "short_phrase",
+          "expected_symbol": "make_password",
+          "expected_file_suffix": "contrib/auth/hashers.py",
+          "rank": 1,
+          "elapsed_ms": 487.61,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "make_password",
+            "file": "contrib/auth/hashers.py"
+          }
+        },
+        {
+          "query": "QuerySet",
+          "query_type": "identifier",
+          "expected_symbol": "QuerySet",
+          "expected_file_suffix": "db/models/query.py",
+          "rank": 1,
+          "elapsed_ms": 315.94,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "QuerySet",
+            "file": "db/models/query.py"
+          }
+        },
+        {
+          "query": "HttpResponse",
+          "query_type": "identifier",
+          "expected_symbol": "HttpResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": 1,
+          "elapsed_ms": 320.49,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "HttpResponse",
+            "file": "http/response.py"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.1339273640490679,
+      "acc1": 0.08823529411764706,
+      "acc3": 0.11764705882352941,
+      "acc5": 0.20588235294117646,
+      "avg_elapsed_ms": 160.22470588235296,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.5,
+          "acc3": 0.5,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 130.59
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.04244347606416572,
+          "acc1": 0.0,
+          "acc3": 0.038461538461538464,
+          "acc5": 0.07692307692307693,
+          "avg_elapsed_ms": 166.46615384615384
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.4083333333333334,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.3333333333333333,
+          "acc5": 0.6666666666666666,
+          "avg_elapsed_ms": 143.05666666666667
+        }
+      },
+      "rows": [
+        {
+          "query": "query rows from a database model",
+          "query_type": "natural_language",
+          "expected_symbol": "QuerySet",
+          "expected_file_suffix": "db/models/query.py",
+          "rank": null,
+          "elapsed_ms": 181.46,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "del_query",
+            "file": "db/models/query.py"
+          }
+        },
+        {
+          "query": "default manager that provides access to objects",
+          "query_type": "natural_language",
+          "expected_symbol": "Manager",
+          "expected_file_suffix": "db/models/manager.py",
+          "rank": 7,
+          "elapsed_ms": 174.9,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "ManagerDescriptor",
+            "file": "db/models/manager.py"
+          }
+        },
+        {
+          "query": "base class for all database models",
+          "query_type": "natural_language",
+          "expected_symbol": "Model",
+          "expected_file_suffix": "db/models/base.py",
+          "rank": null,
+          "elapsed_ms": 176.21,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "database",
+            "file": "core/checks/registry.py"
+          }
+        },
+        {
+          "query": "declare a foreign-key relationship to another model",
+          "query_type": "natural_language",
+          "expected_symbol": "ForeignKey",
+          "expected_file_suffix": "db/models/fields/related.py",
+          "rank": 3,
+          "elapsed_ms": 178.1,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "foreign_key",
+            "file": "db/backends/sqlite3/base.py"
+          }
+        },
+        {
+          "query": "HTTP response with body headers and status",
+          "query_type": "natural_language",
+          "expected_symbol": "HttpResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": null,
+          "elapsed_ms": 159.83,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "http_date",
+            "file": "utils/http.py"
+          }
+        },
+        {
+          "query": "return a JSON encoded response to the client",
+          "query_type": "natural_language",
+          "expected_symbol": "JsonResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": null,
+          "elapsed_ms": 181.51,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "client",
+            "file": "core/cache/backends/redis.py"
+          }
+        },
+        {
+          "query": "object representing an incoming HTTP request",
+          "query_type": "natural_language",
+          "expected_symbol": "HttpRequest",
+          "expected_file_suffix": "http/request.py",
+          "rank": null,
+          "elapsed_ms": 178.72,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "parse_http_date",
+            "file": "utils/http.py"
+          }
+        },
+        {
+          "query": "render a template with a context into a response",
+          "query_type": "natural_language",
+          "expected_symbol": "render",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": null,
+          "elapsed_ms": 172.03,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "Template",
+            "file": "template/base.py"
+          }
+        },
+        {
+          "query": "get a model instance or raise 404",
+          "query_type": "natural_language",
+          "expected_symbol": "get_object_or_404",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": 6,
+          "elapsed_ms": 164.55,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "get_for_model",
+            "file": "contrib/contenttypes/models.py"
+          }
+        },
+        {
+          "query": "issue an HTTP redirect to a URL or view",
+          "query_type": "natural_language",
+          "expected_symbol": "redirect",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": 12,
+          "elapsed_ms": 177.71,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "redirect_to",
+            "file": "contrib/auth/views.py"
+          }
+        },
+        {
+          "query": "match a URL path against the URL configuration",
+          "query_type": "natural_language",
+          "expected_symbol": "resolve",
+          "expected_file_suffix": "urls/base.py",
+          "rank": null,
+          "elapsed_ms": 145.59,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "match_url",
+            "file": "contrib/admin/templatetags/admin_urls.py"
+          }
+        },
+        {
+          "query": "look up a URL path from its view name",
+          "query_type": "natural_language",
+          "expected_symbol": "reverse",
+          "expected_file_suffix": "urls/base.py",
+          "rank": null,
+          "elapsed_ms": 145.68,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "from_",
+            "file": "db/models/fields/related.py"
+          }
+        },
+        {
+          "query": "mount a sub-URL configuration into the URL tree",
+          "query_type": "natural_language",
+          "expected_symbol": "include",
+          "expected_file_suffix": "urls/conf.py",
+          "rank": null,
+          "elapsed_ms": 147.9,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "use_returning_into",
+            "file": "db/backends/oracle/base.py"
+          }
+        },
+        {
+          "query": "log a user in for the current session",
+          "query_type": "natural_language",
+          "expected_symbol": "login",
+          "expected_file_suffix": "contrib/auth/__init__.py",
+          "rank": null,
+          "elapsed_ms": 170.4,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "_session",
+            "file": "contrib/sessions/backends/base.py"
+          }
+        },
+        {
+          "query": "log a user out and clear the session",
+          "query_type": "natural_language",
+          "expected_symbol": "logout",
+          "expected_file_suffix": "contrib/auth/__init__.py",
+          "rank": null,
+          "elapsed_ms": 146.3,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "_session",
+            "file": "contrib/sessions/backends/base.py"
+          }
+        },
+        {
+          "query": "verify a username and password against backends",
+          "query_type": "natural_language",
+          "expected_symbol": "authenticate",
+          "expected_file_suffix": "contrib/auth/__init__.py",
+          "rank": null,
+          "elapsed_ms": 172.49,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "task_backends",
+            "file": "tasks/__init__.py"
+          }
+        },
+        {
+          "query": "require a logged in user to access a view",
+          "query_type": "natural_language",
+          "expected_symbol": "login_required",
+          "expected_file_suffix": "contrib/auth/decorators.py",
+          "rank": null,
+          "elapsed_ms": 163.01,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "user_logged_in",
+            "file": "contrib/auth/signals.py"
+          }
+        },
+        {
+          "query": "check that a plain password matches a stored hash",
+          "query_type": "natural_language",
+          "expected_symbol": "check_password",
+          "expected_file_suffix": "contrib/auth/hashers.py",
+          "rank": null,
+          "elapsed_ms": 157.27,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "cmatches",
+            "file": "utils/translation/template.py"
+          }
+        },
+        {
+          "query": "hash a password for storage in the database",
+          "query_type": "natural_language",
+          "expected_symbol": "make_password",
+          "expected_file_suffix": "contrib/auth/hashers.py",
+          "rank": null,
+          "elapsed_ms": 172.69,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "hash_",
+            "file": "contrib/auth/hashers.py"
+          }
+        },
+        {
+          "query": "generic base class for all class-based views",
+          "query_type": "natural_language",
+          "expected_symbol": "View",
+          "expected_file_suffix": "views/generic/base.py",
+          "rank": null,
+          "elapsed_ms": 150.25,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "GenericForeignKey",
+            "file": "contrib/contenttypes/fields.py"
+          }
+        },
+        {
+          "query": "display a paginated list of model instances",
+          "query_type": "natural_language",
+          "expected_symbol": "ListView",
+          "expected_file_suffix": "views/generic/list.py",
+          "rank": null,
+          "elapsed_ms": 190.01,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "list_",
+            "file": "http/request.py"
+          }
+        },
+        {
+          "query": "display a single object retrieved from a model",
+          "query_type": "natural_language",
+          "expected_symbol": "DetailView",
+          "expected_file_suffix": "views/generic/detail.py",
+          "rank": null,
+          "elapsed_ms": 176.18,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "from_",
+            "file": "db/models/fields/related.py"
+          }
+        },
+        {
+          "query": "render a template without any extra view logic",
+          "query_type": "natural_language",
+          "expected_symbol": "TemplateView",
+          "expected_file_suffix": "views/generic/base.py",
+          "rank": null,
+          "elapsed_ms": 153.54,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "set_many",
+            "file": "core/cache/backends/redis.py"
+          }
+        },
+        {
+          "query": "exempt a view from CSRF protection",
+          "query_type": "natural_language",
+          "expected_symbol": "csrf_exempt",
+          "expected_file_suffix": "views/decorators/csrf.py",
+          "rank": 5,
+          "elapsed_ms": 171.72,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "from_",
+            "file": "db/models/fields/related.py"
+          }
+        },
+        {
+          "query": "declarative form with field validation",
+          "query_type": "natural_language",
+          "expected_symbol": "Form",
+          "expected_file_suffix": "forms/forms.py",
+          "rank": 7,
+          "elapsed_ms": 167.96,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "Field",
+            "file": "db/models/fields/__init__.py"
+          }
+        },
+        {
+          "query": "form that is bound to a model for create and update",
+          "query_type": "natural_language",
+          "expected_symbol": "ModelForm",
+          "expected_file_suffix": "forms/models.py",
+          "rank": 29,
+          "elapsed_ms": 152.11,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "_update",
+            "file": "db/models/query.py"
+          }
+        },
+        {
+          "query": "get object or 404",
+          "query_type": "short_phrase",
+          "expected_symbol": "get_object_or_404",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": 1,
+          "elapsed_ms": 157.15,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "get_object_or_404",
+            "file": "shortcuts.py"
+          }
+        },
+        {
+          "query": "login required",
+          "query_type": "short_phrase",
+          "expected_symbol": "login_required",
+          "expected_file_suffix": "contrib/auth/decorators.py",
+          "rank": 1,
+          "elapsed_ms": 134.17,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "login_required",
+            "file": "contrib/auth/decorators.py"
+          }
+        },
+        {
+          "query": "http response",
+          "query_type": "short_phrase",
+          "expected_symbol": "HttpResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": 4,
+          "elapsed_ms": 137.71,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "HttpResponseNotFound",
+            "file": "http/response.py"
+          }
+        },
+        {
+          "query": "query set",
+          "query_type": "short_phrase",
+          "expected_symbol": "QuerySet",
+          "expected_file_suffix": "db/models/query.py",
+          "rank": null,
+          "elapsed_ms": 144.1,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "set",
+            "file": "core/cache/backends/redis.py"
+          }
+        },
+        {
+          "query": "reverse url",
+          "query_type": "short_phrase",
+          "expected_symbol": "reverse",
+          "expected_file_suffix": "urls/base.py",
+          "rank": 5,
+          "elapsed_ms": 143.21,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "reverse",
+            "file": "urls/resolvers.py"
+          }
+        },
+        {
+          "query": "make password",
+          "query_type": "short_phrase",
+          "expected_symbol": "make_password",
+          "expected_file_suffix": "contrib/auth/hashers.py",
+          "rank": null,
+          "elapsed_ms": 142.0,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "make_aware",
+            "file": "utils/timezone.py"
+          }
+        },
+        {
+          "query": "QuerySet",
+          "query_type": "identifier",
+          "expected_symbol": "QuerySet",
+          "expected_file_suffix": "db/models/query.py",
+          "rank": null,
+          "elapsed_ms": 132.37,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "queryset",
+            "file": "contrib/contenttypes/fields.py"
+          }
+        },
+        {
+          "query": "HttpResponse",
+          "query_type": "identifier",
+          "expected_symbol": "HttpResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": 1,
+          "elapsed_ms": 128.81,
+          "candidate_count": 13,
+          "top_candidate": {
+            "name": "HttpResponse",
+            "file": "http/response.py"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.29367688251771296,
+      "acc1": 0.23529411764705882,
+      "acc3": 0.3235294117647059,
+      "acc5": 0.35294117647058826,
+      "avg_elapsed_ms": 288.2832352941177,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.5,
+          "acc3": 0.5,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 136.66
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.17250053867700926,
+          "acc1": 0.11538461538461539,
+          "acc3": 0.19230769230769232,
+          "acc5": 0.23076923076923078,
+          "avg_elapsed_ms": 296.7069230769231
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.75,
+          "acc1": 0.6666666666666666,
+          "acc3": 0.8333333333333334,
+          "acc5": 0.8333333333333334,
+          "avg_elapsed_ms": 302.32166666666666
+        }
+      },
+      "rows": [
+        {
+          "query": "query rows from a database model",
+          "query_type": "natural_language",
+          "expected_symbol": "QuerySet",
+          "expected_file_suffix": "db/models/query.py",
+          "rank": null,
+          "elapsed_ms": 295.52,
+          "candidate_count": 36,
+          "top_candidate": {
+            "name": "fetch_returned_rows",
+            "file": "db/backends/base/operations.py"
+          }
+        },
+        {
+          "query": "default manager that provides access to objects",
+          "query_type": "natural_language",
+          "expected_symbol": "Manager",
+          "expected_file_suffix": "db/models/manager.py",
+          "rank": 17,
+          "elapsed_ms": 302.47,
+          "candidate_count": 34,
+          "top_candidate": {
+            "name": "_default_manager",
+            "file": "db/models/base.py"
+          }
+        },
+        {
+          "query": "base class for all database models",
+          "query_type": "natural_language",
+          "expected_symbol": "Model",
+          "expected_file_suffix": "db/models/base.py",
+          "rank": null,
+          "elapsed_ms": 287.15,
+          "candidate_count": 35,
+          "top_candidate": {
+            "name": "ModelBase",
+            "file": "db/models/base.py"
+          }
+        },
+        {
+          "query": "declare a foreign-key relationship to another model",
+          "query_type": "natural_language",
+          "expected_symbol": "ForeignKey",
+          "expected_file_suffix": "db/models/fields/related.py",
+          "rank": 6,
+          "elapsed_ms": 298.55,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "fk",
+            "file": "forms/models.py"
+          }
+        },
+        {
+          "query": "HTTP response with body headers and status",
+          "query_type": "natural_language",
+          "expected_symbol": "HttpResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": null,
+          "elapsed_ms": 280.95,
+          "candidate_count": 35,
+          "top_candidate": {
+            "name": "body",
+            "file": "http/request.py"
+          }
+        },
+        {
+          "query": "return a JSON encoded response to the client",
+          "query_type": "natural_language",
+          "expected_symbol": "JsonResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": null,
+          "elapsed_ms": 303.34,
+          "candidate_count": 37,
+          "top_candidate": {
+            "name": "_encode_json",
+            "file": "test/client.py"
+          }
+        },
+        {
+          "query": "object representing an incoming HTTP request",
+          "query_type": "natural_language",
+          "expected_symbol": "HttpRequest",
+          "expected_file_suffix": "http/request.py",
+          "rank": 12,
+          "elapsed_ms": 296.56,
+          "candidate_count": 34,
+          "top_candidate": {
+            "name": "body",
+            "file": "http/request.py"
+          }
+        },
+        {
+          "query": "render a template with a context into a response",
+          "query_type": "natural_language",
+          "expected_symbol": "render",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": null,
+          "elapsed_ms": 286.83,
+          "candidate_count": 37,
+          "top_candidate": {
+            "name": "context",
+            "file": "template/response.py"
+          }
+        },
+        {
+          "query": "get a model instance or raise 404",
+          "query_type": "natural_language",
+          "expected_symbol": "get_object_or_404",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": 5,
+          "elapsed_ms": 282.86,
+          "candidate_count": 34,
+          "top_candidate": {
+            "name": "get_model",
+            "file": "apps/config.py"
+          }
+        },
+        {
+          "query": "issue an HTTP redirect to a URL or view",
+          "query_type": "natural_language",
+          "expected_symbol": "redirect",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": 7,
+          "elapsed_ms": 290.27,
+          "candidate_count": 34,
+          "top_candidate": {
+            "name": "get_redirect_url",
+            "file": "contrib/auth/views.py"
+          }
+        },
+        {
+          "query": "match a URL path against the URL configuration",
+          "query_type": "natural_language",
+          "expected_symbol": "resolve",
+          "expected_file_suffix": "urls/base.py",
+          "rank": null,
+          "elapsed_ms": 262.58,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "match",
+            "file": "urls/resolvers.py"
+          }
+        },
+        {
+          "query": "look up a URL path from its view name",
+          "query_type": "natural_language",
+          "expected_symbol": "reverse",
+          "expected_file_suffix": "urls/base.py",
+          "rank": null,
+          "elapsed_ms": 254.02,
+          "candidate_count": 35,
+          "top_candidate": {
+            "name": "view_path",
+            "file": "urls/resolvers.py"
+          }
+        },
+        {
+          "query": "mount a sub-URL configuration into the URL tree",
+          "query_type": "natural_language",
+          "expected_symbol": "include",
+          "expected_file_suffix": "urls/conf.py",
+          "rank": null,
+          "elapsed_ms": 258.41,
+          "candidate_count": 35,
+          "top_candidate": {
+            "name": "check_url_config",
+            "file": "core/checks/urls.py"
+          }
+        },
+        {
+          "query": "log a user in for the current session",
+          "query_type": "natural_language",
+          "expected_symbol": "login",
+          "expected_file_suffix": "contrib/auth/__init__.py",
+          "rank": 1,
+          "elapsed_ms": 279.8,
+          "candidate_count": 34,
+          "top_candidate": {
+            "name": "login",
+            "file": "contrib/auth/__init__.py"
+          }
+        },
+        {
+          "query": "log a user out and clear the session",
+          "query_type": "natural_language",
+          "expected_symbol": "logout",
+          "expected_file_suffix": "contrib/auth/__init__.py",
+          "rank": 3,
+          "elapsed_ms": 254.4,
+          "candidate_count": 36,
+          "top_candidate": {
+            "name": "logout",
+            "file": "test/client.py"
+          }
+        },
+        {
+          "query": "verify a username and password against backends",
+          "query_type": "natural_language",
+          "expected_symbol": "authenticate",
+          "expected_file_suffix": "contrib/auth/__init__.py",
+          "rank": null,
+          "elapsed_ms": 281.91,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "verify",
+            "file": "contrib/auth/hashers.py"
+          }
+        },
+        {
+          "query": "require a logged in user to access a view",
+          "query_type": "natural_language",
+          "expected_symbol": "login_required",
+          "expected_file_suffix": "contrib/auth/decorators.py",
+          "rank": null,
+          "elapsed_ms": 272.92,
+          "candidate_count": 35,
+          "top_candidate": {
+            "name": "view",
+            "file": "views/generic/base.py"
+          }
+        },
+        {
+          "query": "check that a plain password matches a stored hash",
+          "query_type": "natural_language",
+          "expected_symbol": "check_password",
+          "expected_file_suffix": "contrib/auth/hashers.py",
+          "rank": 2,
+          "elapsed_ms": 257.85,
+          "candidate_count": 36,
+          "top_candidate": {
+            "name": "render_password_as_hash",
+            "file": "contrib/auth/templatetags/auth.py"
+          }
+        },
+        {
+          "query": "hash a password for storage in the database",
+          "query_type": "natural_language",
+          "expected_symbol": "make_password",
+          "expected_file_suffix": "contrib/auth/hashers.py",
+          "rank": null,
+          "elapsed_ms": 285.97,
+          "candidate_count": 36,
+          "top_candidate": {
+            "name": "__hash__",
+            "file": "db/models/manager.py"
+          }
+        },
+        {
+          "query": "generic base class for all class-based views",
+          "query_type": "natural_language",
+          "expected_symbol": "View",
+          "expected_file_suffix": "views/generic/base.py",
+          "rank": 1,
+          "elapsed_ms": 262.19,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "View",
+            "file": "views/generic/base.py"
+          }
+        },
+        {
+          "query": "display a paginated list of model instances",
+          "query_type": "natural_language",
+          "expected_symbol": "ListView",
+          "expected_file_suffix": "views/generic/list.py",
+          "rank": null,
+          "elapsed_ms": 283.94,
+          "candidate_count": 37,
+          "top_candidate": {
+            "name": "model",
+            "file": "contrib/postgres/fields/array.py"
+          }
+        },
+        {
+          "query": "display a single object retrieved from a model",
+          "query_type": "natural_language",
+          "expected_symbol": "DetailView",
+          "expected_file_suffix": "views/generic/detail.py",
+          "rank": null,
+          "elapsed_ms": 301.25,
+          "candidate_count": 36,
+          "top_candidate": {
+            "name": "get_object",
+            "file": "views/generic/detail.py"
+          }
+        },
+        {
+          "query": "render a template without any extra view logic",
+          "query_type": "natural_language",
+          "expected_symbol": "TemplateView",
+          "expected_file_suffix": "views/generic/base.py",
+          "rank": null,
+          "elapsed_ms": 263.48,
+          "candidate_count": 37,
+          "top_candidate": {
+            "name": "render",
+            "file": "template/backends/dummy.py"
+          }
+        },
+        {
+          "query": "exempt a view from CSRF protection",
+          "query_type": "natural_language",
+          "expected_symbol": "csrf_exempt",
+          "expected_file_suffix": "views/decorators/csrf.py",
+          "rank": 1,
+          "elapsed_ms": 284.12,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "csrf_exempt",
+            "file": "views/decorators/csrf.py"
+          }
+        },
+        {
+          "query": "declarative form with field validation",
+          "query_type": "natural_language",
+          "expected_symbol": "Form",
+          "expected_file_suffix": "forms/forms.py",
+          "rank": null,
+          "elapsed_ms": 283.67,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "form_valid",
+            "file": "views/generic/edit.py"
+          }
+        },
+        {
+          "query": "form that is bound to a model for create and update",
+          "query_type": "natural_language",
+          "expected_symbol": "ModelForm",
+          "expected_file_suffix": "forms/models.py",
+          "rank": null,
+          "elapsed_ms": 703.37,
+          "candidate_count": 38,
+          "top_candidate": {
+            "name": "_do_update",
+            "file": "db/models/base.py"
+          }
+        },
+        {
+          "query": "get object or 404",
+          "query_type": "short_phrase",
+          "expected_symbol": "get_object_or_404",
+          "expected_file_suffix": "shortcuts.py",
+          "rank": 1,
+          "elapsed_ms": 280.02,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "get_object_or_404",
+            "file": "shortcuts.py"
+          }
+        },
+        {
+          "query": "login required",
+          "query_type": "short_phrase",
+          "expected_symbol": "login_required",
+          "expected_file_suffix": "contrib/auth/decorators.py",
+          "rank": 1,
+          "elapsed_ms": 500.72,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "login_required",
+            "file": "contrib/auth/decorators.py"
+          }
+        },
+        {
+          "query": "http response",
+          "query_type": "short_phrase",
+          "expected_symbol": "HttpResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": 2,
+          "elapsed_ms": 261.36,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "response",
+            "file": "views/generic/base.py"
+          }
+        },
+        {
+          "query": "query set",
+          "query_type": "short_phrase",
+          "expected_symbol": "QuerySet",
+          "expected_file_suffix": "db/models/query.py",
+          "rank": null,
+          "elapsed_ms": 256.97,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "queryset",
+            "file": "db/models/query.py"
+          }
+        },
+        {
+          "query": "reverse url",
+          "query_type": "short_phrase",
+          "expected_symbol": "reverse",
+          "expected_file_suffix": "urls/base.py",
+          "rank": 1,
+          "elapsed_ms": 253.64,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "reverse",
+            "file": "urls/base.py"
+          }
+        },
+        {
+          "query": "make password",
+          "query_type": "short_phrase",
+          "expected_symbol": "make_password",
+          "expected_file_suffix": "contrib/auth/hashers.py",
+          "rank": 1,
+          "elapsed_ms": 261.22,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "make_password",
+            "file": "contrib/auth/hashers.py"
+          }
+        },
+        {
+          "query": "QuerySet",
+          "query_type": "identifier",
+          "expected_symbol": "QuerySet",
+          "expected_file_suffix": "db/models/query.py",
+          "rank": null,
+          "elapsed_ms": 140.06,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "queryset",
+            "file": "contrib/contenttypes/fields.py"
+          }
+        },
+        {
+          "query": "HttpResponse",
+          "query_type": "identifier",
+          "expected_symbol": "HttpResponse",
+          "expected_file_suffix": "http/response.py",
+          "rank": 1,
+          "elapsed_ms": 133.26,
+          "candidate_count": 13,
+          "top_candidate": {
+            "name": "HttpResponse",
+            "file": "http/response.py"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": 0.15974951846864505,
+    "acc1_delta": 0.14705882352941174,
+    "acc3_delta": 0.2058823529411765,
+    "acc5_delta": 0.1470588235294118
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": 0.13005706261284355,
+      "acc1_delta": 0.11538461538461539,
+      "acc3_delta": 0.15384615384615385,
+      "acc5_delta": 0.15384615384615385
+    },
+    "short_phrase": {
+      "mrr_delta": 0.3416666666666666,
+      "acc1_delta": 0.3333333333333333,
+      "acc3_delta": 0.5,
+      "acc5_delta": 0.16666666666666674
+    }
+  }
+}
