@@ -27,6 +27,7 @@ cargo test -p codelens-engine
 cargo test -p codelens-mcp
 # Extended:
 cargo test -p codelens-mcp --features http
+cargo test -p codelens-mcp --no-default-features
 cargo clippy -- -W clippy::all
 ```
 

@@ -90,6 +90,7 @@ RUN_PY_GATE=0
 RUN_HTTP_GATE=0
 RUN_CLIPPY_GATE=0
 RUN_RELEASE_GATE=0
+RUN_NO_SEMANTIC_GATE=0
 RUN_PHASE3_MATRIX_GATE=0
 PHASE3_REQUIRED_DATASETS="ripgrep,requests,jest,typescript,next-js,react-core,django,axum"
 
@@ -98,6 +99,7 @@ if [[ "$MODE" == "ci" ]]; then
 	RUN_PY_GATE=1
 	RUN_CLIPPY_GATE=1
 	RUN_RELEASE_GATE=1
+	RUN_NO_SEMANTIC_GATE=1
 	RUN_PHASE3_MATRIX_GATE=1
 elif [[ "$MODE" == "build" ]]; then
 	RUN_RUST_GATE=1
@@ -131,13 +133,24 @@ else
 		RUN_RELEASE_GATE=1
 	fi
 
+	if matches_any "Cargo.toml" "Cargo.lock" \
+		"crates/codelens-mcp/*" "crates/codelens-mcp/**" \
+		"scripts/quality-gate.sh" ".github/workflows/*" \
+		"EVAL_CONTRACT.md" "CLAUDE.md"; then
+		RUN_NO_SEMANTIC_GATE=1
+	fi
+
 	if [[ "$RUN_RELEASE_GATE" -eq 1 ]]; then
+		RUN_RUST_GATE=1
+	fi
+
+	if [[ "$RUN_NO_SEMANTIC_GATE" -eq 1 ]]; then
 		RUN_RUST_GATE=1
 	fi
 fi
 
-if [[ "$RUN_RUST_GATE" -eq 0 && "$RUN_PY_GATE" -eq 0 ]]; then
-	echo "[gate] no Rust or harness-Python files changed; skipping repo-local gate."
+if [[ "$RUN_RUST_GATE" -eq 0 && "$RUN_PY_GATE" -eq 0 && "$RUN_PHASE3_MATRIX_GATE" -eq 0 && "$RUN_NO_SEMANTIC_GATE" -eq 0 ]]; then
+	echo "[gate] no relevant Rust, harness-Python, matrix, or no-semantic files changed; skipping repo-local gate."
 	exit 0
 fi
 
@@ -193,6 +206,11 @@ if [[ "$RUN_RUST_GATE" -eq 1 ]]; then
 	if [[ "$RUN_CLIPPY_GATE" -eq 1 ]]; then
 		echo "[gate] running clippy gate"
 		cargo clippy -- -W clippy::all
+	fi
+
+	if [[ "$RUN_NO_SEMANTIC_GATE" -eq 1 ]]; then
+		echo "[gate] running no-semantic MCP gate"
+		cargo test -p codelens-mcp --no-default-features
 	fi
 
 	if [[ "$RUN_RELEASE_GATE" -eq 1 ]]; then

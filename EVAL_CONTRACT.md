@@ -9,10 +9,12 @@
 ## Local Extended Gate
 
 - `cargo test -p codelens-mcp --features http`
+- `cargo test -p codelens-mcp --no-default-features`
 - `cargo clippy -- -W clippy::all`
 
 ## CI Parity Additions
 
+- `cargo test -p codelens-mcp --no-default-features`
 - `cargo build --release --no-default-features`
 - `cargo build --release`
 - `cargo build --release --features http`
