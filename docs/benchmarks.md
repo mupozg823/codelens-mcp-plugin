@@ -1457,7 +1457,7 @@ With §8.13 shipping, the `CODELENS_EMBED_HINT_AUTO=1` default is the right beha
 
 Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase3c-jest-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-jest.json`.
 
-**Phase 3d follow-up scaffolding**: the larger TypeScript follow-up assets now live in-repo as `benchmarks/embedding-quality-dataset-typescript.json` (34 hand-built queries, split 26 natural_language / 6 short_phrase / 2 identifier against `microsoft/typescript`) plus the baseline-only snapshot `benchmarks/embedding-quality-v1.6-phase3d-typescript-baseline.json`. This does **not** mean Phase 3d is complete; it means the input dataset and baseline artefact are now versioned so the future full four-arm A/B can be reproduced instead of rebuilt from scratch.
+**Phase 3d follow-up scaffolding**: the larger TypeScript follow-up assets that were staged here later landed fully in §8.15 as `benchmarks/embedding-quality-dataset-typescript.json` plus `benchmarks/embedding-quality-v1.6-phase3d-typescript-{baseline,2e-only,2b2c-only,stacked}.json`. The next open follow-up after that was the typical-app Phase 3e measurement, which later landed in §8.16 on `vercel/next.js`.
 
 ---
 
@@ -1514,7 +1514,7 @@ python3 benchmarks/embedding-quality.py /tmp/requests-ext --isolated-copy \
 **Limitations**:
 
 1. **Process-scoped env var**. `auto_set_embed_hint_lang` exports `CODELENS_EMBED_HINT_AUTO_LANG` for the rest of the process. Switching projects mid-session via the `activate_project` MCP tool re-runs the helper, but because `user_forced_lang` short-circuits when the env var is already set, **switching from a Rust project to a Python project mid-session still sees the Rust language tag**. This was an acknowledged follow-up limitation from §8.12 and is unchanged by the flip. Restart the server to pick up a language change.
-2. **No Phase 3d evidence yet**. JS/TS classification rests on a single external-repo measurement (§8.13 `facebook/jest`). A Phase 3d follow-up on `microsoft/typescript` or `microsoft/vscode` is still open and would firm up the evidence for users with very large TS monorepos.
+2. **Only one JS/TS dataset at the time of the flip decision**. This limitation was later resolved, then reframed: §8.15 added a positive compiler-style TypeScript measurement on `microsoft/typescript`, while §8.16 added a neutral-to-slightly-negative typical-app-style measurement on `vercel/next.js`. Read the family-wide confidence in this section as the launch-time rationale for v1.6.0, not the latest blanket recommendation.
 3. **Test race exposed, not eliminated for all future env-var tests**. New tests that mutate `CODELENS_EMBED_HINT_*` env vars must remember to take `ENV_LOCK` or they will see race conditions against the existing eleven tests. A clippy lint or helper macro would be a nicer long-term fix.
 
 **Artefacts**: `benchmarks/embedding-quality-v1.6-flip-{ripgrep,requests}-default-on.json`. Both files are bit-identical to their `§8.12 phase2j-*-mcpauto.json` counterparts — readers can verify with `diff` if they want to confirm the parity claim independently.
@@ -1653,12 +1653,12 @@ Pattern: **5 positive (Rust / Rust / Rust / TS-JS / TS-JS) : 1 negative (Python)
 \*\*Implications for v1.6.x`:
 
 - The JS/TS branch of `CODELENS_EMBED_HINT_AUTO=1` default-on behaviour is now empirically on even firmer ground. Users with large TS projects (compilers, language servers, editor extensions) are likely to see the largest quality gains from flipping `AUTO=1` on.
-- **Phase 2e remains the weakest of the three knobs**. §8.12 measured Phase 2e as positive on ripgrep, Phase 3c measured it as +1.3 % marginal on jest, and §8.15 measures it as **−10.0 %** on TypeScript (the first explicitly negative measurement on the sparse re-ranker alone). The stack's lift comes almost entirely from Phase 2b + 2c on JS/TS. A future Phase 2m could consider dropping Phase 2e from the auto-on set for JS/TS while keeping it on for Rust — but that's a two-axis gate complication deferred until a user actually hits the problem.
+- **Phase 2e remains the weakest of the three knobs**. §8.12 measured Phase 2e as positive on ripgrep, Phase 3c measured it as +1.3 % marginal on jest, and §8.15 measures it as **−10.0 %** on TypeScript (the first explicitly negative measurement on the sparse re-ranker alone). The stack's lift comes almost entirely from Phase 2b + 2c on JS/TS. This later became the core motivation for the narrow Phase 2m policy split: keep JS/TS auto-enabled for Phase 2b/2c, but remove JS/TS from the **auto** Phase 2e sparse gate.
 - **No code changes required by this phase**. Phase 3d is a pure measurement update. `language_supports_nl_stack` already contains the JS/TS entries from §8.13; §8.15 only upgrades their evidence tier in the documentation.
 
 **Limitations acknowledged**:
 
-1. **Still only two TS datasets**. Jest is matcher-heavy object-literal code; TypeScript is a large compiler with heavy JSDoc. Both are positive, but both are unrepresentative of a typical app codebase (small-to-medium TS with React / Next.js / Node patterns). A Phase 3e on a typical app repo (e.g. `vercel/next.js` or `facebook/react` internals) would cover the remaining population.
+1. **Still only two TS datasets**. Jest is matcher-heavy object-literal code; TypeScript is a large compiler with heavy JSDoc. Both are positive, but both are unrepresentative of a typical app codebase (small-to-medium TS with React / Next.js / Node patterns). This gap was later filled by §8.16 on `vercel/next.js`.
 2. **20 / 26 NL queries remain `None` in both arms**. These are retrieval failures, not ranking failures — the candidate pool never includes the target. The v1.5 stack does not address retrieval failures; that's an embedding-model issue, not a ranking one, and belongs to Phase 2d (model swap).
 3. **TypeScript `src/` is not the full repo**. Benchmarking against `/src` (709 files) excludes the `/tests` fixture tree (50 k+ files). A user who actually points CodeLens at the full TypeScript checkout will get `/tests` in their embedding index, which will shift the NL results toward test fixtures. This is a user-facing reality, but benchmarking the production codebase in isolation is the scientifically cleaner choice.
 
@@ -1668,7 +1668,7 @@ Pattern: **5 positive (Rust / Rust / Rust / TS-JS / TS-JS) : 1 negative (Python)
 
 **Hypothesis** (from §8.15 "Limitations acknowledged", point 1): both existing TS datasets are unrepresentative of a typical app codebase — `facebook/jest` is matcher-heavy object-literal test tooling and `microsoft/TypeScript` is a compiler with 50 k-line files and dense JSDoc. §8.15 explicitly teed up Phase 3e on `vercel/next.js` or `facebook/react` to cover "small-to-medium TS with React / Next.js / Node patterns" — the population of codebases most real users point CodeLens at. The null-hypothesis going in was "the v1.5 stack should produce a small positive on a typical app, probably closer to jest's +7.3 % than to TypeScript's +104 %". Phase 3e tests that null hypothesis directly.
 
-**Target repo**: `vercel/next.js` (depth-1 shallow clone, ~1.5 GB, 28 547 working-tree files). We benchmark against **`/tmp/next-js/packages/next/src`** — the core framework runtime package, excluding `/packages/next/src/compiled` (bundled third-party code, only 16 `.ts` files) — for **1 564 source files totalling 268 560 LOC**. The file-size profile is strikingly different from TypeScript's: **median 61 LOC/file**, mean ~172 LOC/file, largest single file `server/app-render/app-render.tsx` at 8 397 lines (vs TypeScript's `checker.ts` at ~50 000). This is the first external-repo benchmark in the v1.6 measurement campaign whose file profile matches the "typical app" shape.
+**Target repo**: `vercel/next.js` (depth-1 shallow clone, ~1.5 GB, 28 547 working-tree files). We benchmark against **`/tmp/next-js/packages/next/src`** — the core framework runtime package. That subtree contains **1 580 `.ts` / `.tsx` files** in total, of which only **16** live under `/compiled`, and **268 560 LOC** overall. The file-size profile is strikingly different from TypeScript's: **median 61 LOC/file**, mean ~172 LOC/file, largest single file `server/app-render/app-render.tsx` at 8 397 lines (vs TypeScript's `checker.ts` at ~50 000). This is the first external-repo benchmark in the v1.6 measurement campaign whose file profile matches the "typical app" shape.
 
 **Dataset**: 34 hand-built queries in `benchmarks/embedding-quality-dataset-next-js.json`, spanning six subsystems of the Next.js public API surface:
 
@@ -1767,7 +1767,7 @@ The default-flip in v1.6.0 was made on the premise that §8.15 showed the JS/TS 
 
 - **Users with compiler/tooling/language-server code (TypeScript compiler, Babel, esbuild, Rollup, tsserver, etc.)** will see the large JS/TS lifts §8.13 and §8.15 documented (+7 % to +104 %).
 - **Users with typical app code (Next.js, React apps, Vue apps, Node.js services)** will see _neutral_ behaviour — no measurable win, no measurable loss, within ±1 % of baseline.
-- **Phase 2e on JS/TS is now negative on two out of three datasets** (TypeScript −10.0 %, Next.js −0.8 %, jest +1.3 % marginal). The Phase 2m "language-gated 2e disable for JS/TS" decision deferred in §8.15 is now better-supported by evidence: 2 of 3 JS/TS datasets show 2e as net negative. Still deferred (waiting for a real user hit), but the evidence is stronger.
+- **Phase 2e on JS/TS is now negative on two out of three datasets** (TypeScript −10.0 %, Next.js −0.8 %, jest +1.3 % marginal). This later landed as the narrow Phase 2m policy split: JS/TS stays auto-enabled for Phase 2b/2c, but the **auto** sparse gate no longer enables Phase 2e on JS/TS. Explicit `CODELENS_RANK_SPARSE_TERM_WEIGHT=1` still overrides the auto policy.
 
 Neither bullet suggests reverting the v1.6.0 flip — the default-on cost on a typical app is zero, not a regression. It does mean the marketing line "Phase 2b+2c helps JS/TS retrieval" should be qualified to "Phase 2b+2c helps compiler and tooling JS/TS retrieval; typical app code sees no change".
 
@@ -1816,10 +1816,289 @@ python3 benchmarks/embedding-quality.py /tmp/next-js/packages/next/src --isolate
 **Limitations acknowledged**:
 
 1. **Retrieval-failure floor is 15 / 26 NL queries (58 %)**. More than half of the natural-language queries never place the target within the top 10 candidates in any arm. These are cases where `semantic_search`'s CodeSearchNet-INT8 embedding + lexical BM25 scoring combined cannot find files like `server/request/headers.ts` from a query like "get the current request headers in a server component", regardless of how Phase 2b/2c/2e re-rank them. This is a larger share of retrieval-failure than TypeScript's 20 / 26 (77 %), but the absolute count is similar — the difference is TypeScript has more retrieval failures _and_ more headroom for the ranked ones, while Next.js has fewer retrieval failures _but_ the baseline hybrid ranking was already near-ceiling for the findable ones. Both outcomes point at the same underlying cap: the v1.5 re-ranker can only re-order candidates it already has.
-2. **One dataset does not disprove a population claim**. Next.js is _a_ typical TS app, but it is a particularly large and frameworky one with complex internal architecture. A smaller app (a Node.js service, a Remix app, a Vite + React SPA) might land somewhere between Next.js 0 % and jest +7 %. The honest framing is "v1.5 stack ranges from 0 % to +104 % on JS/TS depending on file size and JSDoc density", not "v1.5 stack is zero on all typical apps".
+2. **One dataset does not disprove a population claim**. Next.js is _a_ typical TS app, but it is a particularly large and frameworky one with complex internal architecture. This concern was later partially addressed by §8.17 on the `facebook/react` production subtree, which also measured as inert. That shifts the honest framing toward "short-file JS/TS runtime code has measured 0 % lift twice so far", but it still does not prove all typical apps are zero.
 3. **Dataset overlap with Phase 3d methodology**. Phase 3d (TypeScript compiler) used exactly the same 34-query shape (26 NL + 6 short + 2 identifier) and 4-arm structure as Phase 3e. This makes the comparison directly apples-to-apples, but it also means the query style (Next.js public API surface, named exports only, English NL phrasing) imports the same methodological preferences across both datasets. A dataset built by a different author with a different query style might land elsewhere. §8.12's ripgrep dataset was built this way and Phase 2b+2c moved it from 0.459 to 0.529 (+15.2 %), so the query-style bias is not the dominant factor — but it is a factor.
 
 **Artefacts**: `benchmarks/embedding-quality-v1.6-phase3e-next-js-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-next-js.json`.
+
+---
+
+### §8.17 — Phase 3f: short-file React runtime subtree on `facebook/react`
+
+**Hypothesis** (from §8.16 "Limitations acknowledged", point 2): `vercel/next.js` measured as a null result, but Next.js is still a large framework repo with server/runtime complexity and long-tail build internals. A much smaller, shorter-file JS runtime surface could still show the mild positive that §8.16 failed to see. Phase 3f tests that by moving from a large Next.js subtree to the production `react` core package itself.
+
+**Target repo**: `facebook/react` (depth-1 shallow clone), but not the full package tree. We benchmark a production-only copy of **`packages/react/src`** materialized as **`/tmp/react-core-bench`** with `__tests__/` excluded. That leaves **30 source files** and **4,035 LOC**. This is an order of magnitude smaller than the Next.js subtree and two orders smaller than the TypeScript compiler slice. If the v1.5 stack needs big files or comment-heavy bodies to work, this is the kind of corpus where it should disappear.
+
+**Dataset**: 34 hand-built queries in `benchmarks/embedding-quality-dataset-react-core.json`, again keeping the §8.15 / §8.16 shape for apples-to-apples comparison: **26 `natural_language` + 6 `short_phrase` + 2 `identifier`**. The symbols cover the public React surface that ordinary users search for:
+
+| Area                  | Example queries                                                                 | Count |
+| --------------------- | ------------------------------------------------------------------------------- | ----: |
+| Core hooks            | `useState`, `useEffect`, `useMemo`, `useTransition`, `useDeferredValue`, ...   |    16 |
+| Element / ref API     | `createRef`, `createElement`, `cloneElement`, `isValidElement`, `forwardRef`   |     5 |
+| Context / memo / lazy | `createContext`, `memo`, `lazy`                                                 |     3 |
+| Transitions / testing | `startTransition`, `act`                                                        |     2 |
+| Short phrases + ids   | `state hook`, `lazy component`, `useState`, `createElement`                     |     8 |
+
+**Measurement**:
+
+| arm         |   hybrid MRR | Δ abs vs baseline | Δ rel | semantic MRR | lexical-only MRR |
+| ----------- | -----------: | ----------------: | ----: | -----------: | ---------------: |
+| baseline    |     0.122549 |                 — |     — |     0.122549 |         0.084314 |
+| 2e only     |     0.122549 |          0.000000 | +0.0 % |     0.122549 |         0.084314 |
+| 2b+2c only  |     0.122549 |          0.000000 | +0.0 % |     0.122549 |         0.084314 |
+| **stacked** | **0.122549** |      **0.000000** | **+0.0 %** | **0.122549** |     **0.084314** |
+
+This is a **stronger null result than Next.js**. In Phase 3e, the aggregate moved by a small amount under `2e`. In Phase 3f, **every arm is row-for-row identical to baseline across all three methods** (`semantic_search`, `get_ranked_context_no_semantic`, and `get_ranked_context`). There are **zero per-query rank changes** and **zero top-candidate changes** between baseline and any candidate arm.
+
+**Per-query decomposition**:
+
+```
+baseline vs any candidate arm:
+  0 improved, 0 regressed, 34 unchanged
+
+top-10 hits in every arm: 5 / 34
+  createRef      rank 6
+  createElement  rank 1 (NL)
+  cloneElement   rank 1
+  isValidElement rank 1
+  createElement  rank 1 (identifier)
+
+top-10 misses in every arm: 29 / 34
+  by query type:
+    natural_language: 22 / 26 misses
+    short_phrase:      6 / 6 misses
+    identifier:        1 / 2 misses
+```
+
+This is almost a pure retrieval-floor dataset. The stack has nothing to work with because the candidate pool barely contains the target in the first place.
+
+**Where the signal disappears**:
+
+- `semantic_search` and `get_ranked_context` are not just equal in aggregate; on this dataset they are **rank-identical row-by-row**. Hybrid effectively collapses to semantic.
+- `get_ranked_context_no_semantic` is weaker than semantic/hybrid, but the three knobs still do not change it at all. The sparse term weighting and the comment/API-call extraction simply never move the lexical candidate set.
+- The only hybrid-vs-lexical differences in baseline are three already-findable queries:
+  - `createRef` `5 → 6`
+  - `createElement` `2 → 1`
+  - `cloneElement` `6 → 1`
+  Everything else is either a miss in both paths or the same rank in both.
+
+So the React core result says something narrower but stronger than §8.16: **on short-file JS runtime code, the v1.5 stack is not mildly weaker or mildly stronger; it is functionally inert.**
+
+**Updated eight-dataset baseline matrix**:
+
+| Dataset                              | Language / archetype     | baseline MRR | stacked MRR |      Δ abs |      Δ rel |
+| ------------------------------------ | ------------------------ | -----------: | ----------: | ---------: | ---------: |
+| 89-query self                        | Rust / self              |        0.572 |       0.586 |     +0.014 |     +2.4 % |
+| 436-query self                       | Rust / self              |       0.0476 |      0.0510 |    +0.0034 |     +7.1 % |
+| ripgrep external                     | Rust / tooling           |        0.459 |       0.529 |     +0.070 |    +15.2 % |
+| requests external                    | Python / app library     |        0.584 |       0.495 |     −0.089 |    −15.2 % |
+| jest external                        | TS/JS / tooling          |        0.155 |       0.166 |     +0.011 |     +7.3 % |
+| typescript external                  | TS/JS / compiler         |        0.098 |       0.201 |     +0.103 |   +104.3 % |
+| next-js external                     | TS/JS / typical app      |        0.198 |       0.196 |     −0.002 |     −0.8 % |
+| **react-core external (new, §8.17)** | **TS/JS / short runtime** |    **0.123** |   **0.123** | **+0.000** | **+0.0 %** |
+
+Pattern: **5 positive / 1 negative / 2 inert**. The positive JS/TS evidence is now clearly concentrated in **tooling/compiler-style** code, while the two shortest-file runtime/app-style datasets measured so far are inert.
+
+**Implications**:
+
+- The family-level statement should now be: **JS/TS is bifurcated by code shape**. Tooling/compiler repos benefit; short-file runtime/app repos do not.
+- §8.16's "typical app might still land between 0 % and +7 %" is no longer the default expectation. After React core, the better prior is **"short-file JS runtime code likely lands at 0 %"** until contradicted by a real product app.
+- Combined with §8.16, this is enough to justify a **narrow** code-path change: keep the shipped Phase 2b/2c default-on behaviour, but split Phase 2e out of the JS/TS auto path. It still does **not** justify a broader rollback of the v1.6 default-on behaviour, because the app/runtime measurements are inert rather than systematically harmful.
+
+**Reproduce**:
+
+```bash
+git clone --depth=1 https://github.com/facebook/react.git /tmp/react
+rm -rf /tmp/react-core-bench
+rsync -a --delete --exclude '__tests__/' /tmp/react/packages/react/src/ /tmp/react-core-bench/
+
+# Arm 1: baseline
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/react-core-bench --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-react-core.json \
+  --output benchmarks/embedding-quality-v1.6-phase3f-react-core-baseline.json
+
+# Arm 2: Phase 2e only
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/react-core-bench --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-react-core.json \
+  --output benchmarks/embedding-quality-v1.6-phase3f-react-core-2e-only.json
+
+# Arm 3: Phase 2b + 2c only
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/react-core-bench --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-react-core.json \
+  --output benchmarks/embedding-quality-v1.6-phase3f-react-core-2b2c-only.json
+
+# Arm 4: stacked
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/react-core-bench --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-react-core.json \
+  --output benchmarks/embedding-quality-v1.6-phase3f-react-core-stacked.json
+```
+
+**Limitations acknowledged**:
+
+1. **This is a curated production subtree, not the full React repo.** We explicitly excluded `__tests__/`, because the point of the measurement is runtime code shape, not test helper pollution. That makes it a cleaner scientific slice but a less literal "user points CodeLens at the whole repo" simulation.
+2. **React core is runtime/library code, not a product app.** It reinforces the short-file inertness story, but it still is not the same thing as a large React application with domain-specific components.
+3. **Recall is extremely low.** If only 5 / 34 queries hit the top 10 in every arm, there is almost no space left for a ranking-only intervention to prove itself. This dataset is primarily evidence about the limits of the current embedding/candidate pool.
+
+**Artefacts**: `benchmarks/embedding-quality-v1.6-phase3f-react-core-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-react-core.json`.
+
+---
+
+### §8.18 — Phase 3g: semantic-dominant Python framework validation on `django/django`
+
+**Hypothesis**: `requests` in §8.14 was clearly negative for Python, but it was still a single **app-library** dataset. That left an obvious escape hatch: maybe Python only looked bad because `requests` is a flat HTTP client with weak lexical anchors and small semantic neighborhoods. Phase 3g tests the other major Python regime: a large framework repo with stronger symbol families (`Model`, `QuerySet`, `HttpRequest`, `login_required`, `ListView`) and a much richer natural-language vocabulary. If Python's regression were dataset-specific, `django/django` is where the stack should recover.
+
+**Target repo**: `django/django` shallow-cloned under `/tmp/django-src/django`. The measured subtree contains **902 `.py` files**, **162,768 LOC** total, and a **61.5 LOC median file size**. That makes it a useful contrast against both the tiny `requests` library and the much larger compiler-oriented TypeScript slice: Django has broad framework vocabulary, but its average file is still short enough that re-rank-only gains can vanish if the candidate pool is already semantic-heavy.
+
+**Dataset**: 34 hand-built queries in `benchmarks/embedding-quality-dataset-django.json`, keeping the now-standard external-repo shape for direct comparison: **26 `natural_language` + 6 `short_phrase` + 2 `identifier`**. Coverage spans four framework surfaces:
+
+| Area                 | Example targets                                                   | Count |
+| -------------------- | ----------------------------------------------------------------- | ----: |
+| ORM / model layer    | `QuerySet`, `Manager`, `Model`, `ForeignKey`                      |    10 |
+| HTTP / shortcuts     | `HttpRequest`, `HttpResponse`, `JsonResponse`, `redirect`, `render` |     8 |
+| URL + auth           | `reverse`, `resolve`, `login`, `logout`, `authenticate`, `login_required` |     8 |
+| Views / forms / misc | `View`, `ListView`, `DetailView`, `Form`, `ModelForm`, `csrf_exempt` |     8 |
+
+**Measurement**:
+
+| arm         |   hybrid MRR | Δ abs vs baseline | Δ rel | semantic MRR | lexical-only MRR |
+| ----------- | -----------: | ----------------: | ----: | -----------: | ---------------: |
+| baseline    |     0.293677 |                 — |     — |     0.285084 |         0.133927 |
+| 2e only     |     0.293677 |          0.000000 | +0.0 % |     0.285084 |         0.135398 |
+| 2b+2c only  |     0.285940 |         -0.007737 | -2.6 % |     0.286765 |         0.133927 |
+| **stacked** | **0.288448** |      **-0.005229** | **-1.8 %** | **0.286765** |     **0.135398** |
+
+Django is a **third regime**, distinct from both Next.js and TypeScript:
+
+- **Semantic-dominant baseline**: `semantic_search` starts at **0.285**, far above lexical-only **0.134**. The baseline hybrid score (**0.294**) is already mostly semantic, so sparse lexical rescue has little room to matter.
+- **`2e` is a true no-op on hybrid**: lexical-only nudges up slightly (`0.1339 → 0.1354`), but the hybrid aggregate does not move at all. The sparse pass touches some BM25 ordering, but those changes never beat the semantic ranking that already dominates Django's candidate pool.
+- **`2b+2c` slightly improves pure semantic, yet still hurts hybrid**: `semantic_search` rises from **0.2851 → 0.2868**, but `get_ranked_context` falls from **0.2937 → 0.2859**. The extra comment / API-call text helps a few natural-language misses, but it perturbs already-retrievable framework queries enough to lose net quality.
+
+**Per-query decomposition**:
+
+```
+baseline vs 2e-only:
+  0 improved, 0 regressed, 34 unchanged
+
+baseline vs 2b+2c only:
+  4 improved, 5 regressed, 25 unchanged
+
+baseline vs stacked:
+  4 improved, 6 regressed, 24 unchanged
+```
+
+Representative stacked changes:
+
+- Improvements:
+  - `Model`: `None → 5`
+  - `login_required`: `None → 10`
+  - `get_object_or_404`: `5 → 3`
+  - `logout`: `3 → 2`
+- Regressions:
+  - `check_password`: `2 → 6`
+  - `redirect`: `7 → 17`
+  - `HttpRequest`: `12 → None`
+  - `HttpResponse` (`short_phrase`): `2 → 4`
+  - `ForeignKey`: `6 → 7`
+
+The query-type split explains the sign:
+
+| query type          | baseline hybrid MRR | stacked hybrid MRR |      Δ |
+| ------------------- | ------------------: | -----------------: | -----: |
+| natural_language    |            0.172501 |           0.175278 | +0.0028 |
+| short_phrase        |            0.750000 |           0.708333 | -0.0417 |
+| identifier          |            0.500000 |           0.500000 | +0.0000 |
+
+So Django is not "uniformly worse"; it is more specific than that. The stack rescues a handful of natural-language framework lookups, but the gain is too small to offset short-phrase regressions on queries that Django's baseline already handled reasonably well.
+
+**Updated nine-dataset baseline matrix**:
+
+| Dataset                           | Language / archetype      | baseline MRR | stacked MRR |      Δ abs |      Δ rel |
+| --------------------------------- | ------------------------- | -----------: | ----------: | ---------: | ---------: |
+| 89-query self                     | Rust / self               |        0.572 |       0.586 |     +0.014 |     +2.4 % |
+| 436-query self                    | Rust / self               |       0.0476 |      0.0510 |    +0.0034 |     +7.1 % |
+| ripgrep external                  | Rust / tooling            |        0.459 |       0.529 |     +0.070 |    +15.2 % |
+| requests external                 | Python / app library      |        0.584 |       0.495 |     -0.089 |    -15.2 % |
+| **django external (new, §8.18)**  | **Python / framework**    |    **0.294** |   **0.288** | **-0.005** | **-1.8 %** |
+| jest external                     | TS/JS / tooling           |        0.155 |       0.166 |     +0.011 |     +7.3 % |
+| typescript external               | TS/JS / compiler          |        0.098 |       0.201 |     +0.103 |   +104.3 % |
+| next-js external                  | TS/JS / typical app       |        0.198 |       0.196 |     -0.002 |     -0.8 % |
+| react-core external               | TS/JS / short runtime     |        0.123 |       0.123 |     +0.000 |     +0.0 % |
+
+Pattern is now **5 positive / 2 negative / 2 inert**.
+
+- **Rust** remains consistently positive.
+- **TS/JS** remains bifurcated by code shape: tooling/compiler positive, runtime/app mostly inert.
+- **Python is now negative in two distinct regimes**: one app library (`requests`) and one semantic-heavy framework (`django`). That is materially stronger evidence than the old single-dataset Python story.
+
+**Policy interpretation**:
+
+- This does **not** justify widening the already-landed Phase 2m split. Phase 2m was the narrow JS/TS fix: keep JS/TS auto-enabled for Phase 2b/2c, but remove JS/TS from the **auto** Phase 2e sparse gate.
+- It **does** validate the existing choice to keep Python outside the auto-on family entirely. The code path already does this: `auto_hint_should_enable()` excludes Python from the NL stack, and `auto_sparse_should_enable()` excludes Python from auto sparse weighting as well.
+- In other words, Django is not a trigger for a new rollback. It is a second external proof that the current Python-off default is the correct side of the tradeoff.
+
+**Reproduce**:
+
+```bash
+git clone --depth=1 https://github.com/django/django.git /tmp/django-src
+
+# Arm 1: baseline
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/django-src/django --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-django.json \
+  --output benchmarks/embedding-quality-v1.6-phase3g-django-baseline.json
+
+# Arm 2: Phase 2e only
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/django-src/django --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-django.json \
+  --output benchmarks/embedding-quality-v1.6-phase3g-django-2e-only.json
+
+# Arm 3: Phase 2b + 2c only
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/django-src/django --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-django.json \
+  --output benchmarks/embedding-quality-v1.6-phase3g-django-2b2c-only.json
+
+# Arm 4: stacked
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/django-src/django --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-django.json \
+  --output benchmarks/embedding-quality-v1.6-phase3g-django-stacked.json
+```
+
+**Artefacts**: `benchmarks/embedding-quality-v1.6-phase3g-django-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-django.json`.
 
 ---
 

@@ -224,15 +224,17 @@ pub(crate) fn score_symbol_with_lower(
 /// ranking path.
 ///
 /// v1.5 Phase 2j: when no explicit env var is set, fall through to
-/// `crate::embedding::auto_hint_should_enable()` for language-gated
-/// defaults (same fallback as `nl_tokens_enabled` and
-/// `api_calls_enabled`). Explicit env always wins.
+/// `crate::embedding::auto_sparse_should_enable()` for language-gated
+/// defaults. This intentionally diverges from `nl_tokens_enabled` and
+/// `api_calls_enabled`: Phase 2m keeps JS/TS auto-enabled for Phase 2b/2c
+/// but auto-disables sparse weighting there because recent JS/TS
+/// measurements were negative-or-inert. Explicit env always wins.
 pub fn sparse_weighting_enabled() -> bool {
     if let Ok(raw) = std::env::var("CODELENS_RANK_SPARSE_TERM_WEIGHT") {
         let lowered = raw.trim().to_ascii_lowercase();
         return matches!(lowered.as_str(), "1" | "true" | "yes" | "on");
     }
-    crate::embedding::auto_hint_should_enable()
+    crate::embedding::auto_sparse_should_enable()
 }
 
 /// Maximum sparse coverage bonus added to the blended score when a query
@@ -431,6 +433,9 @@ pub(crate) fn sparse_coverage_bonus(query_lower: &str, symbol: &SymbolInfo) -> f
 mod tests {
     use super::super::types::{SymbolInfo, SymbolKind};
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn mk_symbol(name: &str, signature: &str) -> SymbolInfo {
         SymbolInfo {
@@ -451,17 +456,94 @@ mod tests {
 
     #[test]
     fn sparse_weighting_gated_off_by_default() {
-        let previous = std::env::var("CODELENS_RANK_SPARSE_TERM_WEIGHT").ok();
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let previous_explicit = std::env::var("CODELENS_RANK_SPARSE_TERM_WEIGHT").ok();
+        let previous_auto = std::env::var("CODELENS_EMBED_HINT_AUTO").ok();
+        let previous_lang = std::env::var("CODELENS_EMBED_HINT_AUTO_LANG").ok();
         unsafe {
             std::env::remove_var("CODELENS_RANK_SPARSE_TERM_WEIGHT");
+            std::env::remove_var("CODELENS_EMBED_HINT_AUTO");
+            std::env::remove_var("CODELENS_EMBED_HINT_AUTO_LANG");
         }
         let enabled = sparse_weighting_enabled();
         unsafe {
-            if let Some(value) = previous {
-                std::env::set_var("CODELENS_RANK_SPARSE_TERM_WEIGHT", value);
+            match previous_explicit {
+                Some(value) => std::env::set_var("CODELENS_RANK_SPARSE_TERM_WEIGHT", value),
+                None => std::env::remove_var("CODELENS_RANK_SPARSE_TERM_WEIGHT"),
+            }
+            match previous_auto {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_AUTO", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO"),
+            }
+            match previous_lang {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO_LANG"),
             }
         }
         assert!(!enabled, "sparse weighting gate leaked");
+    }
+
+    #[test]
+    fn sparse_weighting_auto_gate_disables_for_js_ts_but_explicit_env_still_wins() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let previous_explicit = std::env::var("CODELENS_RANK_SPARSE_TERM_WEIGHT").ok();
+        let previous_auto = std::env::var("CODELENS_EMBED_HINT_AUTO").ok();
+        let previous_lang = std::env::var("CODELENS_EMBED_HINT_AUTO_LANG").ok();
+
+        unsafe {
+            std::env::remove_var("CODELENS_RANK_SPARSE_TERM_WEIGHT");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "rust");
+        }
+        assert!(
+            sparse_weighting_enabled(),
+            "auto+rust should enable sparse weighting"
+        );
+
+        unsafe {
+            std::env::remove_var("CODELENS_RANK_SPARSE_TERM_WEIGHT");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "typescript");
+        }
+        assert!(
+            !sparse_weighting_enabled(),
+            "auto+typescript should disable sparse weighting after Phase 2m split"
+        );
+
+        unsafe {
+            std::env::set_var("CODELENS_RANK_SPARSE_TERM_WEIGHT", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "typescript");
+        }
+        assert!(
+            sparse_weighting_enabled(),
+            "explicit sparse=1 must still win over JS/TS auto-off"
+        );
+
+        unsafe {
+            std::env::set_var("CODELENS_RANK_SPARSE_TERM_WEIGHT", "0");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "rust");
+        }
+        assert!(
+            !sparse_weighting_enabled(),
+            "explicit sparse=0 must still win over rust auto-on"
+        );
+
+        unsafe {
+            match previous_explicit {
+                Some(value) => std::env::set_var("CODELENS_RANK_SPARSE_TERM_WEIGHT", value),
+                None => std::env::remove_var("CODELENS_RANK_SPARSE_TERM_WEIGHT"),
+            }
+            match previous_auto {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_AUTO", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO"),
+            }
+            match previous_lang {
+                Some(value) => std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", value),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO_LANG"),
+            }
+        }
     }
 
     #[test]

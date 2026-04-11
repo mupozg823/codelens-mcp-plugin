@@ -29,7 +29,9 @@ pub(super) mod ffi {
                     *mut *mut i8,
                     *const rusqlite::ffi::sqlite3_api_routines,
                 ) -> i32,
-            >(sqlite_vec::sqlite3_vec_init as *const ())))
+            >(
+                sqlite_vec::sqlite3_vec_init as *const ()
+            )))
         };
         if rc != rusqlite::ffi::SQLITE_OK {
             anyhow::bail!("failed to register sqlite-vec extension (SQLite error code: {rc})");
@@ -1867,8 +1869,12 @@ fn nl_tokens_enabled() -> bool {
 ///
 /// 1. Rust / C / C++ / Go / Java / Kotlin / Scala / C# projects hit
 ///    the §8.7 stacked arm (+2.4 % to +15.2 % hybrid MRR).
-/// 2. TypeScript / JavaScript projects hit the §8.13 stacked arm
-///    (+7.3 % hybrid MRR on `facebook/jest`).
+/// 2. TypeScript / JavaScript projects validated the Phase 2b/2c
+///    embedding hints on `facebook/jest` and later `microsoft/typescript`.
+///    Subsequent app/runtime follow-ups (`vercel/next.js`,
+///    `facebook/react` production subtree) motivated splitting Phase 2e
+///    out of the JS/TS auto path, but not removing JS/TS from the
+///    embedding-hint default.
 /// 3. Python projects hit the §8.8 baseline (no change) — the
 ///    §8.11 language gate + §8.12 MCP auto-set means Python is
 ///    auto-detected and the stack stays OFF without user action.
@@ -1891,8 +1897,8 @@ fn nl_tokens_enabled() -> bool {
 /// a lock-in.
 ///
 /// **Opt-out**: set `CODELENS_EMBED_HINT_AUTO=0` to restore v1.5.x
-/// behaviour (no auto-detection, all three Phase 2 gates default
-/// off unless their individual env vars are set).
+/// behaviour (no auto-detection, all Phase 2 gates default off unless
+/// their individual env vars are set).
 pub(super) fn auto_hint_mode_enabled() -> bool {
     parse_bool_env("CODELENS_EMBED_HINT_AUTO").unwrap_or(true)
 }
@@ -1913,13 +1919,21 @@ pub(super) fn auto_hint_lang() -> Option<String> {
         .map(|raw| raw.trim().to_ascii_lowercase())
 }
 
-/// Return true when `lang` is a language where the v1.5 opt-in stack
-/// has been measured to net-positive (§8.2, §8.4, §8.6, §8.7, §8.13)
-/// or where the language's static typing + snake_case naming +
-/// comment-first culture makes the Phase 2b mechanism behave the same
-/// way it does on Rust. The list is intentionally conservative —
-/// additions require an actual external-repo A/B following the §8.7
-/// methodology, not a language-similarity argument alone.
+/// Return true when `lang` is a language where the v1.5 embedding-hint
+/// stack (Phase 2b comments + Phase 2c API-call extraction) has been
+/// measured to net-positive (§8.2, §8.4, §8.6, §8.7, §8.13, §8.15) or
+/// where the language's static typing + snake_case naming + comment-first
+/// culture makes the mechanism behave the same way it does on Rust.
+///
+/// This gate is intentionally separate from the Phase 2e sparse
+/// re-ranker. As of the §8.15 / §8.16 / §8.17 follow-up arc, JS/TS stays
+/// enabled here because tooling/compiler repos are positive and short-file
+/// runtime repos are inert, but JS/TS is disabled in the **sparse**
+/// auto-gate because Phase 2e is negative-or-null on that family.
+///
+/// The list is intentionally conservative — additions require an actual
+/// external-repo A/B following the §8.7 methodology, not a
+/// language-similarity argument alone.
 ///
 /// **Supported** (measured or by static-typing analogy):
 /// - `rs`, `rust` (§8.2, §8.4, §8.6, §8.7: +2.4 %, +7.1 %, +15.2 %)
@@ -1966,11 +1980,47 @@ pub(super) fn language_supports_nl_stack(lang: &str) -> bool {
     )
 }
 
+/// Return true when `lang` is a language where the Phase 2e sparse
+/// coverage re-ranker should be auto-enabled when the user has not set
+/// `CODELENS_RANK_SPARSE_TERM_WEIGHT` explicitly.
+///
+/// This is deliberately narrower than `language_supports_nl_stack`.
+/// Phase 2e remains positive on Rust-style codebases, but the JS/TS
+/// measurement arc now says:
+///
+/// - `facebook/jest`: marginal positive
+/// - `microsoft/typescript`: negative
+/// - `vercel/next.js`: slight negative
+/// - `facebook/react` production subtree: exact no-op
+///
+/// So the conservative Phase 2m policy is:
+/// - keep Phase 2b/2c auto-eligible on JS/TS
+/// - disable **auto** Phase 2e on JS/TS
+/// - preserve explicit env override for users who want to force it on
+pub(super) fn language_supports_sparse_weighting(lang: &str) -> bool {
+    matches!(
+        lang.trim().to_ascii_lowercase().as_str(),
+        "rs" | "rust"
+            | "cpp"
+            | "cc"
+            | "cxx"
+            | "c++"
+            | "c"
+            | "go"
+            | "golang"
+            | "java"
+            | "kt"
+            | "kotlin"
+            | "scala"
+            | "cs"
+            | "csharp"
+    )
+}
+
 /// Combined decision: Phase 2j auto mode is enabled AND the detected
-/// language supports the stack. This is the `else` branch that
-/// `nl_tokens_enabled`, `api_calls_enabled`, and
-/// `sparse_weighting_enabled` (via its re-export) fall through to
-/// when no explicit env var is set.
+/// language supports the Phase 2b/2c embedding-hint stack. This is the
+/// `else` branch that `nl_tokens_enabled` and `api_calls_enabled` fall
+/// through to when no explicit env var is set.
 pub(super) fn auto_hint_should_enable() -> bool {
     if !auto_hint_mode_enabled() {
         return false;
@@ -1978,6 +2028,22 @@ pub(super) fn auto_hint_should_enable() -> bool {
     match auto_hint_lang() {
         Some(lang) => language_supports_nl_stack(&lang),
         None => false, // auto mode on but no language tag → conservative OFF
+    }
+}
+
+/// Combined decision: Phase 2j auto mode is enabled AND the detected
+/// language supports auto-enabling the Phase 2e sparse re-ranker.
+///
+/// This intentionally differs from `auto_hint_should_enable()` after the
+/// §8.15 / §8.16 / §8.17 JS/TS follow-up arc: embedding hints stay
+/// auto-on for JS/TS, but sparse weighting does not.
+pub(super) fn auto_sparse_should_enable() -> bool {
+    if !auto_hint_mode_enabled() {
+        return false;
+    }
+    match auto_hint_lang() {
+        Some(lang) => language_supports_sparse_weighting(&lang),
+        None => false,
     }
 }
 
@@ -2119,10 +2185,7 @@ pub(super) fn contains_format_specifier(s: &str) -> bool {
     while i + 1 < len {
         if bytes[i] == b'%' {
             let next = bytes[i + 1];
-            if matches!(
-                next,
-                b's' | b'd' | b'r' | b'f' | b'x' | b'o' | b'i' | b'u'
-            ) {
+            if matches!(next, b's' | b'd' | b'r' | b'f' | b'x' | b'o' | b'i' | b'u') {
                 return true;
             }
         }
@@ -2238,11 +2301,7 @@ fn extract_nl_tokens(source: &str, start: usize, end: usize) -> Option<String> {
 /// so unit tests can run deterministically without touching env vars
 /// (which would race with the other tests that set
 /// `CODELENS_EMBED_HINT_INCLUDE_COMMENTS`).
-pub(super) fn extract_nl_tokens_inner(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<String> {
+pub(super) fn extract_nl_tokens_inner(source: &str, start: usize, end: usize) -> Option<String> {
     if start >= source.len() || end > source.len() || start >= end {
         return None;
     }
@@ -2346,10 +2405,7 @@ fn api_calls_enabled() -> bool {
 /// than PascalCase detection but deliberate — the goal is high-precision
 /// Type filtering, not lexical accuracy.
 pub(super) fn is_static_method_ident(ident: &str) -> bool {
-    ident
-        .chars()
-        .next()
-        .is_some_and(|c| c.is_ascii_uppercase())
+    ident.chars().next().is_some_and(|c| c.is_ascii_uppercase())
 }
 
 /// Collect `Type::method` call sites from a function body.
@@ -2383,11 +2439,7 @@ fn extract_api_calls(source: &str, start: usize, end: usize) -> Option<String> {
 ///
 /// Duplicate `Type::method` pairs collapse into a single entry to avoid
 /// biasing the embedding toward repeated calls in hot loops.
-pub(super) fn extract_api_calls_inner(
-    source: &str,
-    start: usize,
-    end: usize,
-) -> Option<String> {
+pub(super) fn extract_api_calls_inner(source: &str, start: usize, end: usize) -> Option<String> {
     if start >= source.len() || end > source.len() || start >= end {
         return None;
     }
@@ -3093,6 +3145,28 @@ fn skip_things() {
     }
 
     #[test]
+    fn language_supports_sparse_weighting_classifies_correctly() {
+        assert!(super::language_supports_sparse_weighting("rs"));
+        assert!(super::language_supports_sparse_weighting("rust"));
+        assert!(super::language_supports_sparse_weighting("cpp"));
+        assert!(super::language_supports_sparse_weighting("go"));
+        assert!(super::language_supports_sparse_weighting("java"));
+        assert!(super::language_supports_sparse_weighting("kotlin"));
+        assert!(super::language_supports_sparse_weighting("csharp"));
+
+        assert!(!super::language_supports_sparse_weighting("ts"));
+        assert!(!super::language_supports_sparse_weighting("typescript"));
+        assert!(!super::language_supports_sparse_weighting("tsx"));
+        assert!(!super::language_supports_sparse_weighting("js"));
+        assert!(!super::language_supports_sparse_weighting("javascript"));
+        assert!(!super::language_supports_sparse_weighting("jsx"));
+        assert!(!super::language_supports_sparse_weighting("py"));
+        assert!(!super::language_supports_sparse_weighting("python"));
+        assert!(!super::language_supports_sparse_weighting("klingon"));
+        assert!(!super::language_supports_sparse_weighting(""));
+    }
+
+    #[test]
     fn auto_hint_should_enable_requires_both_gate_and_supported_lang() {
         let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev_auto = std::env::var("CODELENS_EMBED_HINT_AUTO").ok();
@@ -3120,6 +3194,15 @@ fn skip_things() {
             "gate-on + lang=rust must enable"
         );
 
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "typescript");
+        }
+        assert!(
+            super::auto_hint_should_enable(),
+            "gate-on + lang=typescript must keep Phase 2b/2c enabled"
+        );
+
         // Case 3: gate on, unsupported language → disable
         unsafe {
             std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
@@ -3141,6 +3224,69 @@ fn skip_things() {
         );
 
         // Restore
+        unsafe {
+            match prev_auto {
+                Some(v) => std::env::set_var("CODELENS_EMBED_HINT_AUTO", v),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO"),
+            }
+            match prev_lang {
+                Some(v) => std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", v),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO_LANG"),
+            }
+        }
+    }
+
+    #[test]
+    fn auto_sparse_should_enable_requires_both_gate_and_sparse_supported_lang() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let prev_auto = std::env::var("CODELENS_EMBED_HINT_AUTO").ok();
+        let prev_lang = std::env::var("CODELENS_EMBED_HINT_AUTO_LANG").ok();
+
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "0");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "rust");
+        }
+        assert!(
+            !super::auto_sparse_should_enable(),
+            "gate-off (explicit =0) must disable sparse auto gate"
+        );
+
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "rust");
+        }
+        assert!(
+            super::auto_sparse_should_enable(),
+            "gate-on + lang=rust must enable sparse auto gate"
+        );
+
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "typescript");
+        }
+        assert!(
+            !super::auto_sparse_should_enable(),
+            "gate-on + lang=typescript must keep sparse auto gate disabled"
+        );
+
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "python");
+        }
+        assert!(
+            !super::auto_sparse_should_enable(),
+            "gate-on + lang=python must keep sparse auto gate disabled"
+        );
+
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+            std::env::remove_var("CODELENS_EMBED_HINT_AUTO_LANG");
+        }
+        assert!(
+            !super::auto_sparse_should_enable(),
+            "gate-on + no lang tag must keep sparse auto gate disabled"
+        );
+
         unsafe {
             match prev_auto {
                 Some(v) => std::env::set_var("CODELENS_EMBED_HINT_AUTO", v),
@@ -3243,28 +3389,52 @@ fn skip_things() {
         assert!(super::looks_like_meta_annotation("TODO: fix later"));
         assert!(super::looks_like_meta_annotation("todo handle edge case"));
         assert!(super::looks_like_meta_annotation("FIXME this is broken"));
-        assert!(super::looks_like_meta_annotation("HACK: workaround for bug"));
+        assert!(super::looks_like_meta_annotation(
+            "HACK: workaround for bug"
+        ));
         assert!(super::looks_like_meta_annotation("XXX not implemented yet"));
-        assert!(super::looks_like_meta_annotation("BUG in the upstream crate"));
+        assert!(super::looks_like_meta_annotation(
+            "BUG in the upstream crate"
+        ));
         assert!(super::looks_like_meta_annotation("REVIEW before merging"));
-        assert!(super::looks_like_meta_annotation("REFACTOR this block later"));
+        assert!(super::looks_like_meta_annotation(
+            "REFACTOR this block later"
+        ));
         assert!(super::looks_like_meta_annotation("TEMP: remove before v2"));
-        assert!(super::looks_like_meta_annotation("DEPRECATED use new_api instead"));
+        assert!(super::looks_like_meta_annotation(
+            "DEPRECATED use new_api instead"
+        ));
         // Leading whitespace inside the comment body is handled.
-        assert!(super::looks_like_meta_annotation("   TODO: with leading ws"));
+        assert!(super::looks_like_meta_annotation(
+            "   TODO: with leading ws"
+        ));
     }
 
     #[test]
     fn looks_like_meta_annotation_preserves_behaviour_prefixes() {
         // Explicitly-excluded prefixes — kept as behaviour signal.
-        assert!(!super::looks_like_meta_annotation("NOTE: this branch handles empty input"));
-        assert!(!super::looks_like_meta_annotation("WARN: overflow is possible"));
-        assert!(!super::looks_like_meta_annotation("SAFETY: caller must hold the lock"));
-        assert!(!super::looks_like_meta_annotation("PANIC: unreachable by construction"));
+        assert!(!super::looks_like_meta_annotation(
+            "NOTE: this branch handles empty input"
+        ));
+        assert!(!super::looks_like_meta_annotation(
+            "WARN: overflow is possible"
+        ));
+        assert!(!super::looks_like_meta_annotation(
+            "SAFETY: caller must hold the lock"
+        ));
+        assert!(!super::looks_like_meta_annotation(
+            "PANIC: unreachable by construction"
+        ));
         // Behaviour-descriptive prose must pass through.
-        assert!(!super::looks_like_meta_annotation("parse json body from request"));
-        assert!(!super::looks_like_meta_annotation("walk directory respecting gitignore"));
-        assert!(!super::looks_like_meta_annotation("compute cosine similarity between vectors"));
+        assert!(!super::looks_like_meta_annotation(
+            "parse json body from request"
+        ));
+        assert!(!super::looks_like_meta_annotation(
+            "walk directory respecting gitignore"
+        ));
+        assert!(!super::looks_like_meta_annotation(
+            "compute cosine similarity between vectors"
+        ));
         // Empty / edge inputs
         assert!(!super::looks_like_meta_annotation(""));
         assert!(!super::looks_like_meta_annotation("   "));
@@ -3304,14 +3474,8 @@ fn handle_request() {
         );
         // TODO / FIXME must NOT appear anywhere in the hint (they were
         // rejected before join, so they cannot be there even partially).
-        assert!(
-            !hint.contains("TODO"),
-            "TODO annotation leaked: {hint}"
-        );
-        assert!(
-            !hint.contains("FIXME"),
-            "FIXME annotation leaked: {hint}"
-        );
+        assert!(!hint.contains("TODO"), "TODO annotation leaked: {hint}");
+        assert!(!hint.contains("FIXME"), "FIXME annotation leaked: {hint}");
     }
 
     #[test]
@@ -3386,7 +3550,9 @@ fn handle() {
         assert!(super::contains_format_specifier("value: {x:.2f}"));
         assert!(super::contains_format_specifier("{}"));
         // Plain prose with no format specifier
-        assert!(!super::contains_format_specifier("skip comments and string literals"));
+        assert!(!super::contains_format_specifier(
+            "skip comments and string literals"
+        ));
         assert!(!super::contains_format_specifier("failed to open database"));
         // JSON-like brace content should not count as a format specifier
         // (multi-word content inside braces)
@@ -3396,17 +3562,35 @@ fn handle() {
     #[test]
     fn looks_like_error_or_log_prefix_rejects_common_patterns() {
         assert!(super::looks_like_error_or_log_prefix("Invalid URL format"));
-        assert!(super::looks_like_error_or_log_prefix("Cannot decode response"));
+        assert!(super::looks_like_error_or_log_prefix(
+            "Cannot decode response"
+        ));
         assert!(super::looks_like_error_or_log_prefix("could not open file"));
-        assert!(super::looks_like_error_or_log_prefix("Failed to send request"));
-        assert!(super::looks_like_error_or_log_prefix("Expected int, got str"));
-        assert!(super::looks_like_error_or_log_prefix("sending request to server"));
-        assert!(super::looks_like_error_or_log_prefix("received response headers"));
-        assert!(super::looks_like_error_or_log_prefix("starting worker pool"));
+        assert!(super::looks_like_error_or_log_prefix(
+            "Failed to send request"
+        ));
+        assert!(super::looks_like_error_or_log_prefix(
+            "Expected int, got str"
+        ));
+        assert!(super::looks_like_error_or_log_prefix(
+            "sending request to server"
+        ));
+        assert!(super::looks_like_error_or_log_prefix(
+            "received response headers"
+        ));
+        assert!(super::looks_like_error_or_log_prefix(
+            "starting worker pool"
+        ));
         // Real behaviour strings must pass
-        assert!(!super::looks_like_error_or_log_prefix("parse json body from request"));
-        assert!(!super::looks_like_error_or_log_prefix("compute cosine similarity between vectors"));
-        assert!(!super::looks_like_error_or_log_prefix("walk directory tree respecting gitignore"));
+        assert!(!super::looks_like_error_or_log_prefix(
+            "parse json body from request"
+        ));
+        assert!(!super::looks_like_error_or_log_prefix(
+            "compute cosine similarity between vectors"
+        ));
+        assert!(!super::looks_like_error_or_log_prefix(
+            "walk directory tree respecting gitignore"
+        ));
     }
 
     #[test]
@@ -3499,7 +3683,9 @@ fn do_work() {
         // a literal is rejected iff it is a format specifier OR an error/log
         // prefix (the production filter uses exactly this disjunction).
         assert!(super::should_reject_literal_strict("Invalid URL %s"));
-        assert!(super::should_reject_literal_strict("sending request to server"));
+        assert!(super::should_reject_literal_strict(
+            "sending request to server"
+        ));
         assert!(super::should_reject_literal_strict("value: {x:.2f}"));
         // Real behaviour strings pass through.
         assert!(!super::should_reject_literal_strict(
@@ -3579,18 +3765,12 @@ fn read_config() {
         // If any API hint is produced, it must not contain the snake_case
         // module prefixes; otherwise `None` is acceptable too.
         if let Some(hint) = hint {
-            assert!(
-                !hint.contains("std::fs"),
-                "lowercase module leaked: {hint}"
-            );
+            assert!(!hint.contains("std::fs"), "lowercase module leaked: {hint}");
             assert!(
                 !hint.contains("fs::read_to_string"),
                 "module-prefixed free function leaked: {hint}"
             );
-            assert!(
-                !hint.contains("crate::util"),
-                "crate path leaked: {hint}"
-            );
+            assert!(!hint.contains("crate::util"), "crate path leaked: {hint}");
         }
     }
 
