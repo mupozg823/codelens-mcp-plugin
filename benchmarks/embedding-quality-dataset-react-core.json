@@ -1,0 +1,206 @@
+[
+  {
+    "query": "create a context object with a default value",
+    "expected_symbol": "createContext",
+    "expected_file_suffix": "ReactContext.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "pass a ref through a function component",
+    "expected_symbol": "forwardRef",
+    "expected_file_suffix": "ReactForwardRef.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "store local state in a function component",
+    "expected_symbol": "useState",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "manage state with a reducer in a function component",
+    "expected_symbol": "useReducer",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "hold a mutable ref object that persists across renders",
+    "expected_symbol": "useRef",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "run a side effect after rendering",
+    "expected_symbol": "useEffect",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "run an effect synchronously after DOM mutations",
+    "expected_symbol": "useLayoutEffect",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "memoize a callback function between renders",
+    "expected_symbol": "useCallback",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "memoize an expensive computed value",
+    "expected_symbol": "useMemo",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "customize the instance value exposed by a ref",
+    "expected_symbol": "useImperativeHandle",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "label a custom hook in React DevTools",
+    "expected_symbol": "useDebugValue",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "mark an update as a transition and get pending state",
+    "expected_symbol": "useTransition",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "defer updating a value to avoid blocking rendering",
+    "expected_symbol": "useDeferredValue",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "generate a stable unique id for accessibility attributes",
+    "expected_symbol": "useId",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "subscribe to an external store with a snapshot getter",
+    "expected_symbol": "useSyncExternalStore",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "create an event callback that reads the latest props and state",
+    "expected_symbol": "useEffectEvent",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "optimistically update UI state while an async action runs",
+    "expected_symbol": "useOptimistic",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "track the result and pending state of a form action",
+    "expected_symbol": "useActionState",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "create a ref object for class components or elements",
+    "expected_symbol": "createRef",
+    "expected_file_suffix": "ReactCreateRef.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "skip re-rendering a component when props are unchanged",
+    "expected_symbol": "memo",
+    "expected_file_suffix": "ReactMemo.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "load a component lazily with dynamic import",
+    "expected_symbol": "lazy",
+    "expected_file_suffix": "ReactLazy.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "schedule a state update as non-urgent work",
+    "expected_symbol": "startTransition",
+    "expected_file_suffix": "ReactStartTransition.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "flush updates in a React test",
+    "expected_symbol": "act",
+    "expected_file_suffix": "ReactAct.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "create a React element without JSX",
+    "expected_symbol": "createElement",
+    "expected_file_suffix": "jsx/ReactJSXElement.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "clone an existing React element with new props",
+    "expected_symbol": "cloneElement",
+    "expected_file_suffix": "jsx/ReactJSXElement.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "check whether a value is a valid React element",
+    "expected_symbol": "isValidElement",
+    "expected_file_suffix": "jsx/ReactJSXElement.js",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "state hook",
+    "expected_symbol": "useState",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "effect hook",
+    "expected_symbol": "useEffect",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "memoized callback",
+    "expected_symbol": "useCallback",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "deferred value",
+    "expected_symbol": "useDeferredValue",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "lazy component",
+    "expected_symbol": "lazy",
+    "expected_file_suffix": "ReactLazy.js",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "transition update",
+    "expected_symbol": "startTransition",
+    "expected_file_suffix": "ReactStartTransition.js",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "useState",
+    "expected_symbol": "useState",
+    "expected_file_suffix": "ReactHooks.js",
+    "query_type": "identifier"
+  },
+  {
+    "query": "createElement",
+    "expected_symbol": "createElement",
+    "expected_file_suffix": "jsx/ReactJSXElement.js",
+    "query_type": "identifier"
+  }
+]

@@ -1,0 +1,1472 @@
+{
+  "project": "/tmp/react-core-bench",
+  "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-embed-quality-xmxzf2rt/react-core-bench",
+  "isolated_copy": true,
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-react-core.json",
+  "dataset_size": 34,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.12254901960784315,
+      "acc1": 0.11764705882352941,
+      "acc3": 0.11764705882352941,
+      "acc5": 0.11764705882352941,
+      "avg_elapsed_ms": 136.31558823529411,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.5,
+          "acc3": 0.5,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 122.16499999999999
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.12179487179487179,
+          "acc1": 0.11538461538461539,
+          "acc3": 0.11538461538461539,
+          "acc5": 0.11538461538461539,
+          "avg_elapsed_ms": 139.9053846153846
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.0,
+          "acc1": 0.0,
+          "acc3": 0.0,
+          "acc5": 0.0,
+          "avg_elapsed_ms": 125.47666666666667
+        }
+      },
+      "rows": [
+        {
+          "query": "create a context object with a default value",
+          "query_type": "natural_language",
+          "expected_symbol": "createContext",
+          "expected_file_suffix": "ReactContext.js",
+          "rank": null,
+          "elapsed_ms": 147.0,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "noopCacheSignal",
+            "file": "ReactCacheClient.js"
+          }
+        },
+        {
+          "query": "pass a ref through a function component",
+          "query_type": "natural_language",
+          "expected_symbol": "forwardRef",
+          "expected_file_suffix": "ReactForwardRef.js",
+          "rank": null,
+          "elapsed_ms": 139.65,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "ref",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "store local state in a function component",
+          "query_type": "natural_language",
+          "expected_symbol": "useState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 137.69,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "defineKeyPropWarningGetter",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "manage state with a reducer in a function component",
+          "query_type": "natural_language",
+          "expected_symbol": "useReducer",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 129.14,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "if",
+            "file": "ReactAct.js"
+          }
+        },
+        {
+          "query": "hold a mutable ref object that persists across renders",
+          "query_type": "natural_language",
+          "expected_symbol": "useRef",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 134.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "refObject",
+            "file": "ReactCreateRef.js"
+          }
+        },
+        {
+          "query": "run a side effect after rendering",
+          "query_type": "natural_language",
+          "expected_symbol": "useEffect",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 143.04,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getElementKey",
+            "file": "ReactChildren.js"
+          }
+        },
+        {
+          "query": "run an effect synchronously after DOM mutations",
+          "query_type": "natural_language",
+          "expected_symbol": "useLayoutEffect",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 146.03,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "thenable",
+            "file": "ReactAct.js"
+          }
+        },
+        {
+          "query": "memoize a callback function between renders",
+          "query_type": "natural_language",
+          "expected_symbol": "useCallback",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 151.4,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "jsxProd",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "memoize an expensive computed value",
+          "query_type": "natural_language",
+          "expected_symbol": "useMemo",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 155.99,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getElementKey",
+            "file": "ReactChildren.js"
+          }
+        },
+        {
+          "query": "customize the instance value exposed by a ref",
+          "query_type": "natural_language",
+          "expected_symbol": "useImperativeHandle",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 133.2,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "noopCacheSignal",
+            "file": "ReactCacheClient.js"
+          }
+        },
+        {
+          "query": "label a custom hook in React DevTools",
+          "query_type": "natural_language",
+          "expected_symbol": "useDebugValue",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 143.2,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "noopCacheSignal",
+            "file": "ReactCacheClient.js"
+          }
+        },
+        {
+          "query": "mark an update as a transition and get pending state",
+          "query_type": "natural_language",
+          "expected_symbol": "useTransition",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 156.87,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "PureComponent",
+            "file": "ReactBaseClasses.js"
+          }
+        },
+        {
+          "query": "defer updating a value to avoid blocking rendering",
+          "query_type": "natural_language",
+          "expected_symbol": "useDeferredValue",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 132.38,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "noopCacheSignal",
+            "file": "ReactCacheClient.js"
+          }
+        },
+        {
+          "query": "generate a stable unique id for accessibility attributes",
+          "query_type": "natural_language",
+          "expected_symbol": "useId",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 141.9,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "noopCacheSignal",
+            "file": "ReactCacheClient.js"
+          }
+        },
+        {
+          "query": "subscribe to an external store with a snapshot getter",
+          "query_type": "natural_language",
+          "expected_symbol": "useSyncExternalStore",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 131.55,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "addTransitionType",
+            "file": "ReactTransitionType.js"
+          }
+        },
+        {
+          "query": "create an event callback that reads the latest props and state",
+          "query_type": "natural_language",
+          "expected_symbol": "useEffectEvent",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 137.15,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getElementKey",
+            "file": "ReactChildren.js"
+          }
+        },
+        {
+          "query": "optimistically update UI state while an async action runs",
+          "query_type": "natural_language",
+          "expected_symbol": "useOptimistic",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 129.91,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getElementKey",
+            "file": "ReactChildren.js"
+          }
+        },
+        {
+          "query": "track the result and pending state of a form action",
+          "query_type": "natural_language",
+          "expected_symbol": "useActionState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 132.04,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "noopCacheSignal",
+            "file": "ReactCacheClient.js"
+          }
+        },
+        {
+          "query": "create a ref object for class components or elements",
+          "query_type": "natural_language",
+          "expected_symbol": "createRef",
+          "expected_file_suffix": "ReactCreateRef.js",
+          "rank": 6,
+          "elapsed_ms": 140.6,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "ref",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "skip re-rendering a component when props are unchanged",
+          "query_type": "natural_language",
+          "expected_symbol": "memo",
+          "expected_file_suffix": "ReactMemo.js",
+          "rank": null,
+          "elapsed_ms": 141.63,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "releaseAsyncTransition",
+            "file": "ReactStartTransition.js"
+          }
+        },
+        {
+          "query": "load a component lazily with dynamic import",
+          "query_type": "natural_language",
+          "expected_symbol": "lazy",
+          "expected_file_suffix": "ReactLazy.js",
+          "rank": null,
+          "elapsed_ms": 132.9,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "noopCacheSignal",
+            "file": "ReactCacheClient.js"
+          }
+        },
+        {
+          "query": "schedule a state update as non-urgent work",
+          "query_type": "natural_language",
+          "expected_symbol": "startTransition",
+          "expected_file_suffix": "ReactStartTransition.js",
+          "rank": null,
+          "elapsed_ms": 144.47,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "noopCacheSignal",
+            "file": "ReactCacheClient.js"
+          }
+        },
+        {
+          "query": "flush updates in a React test",
+          "query_type": "natural_language",
+          "expected_symbol": "act",
+          "expected_file_suffix": "ReactAct.js",
+          "rank": null,
+          "elapsed_ms": 134.29,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "noopCacheSignal",
+            "file": "ReactCacheClient.js"
+          }
+        },
+        {
+          "query": "create a React element without JSX",
+          "query_type": "natural_language",
+          "expected_symbol": "createElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 1,
+          "elapsed_ms": 139.88,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "createElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "clone an existing React element with new props",
+          "query_type": "natural_language",
+          "expected_symbol": "cloneElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 1,
+          "elapsed_ms": 137.88,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "cloneElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "check whether a value is a valid React element",
+          "query_type": "natural_language",
+          "expected_symbol": "isValidElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 1,
+          "elapsed_ms": 143.48,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "isValidElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "state hook",
+          "query_type": "short_phrase",
+          "expected_symbol": "useState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 129.31,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "dispatcher",
+            "file": "ReactHooks.js"
+          }
+        },
+        {
+          "query": "effect hook",
+          "query_type": "short_phrase",
+          "expected_symbol": "useEffect",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 122.5,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "dispatcher",
+            "file": "ReactHooks.js"
+          }
+        },
+        {
+          "query": "memoized callback",
+          "query_type": "short_phrase",
+          "expected_symbol": "useCallback",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 125.37,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "if",
+            "file": "ReactForwardRef.js"
+          }
+        },
+        {
+          "query": "deferred value",
+          "query_type": "short_phrase",
+          "expected_symbol": "useDeferredValue",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 123.98,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "fulfilledValue",
+            "file": "ReactChildren.js"
+          }
+        },
+        {
+          "query": "lazy component",
+          "query_type": "short_phrase",
+          "expected_symbol": "lazy",
+          "expected_file_suffix": "ReactLazy.js",
+          "rank": null,
+          "elapsed_ms": 126.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "warningKey",
+            "file": "ReactNoopUpdateQueue.js"
+          }
+        },
+        {
+          "query": "transition update",
+          "query_type": "short_phrase",
+          "expected_symbol": "startTransition",
+          "expected_file_suffix": "ReactStartTransition.js",
+          "rank": null,
+          "elapsed_ms": 125.43,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "transition",
+            "file": "ReactTransitionType.js"
+          }
+        },
+        {
+          "query": "useState",
+          "query_type": "identifier",
+          "expected_symbol": "useState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 116.75,
+          "candidate_count": 4,
+          "top_candidate": {
+            "name": "previousStackTraceLimit",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "createElement",
+          "query_type": "identifier",
+          "expected_symbol": "createElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 1,
+          "elapsed_ms": 127.58,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "createElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.08431372549019608,
+      "acc1": 0.058823529411764705,
+      "acc3": 0.08823529411764706,
+      "acc5": 0.11764705882352941,
+      "avg_elapsed_ms": 15.383823529411764,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.5,
+          "acc3": 0.5,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 11.965
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.07179487179487179,
+          "acc1": 0.038461538461538464,
+          "acc3": 0.07692307692307693,
+          "acc5": 0.11538461538461539,
+          "avg_elapsed_ms": 16.01423076923077
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.0,
+          "acc1": 0.0,
+          "acc3": 0.0,
+          "acc5": 0.0,
+          "avg_elapsed_ms": 13.791666666666666
+        }
+      },
+      "rows": [
+        {
+          "query": "create a context object with a default value",
+          "query_type": "natural_language",
+          "expected_symbol": "createContext",
+          "expected_file_suffix": "ReactContext.js",
+          "rank": null,
+          "elapsed_ms": 15.42,
+          "candidate_count": 16,
+          "top_candidate": {
+            "name": "elementRefGetterWithDeprecationWarning",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "pass a ref through a function component",
+          "query_type": "natural_language",
+          "expected_symbol": "forwardRef",
+          "expected_file_suffix": "ReactForwardRef.js",
+          "rank": null,
+          "elapsed_ms": 15.07,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "hasValidRef",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "store local state in a function component",
+          "query_type": "natural_language",
+          "expected_symbol": "useState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 18.1,
+          "candidate_count": 8,
+          "top_candidate": {
+            "name": "componentName",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "manage state with a reducer in a function component",
+          "query_type": "natural_language",
+          "expected_symbol": "useReducer",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 14.45,
+          "candidate_count": 11,
+          "top_candidate": {
+            "name": "elementRefGetterWithDeprecationWarning",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "hold a mutable ref object that persists across renders",
+          "query_type": "natural_language",
+          "expected_symbol": "useRef",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 15.81,
+          "candidate_count": 16,
+          "top_candidate": {
+            "name": "ref",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "run a side effect after rendering",
+          "query_type": "natural_language",
+          "expected_symbol": "useEffect",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 16.02,
+          "candidate_count": 5,
+          "top_candidate": {
+            "name": "jsxProdSignatureRunningInDevWithStaticChildren",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "run an effect synchronously after DOM mutations",
+          "query_type": "natural_language",
+          "expected_symbol": "useLayoutEffect",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 17.96,
+          "candidate_count": 5,
+          "top_candidate": {
+            "name": "jsxProdSignatureRunningInDevWithStaticChildren",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "memoize a callback function between renders",
+          "query_type": "natural_language",
+          "expected_symbol": "useCallback",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 14.99,
+          "candidate_count": 0,
+          "top_candidate": null
+        },
+        {
+          "query": "memoize an expensive computed value",
+          "query_type": "natural_language",
+          "expected_symbol": "useMemo",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 14.18,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "fulfilledValue",
+            "file": "ReactChildren.js"
+          }
+        },
+        {
+          "query": "customize the instance value exposed by a ref",
+          "query_type": "natural_language",
+          "expected_symbol": "useImperativeHandle",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 20.63,
+          "candidate_count": 15,
+          "top_candidate": {
+            "name": "ref",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "label a custom hook in React DevTools",
+          "query_type": "natural_language",
+          "expected_symbol": "useDebugValue",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 17.19,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "ReactElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "mark an update as a transition and get pending state",
+          "query_type": "natural_language",
+          "expected_symbol": "useTransition",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 14.89,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "releaseAsyncTransition",
+            "file": "ReactStartTransition.js"
+          }
+        },
+        {
+          "query": "defer updating a value to avoid blocking rendering",
+          "query_type": "natural_language",
+          "expected_symbol": "useDeferredValue",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 16.47,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "fulfilledValue",
+            "file": "ReactChildren.js"
+          }
+        },
+        {
+          "query": "generate a stable unique id for accessibility attributes",
+          "query_type": "natural_language",
+          "expected_symbol": "useId",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 15.17,
+          "candidate_count": 4,
+          "top_candidate": {
+            "name": "beforeExample",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "subscribe to an external store with a snapshot getter",
+          "query_type": "natural_language",
+          "expected_symbol": "useSyncExternalStore",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 15.64,
+          "candidate_count": 6,
+          "top_candidate": {
+            "name": "elementRefGetterWithDeprecationWarning",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "create an event callback that reads the latest props and state",
+          "query_type": "natural_language",
+          "expected_symbol": "useEffectEvent",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 15.09,
+          "candidate_count": 15,
+          "top_candidate": {
+            "name": "cloneAndReplaceKey",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "optimistically update UI state while an async action runs",
+          "query_type": "natural_language",
+          "expected_symbol": "useOptimistic",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 15.58,
+          "candidate_count": 11,
+          "top_candidate": {
+            "name": "releaseAsyncTransition",
+            "file": "ReactStartTransition.js"
+          }
+        },
+        {
+          "query": "track the result and pending state of a form action",
+          "query_type": "natural_language",
+          "expected_symbol": "useActionState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 14.04,
+          "candidate_count": 12,
+          "top_candidate": {
+            "name": "trackActualOwner",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "create a ref object for class components or elements",
+          "query_type": "natural_language",
+          "expected_symbol": "createRef",
+          "expected_file_suffix": "ReactCreateRef.js",
+          "rank": 5,
+          "elapsed_ms": 14.43,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "createElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "skip re-rendering a component when props are unchanged",
+          "query_type": "natural_language",
+          "expected_symbol": "memo",
+          "expected_file_suffix": "ReactMemo.js",
+          "rank": null,
+          "elapsed_ms": 17.09,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "jsxProdSignatureRunningInDevWithDynamicChildren",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "load a component lazily with dynamic import",
+          "query_type": "natural_language",
+          "expected_symbol": "lazy",
+          "expected_file_suffix": "ReactLazy.js",
+          "rank": null,
+          "elapsed_ms": 14.35,
+          "candidate_count": 14,
+          "top_candidate": {
+            "name": "jsxProdSignatureRunningInDevWithDynamicChildren",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "schedule a state update as non-urgent work",
+          "query_type": "natural_language",
+          "expected_symbol": "startTransition",
+          "expected_file_suffix": "ReactStartTransition.js",
+          "rank": null,
+          "elapsed_ms": 16.01,
+          "candidate_count": 15,
+          "top_candidate": {
+            "name": "updatedFibersCount",
+            "file": "ReactStartTransition.js"
+          }
+        },
+        {
+          "query": "flush updates in a React test",
+          "query_type": "natural_language",
+          "expected_symbol": "act",
+          "expected_file_suffix": "ReactAct.js",
+          "rank": null,
+          "elapsed_ms": 17.96,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "ReactElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "create a React element without JSX",
+          "query_type": "natural_language",
+          "expected_symbol": "createElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 2,
+          "elapsed_ms": 15.94,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "ReactElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "clone an existing React element with new props",
+          "query_type": "natural_language",
+          "expected_symbol": "cloneElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 6,
+          "elapsed_ms": 15.34,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "cloneAndReplaceKey",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "check whether a value is a valid React element",
+          "query_type": "natural_language",
+          "expected_symbol": "isValidElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 1,
+          "elapsed_ms": 18.55,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "isValidElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "state hook",
+          "query_type": "short_phrase",
+          "expected_symbol": "useState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 15.88,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "didWarnStateUpdateForUnmountedComponent",
+            "file": "ReactNoopUpdateQueue.js"
+          }
+        },
+        {
+          "query": "effect hook",
+          "query_type": "short_phrase",
+          "expected_symbol": "useEffect",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 13.29,
+          "candidate_count": 2,
+          "top_candidate": {
+            "name": "dispatcher",
+            "file": "ReactHooks.js"
+          }
+        },
+        {
+          "query": "memoized callback",
+          "query_type": "short_phrase",
+          "expected_symbol": "useCallback",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 11.76,
+          "candidate_count": 0,
+          "top_candidate": null
+        },
+        {
+          "query": "deferred value",
+          "query_type": "short_phrase",
+          "expected_symbol": "useDeferredValue",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 11.79,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "fulfilledValue",
+            "file": "ReactChildren.js"
+          }
+        },
+        {
+          "query": "lazy component",
+          "query_type": "short_phrase",
+          "expected_symbol": "lazy",
+          "expected_file_suffix": "ReactLazy.js",
+          "rank": null,
+          "elapsed_ms": 15.94,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "isLazyType",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "transition update",
+          "query_type": "short_phrase",
+          "expected_symbol": "startTransition",
+          "expected_file_suffix": "ReactStartTransition.js",
+          "rank": null,
+          "elapsed_ms": 14.09,
+          "candidate_count": 17,
+          "top_candidate": {
+            "name": "releaseAsyncTransition",
+            "file": "ReactStartTransition.js"
+          }
+        },
+        {
+          "query": "useState",
+          "query_type": "identifier",
+          "expected_symbol": "useState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 12.47,
+          "candidate_count": 0,
+          "top_candidate": null
+        },
+        {
+          "query": "createElement",
+          "query_type": "identifier",
+          "expected_symbol": "createElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 1,
+          "elapsed_ms": 11.46,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "createElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.12254901960784315,
+      "acc1": 0.11764705882352941,
+      "acc3": 0.11764705882352941,
+      "acc5": 0.11764705882352941,
+      "avg_elapsed_ms": 123.72441176470589,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.5,
+          "acc3": 0.5,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 12.4
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.12179487179487179,
+          "acc1": 0.11538461538461539,
+          "acc3": 0.11538461538461539,
+          "acc5": 0.11538461538461539,
+          "avg_elapsed_ms": 131.24807692307692
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.0,
+          "acc1": 0.0,
+          "acc3": 0.0,
+          "acc5": 0.0,
+          "avg_elapsed_ms": 128.23
+        }
+      },
+      "rows": [
+        {
+          "query": "create a context object with a default value",
+          "query_type": "natural_language",
+          "expected_symbol": "createContext",
+          "expected_file_suffix": "ReactContext.js",
+          "rank": null,
+          "elapsed_ms": 128.01,
+          "candidate_count": 16,
+          "top_candidate": {
+            "name": "defaultProps",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "pass a ref through a function component",
+          "query_type": "natural_language",
+          "expected_symbol": "forwardRef",
+          "expected_file_suffix": "ReactForwardRef.js",
+          "rank": null,
+          "elapsed_ms": 129.28,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "ref",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "store local state in a function component",
+          "query_type": "natural_language",
+          "expected_symbol": "useState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 127.81,
+          "candidate_count": 9,
+          "top_candidate": {
+            "name": "didAwaitActCall",
+            "file": "ReactAct.js"
+          }
+        },
+        {
+          "query": "manage state with a reducer in a function component",
+          "query_type": "natural_language",
+          "expected_symbol": "useReducer",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 123.24,
+          "candidate_count": 11,
+          "top_candidate": {
+            "name": "elementRefGetterWithDeprecationWarning",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "hold a mutable ref object that persists across renders",
+          "query_type": "natural_language",
+          "expected_symbol": "useRef",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 124.04,
+          "candidate_count": 16,
+          "top_candidate": {
+            "name": "refObject",
+            "file": "ReactCreateRef.js"
+          }
+        },
+        {
+          "query": "run a side effect after rendering",
+          "query_type": "natural_language",
+          "expected_symbol": "useEffect",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 127.75,
+          "candidate_count": 6,
+          "top_candidate": {
+            "name": "if",
+            "file": "ReactForwardRef.js"
+          }
+        },
+        {
+          "query": "run an effect synchronously after DOM mutations",
+          "query_type": "natural_language",
+          "expected_symbol": "useLayoutEffect",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 129.98,
+          "candidate_count": 5,
+          "top_candidate": {
+            "name": "jsxProdSignatureRunningInDevWithStaticChildren",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "memoize a callback function between renders",
+          "query_type": "natural_language",
+          "expected_symbol": "useCallback",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 127.06,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "if",
+            "file": "ReactForwardRef.js"
+          }
+        },
+        {
+          "query": "memoize an expensive computed value",
+          "query_type": "natural_language",
+          "expected_symbol": "useMemo",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 129.29,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "fulfilledValue",
+            "file": "ReactChildren.js"
+          }
+        },
+        {
+          "query": "customize the instance value exposed by a ref",
+          "query_type": "natural_language",
+          "expected_symbol": "useImperativeHandle",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 132.76,
+          "candidate_count": 15,
+          "top_candidate": {
+            "name": "ref",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "label a custom hook in React DevTools",
+          "query_type": "natural_language",
+          "expected_symbol": "useDebugValue",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 129.23,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "if",
+            "file": "ReactAct.js"
+          }
+        },
+        {
+          "query": "mark an update as a transition and get pending state",
+          "query_type": "natural_language",
+          "expected_symbol": "useTransition",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 130.98,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "transition",
+            "file": "ReactTransitionType.js"
+          }
+        },
+        {
+          "query": "defer updating a value to avoid blocking rendering",
+          "query_type": "natural_language",
+          "expected_symbol": "useDeferredValue",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 129.86,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "ReactNoopUpdateQueue",
+            "file": "ReactNoopUpdateQueue.js"
+          }
+        },
+        {
+          "query": "generate a stable unique id for accessibility attributes",
+          "query_type": "natural_language",
+          "expected_symbol": "useId",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 133.67,
+          "candidate_count": 4,
+          "top_candidate": {
+            "name": "beforeExample",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "subscribe to an external store with a snapshot getter",
+          "query_type": "natural_language",
+          "expected_symbol": "useSyncExternalStore",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 124.52,
+          "candidate_count": 6,
+          "top_candidate": {
+            "name": "elementRefGetterWithDeprecationWarning",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "create an event callback that reads the latest props and state",
+          "query_type": "natural_language",
+          "expected_symbol": "useEffectEvent",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 134.28,
+          "candidate_count": 15,
+          "top_candidate": {
+            "name": "thenable",
+            "file": "ReactAct.js"
+          }
+        },
+        {
+          "query": "optimistically update UI state while an async action runs",
+          "query_type": "natural_language",
+          "expected_symbol": "useOptimistic",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 142.3,
+          "candidate_count": 13,
+          "top_candidate": {
+            "name": "didWarnStateUpdateForUnmountedComponent",
+            "file": "ReactNoopUpdateQueue.js"
+          }
+        },
+        {
+          "query": "track the result and pending state of a form action",
+          "query_type": "natural_language",
+          "expected_symbol": "useActionState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 130.7,
+          "candidate_count": 13,
+          "top_candidate": {
+            "name": "trackActualOwner",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "create a ref object for class components or elements",
+          "query_type": "natural_language",
+          "expected_symbol": "createRef",
+          "expected_file_suffix": "ReactCreateRef.js",
+          "rank": 6,
+          "elapsed_ms": 139.31,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "ref",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "skip re-rendering a component when props are unchanged",
+          "query_type": "natural_language",
+          "expected_symbol": "memo",
+          "expected_file_suffix": "ReactMemo.js",
+          "rank": null,
+          "elapsed_ms": 136.27,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "if",
+            "file": "ReactAct.js"
+          }
+        },
+        {
+          "query": "load a component lazily with dynamic import",
+          "query_type": "natural_language",
+          "expected_symbol": "lazy",
+          "expected_file_suffix": "ReactLazy.js",
+          "rank": null,
+          "elapsed_ms": 134.9,
+          "candidate_count": 14,
+          "top_candidate": {
+            "name": "jsxProdSignatureRunningInDevWithDynamicChildren",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "schedule a state update as non-urgent work",
+          "query_type": "natural_language",
+          "expected_symbol": "startTransition",
+          "expected_file_suffix": "ReactStartTransition.js",
+          "rank": null,
+          "elapsed_ms": 128.42,
+          "candidate_count": 15,
+          "top_candidate": {
+            "name": "ReactNoopUpdateQueue",
+            "file": "ReactNoopUpdateQueue.js"
+          }
+        },
+        {
+          "query": "flush updates in a React test",
+          "query_type": "natural_language",
+          "expected_symbol": "act",
+          "expected_file_suffix": "ReactAct.js",
+          "rank": null,
+          "elapsed_ms": 135.19,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "ReactNoopUpdateQueue",
+            "file": "ReactNoopUpdateQueue.js"
+          }
+        },
+        {
+          "query": "create a React element without JSX",
+          "query_type": "natural_language",
+          "expected_symbol": "createElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 1,
+          "elapsed_ms": 137.15,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "createElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "clone an existing React element with new props",
+          "query_type": "natural_language",
+          "expected_symbol": "cloneElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 1,
+          "elapsed_ms": 133.76,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "cloneElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "check whether a value is a valid React element",
+          "query_type": "natural_language",
+          "expected_symbol": "isValidElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 1,
+          "elapsed_ms": 132.69,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "isValidElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "state hook",
+          "query_type": "short_phrase",
+          "expected_symbol": "useState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 127.54,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "didWarnStateUpdateForUnmountedComponent",
+            "file": "ReactNoopUpdateQueue.js"
+          }
+        },
+        {
+          "query": "effect hook",
+          "query_type": "short_phrase",
+          "expected_symbol": "useEffect",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 135.4,
+          "candidate_count": 2,
+          "top_candidate": {
+            "name": "dispatcher",
+            "file": "ReactHooks.js"
+          }
+        },
+        {
+          "query": "memoized callback",
+          "query_type": "short_phrase",
+          "expected_symbol": "useCallback",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 124.78,
+          "candidate_count": 0,
+          "top_candidate": null
+        },
+        {
+          "query": "deferred value",
+          "query_type": "short_phrase",
+          "expected_symbol": "useDeferredValue",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 131.16,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "fulfilledValue",
+            "file": "ReactChildren.js"
+          }
+        },
+        {
+          "query": "lazy component",
+          "query_type": "short_phrase",
+          "expected_symbol": "lazy",
+          "expected_file_suffix": "ReactLazy.js",
+          "rank": null,
+          "elapsed_ms": 125.34,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "isLazyType",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        },
+        {
+          "query": "transition update",
+          "query_type": "short_phrase",
+          "expected_symbol": "startTransition",
+          "expected_file_suffix": "ReactStartTransition.js",
+          "rank": null,
+          "elapsed_ms": 125.16,
+          "candidate_count": 17,
+          "top_candidate": {
+            "name": "transition",
+            "file": "ReactTransitionType.js"
+          }
+        },
+        {
+          "query": "useState",
+          "query_type": "identifier",
+          "expected_symbol": "useState",
+          "expected_file_suffix": "ReactHooks.js",
+          "rank": null,
+          "elapsed_ms": 12.88,
+          "candidate_count": 0,
+          "top_candidate": null
+        },
+        {
+          "query": "createElement",
+          "query_type": "identifier",
+          "expected_symbol": "createElement",
+          "expected_file_suffix": "jsx/ReactJSXElement.js",
+          "rank": 1,
+          "elapsed_ms": 11.92,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "createElement",
+            "file": "jsx/ReactJSXElement.js"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": 0.03823529411764706,
+    "acc1_delta": 0.058823529411764705,
+    "acc3_delta": 0.029411764705882346,
+    "acc5_delta": 0.0
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": 0.05,
+      "acc1_delta": 0.07692307692307693,
+      "acc3_delta": 0.038461538461538464,
+      "acc5_delta": 0.0
+    },
+    "short_phrase": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    }
+  }
+}

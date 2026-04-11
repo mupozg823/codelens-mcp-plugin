@@ -126,6 +126,18 @@ python3 benchmarks/embedding-quality.py . \
   - `microsoft/typescript` 34-query TS/JS dataset (Phase 3d, landed)
   - 4-arm A/B 측정 완료 — 전체 결과와 해석은 `docs/benchmarks.md` §8.15 참조
   - arm별 결과 파일: `benchmarks/embedding-quality-v1.6-phase3d-typescript-{baseline,2e-only,2b2c-only,stacked}.json`
+- `benchmarks/embedding-quality-dataset-next-js.json`
+  - `vercel/next.js` 34-query TS/JS typical-app dataset (Phase 3e, landed)
+  - 4-arm A/B 측정 완료 — 전체 결과와 해석은 `docs/benchmarks.md` §8.16 참조
+  - arm별 결과 파일: `benchmarks/embedding-quality-v1.6-phase3e-next-js-{baseline,2e-only,2b2c-only,stacked}.json`
+- `benchmarks/embedding-quality-dataset-react-core.json`
+  - `facebook/react` production subtree 34-query JS runtime dataset (Phase 3f, landed)
+  - 4-arm A/B 측정 완료 — 전체 결과와 해석은 `docs/benchmarks.md` §8.17 참조
+  - arm별 결과 파일: `benchmarks/embedding-quality-v1.6-phase3f-react-core-{baseline,2e-only,2b2c-only,stacked}.json`
+- `benchmarks/embedding-quality-dataset-django.json`
+  - `django/django` 34-query Python framework dataset (Phase 3g, landed)
+  - 4-arm A/B 측정 완료 — 전체 결과와 해석은 `docs/benchmarks.md` §8.18 참조
+  - arm별 결과 파일: `benchmarks/embedding-quality-v1.6-phase3g-django-{baseline,2e-only,2b2c-only,stacked}.json`
 
 리포트는 전체 평균 외에 질의 유형별 MRR / Acc@k와 hybrid uplift도 같이 보여준다.
 
