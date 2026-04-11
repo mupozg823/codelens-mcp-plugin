@@ -170,6 +170,12 @@ pub(crate) struct AppState {
     pub(crate) secondary_projects: Mutex<HashMap<String, SecondaryProject>>,
     #[cfg(feature = "http")]
     pub(crate) session_store: Option<crate::server::session::SessionStore>,
+    /// Phase 4b (§capability-reporting follow-up): wall-clock time
+    /// when the daemon started, as an RFC 3339 UTC string. Exposed
+    /// by `get_capabilities` alongside `binary_build_time` so
+    /// downstream tooling can detect "daemon is running an image
+    /// older than the disk binary" — the Phase 4a failure mode.
+    daemon_started_at: String,
 }
 
 /// A read-only project registered for cross-project queries.
@@ -178,7 +184,47 @@ pub(crate) struct SecondaryProject {
     pub index: Arc<SymbolIndex>,
 }
 
+/// Phase 4b (§capability-reporting follow-up): format the current
+/// wall-clock time as an RFC 3339 UTC string
+/// (`YYYY-MM-DDTHH:MM:SSZ`). Used to stamp `daemon_started_at` at
+/// `AppState::build` so `get_capabilities` can report how long the
+/// daemon has been alive vs the binary's own build timestamp.
+///
+/// Pure integer arithmetic, no `chrono` dependency — mirrors the
+/// same algorithm as `build.rs::format_iso8601_utc`.
+fn now_rfc3339_utc() -> String {
+    let unix_seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let days = (unix_seconds / 86_400) as i64;
+    let secs_in_day = unix_seconds % 86_400;
+    let hour = secs_in_day / 3600;
+    let minute = (secs_in_day % 3600) / 60;
+    let second = secs_in_day % 60;
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = y + (if m <= 2 { 1 } else { 0 });
+    format!("{year:04}-{m:02}-{d:02}T{hour:02}:{minute:02}:{second:02}Z")
+}
+
 impl AppState {
+    /// RFC 3339 UTC timestamp when the daemon started — captured
+    /// once at `AppState::build` and inherited by worker clones.
+    /// Phase 4b (§capability-reporting): exposed in
+    /// `get_capabilities` so downstream callers can detect "daemon
+    /// has been running since before the binary was rebuilt".
+    pub(crate) fn daemon_started_at(&self) -> &str {
+        &self.daemon_started_at
+    }
+
     fn now_ms() -> u64 {
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -1249,6 +1295,10 @@ impl AppState {
             embedding: std::sync::RwLock::new(None),
             #[cfg(feature = "http")]
             session_store: None,
+            // Phase 4b: workers inherit the parent daemon's start
+            // time so `get_capabilities` stays consistent across
+            // clones.
+            daemon_started_at: self.daemon_started_at.clone(),
         }
     }
 
@@ -1326,6 +1376,7 @@ impl AppState {
             embedding: std::sync::RwLock::new(None),
             #[cfg(feature = "http")]
             session_store: None,
+            daemon_started_at: now_rfc3339_utc(),
         }
     }
 

@@ -1,6 +1,7 @@
 mod analysis_queue;
 mod artifact_store;
 mod authority;
+mod build_info;
 mod client_profile;
 mod dispatch;
 mod dispatch_access;

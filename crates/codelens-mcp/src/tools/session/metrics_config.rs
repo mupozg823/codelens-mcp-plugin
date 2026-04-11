@@ -379,6 +379,22 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         unavailable.push(json!({"feature": "cached_queries", "reason": "index may be stale — call refresh_symbol_index"}));
     }
 
+    // Phase 4b (§capability-reporting follow-up): surface build
+    // metadata + daemon start time. Downstream tooling can compare
+    // `binary_build_time` against `daemon_started_at` to detect the
+    // exact Phase 4a failure mode ("daemon has been running since
+    // before the binary was rebuilt"). We expose both as RFC 3339
+    // UTC strings, plus the git SHA / version for human-readable
+    // identification. A nested `binary_build_info` object keeps the
+    // top-level JSON from growing unbounded while still letting
+    // CLI scrapers jq-path directly.
+    let binary_build_info = json!({
+        "version": crate::build_info::BUILD_VERSION,
+        "git_sha": crate::build_info::BUILD_GIT_SHA,
+        "git_dirty": crate::build_info::build_git_dirty(),
+        "build_time": crate::build_info::BUILD_TIME,
+    });
+
     Ok((
         json!({
             "language": language,
@@ -402,6 +418,14 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "indexed_files": index_stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),
             "available": available,
             "unavailable": unavailable,
+            // Phase 4b: flat top-level fields for easy jq-scraping
+            // plus the nested `binary_build_info` object for
+            // grouped access.
+            "binary_version": crate::build_info::BUILD_VERSION,
+            "binary_git_sha": crate::build_info::BUILD_GIT_SHA,
+            "binary_build_time": crate::build_info::BUILD_TIME,
+            "daemon_started_at": state.daemon_started_at(),
+            "binary_build_info": binary_build_info,
         }),
         success_meta(BackendKind::Config, 0.95),
     ))
@@ -786,5 +810,38 @@ mod capability_reporting_tests {
                 "{profile:?} must expose index_embeddings (Phase 4a §capability-reporting AC4)"
             );
         }
+    }
+
+    /// Phase 4b AC5: the compile-time `build_info` constants must
+    /// be populated (non-empty) so `get_capabilities` can report
+    /// meaningful values. A `"unknown"` git SHA is acceptable
+    /// (e.g. `cargo publish` outside a git checkout), but an empty
+    /// string would indicate the build script did not run.
+    #[test]
+    fn build_info_constants_are_populated() {
+        assert!(
+            !crate::build_info::BUILD_VERSION.is_empty(),
+            "BUILD_VERSION must match CARGO_PKG_VERSION and be non-empty"
+        );
+        assert!(
+            !crate::build_info::BUILD_GIT_SHA.is_empty(),
+            "BUILD_GIT_SHA must be non-empty (at minimum 'unknown')"
+        );
+        assert!(
+            !crate::build_info::BUILD_TIME.is_empty(),
+            "BUILD_TIME must be non-empty RFC 3339 UTC"
+        );
+        // BUILD_TIME shape: YYYY-MM-DDTHH:MM:SSZ, 20 chars
+        assert_eq!(
+            crate::build_info::BUILD_TIME.len(),
+            20,
+            "BUILD_TIME should be exactly 20 chars (RFC 3339 UTC)"
+        );
+        assert!(
+            crate::build_info::BUILD_TIME.ends_with('Z'),
+            "BUILD_TIME should end with Z (UTC marker)"
+        );
+        // BUILD_GIT_DIRTY parses to bool without panicking
+        let _ = crate::build_info::build_git_dirty();
     }
 }

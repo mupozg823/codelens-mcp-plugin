@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 4b — binary build metadata in `get_capabilities`)
+
+Adds four new fields to `get_capabilities` so downstream tooling can detect the exact Phase 4a failure mode (a long-running daemon's memory image is drift-stale relative to the source + disk binary) in a single tool call. The trigger was Phase 4a debugging: a running daemon PID 78810 was launched 2026-04-10 21:20, Phase 4a commit `5a3082c` landed 2026-04-11, and the user had no single-call way to confirm whether the daemon they were hitting actually contained the fix. This PR closes that gap.
+
+- **`build.rs` at `crates/codelens-mcp/build.rs`** — new build script emits three `cargo:rustc-env=KEY=VALUE` directives at compile time:
+  - `CODELENS_BUILD_GIT_SHA` — short git SHA (7 chars), or `"unknown"` if the source tree is not a git checkout or `git` is unavailable
+  - `CODELENS_BUILD_TIME` — RFC 3339 UTC timestamp of the build, formatted by pure integer arithmetic (Howard Hinnant's days-since-civil-epoch algorithm) to avoid a `chrono` build-dependency
+  - `CODELENS_BUILD_GIT_DIRTY` — `"true"` / `"false"` depending on whether `git status --porcelain` had any uncommitted changes at build time
+  - Re-runs on `.git/HEAD` and `.git/refs/heads` changes, so a local rebuild after `git commit` picks up the new SHA
+- **`crates/codelens-mcp/src/build_info.rs`** — new module exposes compile-time constants via `env!()` (infallible — build script guarantees they exist):
+  - `BUILD_VERSION` (`env!("CARGO_PKG_VERSION")`)
+  - `BUILD_GIT_SHA` (`env!("CODELENS_BUILD_GIT_SHA")`)
+  - `BUILD_TIME` (`env!("CODELENS_BUILD_TIME")`)
+  - `BUILD_GIT_DIRTY` raw string + `build_git_dirty() -> bool` parser
+- **`AppState::daemon_started_at: String`** — new field captured once at `AppState::build()` via a new helper `now_rfc3339_utc()` (same algorithm as `build.rs::format_iso8601_utc`, so build time and daemon start time use the same string format and can be compared lexicographically). `clone_for_worker()` inherits the parent daemon's start time so worker clones report a consistent value. Accessed via new `AppState::daemon_started_at()` method.
+- **`get_capabilities` payload additions** (`crates/codelens-mcp/src/tools/session/metrics_config.rs`): five new top-level fields, all additive (no existing field removed or renamed):
+  - `binary_version` (string)
+  - `binary_git_sha` (string, 7 chars or `"unknown"`)
+  - `binary_build_time` (RFC 3339 UTC string)
+  - `daemon_started_at` (RFC 3339 UTC string)
+  - `binary_build_info` (nested object with `version` / `git_sha` / `git_dirty` / `build_time` — flat fields are for jq scrapers, nested object is for grouped consumers)
+- **Stale-daemon detection recipe**: downstream tooling (CLI dashboards, agent harnesses) can now do a single `get_capabilities` call and compare `binary_build_time` against `daemon_started_at`. If `daemon_started_at` is older than `binary_build_time`, the daemon is running a pre-build image — exactly the Phase 4a failure mode. The comparison is lexicographic on RFC 3339 UTC strings (safe for ASCII-ordered timestamps, no date parsing required).
+- **Smoke test (HTTP, `/tmp/ripgrep-ext` daemon via `--profile builder-minimal --transport http --port 7837`)**:
+  ```
+  lsp_attached: True
+  semantic_in_available: True              ← Phase 4a fix still live
+  binary_version: 1.5.0
+  binary_git_sha: 5a3082c                  ← matches current HEAD
+  binary_build_time: 2026-04-11T19:31:31Z
+  daemon_started_at: 2026-04-11T19:32:21Z  ← daemon restarted 50s after build → fresh
+  git_dirty: true                          ← Phase 4b changes were uncommitted at build
+  ```
+  `daemon_started_at > binary_build_time` → daemon is current. If a future rebuild produces a new binary while this daemon keeps running, `daemon_started_at` will stay at the same timestamp while `binary_build_time` advances, letting tooling detect the drift.
+- **One new unit test** `build_info_constants_are_populated`: asserts all four build-info constants are non-empty, `BUILD_TIME` is exactly 20 chars (`YYYY-MM-DDTHH:MM:SSZ` format), ends with `Z` (UTC marker), and `build_git_dirty()` parses without panicking. MCP test count: 153 → **154**.
+- **No API breakage**: all additions are new top-level fields. The existing Phase 4a `unavailable[].status` field and all pre-Phase-4a fields are unchanged. Existing `get_capabilities` consumers (composite workflow tools) continue to parse correctly.
+
 ### Fixed (Phase 4a — capability reporting correctness + LSP daemon PATH)
 
 Fixes a set of reporting-layer bugs where `get_capabilities` misrepresented the actual runtime state of CodeLens for both LSP and semantic_search. None of these were performance or index-corruption issues — the retrieval engine and on-disk index were always healthy. The bugs lived in the telemetry / surface-policy layer, which caused downstream agents to avoid perfectly functional features.
