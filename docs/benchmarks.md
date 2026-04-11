@@ -604,6 +604,93 @@ Measurement artefacts live in `benchmarks/embedding-quality-v1.5-phase2f-aug436-
 - **External-repo validation** — same 4-arm A/B against a medium-size external Rust / TypeScript repo with a hand-built 20–40 query `expected_symbol` dataset. Required before flipping any default ON.
 - **Phase 2d — Model swap** — CodeSearchNet-INT8 → E5-large / BGE-base. Biggest ceiling uplift but binary-size + migration cost. The Phase 2b+2c+2e stacked arm (now validated on two query distributions) is the baseline to beat before committing.
 
+### 8.6 v1.5 Phase 2g experiment — Phase 2e parameter sweep
+
+**Hypothesis**: The §8.4 pilot used `CODELENS_RANK_SPARSE_THRESHOLD=40` and `CODELENS_RANK_SPARSE_MAX=40` as the very first tuning values. Before locking these numbers into the v1.5 recommended configuration (§8.5), sweep a 3×3 grid on the 89-query self dataset to confirm that `(40, 40)` is a data-backed optimum rather than a lucky first guess, and to map the shape of the loss surface in a band around it.
+
+**Setup**: Same release binary from `ebb5115` (post-Phase 2f merge), same bundled CodeSearchNet-INT8 model, same 89-query self dataset, same `--isolated-copy` workflow. Phase 2e **solo** (Phase 2b/2c disabled) so the sweep isolates the re-ranker's own loss surface without noise from the embedding-text extractors. Grid:
+
+- `CODELENS_RANK_SPARSE_THRESHOLD` ∈ {30, 40, 50}
+- `CODELENS_RANK_SPARSE_MAX` ∈ {30, 40, 50}
+- 9 cells + 1 baseline (all gates off) = 10 runs
+
+**Result — `get_ranked_context` hybrid MRR grid** (baseline = 0.5716):
+
+| max \\ threshold |         30 |         40 |     50 |
+| ---------------- | ---------: | ---------: | -----: |
+| **30**           |     0.5784 |     0.5751 | 0.5734 |
+| **40**           | **0.5787** | **0.5787** | 0.5735 |
+| **50**           | **0.5787** | **0.5787** | 0.5746 |
+
+**hybrid Acc@3 grid** (baseline = 0.607):
+
+| max \\ threshold |        30 |        40 |    50 |
+| ---------------- | --------: | --------: | ----: |
+| **30**           |     0.640 |     0.618 | 0.607 |
+| **40**           | **0.640** | **0.640** | 0.607 |
+| **50**           | **0.640** | **0.640** | 0.618 |
+
+**NL Acc@3 grid** (baseline = 0.491):
+
+| max \\ threshold |        30 |        40 |    50 |
+| ---------------- | --------: | --------: | ----: |
+| **30**           |     0.545 |     0.509 | 0.491 |
+| **40**           | **0.545** | **0.545** | 0.491 |
+| **50**           | **0.545** | **0.545** | 0.509 |
+
+**identifier Acc@1** stays at **0.800 across every cell** — the sub-2-token short-circuit holds regardless of threshold/max.
+
+**Key observations**:
+
+1. **A four-cell plateau at `(t ∈ {30, 40}, m ∈ {40, 50})`** hits the exact same hybrid MRR (0.5787), hybrid Acc@3 (0.640), and NL Acc@3 (0.545). Whenever the threshold lets enough candidates receive a bonus _and_ the max is large enough to flip top-1 ordering, further loosening either knob has zero additional effect — all the rescuable queries have already been rescued. This is a clean **diminishing-returns boundary**, not a noisy ridge.
+2. **`t = 50` cliff**: at threshold 50 the hybrid MRR drops to 0.5734–0.5746 and NL Acc@3 collapses from 0.545 to 0.491 (baseline) except in one corner (`m = 50`, NL Acc@3 0.509). 50% is clearly over the "typical number of discriminative tokens that appear in a self-dataset NL query", so fewer candidates qualify for the bonus and the re-ranker has nothing to re-order. **50 is the empirical upper bound for this dataset.**
+3. **`(t = 30, m = 30)` is inside the plateau on NL Acc@3 (0.545) but slightly below on hybrid MRR (0.5784 vs 0.5787)**: the smallest max just barely has enough re-ordering power for the hybrid metric, confirming that max needs to be at least ≈ 40 for the full effect on short-phrase + natural_language queries.
+4. **Identifier queries never regress** (0.800 → 0.800 in every cell), confirming that the short-circuit gate continues to hold at the full parameter range and the sparse pass is effectively invisible to pure identifier traffic.
+
+**Stacked-arm verification** — to confirm that the plateau is not solo-specific, a second stacked run was performed with `(t = 30, m = 40)` (a plateau alternative) and compared against the §8.4 stacked measurement at `(t = 40, m = 40)`:
+
+| Metric (stacked, 2b + 2c + 2e) | t = 40 m = 40 (§8.4) | t = 30 m = 40 (Phase 2g) |    diff |
+| ------------------------------ | -------------------: | -----------------------: | ------: |
+| hybrid MRR                     |               0.5857 |                   0.5854 | −0.0003 |
+| hybrid Acc@1                   |               0.5056 |                   0.5056 |  ±0.000 |
+| hybrid Acc@3                   |               0.6517 |                   0.6517 |  ±0.000 |
+| NL hybrid MRR                  |               0.4901 |                   0.4897 | −0.0004 |
+| NL Acc@1                       |               0.4000 |                   0.4000 |  ±0.000 |
+| NL Acc@3                       |               0.5455 |                   0.5455 |  ±0.000 |
+| identifier Acc@1               |               0.8000 |                   0.8000 |  ±0.000 |
+
+The two plateau points produce essentially identical stacked results (MRR differs in the fourth decimal, everything else bit-identical). The plateau is real and applies to the stacked regime as well as the solo regime.
+
+**Verdict — `(threshold = 40, max = 40)` is the data-backed optimum**:
+
+- It lives inside the four-cell plateau and matches the §8.4 first-guess exactly, so the §8.5 recommendation holds without change.
+- It is the **minimal-aggressive** choice inside the plateau: any lower threshold or higher max costs nothing but also gains nothing, and the conservative defaults are easier to explain to users ("40% of query tokens must match, bonus caps at 40").
+- The empirical safe zone for tuning is `threshold ∈ [30, 40]` × `max ∈ [40, 50]`. Anything at threshold 50 trades NL accuracy for nothing, and `max = 30` loses a little hybrid MRR for no offsetting gain.
+- Projects that want to experiment can safely swap `(40, 40)` for `(30, 40)` or `(40, 50)` and expect the same stacked performance on this dataset. Anything outside the plateau box should be re-measured before shipping.
+
+**Reproduce the full sweep**:
+
+```bash
+for T in 30 40 50; do
+  for M in 30 40 50; do
+    CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+    CODELENS_RANK_SPARSE_THRESHOLD=$T \
+    CODELENS_RANK_SPARSE_MAX=$M \
+    CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+    python3 benchmarks/embedding-quality.py . --isolated-copy \
+      --dataset benchmarks/embedding-quality-dataset-self.json \
+      --output benchmarks/embedding-quality-v1.5-phase2g-t${T}m${M}.json
+  done
+done
+```
+
+Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase2g-{baseline,t30m30..t50m50,stacked-t30m40}.json` (ten solo cells + one stacked verification).
+
+**Still-open work (unchanged from §8.5)**:
+
+- **External-repo validation** — hand-built 20–40 query dataset on a second codebase. Still the single gate before flipping any env default to ON.
+- **Phase 2d — Model swap** — the stacked-arm `(t = 40, m = 40)` ceiling (hybrid MRR 0.586 on 89, +7.1 % relative on 436) is the formal baseline to beat before taking on the binary-size cost.
+
 ---
 
 ## 9. See Also
