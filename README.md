@@ -237,7 +237,8 @@ cargo build --release --no-default-features   # without ML model (23MB)
 cargo build --release --features http         # add HTTP transport
 
 # Tests (341)
-cargo test -p codelens-core && cargo test -p codelens-mcp
+# Tests (411)
+cargo test -p codelens-engine && cargo test -p codelens-mcp
 ```
 
 For repo-local verification and harness-facing setup, see `EVAL_CONTRACT.md` and `docs/platform-setup.md`.

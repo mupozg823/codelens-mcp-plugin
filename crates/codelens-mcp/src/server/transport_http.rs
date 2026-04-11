@@ -110,8 +110,28 @@ pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("CodeLens MCP HTTP server listening on http://{addr}/mcp");
 
-    let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app).await?;
+    let listener = tokio::net::TcpListener::bind(addr).await.map_err(|error| {
+        tracing::error!(
+            port,
+            project_root = %state.current_project_scope(),
+            git_sha = crate::build_info::BUILD_GIT_SHA,
+            daemon_started_at = state.daemon_started_at(),
+            error = %error,
+            "failed to bind CodeLens MCP HTTP listener"
+        );
+        error
+    })?;
+    axum::serve(listener, app).await.map_err(|error| {
+        tracing::error!(
+            port,
+            project_root = %state.current_project_scope(),
+            git_sha = crate::build_info::BUILD_GIT_SHA,
+            daemon_started_at = state.daemon_started_at(),
+            error = %error,
+            "CodeLens MCP HTTP server exited with error"
+        );
+        error
+    })?;
     Ok(())
 }
 
