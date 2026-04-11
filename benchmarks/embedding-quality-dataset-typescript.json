@@ -1,0 +1,206 @@
+[
+  {
+    "query": "create a TypeScript program from source files and options",
+    "expected_symbol": "createProgram",
+    "expected_file_suffix": "compiler/program.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "parse a TypeScript source file into an AST",
+    "expected_symbol": "createSourceFile",
+    "expected_file_suffix": "compiler/parser.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "tokenize TypeScript source code into a stream",
+    "expected_symbol": "createScanner",
+    "expected_file_suffix": "compiler/scanner.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "print a TypeScript AST back to source text",
+    "expected_symbol": "createPrinter",
+    "expected_file_suffix": "compiler/emitter.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "build a type checker for a program",
+    "expected_symbol": "createTypeChecker",
+    "expected_file_suffix": "compiler/checker.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "visit every child node of an AST node",
+    "expected_symbol": "forEachChild",
+    "expected_file_suffix": "compiler/parser.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "get line start offsets in a source file",
+    "expected_symbol": "getLineStarts",
+    "expected_file_suffix": "compiler/scanner.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "get syntactic diagnostics from a program",
+    "expected_symbol": "getSyntacticDiagnostics",
+    "expected_file_suffix": "compiler/program.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "get semantic diagnostics for type errors",
+    "expected_symbol": "getSemanticDiagnostics",
+    "expected_file_suffix": "compiler/program.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "get suggestion diagnostics for code quality hints",
+    "expected_symbol": "getSuggestionDiagnostics",
+    "expected_file_suffix": "compiler/program.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "create a language service for editor integration",
+    "expected_symbol": "createLanguageService",
+    "expected_file_suffix": "services/services.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "get autocomplete suggestions at a cursor position",
+    "expected_symbol": "getCompletionsAtPosition",
+    "expected_file_suffix": "services/completions.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "find the definition site of a symbol at a position",
+    "expected_symbol": "getDefinitionAtPosition",
+    "expected_file_suffix": "services/services.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "find all references to a symbol in the project",
+    "expected_symbol": "findReferences",
+    "expected_file_suffix": "services/services.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "compute automatic code fixes for diagnostics",
+    "expected_symbol": "getCodeFixesAtPosition",
+    "expected_file_suffix": "services/services.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "rename a symbol and find all its occurrences",
+    "expected_symbol": "getRenameInfo",
+    "expected_file_suffix": "server/session.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "format a source range according to style rules",
+    "expected_symbol": "getFormattingEditsForRange",
+    "expected_file_suffix": "server/session.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "compute collapsible regions for an outline view",
+    "expected_symbol": "getOutliningSpans",
+    "expected_file_suffix": "server/session.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "provide parameter hints while typing a function call",
+    "expected_symbol": "getSignatureHelpItems",
+    "expected_file_suffix": "server/session.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "enum of every TypeScript AST node kind",
+    "expected_symbol": "SyntaxKind",
+    "expected_file_suffix": "compiler/types.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "interface that represents a parsed source file",
+    "expected_symbol": "SourceFile",
+    "expected_file_suffix": "compiler/types.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "flags describing properties of an AST node",
+    "expected_symbol": "NodeFlags",
+    "expected_file_suffix": "compiler/types.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "enum of control flow analysis states",
+    "expected_symbol": "FlowFlags",
+    "expected_file_suffix": "compiler/types.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "emit target ECMAScript version",
+    "expected_symbol": "ScriptTarget",
+    "expected_file_suffix": "compiler/types.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "module system kind for output code",
+    "expected_symbol": "ModuleKind",
+    "expected_file_suffix": "compiler/types.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "top-level type checker interface",
+    "expected_symbol": "TypeChecker",
+    "expected_file_suffix": "compiler/types.ts",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "create a scanner",
+    "expected_symbol": "createScanner",
+    "expected_file_suffix": "compiler/scanner.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "create a source file",
+    "expected_symbol": "createSourceFile",
+    "expected_file_suffix": "compiler/parser.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "language service",
+    "expected_symbol": "createLanguageService",
+    "expected_file_suffix": "services/services.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "type checker",
+    "expected_symbol": "createTypeChecker",
+    "expected_file_suffix": "compiler/checker.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "rename info",
+    "expected_symbol": "getRenameInfo",
+    "expected_file_suffix": "server/session.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "completions at position",
+    "expected_symbol": "getCompletionsAtPosition",
+    "expected_file_suffix": "services/completions.ts",
+    "query_type": "short_phrase"
+  },
+  {
+    "query": "SyntaxKind",
+    "expected_symbol": "SyntaxKind",
+    "expected_file_suffix": "compiler/types.ts",
+    "query_type": "identifier"
+  },
+  {
+    "query": "TypeChecker",
+    "expected_symbol": "TypeChecker",
+    "expected_file_suffix": "compiler/types.ts",
+    "query_type": "identifier"
+  }
+]

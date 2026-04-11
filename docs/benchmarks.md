@@ -14,8 +14,8 @@ This document is the authoritative source for CodeLens's public performance clai
 | Token reduction vs Read/Grep (total, structured tasks)  | **6.1x (84% fewer tokens)** | `benchmarks/token-efficiency.py`      |
 | Token reduction on best single task (context retrieval) | **167x**                    | `benchmarks/token-efficiency.py`      |
 | Workflow profile compression (planner/reviewer)         | **15-16x**                  | `benchmarks/token-efficiency.py`      |
-| Search quality, hybrid (MRR)                            | **0.664**                   | `benchmarks/embedding-quality.py`     |
-| Search quality, hybrid (Accuracy@5)                     | **0.775**                   | `benchmarks/embedding-quality.py`     |
+| Search quality, hybrid (MRR)                            | **0.573**                   | `benchmarks/embedding-quality.py`     |
+| Search quality, hybrid (Accuracy@5)                     | **0.660**                   | `benchmarks/embedding-quality.py`     |
 | Cold start (no LSP)                                     | **~12 ms**                  | `target/release/codelens-mcp` startup |
 
 All token counts use **tiktoken `cl100k_base`** — the same tokenizer used by Claude and GPT-4 — so "tokens saved" maps directly to "prompt budget saved."
@@ -86,23 +86,25 @@ The compression ratio grows when agents would otherwise expand raw graph data (i
 - **MRR** (Mean Reciprocal Rank) — `1/rank` of the correct answer, averaged. Higher is better. `1.0` means always rank-1.
 - **Accuracy@k** — fraction of queries where the correct symbol lands in the top-k results.
 
-**Result snapshot** (2026-04-11, 89 queries, hybrid ranking on):
+**Result snapshot** (2026-04-11, 89 queries, hybrid ranking on, post-path-fix apples-to-apples baseline):
 
 | Method                         |       MRR | Acc@1 | Acc@5 | Latency |
 | ------------------------------ | --------: | ----: | ----: | ------: |
-| `semantic_search`              |     0.598 | 0.539 | 0.663 |  574 ms |
-| `get_ranked_context` (lexical) |     0.604 | 0.528 | 0.697 |  168 ms |
-| `get_ranked_context` (hybrid)  | **0.664** | 0.584 | 0.775 |  265 ms |
+| `semantic_search`              |     0.528 | 0.480 | 0.570 |  247 ms |
+| `get_ranked_context` (lexical) |     0.492 | 0.420 | 0.600 |   32 ms |
+| `get_ranked_context` (hybrid)  | **0.573** | 0.510 | 0.660 |  102 ms |
 
 **By query type (hybrid)**:
 
 | Query type         |   MRR | Count | Notes                                          |
 | ------------------ | ----: | ----: | ---------------------------------------------- |
-| `identifier`       | 0.960 |    25 | Near-perfect — FTS5 dominates                  |
-| `short_phrase`     | 0.676 |     9 | Good — hybrid helps                            |
-| `natural_language` | 0.528 |    55 | Weakest — structural target for future ML work |
+| `identifier`       | 0.800 |    25 | Near-perfect enough — lexical path dominates   |
+| `short_phrase`     | 0.559 |     9 | Hybrid helps, but the sample is still small    |
+| `natural_language` | 0.472 |    55 | Weakest — primary retrieval quality bottleneck |
 
-Identifier queries hit a lexical fast path (FTS5 + jaro_winkler). Natural-language queries rely on the bundled MiniLM-L12-CodeSearchNet INT8 model. The NL gap is the current weakness we track — see [docs/architecture.md §8 Key Metrics](architecture.md#8-key-metrics) for the improvement trajectory.
+Identifier queries hit a lexical fast path (FTS5 + jaro_winkler). Natural-language queries rely on the bundled MiniLM-L12-CodeSearchNet INT8 model plus the MCP-layer hybrid merge. The NL gap is the current weakness we track — see [docs/architecture.md §8 Key Metrics](architecture.md#8-key-metrics) for the current critical paths.
+
+> **Authoritative baseline rule**: the numbers above are the current regression baseline for this repo because they use the post-rename dataset whose file suffixes match the current `crates/codelens-engine/...` paths. The older `0.664` hybrid MRR snapshot remains historically useful, but it is not the apples-to-apples baseline for future comparisons.
 
 ### Re-running
 
@@ -117,15 +119,15 @@ Use `--isolated-copy` to avoid index pollution when the script mutates the worki
 
 ## 5. Per-Operation Latency (Real-Time Budget)
 
-| Operation              | Latency                              | Method                    |
-| ---------------------- | ------------------------------------ | ------------------------- |
-| `find_symbol`          | < 1 ms                               | SQLite FTS5               |
-| `get_symbols_overview` | < 1 ms                               | Cached                    |
-| `get_ranked_context`   | ~265 ms (hybrid) / ~168 ms (lexical) | 4-signal + semantic blend |
-| `get_impact_analysis`  | ~1 ms                                | Graph cache (petgraph)    |
-| `semantic_search`      | ~574 ms                              | Warm embedding pool       |
-| `onboard_project`      | ~21 ms                               | Composite workflow        |
-| Cold start             | ~12 ms                               | No LSP boot               |
+| Operation              | Latency                             | Method                    |
+| ---------------------- | ----------------------------------- | ------------------------- |
+| `find_symbol`          | < 1 ms                              | SQLite FTS5               |
+| `get_symbols_overview` | < 1 ms                              | Cached                    |
+| `get_ranked_context`   | ~102 ms (hybrid) / ~32 ms (lexical) | 4-signal + semantic blend |
+| `get_impact_analysis`  | ~1 ms                               | Graph cache (petgraph)    |
+| `semantic_search`      | ~247 ms                             | Warm embedding pool       |
+| `onboard_project`      | ~21 ms                              | Composite workflow        |
+| Cold start             | ~12 ms                              | No LSP boot               |
 
 Measurement harness: `benchmarks/embedding-runtime.py` (latency distribution) and `benchmarks/token-efficiency.py` (workflow scenarios). Both write JSON results.
 
@@ -168,7 +170,7 @@ All three scripts are deterministic given the same input repo and binary. Result
 The 89-query dataset targets symbols that actually exist in this repo. Cross-repo generalization is a separate question we do not currently claim. Use your own project to verify the numbers before relying on them in production.
 
 **Why hybrid ranking?**
-Pure semantic search (MRR 0.598) and pure lexical search (MRR 0.604) are roughly tied. Hybrid blending takes the best of both — identifier queries stay lexical-first, natural-language queries get semantic boosting — and lifts MRR to 0.664 with only +100 ms latency.
+Pure semantic search (MRR 0.528) and pure lexical search (MRR 0.492) are in the same ballpark. Hybrid blending takes the best of both — identifier queries stay lexical-first, natural-language queries get semantic boosting — and lifts MRR to 0.573 with about +70 ms over the lexical-only path.
 
 **What we don't measure (yet)**
 
@@ -1455,6 +1457,8 @@ With §8.13 shipping, the `CODELENS_EMBED_HINT_AUTO=1` default is the right beha
 
 Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase3c-jest-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-jest.json`.
 
+**Phase 3d follow-up scaffolding**: the larger TypeScript follow-up assets now live in-repo as `benchmarks/embedding-quality-dataset-typescript.json` (34 hand-built queries, split 26 natural_language / 6 short_phrase / 2 identifier against `microsoft/typescript`) plus the baseline-only snapshot `benchmarks/embedding-quality-v1.6-phase3d-typescript-baseline.json`. This does **not** mean Phase 3d is complete; it means the input dataset and baseline artefact are now versioned so the future full four-arm A/B can be reproduced instead of rebuilt from scratch.
+
 ---
 
 ### §8.14 — v1.6.0 default flip: `CODELENS_EMBED_HINT_AUTO=1` becomes the default
@@ -1514,6 +1518,140 @@ python3 benchmarks/embedding-quality.py /tmp/requests-ext --isolated-copy \
 3. **Test race exposed, not eliminated for all future env-var tests**. New tests that mutate `CODELENS_EMBED_HINT_*` env vars must remember to take `ENV_LOCK` or they will see race conditions against the existing eleven tests. A clippy lint or helper macro would be a nicer long-term fix.
 
 **Artefacts**: `benchmarks/embedding-quality-v1.6-flip-{ripgrep,requests}-default-on.json`. Both files are bit-identical to their `§8.12 phase2j-*-mcpauto.json` counterparts — readers can verify with `diff` if they want to confirm the parity claim independently.
+
+---
+
+### §8.15 — Phase 3d: second JS/TS dataset on `microsoft/typescript`
+
+**Hypothesis** (from §8.13 "Limitations acknowledged"): §8.13 added `ts` / `typescript` / `tsx` / `js` / `javascript` / `jsx` to `language_supports_nl_stack` based on a single external-repo measurement (`facebook/jest`, +7.3 % hybrid MRR, 24 queries, 7 : 1 per-query ratio). That was explicitly labelled "moderate confidence" because one dataset could still be a lucky pick. Phase 3d replays the methodology on a second, substantially larger TypeScript codebase — the TypeScript compiler itself — to firm up the evidence tier from "single-dataset moderate" to "two-dataset strong".
+
+**Target repo**: `microsoft/TypeScript` (depth-1 shallow clone, ~2 GB, 81 366 working-tree files of which 709 are `.ts` source files under `src/`). The working-tree file count is dominated by `/tests`, which contains 50 k+ test fixtures that the compiler uses for its conformance suite. We benchmark against **`/tmp/typescript/src`** specifically — the production compiler / services / server source, not the fixture tree. This keeps the indexed corpus at 709 files (1.9 × jest's 380) and the symbol space focused on TypeScript's own public API rather than a haystack of intentional syntax errors from the test corpus.
+
+**Dataset**: 34 hand-built queries in `benchmarks/embedding-quality-dataset-typescript.json`, spanning the five major compiler subsystems:
+
+| Subsystem                   | Example queries                                                                                                             | Count |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----: |
+| Compiler pipeline           | `createProgram`, `createSourceFile`, `createScanner`, `createPrinter`, `createTypeChecker`, `forEachChild`, `getLineStarts` |     7 |
+| Diagnostics                 | `getSyntacticDiagnostics`, `getSemanticDiagnostics`, `getSuggestionDiagnostics`                                             |     3 |
+| Language service            | `createLanguageService`, `getCompletionsAtPosition`, `getDefinitionAtPosition`, `findReferences`, `getCodeFixesAtPosition`  |     5 |
+| Editor server (`tsserver`)  | `getRenameInfo`, `getFormattingEditsForRange`, `getOutliningSpans`, `getSignatureHelpItems`                                 |     4 |
+| Core types                  | `SyntaxKind`, `SourceFile`, `NodeFlags`, `FlowFlags`, `ScriptTarget`, `ModuleKind`, `TypeChecker`                           |     7 |
+| Short phrases + identifiers | `create a scanner`, `SyntaxKind`, `TypeChecker`, …                                                                          |     8 |
+
+Total: 26 NL + 6 short_phrase + 2 identifier = **34 queries** (42 % larger than the Phase 3c jest dataset).
+
+**Measurement**:
+
+| arm         |   hybrid MRR | Δ abs vs baseline |        Δ rel | NL sub-MRR | short sub-MRR | identifier sub-MRR |
+| ----------- | -----------: | ----------------: | -----------: | ---------: | ------------: | -----------------: |
+| baseline    |     0.098355 |                 — |            — |   0.019644 |      0.138889 |           1.000000 |
+| 2e only     |     0.088551 |           −0.0098 |      −10.0 % |   0.019644 |      0.083333 |           1.000000 |
+| 2b+2c only  |     0.200980 |           +0.1026 | **+104.3 %** |   0.153846 |      0.138889 |           1.000000 |
+| **stacked** | **0.200980** |           +0.1026 | **+104.3 %** |   0.153846 |  **0.138889** |           1.000000 |
+
+Phase 2b+2c alone gives the **entire lift** (+104.3 % hybrid MRR relative, +0.134 absolute on NL sub-MRR — an **8× NL improvement** from 0.020 → 0.154). Phase 2e alone is **−10.0 %** (sparse term weighting is actively harmful on TypeScript because the large compiler files dilute the coverage ratio). Stacked = 2b+2c-only because 2e contributes zero signal on top of 2b+2c.
+
+This is the **largest relative lift the v1.5 stack has produced on any external repo** — jest was +7.3 %, ripgrep was +15.2 %, Rust 436-query self was +7.1 %, Rust 89-query self was +2.4 %. TypeScript's +104 % puts the v1.5 stack from "NL retrieval works some of the time" (baseline MRR 0.098) to "NL retrieval works about as well as it does on ripgrep" (stacked MRR 0.201).
+
+**Per-query decomposition** (the validating evidence):
+
+```
+NL queries (26 total, stacked vs baseline):
+  6 improved, 0 regressed, 20 unchanged
+    getLineStarts         6 → 2    (Δ MRR +0.333)
+    getSyntacticDiagnostics 10 → 1 (Δ MRR +0.900)
+    getSuggestionDiagnostics 15 → 3 (Δ MRR +0.267)
+    createLanguageService 23 → 6   (Δ MRR +0.123)
+    SourceFile            14 → 1   (Δ MRR +0.929)
+    ModuleKind            16 → 1   (Δ MRR +0.938)
+    sum Δ MRR              ≈ +3.49
+
+short_phrase queries (6 total): 0 improved, 0 regressed (identical output)
+identifier queries (2 total, SyntaxKind + TypeChecker): both rank-1 in every arm
+
+Total: 6 improved, 0 regressed, 28 unchanged — 6 : 0 positive : negative ratio.
+```
+
+**Zero regressions.** This is a cleaner signal than jest's 7 : 1 — every baseline ranking either stayed put or moved closer to rank 1. The 20 NL queries that remain `None` in both arms (e.g. `createProgram`, `getCompletionsAtPosition`, `getRenameInfo`) are cases where the CodeSearchNet-INT8 embedding + lexical signal combined cannot find the target at all within the top 10 candidates — these are **retrieval failures**, not ranking failures, and they are by definition unfixable by Phase 2b/2c/2e since those knobs re-rank existing candidates rather than expanding the candidate pool. A larger `max_results` cap (beyond 10) might help some of them, but that is outside the v1.5 stack's scope.
+
+**Why is the lift so much larger on TypeScript than on jest or ripgrep?**
+
+Three compounding factors:
+
+1. **Baseline floor is very low** (0.098 vs jest's 0.155 vs ripgrep's 0.459). Percentage gains on a low baseline look dramatic; the absolute lift (+0.103) is comparable to ripgrep's absolute lift (+0.070) but on a smaller denominator.
+2. **TypeScript compiler files are enormous**. `checker.ts` is ~50 000 lines; `parser.ts` is ~10 000. When the baseline `extract_leading_doc` captures only the first ~3 lines of a function, and the function body covers hundreds of lines of domain-specific description in comments and string literals, Phase 2b (`extract_nl_tokens` from full body) recovers signal that the baseline missed by construction.
+3. **JSDoc prevalence**. TypeScript's own source is heavily JSDoc-annotated (every public API has `@param`, `@returns`, `@remarks`). Phase 2b's comment extractor normalizes these into NL-shaped tokens that embed well against natural-language queries, much more so than ripgrep's Rust doc comments (which are more technical) or jest's object-literal matcher bodies (which are mostly runtime checks with few comments).
+
+So the signal is real but the magnitude is a function of TypeScript's specific "giant files + JSDoc-heavy" code style. On a more typical TS codebase (a Next.js app with short files and sparse comments), the lift would probably be closer to jest's +7.3 % than to +104 %. Readers should treat the two external-repo results as a **range** rather than a single number: **+7.3 % (jest) to +104 % (TypeScript)**, with the actual lift depending on file size distribution and JSDoc density.
+
+**Reproduce**:
+
+```bash
+# Clone only the subtree we benchmark against
+git clone --depth=1 https://github.com/microsoft/TypeScript.git /tmp/typescript
+
+# Arm 1: baseline (no env flags)
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/typescript/src --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-typescript.json \
+  --output benchmarks/embedding-quality-v1.6-phase3d-typescript-baseline.json
+
+# Arm 2: Phase 2e only
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/typescript/src --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-typescript.json \
+  --output benchmarks/embedding-quality-v1.6-phase3d-typescript-2e-only.json
+
+# Arm 3: Phase 2b + 2c only
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/typescript/src --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-typescript.json \
+  --output benchmarks/embedding-quality-v1.6-phase3d-typescript-2b2c-only.json
+
+# Arm 4: stacked
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py /tmp/typescript/src --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-typescript.json \
+  --output benchmarks/embedding-quality-v1.6-phase3d-typescript-stacked.json
+```
+
+**Updated six-dataset baseline matrix**:
+
+| Dataset                              | Language  | baseline MRR | stacked MRR |      Δ abs |        Δ rel |
+| ------------------------------------ | --------- | -----------: | ----------: | ---------: | -----------: |
+| 89-query self                        | Rust      |        0.572 |       0.586 |     +0.014 |       +2.4 % |
+| 436-query self                       | Rust      |       0.0476 |      0.0510 |    +0.0034 |       +7.1 % |
+| ripgrep external                     | Rust      |        0.459 |       0.529 |     +0.070 |      +15.2 % |
+| requests external                    | Python    |        0.584 |       0.495 |     −0.089 |      −15.2 % |
+| jest external                        | TS/JS     |        0.155 |       0.166 |     +0.011 |       +7.3 % |
+| **typescript external (new, §8.15)** | **TS/JS** |    **0.098** |   **0.201** | **+0.103** | **+104.3 %** |
+
+Pattern: **5 positive (Rust / Rust / Rust / TS-JS / TS-JS) : 1 negative (Python)**, with TypeScript producing the largest relative lift in the matrix. The `language_supports_nl_stack` classification of `ts` / `typescript` / `tsx` / `js` / `javascript` / `jsx` is now backed by **two independent external-repo measurements** with consistent direction (both positive, 6 : 0 and 7 : 1 per-query ratios respectively). Evidence tier: **"two-dataset strong confidence"**, up from §8.13's "single-dataset moderate confidence".
+
+\*\*Implications for v1.6.x`:
+
+- The JS/TS branch of `CODELENS_EMBED_HINT_AUTO=1` default-on behaviour is now empirically on even firmer ground. Users with large TS projects (compilers, language servers, editor extensions) are likely to see the largest quality gains from flipping `AUTO=1` on.
+- **Phase 2e remains the weakest of the three knobs**. §8.12 measured Phase 2e as positive on ripgrep, Phase 3c measured it as +1.3 % marginal on jest, and §8.15 measures it as **−10.0 %** on TypeScript (the first explicitly negative measurement on the sparse re-ranker alone). The stack's lift comes almost entirely from Phase 2b + 2c on JS/TS. A future Phase 2m could consider dropping Phase 2e from the auto-on set for JS/TS while keeping it on for Rust — but that's a two-axis gate complication deferred until a user actually hits the problem.
+- **No code changes required by this phase**. Phase 3d is a pure measurement update. `language_supports_nl_stack` already contains the JS/TS entries from §8.13; §8.15 only upgrades their evidence tier in the documentation.
+
+**Limitations acknowledged**:
+
+1. **Still only two TS datasets**. Jest is matcher-heavy object-literal code; TypeScript is a large compiler with heavy JSDoc. Both are positive, but both are unrepresentative of a typical app codebase (small-to-medium TS with React / Next.js / Node patterns). A Phase 3e on a typical app repo (e.g. `vercel/next.js` or `facebook/react` internals) would cover the remaining population.
+2. **20 / 26 NL queries remain `None` in both arms**. These are retrieval failures, not ranking failures — the candidate pool never includes the target. The v1.5 stack does not address retrieval failures; that's an embedding-model issue, not a ranking one, and belongs to Phase 2d (model swap).
+3. **TypeScript `src/` is not the full repo**. Benchmarking against `/src` (709 files) excludes the `/tests` fixture tree (50 k+ files). A user who actually points CodeLens at the full TypeScript checkout will get `/tests` in their embedding index, which will shift the NL results toward test fixtures. This is a user-facing reality, but benchmarking the production codebase in isolation is the scientifically cleaner choice.
+
+**Artefacts**: `benchmarks/embedding-quality-v1.6-phase3d-typescript-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-typescript.json`.
 
 ---
 

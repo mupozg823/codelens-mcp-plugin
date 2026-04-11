@@ -1,0 +1,1487 @@
+{
+  "project": "/tmp/typescript/src",
+  "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-embed-quality-1spcdfwm/src",
+  "isolated_copy": true,
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/embedding-quality-dataset-typescript.json",
+  "dataset_size": 34,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.17091503267973857,
+      "acc1": 0.14705882352941177,
+      "acc3": 0.17647058823529413,
+      "acc5": 0.17647058823529413,
+      "avg_elapsed_ms": 972.1638235294117,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 254.925
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.06581196581196581,
+          "acc1": 0.038461538461538464,
+          "acc3": 0.07692307692307693,
+          "acc5": 0.07692307692307693,
+          "avg_elapsed_ms": 1140.573076923077
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.35000000000000003,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.3333333333333333,
+          "acc5": 0.3333333333333333,
+          "avg_elapsed_ms": 481.46999999999997
+        }
+      },
+      "rows": [
+        {
+          "query": "create a TypeScript program from source files and options",
+          "query_type": "natural_language",
+          "expected_symbol": "createProgram",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": null,
+          "elapsed_ms": 2011.76,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "createError",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "parse a TypeScript source file into an AST",
+          "query_type": "natural_language",
+          "expected_symbol": "createSourceFile",
+          "expected_file_suffix": "compiler/parser.ts",
+          "rank": null,
+          "elapsed_ms": 1241.62,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "parseSourceFile",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "tokenize TypeScript source code into a stream",
+          "query_type": "natural_language",
+          "expected_symbol": "createScanner",
+          "expected_file_suffix": "compiler/scanner.ts",
+          "rank": null,
+          "elapsed_ms": 1007.71,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "codeActionForFix",
+            "file": "services/codefixes/importFixes.ts"
+          }
+        },
+        {
+          "query": "print a TypeScript AST back to source text",
+          "query_type": "natural_language",
+          "expected_symbol": "createPrinter",
+          "expected_file_suffix": "compiler/emitter.ts",
+          "rank": null,
+          "elapsed_ms": 1224.78,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "consumeCurrentOperator",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "build a type checker for a program",
+          "query_type": "natural_language",
+          "expected_symbol": "createTypeChecker",
+          "expected_file_suffix": "compiler/checker.ts",
+          "rank": null,
+          "elapsed_ms": 894.5,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "visit every child node of an AST node",
+          "query_type": "natural_language",
+          "expected_symbol": "forEachChild",
+          "expected_file_suffix": "compiler/parser.ts",
+          "rank": null,
+          "elapsed_ms": 1235.48,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "visit",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "get line start offsets in a source file",
+          "query_type": "natural_language",
+          "expected_symbol": "getLineStarts",
+          "expected_file_suffix": "compiler/scanner.ts",
+          "rank": 2,
+          "elapsed_ms": 1014.45,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getLineStarts",
+            "file": "services/services.ts"
+          }
+        },
+        {
+          "query": "get syntactic diagnostics from a program",
+          "query_type": "natural_language",
+          "expected_symbol": "getSyntacticDiagnostics",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": 1,
+          "elapsed_ms": 877.39,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getSyntacticDiagnostics",
+            "file": "compiler/program.ts"
+          }
+        },
+        {
+          "query": "get semantic diagnostics for type errors",
+          "query_type": "natural_language",
+          "expected_symbol": "getSemanticDiagnostics",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": null,
+          "elapsed_ms": 1238.65,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getAccessorDeclarationTypeVisibilityError",
+            "file": "compiler/transformers/declarations/diagnostics.ts"
+          }
+        },
+        {
+          "query": "get suggestion diagnostics for code quality hints",
+          "query_type": "natural_language",
+          "expected_symbol": "getSuggestionDiagnostics",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": 10,
+          "elapsed_ms": 1269.2,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getSuggestion",
+            "file": "services/codefixes/fixNaNEquality.ts"
+          }
+        },
+        {
+          "query": "create a language service for editor integration",
+          "query_type": "natural_language",
+          "expected_symbol": "createLanguageService",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 1366.24,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "createReturnTypeOfSignatureDeclaration",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "get autocomplete suggestions at a cursor position",
+          "query_type": "natural_language",
+          "expected_symbol": "getCompletionsAtPosition",
+          "expected_file_suffix": "services/completions.ts",
+          "rank": null,
+          "elapsed_ms": 908.14,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getRecommendedCompletion",
+            "file": "services/completions.ts"
+          }
+        },
+        {
+          "query": "find the definition site of a symbol at a position",
+          "query_type": "natural_language",
+          "expected_symbol": "getDefinitionAtPosition",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 1273.27,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "symbolAtLocation",
+            "file": "harness/fourslashInterfaceImpl.ts"
+          }
+        },
+        {
+          "query": "find all references to a symbol in the project",
+          "query_type": "natural_language",
+          "expected_symbol": "findReferences",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 1049.24,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getReferencedSymbolsForModule",
+            "file": "services/findAllReferences.ts"
+          }
+        },
+        {
+          "query": "compute automatic code fixes for diagnostics",
+          "query_type": "natural_language",
+          "expected_symbol": "getCodeFixesAtPosition",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 1006.19,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "computeModuleSpecifiers",
+            "file": "compiler/moduleSpecifiers.ts"
+          }
+        },
+        {
+          "query": "rename a symbol and find all its occurrences",
+          "query_type": "natural_language",
+          "expected_symbol": "getRenameInfo",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 737.97,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "symbol",
+            "file": "services/rename.ts"
+          }
+        },
+        {
+          "query": "format a source range according to style rules",
+          "query_type": "natural_language",
+          "expected_symbol": "getFormattingEditsForRange",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 1034.32,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "formatRange",
+            "file": "harness/fourslashImpl.ts"
+          }
+        },
+        {
+          "query": "compute collapsible regions for an outline view",
+          "query_type": "natural_language",
+          "expected_symbol": "getOutliningSpans",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 1001.75,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "formatEnum",
+            "file": "compiler/debug.ts"
+          }
+        },
+        {
+          "query": "provide parameter hints while typing a function call",
+          "query_type": "natural_language",
+          "expected_symbol": "getSignatureHelpItems",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 559.32,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "addParameterHints",
+            "file": "services/inlayHints.ts"
+          }
+        },
+        {
+          "query": "enum of every TypeScript AST node kind",
+          "query_type": "natural_language",
+          "expected_symbol": "SyntaxKind",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 1243.21,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "asterisk",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "interface that represents a parsed source file",
+          "query_type": "natural_language",
+          "expected_symbol": "SourceFile",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 1270.93,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "parseDoStatement",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "flags describing properties of an AST node",
+          "query_type": "natural_language",
+          "expected_symbol": "NodeFlags",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 1110.43,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "flags",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "enum of control flow analysis states",
+          "query_type": "natural_language",
+          "expected_symbol": "FlowFlags",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 897.08,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "State",
+            "file": "harness/fourslashImpl.ts"
+          }
+        },
+        {
+          "query": "emit target ECMAScript version",
+          "query_type": "natural_language",
+          "expected_symbol": "ScriptTarget",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 759.3,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "createImplementsDiagnostics",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "module system kind for output code",
+          "query_type": "natural_language",
+          "expected_symbol": "ModuleKind",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": 9,
+          "elapsed_ms": 1219.72,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "evaluate",
+            "file": "harness/evaluatorImpl.ts"
+          }
+        },
+        {
+          "query": "top-level type checker interface",
+          "query_type": "natural_language",
+          "expected_symbol": "TypeChecker",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 2202.25,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "check",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "create a scanner",
+          "query_type": "short_phrase",
+          "expected_symbol": "createScanner",
+          "expected_file_suffix": "compiler/scanner.ts",
+          "rank": 10,
+          "elapsed_ms": 545.0,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "scanner",
+            "file": "services/utilities.ts"
+          }
+        },
+        {
+          "query": "create a source file",
+          "query_type": "short_phrase",
+          "expected_symbol": "createSourceFile",
+          "expected_file_suffix": "compiler/parser.ts",
+          "rank": 1,
+          "elapsed_ms": 682.68,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "createSourceFile",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "language service",
+          "query_type": "short_phrase",
+          "expected_symbol": "createLanguageService",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 367.14,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "LanguageServiceMode",
+            "file": "services/types.ts"
+          }
+        },
+        {
+          "query": "type checker",
+          "query_type": "short_phrase",
+          "expected_symbol": "createTypeChecker",
+          "expected_file_suffix": "compiler/checker.ts",
+          "rank": null,
+          "elapsed_ms": 386.98,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "checker",
+            "file": "services/utilities.ts"
+          }
+        },
+        {
+          "query": "rename info",
+          "query_type": "short_phrase",
+          "expected_symbol": "getRenameInfo",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 376.02,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "renameInfo",
+            "file": "services/rename.ts"
+          }
+        },
+        {
+          "query": "completions at position",
+          "query_type": "short_phrase",
+          "expected_symbol": "getCompletionsAtPosition",
+          "expected_file_suffix": "services/completions.ts",
+          "rank": 1,
+          "elapsed_ms": 531.0,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "getCompletionsAtPosition",
+            "file": "services/completions.ts"
+          }
+        },
+        {
+          "query": "SyntaxKind",
+          "query_type": "identifier",
+          "expected_symbol": "SyntaxKind",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": 1,
+          "elapsed_ms": 256.5,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "SyntaxKind",
+            "file": "compiler/types.ts"
+          }
+        },
+        {
+          "query": "TypeChecker",
+          "query_type": "identifier",
+          "expected_symbol": "TypeChecker",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": 1,
+          "elapsed_ms": 253.35,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "TypeChecker",
+            "file": "compiler/types.ts"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.1201155462184874,
+      "acc1": 0.08823529411764706,
+      "acc3": 0.11764705882352941,
+      "acc5": 0.17647058823529413,
+      "avg_elapsed_ms": 148.43558823529412,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 74.95
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.012843406593406595,
+          "acc1": 0.0,
+          "acc3": 0.0,
+          "acc5": 0.038461538461538464,
+          "avg_elapsed_ms": 164.55923076923077
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.2916666666666667,
+          "acc1": 0.16666666666666666,
+          "acc3": 0.3333333333333333,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 103.06166666666667
+        }
+      },
+      "rows": [
+        {
+          "query": "create a TypeScript program from source files and options",
+          "query_type": "natural_language",
+          "expected_symbol": "createProgram",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": 16,
+          "elapsed_ms": 124.65,
+          "candidate_count": 18,
+          "top_candidate": {
+            "name": "shouldProgramCreateNewSourceFiles",
+            "file": "compiler/program.ts"
+          }
+        },
+        {
+          "query": "parse a TypeScript source file into an AST",
+          "query_type": "natural_language",
+          "expected_symbol": "createSourceFile",
+          "expected_file_suffix": "compiler/parser.ts",
+          "rank": 14,
+          "elapsed_ms": 204.52,
+          "candidate_count": 20,
+          "top_candidate": {
+            "name": "parseSourceFileWorker",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "tokenize TypeScript source code into a stream",
+          "query_type": "natural_language",
+          "expected_symbol": "createScanner",
+          "expected_file_suffix": "compiler/scanner.ts",
+          "rank": null,
+          "elapsed_ms": 166.73,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "SourceMapSpanWithDecodeErrors",
+            "file": "harness/sourceMapRecorder.ts"
+          }
+        },
+        {
+          "query": "print a TypeScript AST back to source text",
+          "query_type": "natural_language",
+          "expected_symbol": "createPrinter",
+          "expected_file_suffix": "compiler/emitter.ts",
+          "rank": null,
+          "elapsed_ms": 211.87,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "isBacktrackingSourcePosition",
+            "file": "compiler/sourcemap.ts"
+          }
+        },
+        {
+          "query": "build a type checker for a program",
+          "query_type": "natural_language",
+          "expected_symbol": "createTypeChecker",
+          "expected_file_suffix": "compiler/checker.ts",
+          "rank": null,
+          "elapsed_ms": 181.56,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "getWidenedLiteralLikeTypeForContextualType",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "visit every child node of an AST node",
+          "query_type": "natural_language",
+          "expected_symbol": "forEachChild",
+          "expected_file_suffix": "compiler/parser.ts",
+          "rank": null,
+          "elapsed_ms": 196.22,
+          "candidate_count": 20,
+          "top_candidate": {
+            "name": "visitExistingNodeTreeSymbols",
+            "file": "compiler/expressionToTypeNode.ts"
+          }
+        },
+        {
+          "query": "get line start offsets in a source file",
+          "query_type": "natural_language",
+          "expected_symbol": "getLineStarts",
+          "expected_file_suffix": "compiler/scanner.ts",
+          "rank": null,
+          "elapsed_ms": 161.72,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "getParsedCommandLineOfConfigFile",
+            "file": "compiler/commandLineParser.ts"
+          }
+        },
+        {
+          "query": "get syntactic diagnostics from a program",
+          "query_type": "natural_language",
+          "expected_symbol": "getSyntacticDiagnostics",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": null,
+          "elapsed_ms": 142.15,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "getCombinedDiagnostics",
+            "file": "compiler/programDiagnostics.ts"
+          }
+        },
+        {
+          "query": "get semantic diagnostics for type errors",
+          "query_type": "natural_language",
+          "expected_symbol": "getSemanticDiagnostics",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": null,
+          "elapsed_ms": 161.82,
+          "candidate_count": 18,
+          "top_candidate": {
+            "name": "serializeReturnTypeForSignature",
+            "file": "compiler/expressionToTypeNode.ts"
+          }
+        },
+        {
+          "query": "get suggestion diagnostics for code quality hints",
+          "query_type": "natural_language",
+          "expected_symbol": "getSuggestionDiagnostics",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": null,
+          "elapsed_ms": 106.03,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "createGetSymbolAccessibilityDiagnosticForNode",
+            "file": "compiler/transformers/declarations/diagnostics.ts"
+          }
+        },
+        {
+          "query": "create a language service for editor integration",
+          "query_type": "natural_language",
+          "expected_symbol": "createLanguageService",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 168.15,
+          "candidate_count": 20,
+          "top_candidate": {
+            "name": "onUpdateLanguageServiceStateForProject",
+            "file": "server/editorServices.ts"
+          }
+        },
+        {
+          "query": "get autocomplete suggestions at a cursor position",
+          "query_type": "natural_language",
+          "expected_symbol": "getCompletionsAtPosition",
+          "expected_file_suffix": "services/completions.ts",
+          "rank": null,
+          "elapsed_ms": 142.72,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "getMoveToRefactoringFileSuggestions",
+            "file": "harness/client.ts"
+          }
+        },
+        {
+          "query": "find the definition site of a symbol at a position",
+          "query_type": "natural_language",
+          "expected_symbol": "getDefinitionAtPosition",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 189.73,
+          "candidate_count": 18,
+          "top_candidate": {
+            "name": "getDefinitionFromSymbol",
+            "file": "services/goToDefinition.ts"
+          }
+        },
+        {
+          "query": "find all references to a symbol in the project",
+          "query_type": "natural_language",
+          "expected_symbol": "findReferences",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 160.15,
+          "candidate_count": 17,
+          "top_candidate": {
+            "name": "findOwnConstructorReferences",
+            "file": "services/findAllReferences.ts"
+          }
+        },
+        {
+          "query": "compute automatic code fixes for diagnostics",
+          "query_type": "natural_language",
+          "expected_symbol": "getCodeFixesAtPosition",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 154.83,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "codeFixes",
+            "file": "harness/fourslashImpl.ts"
+          }
+        },
+        {
+          "query": "rename a symbol and find all its occurrences",
+          "query_type": "natural_language",
+          "expected_symbol": "getRenameInfo",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 130.34,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "getRefactorEditsToExtractSymbol",
+            "file": "services/refactors/extractSymbol.ts"
+          }
+        },
+        {
+          "query": "format a source range according to style rules",
+          "query_type": "natural_language",
+          "expected_symbol": "getFormattingEditsForRange",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 161.04,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "SourceMapGeneratorOptions",
+            "file": "compiler/sourcemap.ts"
+          }
+        },
+        {
+          "query": "compute collapsible regions for an outline view",
+          "query_type": "natural_language",
+          "expected_symbol": "getOutliningSpans",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 168.54,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "transformConstructorBodyWorker",
+            "file": "compiler/transformers/classFields.ts"
+          }
+        },
+        {
+          "query": "provide parameter hints while typing a function call",
+          "query_type": "natural_language",
+          "expected_symbol": "getSignatureHelpItems",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 108.0,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "addParameterHints",
+            "file": "services/inlayHints.ts"
+          }
+        },
+        {
+          "query": "enum of every TypeScript AST node kind",
+          "query_type": "natural_language",
+          "expected_symbol": "SyntaxKind",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 196.0,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "visitExistingNodeTreeSymbolsWorker",
+            "file": "compiler/expressionToTypeNode.ts"
+          }
+        },
+        {
+          "query": "interface that represents a parsed source file",
+          "query_type": "natural_language",
+          "expected_symbol": "SourceFile",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 206.25,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "parseSourceFileWorker",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "flags describing properties of an AST node",
+          "query_type": "natural_language",
+          "expected_symbol": "NodeFlags",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 177.9,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "getUsageInfoRangeForPasteEdits",
+            "file": "services/pasteEdits.ts"
+          }
+        },
+        {
+          "query": "enum of control flow analysis states",
+          "query_type": "natural_language",
+          "expected_symbol": "FlowFlags",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 149.58,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "saveFlowAnalysisDisabled",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "emit target ECMAScript version",
+          "query_type": "natural_language",
+          "expected_symbol": "ScriptTarget",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 142.89,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "transformECMAScriptModule",
+            "file": "compiler/transformers/module/esnextAnd2015.ts"
+          }
+        },
+        {
+          "query": "module system kind for output code",
+          "query_type": "natural_language",
+          "expected_symbol": "ModuleKind",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 158.46,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "transformSystemModule",
+            "file": "compiler/transformers/module/system.ts"
+          }
+        },
+        {
+          "query": "top-level type checker interface",
+          "query_type": "natural_language",
+          "expected_symbol": "TypeChecker",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": 5,
+          "elapsed_ms": 206.69,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "isNonGenericTopLevelType",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "create a scanner",
+          "query_type": "short_phrase",
+          "expected_symbol": "createScanner",
+          "expected_file_suffix": "compiler/scanner.ts",
+          "rank": 1,
+          "elapsed_ms": 105.35,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "createScanner",
+            "file": "compiler/scanner.ts"
+          }
+        },
+        {
+          "query": "create a source file",
+          "query_type": "short_phrase",
+          "expected_symbol": "createSourceFile",
+          "expected_file_suffix": "compiler/parser.ts",
+          "rank": 6,
+          "elapsed_ms": 120.77,
+          "candidate_count": 19,
+          "top_candidate": {
+            "name": "createSourceFileWithText",
+            "file": "testRunner/unittests/helpers.ts"
+          }
+        },
+        {
+          "query": "language service",
+          "query_type": "short_phrase",
+          "expected_symbol": "createLanguageService",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 89.82,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "LanguageServiceAdapter",
+            "file": "harness/harnessLanguageService.ts"
+          }
+        },
+        {
+          "query": "type checker",
+          "query_type": "short_phrase",
+          "expected_symbol": "createTypeChecker",
+          "expected_file_suffix": "compiler/checker.ts",
+          "rank": 3,
+          "elapsed_ms": 106.34,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "TypeChecker",
+            "file": "compiler/types.ts"
+          }
+        },
+        {
+          "query": "rename info",
+          "query_type": "short_phrase",
+          "expected_symbol": "getRenameInfo",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 88.92,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "getRenameInfoError",
+            "file": "services/rename.ts"
+          }
+        },
+        {
+          "query": "completions at position",
+          "query_type": "short_phrase",
+          "expected_symbol": "getCompletionsAtPosition",
+          "expected_file_suffix": "services/completions.ts",
+          "rank": 4,
+          "elapsed_ms": 107.17,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "getJsDocTagAtPosition",
+            "file": "services/completions.ts"
+          }
+        },
+        {
+          "query": "SyntaxKind",
+          "query_type": "identifier",
+          "expected_symbol": "SyntaxKind",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": 1,
+          "elapsed_ms": 75.5,
+          "candidate_count": 20,
+          "top_candidate": {
+            "name": "SyntaxKind",
+            "file": "compiler/types.ts"
+          }
+        },
+        {
+          "query": "TypeChecker",
+          "query_type": "identifier",
+          "expected_symbol": "TypeChecker",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": 1,
+          "elapsed_ms": 74.4,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "TypeChecker",
+            "file": "compiler/types.ts"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.0983551029107295,
+      "acc1": 0.058823529411764705,
+      "acc3": 0.08823529411764706,
+      "acc5": 0.08823529411764706,
+      "avg_elapsed_ms": 263.56382352941176,
+      "by_query_type": {
+        "identifier": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 81.315
+        },
+        "natural_language": {
+          "count": 26,
+          "mrr": 0.019643852524287304,
+          "acc1": 0.0,
+          "acc3": 0.0,
+          "acc5": 0.0,
+          "avg_elapsed_ms": 284.3876923076923
+        },
+        "short_phrase": {
+          "count": 6,
+          "mrr": 0.13888888888888887,
+          "acc1": 0.0,
+          "acc3": 0.16666666666666666,
+          "acc5": 0.16666666666666666,
+          "avg_elapsed_ms": 234.07666666666668
+        }
+      },
+      "rows": [
+        {
+          "query": "create a TypeScript program from source files and options",
+          "query_type": "natural_language",
+          "expected_symbol": "createProgram",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": null,
+          "elapsed_ms": 269.23,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "optionsForFile",
+            "file": "compiler/program.ts"
+          }
+        },
+        {
+          "query": "parse a TypeScript source file into an AST",
+          "query_type": "natural_language",
+          "expected_symbol": "createSourceFile",
+          "expected_file_suffix": "compiler/parser.ts",
+          "rank": null,
+          "elapsed_ms": 367.82,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "parseParenthesizedType",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "tokenize TypeScript source code into a stream",
+          "query_type": "natural_language",
+          "expected_symbol": "createScanner",
+          "expected_file_suffix": "compiler/scanner.ts",
+          "rank": null,
+          "elapsed_ms": 298.03,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "token",
+            "file": "services/utilities.ts"
+          }
+        },
+        {
+          "query": "print a TypeScript AST back to source text",
+          "query_type": "natural_language",
+          "expected_symbol": "createPrinter",
+          "expected_file_suffix": "compiler/emitter.ts",
+          "rank": null,
+          "elapsed_ms": 305.1,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "print",
+            "file": "compiler/emitter.ts"
+          }
+        },
+        {
+          "query": "build a type checker for a program",
+          "query_type": "natural_language",
+          "expected_symbol": "createTypeChecker",
+          "expected_file_suffix": "compiler/checker.ts",
+          "rank": null,
+          "elapsed_ms": 299.83,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "check",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "visit every child node of an AST node",
+          "query_type": "natural_language",
+          "expected_symbol": "forEachChild",
+          "expected_file_suffix": "compiler/parser.ts",
+          "rank": null,
+          "elapsed_ms": 311.05,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "visit",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "get line start offsets in a source file",
+          "query_type": "natural_language",
+          "expected_symbol": "getLineStarts",
+          "expected_file_suffix": "compiler/scanner.ts",
+          "rank": 6,
+          "elapsed_ms": 276.79,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "offsetStart",
+            "file": "harness/fourslashImpl.ts"
+          }
+        },
+        {
+          "query": "get syntactic diagnostics from a program",
+          "query_type": "natural_language",
+          "expected_symbol": "getSyntacticDiagnostics",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": 10,
+          "elapsed_ms": 291.95,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "getSyntacticDiagnosticsForFile",
+            "file": "compiler/program.ts"
+          }
+        },
+        {
+          "query": "get semantic diagnostics for type errors",
+          "query_type": "natural_language",
+          "expected_symbol": "getSemanticDiagnostics",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": null,
+          "elapsed_ms": 274.91,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "isErrorType",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "get suggestion diagnostics for code quality hints",
+          "query_type": "natural_language",
+          "expected_symbol": "getSuggestionDiagnostics",
+          "expected_file_suffix": "compiler/program.ts",
+          "rank": 15,
+          "elapsed_ms": 232.94,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "getSuggestion",
+            "file": "services/codefixes/fixNaNEquality.ts"
+          }
+        },
+        {
+          "query": "create a language service for editor integration",
+          "query_type": "natural_language",
+          "expected_symbol": "createLanguageService",
+          "expected_file_suffix": "services/services.ts",
+          "rank": 23,
+          "elapsed_ms": 283.2,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "EditorOptions",
+            "file": "services/types.ts"
+          }
+        },
+        {
+          "query": "get autocomplete suggestions at a cursor position",
+          "query_type": "natural_language",
+          "expected_symbol": "getCompletionsAtPosition",
+          "expected_file_suffix": "services/completions.ts",
+          "rank": null,
+          "elapsed_ms": 263.01,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "suggestion",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "find the definition site of a symbol at a position",
+          "query_type": "natural_language",
+          "expected_symbol": "getDefinitionAtPosition",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 297.78,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "symbol",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "find all references to a symbol in the project",
+          "query_type": "natural_language",
+          "expected_symbol": "findReferences",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 272.63,
+          "candidate_count": 17,
+          "top_candidate": {
+            "name": "getReferencedSymbolsForModule",
+            "file": "services/findAllReferences.ts"
+          }
+        },
+        {
+          "query": "compute automatic code fixes for diagnostics",
+          "query_type": "natural_language",
+          "expected_symbol": "getCodeFixesAtPosition",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 274.33,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "fixes",
+            "file": "harness/fourslashImpl.ts"
+          }
+        },
+        {
+          "query": "rename a symbol and find all its occurrences",
+          "query_type": "natural_language",
+          "expected_symbol": "getRenameInfo",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 251.92,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "symbol",
+            "file": "services/rename.ts"
+          }
+        },
+        {
+          "query": "format a source range according to style rules",
+          "query_type": "natural_language",
+          "expected_symbol": "getFormattingEditsForRange",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 272.56,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "sourceIndex",
+            "file": "compiler/sourcemap.ts"
+          }
+        },
+        {
+          "query": "compute collapsible regions for an outline view",
+          "query_type": "natural_language",
+          "expected_symbol": "getOutliningSpans",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 280.87,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "regions",
+            "file": "services/outliningElementsCollector.ts"
+          }
+        },
+        {
+          "query": "provide parameter hints while typing a function call",
+          "query_type": "natural_language",
+          "expected_symbol": "getSignatureHelpItems",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 225.55,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "hints",
+            "file": "harness/fourslashImpl.ts"
+          }
+        },
+        {
+          "query": "enum of every TypeScript AST node kind",
+          "query_type": "natural_language",
+          "expected_symbol": "SyntaxKind",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 307.26,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "enumType",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "interface that represents a parsed source file",
+          "query_type": "natural_language",
+          "expected_symbol": "SourceFile",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": 14,
+          "elapsed_ms": 319.12,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "parseSourceFile",
+            "file": "compiler/parser.ts"
+          }
+        },
+        {
+          "query": "flags describing properties of an AST node",
+          "query_type": "natural_language",
+          "expected_symbol": "NodeFlags",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 293.86,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "flags",
+            "file": "compiler/factory/nodeFactory.ts"
+          }
+        },
+        {
+          "query": "enum of control flow analysis states",
+          "query_type": "natural_language",
+          "expected_symbol": "FlowFlags",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 266.03,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "States",
+            "file": "compiler/utilities.ts"
+          }
+        },
+        {
+          "query": "emit target ECMAScript version",
+          "query_type": "natural_language",
+          "expected_symbol": "ScriptTarget",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 261.97,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "emit",
+            "file": "compiler/tsbuildPublic.ts"
+          }
+        },
+        {
+          "query": "module system kind for output code",
+          "query_type": "natural_language",
+          "expected_symbol": "ModuleKind",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": 16,
+          "elapsed_ms": 273.69,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "kind",
+            "file": "services/codefixes/fixAwaitInSyncFunction.ts"
+          }
+        },
+        {
+          "query": "top-level type checker interface",
+          "query_type": "natural_language",
+          "expected_symbol": "TypeChecker",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": null,
+          "elapsed_ms": 322.65,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "checkTypeLiteral",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "create a scanner",
+          "query_type": "short_phrase",
+          "expected_symbol": "createScanner",
+          "expected_file_suffix": "compiler/scanner.ts",
+          "rank": 6,
+          "elapsed_ms": 217.81,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "scanner",
+            "file": "services/utilities.ts"
+          }
+        },
+        {
+          "query": "create a source file",
+          "query_type": "short_phrase",
+          "expected_symbol": "createSourceFile",
+          "expected_file_suffix": "compiler/parser.ts",
+          "rank": 6,
+          "elapsed_ms": 235.61,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "sourceFile",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "language service",
+          "query_type": "short_phrase",
+          "expected_symbol": "createLanguageService",
+          "expected_file_suffix": "services/services.ts",
+          "rank": null,
+          "elapsed_ms": 218.82,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "LanguageServiceAdapter",
+            "file": "harness/harnessLanguageService.ts"
+          }
+        },
+        {
+          "query": "type checker",
+          "query_type": "short_phrase",
+          "expected_symbol": "createTypeChecker",
+          "expected_file_suffix": "compiler/checker.ts",
+          "rank": null,
+          "elapsed_ms": 231.42,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "checkTypes",
+            "file": "compiler/checker.ts"
+          }
+        },
+        {
+          "query": "rename info",
+          "query_type": "short_phrase",
+          "expected_symbol": "getRenameInfo",
+          "expected_file_suffix": "server/session.ts",
+          "rank": null,
+          "elapsed_ms": 264.0,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "renameInfo",
+            "file": "services/rename.ts"
+          }
+        },
+        {
+          "query": "completions at position",
+          "query_type": "short_phrase",
+          "expected_symbol": "getCompletionsAtPosition",
+          "expected_file_suffix": "services/completions.ts",
+          "rank": 2,
+          "elapsed_ms": 236.8,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "completionData",
+            "file": "services/completions.ts"
+          }
+        },
+        {
+          "query": "SyntaxKind",
+          "query_type": "identifier",
+          "expected_symbol": "SyntaxKind",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": 1,
+          "elapsed_ms": 79.58,
+          "candidate_count": 20,
+          "top_candidate": {
+            "name": "SyntaxKind",
+            "file": "compiler/types.ts"
+          }
+        },
+        {
+          "query": "TypeChecker",
+          "query_type": "identifier",
+          "expected_symbol": "TypeChecker",
+          "expected_file_suffix": "compiler/types.ts",
+          "rank": 1,
+          "elapsed_ms": 83.05,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "TypeChecker",
+            "file": "compiler/types.ts"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": -0.021760443307757893,
+    "acc1_delta": -0.02941176470588236,
+    "acc3_delta": -0.029411764705882346,
+    "acc5_delta": -0.08823529411764706
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": 0.00680044593088071,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": -0.038461538461538464
+    },
+    "short_phrase": {
+      "mrr_delta": -0.15277777777777782,
+      "acc1_delta": -0.16666666666666666,
+      "acc3_delta": -0.16666666666666666,
+      "acc5_delta": -0.33333333333333337
+    }
+  }
+}

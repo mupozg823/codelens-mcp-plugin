@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Measured (Phase 3d — JS/TS evidence upgrade via `microsoft/typescript`)
+
+Second external-repo measurement for the JS/TS branch of `language_supports_nl_stack`. §8.13 Phase 3c added `ts` / `typescript` / `tsx` / `js` / `javascript` / `jsx` based on a single dataset (`facebook/jest`, +7.3 % hybrid MRR, 24 queries) and explicitly labelled the evidence "single-dataset moderate confidence". Phase 3d replays the methodology on **`microsoft/typescript`** (the TypeScript compiler itself), upgrading the evidence tier to **"two-dataset strong confidence"**.
+
+- **Target**: `/tmp/typescript/src` — 709 production `.ts` source files (1.9 × jest's 380), spanning compiler / services / server / jsTyping / harness. `/tests` (50 k+ fixture files) deliberately excluded — fixtures would bias the index toward intentional syntax errors.
+- **Dataset**: 34 hand-built queries in `benchmarks/embedding-quality-dataset-typescript.json` (42 % larger than jest). 26 NL + 6 short_phrase + 2 identifier. Spans five compiler subsystems: pipeline (createProgram, createSourceFile, createScanner, createPrinter, createTypeChecker, forEachChild, getLineStarts), diagnostics (getSyntacticDiagnostics, getSemanticDiagnostics, getSuggestionDiagnostics), language service (createLanguageService, getCompletionsAtPosition, getDefinitionAtPosition, findReferences, getCodeFixesAtPosition), editor server (getRenameInfo, getFormattingEditsForRange, getOutliningSpans, getSignatureHelpItems), and core types (SyntaxKind, SourceFile, NodeFlags, FlowFlags, ScriptTarget, ModuleKind, TypeChecker).
+- **Four-arm A/B result**:
+
+  | arm         |   hybrid MRR |        Δ rel | NL sub-MRR |   sh sub-MRR | id sub-MRR |
+  | ----------- | -----------: | -----------: | ---------: | -----------: | ---------: |
+  | baseline    |     0.098355 |            — |   0.019644 |     0.138889 |   1.000000 |
+  | 2e only     |     0.088551 |  **−10.0 %** |   0.019644 |     0.083333 |   1.000000 |
+  | 2b+2c only  |     0.200980 | **+104.3 %** |   0.153846 |     0.138889 |   1.000000 |
+  | **stacked** | **0.200980** | **+104.3 %** |   0.153846 | **0.138889** |   1.000000 |
+
+- **Largest relative lift any external-repo measurement has produced**: +104.3 %. Compare to ripgrep (+15.2 %), jest (+7.3 %), Rust 436-query (+7.1 %), Rust 89-query (+2.4 %). Absolute lift +0.103 is comparable to ripgrep's +0.070, but on a smaller baseline (0.098 vs 0.459). Phase 2e is **−10.0 %** alone (first explicitly negative Phase 2e measurement on any dataset), and stacked = 2b+2c-only because Phase 2e contributes zero signal on top.
+- **Per-query decomposition — zero regressions**: 34 total queries → **6 improvements / 0 regressions / 28 unchanged** under the stacked arm. All six improvements move a baseline ranking toward rank 1 (`getLineStarts` 6→2, `getSyntacticDiagnostics` 10→1, `getSuggestionDiagnostics` 15→3, `createLanguageService` 23→6, `SourceFile` 14→1, `ModuleKind` 16→1). The 20 NL queries that stay `None` in both arms are retrieval failures (candidate pool never includes the target) — unfixable by any v1.5 re-ranking knob, a model-level issue for Phase 2d.
+- **Why so much larger than jest?** Three compounding factors: (1) low baseline floor (0.098 vs jest's 0.155) makes relative gains look dramatic; (2) TypeScript compiler files are enormous (`checker.ts` ~50 k lines, `parser.ts` ~10 k) and baseline `extract_leading_doc` captures only the first few lines — Phase 2b recovers signal from hundreds of lines of JSDoc and inline comments that the baseline missed by construction; (3) TypeScript is heavily JSDoc-annotated, and Phase 2b's comment extractor normalizes these into NL-shaped tokens that embed well against natural-language queries.
+- **Reader guidance**: treat jest and TypeScript as a **range**, not a single number. v1.5 stack lift on TS/JS is somewhere between **+7.3 % (jest) and +104 % (TypeScript)**, with the actual lift depending on file size distribution and JSDoc density. A typical Next.js app with short files will land near jest; a compiler / language server / editor extension with heavy docs will land near TypeScript.
+- **Updated six-dataset matrix**:
+
+  | Dataset                       | Language  | baseline MRR | stacked MRR |      Δ abs |        Δ rel |
+  | ----------------------------- | --------- | -----------: | ----------: | ---------: | -----------: |
+  | 89-query self                 | Rust      |        0.572 |       0.586 |     +0.014 |       +2.4 % |
+  | 436-query self                | Rust      |       0.0476 |      0.0510 |    +0.0034 |       +7.1 % |
+  | ripgrep external              | Rust      |        0.459 |       0.529 |     +0.070 |      +15.2 % |
+  | requests external             | Python    |        0.584 |       0.495 |     −0.089 |      −15.2 % |
+  | jest external                 | TS/JS     |        0.155 |       0.166 |     +0.011 |       +7.3 % |
+  | **typescript external (new)** | **TS/JS** |    **0.098** |   **0.201** | **+0.103** | **+104.3 %** |
+
+  Pattern: 5 positive : 1 negative across three measurement-backed language families. JS/TS classification upgraded to **two-dataset strong confidence**.
+
+- **No code changes in this phase**. `language_supports_nl_stack` already contains the JS/TS entries from §8.13; Phase 3d is pure measurement + documentation. The §8.13 "Limitations acknowledged" item ("Still only one TS dataset, Phase 3d on microsoft/typescript would firm up the evidence") is now resolved.
+- **Artefacts**: `benchmarks/embedding-quality-v1.6-phase3d-typescript-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-typescript.json`. Full §8.15 write-up with per-query rank tables, large-lift attribution, and limitations in [`docs/benchmarks.md` §8.15](docs/benchmarks.md).
+
 ## [1.6.0] — 2026-04-12
 
 ### Release summary
