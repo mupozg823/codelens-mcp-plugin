@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Measured (Phase 3b — Python external-repo validation on psf/requests, no behaviour change — **overturns §8.7 default-ON recommendation**)
+
+- **v1.5 opt-in stack measured on `github.com/psf/requests`** (2026-04-12). Same four-arm A/B methodology as §8.7, same parameters `CODELENS_RANK_SPARSE_THRESHOLD=40` / `CODELENS_RANK_SPARSE_MAX=40`, same release binary, 24 hand-built queries covering 6 `requests` modules (`api`, `sessions`, `models`, `adapters`, `auth`, `cookies`). **Result overturns §8.7 — every hybrid metric regresses on Python**:
+
+  | Dataset                         | baseline MRR | stacked MRR |  Δ absolute |  Δ relative |
+  | ------------------------------- | -----------: | ----------: | ----------: | ----------: |
+  | 89-query self (Rust)            |        0.572 |       0.586 |      +0.014 |      +2.4 % |
+  | 436-query augmented self (Rust) |       0.0476 |      0.0510 |     +0.0034 |      +7.1 % |
+  | ripgrep external (Rust)         |       0.4594 |      0.5292 |     +0.0698 |     +15.2 % |
+  | **requests external (Python)**  |   **0.5837** |  **0.4948** | **−0.0889** | **−15.2 %** |
+
+  The four points form a near-perfect mirror: three Rust datasets trend positive at +2.4 % / +7.1 % / +15.2 %; one Python dataset trends negative at exactly −15.2 %. The regression is **structural, not statistical** — the short_phrase Acc@3 alone drops by −0.200 absolute on the stacked arm, `semantic_search` MRR loses **−0.148** on the Phase 2b+2c arm regardless of whether Phase 2e sits on top, and the baseline hybrid MRR on requests (0.5837) is _already_ higher than the 89-query self baseline, meaning the starting point is close to the ceiling and any signal dilution moves it down rather than up.
+
+  **Where the damage comes from**: `semantic_search` MRR regresses by −0.148 means the **embedding text itself got worse**, not the ranking. Because `semantic_search` never sees the Phase 2e post-process, the load-bearing component is Phase 2b (`extract_nl_tokens`). On Python, `extract_leading_doc` already honours triple-quote docstrings — the _most informative_ NL text in a Python file is in the baseline embedding. Phase 2b then re-scans the body for additional NL tokens from line comments and NL-shaped string literals, but the post-docstring residue on Python is mostly generic `raise ValueError("Invalid URL %s" % url)`, `logging.debug("sending request to %s", url)`, and `fmt.format(...)` calls. These pass `is_nl_shaped` (multi-word, alphabetic ratio high) but carry **zero behaviour-descriptive signal** — they dilute the embedding toward "this file handles errors and logging" rather than "this file prepares HTTP requests". Phase 2c adds literally nothing on Python (no `Type::method` syntax) but does not regress either — the regression source is Phase 2b, not 2c, and Phase 2e on top cannot undo the damage at ranking time.
+
+  **The v1.5 stack is NOT language-agnostic**. This **overturns the §8.7 implicit conclusion** that a second external repo was only waiting to confirm the default-ON direction. The missing sample has returned the opposite direction, and any global default-ON flip would be a net regression for every Python project in the user base.
+
+  **Updated language-gated recommendations** (replaces the §8.5 + §8.7 blanket recommendation):
+  - **Rust / C++ / Go projects**: enable all three env vars (`CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1`, `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1`, `CODELENS_RANK_SPARSE_TERM_WEIGHT=1` + threshold/max). Measured hybrid MRR lift is +2.4 % to +15.2 % relative depending on dataset size. Identifier queries untouched.
+  - **Python projects**: leave all three env vars OFF. The stack produces a measured **−15.2 % hybrid MRR regression** on `psf/requests`. Phase 2c adds nothing (no `Type::method` syntax), Phase 2b pollutes the embedding with generic error/log/format strings that Python's docstring-first convention already makes redundant, and Phase 2e cannot recover at ranking time.
+  - **JS / TS projects**: **untested**. Until a future Phase 3c (e.g. `facebook/jest` or `microsoft/typescript`) replays the experiment, the only honest answer is "try it on your project and measure".
+
+  **Impact on Phase 2d design brief baseline** (§1.1 "baseline to beat"): the four-point baseline is now split-direction. Phase 2d candidates must clear the three Rust datasets (0.586 / 0.0510 / 0.5292) **and** must not regress the Python baseline that the v1.5 stack itself cannot match (0.5837 on requests without the stack). A model swap that wins Rust and loses Python is a net regression for half the user base. This is an additional constraint the brief did not originally carry and needs a follow-up brief update.
+
+  **Default-ON is parked**. The evidence pattern from §8.2–§8.7 appeared to converge on "flip defaults in v1.6.x"; Phase 3b rejects that direction. Defaults stay OFF indefinitely until either (a) Phase 2b is refined to not pollute Python embeddings, or (b) auto-detection ships that flips the gates only on languages where the stack is measured-positive. Neither change is part of this Unreleased block — this entry only records the measurement. Full experiment log with the full post-mortem and regression mechanism in [`docs/benchmarks.md` §8.8](docs/benchmarks.md). Dataset at `benchmarks/embedding-quality-dataset-requests.json`, four-arm artefacts at `benchmarks/embedding-quality-v1.5-phase3b-requests-{baseline,2e-only,2b2c-only,stacked}.json`.
+
 ### Measured (Phase 3a — external-repo validation on ripgrep, no behaviour change)
 
 - **v1.5 opt-in stack cross-repo validated on `github.com/BurntSushi/ripgrep`** (2026-04-12). 24 hand-built queries against ripgrep's `regex` / `searcher` / `ignore` / `globset` / `printer` crates, 17/5/2 NL/short-phrase/identifier split mirroring the 89-query self shape. Four-arm A/B (`baseline` / `phase2e only` / `phase2b+2c only` / `stacked`) using the release binary from `7896f93` and the §8.6 optimum parameters `CODELENS_RANK_SPARSE_THRESHOLD=40` / `CODELENS_RANK_SPARSE_MAX=40`. **Every hybrid metric moves positive** and — critically — **the relative lift is _larger_ on ripgrep than on either self dataset**:
