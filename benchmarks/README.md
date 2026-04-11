@@ -139,6 +139,18 @@ python3 benchmarks/embedding-quality.py . \
   - 4-arm A/B 측정 완료 — 전체 결과와 해석은 `docs/benchmarks.md` §8.18 참조
   - arm별 결과 파일: `benchmarks/embedding-quality-v1.6-phase3g-django-{baseline,2e-only,2b2c-only,stacked}.json`
 
+외부 phase matrix 자동 집계:
+
+```bash
+python3 benchmarks/embedding-quality-matrix.py \
+  --require-datasets ripgrep,requests,jest,typescript,next-js,react-core,django
+```
+
+- JSON 요약: `benchmarks/embedding-quality-phase3-matrix.json`
+- Markdown 요약: `benchmarks/embedding-quality-phase3-matrix.md`
+- 목적: ripgrep / requests / jest / typescript / next-js / react-core / django 외부 측정값을 수동 표 대신 artefact에서 직접 집계
+- completeness gate: `--require-datasets ...` 를 주면 dataset 누락/예상 외 slug가 있으면 즉시 실패
+
 리포트는 전체 평균 외에 질의 유형별 MRR / Acc@k와 hybrid uplift도 같이 보여준다.
 
 현재 정책:
