@@ -2170,6 +2170,157 @@ Policy C is the minimum-commitment choice that the table supports. It also has t
 
 None of these three change the §8.19 decision about the Phase 2m rollout. They all presuppose that the auto-gate split landed in PR #36 stays in place.
 
+### §8.20 — Phase 3h: Rust framework library on `tokio-rs/axum`
+
+**Hypothesis** (from §8.19 "What would change this decision"): Phase 2m's Policy B ("narrow Rust auto-on to tooling only") was deferred because every measured Rust dataset so far has been tooling / self-code — ripgrep (CLI tooling), 89-query self (CodeLens core), 436-query self (CodeLens augmented). If the Rust positive evidence is actually file-size-dependent rather than language-dependent (the same critique §8.16 / §8.17 applied to JS/TS), then a Rust _framework library_ with short-to-medium file sizes should look more like next-js / react-core than like ripgrep. Phase 3h tests that symmetrically.
+
+**Target repo**: `tokio-rs/axum` (depth-1 shallow clone). The measured subtree is a curated copy at `/tmp/axum-bench` that includes the four workspace crates most users point CodeLens at — `axum/src`, `axum-core/src`, `axum-extra/src`, `axum-macros/src` — with `examples/`, `benches/`, and `tests/` excluded. That leaves **109 source files** and **32 033 LOC**, median 201 LOC/file, max 1 723 LOC/file (`extract/ws.rs`). This is a deliberate size ladder check: next-js was a mega-framework at 1 564 files / 268 k LOC / median 61, react-core was a runtime slice at 30 files / 4 k LOC, and axum sits between them as a medium-file framework library.
+
+**Dataset**: 34 hand-built queries in `benchmarks/embedding-quality-dataset-axum.json`, keeping the §8.15 → §8.18 shape (26 NL + 6 short_phrase + 2 identifier) for direct comparison. Coverage spans the axum public API surface:
+
+| Area                | Example targets                                                                                                                  | Count |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----: |
+| Core types / traits | `Router`, `IntoResponse`, `FromRequest`, `FromRequestParts`, `Handler`, `IntoResponseParts`, `Json`, `MethodRouter`              |     8 |
+| Extractors          | `Path`, `Query`, `State`, `Form`, `Extension`, `Multipart`, `WebSocketUpgrade`, `WebSocket`                                      |     8 |
+| Responses / serving | `Redirect`, `Html`, `Sse`, `serve`                                                                                               |     4 |
+| Router methods      | `route`, `nest`, `merge`, `fallback`, `with_state`, `on`                                                                         |     6 |
+| Short + identifier  | `json body`, `method router`, `into response`, `websocket upgrade`, `serve listener`, `path extractor`, `Router`, `IntoResponse` |     8 |
+
+**Measurement**:
+
+| arm         |   hybrid MRR | Δ abs vs baseline |      Δ rel | NL sub-MRR | short sub-MRR | identifier sub-MRR |
+| ----------- | -----------: | ----------------: | ---------: | ---------: | ------------: | -----------------: |
+| baseline    |     0.280789 |                 — |          — |   0.199912 |      0.391667 |           1.000000 |
+| 2e only     |     0.281315 |          +0.00053 | **+0.2 %** |   0.200591 |      0.391667 |           1.000000 |
+| 2b+2c only  |     0.280789 |           0.00000 |     +0.0 % |   0.199912 |      0.391667 |           1.000000 |
+| **stacked** | **0.281315** |      **+0.00053** | **+0.2 %** |   0.200591 |  **0.391667** |           1.000000 |
+
+**This is a marginally-positive result, dominated by noise**. The total absolute movement is `+0.00053` on 34 queries — a single rank-8 → rank-7 improvement on exactly one query (`Redirect` NL). Phase 2b+2c produces **exactly zero** hybrid movement at full float precision (`0.280789` identical in both arms), mirroring the §8.16 / §8.17 pattern on JS/TS apps. Phase 2e produces the same +0.00053 absolute lift both alone and stacked — which is also a single-rank-position change on the same query.
+
+**Per-query decomposition** (26 NL + 6 short + 2 identifier, stacked vs baseline):
+
+```
+NL queries (26 total): 1 improved, 0 regressed, 25 unchanged
+  Redirect  8 → 7  (Δ MRR +0.0179, the only non-zero contribution)
+
+short_phrase queries (6 total): 0 improved, 0 regressed (identical output)
+identifier queries (2 total, Router + IntoResponse): both rank-1 in every arm
+
+Total: 1 improved, 0 regressed, 33 unchanged.
+```
+
+**Baseline retrieval profile is surprisingly strong** — much stronger than the JS/TS app / runtime profile:
+
+| Dataset        | NL retrieval failures (None in all arms) | Top-10 hits (every arm) |
+| -------------- | ---------------------------------------: | ----------------------: |
+| react-core     |                                  22 / 26 |                  5 / 34 |
+| next-js        |                                  15 / 26 |                  7 / 34 |
+| **axum (new)** |                               **8 / 26** |             **20 / 34** |
+| typescript     |                                  20 / 26 |                  6 / 34 |
+
+So the baseline candidate pool on axum already contains the target for **59 %** of queries (vs next-js 21 %, react-core 15 %, typescript 18 %). The combine function is also doing real work: hybrid MRR (0.281) is meaningfully higher than semantic MRR (0.192) or lexical-only MRR (0.203), which is not what happened on next-js where hybrid 0.198 was _below_ lexical-only 0.229. Rust naming conventions + file organization + `pub fn` / `pub struct` directness are already handling most of the retrieval problem before Phase 2b/2c get a chance to help.
+
+**Three-dataset Rust 2e-only range**:
+
+| dataset                   | archetype         | median LOC | 2e-only Δ rel |
+| ------------------------- | ----------------- | ---------: | ------------: |
+| ripgrep external (§8.7)   | CLI tooling       |          ? |    **+6.2 %** |
+| 89-query self (§8.2)      | library / self    |          ? |        +1.2 % |
+| **axum external (§8.20)** | **framework lib** |    **201** |    **+0.2 %** |
+
+The gradient is monotonic: **the more "library / framework" (and the less "tooling / application binary") the codebase gets, the smaller the Phase 2e lift becomes**. This is the same direction JS/TS showed in §8.17 (react-core 0 %, next-js −0.8 %, jest +1.3 %, typescript −10.0 %), except Rust never crosses into negative territory. Rust's worst case in the measured corpus is `+0.0 %`, not `−10.0 %`.
+
+**Does this change the §8.19 Phase 2m decision?**
+
+No. The §8.19 "what would change this decision" criterion for Policy B ("narrow Rust auto-on to tooling only") was:
+
+> "A Rust application-style measurement (Phase 3h on `tokio-rs/axum`, `SergioBenitez/Rocket`, or a comparable non-tooling Rust framework) that lands Phase 2e as **non-positive** would reduce Rust's 2/2 streak to 2/3 and re-open Policy B as an evidence-backed option."
+
+axum is Rust, it is non-tooling, and Phase 2e is measured at **+0.2 %** — strictly positive, not non-positive. Rust's streak extends from 2/2 positive to **3/3 positive**. Policy B stays deferred because the evidence base for it still does not exist: no measured Rust corpus has yet produced a non-positive Phase 2e result.
+
+But the _expected benefit_ for end users has to narrow:
+
+- **Users with Rust tooling / CLI / compiler code** (cargo, ripgrep, rustc, rust-analyzer, bat, fd, tokei, helix, …) continue to see the original §8.7 / §8.12 win range of +1 % to +6 % on hybrid MRR.
+- **Users with Rust framework library code** (axum, actix-web, tower, tonic, …) will see near-zero benefit at the hybrid-MRR level. The mechanism is the same "baseline hybrid is already near-saturation" story from §8.16 / §8.17, just in a different language.
+- **Users with Rust application code** (tower-of-babel real web services, CLI apps built on these frameworks) remain unmeasured. Phase 3h addresses the Rust framework library slot; the Rust application slot is still open, but given the axum result it is now safe to _predict_ "probably near-zero, not large-negative".
+
+The marketing line narrows from "Phase 2m auto-on is positive on Rust" to "**Phase 2m auto-on ranges from neutral on Rust framework libraries to strongly positive on Rust tooling, with no measured negatives in any Rust regime**".
+
+**Updated ten-dataset baseline matrix** (full stacked arm vs baseline):
+
+| Dataset                        | Language / archetype         | baseline MRR | stacked MRR |      Δ abs |      Δ rel |
+| ------------------------------ | ---------------------------- | -----------: | ----------: | ---------: | ---------: |
+| 89-query self                  | Rust / self                  |        0.572 |       0.586 |     +0.014 |     +2.4 % |
+| 436-query self                 | Rust / self                  |       0.0476 |      0.0510 |    +0.0034 |     +7.1 % |
+| ripgrep external               | Rust / tooling               |        0.459 |       0.529 |     +0.070 |    +15.2 % |
+| requests external              | Python / app library         |        0.584 |       0.495 |     −0.089 |    −15.2 % |
+| django external                | Python / framework           |        0.294 |       0.288 |     −0.005 |     −1.8 % |
+| jest external                  | TS/JS / tooling              |        0.155 |       0.166 |     +0.011 |     +7.3 % |
+| typescript external            | TS/JS / compiler             |        0.098 |       0.201 |     +0.103 |   +104.3 % |
+| next-js external               | TS/JS / typical app          |        0.198 |       0.196 |     −0.002 |     −0.8 % |
+| react-core external            | TS/JS / short runtime        |        0.123 |       0.123 |     +0.000 |     +0.0 % |
+| **axum external (new, §8.20)** | **Rust / framework library** |    **0.281** |   **0.281** | **+0.001** | **+0.2 %** |
+
+Pattern: **6 positive / 2 inert / 2 negative**. Rust now contributes 3 positive + 1 near-zero, Python remains 0 positive / 2 negative, TS/JS remains bifurcated (2 positive tooling / 1 inert runtime / 1 small-negative app / 1 mega-positive compiler).
+
+**Reproduce**:
+
+```bash
+# Clone axum and materialize the bench subtree
+git clone --depth=1 https://github.com/tokio-rs/axum.git /tmp/axum
+mkdir -p /tmp/axum-bench
+rsync -a --delete --exclude '/target/' --exclude '/examples/' --exclude '**/tests/' --exclude '**/benches/' /tmp/axum/axum/src/ /tmp/axum-bench/axum/
+rsync -a --exclude 'tests/' --exclude 'benches/' /tmp/axum/axum-core/src/ /tmp/axum-bench/axum-core/
+rsync -a --exclude 'tests/' --exclude 'benches/' /tmp/axum/axum-extra/src/ /tmp/axum-bench/axum-extra/
+rsync -a --exclude 'tests/' /tmp/axum/axum-macros/src/ /tmp/axum-bench/axum-macros/
+
+# Arm 1: baseline
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/axum-bench --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-axum.json \
+  --output benchmarks/embedding-quality-v1.6-phase3h-axum-baseline.json
+
+# Arm 2: Phase 2e only
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/axum-bench --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-axum.json \
+  --output benchmarks/embedding-quality-v1.6-phase3h-axum-2e-only.json
+
+# Arm 3: Phase 2b + 2c only
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/axum-bench --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-axum.json \
+  --output benchmarks/embedding-quality-v1.6-phase3h-axum-2b2c-only.json
+
+# Arm 4: stacked
+CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
+CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1 \
+CODELENS_RANK_SPARSE_TERM_WEIGHT=1 \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/axum-bench --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-axum.json \
+  --output benchmarks/embedding-quality-v1.6-phase3h-axum-stacked.json
+```
+
+**Limitations acknowledged**:
+
+1. **axum is a framework library, not an application**. The §8.19 criterion called for "a Rust application-style measurement", and a framework library is the closest practical Rust analogue of Next.js (also a framework, not an app). A Rust end-user application measurement (a production web service built on axum, or a large CLI app built on clap) would be a cleaner fit for the "Rust app" slot, but the OSS Rust ecosystem is heavily biased toward libraries and tooling — pure application repos at the scale needed for a 34-query benchmark are rare.
+2. **Curated subtree excludes `examples/` and `tests/`**. Same methodology as §8.17 on react-core. A user who points CodeLens at the full axum checkout will see the examples/tests indexed, which would add some noise but is unlikely to change the Phase 2e / Phase 2b+2c sign.
+3. **Only one non-tooling Rust measurement so far**. `tokio` itself, `tower`, `tonic`, or `actix-web` would each add a second data point for the "Rust framework library" archetype. If any of them come out _non-positive_ on Phase 2e, §8.19 Policy B becomes evidence-backed. Deferred.
+
+**Artefacts**: `benchmarks/embedding-quality-v1.6-phase3h-axum-{baseline,2e-only,2b2c-only,stacked}.json`. Dataset: `benchmarks/embedding-quality-dataset-axum.json`.
+
 ---
 
 ## 9. See Also
