@@ -186,13 +186,71 @@ Pure semantic search (MRR 0.598) and pure lexical search (MRR 0.604) are roughly
 
 ## 8. Historical Snapshots
 
-| Date       | Token efficiency (Total) | Hybrid MRR | Notes                                                         |
-| ---------- | -----------------------: | ---------: | ------------------------------------------------------------- |
-| 2026-04-11 |               6.1x (84%) |      0.664 | Current baseline, v2.1.91+ compliance + telemetry persistence |
-| 2026-04-08 |                        — |      0.688 | Pre-dataset expansion (89 subset, different queries)          |
-| earlier    |         "estimated 2-5x" |          — | No formal measurement before 2026-04                          |
+| Date                         | Token efficiency (Total) | Hybrid MRR | Notes                                                                                                                          |
+| ---------------------------- | -----------------------: | ---------: | ------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-04-11 (post-PoC revert) |               6.1x (84%) |      0.573 | v1.5 apples-to-apples baseline after dataset path fix (`codelens-core` → `codelens-engine`), defaults `HINT_LINES=1` / `60ch`. |
+| 2026-04-11 (Phase 2 PoC)     |                        — |      0.568 | Experimental 3-line / 180-char body hints. **Reverted** — see §8.1.                                                            |
+| 2026-04-11 (v1.4.0 cut)      |               6.1x (84%) |      0.664 | Measured against the pre-rename dataset; suffix mismatch after the crate rename means this row is _not_ apples-to-apples.      |
+| 2026-04-08                   |                        — |      0.688 | Pre-dataset expansion (89 subset, different queries).                                                                          |
+| earlier                      |         "estimated 2-5x" |          — | No formal measurement before 2026-04.                                                                                          |
+
+> **Note on 0.664 vs 0.573** — both numbers are real, but they measure slightly different things. The 0.664 row used a dataset whose `expected_file_suffix` fields still pointed at the pre-rename `crates/codelens-core/...` paths. After v1.5's crate rename those suffixes no longer matched any real file, so we updated the dataset in-place. The 0.573 row is the first hybrid MRR measured after that fix and is therefore the correct apples-to-apples baseline for all future comparisons. Token-efficiency numbers (6.1x) are independent of the dataset fix and remain valid.
 
 Historical result JSON files live under `benchmarks/*.json` with timestamps in filenames. When you upgrade CodeLens, the suggested flow is: (1) check out the new version, (2) re-run the three scripts above, (3) compare against your last `benchmarks/*.json` from the previous version to catch regressions.
+
+### 8.1 v1.5 Phase 2 cAST PoC — experiment log
+
+**Hypothesis**: Natural-language query misses on this repo share a pattern — the discriminating keyword lives in line 2 or 3 of the function body, not in the signature or the first meaningful line. Expanding the body-hint budget from 1 line / 60 chars to 3 lines / 180 chars should let the embedding model see enough body tokens to match NL queries.
+
+**Setup**: A/B on the same updated 89-query dataset, same bundled MiniLM-L12-CodeSearchNet INT8 model, same release binary. Both arms were measured on 2026-04-11 against the same `main` HEAD.
+
+- **Arm A** — `CODELENS_EMBED_HINT_LINES=1` (the reverted default — minimal body exposure)
+- **Arm B** — `CODELENS_EMBED_HINT_LINES=3` (the Phase 2 PoC — the change we wanted to evaluate)
+
+**Result**:
+
+| Method                         | Arm A (1 line) | Arm B (3 lines) |          Δ |
+| ------------------------------ | -------------: | --------------: | ---------: |
+| `semantic_search` (overall)    |          0.528 |           0.510 |     −0.018 |
+| `get_ranked_context` (lexical) |          0.492 |           0.492 |          0 |
+| `get_ranked_context` (hybrid)  |          0.573 |           0.568 |     −0.005 |
+| **NL hybrid MRR**              |      **0.472** |       **0.464** | **−0.008** |
+| NL `semantic_search`           |          0.422 |           0.381 |     −0.041 |
+| identifier (hybrid)            |          0.800 |           0.800 |          0 |
+
+**Verdict — hypothesis rejected.** More body text dilutes the signature signal for the bundled CodeSearchNet-INT8 model rather than helping. The `semantic_search` NL regression (−0.041) is well outside measurement noise for a 55-query subset, and every other row is neutral-to-negative. Identifier queries are completely unaffected because they never touched the body-hint path.
+
+**Root cause analysis**:
+
+1. The bundled CodeSearchNet model is **signature-optimised**. It was trained on short function signatures, not multi-line bodies. Additional body tokens act as noise.
+2. `extract_body_hint` still **skips comments and string literals** — exactly where NL-matchable natural language lives. Expanding line count without expanding content scope doesn't help.
+3. The 55 NL queries in our dataset target **behavioural concepts** ("skip comments", "detect client", "track recommendation") that are naturally phrased and rarely appear verbatim in non-comment body lines.
+
+**Action taken**: defaults reverted to `DEFAULT_HINT_LINES = 1`, `DEFAULT_HINT_TOTAL_CHAR_BUDGET = 60`. The infrastructure — `join_hint_lines`, `hint_line_budget`, `hint_char_budget`, `CODELENS_EMBED_HINT_LINES`, `CODELENS_EMBED_HINT_CHARS` env overrides — stays in place so future experiments can A/B without a rewrite.
+
+**Reproduce either arm**:
+
+```bash
+# Arm A (current default)
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
+
+# Arm B (Phase 2 PoC)
+CODELENS_EMBED_HINT_LINES=3 \
+CODELENS_EMBED_HINT_CHARS=180 \
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
+```
+
+**Next candidate experiments** (Phase 2b / 2c, separate PRs):
+
+- **Comment / string scanner** — extend `extract_body_hint` to also collect one-line `//`, `#`, and `/* */` comments plus natural-language-shaped string literals. Directly addresses RCA items 2 + 3.
+- **API-call extractor** — scan the body for `Type::method(...)` / `object.method(...)` patterns and append them as additional tokens so NL queries like "connects to PostgreSQL" can match files that call `Postgres::connect`.
+- **Model swap** — replace CodeSearchNet-INT8 with a hybrid code+text model (E5-large, BGE-base). Higher binary size + install cost but directly addresses RCA item 1.
+
+The negative result is itself valuable: it rules out the cheapest fix (just show more body text to the same model) and points the next PoC at the right layer.
 
 ---
 
