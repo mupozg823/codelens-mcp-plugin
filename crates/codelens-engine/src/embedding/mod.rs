@@ -1856,23 +1856,32 @@ fn nl_tokens_enabled() -> bool {
     auto_hint_should_enable()
 }
 
-/// Return true when v1.5 Phase 2j auto-detection mode is enabled via
-/// `CODELENS_EMBED_HINT_AUTO=1` (or `true`/`yes`/`on`).
+/// Return true when v1.5 Phase 2j auto-detection mode is enabled.
 ///
-/// Phase 2j accepts the measured reality that the v1.5 opt-in stack is
-/// Rust-optimised (§8.2–§8.10): three Rust datasets win at +2.4 % /
-/// +7.1 % / +15.2 % relative hybrid MRR, one Python dataset loses at
-/// −15.2 %, and the Phase 2h / 2i filter refinements only recover
-/// ~8 % of the Python regression. Rather than ship a global default
-/// that is right half the time, Phase 2j flips Phase 2b / 2c / 2e
-/// on or off based on the project's dominant language — auto-enabled
-/// for `rust`, `cpp`, `c`, `go`, `java`, `kotlin`, `scala`, `cs` and
-/// disabled for everything else.
+/// **v1.6.0 default change (§8.14)**: this returns `true` by default.
+/// Users opt **out** with `CODELENS_EMBED_HINT_AUTO=0` (or `false` /
+/// `no` / `off`). The previous v1.5.x behaviour was the other way
+/// around — default OFF, opt in with `=1`. The flip ships as part of
+/// v1.6.0 after the five-dataset measurement (§8.7, §8.8, §8.13,
+/// §8.11, §8.12) validated:
+///
+/// 1. Rust / C / C++ / Go / Java / Kotlin / Scala / C# projects hit
+///    the §8.7 stacked arm (+2.4 % to +15.2 % hybrid MRR).
+/// 2. TypeScript / JavaScript projects hit the §8.13 stacked arm
+///    (+7.3 % hybrid MRR on `facebook/jest`).
+/// 3. Python projects hit the §8.8 baseline (no change) — the
+///    §8.11 language gate + §8.12 MCP auto-set means Python is
+///    auto-detected and the stack stays OFF without user action.
+/// 4. Ruby / PHP / Lua / shell / untested-dynamic projects fall
+///    through to the conservative default-off branch (same as
+///    Python behaviour — no regression).
 ///
 /// The dominant language is supplied by the MCP tool layer via the
-/// `CODELENS_EMBED_HINT_AUTO_LANG` env var (set once per process on
-/// `activate_project` / `index_embeddings`). The engine only reads
-/// the env var — it does not walk the filesystem itself.
+/// `CODELENS_EMBED_HINT_AUTO_LANG` env var, which is set
+/// automatically on startup (`main.rs`) and on MCP
+/// `activate_project` calls by `compute_dominant_language` (§8.12).
+/// The engine only reads the env var — it does not walk the
+/// filesystem itself.
 ///
 /// Explicit `CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1` /
 /// `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1` /
@@ -1880,8 +1889,12 @@ fn nl_tokens_enabled() -> bool {
 /// always win over the auto decision — users who want to force a
 /// configuration still can, the auto mode is a better default, not
 /// a lock-in.
+///
+/// **Opt-out**: set `CODELENS_EMBED_HINT_AUTO=0` to restore v1.5.x
+/// behaviour (no auto-detection, all three Phase 2 gates default
+/// off unless their individual env vars are set).
 pub(super) fn auto_hint_mode_enabled() -> bool {
-    parse_bool_env("CODELENS_EMBED_HINT_AUTO").unwrap_or(false)
+    parse_bool_env("CODELENS_EMBED_HINT_AUTO").unwrap_or(true)
 }
 
 /// Return the language tag supplied by the MCP tool layer via
@@ -2609,6 +2622,14 @@ mod tests {
     /// Serialize tests that load the fastembed ONNX model to avoid file lock contention.
     static MODEL_LOCK: Mutex<()> = Mutex::new(());
 
+    /// Serialize tests that mutate `CODELENS_EMBED_HINT_*` env vars.
+    /// The v1.6.0 default flip (§8.14) exposed a pre-existing race where
+    /// parallel env-var mutating tests interfere with each other — the
+    /// old `unwrap_or(false)` default happened to mask the race most of
+    /// the time, but `unwrap_or(true)` no longer does. All tests that
+    /// read or mutate `CODELENS_EMBED_HINT_*` should take this lock.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
     macro_rules! skip_without_embedding_model {
         () => {
             if !super::embedding_model_assets_available() {
@@ -2954,6 +2975,7 @@ fn route_request() {
 
     #[test]
     fn extract_nl_tokens_gated_off_by_default() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Default: no env, no NL tokens regardless of body content.
         let previous = std::env::var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS").ok();
         unsafe {
@@ -2975,18 +2997,54 @@ fn skip_things() {
     }
 
     #[test]
-    fn auto_hint_mode_gated_off_by_default() {
+    fn auto_hint_mode_defaults_on_unless_explicit_off() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // v1.6.0 flip (§8.14): default-ON semantics.
+        //
+        // Case 1: env var unset → default ON (the v1.6.0 flip).
+        // Case 2: env var="0" (or "false"/"no"/"off") → explicit OFF
+        //   (opt-out preserved).
+        // Case 3: env var="1" (or "true"/"yes"/"on") → explicit ON
+        //   (still works — explicit always wins).
         let previous = std::env::var("CODELENS_EMBED_HINT_AUTO").ok();
+
+        // Case 1: unset → ON (flip)
         unsafe {
             std::env::remove_var("CODELENS_EMBED_HINT_AUTO");
         }
-        let enabled = super::auto_hint_mode_enabled();
+        let default_enabled = super::auto_hint_mode_enabled();
+        assert!(
+            default_enabled,
+            "v1.6.0 default flip: auto hint mode should be ON when env unset"
+        );
+
+        // Case 2: explicit OFF
         unsafe {
-            if let Some(value) = previous {
-                std::env::set_var("CODELENS_EMBED_HINT_AUTO", value);
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "0");
+        }
+        let explicit_off = super::auto_hint_mode_enabled();
+        assert!(
+            !explicit_off,
+            "explicit CODELENS_EMBED_HINT_AUTO=0 must still disable (opt-out escape hatch)"
+        );
+
+        // Case 3: explicit ON
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "1");
+        }
+        let explicit_on = super::auto_hint_mode_enabled();
+        assert!(
+            explicit_on,
+            "explicit CODELENS_EMBED_HINT_AUTO=1 must still enable"
+        );
+
+        // Restore
+        unsafe {
+            match previous {
+                Some(v) => std::env::set_var("CODELENS_EMBED_HINT_AUTO", v),
+                None => std::env::remove_var("CODELENS_EMBED_HINT_AUTO"),
             }
         }
-        assert!(!enabled, "auto hint mode gate leaked");
     }
 
     #[test]
@@ -3036,17 +3094,20 @@ fn skip_things() {
 
     #[test]
     fn auto_hint_should_enable_requires_both_gate_and_supported_lang() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev_auto = std::env::var("CODELENS_EMBED_HINT_AUTO").ok();
         let prev_lang = std::env::var("CODELENS_EMBED_HINT_AUTO_LANG").ok();
 
-        // Case 1: gate off → never enable, regardless of language
+        // Case 1: gate explicitly off → never enable, regardless of language.
+        // v1.6.0 flip (§8.14): `unset` now means default-ON, so to test
+        // "gate off" we must set the env var to an explicit "0".
         unsafe {
-            std::env::remove_var("CODELENS_EMBED_HINT_AUTO");
+            std::env::set_var("CODELENS_EMBED_HINT_AUTO", "0");
             std::env::set_var("CODELENS_EMBED_HINT_AUTO_LANG", "rust");
         }
         assert!(
             !super::auto_hint_should_enable(),
-            "gate-off with lang=rust must stay disabled"
+            "gate-off (explicit =0) with lang=rust must stay disabled"
         );
 
         // Case 2: gate on, supported language → enable
@@ -3094,6 +3155,7 @@ fn skip_things() {
 
     #[test]
     fn nl_tokens_enabled_explicit_env_wins_over_auto() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let prev_explicit = std::env::var("CODELENS_EMBED_HINT_INCLUDE_COMMENTS").ok();
         let prev_auto = std::env::var("CODELENS_EMBED_HINT_AUTO").ok();
         let prev_lang = std::env::var("CODELENS_EMBED_HINT_AUTO_LANG").ok();
@@ -3161,6 +3223,7 @@ fn skip_things() {
 
     #[test]
     fn strict_comments_gated_off_by_default() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let previous = std::env::var("CODELENS_EMBED_HINT_STRICT_COMMENTS").ok();
         unsafe {
             std::env::remove_var("CODELENS_EMBED_HINT_STRICT_COMMENTS");
@@ -3210,6 +3273,7 @@ fn skip_things() {
 
     #[test]
     fn strict_comments_filters_meta_annotations_during_extraction() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let previous = std::env::var("CODELENS_EMBED_HINT_STRICT_COMMENTS").ok();
         unsafe {
             std::env::set_var("CODELENS_EMBED_HINT_STRICT_COMMENTS", "1");
@@ -3252,6 +3316,7 @@ fn handle_request() {
 
     #[test]
     fn strict_comments_is_orthogonal_to_strict_literals() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Enabling strict_comments must NOT affect the Pass-2 literal path.
         // A format-specifier literal should still pass through Pass 2
         // when the literal filter is off, regardless of the comment gate.
@@ -3293,6 +3358,7 @@ fn handle() {
 
     #[test]
     fn strict_literal_filter_gated_off_by_default() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let previous = std::env::var("CODELENS_EMBED_HINT_STRICT_LITERALS").ok();
         unsafe {
             std::env::remove_var("CODELENS_EMBED_HINT_STRICT_LITERALS");
@@ -3345,6 +3411,7 @@ fn handle() {
 
     #[test]
     fn strict_mode_rejects_format_and_error_literals_during_extraction() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // The env gate is bypassed by calling the inner function directly,
         // BUT the inner function still reads the strict-literal env var.
         // So we have to set it explicitly for this test.
@@ -3390,6 +3457,7 @@ fn handle_request() {
 
     #[test]
     fn strict_mode_leaves_comments_untouched() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Comments (Pass 1) should NOT be filtered by the strict flag —
         // the §8.8 post-mortem identified string literals as the
         // regression source, not comments.
@@ -3457,6 +3525,7 @@ fn do_work() {
 
     #[test]
     fn extract_api_calls_gated_off_by_default() {
+        let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // Default: no env, no API-call hint regardless of body content.
         let previous = std::env::var("CODELENS_EMBED_HINT_INCLUDE_API_CALLS").ok();
         unsafe {

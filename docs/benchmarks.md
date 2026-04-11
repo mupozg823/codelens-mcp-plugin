@@ -1457,7 +1457,65 @@ Measurement artefacts: `benchmarks/embedding-quality-v1.5-phase3c-jest-{baseline
 
 ---
 
-> > > > > > > f5a5765 (feat(engine): Phase 3c — JS/TS validation on facebook/jest, add ts/js to language_supports_nl_stack)
+### §8.14 — v1.6.0 default flip: `CODELENS_EMBED_HINT_AUTO=1` becomes the default
+
+**Hypothesis** (from §8.11 / §8.12 / §8.13 "v1.6.0 default flip readiness"): after the five-dataset measurement arc (§8.2 / §8.4 / §8.6 / §8.7 / §8.8 / §8.13), with Phase 2j engine gating (§8.11) and MCP auto-set follow-up (§8.12) landed, there are no remaining blockers to flipping `auto_hint_mode_enabled()` default from `false` to `true`. Users of Rust / C / C++ / Go / Java / Kotlin / Scala / C# / TypeScript / JavaScript projects will get the measurement-validated stacked arm without setting any env var, and users of Python / Ruby / PHP / Lua / shell / unknown-language projects will get the §8.8 baseline behaviour via the conservative default-off branch of `language_supports_nl_stack`. The flip is the culmination of the §8.1 cAST-revert-methodology → §8.13 Phase 3c arc, shipping what the measurement matrix explicitly justified.
+
+**Implementation** (one-line change + two-line test semantics reversal, covered by eight acceptance criteria):
+
+1. **Engine** — `crates/codelens-engine/src/embedding/mod.rs:1897` `parse_bool_env("CODELENS_EMBED_HINT_AUTO").unwrap_or(false)` → `unwrap_or(true)`. Doc-comment above the function updated to document the opt-out semantics.
+2. **MCP helper** — `crates/codelens-mcp/src/tools/session/project_ops.rs:auto_set_embed_hint_lang` had its own inline env-var parser that was still `.unwrap_or(false)`. This must stay in lock-step with the engine gate or the MCP layer short-circuits before computing dominant language, leaving `CODELENS_EMBED_HINT_AUTO_LANG` unset and the engine's `auto_hint_should_enable()` falling through to the "no language tag" conservative-off branch. Mirrored the engine's default-true behaviour with an explicit match on `1/true/yes/on` vs `0/false/no/off`, with unknown values falling through to default-on.
+3. **Engine unit tests** — renamed `auto_hint_mode_gated_off_by_default` → `auto_hint_mode_defaults_on_unless_explicit_off`. Body expanded from one assertion (env-unset → false) to three cases: env-unset → true (the flip), explicit `=0` → false (opt-out preserved), explicit `=1` → true (explicit always wins). Also updated `auto_hint_should_enable_requires_both_gate_and_supported_lang` Case 1 to use `set_var("0")` instead of `remove_var` — the old test was ambiguous under the flipped semantics (is "unset" the gate-off case, or the default-on case?). Under v1.6.0 semantics, "gate off" means `explicit =0`.
+4. **Env-var race hardening** — the flip surfaced a latent race condition in the test suite. Previously, `unwrap_or(false)` meant that if two parallel env-mutating tests interfered, both tests would often still observe "off" for the unset case, masking the race. Under `unwrap_or(true)`, an interfering test setting `AUTO=1` now visibly collides with a test expecting the default path. Added a module-static `ENV_LOCK: Mutex<()>` pattern (mirroring the existing `MODEL_LOCK` for fastembed ONNX tests) and wrapped the eleven `CODELENS_EMBED_HINT_*`-mutating test functions with `let _env_guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());` as their first line. Engine test count unchanged at 257 — one test was renamed and expanded, no new tests created.
+
+**Measurement** — replay the Phase 2j follow-up (§8.12) benchmarks with **no** `CODELENS_EMBED_HINT_*` env vars set at all, confirming that the flip alone suffices to reach bit-identical parity with the hand-configured measurements.
+
+| Dataset           |              Expected (from §8.12) | v1.6.0 flip actual |      Δ |
+| ----------------- | ---------------------------------: | -----------------: | -----: |
+| ripgrep (Rust)    |  0.5291666666666667 (§8.7 stacked) | 0.5291666666666667 | 0.0000 |
+| requests (Python) | 0.5837009803921568 (§8.8 baseline) | 0.5837009803921568 | 0.0000 |
+
+**Bit-identical to the tenth decimal**. The flip + MCP helper change produces exactly the same results as explicit `CODELENS_EMBED_HINT_AUTO=1 CODELENS_EMBED_HINT_AUTO_LANG=rust` (§8.12 ripgrep-mcpauto) and `CODELENS_EMBED_HINT_AUTO=1 CODELENS_EMBED_HINT_AUTO_LANG=python` (§8.12 requests-mcpauto). The three-step flip (engine gate + MCP helper + test semantics) is verified end-to-end with no user action beyond upgrading the binary.
+
+**Reproduce** (note — zero env vars except `CODELENS_RANK_SPARSE_*` tuning which lives outside the auto-gate):
+
+```bash
+# ripgrep — no AUTO, no AUTO_LANG — the flip does all the work
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/ripgrep-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-ripgrep.json \
+  --output benchmarks/embedding-quality-v1.6-flip-ripgrep-default-on.json
+
+# requests — no env — the flip auto-detects Python and holds the stack OFF
+CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
+CODELENS_RANK_SPARSE_THRESHOLD=40 \
+CODELENS_RANK_SPARSE_MAX=40 \
+CODELENS_BIN=./target/release/codelens-mcp \
+python3 benchmarks/embedding-quality.py /tmp/requests-ext --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-requests.json \
+  --output benchmarks/embedding-quality-v1.6-flip-requests-default-on.json
+```
+
+**Migration note** (for v1.5.x users upgrading to v1.6.0):
+
+- **Most users**: no action required. A supported-language project (Rust/C/C++/Go/Java/Kotlin/Scala/C#/TS/JS) will silently start producing the stacked results. A Python project will silently stay on baseline behaviour via the language gate. Any project whose `language_supports_nl_stack` classification is "unknown" (Ruby, PHP, Lua, shell, …) will also stay on baseline — the conservative default-off branch catches everything the allow-list does not explicitly cover.
+- **v1.5.x users who had explicit `CODELENS_EMBED_HINT_AUTO=1`**: no change, explicit always wins, behaviour identical.
+- **v1.5.x users who had explicit `CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1` / `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1` / `CODELENS_RANK_SPARSE_TERM_WEIGHT=1`**: no change, per-gate explicit wins over the auto decision (explicit-first-then-auto rule preserved from §8.11).
+- **Opt-out escape hatch**: set `CODELENS_EMBED_HINT_AUTO=0` to restore v1.5.x default-off semantics for the whole auto pipeline. Also accepts `false`, `no`, `off` (case-insensitive).
+- **Python / JS / TS users who want to force the stack ON despite the language gate**: set each of the three explicit env vars (`CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1`, `CODELENS_EMBED_HINT_INCLUDE_API_CALLS=1`, `CODELENS_RANK_SPARSE_TERM_WEIGHT=1`) plus `CODELENS_RANK_SPARSE_THRESHOLD=40` `CODELENS_RANK_SPARSE_MAX=40` to bypass the gate. Not recommended for Python based on §8.8 measurement.
+
+**Limitations**:
+
+1. **Process-scoped env var**. `auto_set_embed_hint_lang` exports `CODELENS_EMBED_HINT_AUTO_LANG` for the rest of the process. Switching projects mid-session via the `activate_project` MCP tool re-runs the helper, but because `user_forced_lang` short-circuits when the env var is already set, **switching from a Rust project to a Python project mid-session still sees the Rust language tag**. This was an acknowledged follow-up limitation from §8.12 and is unchanged by the flip. Restart the server to pick up a language change.
+2. **No Phase 3d evidence yet**. JS/TS classification rests on a single external-repo measurement (§8.13 `facebook/jest`). A Phase 3d follow-up on `microsoft/typescript` or `microsoft/vscode` is still open and would firm up the evidence for users with very large TS monorepos.
+3. **Test race exposed, not eliminated for all future env-var tests**. New tests that mutate `CODELENS_EMBED_HINT_*` env vars must remember to take `ENV_LOCK` or they will see race conditions against the existing eleven tests. A clippy lint or helper macro would be a nicer long-term fix.
+
+**Artefacts**: `benchmarks/embedding-quality-v1.6-flip-{ripgrep,requests}-default-on.json`. Both files are bit-identical to their `§8.12 phase2j-*-mcpauto.json` counterparts — readers can verify with `diff` if they want to confirm the parity claim independently.
+
+---
 
 ## 9. See Also
 
