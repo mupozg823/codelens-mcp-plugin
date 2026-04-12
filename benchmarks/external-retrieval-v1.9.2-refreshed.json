@@ -1,0 +1,1269 @@
+{
+  "schema_version": "codelens-external-retrieval-v1",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "runtime_model": {
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-core/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-core/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-core/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/external-retrieval-dataset.json",
+  "configured_repo_count": 2,
+  "available_repo_count": 2,
+  "available_query_count": 24,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "minimum_repo_count": 2,
+  "minimum_queries_per_repo": 10,
+  "sufficient_evidence": true,
+  "repos": [
+    {
+      "repo_id": "claw-dev",
+      "label": "claw-dev",
+      "path": "/Users/bagjaeseog/Downloads/claudex/claw-dev",
+      "path_exists": true,
+      "query_count": 12,
+      "indexed_symbols": 97,
+      "index_elapsed_ms": 2051.28,
+      "isolated_project": null
+    },
+    {
+      "repo_id": "rg-family-clone",
+      "label": "rg-family-clone",
+      "path": "/Users/bagjaeseog/Projects/rg-family-clone",
+      "path_exists": true,
+      "query_count": 12,
+      "indexed_symbols": 391,
+      "index_elapsed_ms": 3759.17,
+      "isolated_project": null
+    }
+  ],
+  "methods": [
+    {
+      "mrr": 0.2791666666666667,
+      "acc1": 0.25,
+      "acc3": 0.2916666666666667,
+      "acc5": 0.3333333333333333,
+      "avg_elapsed_ms": 1194.0295833333332,
+      "by_query_type": {
+        "natural_language": {
+          "count": 16,
+          "mrr": 0.16875,
+          "acc1": 0.125,
+          "acc3": 0.1875,
+          "acc5": 0.25,
+          "avg_elapsed_ms": 1335.366875
+        },
+        "short_phrase": {
+          "count": 8,
+          "mrr": 0.5,
+          "acc1": 0.5,
+          "acc3": 0.5,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 911.355
+        }
+      },
+      "by_repo": {
+        "claw-dev": {
+          "count": 12,
+          "mrr": 0.0,
+          "acc1": 0.0,
+          "acc3": 0.0,
+          "acc5": 0.0,
+          "avg_elapsed_ms": 2213.798333333333
+        },
+        "rg-family-clone": {
+          "count": 12,
+          "mrr": 0.5583333333333333,
+          "acc1": 0.5,
+          "acc3": 0.5833333333333334,
+          "acc5": 0.6666666666666666,
+          "avg_elapsed_ms": 174.26083333333335
+        }
+      },
+      "rows": [
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "coding agent class",
+          "query_type": "short_phrase",
+          "expected_symbol": "CodingAgent",
+          "expected_file_suffix": "src/agent.ts",
+          "rank": null,
+          "elapsed_ms": 1699.21,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "code",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "anthropic provider implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "AnthropicProvider",
+          "expected_file_suffix": "src/providers.ts",
+          "rank": null,
+          "elapsed_ms": 1507.24,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "provider",
+            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "gemini provider implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "GeminiProvider",
+          "expected_file_suffix": "src/providers.ts",
+          "rank": null,
+          "elapsed_ms": 1483.1,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "clear",
+            "file": "src/providers.ts"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "available tool definitions for the agent",
+          "query_type": "natural_language",
+          "expected_symbol": "toolDefinitions",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 2933.77,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "renderToolActivity",
+            "file": "Leonxlnx-claude-code/src/components/tasks/renderToolActivity.tsx"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "tool handler map used to execute tools",
+          "query_type": "natural_language",
+          "expected_symbol": "toolHandlers",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 3289.49,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "ToolSelector",
+            "file": "Leonxlnx-claude-code/src/components/agents/ToolSelector.tsx"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "start the interactive terminal repl",
+          "query_type": "natural_language",
+          "expected_symbol": "startRepl",
+          "expected_file_suffix": "src/cli.tsx",
+          "rank": null,
+          "elapsed_ms": 2165.22,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "start",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "list files in the working directory",
+          "query_type": "natural_language",
+          "expected_symbol": "listFiles",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 2159.19,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "list",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "search text inside project files",
+          "query_type": "natural_language",
+          "expected_symbol": "searchText",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 2132.04,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "send",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "execute a shell command in the workspace",
+          "query_type": "natural_language",
+          "expected_symbol": "runShell",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 2210.69,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "workspaceRoot",
+            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "resolve openai auth credentials from disk",
+          "query_type": "natural_language",
+          "expected_symbol": "resolveOpenAIAuth",
+          "expected_file_suffix": "shared/openaiAuth.js",
+          "rank": null,
+          "elapsed_ms": 2474.31,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "reset",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "format a hint when openai auth is missing",
+          "query_type": "natural_language",
+          "expected_symbol": "formatOpenAIAuthHint",
+          "expected_file_suffix": "shared/openaiAuth.js",
+          "rank": null,
+          "elapsed_ms": 2709.25,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "format",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "compatibility proxy port assignment",
+          "query_type": "short_phrase",
+          "expected_symbol": "resolveCompatPortAssignment",
+          "expected_file_suffix": "shared/compatProxyPort.js",
+          "rank": null,
+          "elapsed_ms": 1802.07,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "XRz",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "root next app layout",
+          "query_type": "short_phrase",
+          "expected_symbol": "RootLayout",
+          "expected_file_suffix": "src/app/layout.tsx",
+          "rank": 1,
+          "elapsed_ms": 321.04,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "RootLayout",
+            "file": "src/app/layout.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "layout for auth pages",
+          "query_type": "natural_language",
+          "expected_symbol": "AuthLayout",
+          "expected_file_suffix": "src/app/(auth)/layout.tsx",
+          "rank": 1,
+          "elapsed_ms": 162.98,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "AuthLayout",
+            "file": "src/app/(auth)/layout.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "wrap the app with shared providers",
+          "query_type": "natural_language",
+          "expected_symbol": "Providers",
+          "expected_file_suffix": "src/components/Providers.tsx",
+          "rank": null,
+          "elapsed_ms": 183.29,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "TableHeader",
+            "file": "src/components/ui/table.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "merge conditional class names",
+          "query_type": "natural_language",
+          "expected_symbol": "cn",
+          "expected_file_suffix": "src/lib/utils.ts",
+          "rank": null,
+          "elapsed_ms": 116.0,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "SheetFooter",
+            "file": "src/components/ui/sheet.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "login page component",
+          "query_type": "short_phrase",
+          "expected_symbol": "LoginPage",
+          "expected_file_suffix": "src/app/(auth)/login/page.tsx",
+          "rank": 1,
+          "elapsed_ms": 151.8,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "LoginPage",
+            "file": "src/app/(auth)/login/page.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "login form component",
+          "query_type": "short_phrase",
+          "expected_symbol": "LoginForm",
+          "expected_file_suffix": "src/app/(auth)/login/page.tsx",
+          "rank": 1,
+          "elapsed_ms": 154.25,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "LoginForm",
+            "file": "src/app/(auth)/login/page.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "register page form",
+          "query_type": "natural_language",
+          "expected_symbol": "RegisterPage",
+          "expected_file_suffix": "src/app/(auth)/register/page.tsx",
+          "rank": 1,
+          "elapsed_ms": 153.7,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "RegisterPage",
+            "file": "src/app/(auth)/register/page.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "community post editor form",
+          "query_type": "natural_language",
+          "expected_symbol": "PostForm",
+          "expected_file_suffix": "src/components/community/PostForm.tsx",
+          "rank": 5,
+          "elapsed_ms": 162.08,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "formatDuration",
+            "file": "src/components/home/VodSection.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "render a community post detail view",
+          "query_type": "natural_language",
+          "expected_symbol": "PostDetail",
+          "expected_file_suffix": "src/components/community/PostDetail.tsx",
+          "rank": null,
+          "elapsed_ms": 176.34,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "peerDependencies",
+            "file": "pnpm-lock.yaml"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "render a list of community posts",
+          "query_type": "natural_language",
+          "expected_symbol": "PostList",
+          "expected_file_suffix": "src/components/community/PostList.tsx",
+          "rank": 2,
+          "elapsed_ms": 167.96,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "PostFormData",
+            "file": "src/components/community/PostForm.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "member profile card component",
+          "query_type": "short_phrase",
+          "expected_symbol": "MemberCard",
+          "expected_file_suffix": "src/components/member/MemberCard.tsx",
+          "rank": 1,
+          "elapsed_ms": 172.13,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "MemberCard",
+            "file": "src/components/member/MemberCard.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "shared prisma client singleton",
+          "query_type": "natural_language",
+          "expected_symbol": "prisma",
+          "expected_file_suffix": "src/lib/prisma.ts",
+          "rank": null,
+          "elapsed_ms": 169.56,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "sharp",
+            "file": "pnpm-lock.yaml"
+          }
+        }
+      ],
+      "method": "semantic_search"
+    },
+    {
+      "mrr": 0.5041666666666667,
+      "acc1": 0.4166666666666667,
+      "acc3": 0.5416666666666666,
+      "acc5": 0.6666666666666666,
+      "avg_elapsed_ms": 253.17166666666665,
+      "by_query_type": {
+        "natural_language": {
+          "count": 16,
+          "mrr": 0.37604166666666666,
+          "acc1": 0.3125,
+          "acc3": 0.375,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 261.27375
+        },
+        "short_phrase": {
+          "count": 8,
+          "mrr": 0.7604166666666666,
+          "acc1": 0.625,
+          "acc3": 0.875,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 236.9675
+        }
+      },
+      "by_repo": {
+        "claw-dev": {
+          "count": 12,
+          "mrr": 0.19999999999999998,
+          "acc1": 0.08333333333333333,
+          "acc3": 0.25,
+          "acc5": 0.4166666666666667,
+          "avg_elapsed_ms": 384.90000000000003
+        },
+        "rg-family-clone": {
+          "count": 12,
+          "mrr": 0.8083333333333332,
+          "acc1": 0.75,
+          "acc3": 0.8333333333333334,
+          "acc5": 0.9166666666666666,
+          "avg_elapsed_ms": 121.44333333333333
+        }
+      },
+      "rows": [
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "coding agent class",
+          "query_type": "short_phrase",
+          "expected_symbol": "CodingAgent",
+          "expected_file_suffix": "src/agent.ts",
+          "rank": 2,
+          "elapsed_ms": 345.24,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "N",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "anthropic provider implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "AnthropicProvider",
+          "expected_file_suffix": "src/providers.ts",
+          "rank": 3,
+          "elapsed_ms": 370.87,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "providerArg",
+            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "gemini provider implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "GeminiProvider",
+          "expected_file_suffix": "src/providers.ts",
+          "rank": 1,
+          "elapsed_ms": 341.03,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "GeminiProvider",
+            "file": "src/providers.ts"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "available tool definitions for the agent",
+          "query_type": "natural_language",
+          "expected_symbol": "toolDefinitions",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 442.95,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "getUserAgent",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "tool handler map used to execute tools",
+          "query_type": "natural_language",
+          "expected_symbol": "toolHandlers",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 468.62,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "handleToolResult",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "start the interactive terminal repl",
+          "query_type": "natural_language",
+          "expected_symbol": "startRepl",
+          "expected_file_suffix": "src/cli.tsx",
+          "rank": null,
+          "elapsed_ms": 385.67,
+          "candidate_count": 20,
+          "top_candidate": {
+            "name": "repoRoot",
+            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "list files in the working directory",
+          "query_type": "natural_language",
+          "expected_symbol": "listFiles",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 373.42,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "getSafeWorkingDir",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "search text inside project files",
+          "query_type": "natural_language",
+          "expected_symbol": "searchText",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 375.47,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "K",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "execute a shell command in the workspace",
+          "query_type": "natural_language",
+          "expected_symbol": "runShell",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 374.71,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "workspaceRoot",
+            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "resolve openai auth credentials from disk",
+          "query_type": "natural_language",
+          "expected_symbol": "resolveOpenAIAuth",
+          "expected_file_suffix": "shared/openaiAuth.js",
+          "rank": 15,
+          "elapsed_ms": 394.34,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "resolveOpenAIAuthForLauncher",
+            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "format a hint when openai auth is missing",
+          "query_type": "natural_language",
+          "expected_symbol": "formatOpenAIAuthHint",
+          "expected_file_suffix": "shared/openaiAuth.js",
+          "rank": 4,
+          "elapsed_ms": 389.61,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "auth",
+            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "compatibility proxy port assignment",
+          "query_type": "short_phrase",
+          "expected_symbol": "resolveCompatPortAssignment",
+          "expected_file_suffix": "shared/compatProxyPort.js",
+          "rank": 4,
+          "elapsed_ms": 356.87,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "proxyPort",
+            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "root next app layout",
+          "query_type": "short_phrase",
+          "expected_symbol": "RootLayout",
+          "expected_file_suffix": "src/app/layout.tsx",
+          "rank": 1,
+          "elapsed_ms": 122.1,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "RootLayout",
+            "file": "src/app/layout.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "layout for auth pages",
+          "query_type": "natural_language",
+          "expected_symbol": "AuthLayout",
+          "expected_file_suffix": "src/app/(auth)/layout.tsx",
+          "rank": 1,
+          "elapsed_ms": 124.0,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "AuthLayout",
+            "file": "src/app/(auth)/layout.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "wrap the app with shared providers",
+          "query_type": "natural_language",
+          "expected_symbol": "Providers",
+          "expected_file_suffix": "src/components/Providers.tsx",
+          "rank": 1,
+          "elapsed_ms": 126.61,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "Providers",
+            "file": "src/components/Providers.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "merge conditional class names",
+          "query_type": "natural_language",
+          "expected_symbol": "cn",
+          "expected_file_suffix": "src/lib/utils.ts",
+          "rank": null,
+          "elapsed_ms": 126.07,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "defaultClassNames",
+            "file": "src/components/ui/calendar.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "login page component",
+          "query_type": "short_phrase",
+          "expected_symbol": "LoginPage",
+          "expected_file_suffix": "src/app/(auth)/login/page.tsx",
+          "rank": 1,
+          "elapsed_ms": 123.28,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "LoginPage",
+            "file": "src/app/(auth)/login/page.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "login form component",
+          "query_type": "short_phrase",
+          "expected_symbol": "LoginForm",
+          "expected_file_suffix": "src/app/(auth)/login/page.tsx",
+          "rank": 1,
+          "elapsed_ms": 120.56,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "LoginForm",
+            "file": "src/app/(auth)/login/page.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "register page form",
+          "query_type": "natural_language",
+          "expected_symbol": "RegisterPage",
+          "expected_file_suffix": "src/app/(auth)/register/page.tsx",
+          "rank": 1,
+          "elapsed_ms": 119.66,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "RegisterPage",
+            "file": "src/app/(auth)/register/page.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "community post editor form",
+          "query_type": "natural_language",
+          "expected_symbol": "PostForm",
+          "expected_file_suffix": "src/components/community/PostForm.tsx",
+          "rank": 5,
+          "elapsed_ms": 126.04,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "EditPostPage",
+            "file": "src/app/(main)/community/free/[id]/edit/page.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "render a community post detail view",
+          "query_type": "natural_language",
+          "expected_symbol": "PostDetail",
+          "expected_file_suffix": "src/components/community/PostDetail.tsx",
+          "rank": 1,
+          "elapsed_ms": 121.36,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "PostDetail",
+            "file": "src/components/community/PostDetail.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "render a list of community posts",
+          "query_type": "natural_language",
+          "expected_symbol": "PostList",
+          "expected_file_suffix": "src/components/community/PostList.tsx",
+          "rank": 1,
+          "elapsed_ms": 118.59,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "PostList",
+            "file": "src/components/community/PostList.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "member profile card component",
+          "query_type": "short_phrase",
+          "expected_symbol": "MemberCard",
+          "expected_file_suffix": "src/components/member/MemberCard.tsx",
+          "rank": 1,
+          "elapsed_ms": 115.79,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "MemberCard",
+            "file": "src/components/member/MemberCard.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "shared prisma client singleton",
+          "query_type": "natural_language",
+          "expected_symbol": "prisma",
+          "expected_file_suffix": "src/lib/prisma.ts",
+          "rank": 2,
+          "elapsed_ms": 113.26,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "globalForPrisma",
+            "file": "src/lib/prisma.ts"
+          }
+        }
+      ],
+      "method": "get_ranked_context"
+    },
+    {
+      "mrr": 0.43421183607542635,
+      "acc1": 0.3333333333333333,
+      "acc3": 0.5416666666666666,
+      "acc5": 0.5416666666666666,
+      "avg_elapsed_ms": 166.10208333333333,
+      "by_query_type": {
+        "natural_language": {
+          "count": 16,
+          "mrr": 0.26624830966869506,
+          "acc1": 0.125,
+          "acc3": 0.4375,
+          "acc5": 0.4375,
+          "avg_elapsed_ms": 174.02
+        },
+        "short_phrase": {
+          "count": 8,
+          "mrr": 0.7701388888888889,
+          "acc1": 0.75,
+          "acc3": 0.75,
+          "acc5": 0.75,
+          "avg_elapsed_ms": 150.26624999999999
+        }
+      },
+      "by_repo": {
+        "claw-dev": {
+          "count": 12,
+          "mrr": 0.4166666666666667,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.5,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 307.4325
+        },
+        "rg-family-clone": {
+          "count": 12,
+          "mrr": 0.451757005484186,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.5833333333333334,
+          "acc5": 0.5833333333333334,
+          "avg_elapsed_ms": 24.771666666666665
+        }
+      },
+      "rows": [
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "coding agent class",
+          "query_type": "short_phrase",
+          "expected_symbol": "CodingAgent",
+          "expected_file_suffix": "src/agent.ts",
+          "rank": 1,
+          "elapsed_ms": 336.94,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "CodingAgent",
+            "file": "src/agent.ts"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "anthropic provider implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "AnthropicProvider",
+          "expected_file_suffix": "src/providers.ts",
+          "rank": 1,
+          "elapsed_ms": 238.32,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "AnthropicProvider",
+            "file": "src/providers.ts"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "gemini provider implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "GeminiProvider",
+          "expected_file_suffix": "src/providers.ts",
+          "rank": 1,
+          "elapsed_ms": 226.29,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "GeminiProvider",
+            "file": "src/providers.ts"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "available tool definitions for the agent",
+          "query_type": "natural_language",
+          "expected_symbol": "toolDefinitions",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 352.11,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "_for",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "tool handler map used to execute tools",
+          "query_type": "natural_language",
+          "expected_symbol": "toolHandlers",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 366.35,
+          "candidate_count": 20,
+          "top_candidate": {
+            "name": "executeTool",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "start the interactive terminal repl",
+          "query_type": "natural_language",
+          "expected_symbol": "startRepl",
+          "expected_file_suffix": "src/cli.tsx",
+          "rank": null,
+          "elapsed_ms": 291.2,
+          "candidate_count": 21,
+          "top_candidate": {
+            "name": "migrateReplBridgeEnabledToRemoteControlAtStartup",
+            "file": "Leonxlnx-claude-code/src/migrations/migrateReplBridgeEnabledToRemoteControlAtStartup.ts"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "list files in the working directory",
+          "query_type": "natural_language",
+          "expected_symbol": "listFiles",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 274.89,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "themeSetting",
+            "file": "Leonxlnx-claude-code/src/components/ThemePicker.tsx"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "search text inside project files",
+          "query_type": "natural_language",
+          "expected_symbol": "searchText",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 287.18,
+          "candidate_count": 22,
+          "top_candidate": {
+            "name": "text",
+            "file": "Leonxlnx-claude-code/package/cli.js"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "execute a shell command in the workspace",
+          "query_type": "natural_language",
+          "expected_symbol": "runShell",
+          "expected_file_suffix": "src/tools.ts",
+          "rank": null,
+          "elapsed_ms": 293.34,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "ThemePickerCommand",
+            "file": "Leonxlnx-claude-code/src/commands/theme/theme.tsx"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "resolve openai auth credentials from disk",
+          "query_type": "natural_language",
+          "expected_symbol": "resolveOpenAIAuth",
+          "expected_file_suffix": "shared/openaiAuth.js",
+          "rank": 2,
+          "elapsed_ms": 375.29,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "OPENAI_AUTH",
+            "file": "src/anthropicCompatProxy.ts"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "format a hint when openai auth is missing",
+          "query_type": "natural_language",
+          "expected_symbol": "formatOpenAIAuthHint",
+          "expected_file_suffix": "shared/openaiAuth.js",
+          "rank": 2,
+          "elapsed_ms": 338.79,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "OPENAI_AUTH",
+            "file": "src/anthropicCompatProxy.ts"
+          }
+        },
+        {
+          "repo_id": "claw-dev",
+          "repo_label": "claw-dev",
+          "query": "compatibility proxy port assignment",
+          "query_type": "short_phrase",
+          "expected_symbol": "resolveCompatPortAssignment",
+          "expected_file_suffix": "shared/compatProxyPort.js",
+          "rank": 1,
+          "elapsed_ms": 308.49,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "resolveCompatPortAssignment",
+            "file": "shared/compatProxyPort.js"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "root next app layout",
+          "query_type": "short_phrase",
+          "expected_symbol": "RootLayout",
+          "expected_file_suffix": "src/app/layout.tsx",
+          "rank": 20,
+          "elapsed_ms": 26.39,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "'@jridgewell/remapping'",
+            "file": "pnpm-lock.yaml"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "layout for auth pages",
+          "query_type": "natural_language",
+          "expected_symbol": "AuthLayout",
+          "expected_file_suffix": "src/app/(auth)/layout.tsx",
+          "rank": 3,
+          "elapsed_ms": 22.98,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "authorize",
+            "file": "src/lib/auth.ts"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "wrap the app with shared providers",
+          "query_type": "natural_language",
+          "expected_symbol": "Providers",
+          "expected_file_suffix": "src/components/Providers.tsx",
+          "rank": 29,
+          "elapsed_ms": 26.62,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "safe-push-apply@1.0.0",
+            "file": "pnpm-lock.yaml"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "merge conditional class names",
+          "query_type": "natural_language",
+          "expected_symbol": "cn",
+          "expected_file_suffix": "src/lib/utils.ts",
+          "rank": null,
+          "elapsed_ms": 21.39,
+          "candidate_count": 23,
+          "top_candidate": {
+            "name": "defaultClassNames",
+            "file": "src/components/ui/calendar.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "login page component",
+          "query_type": "short_phrase",
+          "expected_symbol": "LoginPage",
+          "expected_file_suffix": "src/app/(auth)/login/page.tsx",
+          "rank": 1,
+          "elapsed_ms": 21.27,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "LoginPage",
+            "file": "src/app/(auth)/login/page.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "login form component",
+          "query_type": "short_phrase",
+          "expected_symbol": "LoginForm",
+          "expected_file_suffix": "src/app/(auth)/login/page.tsx",
+          "rank": 1,
+          "elapsed_ms": 21.98,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "LoginForm",
+            "file": "src/app/(auth)/login/page.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "register page form",
+          "query_type": "natural_language",
+          "expected_symbol": "RegisterPage",
+          "expected_file_suffix": "src/app/(auth)/register/page.tsx",
+          "rank": 1,
+          "elapsed_ms": 21.45,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "RegisterPage",
+            "file": "src/app/(auth)/register/page.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "community post editor form",
+          "query_type": "natural_language",
+          "expected_symbol": "PostForm",
+          "expected_file_suffix": "src/components/community/PostForm.tsx",
+          "rank": 3,
+          "elapsed_ms": 23.5,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "PostFormProps",
+            "file": "src/components/community/PostForm.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "render a community post detail view",
+          "query_type": "natural_language",
+          "expected_symbol": "PostDetail",
+          "expected_file_suffix": "src/components/community/PostDetail.tsx",
+          "rank": 2,
+          "elapsed_ms": 32.68,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "PostDetailProps",
+            "file": "src/components/community/PostDetail.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "render a list of community posts",
+          "query_type": "natural_language",
+          "expected_symbol": "PostList",
+          "expected_file_suffix": "src/components/community/PostList.tsx",
+          "rank": 17,
+          "elapsed_ms": 29.32,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "'@eslint-community/eslint-utils'",
+            "file": "pnpm-lock.yaml"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "member profile card component",
+          "query_type": "short_phrase",
+          "expected_symbol": "MemberCard",
+          "expected_file_suffix": "src/components/member/MemberCard.tsx",
+          "rank": 9,
+          "elapsed_ms": 22.45,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "Card",
+            "file": "src/components/ui/card.tsx"
+          }
+        },
+        {
+          "repo_id": "rg-family-clone",
+          "repo_label": "rg-family-clone",
+          "query": "shared prisma client singleton",
+          "query_type": "natural_language",
+          "expected_symbol": "prisma",
+          "expected_file_suffix": "src/lib/prisma.ts",
+          "rank": 1,
+          "elapsed_ms": 27.23,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "prisma",
+            "file": "src/lib/prisma.ts"
+          }
+        }
+      ],
+      "method": "get_ranked_context_no_semantic"
+    }
+  ]
+}

@@ -15,15 +15,15 @@ pub use scoring::{
 };
 pub(crate) use types::ReadDb;
 pub use types::{
-    IndexStats, RankedContextEntry, RankedContextResult, SymbolInfo, SymbolKind, make_symbol_id,
-    parse_symbol_id,
+    make_symbol_id, parse_symbol_id, IndexStats, RankedContextEntry, RankedContextResult,
+    SymbolInfo, SymbolKind,
 };
 
-use crate::db::{self, IndexDb, content_hash, index_db_path};
+use crate::db::{self, content_hash, index_db_path, IndexDb};
 // Re-export language_for_path so downstream crate modules keep working.
-pub(crate) use crate::lang_config::{LanguageConfig, language_for_path};
+pub(crate) use crate::lang_config::{language_for_path, LanguageConfig};
 use crate::project::ProjectRoot;
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -154,7 +154,7 @@ impl SymbolIndex {
             .map(|hits| hits.into_iter().map(|s| s.file_path).collect())
             .unwrap_or_default();
 
-        let top_files: Vec<String> = {
+        let (top_files, importer_files): (Vec<String>, Vec<String>) = {
             let db = self.reader()?;
             let all_paths = db.all_file_paths()?;
 
@@ -181,12 +181,27 @@ impl SymbolIndex {
                 .collect();
 
             file_scores.sort_by(|a, b| b.1.cmp(&a.1));
-            file_scores
+            let top: Vec<String> = file_scores
                 .into_iter()
                 .filter(|(_, score)| *score > 0)
                 .take(10)
                 .map(|(path, _)| path)
-                .collect()
+                .collect();
+
+            // Import graph proximity: files that import top-matched files
+            // provide structural context (callers, consumers of matched code).
+            let mut importers = Vec::new();
+            if !top.is_empty() && top.len() <= 5 {
+                for file_path in top.iter().take(3) {
+                    if let Ok(imp) = db.get_importers(file_path) {
+                        for importer_path in imp.into_iter().take(3) {
+                            importers.push(importer_path);
+                        }
+                    }
+                }
+            }
+
+            (top, importers)
             // db (MutexGuard) dropped here
         };
 
@@ -199,6 +214,14 @@ impl SymbolIndex {
         let mut all_symbols = Vec::new();
         for file_path in &top_files {
             if let Ok(symbols) = self.get_symbols_overview_cached(file_path, depth) {
+                all_symbols.extend(symbols);
+            }
+        }
+
+        // Import graph proximity: include symbols from files that import top matches.
+        // These provide structural context (callers, consumers of matched code).
+        for importer_path in &importer_files {
+            if let Ok(symbols) = self.get_symbols_overview_cached(importer_path, 1) {
                 all_symbols.extend(symbols);
             }
         }

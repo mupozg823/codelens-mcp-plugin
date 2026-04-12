@@ -99,6 +99,19 @@ impl App {
         self.symbols.get(self.symbol_cursor)
     }
 
+    /// Get importer count for the currently selected file.
+    pub fn current_file_importer_count(&self) -> usize {
+        if let Some(file) = self.files.get(self.file_cursor) {
+            self.index
+                .db()
+                .get_importers(&file.path)
+                .map(|v| v.len())
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
     pub fn filtered_files(&self) -> Vec<(usize, &FileEntry)> {
         if self.search_query.is_empty() {
             return self.files.iter().enumerate().collect();
@@ -148,12 +161,13 @@ impl App {
                 match self.active_panel {
                     Panel::Tree => {
                         let filtered = self.filtered_files();
-                        if let Some(pos) = filtered.iter().position(|(i, _)| *i == self.file_cursor)
+                        if let Some(pos) = filtered
+                            .iter()
+                            .position(|(i, _)| *i == self.file_cursor)
+                            .filter(|&p| p > 0)
                         {
-                            if pos > 0 {
-                                self.file_cursor = filtered[pos - 1].0;
-                                self.load_symbols_for_current_file();
-                            }
+                            self.file_cursor = filtered[pos - 1].0;
+                            self.load_symbols_for_current_file();
                         }
                     }
                     Panel::Symbols => {

@@ -241,8 +241,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         .get("file_path")
         .and_then(|value| value.as_str())
         .is_some()
-    {
-        if let Some(guidance) = capabilities_payload
+        && let Some(guidance) = capabilities_payload
             .get("diagnostics_guidance")
             .filter(|value| {
                 !value
@@ -259,7 +258,6 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 "action_target": guidance.get("action_target").and_then(|value| value.as_str()).unwrap_or("diagnostics"),
             }));
         }
-    }
 
     let visible = build_visible_tool_context(state, &request);
     let visible_tool_names = visible
