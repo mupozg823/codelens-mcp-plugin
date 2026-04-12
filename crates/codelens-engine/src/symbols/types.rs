@@ -24,30 +24,48 @@ pub enum SymbolProvenance {
 
 impl SymbolProvenance {
     /// Derive provenance from a relative file path.
+    /// Derive provenance from a relative file path using structural patterns.
+    ///
+    /// Classification is based on path role patterns, not repo-specific names:
+    /// - Test: `/tests/`, `_tests.rs`, `/integration_tests/`
+    /// - Benchmark: `benchmarks/`, `scripts/`, `models/`
+    /// - TuiSurface: binary crate with `ui.rs`, `app.rs`, `tui` in path
+    /// - McpTool: `src/tools/` directory (tool handler convention)
+    /// - McpInfra: `src/dispatch/`, `src/server/`, `src/protocol` (infra layer)
+    /// - EngineCore: everything else (library source)
     pub fn from_path(path: &str) -> Self {
+        // Test detection (universal pattern)
         if path.contains("/tests/")
             || path.contains("/tests.")
             || path.ends_with("_tests.rs")
             || path.contains("/integration_tests/")
+            || path.contains("/test_helpers")
         {
             return Self::Test;
         }
+        // Benchmark/scripts (universal pattern)
         if path.starts_with("benchmarks/")
             || path.starts_with("scripts/")
             || path.starts_with("models/")
         {
             return Self::Benchmark;
         }
-        if path.contains("codelens-tui/") {
+        // TUI surface: crate with tui/ui/app role (not test)
+        if path.contains("/tui/") || path.contains("-tui/") {
             return Self::TuiSurface;
         }
-        if path.contains("codelens-mcp/src/tools/") {
+        // Tool handler layer: src/tools/ convention
+        if path.contains("/src/tools/") {
             return Self::McpTool;
         }
-        if path.contains("codelens-mcp/") {
+        // Infrastructure layer: dispatch, server, protocol patterns
+        if path.contains("/src/dispatch/")
+            || path.contains("/src/server/")
+            || path.contains("/protocol.")
+        {
             return Self::McpInfra;
         }
-        // Default: engine core or any other source
+        // Default: library/engine core
         Self::EngineCore
     }
 

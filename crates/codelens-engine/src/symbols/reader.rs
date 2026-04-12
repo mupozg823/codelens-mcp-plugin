@@ -197,17 +197,17 @@ impl SymbolIndex {
                         .into_iter()
                         .map(|row| {
                             let kind = SymbolKind::from_str_label(&row.kind);
-                            let sid = make_symbol_id("", &kind, &row.name_path);
+                            let sid = make_symbol_id(&rel, &kind, &row.name_path);
                             SymbolInfo {
                                 name: row.name,
                                 kind,
-                                file_path: String::new(),
+                                file_path: rel.clone(),
                                 line: row.line as usize,
                                 column: row.column_num as usize,
                                 signature: row.signature,
                                 name_path: row.name_path,
                                 id: sid,
-                                provenance: SymbolProvenance::default(),
+                                provenance: SymbolProvenance::from_path(&rel),
                                 body: None,
                                 children: Vec::new(),
                                 start_byte: row.start_byte as u32,
