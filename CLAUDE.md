@@ -31,6 +31,24 @@ cargo test -p codelens-mcp --no-default-features
 cargo clippy -- -W clippy::all
 ```
 
+## Problem-First Workflows (v1.7+)
+
+Instead of choosing from 90 individual tools, use these **workflow patterns**:
+
+| Workflow               | Tools Orchestrated                                                                      | When                                                            |
+| ---------------------- | --------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **Explore codebase**   | `onboard_project` → `get_symbols_overview` → `get_ranked_context`                       | First look at unfamiliar code                                   |
+| **Plan safe refactor** | `analyze_change_request` → `verify_change_readiness` → `safe_rename_report`             | Before any multi-file rename/move                               |
+| **Audit architecture** | `module_boundary_report` → `dead_code_report` → `find_misplaced_code` → `impact_report` | Architecture review / tech debt assessment                      |
+| **Trace request path** | `find_symbol` → `find_referencing_symbols` → `get_impact_analysis`                      | "How does X work? What calls Y?"                                |
+| **Review changes**     | `impact_report` → `diff_aware_references` → `get_file_diagnostics`                      | Pre-merge review                                                |
+| **Cleanup duplicates** | `find_code_duplicates` → `find_similar_code` → `refactor_extract_function`              | DRY violation resolution                                        |
+| **Assess security**    | `dead_code_report` → `find_annotations` → external CodeQL/Semgrep                       | Security audit (CodeLens provides context, not formal analysis) |
+
+**Rule**: Start from the workflow, not from individual tools. Let CodeLens's `suggested_next_tools` guide the chain.
+
+**Precision note**: For type-aware refactoring (rename across type hierarchies, find implementations), use `use_lsp=true` on `find_referencing_symbols`. tree-sitter alone may miss type-level relationships.
+
 ## Agent Roles
 
 - **Codex**: implementation, local refactor, direct test execution
@@ -40,9 +58,10 @@ cargo clippy -- -W clippy::all
 ## Routing
 
 - Simple local lookup/edit → native first
-- Multi-file impact/review/refactor → escalate to CodeLens
+- Multi-file impact/review/refactor → escalate to CodeLens workflow
 - Heavy analysis → async handle/job path (`start_analysis_job` → `get_analysis_job`)
 - CodeLens timeout/fail → native fallback
+- **Precision refactoring** → use `use_lsp=true` for type-aware results
 
 ## Harness Modes
 

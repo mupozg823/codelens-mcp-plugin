@@ -43,35 +43,38 @@ fn split_identifier_terms(query: &str) -> Option<String> {
         return None;
     }
 
-    let mut words = Vec::new();
-    let mut current = String::new();
-    let chars: Vec<char> = trimmed.chars().collect();
-    for (i, &ch) in chars.iter().enumerate() {
+    // Build the split form directly into the final output instead of
+    // allocating `Vec<char>` + per-segment `String`s + `join(" ")`.
+    // This keeps the existing split behavior but reduces intermediate
+    // allocations on the semantic-query hot path.
+    let mut split = String::with_capacity(trimmed.len() + 4);
+    let mut last_emitted_is_lowercase = false;
+    let mut in_segment = false;
+    let mut iter = trimmed.chars().peekable();
+
+    while let Some(ch) = iter.next() {
         if ch == '_' || ch == '-' {
-            if !current.is_empty() {
-                words.push(current.clone());
-                current.clear();
+            if !split.is_empty() && !split.ends_with(' ') {
+                split.push(' ');
             }
+            in_segment = false;
+            last_emitted_is_lowercase = false;
             continue;
         }
-        if ch.is_uppercase()
-            && !current.is_empty()
-            && (current
-                .chars()
-                .last()
-                .map(|c| c.is_lowercase())
-                .unwrap_or(false)
-                || chars.get(i + 1).map(|c| c.is_lowercase()).unwrap_or(false))
-        {
-            words.push(current.clone());
-            current.clear();
+
+        let next_is_lowercase = iter.peek().map(|c| c.is_lowercase()).unwrap_or(false);
+        if ch.is_uppercase() && in_segment && (last_emitted_is_lowercase || next_is_lowercase) {
+            split.push(' ');
         }
-        current.push(ch.to_ascii_lowercase());
+
+        for lowered in ch.to_lowercase() {
+            split.push(lowered);
+            last_emitted_is_lowercase = lowered.is_lowercase();
+        }
+        in_segment = true;
     }
-    if !current.is_empty() {
-        words.push(current);
-    }
-    (words.len() > 1).then(|| words.join(" "))
+
+    split.contains(' ').then_some(split)
 }
 
 pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
@@ -1280,6 +1283,14 @@ mod tests {
         assert!(semantic.contains("change_signature"));
         assert!(semantic.contains("change signature"));
         assert!(!semantic.contains("run_stdio"));
+    }
+
+    #[test]
+    fn semantic_query_splits_camel_case_identifiers() {
+        let query = "dispatchToolRequest";
+        let semantic = semantic_query_for_retrieval(query);
+        assert!(semantic.contains("dispatchToolRequest"));
+        assert!(semantic.contains("dispatch tool request"));
     }
 
     #[cfg(feature = "semantic")]
