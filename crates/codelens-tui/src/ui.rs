@@ -1,0 +1,183 @@
+use crate::app::{App, Panel};
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+};
+
+pub fn draw(f: &mut Frame, app: &mut App) {
+    let main_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(0), Constraint::Length(3)])
+        .split(f.area());
+
+    let top_chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
+        .split(main_chunks[0]);
+
+    let left_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .split(top_chunks[0]);
+
+    let right_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+        .split(top_chunks[1]);
+
+    draw_file_tree(f, app, left_chunks[0]);
+    draw_symbol_list(f, app, right_chunks[0]);
+    draw_detail(f, app, left_chunks[1]);
+    draw_metrics(f, app, right_chunks[1]);
+    draw_status_bar(f, app, main_chunks[1]);
+}
+
+fn panel_style(active: bool) -> Style {
+    if active {
+        Style::default().fg(Color::Cyan)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    }
+}
+
+fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
+    let active = matches!(app.active_panel, Panel::Tree);
+    let items: Vec<ListItem> = app
+        .files
+        .iter()
+        .enumerate()
+        .map(|(i, entry)| {
+            let indent = "  ".repeat(entry.depth);
+            let label = entry.path.rsplit('/').next().unwrap_or(&entry.path);
+            let style = if i == app.file_cursor {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            ListItem::new(format!("{indent}  {label}")).style(style)
+        })
+        .collect();
+
+    let block = Block::default()
+        .title(" Files ")
+        .borders(Borders::ALL)
+        .border_style(panel_style(active));
+
+    let mut state = ListState::default();
+    state.select(Some(app.file_cursor));
+
+    let list = List::new(items).block(block).highlight_symbol("▶ ");
+    f.render_stateful_widget(list, area, &mut state);
+}
+
+fn draw_symbol_list(f: &mut Frame, app: &App, area: Rect) {
+    let active = matches!(app.active_panel, Panel::Symbols);
+    let items: Vec<ListItem> = app
+        .symbols
+        .iter()
+        .enumerate()
+        .map(|(i, sym)| {
+            let kind_icon = match sym.kind {
+                codelens_engine::SymbolKind::Function | codelens_engine::SymbolKind::Method => "fn",
+                codelens_engine::SymbolKind::Class => "cl",
+                codelens_engine::SymbolKind::Interface => "if",
+                codelens_engine::SymbolKind::Variable => "va",
+                codelens_engine::SymbolKind::Module => "md",
+                codelens_engine::SymbolKind::Enum => "en",
+                codelens_engine::SymbolKind::TypeAlias => "ty",
+                codelens_engine::SymbolKind::Property => "pr",
+                _ => "  ",
+            };
+            let style = if i == app.symbol_cursor {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default()
+            };
+            ListItem::new(format!(" {kind_icon}  {}  :{}", sym.name, sym.line)).style(style)
+        })
+        .collect();
+
+    let title = if let Some(file) = app.files.get(app.file_cursor) {
+        format!(
+            " Symbols — {} ",
+            file.path.rsplit('/').next().unwrap_or(&file.path)
+        )
+    } else {
+        " Symbols ".to_string()
+    };
+
+    let block = Block::default()
+        .title(title)
+        .borders(Borders::ALL)
+        .border_style(panel_style(active));
+
+    let mut state = ListState::default();
+    state.select(Some(app.symbol_cursor));
+
+    let list = List::new(items).block(block).highlight_symbol("▶ ");
+    f.render_stateful_widget(list, area, &mut state);
+}
+
+fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
+    let active = matches!(app.active_panel, Panel::Detail);
+    let text = if let Some(sym) = app.selected_symbol() {
+        format!(
+            " Name:      {}\n Kind:      {:?}\n Line:      {}\n Signature: {}\n ID:        {}",
+            sym.name, sym.kind, sym.line, sym.signature, sym.id,
+        )
+    } else {
+        " Select a symbol to view details".to_string()
+    };
+
+    let block = Block::default()
+        .title(" Detail ")
+        .borders(Borders::ALL)
+        .border_style(panel_style(active));
+
+    let paragraph = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
+    f.render_widget(paragraph, area);
+}
+
+fn draw_metrics(f: &mut Frame, app: &App, area: Rect) {
+    let sym_count = app.symbols.len();
+    let file_name = app
+        .files
+        .get(app.file_cursor)
+        .map(|f| f.path.as_str())
+        .unwrap_or("-");
+
+    let child_total: usize = app.symbols.iter().map(|s| s.children.len()).sum();
+
+    let text = format!(
+        " File:     {}\n Symbols:  {}\n Children: {}",
+        file_name, sym_count, child_total,
+    );
+
+    let block = Block::default()
+        .title(" File Metrics ")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+
+    let paragraph = Paragraph::new(text).block(block);
+    f.render_widget(paragraph, area);
+}
+
+fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
+    let status = format!(
+        " {} | {} indexed files | [q]Quit [Tab]Panel [↑↓]Nav",
+        app.project_name, app.total_indexed_files,
+    );
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+
+    let paragraph = Paragraph::new(status)
+        .block(block)
+        .style(Style::default().fg(Color::White));
+    f.render_widget(paragraph, area);
+}

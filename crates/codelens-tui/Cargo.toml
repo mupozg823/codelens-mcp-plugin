@@ -1,0 +1,20 @@
+[package]
+name = "codelens-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Terminal dashboard for CodeLens — project explorer, symbol search, diagnostics"
+repository.workspace = true
+keywords = ["tui", "code-intelligence", "dashboard", "terminal"]
+categories = ["command-line-utilities", "development-tools"]
+
+[[bin]]
+name = "codelens-tui"
+path = "src/main.rs"
+
+[dependencies]
+codelens-engine = { path = "../codelens-engine" }
+ratatui = "0.29"
+crossterm = "0.28"
+anyhow.workspace = true
+serde_json.workspace = true
