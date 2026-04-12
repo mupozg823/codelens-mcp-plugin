@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.4] — 2026-04-12
+
+### Release summary
+
+New `propagate_deletions` tool (closes last Serena gap), budget-pruning perf, `make_symbol_id` pre-capacity, scoring stress benchmarks, and vs-Serena documentation.
+
+### Added
+
+- **`propagate_deletions` tool** (90th tool): analyze what breaks if a symbol is deleted — finds callers + importers, reports `safe_to_delete` status and affected references/imports. Closes the last functional gap vs Serena MCP's JetBrains-only `propagate_deletions`. Tool surface: 89 → **90 tools**.
+- **Scoring stress benchmarks**: `bench_scoring_stress_nl` and `bench_scoring_stress_identifier` — 80-symbol fixture for criterion measurement of the scoring loop.
+- **`docs/serena-comparison.md`**: detailed competitive analysis (314 lines). CodeLens covers all Serena core capabilities plus 66 additional tools.
+
+### Performance
+
+- **Skip per-entry JSON serialization in budget pruning** (`ranking.rs`): `prune_to_budget` was calling `serde_json::to_string(&entry)` on every selected entry (~50) just to measure size, then dropping the String. Replaced with O(1) field-length sum. Eliminates ~15 KB of wasted JSON work per `get_ranked_context` call.
+- **Pre-capacity `make_symbol_id`** (`types.rs`): `format!()` → `String::with_capacity` + `push_str`. Exact allocation, zero reallocs. Called at both index-time and query-time.
+
+### Changed
+
+- **README.md**: updated "vs Serena" section with v1.6.x numbers (90 tools vs 24, zero gaps).
+
 ## [1.6.3] — 2026-04-12
 
 ### Release summary
