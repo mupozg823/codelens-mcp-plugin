@@ -1299,6 +1299,41 @@ fn workflow_first_surfaces_prefer_alias_bootstrap() {
 }
 
 #[test]
+fn visible_tools_order_workflow_surfaces_bootstrap_first() {
+    use crate::tool_defs::{ToolProfile, ToolSurface, visible_tools};
+
+    let builder_tools = visible_tools(ToolSurface::Profile(ToolProfile::BuilderMinimal))
+        .into_iter()
+        .map(|tool| tool.name)
+        .take(4)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        builder_tools,
+        vec![
+            "explore_codebase",
+            "trace_request_path",
+            "plan_safe_refactor",
+            "prepare_harness_session",
+        ]
+    );
+
+    let reviewer_tools = visible_tools(ToolSurface::Profile(ToolProfile::ReviewerGraph))
+        .into_iter()
+        .map(|tool| tool.name)
+        .take(4)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        reviewer_tools,
+        vec![
+            "review_architecture",
+            "analyze_change_impact",
+            "audit_security_context",
+            "prepare_harness_session",
+        ]
+    );
+}
+
+#[test]
 fn prepare_harness_session_defaults_to_surface_bootstrap_entrypoints() {
     let project = project_root();
     fs::write(

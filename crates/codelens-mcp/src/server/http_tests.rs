@@ -1286,6 +1286,22 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     assert!(body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"find_symbol\""));
     assert!(!body.contains("\"read_file\""));
+    let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let tool_names = envelope["result"]["tools"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()).map(str::to_owned))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tool_names.iter().take(3).cloned().collect::<Vec<_>>(),
+        vec![
+            "review_architecture".to_owned(),
+            "analyze_change_impact".to_owned(),
+            "audit_security_context".to_owned(),
+        ]
+    );
 }
 
 #[tokio::test]
@@ -1348,6 +1364,22 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
     assert!(!body.contains("\"name\":\"verify_change_readiness\""));
     assert!(!body.contains("\"name\":\"refactor_safety_report\""));
     assert!(!body.contains("\"name\":\"safe_rename_report\""));
+    let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let tool_names = envelope["result"]["tools"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()).map(str::to_owned))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        tool_names.iter().take(3).cloned().collect::<Vec<_>>(),
+        vec![
+            "plan_safe_refactor".to_owned(),
+            "analyze_change_impact".to_owned(),
+            "trace_request_path".to_owned(),
+        ]
+    );
 }
 
 #[tokio::test]

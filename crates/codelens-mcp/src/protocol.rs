@@ -50,7 +50,7 @@ pub struct Tool {
 }
 
 /// Tool complexity tier — guides agent tool selection strategy.
-#[derive(Debug, Clone, Copy, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolTier {
     /// Single-resource read/write. Fast, cheap, precise.
