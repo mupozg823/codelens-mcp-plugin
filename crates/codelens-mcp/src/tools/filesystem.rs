@@ -1,6 +1,6 @@
 use super::{
-    AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
-    success_meta,
+    optional_bool, optional_string, optional_usize, required_string, success_meta, AppState,
+    ToolResult,
 };
 use crate::client_profile::ClientProfile;
 use crate::error::CodeLensError;
@@ -9,7 +9,19 @@ use codelens_engine::{
     detect_frameworks, detect_workspace_packages, find_files, list_dir, read_file,
     search_for_pattern, search_for_pattern_smart,
 };
-use serde_json::json;
+use serde_json::{json, Value};
+
+/// Load `.codelens/config.json` as project-level config policy.
+/// Returns null if file doesn't exist or is malformed.
+///
+/// Format: `{"semantic_search": true, "mutation_gates": true, "bridge_loading": true, ...}`
+fn load_project_config_policy(project_root: &std::path::Path) -> Value {
+    let path = project_root.join(".codelens/config.json");
+    match std::fs::read_to_string(&path) {
+        Ok(content) => serde_json::from_str(&content).unwrap_or(Value::Null),
+        Err(_) => Value::Null,
+    }
+}
 
 pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let stats = state.symbol_index().stats()?;
@@ -23,6 +35,11 @@ pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> To
         .unwrap_or_else(|| state.client_profile());
     let frameworks = detect_frameworks(state.project().as_path());
     let workspace_packages = detect_workspace_packages(state.project().as_path());
+
+    // Load project-level config policy from .codelens/config.json (if present).
+    // This allows enterprise deployments to control feature flags per-project.
+    let config_policy = load_project_config_policy(state.project().as_path());
+
     Ok((
         json!({
             "runtime": "rust-core",
@@ -35,7 +52,8 @@ pub fn get_current_config(state: &AppState, arguments: &serde_json::Value) -> To
             "tool_count": crate::tool_defs::visible_tools(surface).len(),
             "client_profile": client_profile.as_str(),
             "frameworks": frameworks,
-            "workspace_packages": workspace_packages
+            "workspace_packages": workspace_packages,
+            "config_policy": config_policy,
         }),
         success_meta(BackendKind::Config, 1.0),
     ))

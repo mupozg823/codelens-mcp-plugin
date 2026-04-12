@@ -27,6 +27,7 @@ The workflow is also configured to publish:
 - `checksums-sha256.txt`
 - `codelens-mcp-<target>.cdx.json` per-target CycloneDX SBOM files
 - a Linux OCI image to GHCR from the released `linux-x86_64` archive payload
+- `codelens-mcp-airgap-linux-x86_64.tar.gz` self-contained offline bundle
 
 The workflow is also configured to generate GitHub artifact attestations for each packaged archive:
 
@@ -42,15 +43,16 @@ and then uses those release checksums to update the Homebrew tap formula.
 - per-target CycloneDX SBOMs are generated in the release workflow
 - provenance and SBOM attestations are generated in the release workflow
 - an OCI image is built from the released Linux binary and pushed to GHCR
+- an air-gapped Linux bundle is assembled from the released Linux binary plus bundled model assets
 - Homebrew is derived from the published release checksums rather than from a separate manual path
 - release notes can be generated from GitHub plus repository-maintained notes under [`docs/release-notes`](release-notes)
 
 ### What is **not** currently true
 
 - no artifact signing step exists
-- no air-gapped bundle is produced
+- no artifact signing step exists
 
-Those remaining items are roadmap gaps, not shipped capabilities.
+The remaining items are roadmap gaps, not shipped capabilities.
 
 ---
 
@@ -79,6 +81,7 @@ It verifies:
 3. each tarball contains exactly one `codelens-mcp` binary
 4. each zip contains exactly one `codelens-mcp.exe`
 5. each `*.cdx.json` file is valid JSON and declares a CycloneDX SBOM for `codelens-mcp`
+6. each `codelens-mcp-airgap-*.tar.gz` bundle contains the binary, bundled model assets, examples, manifest, and internally valid checksums
 
 ### 3. Verify only a subset of targets when needed
 
@@ -115,6 +118,24 @@ Example:
 docker pull ghcr.io/mupozg823/codelens-mcp-plugin:1.9.14
 ```
 
+### 6. Use the air-gapped bundle
+
+The release workflow also publishes a Linux offline bundle:
+
+```text
+codelens-mcp-airgap-linux-x86_64.tar.gz
+```
+
+It contains:
+
+- the `linux-x86_64` `codelens-mcp` binary
+- `models/codesearch` semantic model assets
+- the matching CycloneDX SBOM under `sbom/`
+- internal checksums
+- MCP and daemon examples
+
+Once extracted, the binary can run in place and will resolve `./models/codesearch` automatically.
+
 ---
 
 ## Current configured attestation model
@@ -140,10 +161,10 @@ The OCI image is built from the released `linux-x86_64` binary artifact rather t
 | GitHub provenance attestation | `actions/attest@v4` in release workflow | Present |
 | GitHub SBOM attestation | `actions/attest@v4` in release workflow | Present |
 | OCI image publishing | GHCR via `docker/build-push-action` | Present |
+| Air-gapped bundle | Linux offline tarball via `build-airgap-bundle.sh` | Present |
 | Local artifact verification path | `scripts/verify-release-artifacts.sh` | Present |
 | Homebrew derivation from published assets | Implemented in release workflow | Present |
 | Signature verification path | Not implemented | Missing |
-| Air-gapped bundle | Not implemented | Missing |
 
 Interpretation:
 
@@ -175,12 +196,8 @@ This is the minimum bar to move from "developer-grade release assets" to "enterp
 ### P2: add enterprise delivery formats
 
 1. Publish an air-gapped bundle containing:
-   - binary
-   - model assets
-   - checksums
-   - SBOM
-   - provenance
-   - example configs
+   - additional target variants beyond Linux x86_64
+   - explicit provenance export for fully offline verification
 
 2. Add an explicit verification playbook for registry-hosted OCI provenance/SBOM attestations.
 

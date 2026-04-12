@@ -134,6 +134,42 @@ verify_tar_structure() {
 	fi
 }
 
+verify_airgap_bundle() {
+	local archive="$1"
+	local tmpdir bundle_root bundle_dir
+	tmpdir="$(mktemp -d)"
+	trap 'rm -rf "$tmpdir"' RETURN
+
+	tar -xzf "$archive" -C "$tmpdir"
+	bundle_root="$(find "$tmpdir" -mindepth 1 -maxdepth 1 -type d | head -1)"
+	if [[ -z "$bundle_root" ]]; then
+		echo "airgap bundle missing top-level directory: $archive" >&2
+		return 1
+	fi
+	bundle_dir="$bundle_root"
+
+	for required in \
+		"codelens-mcp" \
+		"models/codesearch/model.onnx" \
+		"models/codesearch/tokenizer.json" \
+		"models/codesearch/config.json" \
+		"checksums-sha256.txt" \
+		"AIRGAP-BUNDLE.md" \
+		"bundle-manifest.json" \
+		"examples/mcp-stdio.json" \
+		"examples/mcp-http.json"; do
+		if [[ ! -f "$bundle_dir/$required" ]]; then
+			echo "airgap bundle missing required file $required in $archive" >&2
+			return 1
+		fi
+	done
+
+	(
+		cd "$bundle_dir"
+		"$checksum_tool" "${checksum_args[@]}" checksums-sha256.txt >/dev/null
+	)
+}
+
 verify_zip_structure() {
 	local archive="$1"
 	local -a entries
@@ -182,6 +218,9 @@ PY
 
 for asset in "${assets[@]}"; do
 	case "$asset" in
+		codelens-mcp-airgap-*.tar.gz)
+			verify_airgap_bundle "$bundle_dir/$asset"
+			;;
 		*.tar.gz)
 			verify_tar_structure "$bundle_dir/$asset"
 			;;

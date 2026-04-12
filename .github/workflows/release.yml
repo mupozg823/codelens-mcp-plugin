@@ -142,9 +142,21 @@ jobs:
           provenance: true
           sbom: true
 
+      - name: Build air-gapped bundle
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          bash scripts/build-airgap-bundle.sh \
+            --archive codelens-mcp-linux-x86_64.tar.gz \
+            --sbom codelens-mcp-linux-x86_64.cdx.json \
+            --platform linux-x86_64 \
+            --version "${VERSION}" \
+            --models-dir crates/codelens-engine/models \
+            --output codelens-mcp-airgap-linux-x86_64.tar.gz
+
       - name: Generate checksums
         run: |
           sha256sum \
+            codelens-mcp-airgap-*.tar.gz \
             codelens-mcp-*.tar.gz \
             codelens-mcp-*.zip \
             codelens-mcp-*.cdx.json \
@@ -154,6 +166,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
+            codelens-mcp-airgap-*.tar.gz
             codelens-mcp-*.tar.gz
             codelens-mcp-*.zip
             codelens-mcp-*.cdx.json

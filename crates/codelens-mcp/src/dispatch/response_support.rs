@@ -172,6 +172,10 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
     let mut out = serde_json::Map::new();
 
     out.insert("success".to_owned(), Value::Bool(resp.success));
+    out.insert(
+        "schema_version".to_owned(),
+        Value::String("1.0".to_owned()),
+    );
 
     // Error message (if present)
     if let Some(ref err) = resp.error {

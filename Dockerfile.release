@@ -1,3 +1,20 @@
+# Multi-stage build for CodeLens MCP
+# Usage:
+#   docker build -f Dockerfile.release -t codelens-mcp .
+#   docker build -f Dockerfile.release --build-arg FEATURES="" -t codelens-mcp-lean .
+#   docker run -v /path/to/project:/workspace codelens-mcp
+
+# ── Stage 1: Build ──────────────────────────────────────────────
+FROM rust:1.87-bookworm AS builder
+
+WORKDIR /build
+COPY . .
+
+ARG FEATURES="default"
+RUN cargo build --release --features "${FEATURES}" \
+    && strip target/release/codelens-mcp
+
+# ── Stage 2: Runtime ────────────────────────────────────────────
 FROM debian:bookworm-slim
 
 RUN apt-get update \
@@ -9,11 +26,18 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
-COPY codelens-mcp /usr/local/bin/codelens-mcp
+COPY --from=builder /build/target/release/codelens-mcp /usr/local/bin/codelens-mcp
+# Bundle ONNX model for offline semantic search
+COPY --from=builder /build/crates/codelens-engine/models/ /usr/local/share/codelens/models/
+
+ENV CODELENS_MODEL_DIR=/usr/local/share/codelens/models
 
 USER 10001:10001
 
 EXPOSE 7837
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s \
+    CMD ["/usr/local/bin/codelens-mcp", "/workspace", "--cmd", "get_capabilities", "--args", "{}"]
 
 ENTRYPOINT ["/usr/local/bin/codelens-mcp"]
 CMD ["/workspace"]
