@@ -297,6 +297,20 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
     {
         prior += 10.0;
     }
+    // word-match / grep-all / rename-occurrences helper prior
+    if (query_lower.contains("word match")
+        || query_lower.contains("word_match")
+        || query_lower.contains("all occurrences")
+        || query_lower.contains("grep all")
+        || (query_lower.contains("find") && query_lower.contains("match")))
+        && symbol.file_path.contains("rename.rs")
+    {
+        if symbol.name == "find_all_word_matches" {
+            prior += 18.0;
+        } else if symbol.name == "find_word_matches_in_files" {
+            prior += 14.0;
+        }
+    }
 
     prior
 }

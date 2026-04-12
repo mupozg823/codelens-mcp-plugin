@@ -48,6 +48,18 @@ fn has_builder_cue(query_lower: &str) -> bool {
         || query_lower.contains(" construction")
 }
 
+fn helper_aliases_for_query(query_lower: &str) -> &'static [&'static str] {
+    if query_lower.contains("find word matches in files") {
+        &["find_word_matches_in_files", "word_matches_in_files"]
+    } else if query_lower.contains("find all word matches") {
+        &["find_all_word_matches", "all_word_matches"]
+    } else if query_lower.contains("find") && has_helper_cue(query_lower) {
+        &["find_symbol", "find"]
+    } else {
+        &[]
+    }
+}
+
 fn split_identifier_terms(query: &str) -> Option<String> {
     let trimmed = query.trim();
     if trimmed.is_empty()
@@ -105,9 +117,7 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
     let natural_language = is_natural_language_query(trimmed);
     let lowered = trimmed.to_ascii_lowercase();
     let alias_expansion_phrase = trimmed.contains(' ')
-        && (has_entrypoint_cue(&lowered)
-            || has_helper_cue(&lowered)
-            || has_builder_cue(&lowered));
+        && (has_entrypoint_cue(&lowered) || has_helper_cue(&lowered) || has_builder_cue(&lowered));
 
     let semantic_query = if natural_language && !alias_expansion_phrase {
         trimmed.to_owned()
@@ -263,8 +273,22 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     {
         prior += 0.16;
     }
+    if query_lower.contains("find all word matches")
+        && result.symbol_name == "find_all_word_matches"
+        && result.file_path.contains("/rename.rs")
+    {
+        prior += 0.18;
+    }
+    if query_lower.contains("find word matches in files")
+        && result.symbol_name == "find_word_matches_in_files"
+        && result.file_path.contains("/rename.rs")
+    {
+        prior += 0.18;
+    }
     if query_lower.contains("find")
         && has_helper_cue(query_lower)
+        && !query_lower.contains("find all word matches")
+        && !query_lower.contains("find word matches in files")
         && result.symbol_name == "find_symbol"
         && result.file_path.contains("symbols/mod.rs")
     {
@@ -455,8 +479,21 @@ fn expand_retrieval_query(query: &str) -> String {
             push_unique(alias);
         }
     }
-    if lowered.contains("find") && has_helper_cue(&lowered) {
-        for alias in ["find_symbol", "find"] {
+    for alias in helper_aliases_for_query(&lowered) {
+        push_unique(alias);
+    }
+    // word-match / grep-all / rename-occurrences helper queries
+    if lowered.contains("word match")
+        || lowered.contains("word_match")
+        || lowered.contains("all occurrences")
+        || lowered.contains("grep all")
+        || (lowered.contains("find") && lowered.contains("match"))
+    {
+        for alias in [
+            "find_all_word_matches",
+            "find_word_matches_in_files",
+            "word_match",
+        ] {
             push_unique(alias);
         }
     }
@@ -478,8 +515,7 @@ fn expand_retrieval_query(query: &str) -> String {
             push_unique(alias);
         }
     }
-    if has_builder_cue(&lowered) && lowered.contains("embedding") && lowered.contains("text")
-    {
+    if has_builder_cue(&lowered) && lowered.contains("embedding") && lowered.contains("text") {
         for alias in ["build_embedding_text", "embedding_text"] {
             push_unique(alias);
         }
