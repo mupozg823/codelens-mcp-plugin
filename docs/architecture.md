@@ -1,7 +1,20 @@
 # CodeLens MCP — Architecture & Project Overview
 
 > Pure Rust MCP server and harness optimization tool for code intelligence
-> 89 tools | 25 languages | tree-sitter-first | 46K LOC (38.8K prod + 7.2K test)
+> 2 crates | 25 languages | tree-sitter-first | 50.9K Rust LOC (44.9K prod + 6.0K test)
+
+## Current Snapshot (2026-04-12)
+
+- Workspace version: `1.6.4`
+- Registered tool definitions: `91` in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
+- Active runtime surface in this repo session: `builder-minimal`, `26` visible tools via `codelens://tools/list/full`
+- Indexed files in the current project: `226 / 226`, stale `0`
+- Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
+- Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
+- Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
+
+This document describes the product shape and the stable architectural layers.
+The audit document above captures the current overdesign, duplication, and drift findings against the latest code.
 
 ---
 
@@ -21,11 +34,12 @@
 │  │                                                               │  │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │  │
 │  │  │ Dispatch │→ │  Tools   │→ │  State   │→ │  Telemetry   │  │  │
-│  │  │  Table   │  │ (89)     │  │ AppState │  │  Metrics     │  │  │
+│  │  │  Table   │  │ (surface │  │ AppState │  │  Metrics     │  │  │
+│  │  │          │  │ dependent)│  │          │  │              │  │  │
 │  │  └──────────┘  └────┬─────┘  └──────────┘  └──────────────┘  │  │
 │  │                     │                                         │  │
 │  │  ┌─────────────────────────────────────────────────────────┐  │  │
-│  │  │              Tool Categories (83 base + 6 semantic)     │  │  │
+│  │  │              Tool Categories (profile dependent)        │  │  │
 │  │  │  File(7) │ Symbol(7) │ LSP(7) │ Analysis(7) │ Edit(17)  │  │  │
 │  │  │  Workflow(17) │ Memory(5) │ Session(16) │ Semantic(6*)  │  │  │
 │  │  │                         * cfg-gated                     │  │  │
@@ -80,7 +94,7 @@ codelens-mcp-plugin/
 ├── install.sh                            # One-line installer
 │
 ├── crates/
-│   ├── codelens-engine/                  # Engine crate (~32K LOC)
+│   ├── codelens-engine/                  # Engine crate
 │   │   ├── Cargo.toml                    # deps: tree-sitter x25, rusqlite, rayon, ort
 │   │   ├── benches/                      # Performance benchmarks
 │   │   ├── tests/                        # Integration suites
@@ -142,7 +156,7 @@ codelens-mcp-plugin/
 │   │       ├── watcher.rs                # File watcher (notify + debounce)
 │   │       └── oxc_analysis.rs           # JS/TS semantic analysis (oxc)
 │   │
-│   └── codelens-mcp/                     # MCP server crate (~14K LOC)
+│   └── codelens-mcp/                     # MCP server crate
 │       ├── Cargo.toml                    # deps: axum, tokio, serde_json
 │       └── src/
 │           ├── main.rs                   # Entry: CLI args, transport selection
@@ -177,7 +191,7 @@ codelens-mcp-plugin/
 │           │
 │           ├── tool_defs/                # Tool registration
 │           │   ├── mod.rs
-│           │   ├── build.rs              # 89 tool definitions (central registry)
+│           │   ├── build.rs              # registered tool definitions (central registry)
 │           │   ├── output_schemas.rs     # 45 output schemas
 │           │   └── presets.rs            # FULL/BALANCED/MINIMAL + profiles
 │           │
@@ -288,7 +302,10 @@ codelens-mcp-plugin/
 
 ---
 
-## 4. Tool Ecosystem (89 tools)
+## 4. Tool Ecosystem (Historical Shape Reference)
+
+This section is a broad shape reference for the product surface.
+For the latest authoritative counts, use the **Current Snapshot** at the top of this file and the audit report in [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md).
 
 ### Preset Distribution
 
@@ -497,7 +514,10 @@ All mutation tools are gated:
 
 ---
 
-## 8. Key Metrics (2026-04-11)
+## 8. Historical Metrics Snapshot (2026-04-11)
+
+These metrics are a historical benchmark snapshot, not the canonical current-state inventory.
+Use the **Current Snapshot** above and `docs/benchmarks.md` for current measurements.
 
 | Metric                            | Value                                                                                  |
 | --------------------------------- | -------------------------------------------------------------------------------------- |

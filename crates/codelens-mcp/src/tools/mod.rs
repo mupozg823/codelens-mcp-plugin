@@ -601,7 +601,11 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],
         "refactor_change_signature" => &["get_file_diagnostics", "find_referencing_symbols"],
-        "propagate_deletions" => &["delete_lines", "get_file_diagnostics", "get_impact_analysis"],
+        "propagate_deletions" => &[
+            "delete_lines",
+            "get_file_diagnostics",
+            "get_impact_analysis",
+        ],
         "analyze_change_request" => &[
             "get_analysis_section",
             "verify_change_readiness",
