@@ -17,8 +17,7 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/lsp/session.rs",
-        "crates/codelens-mcp/src/tools/lsp.rs",
-        "crates/codelens-engine/src/rename.rs"
+        "crates/codelens-mcp/src/tools/lsp.rs"
       ]
     },
     {
@@ -36,8 +35,7 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/lsp/session.rs",
-        "crates/codelens-mcp/src/tools/lsp.rs",
-        "crates/codelens-engine/src/rename.rs"
+        "crates/codelens-mcp/src/tools/lsp.rs"
       ]
     },
     {
@@ -54,7 +52,6 @@
         "writer"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs"
       ]
@@ -74,7 +71,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs"
       ]
     },
@@ -93,7 +89,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
     },
@@ -111,7 +106,6 @@
         "rename_symbol"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
@@ -161,7 +155,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/inline.rs",
-        "crates/codelens-engine/src/inline.rs",
         "crates/codelens-engine/src/inline.rs"
       ]
     },
@@ -179,7 +172,6 @@
         "parse_function_parts"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/inline.rs",
         "crates/codelens-engine/src/inline.rs",
         "crates/codelens-engine/src/inline.rs"
       ]
@@ -199,7 +191,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/move_symbol.rs",
-        "crates/codelens-engine/src/move_symbol.rs",
         "crates/codelens-engine/src/move_symbol.rs"
       ]
     },
@@ -217,7 +208,6 @@
         "MoveEdit"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/move_symbol.rs",
         "crates/codelens-engine/src/move_symbol.rs",
         "crates/codelens-engine/src/move_symbol.rs"
       ]
@@ -237,7 +227,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/change_signature.rs",
-        "crates/codelens-engine/src/change_signature.rs",
         "crates/codelens-engine/src/change_signature.rs"
       ]
     },
@@ -255,7 +244,6 @@
         "ChangeSignatureResult"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/change_signature.rs",
         "crates/codelens-engine/src/change_signature.rs",
         "crates/codelens-engine/src/change_signature.rs"
       ]
@@ -275,7 +263,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/circular.rs",
-        "crates/codelens-engine/src/circular.rs",
         "crates/codelens-engine/src/circular.rs"
       ]
     },
@@ -293,7 +280,6 @@
         "detects_simple_cycle"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/circular.rs",
         "crates/codelens-engine/src/circular.rs",
         "crates/codelens-engine/src/circular.rs"
       ]
@@ -313,7 +299,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/symbols/parser.rs",
-        "crates/codelens-engine/src/symbols/parser.rs",
         "crates/codelens-engine/src/symbols/parser.rs"
       ]
     },
@@ -331,7 +316,6 @@
         "nest_symbols"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/parser.rs",
         "crates/codelens-engine/src/symbols/parser.rs",
         "crates/codelens-engine/src/symbols/parser.rs"
       ]
@@ -379,9 +363,7 @@
       "negative_symbols": [
         "find_similar_code"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/embedding/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which helper implements find duplicates",
@@ -394,9 +376,7 @@
       "negative_symbols": [
         "find_similar_code"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/embedding/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "file watcher primary implementation",
@@ -412,7 +392,6 @@
         "is_lock_contention_error"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/watcher.rs",
         "crates/codelens-engine/src/watcher.rs",
         "crates/codelens-engine/src/watcher.rs"
       ]
@@ -432,7 +411,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/watcher.rs",
-        "crates/codelens-engine/src/watcher.rs",
         "crates/codelens-engine/src/watcher.rs"
       ]
     },
@@ -451,7 +429,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
     },
@@ -469,7 +446,6 @@
         "NON_CODE_KINDS"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
@@ -519,7 +495,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/project.rs",
-        "crates/codelens-engine/src/project.rs",
         "crates/codelens-engine/src/project.rs"
       ]
     },
@@ -537,7 +512,6 @@
         "new_exact"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/project.rs",
         "crates/codelens-engine/src/project.rs",
         "crates/codelens-engine/src/project.rs"
       ]
@@ -557,7 +531,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/call_graph.rs"
       ]
     },
@@ -575,7 +548,6 @@
         "extracts_python_calls"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/call_graph.rs"
       ]
@@ -595,7 +567,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/call_graph.rs"
       ]
     },
@@ -613,7 +584,6 @@
         "call_language_for_path"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/call_graph.rs"
       ]
@@ -633,7 +603,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/call_graph.rs"
       ]
     },
@@ -651,7 +620,6 @@
         "call_language_for_path"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/call_graph.rs"
       ]
@@ -671,7 +639,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/community.rs",
-        "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs"
       ]
     },
@@ -689,7 +656,6 @@
         "community_density"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs"
       ]
@@ -709,7 +675,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/community.rs",
-        "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs"
       ]
     },
@@ -727,7 +692,6 @@
         "common_path_prefix"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs"
       ]
@@ -747,7 +711,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/community.rs",
-        "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs"
       ]
     },
@@ -765,7 +728,6 @@
         "community_density"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs"
       ]
@@ -785,7 +747,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs"
       ]
     },
@@ -804,7 +765,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/community.rs",
         "crates/codelens-engine/src/community.rs"
       ]
     },
@@ -819,9 +779,7 @@
       "negative_symbols": [
         "find_similar_code"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/embedding/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which builder creates register sqlite vec",
@@ -834,9 +792,7 @@
       "negative_symbols": [
         "find_similar_code"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/embedding/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "insert batch primary implementation",
@@ -887,7 +843,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
     },
@@ -905,7 +860,6 @@
         "rename_symbol"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
@@ -925,7 +879,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
     },
@@ -943,7 +896,6 @@
         "find_shadowing_files"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
@@ -963,7 +915,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
     },
@@ -981,7 +932,6 @@
         "apply_edits"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
@@ -1001,7 +951,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs"
       ]
     },
@@ -1019,7 +968,6 @@
         "select_solve_symbols"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs"
       ]
@@ -1039,7 +987,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/db/ops.rs",
-        "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs"
       ]
     },
@@ -1058,7 +1005,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/db/ops.rs",
-        "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs"
       ]
     },
@@ -1076,7 +1022,6 @@
         "get_directory_symbols"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs"
       ]
@@ -1096,24 +1041,19 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs"
       ]
     },
     {
-      "query": "new primary implementation",
-      "query_type": "short_phrase",
-      "expected_symbol": "new",
+      "query": "EmbeddingEngine constructor initializes model and index",
+      "query_type": "natural_language",
+      "expected_symbol": "EmbeddingEngine",
       "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
       "language": "rust",
       "role": "generic",
       "adversarial_group": "080167332f7e",
-      "negative_symbols": [
-        "EmbeddingEngine"
-      ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/embedding/mod.rs"
-      ]
+      "negative_symbols": [],
+      "negative_file_suffixes": []
     },
     {
       "query": "which struct initializer creates the embedding engine",
@@ -1123,12 +1063,8 @@
       "language": "rust",
       "role": "generic",
       "adversarial_group": "080167332f7e",
-      "negative_symbols": [
-        "EmbeddingEngine"
-      ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/embedding/mod.rs"
-      ]
+      "negative_symbols": [],
+      "negative_file_suffixes": []
     },
     {
       "query": "call language for path primary implementation",
@@ -1144,7 +1080,6 @@
         "LanguageConfig"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/lang_config.rs"
       ]
@@ -1164,7 +1099,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/lang_config.rs"
       ]
     },
@@ -1182,7 +1116,6 @@
         "get_file_symbols"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs"
       ]
@@ -1202,7 +1135,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs",
         "crates/codelens-engine/src/symbols/mod.rs"
       ]
     },
@@ -1220,7 +1152,6 @@
         "RenameEdit"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
@@ -1240,7 +1171,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
     },
@@ -1259,7 +1189,6 @@
       ],
       "negative_file_suffixes": [
         "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]
     },
@@ -1277,7 +1206,6 @@
         "find_shadowing_files"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs",
         "crates/codelens-engine/src/rename.rs"
       ]

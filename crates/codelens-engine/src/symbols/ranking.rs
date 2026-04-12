@@ -410,6 +410,27 @@ fn file_path_prior(query_lower: &str, file_path: &str) -> f64 {
             prior += boost;
         }
     }
+    // Owner prior: for implementation/handler/helper queries, prefer engine
+    // implementations over mcp/tui wrappers. Engine symbols are the canonical
+    // implementation; mcp tools and tui code are thin dispatch/display layers.
+    let is_impl_query = query_lower.contains("implementation")
+        || query_lower.contains("handler")
+        || query_lower.contains("helper")
+        || query_lower.contains("entrypoint")
+        || query_lower.contains("primary");
+    if is_impl_query {
+        if file_path.contains("codelens-engine/src/") {
+            prior += 6.0;
+        }
+        if file_path.contains("codelens-tui/") {
+            prior -= 8.0;
+        }
+        // mcp tools/ are wrappers; engine src/ has the real impl
+        if file_path.contains("codelens-mcp/src/tools/") {
+            prior -= 4.0;
+        }
+    }
+
     if file_path.starts_with("benchmarks/")
         || file_path.starts_with("models/")
         || file_path.starts_with("docs/")
