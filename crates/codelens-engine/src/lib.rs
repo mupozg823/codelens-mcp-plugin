@@ -51,7 +51,8 @@ pub use lsp::{
     LspWorkspaceSymbol, LspWorkspaceSymbolRequest, check_lsp_status, default_lsp_args_for_command,
     default_lsp_command_for_extension, default_lsp_command_for_path,
     find_referencing_symbols_via_lsp, get_diagnostics_via_lsp, get_lsp_recipe,
-    get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
+    get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, lsp_binary_exists,
+    search_workspace_symbols_via_lsp,
 };
 pub use project::{
     ProjectRoot, WorkspacePackage, compute_dominant_language, detect_frameworks,

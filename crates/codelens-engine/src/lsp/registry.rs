@@ -215,20 +215,54 @@ pub const LSP_RECIPES: &[LspRecipe] = &[
     // Perl deferred until tree-sitter 0.26 upgrade
 ];
 
+/// Return `true` when the given LSP binary is resolvable either via the
+/// current `PATH` or via a conservative allow-list of common install
+/// locations. This keeps runtime capability reporting and `check_lsp_status`
+/// aligned even when the daemon inherits a minimal launchd/systemd PATH.
+pub fn lsp_binary_exists(command: &str) -> bool {
+    if std::process::Command::new("which")
+        .arg(command)
+        .output()
+        .map(|output| output.status.success())
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    let home = std::env::var("HOME").unwrap_or_default();
+    let fallback_dirs = [
+        "/opt/homebrew/bin".to_owned(),
+        "/usr/local/bin".to_owned(),
+        format!("{home}/.cargo/bin"),
+        format!("{home}/.fnm/aliases/default/bin"),
+        format!("{home}/.nvm/versions/node/current/bin"),
+    ];
+    for dir in fallback_dirs.iter().filter(|dir| !dir.is_empty()) {
+        if Path::new(dir).join(command).exists() {
+            return true;
+        }
+    }
+
+    if let Ok(extra) = std::env::var("CODELENS_LSP_PATH_EXTRA") {
+        for dir in extra.split(':').filter(|dir| !dir.is_empty()) {
+            if Path::new(dir).join(command).exists() {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
 /// Check which LSP servers are installed and which are missing.
 pub fn check_lsp_status() -> Vec<LspStatus> {
     LSP_RECIPES
         .iter()
         .map(|recipe| {
-            let installed = std::process::Command::new("which")
-                .arg(recipe.binary_name)
-                .output()
-                .map(|o| o.status.success())
-                .unwrap_or(false);
             LspStatus {
                 language: recipe.language,
                 server_name: recipe.server_name,
-                installed,
+                installed: lsp_binary_exists(recipe.binary_name),
                 install_command: recipe.install_command,
             }
         })

@@ -10,65 +10,147 @@ use serde_json::json;
 #[cfg(feature = "semantic")]
 use crate::tool_defs::is_tool_in_surface;
 
-/// Return `true` when the given LSP binary is resolvable either via the
-/// daemon's inherited `PATH` (the `which` fast-path) or via a set of
-/// common macOS/Linux install locations (`/opt/homebrew/bin`,
-/// `/usr/local/bin`, `~/.cargo/bin`, `~/.fnm/aliases/default/bin`,
-/// `~/.nvm/versions/node/current/bin`) or via the user-supplied
-/// `CODELENS_LSP_PATH_EXTRA` environment variable (`:`-separated list).
-///
-/// Motivation (Phase 4a, §capability-reporting): the MCP daemon on
-/// launchd / systemd typically inherits a minimal `PATH`
-/// (`/usr/bin:/bin:/usr/sbin:/sbin`), which excludes Homebrew,
-/// cargo, and every Node version manager's install directory. Using
-/// `which` alone was reporting `lsp_attached = false` on machines
-/// where the LSP binary was installed and functional — a reporting
-/// bug, not a real feature absence.
-pub(crate) fn resolve_lsp_binary_exists(cmd: &str) -> bool {
-    // Fast path: delegate to the daemon's PATH. This is the common case
-    // when the daemon is started from an interactive shell or when PATH
-    // has been explicitly propagated.
-    if std::process::Command::new("which")
-        .arg(cmd)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-    {
-        return true;
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum DiagnosticsStatus {
+    Available,
+    FilePathRequired,
+    UnsupportedExtension,
+    LspBinaryMissing,
+}
 
-    // Slow path: try a conservative allow-list of standard install
-    // directories. Each entry is checked as `<dir>/<cmd>` with
-    // `Path::exists()` — no execution, just a stat.
-    let home = std::env::var("HOME").unwrap_or_default();
-    let fallback_dirs: Vec<String> = vec![
-        "/opt/homebrew/bin".to_string(),
-        "/usr/local/bin".to_string(),
-        format!("{home}/.cargo/bin"),
-        format!("{home}/.fnm/aliases/default/bin"),
-        format!("{home}/.nvm/versions/node/current/bin"),
-    ];
-    for dir in &fallback_dirs {
-        if dir.is_empty() {
-            continue;
-        }
-        if std::path::Path::new(dir).join(cmd).exists() {
-            return true;
+impl DiagnosticsStatus {
+    pub(crate) fn status_key(&self) -> &'static str {
+        match self {
+            Self::Available => "available",
+            Self::FilePathRequired => "file_path_required",
+            Self::UnsupportedExtension => "unsupported_extension",
+            Self::LspBinaryMissing => "lsp_binary_missing",
         }
     }
 
-    // User escape hatch: colon-separated extra directories. Applied
-    // after the standard allow-list so users can point at an unusual
-    // install location (monorepo-local LSP, custom prefix, etc.).
-    if let Ok(extra) = std::env::var("CODELENS_LSP_PATH_EXTRA") {
-        for dir in extra.split(':').filter(|p| !p.is_empty()) {
-            if std::path::Path::new(dir).join(cmd).exists() {
-                return true;
+    pub(crate) fn is_available(&self) -> bool {
+        matches!(self, Self::Available)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct DiagnosticsGuidance {
+    status: DiagnosticsStatus,
+    file_extension: Option<String>,
+    language: Option<&'static str>,
+    lsp_command: Option<&'static str>,
+    server_name: Option<&'static str>,
+    install_command: Option<&'static str>,
+    package_manager: Option<&'static str>,
+}
+
+impl DiagnosticsGuidance {
+    fn for_file(file_path: Option<&str>) -> Self {
+        let extension = file_path.and_then(|path| {
+            std::path::Path::new(path)
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext.to_ascii_lowercase())
+        });
+        let recipe = extension
+            .as_deref()
+            .and_then(codelens_engine::get_lsp_recipe);
+
+        let status = match (file_path, recipe) {
+            (None, _) => DiagnosticsStatus::FilePathRequired,
+            (Some(_), None) => DiagnosticsStatus::UnsupportedExtension,
+            (Some(_), Some(recipe)) if !codelens_engine::lsp_binary_exists(recipe.binary_name) => {
+                DiagnosticsStatus::LspBinaryMissing
             }
+            (Some(_), Some(_)) => DiagnosticsStatus::Available,
+        };
+
+        Self {
+            status,
+            file_extension: extension,
+            language: recipe.map(|recipe| recipe.language),
+            lsp_command: recipe.map(|recipe| recipe.binary_name),
+            server_name: recipe.map(|recipe| recipe.server_name),
+            install_command: recipe.map(|recipe| recipe.install_command),
+            package_manager: recipe.map(|recipe| recipe.package_manager),
         }
     }
 
-    false
+    fn reason_str(&self) -> Option<&'static str> {
+        match self.status {
+            DiagnosticsStatus::Available => None,
+            DiagnosticsStatus::FilePathRequired => Some(
+                "file_path required — provide a concrete source file so CodeLens can select an LSP recipe",
+            ),
+            DiagnosticsStatus::UnsupportedExtension => Some(
+                "unsupported extension — no default LSP recipe is registered for this file type",
+            ),
+            DiagnosticsStatus::LspBinaryMissing => Some(
+                "LSP binary missing — install the configured server or provide an explicit command",
+            ),
+        }
+    }
+
+    fn reason_code(&self) -> Option<&'static str> {
+        match self.status {
+            DiagnosticsStatus::Available => None,
+            DiagnosticsStatus::FilePathRequired => Some("diagnostics_file_path_required"),
+            DiagnosticsStatus::UnsupportedExtension => Some("diagnostics_unsupported_extension"),
+            DiagnosticsStatus::LspBinaryMissing => Some("diagnostics_lsp_binary_missing"),
+        }
+    }
+
+    fn recommended_action(&self) -> Option<&'static str> {
+        match self.status {
+            DiagnosticsStatus::Available => None,
+            DiagnosticsStatus::FilePathRequired => Some("provide_file_path"),
+            DiagnosticsStatus::UnsupportedExtension => Some("pass_explicit_lsp_command"),
+            DiagnosticsStatus::LspBinaryMissing => Some("install_lsp_server"),
+        }
+    }
+
+    fn action_target(&self) -> Option<&'static str> {
+        match self.status {
+            DiagnosticsStatus::Available => None,
+            DiagnosticsStatus::FilePathRequired => Some("file_path"),
+            DiagnosticsStatus::UnsupportedExtension => Some("file_extension"),
+            DiagnosticsStatus::LspBinaryMissing => Some("lsp_server"),
+        }
+    }
+
+    fn guidance_payload(&self) -> serde_json::Value {
+        json!({
+            "status": self.status.status_key(),
+            "available": self.status.is_available(),
+            "reason": self.reason_str(),
+            "reason_code": self.reason_code(),
+            "recommended_action": self.recommended_action(),
+            "action_target": self.action_target(),
+            "file_extension": self.file_extension,
+            "language": self.language,
+            "lsp_command": self.lsp_command,
+            "server_name": self.server_name,
+            "install_command": self.install_command,
+            "package_manager": self.package_manager,
+        })
+    }
+
+    fn unavailable_payload(&self, feature: &str) -> serde_json::Value {
+        json!({
+            "feature": feature,
+            "reason": self.reason_str().unwrap_or("diagnostics available"),
+            "status": self.status.status_key(),
+            "reason_code": self.reason_code(),
+            "recommended_action": self.recommended_action(),
+            "action_target": self.action_target(),
+            "file_extension": self.file_extension,
+            "language": self.language,
+            "lsp_command": self.lsp_command,
+            "server_name": self.server_name,
+            "install_command": self.install_command,
+            "package_manager": self.package_manager,
+        })
+    }
 }
 
 /// Four-way decomposition of why `semantic_search` might not be
@@ -351,16 +433,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         })
         .map(|ext| ext.to_ascii_lowercase());
 
-    // Check LSP availability via the Phase 4a PATH-tolerant helper.
-    // The old code used `which` alone, which depends on the MCP
-    // daemon's inherited PATH — typically `/usr/bin:/bin:/usr/sbin:/sbin`
-    // on launchd, excluding Homebrew / cargo / Node version managers.
-    // The new helper falls through to standard install locations
-    // (§capability-reporting AC1).
-    let lsp_attached = file_path
-        .and_then(crate::tools::default_lsp_command_for_path)
-        .map(|cmd| resolve_lsp_binary_exists(&cmd))
-        .unwrap_or(false);
+    let diagnostics_guidance = DiagnosticsGuidance::for_file(file_path);
+    let lsp_attached = diagnostics_guidance.status.is_available();
 
     // Phase 4a: `embeddings_loaded` is retained for backwards
     // compatibility — it answers "is the engine currently pinned in
@@ -442,9 +516,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "rename_plan",
         ]);
     } else {
-        unavailable
-            .push(json!({"feature": "type_hierarchy_lsp", "reason": "no LSP server attached"}));
-        unavailable.push(json!({"feature": "diagnostics", "reason": "no LSP server attached"}));
+        unavailable.push(diagnostics_guidance.unavailable_payload("type_hierarchy_lsp"));
+        unavailable.push(diagnostics_guidance.unavailable_payload("diagnostics"));
         // Native type hierarchy is still available
         available.push("type_hierarchy_native");
     }
@@ -492,6 +565,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         json!({
             "language": language,
             "lsp_attached": lsp_attached,
+            "diagnostics_guidance": diagnostics_guidance.guidance_payload(),
             "embeddings_loaded": embeddings_loaded,
             "semantic_search_status": semantic_status.status_key(),
             "semantic_search_guidance": semantic_search_guidance,
