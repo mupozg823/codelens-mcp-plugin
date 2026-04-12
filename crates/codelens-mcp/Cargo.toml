@@ -22,10 +22,14 @@ tokio-stream = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
-codelens-engine = { path = "../codelens-engine", version = "=1.9.20" }
+codelens-engine = { path = "../codelens-engine", version = "=1.9.21" }
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+opentelemetry = { workspace = true, optional = true }
+opentelemetry_sdk = { workspace = true, optional = true }
+opentelemetry-otlp = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
 
 [dev-dependencies]
 tower = { workspace = true }
@@ -37,3 +41,4 @@ default = ["semantic"]
 semantic = ["codelens-engine/semantic"]
 model-bakeoff = ["semantic", "codelens-engine/model-bakeoff"]
 http = ["dep:axum", "dep:tokio", "dep:uuid", "dep:tokio-stream"]
+otel = ["dep:opentelemetry", "dep:opentelemetry_sdk", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry", "dep:tokio"]

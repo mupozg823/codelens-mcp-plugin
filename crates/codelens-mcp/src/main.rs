@@ -190,9 +190,10 @@ fn format_http_startup_banner(
     )
 }
 
-fn main() -> Result<()> {
-    // Initialize tracing subscriber — output to stderr to avoid interfering with
-    // stdio JSON-RPC transport on stdout. Controlled via CODELENS_LOG env var.
+// ── Tracing / OpenTelemetry initialisation ──────────────────────────
+
+/// Stderr-only fmt subscriber (default, always present).
+fn init_tracing_fmt_only() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("CODELENS_LOG")
@@ -201,6 +202,78 @@ fn main() -> Result<()> {
         .with_writer(std::io::stderr)
         .with_target(false)
         .init();
+}
+
+/// When the `otel` feature is enabled AND `CODELENS_OTEL_ENDPOINT` is set,
+/// build a layered subscriber: fmt (stderr) + OpenTelemetry OTLP exporter.
+/// Otherwise fall back to fmt-only.
+#[cfg(feature = "otel")]
+fn init_tracing() {
+    use opentelemetry::trace::TracerProvider as _;
+    use opentelemetry_otlp::WithExportConfig;
+    use opentelemetry_sdk::trace::SdkTracerProvider;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    let endpoint = std::env::var("CODELENS_OTEL_ENDPOINT").unwrap_or_default();
+    if endpoint.is_empty() {
+        init_tracing_fmt_only();
+        return;
+    }
+
+    // Build OTLP exporter targeting the user-specified collector endpoint.
+    let exporter = match opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(&endpoint)
+        .build()
+    {
+        Ok(exp) => exp,
+        Err(e) => {
+            eprintln!("codelens: failed to create OTLP exporter ({e}), falling back to stderr-only tracing");
+            init_tracing_fmt_only();
+            return;
+        }
+    };
+
+    let provider = SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_resource(opentelemetry_sdk::Resource::builder()
+            .with_service_name("codelens-mcp")
+            .build())
+        .build();
+
+    let tracer = provider.tracer("codelens-mcp");
+    let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
+
+    let env_filter = tracing_subscriber::EnvFilter::try_from_env("CODELENS_LOG")
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
+
+    let fmt_layer = tracing_subscriber::fmt::layer()
+        .with_writer(std::io::stderr)
+        .with_target(false);
+
+    tracing_subscriber::registry()
+        .with(env_filter)
+        .with(fmt_layer)
+        .with(otel_layer)
+        .init();
+
+    eprintln!("codelens: OpenTelemetry OTLP exporter active → {endpoint}");
+}
+
+#[cfg(not(feature = "otel"))]
+fn init_tracing() {
+    init_tracing_fmt_only();
+}
+
+fn main() -> Result<()> {
+    // Initialize tracing subscriber — output to stderr to avoid interfering with
+    // stdio JSON-RPC transport on stdout. Controlled via CODELENS_LOG env var.
+    //
+    // When the `otel` feature is enabled and CODELENS_OTEL_ENDPOINT is set,
+    // an OpenTelemetry OTLP exporter layer is added so spans are shipped to
+    // an external collector (Jaeger, Grafana Tempo, etc.).
+    init_tracing();
 
     let args: Vec<String> = std::env::args().collect();
     let preset = args

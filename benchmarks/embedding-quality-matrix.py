@@ -16,13 +16,16 @@ import math
 import re
 from pathlib import Path
 
-
 ARM_ORDER = ("baseline", "2e-only", "2b2c-only", "stacked")
 HYBRID_METHOD = "get_ranked_context"
 DEFAULT_GLOB = "benchmarks/embedding-quality-v1.*-phase3*-*.json"
 
 DATASET_REGISTRY = {
-    "ripgrep": {"label": "ripgrep external", "language": "Rust", "archetype": "tooling"},
+    "ripgrep": {
+        "label": "ripgrep external",
+        "language": "Rust",
+        "archetype": "tooling",
+    },
     "requests": {
         "label": "requests external",
         "language": "Python",
@@ -53,6 +56,16 @@ DATASET_REGISTRY = {
         "label": "axum external",
         "language": "Rust",
         "archetype": "framework library",
+    },
+    "gin": {
+        "label": "gin external",
+        "language": "Go",
+        "archetype": "web framework",
+    },
+    "gson": {
+        "label": "gson external",
+        "language": "Java",
+        "archetype": "JSON library",
     },
 }
 
@@ -120,7 +133,9 @@ def dataset_slug_from_path(dataset_path: str) -> str:
     return Path(dataset_path).stem
 
 
-def effect_band(delta_rel_pct: float | None, flat_threshold_pct: float, strong_threshold_pct: float) -> str:
+def effect_band(
+    delta_rel_pct: float | None, flat_threshold_pct: float, strong_threshold_pct: float
+) -> str:
     if delta_rel_pct is None or math.isnan(delta_rel_pct):
         return "undefined"
     if abs(delta_rel_pct) < flat_threshold_pct:
@@ -165,7 +180,9 @@ def build_matrix(
         groups[key][info["arm"]] = report
 
     rows = []
-    for (version, phase, slug), arms in sorted(groups.items(), key=lambda item: item[0][1]):
+    for (version, phase, slug), arms in sorted(
+        groups.items(), key=lambda item: item[0][1]
+    ):
         missing = [arm for arm in ARM_ORDER if arm not in arms]
         if missing:
             raise SystemExit(f"{version}/{phase}/{slug}: missing arms {missing}")
@@ -204,7 +221,9 @@ def build_matrix(
                         "hybrid_acc1": arms[arm]["hybrid"]["acc1"],
                         "hybrid_acc3": arms[arm]["hybrid"]["acc3"],
                         "semantic_mrr": arms[arm]["methods"]["semantic_search"]["mrr"],
-                        "lexical_mrr": arms[arm]["methods"]["get_ranked_context_no_semantic"]["mrr"],
+                        "lexical_mrr": arms[arm]["methods"][
+                            "get_ranked_context_no_semantic"
+                        ]["mrr"],
                     }
                     for arm in ARM_ORDER
                 },
@@ -270,7 +289,9 @@ def render_markdown(summary: dict) -> str:
         f"- Strong band: relative delta at or above `{summary['strong_relative_threshold_pct']:.1f}%`"
     )
     a("")
-    a("| Phase | Dataset | Language / archetype | Baseline | 2e | 2b+2c | Stacked | Δ abs | Δ rel | Band |")
+    a(
+        "| Phase | Dataset | Language / archetype | Baseline | 2e | 2b+2c | Stacked | Δ abs | Δ rel | Band |"
+    )
     a("|---|---|---|---:|---:|---:|---:|---:|---:|---|")
     for row in summary["rows"]:
         arms = row["arms"]
@@ -313,9 +334,7 @@ def main() -> None:
 
     if args.require_datasets.strip():
         expected = {
-            item.strip()
-            for item in args.require_datasets.split(",")
-            if item.strip()
+            item.strip() for item in args.require_datasets.split(",") if item.strip()
         }
         actual = {row["dataset_slug"] for row in summary["rows"]}
         missing = sorted(expected - actual)
@@ -330,7 +349,9 @@ def main() -> None:
 
     output_json = Path(args.output_json)
     output_md = Path(args.output_md)
-    output_json.write_text(json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    output_json.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     output_md.write_text(render_markdown(summary) + "\n", encoding="utf-8")
     print(json.dumps(summary, ensure_ascii=False, indent=2))
 

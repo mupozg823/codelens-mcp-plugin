@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
 ```
 
-Latest release notes: [v1.9.14](docs/release-notes/v1.9.14.md)
+Latest release notes: [v1.9.21](docs/release-notes/v1.9.21.md)
 
 ## Setup
 
@@ -183,7 +183,7 @@ Optional embedding-based code search (feature-gated: `semantic`):
 - 2-tier NL→code bridging: generic core (15 entries) + auto-generated project bridges (`.codelens/bridges.json`)
 - Multi-language test symbol filtering: Python, JS/TS, Go, Java, Kotlin, Ruby
 
-### Retrieval Quality (v1.9.14)
+### Retrieval Quality (v1.9.21)
 
 | Project            | Language | Hybrid MRR | Semantic MRR | Queries |
 | ------------------ | -------- | ---------- | ------------ | ------- |
@@ -191,6 +191,8 @@ Optional embedding-based code search (feature-gated: `semantic`):
 | Role (adversarial) | Rust     | **0.962**  | 0.900        | 70      |
 | Flask              | Python   | 0.563      | **0.577**    | 20      |
 | curl               | C        | **0.623**  | 0.555        | 18      |
+
+6-language benchmark matrix: Rust (self/axum/ripgrep), Python (django/requests), TS/JS (jest/next-js/react-core/typescript), Go (gin), Java (gson), C (curl).
 
 > Generic bridge only — no project-specific tuning. Hybrid > lexical in all languages.
 > With project bridges (`.codelens/bridges.json`): self MRR rises to 0.841.
@@ -209,6 +211,7 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 | Schema versioning          | `schema_version: "1.0"` in all responses                                   |
 | Intelligence sources       | `tree_sitter`, `lsp`, `semantic`, `scip` — reported via `get_capabilities` |
 | Mutation audit log         | `.codelens/audit/mutation-audit.jsonl`                                     |
+| OTel exporter              | OTLP gRPC via `--features otel` + `CODELENS_OTEL_ENDPOINT` env var         |
 | OTel-ready spans           | `tool.success`, `tool.backend`, `tool.elapsed_ms`, `otel.status_code`      |
 | SBOM                       | CycloneDX per release                                                      |
 | Dataset lint               | CI-integrated benchmark hygiene (5 rules)                                  |
@@ -309,9 +312,9 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 
 | Suite                      | Tests   | Scope                                      |
 | -------------------------- | ------- | ------------------------------------------ |
-| codelens-engine            | 279     | Parsing, ranking, embedding, IR            |
-| codelens-mcp               | 204     | Dispatch, workflows, profiles, schemas     |
-| codelens-mcp (no semantic) | 184     | Feature-off path verification              |
+| codelens-engine            | 286     | Parsing, ranking, embedding, IR            |
+| codelens-mcp               | 210     | Dispatch, workflows, profiles, schemas     |
+| codelens-mcp (no semantic) | 190     | Feature-off path verification              |
 | Dataset lint               | 5 rules | file_exists, negative≠positive, duplicates |
 
 ```bash

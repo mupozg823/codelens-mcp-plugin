@@ -1,0 +1,182 @@
+[
+  {
+    "query": "main class for JSON serialization and deserialization",
+    "expected_symbol": "Gson",
+    "expected_file_suffix": "gson/Gson.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "builder pattern to configure Gson instances",
+    "expected_symbol": "GsonBuilder",
+    "expected_file_suffix": "gson/GsonBuilder.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "abstract base class representing a JSON element",
+    "expected_symbol": "JsonElement",
+    "expected_file_suffix": "gson/JsonElement.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "JSON object mapping string keys to JSON elements",
+    "expected_symbol": "JsonObject",
+    "expected_file_suffix": "gson/JsonObject.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "ordered array of JSON elements",
+    "expected_symbol": "JsonArray",
+    "expected_file_suffix": "gson/JsonArray.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "JSON primitive value holding a string number or boolean",
+    "expected_symbol": "JsonPrimitive",
+    "expected_file_suffix": "gson/JsonPrimitive.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "represents a JSON null value",
+    "expected_symbol": "JsonNull",
+    "expected_file_suffix": "gson/JsonNull.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "abstract adapter for converting between objects and JSON tokens",
+    "expected_symbol": "TypeAdapter",
+    "expected_file_suffix": "gson/TypeAdapter.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "factory that creates type adapters for specific types",
+    "expected_symbol": "TypeAdapterFactory",
+    "expected_file_suffix": "gson/TypeAdapterFactory.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "convert a Java object to its JSON string representation",
+    "expected_symbol": "toJson",
+    "expected_file_suffix": "gson/Gson.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "deserialize a JSON string into a Java object of a given type",
+    "expected_symbol": "fromJson",
+    "expected_file_suffix": "gson/Gson.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "streaming JSON reader that reads tokens sequentially",
+    "expected_symbol": "JsonReader",
+    "expected_file_suffix": "gson/stream/JsonReader.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "streaming JSON writer that writes tokens to output",
+    "expected_symbol": "JsonWriter",
+    "expected_file_suffix": "gson/stream/JsonWriter.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "token type enumeration used by the streaming parser",
+    "expected_symbol": "JsonToken",
+    "expected_file_suffix": "gson/stream/JsonToken.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "annotation to mark a field with a custom serialized name",
+    "expected_symbol": "SerializedName",
+    "expected_file_suffix": "gson/annotations/SerializedName.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "annotation to expose or hide a field during serialization",
+    "expected_symbol": "Expose",
+    "expected_file_suffix": "gson/annotations/Expose.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "interface for custom JSON serialization logic",
+    "expected_symbol": "JsonSerializer",
+    "expected_file_suffix": "gson/JsonSerializer.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "interface for custom JSON deserialization logic",
+    "expected_symbol": "JsonDeserializer",
+    "expected_file_suffix": "gson/JsonDeserializer.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "context provided to custom serializers during serialization",
+    "expected_symbol": "JsonSerializationContext",
+    "expected_file_suffix": "gson/JsonSerializationContext.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "context provided to custom deserializers during deserialization",
+    "expected_symbol": "JsonDeserializationContext",
+    "expected_file_suffix": "gson/JsonDeserializationContext.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "parse a JSON string into a syntax tree of elements",
+    "expected_symbol": "JsonParser",
+    "expected_file_suffix": "gson/JsonParser.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "represents a generic type with type parameter information",
+    "expected_symbol": "TypeToken",
+    "expected_file_suffix": "gson/reflect/TypeToken.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "strategy to convert field names between Java and JSON naming conventions",
+    "expected_symbol": "FieldNamingStrategy",
+    "expected_file_suffix": "gson/FieldNamingStrategy.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "predefined field naming policies like LOWER_CASE_WITH_UNDERSCORES",
+    "expected_symbol": "FieldNamingPolicy",
+    "expected_file_suffix": "gson/FieldNamingPolicy.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "strategy to exclude fields from serialization based on modifiers",
+    "expected_symbol": "ExclusionStrategy",
+    "expected_file_suffix": "gson/ExclusionStrategy.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "adapter for reflectively serializing arbitrary Java objects",
+    "expected_symbol": "ReflectiveTypeAdapterFactory",
+    "expected_file_suffix": "gson/internal/bind/ReflectiveTypeAdapterFactory.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "exception thrown when JSON parsing encounters a syntax error",
+    "expected_symbol": "JsonSyntaxException",
+    "expected_file_suffix": "gson/JsonSyntaxException.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "exception thrown when JSON input and output types are incompatible",
+    "expected_symbol": "JsonIOException",
+    "expected_file_suffix": "gson/JsonIOException.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "add a property with a string value to a JSON object",
+    "expected_symbol": "addProperty",
+    "expected_file_suffix": "gson/JsonObject.java",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "control how null values are handled during serialization",
+    "expected_symbol": "serializeNulls",
+    "expected_file_suffix": "gson/GsonBuilder.java",
+    "query_type": "natural_language"
+  }
+]

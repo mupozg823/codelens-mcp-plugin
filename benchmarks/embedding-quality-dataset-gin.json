@@ -1,0 +1,182 @@
+[
+  {
+    "query": "HTTP web framework engine that handles routing and middleware",
+    "expected_symbol": "Engine",
+    "expected_file_suffix": "gin.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "request context carrying headers params and response writer",
+    "expected_symbol": "Context",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "group routes under a common path prefix with shared middleware",
+    "expected_symbol": "RouterGroup",
+    "expected_file_suffix": "routergroup.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "function type that processes an HTTP request",
+    "expected_symbol": "HandlerFunc",
+    "expected_file_suffix": "gin.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "create a default engine with logger and recovery middleware",
+    "expected_symbol": "Default",
+    "expected_file_suffix": "gin.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "register a GET route handler on the router group",
+    "expected_symbol": "GET",
+    "expected_file_suffix": "routergroup.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "register a POST route handler for form submissions",
+    "expected_symbol": "POST",
+    "expected_file_suffix": "routergroup.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "serialize a struct as JSON and write it to the response",
+    "expected_symbol": "JSON",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "bind incoming JSON body to a struct and validate it",
+    "expected_symbol": "ShouldBindJSON",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "attach middleware to the router group",
+    "expected_symbol": "Use",
+    "expected_file_suffix": "routergroup.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "retrieve a URL path parameter by name",
+    "expected_symbol": "Param",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "logging middleware that records request details",
+    "expected_symbol": "Logger",
+    "expected_file_suffix": "logger.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "panic recovery middleware that prevents server crash",
+    "expected_symbol": "Recovery",
+    "expected_file_suffix": "recovery.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "basic HTTP authentication middleware",
+    "expected_symbol": "BasicAuth",
+    "expected_file_suffix": "auth.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "start listening on a network address and serve HTTP",
+    "expected_symbol": "Run",
+    "expected_file_suffix": "gin.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "bind request body using content-type header detection",
+    "expected_symbol": "Bind",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "set response HTTP status code",
+    "expected_symbol": "Status",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "render an HTML template with data",
+    "expected_symbol": "HTML",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "redirect client to a different URL",
+    "expected_symbol": "Redirect",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "abort the request chain and return a status code",
+    "expected_symbol": "AbortWithStatus",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "radix tree node for fast URL path matching",
+    "expected_symbol": "node",
+    "expected_file_suffix": "tree.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "URL parameters extracted from the route pattern",
+    "expected_symbol": "Params",
+    "expected_file_suffix": "tree.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "retrieve a query string parameter with a default value",
+    "expected_symbol": "DefaultQuery",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "set a key-value pair in the request context for passing data between middleware",
+    "expected_symbol": "Set",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "retrieve a previously stored value from the request context",
+    "expected_symbol": "Get",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "bind form data from a multipart request",
+    "expected_symbol": "ShouldBindWith",
+    "expected_file_suffix": "context.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "JSON binding implementation that deserializes request body",
+    "expected_symbol": "jsonBinding",
+    "expected_file_suffix": "binding/json.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "configure the framework to run in release mode",
+    "expected_symbol": "SetMode",
+    "expected_file_suffix": "mode.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "serve a single file from the filesystem",
+    "expected_symbol": "StaticFile",
+    "expected_file_suffix": "routergroup.go",
+    "query_type": "natural_language"
+  },
+  {
+    "query": "register a handler that matches any HTTP method",
+    "expected_symbol": "Any",
+    "expected_file_suffix": "routergroup.go",
+    "query_type": "natural_language"
+  }
+]
