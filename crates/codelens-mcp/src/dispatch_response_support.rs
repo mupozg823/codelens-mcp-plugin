@@ -120,9 +120,15 @@ pub(crate) fn text_payload_for_response(
     resp: &ToolCallResponse,
     structured_content: Option<&Value>,
 ) -> String {
-    let payload = slim_text_payload_for_async_handle(resp, structured_content)
-        .unwrap_or_else(|| serde_json::to_value(resp).unwrap_or_else(|_| json!({})));
-    serde_json::to_string(&payload)
+    // Async handles get a slim payload that cherry-picks essential fields.
+    // For everything else, serialize the ToolCallResponse directly to
+    // String instead of going through an intermediate Value (saves one
+    // full JSON tree allocation on the common non-async path).
+    if let Some(slim) = slim_text_payload_for_async_handle(resp, structured_content) {
+        return serde_json::to_string(&slim)
+            .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned());
+    }
+    serde_json::to_string(resp)
         .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())
 }
 
@@ -267,10 +273,17 @@ pub(crate) fn bounded_result_payload(
             structured_content = Some(summarize_structured_content(existing, 0));
         }
         if text.len() > max_chars {
-            text = format!(
-                "{}...[truncated]",
-                text.chars().take(max_chars).collect::<String>()
-            );
+            // In-place truncation: find the char boundary at max_chars,
+            // truncate the existing allocation, and append the marker —
+            // avoids the two intermediate String allocations that
+            // `chars().take().collect::<String>()` + `format!()` paid.
+            let byte_idx = text
+                .char_indices()
+                .nth(max_chars)
+                .map(|(i, _)| i)
+                .unwrap_or(text.len());
+            text.truncate(byte_idx);
+            text.push_str("...[truncated]");
         }
         truncated = true;
     } else {
