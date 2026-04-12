@@ -1,10 +1,10 @@
+use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::resource_context::{
-    build_http_session_payload, build_visible_tool_context, ResourceRequestContext,
+    ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
 };
-use crate::tool_defs::{default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface};
-use crate::tool_runtime::{required_string, success_meta, ToolResult};
-use crate::AppState;
+use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile};
+use crate::tool_runtime::{ToolResult, required_string, success_meta};
 use codelens_engine::memory::list_memory_names;
 use codelens_engine::{compute_dominant_language, detect_frameworks};
 use serde_json::json;

@@ -531,7 +531,6 @@ impl AppState {
         targets
     }
 
-
     pub(crate) fn record_recent_preflight_from_payload(
         &self,
         tool_name: &str,
@@ -832,10 +831,7 @@ impl AppState {
     }
 
     pub(crate) fn effort_level(&self) -> EffortLevel {
-        match self
-            .effort_level
-            .load(std::sync::atomic::Ordering::Relaxed)
-        {
+        match self.effort_level.load(std::sync::atomic::Ordering::Relaxed) {
             0 => EffortLevel::Low,
             1 => EffortLevel::Medium,
             _ => EffortLevel::High,

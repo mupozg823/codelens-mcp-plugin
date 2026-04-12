@@ -124,8 +124,9 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         let resolved = state.project().resolve(&file_path)?;
         if codelens_engine::oxc_analysis::is_js_ts(&resolved)
             && let Ok(source) = std::fs::read_to_string(&resolved)
-            && let Ok(refs) =
-                codelens_engine::oxc_analysis::find_references_precise(&source, &file_path, sym_name)
+            && let Ok(refs) = codelens_engine::oxc_analysis::find_references_precise(
+                &source, &file_path, sym_name,
+            )
             && !refs.is_empty()
         {
             let refs_limited: Vec<_> = refs.into_iter().take(max_results).collect();

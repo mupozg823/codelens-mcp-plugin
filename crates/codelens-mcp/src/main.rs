@@ -125,11 +125,11 @@ fn resolve_startup_project(source: &StartupProjectSource) -> Result<ProjectRoot>
         StartupProjectSource::Cli(path)
         | StartupProjectSource::ClaudeEnv(path)
         | StartupProjectSource::McpEnv(path) => ProjectRoot::new(path).with_context(|| {
-                format!(
-                    "failed to resolve explicit project root from {}",
-                    source.label()
-                )
-            }),
+            format!(
+                "failed to resolve explicit project root from {}",
+                source.label()
+            )
+        }),
         StartupProjectSource::Cwd(path) => ProjectRoot::new(path)
             .with_context(|| format!("failed to resolve project root from {}", path.display())),
     }

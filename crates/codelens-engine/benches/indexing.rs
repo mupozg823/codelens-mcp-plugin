@@ -1,8 +1,8 @@
 use codelens_engine::{
-    content_hash, find_circular_dependencies, get_blast_radius, get_callers, get_symbols_overview,
-    search_for_pattern, search_symbols_hybrid, GraphCache, ProjectRoot, SymbolIndex,
+    GraphCache, ProjectRoot, SymbolIndex, content_hash, find_circular_dependencies,
+    get_blast_radius, get_callers, get_symbols_overview, search_for_pattern, search_symbols_hybrid,
 };
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::fs;
 
 /// Create a realistic multi-language fixture project for benchmarking.
@@ -331,8 +331,8 @@ fn bench_content_hash(c: &mut Criterion) {
     });
 }
 
-/// Create a stress fixture with many symbols to exercise the scoring loop.
-/// 20 files × ~4 symbols each ≈ 80 indexed symbols.
+/// Create a stress fixture with enough repeated modules and symbols to make
+/// candidate-scoring cost visible in Criterion.
 fn create_scoring_stress_fixture() -> (tempfile::TempDir, ProjectRoot) {
     let dir = tempfile::tempdir().expect("tempdir");
     let root = dir.path();
@@ -373,12 +373,17 @@ impl Widget{i} {{
     (dir, project)
 }
 
-fn bench_scoring_stress_nl(c: &mut Criterion) {
-    let (_dir, project) = create_scoring_stress_fixture();
+fn build_scoring_stress_index() -> (tempfile::TempDir, ProjectRoot, SymbolIndex) {
+    let (dir, project) = create_scoring_stress_fixture();
     let index = SymbolIndex::new_memory(project.clone());
     index.refresh_all().unwrap();
+    (dir, project, index)
+}
 
-    c.bench_function("search_hybrid_stress (NL, 200 syms)", |b| {
+fn bench_scoring_stress_nl(c: &mut Criterion) {
+    let (_dir, project, _index) = build_scoring_stress_index();
+
+    c.bench_function("search_hybrid_stress (NL, 20 modules)", |b| {
         b.iter(|| {
             search_symbols_hybrid(black_box(&project), "process data from widget", 20, 0.6)
                 .unwrap();
@@ -387,13 +392,51 @@ fn bench_scoring_stress_nl(c: &mut Criterion) {
 }
 
 fn bench_scoring_stress_identifier(c: &mut Criterion) {
-    let (_dir, project) = create_scoring_stress_fixture();
-    let index = SymbolIndex::new_memory(project.clone());
-    index.refresh_all().unwrap();
+    let (_dir, project, _index) = build_scoring_stress_index();
 
-    c.bench_function("search_hybrid_stress (ident, 200 syms)", |b| {
+    c.bench_function("search_hybrid_stress (ident, 20 modules)", |b| {
         b.iter(|| {
             search_symbols_hybrid(black_box(&project), "validate_input", 20, 0.6).unwrap();
+        })
+    });
+}
+
+fn bench_ranked_context_cached_stress_nl(c: &mut Criterion) {
+    let (_dir, _project, index) = build_scoring_stress_index();
+
+    c.bench_function("ranked_context_cached_stress (NL, 20 modules)", |b| {
+        b.iter(|| {
+            index
+                .get_ranked_context_cached(
+                    black_box("process data from widget"),
+                    None,
+                    4000,
+                    false,
+                    2,
+                    None,
+                    std::collections::HashMap::new(),
+                )
+                .unwrap();
+        })
+    });
+}
+
+fn bench_ranked_context_cached_stress_identifier(c: &mut Criterion) {
+    let (_dir, _project, index) = build_scoring_stress_index();
+
+    c.bench_function("ranked_context_cached_stress (ident, 20 modules)", |b| {
+        b.iter(|| {
+            index
+                .get_ranked_context_cached(
+                    black_box("validate_input"),
+                    None,
+                    4000,
+                    false,
+                    2,
+                    None,
+                    std::collections::HashMap::new(),
+                )
+                .unwrap();
         })
     });
 }
@@ -412,5 +455,7 @@ criterion_group!(
     bench_content_hash,
     bench_scoring_stress_nl,
     bench_scoring_stress_identifier,
+    bench_ranked_context_cached_stress_nl,
+    bench_ranked_context_cached_stress_identifier,
 );
 criterion_main!(benches);

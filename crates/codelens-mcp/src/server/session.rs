@@ -6,8 +6,8 @@
 use crate::tool_defs::{ToolPreset, ToolSurface};
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicUsize, Ordering},
     Arc, Mutex, RwLock,
+    atomic::{AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;

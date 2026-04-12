@@ -1,6 +1,6 @@
 use super::{
-    optional_bool, optional_string, optional_usize, required_string, success_meta, AppState,
-    ToolResult,
+    AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
+    success_meta,
 };
 use crate::client_profile::ClientProfile;
 use crate::error::CodeLensError;
