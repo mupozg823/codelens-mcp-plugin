@@ -2,6 +2,29 @@
 
 use serde_json::json;
 
+fn health_summary_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": {"type": "string", "enum": ["ok", "warn"]},
+            "warning_count": {"type": "integer"},
+            "warnings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string"},
+                        "severity": {"type": "string", "enum": ["warn"]},
+                        "message": {"type": "string"},
+                        "recommended_action": {"type": ["string", "null"]},
+                        "action_target": {"type": ["string", "null"]}
+                    }
+                }
+            }
+        }
+    })
+}
+
 pub(super) fn symbol_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -577,6 +600,7 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                 }
             },
             "capabilities": get_capabilities_output_schema(),
+            "health_summary": health_summary_output_schema(),
             "warnings": {
                 "type": "array",
                 "items": {
@@ -617,26 +641,7 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                             "restart_recommended": {"type": "boolean"}
                         }
                     },
-                    "health_summary": {
-                        "type": "object",
-                        "properties": {
-                            "status": {"type": "string", "enum": ["ok", "warn"]},
-                            "warning_count": {"type": "integer"},
-                            "warnings": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "code": {"type": "string"},
-                                        "severity": {"type": "string", "enum": ["warn"]},
-                                        "message": {"type": "string"},
-                                        "recommended_action": {"type": ["string", "null"]},
-                                        "action_target": {"type": ["string", "null"]}
-                                    }
-                                }
-                            }
-                        }
-                    },
+                    "health_summary": health_summary_output_schema(),
                     "deferred_loading_supported": {"type": "boolean"},
                     "default_deferred_tool_loading": {"type": "boolean"},
                     "default_tools_list_contract_mode": {"type": "string"},
@@ -748,26 +753,7 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
             "indexed_files": {"type": "integer"},
             "supported_files": {"type": "integer"},
             "stale_files": {"type": "integer"},
-            "health_summary": {
-                "type": "object",
-                "properties": {
-                    "status": {"type": "string", "enum": ["ok", "warn"]},
-                    "warning_count": {"type": "integer"},
-                    "warnings": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "code": {"type": "string"},
-                                "severity": {"type": "string", "enum": ["warn"]},
-                                "message": {"type": "string"},
-                                "recommended_action": {"type": ["string", "null"]},
-                                "action_target": {"type": ["string", "null"]}
-                            }
-                        }
-                    }
-                }
-            },
+            "health_summary": health_summary_output_schema(),
             "available": {"type": "array", "items": {"type": "string"}},
             "unavailable": {
                 "type": "array",

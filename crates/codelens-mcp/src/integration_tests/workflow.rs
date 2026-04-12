@@ -241,7 +241,11 @@ fn get_capabilities_reports_existing_embedding_index_without_loading_engine() {
 #[test]
 fn project_overview_resource_includes_health_summary() {
     let project = project_root();
-    fs::write(project.as_path().join("overview.py"), "def alpha():\n    return 1\n").unwrap();
+    fs::write(
+        project.as_path().join("overview.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_state(&project);
 
     let response = handle_request(
@@ -272,7 +276,11 @@ fn project_overview_resource_includes_health_summary() {
 #[test]
 fn session_http_resource_includes_health_contract() {
     let project = project_root();
-    fs::write(project.as_path().join("session.py"), "def alpha():\n    return 1\n").unwrap();
+    fs::write(
+        project.as_path().join("session.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
     let state = make_state(&project);
 
     let response = handle_request(
@@ -437,6 +445,10 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
             })
             .unwrap_or(false)
     );
+    assert_eq!(
+        payload["data"]["health_summary"],
+        payload["data"]["capabilities"]["health_summary"]
+    );
     assert!(
         payload["data"]["warnings"]
             .as_array()
@@ -482,6 +494,68 @@ fn prepare_harness_session_warns_when_diagnostics_recipe_is_missing() {
             })
             .unwrap_or(false)
     );
+}
+
+#[test]
+fn prepare_harness_session_warning_codes_are_unique() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("unique.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "builder-minimal", "file_path": "unique.py"}),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    let codes = payload["data"]["warnings"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|warning| {
+            warning
+                .get("code")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        })
+        .collect::<Vec<_>>();
+    let unique = codes
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(codes.len(), unique.len());
+}
+
+#[test]
+fn prepare_harness_session_surfaces_top_level_health_summary() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("bootstrap.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "builder-minimal"}),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert!(payload["data"]["health_summary"].is_object());
+    assert_eq!(
+        payload["data"]["health_summary"],
+        payload["data"]["capabilities"]["health_summary"]
+    );
+    assert!(payload["data"]["health_summary"]["status"].is_string());
+    assert!(payload["data"]["health_summary"]["warnings"].is_array());
 }
 
 #[test]
@@ -1374,6 +1448,7 @@ fn output_schema_workflow_tools_return_structured_content() {
         bootstrap_value["result"]["structuredContent"]["active_surface"],
         json!("builder-minimal")
     );
+    assert!(bootstrap_value["result"]["structuredContent"]["health_summary"].is_object());
     assert!(bootstrap_value["result"]["structuredContent"]["capabilities"].is_object());
     assert!(
         bootstrap_value["result"]["structuredContent"]["capabilities"]["diagnostics_guidance"]
@@ -1612,6 +1687,7 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     let properties = schema["properties"].as_object().expect("schema properties");
     assert!(properties.contains_key("project"));
     assert!(properties.contains_key("capabilities"));
+    assert!(properties.contains_key("health_summary"));
     assert!(properties.contains_key("warnings"));
     assert!(properties.contains_key("visible_tools"));
     assert!(properties.contains_key("routing"));

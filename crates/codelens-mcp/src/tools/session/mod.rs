@@ -1,7 +1,6 @@
-mod metrics_config;
+pub(crate) mod metrics_config;
 mod project_ops;
 
-pub(crate) use metrics_config::{build_health_summary, determine_semantic_search_status};
 pub use metrics_config::{
     export_session_markdown, get_capabilities, get_tool_metrics, get_watch_status,
     prune_index_failures, set_preset, set_profile,

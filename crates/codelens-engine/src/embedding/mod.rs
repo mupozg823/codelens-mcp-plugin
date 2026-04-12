@@ -648,12 +648,8 @@ fn load_fastembed_builtin(
         "all-MiniLM-L12-v2" | "sentence-transformers/all-MiniLM-L12-v2" => {
             (EmbeddingModel::AllMiniLML12V2, 384)
         }
-        "bge-small-en-v1.5" | "BAAI/bge-small-en-v1.5" => {
-            (EmbeddingModel::BGESmallENV15, 384)
-        }
-        "bge-base-en-v1.5" | "BAAI/bge-base-en-v1.5" => {
-            (EmbeddingModel::BGEBaseENV15, 768)
-        }
+        "bge-small-en-v1.5" | "BAAI/bge-small-en-v1.5" => (EmbeddingModel::BGESmallENV15, 384),
+        "bge-base-en-v1.5" | "BAAI/bge-base-en-v1.5" => (EmbeddingModel::BGEBaseENV15, 768),
         "nomic-embed-text-v1.5" | "nomic-ai/nomic-embed-text-v1.5" => {
             (EmbeddingModel::NomicEmbedTextV15, 768)
         }
@@ -820,7 +816,13 @@ fn configured_rerank_blend() -> f64 {
     std::env::var("CODELENS_RERANK_BLEND")
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
-        .and_then(|v| if (0.0..=1.0).contains(&v) { Some(v) } else { None })
+        .and_then(|v| {
+            if (0.0..=1.0).contains(&v) {
+                Some(v)
+            } else {
+                None
+            }
+        })
         .unwrap_or(0.75) // default: 75% bi-encoder, 25% text overlap (sweep: self +0.006 MRR, role neutral)
 }
 
@@ -1205,7 +1207,11 @@ impl EmbeddingEngine {
             chunk.score = chunk.score * blend + overlap_ratio * (1.0 - blend);
         }
 
-        candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         candidates.truncate(max_results);
         Ok(candidates)
     }
@@ -1816,7 +1822,8 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
 
     let base = if sym.signature.is_empty() {
         format!(
-            "{} {}{}{}{}", sym.kind, name_with_split, parent_ctx, module_ctx, file_ctx
+            "{} {}{}{}{}",
+            sym.kind, name_with_split, parent_ctx, module_ctx, file_ctx
         )
     } else {
         format!(

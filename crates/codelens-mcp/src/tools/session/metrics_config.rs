@@ -644,8 +644,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     // "engine not loaded yet" would be a telemetry-vs-runtime
     // mismatch.
     let active_surface = *state.surface();
-    let semantic_status = determine_semantic_search_status(state, active_surface);
-    let semantic_search_guidance = semantic_status.guidance_payload();
+    let runtime_health = collect_runtime_health_snapshot(state, active_surface);
+    let semantic_search_guidance = runtime_health.semantic_status.guidance_payload();
 
     let configured_embedding_model = codelens_engine::configured_embedding_model_name();
     #[cfg(feature = "semantic")]
@@ -678,11 +678,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             .flatten();
 
     // Check index freshness
-    let index_stats = state.symbol_index().stats().ok();
-    let index_fresh = index_stats
-        .as_ref()
-        .map(|s| s.stale_files == 0 && s.indexed_files > 0)
-        .unwrap_or(false);
+    let index_fresh = runtime_health.index_fresh();
 
     // Build available/unavailable features
     let mut available = vec![
@@ -714,16 +710,16 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     // `semantic_status` decomposition, not from `embeddings_loaded`.
     // Lazy-init means a cold engine with a healthy on-disk index is
     // available even though `embedding_ref()` returns `None`.
-    if semantic_status.is_available() {
+    if runtime_health.semantic_status.is_available() {
         available.push("semantic_search");
-    } else if let Some(reason) = semantic_status.reason_str() {
+    } else if let Some(reason) = runtime_health.semantic_status.reason_str() {
         unavailable.push(json!({
             "feature": "semantic_search",
             "reason": reason,
-            "status": semantic_status.status_key(),
-            "reason_code": semantic_status.reason_code(),
-            "recommended_action": semantic_status.recommended_action(),
-            "action_target": semantic_status.action_target(),
+            "status": runtime_health.semantic_status.status_key(),
+            "reason_code": runtime_health.semantic_status.reason_code(),
+            "recommended_action": runtime_health.semantic_status.recommended_action(),
+            "action_target": runtime_health.semantic_status.action_target(),
         }));
     }
 
@@ -746,10 +742,12 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         "git_dirty": crate::build_info::build_git_dirty(),
         "build_time": crate::build_info::BUILD_TIME,
     });
-    let daemon_binary_drift =
-        crate::build_info::daemon_binary_drift_payload(state.daemon_started_at());
-    let health_summary =
-        build_health_summary(index_stats.as_ref(), &semantic_status, &daemon_binary_drift);
+    let semantic_search_status = runtime_health.semantic_status.status_key();
+    let indexed_files = runtime_health.indexed_files();
+    let supported_files = runtime_health.supported_files();
+    let stale_files = runtime_health.stale_files();
+    let health_summary = runtime_health.health_summary.clone();
+    let daemon_binary_drift = runtime_health.daemon_binary_drift.clone();
 
     Ok((
         json!({
@@ -757,7 +755,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "lsp_attached": lsp_attached,
             "diagnostics_guidance": diagnostics_guidance.guidance_payload(),
             "embeddings_loaded": embeddings_loaded,
-            "semantic_search_status": semantic_status.status_key(),
+            "semantic_search_status": semantic_search_status,
             "semantic_search_guidance": semantic_search_guidance,
             "embedding_model": configured_embedding_model,
             "embedding_runtime_preference": embedding_runtime.runtime_preference,
@@ -774,9 +772,9 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "embedding_indexed": embedding_index_info.as_ref().map(|info| info.indexed_symbols > 0).unwrap_or(false),
             "embedding_indexed_symbols": embedding_index_info.as_ref().map(|info| info.indexed_symbols).unwrap_or(0),
             "index_fresh": index_fresh,
-            "indexed_files": index_stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),
-            "supported_files": index_stats.as_ref().map(|s| s.supported_files).unwrap_or(0),
-            "stale_files": index_stats.as_ref().map(|s| s.stale_files).unwrap_or(0),
+            "indexed_files": indexed_files,
+            "supported_files": supported_files,
+            "stale_files": stale_files,
             "health_summary": health_summary,
             "available": available,
             "unavailable": unavailable,

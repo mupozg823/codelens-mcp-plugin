@@ -22,7 +22,7 @@ tokio-stream = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
-codelens-engine = { path = "../codelens-engine", version = "=1.9.11" }
+codelens-engine = { path = "../codelens-engine", version = "=1.9.12" }
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

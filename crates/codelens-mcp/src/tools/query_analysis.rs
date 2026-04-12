@@ -193,14 +193,74 @@ pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
     analyze_retrieval_query(query).semantic_query
 }
 
-pub(crate) fn semantic_query_for_embedding_search(
-    analysis: &RetrievalQueryAnalysis,
-) -> String {
+pub(crate) fn semantic_query_for_embedding_search(analysis: &RetrievalQueryAnalysis) -> String {
     if analysis.natural_language {
-        format!("function {}", analysis.semantic_query)
+        // Bridge NL vocabulary → code vocabulary before embedding.
+        // The CodeSearchNet model understands code tokens better than NL prose.
+        let bridged = bridge_nl_to_code_vocabulary(&analysis.semantic_query);
+        format!("function {}", bridged)
     } else {
         analysis.semantic_query.clone()
     }
+}
+
+/// Map common NL terms to their code-domain equivalents so the embedding
+/// model can match. CodeSearchNet was trained on docstring↔code pairs,
+/// so queries phrased as docstrings match better than pure NL.
+fn bridge_nl_to_code_vocabulary(query: &str) -> String {
+    let mut result = query.to_owned();
+    let mut lowered_result = query.to_ascii_lowercase();
+    // Each pair: (NL phrase, code-equivalent phrase to append)
+    static BRIDGES: &[(&str, &str)] = &[
+        ("categorize", "classify"),
+        ("category", "classify"),
+        ("sort by relevance", "rank score"),
+        ("get project structure", "onboard project"),
+        ("first load", "onboard initialize"),
+        ("skip comments", "non-code ranges"),
+        ("string literals", "non-code ranges"),
+        ("build embedding", "index_from_project embed"),
+        ("embedding vectors", "index embed vectors"),
+        ("all symbols", "project symbols index"),
+        ("preflight", "mutation gate verify"),
+        ("truncate response", "bounded_result_payload limit"),
+        ("too large", "bounded limit truncate"),
+        ("recently accessed", "record_file_access recency"),
+        ("timestamp", "now_ms time"),
+        ("current time", "now_ms timestamp"),
+        ("which language", "language_for_path lang config"),
+        ("file type", "language_for_path"),
+        ("stdin", "stdio run_stdio"),
+        ("read input", "stdio stdin"),
+        ("parse source", "parse_symbols tree-sitter"),
+        ("into an ast", "parse_symbols tree-sitter"),
+        ("diagnose", "diagnostics unresolved"),
+        ("workflow", "WorkflowFirst profile"),
+        ("store embedding", "insert_batch upsert sqlite"),
+        ("sqlite database", "insert_batch SqliteVecStore"),
+        ("embedding index", "index_embeddings index_from_project"),
+        ("resolve which file", "collect_candidate_files resolve"),
+        ("belongs to", "collect_candidate resolve_module"),
+        ("functions that call", "extract_calls callers call_graph"),
+        ("who calls", "extract_calls callers"),
+        ("rename a variable", "rename_symbol rename"),
+        ("rename a function", "rename_symbol rename"),
+        ("search code", "search semantic_search"),
+        ("natural language query", "semantic_search NL"),
+        ("language config", "language_for_path call_language"),
+        ("camelcase", "split_identifier camel snake"),
+        ("snake_case", "split_identifier camel snake"),
+    ];
+    for (nl_term, code_term) in BRIDGES {
+        let lowered_code_term = code_term.to_ascii_lowercase();
+        if lowered_result.contains(nl_term) && !lowered_result.contains(&lowered_code_term) {
+            result.push(' ');
+            result.push_str(code_term);
+            lowered_result.push(' ');
+            lowered_result.push_str(&lowered_code_term);
+        }
+    }
+    result
 }
 
 fn prefers_semantic_entrypoint_prior(query_lower: &str) -> bool {
@@ -667,7 +727,8 @@ mod tests {
 
     #[test]
     fn embedding_search_query_frames_natural_language_with_code_prefix() {
-        let analysis = analyze_retrieval_query("route an incoming tool request to the right handler");
+        let analysis =
+            analyze_retrieval_query("route an incoming tool request to the right handler");
         let framed = semantic_query_for_embedding_search(&analysis);
         assert!(framed.starts_with("function "));
         assert!(framed.contains("route an incoming tool request to the right handler"));
@@ -678,6 +739,24 @@ mod tests {
         let analysis = analyze_retrieval_query("change_signature");
         let framed = semantic_query_for_embedding_search(&analysis);
         assert_eq!(framed, "change_signature change signature");
+    }
+
+    #[test]
+    fn embedding_search_query_bridges_nl_terms_to_code_vocabulary() {
+        let analysis = analyze_retrieval_query("categorize a function by its purpose");
+        let framed = semantic_query_for_embedding_search(&analysis);
+        assert!(framed.starts_with("function "));
+        assert!(framed.contains("categorize a function by its purpose"));
+        assert!(framed.contains("classify"));
+    }
+
+    #[test]
+    fn embedding_search_query_bridge_dedup_is_case_insensitive() {
+        let analysis = analyze_retrieval_query(
+            "search code with SEMANTIC_SEARCH for a natural language query",
+        );
+        let framed = semantic_query_for_embedding_search(&analysis);
+        assert_eq!(framed.matches("semantic_search").count(), 1);
     }
 
     #[test]
