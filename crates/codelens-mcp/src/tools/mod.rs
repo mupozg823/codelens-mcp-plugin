@@ -133,6 +133,9 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "audit_security_context"       => workflows::audit_security_context,
         "analyze_change_impact"        => workflows::analyze_change_impact,
         "cleanup_duplicate_logic"      => workflows::cleanup_duplicate_logic,
+        "review_changes"               => workflows::review_changes,
+        "assess_change_readiness"      => workflows::assess_change_readiness,
+        "diagnose_issues"              => workflows::diagnose_issues,
         // ── Reports / compressed context ──
         "analyze_change_request"       => reports::analyze_change_request,
         "verify_change_readiness"      => reports::verify_change_readiness,
@@ -395,6 +398,9 @@ fn is_workflow_tool_name(name: &str) -> bool {
             | "audit_security_context"
             | "analyze_change_impact"
             | "cleanup_duplicate_logic"
+            | "review_changes"
+            | "assess_change_readiness"
+            | "diagnose_issues"
             | "analyze_change_request"
             | "verify_change_readiness"
             | "find_minimal_context_for_change"
@@ -447,6 +453,14 @@ fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static
             "verify_change_readiness",
             "get_file_diagnostics",
             "find_tests",
+        ],
+        ToolSurface::Profile(ToolProfile::WorkflowFirst) => &[
+            "explore_codebase",
+            "review_architecture",
+            "analyze_change_impact",
+            "plan_safe_refactor",
+            "review_changes",
+            "diagnose_issues",
         ],
         ToolSurface::Profile(ToolProfile::BuilderMinimal) | ToolSurface::Preset(_) => &[
             "explore_codebase",

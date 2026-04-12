@@ -25,6 +25,7 @@ pub(crate) enum ToolProfile {
     EvaluatorCompact,
     RefactorFull,
     CiAudit,
+    WorkflowFirst,
 }
 
 impl ToolProfile {
@@ -36,6 +37,7 @@ impl ToolProfile {
             "refactor-full" | "refactor" => Some(Self::RefactorFull),
             "evaluator-compact" | "evaluator" => Some(Self::EvaluatorCompact),
             "ci-audit" | "ci" => Some(Self::CiAudit),
+            "workflow-first" | "workflow" => Some(Self::WorkflowFirst),
             _ => None,
         }
     }
@@ -48,6 +50,7 @@ impl ToolProfile {
             Self::RefactorFull => "refactor-full",
             Self::EvaluatorCompact => "evaluator-compact",
             Self::CiAudit => "ci-audit",
+            Self::WorkflowFirst => "workflow-first",
         }
     }
 }
@@ -148,6 +151,9 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "review_architecture",
     "analyze_change_impact",
     "plan_safe_refactor",
+    "review_changes",
+    "assess_change_readiness",
+    "diagnose_issues",
     // Symbol exploration
     "find_symbol",
     "get_symbols_overview",
@@ -228,6 +234,9 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "analyze_change_impact",
     "audit_security_context",
     "cleanup_duplicate_logic",
+    "review_changes",
+    "assess_change_readiness",
+    "diagnose_issues",
     // Symbol exploration
     "find_symbol",
     "get_symbols_overview",
@@ -268,6 +277,9 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "review_architecture",
     "plan_safe_refactor",
     "analyze_change_impact",
+    "review_changes",
+    "assess_change_readiness",
+    "diagnose_issues",
     // Symbol exploration
     "find_symbol",
     "get_symbols_overview",
@@ -322,6 +334,9 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "analyze_change_impact",
     "audit_security_context",
     "cleanup_duplicate_logic",
+    "review_changes",
+    "assess_change_readiness",
+    "diagnose_issues",
     "read_file",
     "search_for_pattern",
     "find_tests",
@@ -346,6 +361,30 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "start_analysis_job",
     "get_analysis_job",
     "get_analysis_section",
+];
+
+/// Problem-first workflow surface: 12 high-level tools + session essentials.
+/// Agents see these by default; low-level tools are deferred.
+pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
+    // Session
+    "activate_project",
+    "get_current_config",
+    "set_preset",
+    "set_profile",
+    // Workflow aliases (7 existing + 3 new)
+    "explore_codebase",
+    "trace_request_path",
+    "review_architecture",
+    "plan_safe_refactor",
+    "audit_security_context",
+    "analyze_change_impact",
+    "cleanup_duplicate_logic",
+    "review_changes",
+    "assess_change_readiness",
+    "diagnose_issues",
+    // Essential workflow-level tools
+    "analyze_change_request",
+    "onboard_project",
 ];
 
 pub(crate) const EVALUATOR_COMPACT_TOOLS: &[&str] = &[
@@ -383,6 +422,7 @@ pub(crate) fn default_budget_for_profile(profile: ToolProfile) -> usize {
         ToolProfile::EvaluatorCompact => 1600,
         ToolProfile::RefactorFull => 4000,
         ToolProfile::CiAudit => 3600,
+        ToolProfile::WorkflowFirst => 2400,
     }
 }
 
@@ -396,6 +436,7 @@ pub(crate) fn is_tool_in_profile(name: &str, profile: ToolProfile) -> bool {
         ToolProfile::EvaluatorCompact => EVALUATOR_COMPACT_TOOLS.contains(&name),
         ToolProfile::RefactorFull => REFACTOR_FULL_TOOLS.contains(&name),
         ToolProfile::CiAudit => CI_AUDIT_TOOLS.contains(&name),
+        ToolProfile::WorkflowFirst => WORKFLOW_FIRST_TOOLS.contains(&name),
     }
 }
 
@@ -467,6 +508,9 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "audit_security_context"
         | "analyze_change_impact"
         | "cleanup_duplicate_logic"
+        | "review_changes"
+        | "assess_change_readiness"
+        | "diagnose_issues"
         | "verify_change_readiness"
         | "find_minimal_context_for_change"
         | "summarize_symbol_impact"

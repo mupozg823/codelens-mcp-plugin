@@ -1,8 +1,8 @@
-use crate::AppState;
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use crate::tool_runtime::{ToolHandler, ToolResult, success_meta};
-use serde_json::{Value, json};
+use crate::tool_runtime::{success_meta, ToolHandler, ToolResult};
+use crate::AppState;
+use serde_json::{json, Value};
 
 fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
     match payload {
@@ -168,6 +168,73 @@ pub fn analyze_change_impact(state: &AppState, arguments: &Value) -> ToolResult 
         "impact_report",
         arguments.clone(),
         crate::tools::reports::impact_report,
+    )
+}
+
+pub fn review_changes(state: &AppState, arguments: &Value) -> ToolResult {
+    if arguments
+        .get("changed_files")
+        .and_then(|v| v.as_array())
+        .is_some()
+    {
+        return delegate_workflow(
+            state,
+            "review_changes",
+            "diff_aware_references",
+            arguments.clone(),
+            crate::tools::reports::diff_aware_references,
+        );
+    }
+
+    delegate_workflow(
+        state,
+        "review_changes",
+        "impact_report",
+        arguments.clone(),
+        crate::tools::reports::impact_report,
+    )
+}
+
+pub fn assess_change_readiness(state: &AppState, arguments: &Value) -> ToolResult {
+    delegate_workflow(
+        state,
+        "assess_change_readiness",
+        "verify_change_readiness",
+        arguments.clone(),
+        crate::tools::reports::verify_change_readiness,
+    )
+}
+
+pub fn diagnose_issues(state: &AppState, arguments: &Value) -> ToolResult {
+    if arguments
+        .get("path")
+        .or_else(|| arguments.get("file_path"))
+        .and_then(|v| v.as_str())
+        .is_some()
+    {
+        return delegate_workflow(
+            state,
+            "diagnose_issues",
+            "get_file_diagnostics",
+            json!({
+                "file_path": arguments.get("file_path")
+                    .or_else(|| arguments.get("path"))
+                    .and_then(|v| v.as_str()),
+            }),
+            crate::tools::lsp::get_file_diagnostics,
+        );
+    }
+
+    delegate_workflow(
+        state,
+        "diagnose_issues",
+        "unresolved_reference_check",
+        json!({
+            "file_path": arguments.get("file_path").and_then(|v| v.as_str()),
+            "symbol": arguments.get("symbol").and_then(|v| v.as_str()),
+            "changed_files": arguments.get("changed_files"),
+        }),
+        crate::tools::reports::unresolved_reference_check,
     )
 }
 

@@ -1,13 +1,14 @@
-use crate::tool_defs::{ToolProfile, ToolSurface, preferred_tier_labels};
-use serde_json::{Value, json};
+use crate::tool_defs::{preferred_tier_labels, ToolProfile, ToolSurface};
+use serde_json::{json, Value};
 
-pub(crate) const PROFILE_GUIDE_PROFILES: [ToolProfile; 6] = [
+pub(crate) const PROFILE_GUIDE_PROFILES: [ToolProfile; 7] = [
     ToolProfile::PlannerReadonly,
     ToolProfile::BuilderMinimal,
     ToolProfile::ReviewerGraph,
     ToolProfile::EvaluatorCompact,
     ToolProfile::RefactorFull,
     ToolProfile::CiAudit,
+    ToolProfile::WorkflowFirst,
 ];
 
 pub(crate) fn profile_guide(profile: ToolProfile) -> Value {
@@ -53,6 +54,13 @@ pub(crate) fn profile_guide(profile: ToolProfile) -> Value {
             "preferred_tools": ["verify_change_readiness", "get_file_diagnostics", "find_tests", "find_symbol"],
             "preferred_namespaces": ["reports", "symbols", "lsp", "session"],
             "avoid": ["mutation tools", "graph expansion", "broad analysis reports"]
+        }),
+        ToolProfile::WorkflowFirst => json!({
+            "profile": profile.as_str(),
+            "description": "Problem-first workflow surface. Agents see 12 high-level workflow tools; low-level tools are deferred.",
+            "surface_size": "workflow",
+            "mutation": false,
+            "preferred_tiers": preferred_tier_labels(ToolSurface::Profile(profile)),
         }),
     }
 }

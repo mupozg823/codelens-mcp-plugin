@@ -570,6 +570,7 @@ impl AppState {
             Some(ToolProfile::BuilderMinimal)
             | Some(ToolProfile::EvaluatorCompact)
             | Some(ToolProfile::RefactorFull)
+            | Some(ToolProfile::WorkflowFirst)
             | None => 1,
         }
     }

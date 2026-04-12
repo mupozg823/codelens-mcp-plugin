@@ -6,8 +6,8 @@ mod presets;
 
 // Re-exports from presets
 pub(crate) use presets::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
-    is_tool_in_surface, tool_namespace,
+    default_budget_for_preset, default_budget_for_profile, is_tool_in_surface, tool_namespace,
+    ToolPreset, ToolProfile, ToolSurface,
 };
 
 // Re-exports from build
@@ -15,9 +15,7 @@ pub(crate) use build::{tool_definition, tools};
 
 use crate::protocol::ToolTier;
 
-fn raw_visible_tool_entries(
-    surface: ToolSurface,
-) -> Vec<(usize, &'static crate::protocol::Tool)> {
+fn raw_visible_tool_entries(surface: ToolSurface) -> Vec<(usize, &'static crate::protocol::Tool)> {
     tools()
         .iter()
         .enumerate()
@@ -61,10 +59,7 @@ pub(crate) fn visible_tools(surface: ToolSurface) -> Vec<&'static crate::protoco
             .unwrap_or(usize::MAX);
         (bootstrap_rank, tier_rank, namespace_rank, *index)
     });
-    visible
-        .into_iter()
-        .map(|(_, tool)| tool)
-        .collect()
+    visible.into_iter().map(|(_, tool)| tool).collect()
 }
 
 pub(crate) fn visible_namespaces(surface: ToolSurface) -> Vec<&'static str> {
@@ -103,6 +98,7 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
         ToolSurface::Profile(ToolProfile::EvaluatorCompact) => {
             vec!["reports", "symbols", "lsp", "session"]
         }
+        ToolSurface::Profile(ToolProfile::WorkflowFirst) => vec!["workflow", "session"],
         ToolSurface::Preset(ToolPreset::Minimal) => vec!["symbols", "filesystem", "mutation"],
         ToolSurface::Preset(ToolPreset::Balanced) => {
             vec!["reports", "symbols", "graph", "filesystem", "session"]
@@ -166,7 +162,8 @@ pub(crate) fn preferred_tiers(surface: ToolSurface) -> Vec<ToolTier> {
         ToolSurface::Profile(ToolProfile::PlannerReadonly)
         | ToolSurface::Profile(ToolProfile::ReviewerGraph)
         | ToolSurface::Profile(ToolProfile::RefactorFull)
-        | ToolSurface::Profile(ToolProfile::CiAudit) => vec![ToolTier::Workflow],
+        | ToolSurface::Profile(ToolProfile::CiAudit)
+        | ToolSurface::Profile(ToolProfile::WorkflowFirst) => vec![ToolTier::Workflow],
         ToolSurface::Profile(ToolProfile::EvaluatorCompact) => {
             vec![ToolTier::Primitive, ToolTier::Analysis]
         }

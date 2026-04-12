@@ -108,6 +108,30 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("audit_security_context", "[CodeLens:Workflow] Review changed files for security-sensitive context, references, and semantic risk cues.", json!({"type":"object","properties":{"changed_files":{"type":"array","items":{"type":"string"}}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("analyze_change_impact", "[CodeLens:Workflow] Problem-first impact entrypoint for changed files or a target path.", json!({"type":"object","properties":{"path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("cleanup_duplicate_logic", "[CodeLens:Workflow] Surface duplicate or removable logic before cleanup. Uses semantic duplicate search when available, otherwise bounded dead-code evidence.", json!({"type":"object","properties":{"threshold":{"type":"number"},"max_pairs":{"type":"integer"},"scope":{"type":"string"},"max_results":{"type":"integer"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new("review_changes", "[CodeLens:Workflow] Pre-merge review: diff-aware references or impact analysis for changed files.", json!({
+            "type": "object",
+            "properties": {
+                "changed_files": {"type": "array", "items": {"type": "string"}, "description": "File paths that changed"},
+                "task": {"type": "string", "description": "Review focus description"},
+                "path": {"type": "string", "description": "Scope path"}
+            }
+        })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new("assess_change_readiness", "[CodeLens:Workflow] Preflight gate: verify mutation safety before code changes.", json!({
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "Target file to check"},
+                "path": {"type": "string", "description": "Directory scope"},
+                "task": {"type": "string", "description": "Description of the planned change"}
+            }
+        })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new("diagnose_issues", "[CodeLens:Workflow] Diagnostics: file-level issues or unresolved reference check.", json!({
+            "type": "object",
+            "properties": {
+                "file_path": {"type": "string", "description": "File to diagnose"},
+                "path": {"type": "string", "description": "Directory scope"},
+                "symbol": {"type": "string", "description": "Symbol to check references for"}
+            }
+        })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("onboard_project", "[CodeLens:Session] One-shot onboarding: structure, key files, cycles, stats.", json!({"type":"object","properties":{}})).with_output_schema(onboard_output_schema()).with_annotations(ro_w.clone()),
         Tool::new("analyze_change_request", "[CodeLens:Workflow] Compress a change request into ranked files, key symbols, risk, and next actions.", json!({"required":["task"],"type":"object","properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
         Tool::new("verify_change_readiness", "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing.", json!({"required":["task"],"type":"object","properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
