@@ -123,7 +123,11 @@ pub(crate) fn semantic_results_for_query(
         let results = engine
             .search(&query_analysis.semantic_query, candidate_limit)
             .unwrap_or_default();
-        return crate::tools::query_analysis::rerank_semantic_matches(query, results, limit);
+        return crate::tools::query_analysis::rerank_semantic_matches(
+            &query_analysis.semantic_query,
+            results,
+            limit,
+        );
     }
     Vec::new()
 }

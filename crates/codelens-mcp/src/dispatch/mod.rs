@@ -149,7 +149,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
             .collect();
         let hybrid = codelens_engine::search::search_symbols_hybrid_with_semantic(
             &project,
-            query,
+            &query_analysis.expanded_query,
             candidate_limit,
             0.7,
             Some(&semantic_scores),

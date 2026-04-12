@@ -2,7 +2,7 @@
 
 MCP server binary for [CodeLens](https://github.com/mupozg823/codelens-mcp-plugin) — compressed context and verification tools for AI coding agents.
 
-Built on [codelens-engine](https://crates.io/crates/codelens-engine). Exposes 89+ tools via JSON-RPC (stdio) or HTTP, with role-based tool surfaces and adaptive token compression.
+Built on [codelens-engine](https://crates.io/crates/codelens-engine). Exposes 101 tools via JSON-RPC (stdio) or HTTP, with role-based tool surfaces and adaptive token compression.
 
 ## Quick Start
 
@@ -32,7 +32,7 @@ codelens-mcp --http 8080
 
 ## Features
 
-- **89 tools** with preset-based surfaces (Full/Balanced/Minimal)
+- **101 tools** with preset-based surfaces (Full/Balanced/Minimal)
 - **Workflow tools** — `analyze_change_request`, `impact_report`, `safe_rename_report`
 - **Adaptive compression** — 5-stage token budget management
 - **Analysis jobs** — async durable handles for heavy analyses
