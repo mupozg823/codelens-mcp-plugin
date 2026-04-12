@@ -44,12 +44,12 @@ and then uses those release checksums to update the Homebrew tap formula.
 - provenance and SBOM attestations are generated in the release workflow
 - an OCI image is built from the released Linux binary and pushed to GHCR
 - an air-gapped Linux bundle is assembled from the released Linux binary plus bundled model assets
+- the publish job verifies the assembled release bundle locally before creating the GitHub release
 - Homebrew is derived from the published release checksums rather than from a separate manual path
 - release notes can be generated from GitHub plus repository-maintained notes under [`docs/release-notes`](release-notes)
 
 ### What is **not** currently true
 
-- no artifact signing step exists
 - no artifact signing step exists
 
 The remaining items are roadmap gaps, not shipped capabilities.

@@ -155,12 +155,19 @@ jobs:
 
       - name: Generate checksums
         run: |
-          sha256sum \
-            codelens-mcp-airgap-*.tar.gz \
-            codelens-mcp-*.tar.gz \
-            codelens-mcp-*.zip \
-            codelens-mcp-*.cdx.json \
-            > checksums-sha256.txt
+          find . -maxdepth 1 -type f \
+            \( -name 'codelens-mcp-*.tar.gz' -o -name 'codelens-mcp-*.zip' -o -name 'codelens-mcp-*.cdx.json' \) \
+            -print \
+            | sed 's#^\./##' \
+            | LC_ALL=C sort \
+            | while IFS= read -r asset; do
+                sha256sum "$asset"
+              done > checksums-sha256.txt
+
+      - name: Verify release artifacts before publish
+        run: |
+          bash scripts/verify-release-artifacts.sh . \
+            --require-targets darwin-arm64,linux-x86_64,windows-x86_64
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -195,8 +202,8 @@ jobs:
             -o checksums.txt
 
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          echo "SHA_DARWIN_ARM64=$(grep darwin-arm64 checksums.txt | awk '{print $1}')" >> $GITHUB_ENV
-          echo "SHA_LINUX_X86_64=$(grep linux-x86_64 checksums.txt | awk '{print $1}')" >> $GITHUB_ENV
+          echo "SHA_DARWIN_ARM64=$(awk '/ codelens-mcp-darwin-arm64.tar.gz$/ {print $1}' checksums.txt)" >> $GITHUB_ENV
+          echo "SHA_LINUX_X86_64=$(awk '/ codelens-mcp-linux-x86_64.tar.gz$/ {print $1}' checksums.txt)" >> $GITHUB_ENV
 
       - name: Generate formula with real checksums
         run: |

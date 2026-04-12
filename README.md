@@ -2,9 +2,9 @@
 
 # CodeLens MCP
 
-**The harness-native compressed context engine for AI coding agents.**
+**Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
 
-Pure Rust MCP server that plugs into any multi-agent harness — planner, builder, reviewer, refactor — and delivers bounded, ranked code intelligence at 50-87% fewer tokens.
+Pure Rust MCP server for multi-agent harnesses. 25 languages, hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, 5-stage token compression, and enterprise-ready observability — all in a single binary with zero runtime dependencies.
 
 [![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/mupozg823/codelens-mcp-plugin/actions)
 [![crates.io](https://img.shields.io/crates/v/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
@@ -200,17 +200,33 @@ Optional embedding-based code search (feature-gated: `semantic`):
 python3 benchmarks/embedding-quality.py . --isolated-copy
 ```
 
+## Enterprise Features
+
+| Feature                    | Status                                                                     |
+| -------------------------- | -------------------------------------------------------------------------- |
+| Config policy              | `.codelens/config.json` per-project feature flags                          |
+| Rate limiting              | Session-level throttle (default 300 calls, configurable)                   |
+| Schema versioning          | `schema_version: "1.0"` in all responses                                   |
+| Intelligence sources       | `tree_sitter`, `lsp`, `semantic`, `scip` — reported via `get_capabilities` |
+| Mutation audit log         | `.codelens/audit/mutation-audit.jsonl`                                     |
+| OTel-ready spans           | `tool.success`, `tool.backend`, `tool.elapsed_ms`, `otel.status_code`      |
+| SBOM                       | CycloneDX per release                                                      |
+| Dataset lint               | CI-integrated benchmark hygiene (5 rules)                                  |
+| Multi-language test filter | Python, JS/TS, Go, Java, Kotlin, Ruby test symbols excluded from index     |
+| Docker                     | Multi-stage `Dockerfile.release` with healthcheck                          |
+
 ## vs Serena
 
-| Axis             | CodeLens                             | Serena                    |
-| ---------------- | ------------------------------------ | ------------------------- |
-| Runtime          | Single Rust binary                   | Python + uv               |
-| Intelligence     | tree-sitter + SQLite + optional LSP  | LSP by default            |
-| Token efficiency | Bounded workflows, 50-87% savings    | Standard tool responses   |
-| Workflow layer   | Composite reports + analysis handles | Symbolic tools            |
-| Semantic search  | Bundled ONNX model + hybrid ranking  | No bundled model          |
-| Refactoring      | Preview-first gated mutations        | Stronger IDE-backed edits |
-| Offline          | Full support                         | Depends on backend        |
+| Axis             | CodeLens                                    | Serena                    |
+| ---------------- | ------------------------------------------- | ------------------------- |
+| Runtime          | Single Rust binary, <12ms cold start        | Python + uv               |
+| Intelligence     | tree-sitter + SQLite + optional LSP/SCIP    | LSP by default            |
+| Token efficiency | Bounded workflows, 50-87% savings           | Standard tool responses   |
+| Workflow layer   | Composite reports + analysis handles        | Symbolic tools            |
+| Semantic search  | Bundled ONNX + hybrid ranking + NL bridging | No bundled model          |
+| Refactoring      | Preview-first gated mutations               | Stronger IDE-backed edits |
+| Enterprise       | Config policy, rate limit, OTel, SBOM       | None                      |
+| Offline          | Full support (bundled model + air-gap)      | Depends on backend        |
 
 See [docs/serena-comparison.md](docs/serena-comparison.md) for detailed gap analysis.
 

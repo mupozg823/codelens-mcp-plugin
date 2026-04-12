@@ -121,12 +121,22 @@ pub struct SessionMetrics {
 
 const MAX_TIMELINE: usize = 200;
 const MAX_LATENCY_SAMPLES: usize = 256;
+const SESSION_RATE_LIMIT_WINDOW_MS: u64 = 60_000;
 
 fn push_latency_sample(samples: &mut VecDeque<u64>, elapsed_ms: u64) {
     if samples.len() >= MAX_LATENCY_SAMPLES {
         samples.pop_front();
     }
     samples.push_back(elapsed_ms);
+}
+
+fn trim_rate_limit_window(samples: &mut VecDeque<u64>, now_ms: u64) {
+    while let Some(oldest) = samples.front().copied() {
+        if now_ms.saturating_sub(oldest) <= SESSION_RATE_LIMIT_WINDOW_MS {
+            break;
+        }
+        samples.pop_front();
+    }
 }
 
 pub(crate) fn percentile_95(samples: &VecDeque<u64>) -> u64 {
@@ -262,6 +272,7 @@ pub struct ToolMetricsRegistry {
     inner: Mutex<HashMap<String, ToolMetrics>>,
     surfaces: Mutex<HashMap<String, SurfaceMetrics>>,
     session: Mutex<SessionMetrics>,
+    session_windows: Mutex<HashMap<String, VecDeque<u64>>>,
     writer: Option<TelemetryWriter>,
 }
 
@@ -271,6 +282,7 @@ impl ToolMetricsRegistry {
             inner: Mutex::new(HashMap::new()),
             surfaces: Mutex::new(HashMap::new()),
             session: Mutex::new(SessionMetrics::default()),
+            session_windows: Mutex::new(HashMap::new()),
             writer: TelemetryWriter::from_env(),
         }
     }
@@ -281,6 +293,7 @@ impl ToolMetricsRegistry {
             inner: Mutex::new(HashMap::new()),
             surfaces: Mutex::new(HashMap::new()),
             session: Mutex::new(SessionMetrics::default()),
+            session_windows: Mutex::new(HashMap::new()),
             writer,
         }
     }
@@ -303,10 +316,38 @@ impl ToolMetricsRegistry {
         truncated: bool,
         phase: Option<&str>,
     ) {
+        self.record_call_with_tokens_for_session(
+            name, elapsed_ms, success, tokens, surface, truncated, phase, None,
+        );
+    }
+
+    /// Record a tool invocation with token estimate and logical session context.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_call_with_tokens_for_session(
+        &self,
+        name: &str,
+        elapsed_ms: u64,
+        success: bool,
+        tokens: usize,
+        surface: &str,
+        truncated: bool,
+        phase: Option<&str>,
+        logical_session_id: Option<&str>,
+    ) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_millis() as u64;
+
+        if let Some(session_id) = logical_session_id {
+            let mut windows = self
+                .session_windows
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let window = windows.entry(session_id.to_owned()).or_default();
+            trim_rate_limit_window(window, now);
+            window.push_back(now);
+        }
 
         // Per-tool metrics
         {
@@ -485,6 +526,28 @@ impl ToolMetricsRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    /// Return the number of calls recorded for the logical session within
+    /// the recent sliding window used by dispatch rate limiting.
+    pub fn session_call_count(&self, logical_session_id: &str) -> u64 {
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        let mut windows = self
+            .session_windows
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(window) = windows.get_mut(logical_session_id) else {
+            return 0;
+        };
+        trim_rate_limit_window(window, now);
+        let count = window.len() as u64;
+        if count == 0 {
+            windows.remove(logical_session_id);
+        }
+        count
     }
 
     pub fn surface_snapshot(&self) -> Vec<(String, SurfaceMetrics)> {
@@ -761,6 +824,12 @@ impl ToolMetricsRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         *session = SessionMetrics::default();
+
+        let mut session_windows = self
+            .session_windows
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session_windows.clear();
     }
 }
 
@@ -909,6 +978,63 @@ mod tests {
         assert_eq!(session.total_calls, 0);
         assert_eq!(session.total_tokens, 0);
         assert!(session.timeline.is_empty());
+    }
+
+    #[test]
+    fn session_call_count_tracks_logical_sessions_independently() {
+        let reg = ToolMetricsRegistry::new();
+        reg.record_call_with_tokens_for_session(
+            "find_symbol",
+            15,
+            true,
+            100,
+            "planner-readonly",
+            false,
+            None,
+            Some("session-a"),
+        );
+        reg.record_call_with_tokens_for_session(
+            "find_symbol",
+            15,
+            true,
+            100,
+            "planner-readonly",
+            false,
+            None,
+            Some("session-a"),
+        );
+        reg.record_call_with_tokens_for_session(
+            "impact_report",
+            20,
+            true,
+            100,
+            "reviewer-graph",
+            false,
+            None,
+            Some("session-b"),
+        );
+
+        assert_eq!(reg.session_call_count("session-a"), 2);
+        assert_eq!(reg.session_call_count("session-b"), 1);
+        assert_eq!(reg.session_call_count("missing"), 0);
+    }
+
+    #[test]
+    fn reset_clears_session_rate_limit_windows() {
+        let reg = ToolMetricsRegistry::new();
+        reg.record_call_with_tokens_for_session(
+            "find_symbol",
+            15,
+            true,
+            100,
+            "planner-readonly",
+            false,
+            None,
+            Some("session-a"),
+        );
+        assert_eq!(reg.session_call_count("session-a"), 1);
+        reg.reset();
+        assert_eq!(reg.session_call_count("session-a"), 0);
     }
 
     #[test]

@@ -91,6 +91,13 @@ if [[ ${#assets[@]} -eq 0 ]]; then
 	exit 1
 fi
 
+duplicate_assets="$(printf '%s\n' "${assets[@]}" | LC_ALL=C sort | uniq -d)"
+if [[ -n "$duplicate_assets" ]]; then
+	echo "checksums file contains duplicate artifact entries:" >&2
+	printf '  %s\n' "$duplicate_assets" >&2
+	exit 1
+fi
+
 for asset in "${assets[@]}"; do
 	if [[ ! -f "$bundle_dir/$asset" ]]; then
 		echo "missing artifact referenced by checksums: $bundle_dir/$asset" >&2

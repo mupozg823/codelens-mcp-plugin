@@ -148,7 +148,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         effort_offset,
     );
 
-    state.metrics().record_call_with_tokens(
+    state.metrics().record_call_with_tokens_for_session(
         name,
         elapsed_ms as u64,
         true,
@@ -156,6 +156,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         active_surface,
         truncated,
         harness_phase,
+        Some(logical_session_id),
     );
     if emitted_composite_guidance {
         state.metrics().record_composite_guidance_emitted();
@@ -170,13 +171,14 @@ pub(crate) fn build_error_response(
     error: CodeLensError,
     gate_failure: Option<MutationGateFailure>,
     active_surface: &str,
+    logical_session_id: &str,
     state: &AppState,
     start: std::time::Instant,
     id: Option<serde_json::Value>,
 ) -> JsonRpcResponse {
     let elapsed_ms = start.elapsed().as_millis();
 
-    state.metrics().record_call_with_tokens(
+    state.metrics().record_call_with_tokens_for_session(
         name,
         elapsed_ms as u64,
         false,
@@ -184,6 +186,7 @@ pub(crate) fn build_error_response(
         active_surface,
         false,
         None,
+        Some(logical_session_id),
     );
 
     if error.is_protocol_error() {

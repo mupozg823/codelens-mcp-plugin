@@ -486,7 +486,32 @@ fn hash_json_value<H: std::hash::Hasher>(value: &serde_json::Value, hasher: &mut
 
 /// Hash the top-level argument object for doom-loop repeat detection.
 ///
-/// At the top level, keys listed in [`DOOM_LOOP_SKIP_KEYS`] are ignored
+/// At the top level, keys listed in [`DOOM_LOOP_SKIP_KEYS`] are ignored.
+///
+/// Per-session rate limit. Returns an error if the session has exceeded
+/// the call budget within the sliding window. Default: 300 calls/minute.
+/// Override via `CODELENS_RATE_LIMIT` env var.
+fn check_rate_limit(
+    state: &AppState,
+    session: &crate::session_context::SessionRequestContext,
+) -> Option<CodeLensError> {
+    let limit: u64 = std::env::var("CODELENS_RATE_LIMIT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(300);
+
+    let session_calls = state.metrics().session_call_count(&session.session_id);
+    if session_calls > limit {
+        Some(CodeLensError::Validation(format!(
+            "Rate limit exceeded: {} calls in this session (limit: {}). \
+             Override with CODELENS_RATE_LIMIT env var.",
+            session_calls, limit
+        )))
+    } else {
+        None
+    }
+}
+
 /// so that a routing-metadata change alone (e.g. switching profiles)
 /// does not mask an otherwise-identical consecutive call. Nested objects
 /// are hashed in full via [`hash_json_value`] — only the top-level
@@ -543,6 +568,22 @@ pub(crate) fn dispatch_tool(
     );
     let _guard = span.enter();
     let start = std::time::Instant::now();
+
+    // Rate limit: per-session sliding window (default 300 calls/minute).
+    // Override via CODELENS_RATE_LIMIT env var or .codelens/config.json.
+    if let Some(err) = check_rate_limit(state, session) {
+        return build_error_response(
+            name,
+            err,
+            None,
+            "rate_limited",
+            &session.session_id,
+            state,
+            start,
+            id,
+        );
+    }
+
     state.push_recent_tool_for_session(session, name);
 
     // Doom-loop detection: hash arguments (structurally, zero-alloc for
@@ -572,6 +613,7 @@ pub(crate) fn dispatch_tool(
                 project_err,
                 None,
                 &active_surface,
+                &session.session_id,
                 state,
                 start,
                 id,
@@ -581,7 +623,16 @@ pub(crate) fn dispatch_tool(
 
     // 2. Validate tool access (surface, namespace, tier, daemon mode)
     if let Err(access_err) = validate_tool_access(name, session, surface, state) {
-        return build_error_response(name, access_err, None, &active_surface, state, start, id);
+        return build_error_response(
+            name,
+            access_err,
+            None,
+            &active_surface,
+            &session.session_id,
+            state,
+            start,
+            id,
+        );
     }
 
     // 2b. Schema pre-validation: check required fields before handler runs
@@ -591,6 +642,7 @@ pub(crate) fn dispatch_tool(
             validation_err,
             None,
             &active_surface,
+            &session.session_id,
             state,
             start,
             id,
@@ -752,7 +804,16 @@ pub(crate) fn dispatch_tool(
             id,
         }),
         Err(error) => {
-            build_error_response(name, error, gate_failure, &active_surface, state, start, id)
+            build_error_response(
+                name,
+                error,
+                gate_failure,
+                &active_surface,
+                &session.session_id,
+                state,
+                start,
+                id,
+            )
         }
     }
 }
