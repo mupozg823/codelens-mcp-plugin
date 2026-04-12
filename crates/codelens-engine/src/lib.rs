@@ -62,6 +62,7 @@ pub use rename::{
 };
 pub mod change_signature;
 pub mod inline;
+pub mod ir;
 pub mod move_symbol;
 pub mod oxc_analysis;
 #[cfg(feature = "semantic")]
@@ -83,3 +84,8 @@ pub use symbols::{
 };
 pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};
 pub use watcher::{FileWatcher, WatcherStats};
+// Semantic IR — new types only; existing types are already re-exported above.
+pub use ir::{
+    EditAction, EditActionKind, EditPlan, ImpactKind, ImpactNode, IrCallEdge, Relation,
+    RelationKind,
+};
