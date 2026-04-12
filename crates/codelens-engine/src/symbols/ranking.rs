@@ -288,7 +288,14 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
     if exact_build_embedding_text && symbol.file_path.contains("embedding/mod.rs") {
         if symbol.name == "build_embedding_text" {
             prior += 22.0;
-        } else if symbol.name.starts_with("build_") {
+        } else if symbol.name.starts_with("build_")
+            || symbol.name.starts_with("get_")
+            || symbol.name.starts_with("embed_")
+            || symbol.name.starts_with("embeddings_")
+            || symbol.name.starts_with("embedding_")
+            || symbol.name == "EmbeddingEngine"
+            || symbol.name.contains("embedding")
+        {
             prior -= 10.0;
         }
     }
@@ -602,6 +609,41 @@ mod tests {
             signature: String::new(),
             name_path: "build_coreml_execution_provider".into(),
             id: "build_coreml_execution_provider".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+
+        let query = "which builder creates build embedding text";
+        assert!(symbol_kind_prior(query, &target) > symbol_kind_prior(query, &generic));
+    }
+
+    #[test]
+    fn embedding_text_target_beats_embed_texts_cached() {
+        let target = SymbolInfo {
+            name: "build_embedding_text".into(),
+            kind: SymbolKind::Function,
+            file_path: "crates/codelens-engine/src/embedding/mod.rs".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "build_embedding_text".into(),
+            id: "build_embedding_text".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let generic = SymbolInfo {
+            name: "embed_texts_cached".into(),
+            kind: SymbolKind::Function,
+            file_path: "crates/codelens-engine/src/embedding/mod.rs".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "embed_texts_cached".into(),
+            id: "embed_texts_cached".into(),
             body: None,
             children: Vec::new(),
             start_byte: 0,

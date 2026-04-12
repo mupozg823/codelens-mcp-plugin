@@ -116,6 +116,13 @@ fn split_identifier_terms(query: &str) -> Option<String> {
     split.contains(' ').then_some(split)
 }
 
+fn semantic_identifier_query(alias: &str) -> String {
+    match split_identifier_terms(alias) {
+        Some(split) if split != alias => format!("{alias} {split}"),
+        _ => alias.to_owned(),
+    }
+}
+
 pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
     let trimmed = query.trim();
     if trimmed.is_empty() {
@@ -136,7 +143,7 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
         && (has_entrypoint_cue(&lowered) || has_helper_cue(&lowered) || has_builder_cue(&lowered));
 
     let semantic_query = if let Some(aliases) = exact_aliases {
-        aliases.join(" ")
+        semantic_identifier_query(aliases[0])
     } else if natural_language && !alias_expansion_phrase {
         trimmed.to_owned()
     } else if alias_expansion_phrase && has_builder_cue(&lowered) {
@@ -166,7 +173,7 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
     };
 
     let expanded_query = if let Some(aliases) = exact_aliases {
-        format!("{trimmed} {}", aliases.join(" "))
+        aliases[0].to_owned()
     } else if natural_language {
         expand_retrieval_query(trimmed)
     } else {
@@ -340,7 +347,14 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     if exact_build_embedding_text && result.file_path.contains("embedding/mod.rs") {
         if result.symbol_name == "build_embedding_text" {
             prior += 0.19;
-        } else if result.symbol_name.starts_with("build_") {
+        } else if result.symbol_name.starts_with("build_")
+            || result.symbol_name.starts_with("get_")
+            || result.symbol_name.starts_with("embed_")
+            || result.symbol_name.starts_with("embeddings_")
+            || result.symbol_name.starts_with("embedding_")
+            || result.symbol_name == "EmbeddingEngine"
+            || result.symbol_name.contains("embedding")
+        {
             prior -= 0.10;
         }
     }
@@ -650,24 +664,18 @@ mod tests {
         let analysis = analyze_retrieval_query("which helper implements find all word matches");
         assert_eq!(
             analysis.semantic_query,
-            "find_all_word_matches all_word_matches"
+            "find_all_word_matches find all word matches"
         );
-        assert!(analysis.expanded_query.contains("find_all_word_matches"));
-        assert!(!analysis
-            .expanded_query
-            .contains("find_word_matches_in_files"));
+        assert_eq!(analysis.expanded_query, "find_all_word_matches");
         assert!(!analysis.semantic_query.contains("find_symbol"));
 
         let analysis =
             analyze_retrieval_query("which helper implements find word matches in files");
         assert_eq!(
             analysis.semantic_query,
-            "find_word_matches_in_files word_matches_in_files"
+            "find_word_matches_in_files find word matches in files"
         );
-        assert!(analysis
-            .expanded_query
-            .contains("find_word_matches_in_files"));
-        assert!(!analysis.expanded_query.contains("find_all_word_matches"));
+        assert_eq!(analysis.expanded_query, "find_word_matches_in_files");
         assert!(!analysis.semantic_query.contains("find_symbol"));
     }
 
@@ -677,10 +685,9 @@ mod tests {
         let analysis = analyze_retrieval_query(query);
         assert_eq!(
             analysis.semantic_query,
-            "build_embedding_text embedding_text"
+            "build_embedding_text build embedding text"
         );
-        assert!(analysis.expanded_query.contains("build_embedding_text"));
-        assert!(!analysis.expanded_query.contains("which_builder"));
+        assert_eq!(analysis.expanded_query, "build_embedding_text");
     }
 
     #[test]
@@ -909,6 +916,36 @@ mod tests {
             2,
         );
         assert_eq!(reranked[0].symbol_name, "find_all_word_matches");
+    }
+
+    #[cfg(feature = "semantic")]
+    #[test]
+    fn build_embedding_text_prior_beats_generic_embedding_helpers() {
+        let reranked = rerank_semantic_matches(
+            "which builder creates build embedding text",
+            vec![
+                SemanticMatch {
+                    symbol_name: "embed_texts_cached".to_owned(),
+                    kind: "function".to_owned(),
+                    file_path: "crates/codelens-engine/src/embedding/mod.rs".to_owned(),
+                    line: 731,
+                    signature: "fn embed_texts_cached(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>> {".to_owned(),
+                    name_path: "embed_texts_cached".to_owned(),
+                    score: 0.311,
+                },
+                SemanticMatch {
+                    symbol_name: "build_embedding_text".to_owned(),
+                    kind: "function".to_owned(),
+                    file_path: "crates/codelens-engine/src/embedding/mod.rs".to_owned(),
+                    line: 1609,
+                    signature: "fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> String {".to_owned(),
+                    name_path: "build_embedding_text".to_owned(),
+                    score: 0.252,
+                },
+            ],
+            2,
+        );
+        assert_eq!(reranked[0].symbol_name, "build_embedding_text");
     }
 
     #[cfg(feature = "semantic")]

@@ -420,9 +420,9 @@
     "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response.rs"
   },
   {
-    "query": "how does the embedding engine initialize the model",
+    "query": "EmbeddingEngine initialization and model loading",
     "query_type": "natural_language",
-    "expected_symbol": "new",
+    "expected_symbol": "EmbeddingEngine",
     "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {

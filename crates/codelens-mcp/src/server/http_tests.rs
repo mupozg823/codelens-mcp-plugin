@@ -1133,7 +1133,9 @@ async fn mutation_enabled_daemon_rejects_untrusted_client_mutation() {
         .unwrap();
     assert_eq!(preflight.status(), StatusCode::OK);
     let preflight_body = body_string(preflight).await;
-    assert!(preflight_body.contains("\\\"success\\\":true"));
+    assert!(
+        preflight_body.contains("\\\"success\\\": true") || preflight_body.contains("\\\"success\\\":true")
+    );
 
     let resp = app
         .oneshot(
@@ -1263,7 +1265,7 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
     let body = body_string(resp).await;
     let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
     let text = envelope["result"]["content"][0]["text"].as_str().unwrap();
-    assert!(text.contains("\"success\":true"));
+    assert!(text.contains("\"success\": true") || text.contains("\"success\":true"));
     let audit_path = state.audit_dir().join("mutation-audit.jsonl");
     let audit_body = std::fs::read_to_string(audit_path).unwrap();
     assert!(audit_body.contains("\"trusted_client\":true"));
@@ -1786,7 +1788,7 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
     assert_eq!(allowed.status(), StatusCode::OK);
     let allowed_body = body_string(allowed).await;
     assert!(
-        allowed_body.contains("\\\"success\\\":true"),
+        allowed_body.contains("\\\"success\\\": true") || allowed_body.contains("\\\"success\\\":true"),
         "deferred_namespace body: {allowed_body}"
     );
 }
@@ -1904,7 +1906,9 @@ async fn deferred_tier_load_expands_default_surface_and_allows_calls() {
 
     assert_eq!(allowed.status(), StatusCode::OK);
     let allowed_body = body_string(allowed).await;
-    assert!(allowed_body.contains("\\\"success\\\":true"));
+    assert!(
+        allowed_body.contains("\\\"success\\\": true") || allowed_body.contains("\\\"success\\\":true")
+    );
 }
 
 #[tokio::test]

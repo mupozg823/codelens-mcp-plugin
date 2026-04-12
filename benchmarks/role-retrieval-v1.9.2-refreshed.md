@@ -12,7 +12,7 @@
 
 | Method | MRR@10 | Acc@1 | Acc@3 | Acc@5 | Avg ms |
 |---|---:|---:|---:|---:|---:|
-| semantic_search | 0.813 | 74% | 89% | 91% | 594.0 |
-| get_ranked_context | 0.831 | 76% | 90% | 91% | 147.8 |
-| get_ranked_context_no_semantic | 0.586 | 53% | 60% | 61% | 42.0 |
+| semantic_search | 0.849 | 79% | 91% | 94% | 570.7 |
+| get_ranked_context | 0.876 | 83% | 93% | 93% | 652.6 |
+| get_ranked_context_no_semantic | 0.748 | 69% | 80% | 81% | 44.9 |
 
