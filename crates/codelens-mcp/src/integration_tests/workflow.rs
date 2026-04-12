@@ -175,6 +175,8 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"]["daemon_binary_drift"].is_object());
     assert!(payload["data"]["daemon_binary_drift"]["status"].is_string());
     assert!(payload["data"]["daemon_binary_drift"]["stale_daemon"].is_boolean());
+    assert!(payload["data"]["daemon_binary_drift"].get("recommended_action").is_some());
+    assert!(payload["data"]["daemon_binary_drift"].get("reason_code").is_some());
 }
 
 #[test]
@@ -260,12 +262,22 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
         payload["data"]["capabilities"]["daemon_binary_drift"]["stale_daemon"],
         json!(true)
     );
+    assert_eq!(
+        payload["data"]["capabilities"]["daemon_binary_drift"]["reason_code"],
+        json!("stale_daemon_binary")
+    );
+    assert_eq!(
+        payload["data"]["capabilities"]["daemon_binary_drift"]["recommended_action"],
+        json!("restart_mcp_server")
+    );
     assert!(payload["data"]["warnings"]
         .as_array()
         .map(|warnings| {
             warnings.iter().any(|warning| {
                 warning["code"] == "stale_daemon_binary"
                     && warning["restart_recommended"] == json!(true)
+                    && warning["recommended_action"] == json!("restart_mcp_server")
+                    && warning["action_target"] == json!("daemon")
             })
         })
         .unwrap_or(false));

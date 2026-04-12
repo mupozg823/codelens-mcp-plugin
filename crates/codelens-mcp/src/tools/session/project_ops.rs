@@ -204,14 +204,19 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         crate::tools::session::get_capabilities(state, &capabilities_arguments)?;
     let warnings = capabilities_payload
         .get("daemon_binary_drift")
-        .and_then(|value| value.get("stale_daemon"))
-        .and_then(|value| value.as_bool())
-        .filter(|stale| *stale)
-        .map(|_| {
+        .filter(|value| {
+            value
+                .get("stale_daemon")
+                .and_then(|stale| stale.as_bool())
+                .unwrap_or(false)
+        })
+        .map(|drift| {
             vec![json!({
-                "code": "stale_daemon_binary",
-                "message": "running daemon is older than the executable on disk; restart the MCP server to pick up the latest build",
-                "restart_recommended": true,
+                "code": drift.get("reason_code").and_then(|value| value.as_str()).unwrap_or("stale_daemon_binary"),
+                "message": drift.get("reason").and_then(|value| value.as_str()).unwrap_or("running daemon is older than the executable on disk; restart the MCP server to pick up the latest build"),
+                "restart_recommended": drift.get("restart_recommended").and_then(|value| value.as_bool()).unwrap_or(true),
+                "recommended_action": drift.get("recommended_action").and_then(|value| value.as_str()).unwrap_or("restart_mcp_server"),
+                "action_target": drift.get("action_target").and_then(|value| value.as_str()).unwrap_or("daemon"),
             })]
         })
         .unwrap_or_default();

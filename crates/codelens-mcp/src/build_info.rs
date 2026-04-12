@@ -193,10 +193,23 @@ pub(crate) fn daemon_binary_drift_payload(daemon_started_at: &str) -> serde_json
     };
     let stale_daemon = modified_seconds > daemon_started_seconds;
     let status = if stale_daemon { "stale" } else { "ok" };
+    let reason_code = if stale_daemon {
+        Some("stale_daemon_binary")
+    } else {
+        None
+    };
+    let recommended_action = if stale_daemon {
+        Some("restart_mcp_server")
+    } else {
+        None
+    };
     json!({
         "status": status,
         "stale_daemon": stale_daemon,
         "restart_recommended": stale_daemon,
+        "reason_code": reason_code,
+        "recommended_action": recommended_action,
+        "action_target": if stale_daemon { Some("daemon") } else { None },
         "executable_path": executable_path.to_string_lossy(),
         "executable_modified_at": format_rfc3339_utc(modified_seconds),
         "daemon_started_at": daemon_started_at,

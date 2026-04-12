@@ -584,7 +584,9 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                     "properties": {
                         "code": {"type": "string"},
                         "message": {"type": "string"},
-                        "restart_recommended": {"type": "boolean"}
+                        "restart_recommended": {"type": "boolean"},
+                        "recommended_action": {"type": "string"},
+                        "action_target": {"type": "string"}
                     }
                 }
             },
@@ -702,6 +704,9 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
                     "status": {"type": "string", "enum": ["ok", "stale", "unknown"]},
                     "stale_daemon": {"type": "boolean"},
                     "restart_recommended": {"type": "boolean"},
+                    "reason_code": {"type": ["string", "null"]},
+                    "recommended_action": {"type": ["string", "null"]},
+                    "action_target": {"type": ["string", "null"]},
                     "executable_path": {"type": "string"},
                     "executable_modified_at": {"type": "string"},
                     "daemon_started_at": {"type": "string"},

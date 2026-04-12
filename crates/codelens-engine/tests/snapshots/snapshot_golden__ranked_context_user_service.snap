@@ -1,5 +1,56 @@
 ---
-source: crates/codelens-core/tests/snapshot_golden.rs
+source: crates/codelens-engine/tests/snapshot_golden.rs
 expression: summary
 ---
-[]
+[
+  [
+    "UserService",
+    "src/service.py",
+    60
+  ],
+  [
+    "AuthService",
+    "src/service.py",
+    42
+  ],
+  [
+    "User",
+    "src/models.ts",
+    42
+  ],
+  [
+    "UserRepository",
+    "src/models.ts",
+    42
+  ],
+  [
+    "get_user",
+    "src/service.py",
+    37
+  ],
+  [
+    "delete_user",
+    "src/service.py",
+    37
+  ],
+  [
+    "validateUser",
+    "src/models.ts",
+    37
+  ],
+  [
+    "login",
+    "src/service.py",
+    15
+  ],
+  [
+    "logout",
+    "src/service.py",
+    3
+  ],
+  [
+    "create_app",
+    "src/service.py",
+    3
+  ]
+]
