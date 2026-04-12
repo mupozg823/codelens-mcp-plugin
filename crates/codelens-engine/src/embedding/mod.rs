@@ -1743,9 +1743,49 @@ fn split_identifier(name: &str) -> String {
 }
 
 fn is_test_only_symbol(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> bool {
-    if sym.file_path.contains("/tests/") || sym.file_path.ends_with("_tests.rs") {
+    let fp = &sym.file_path;
+
+    // ── Path-based detection (language-agnostic) ─────────────────────
+    // Rust
+    if fp.contains("/tests/") || fp.ends_with("_tests.rs") {
         return true;
     }
+    // JS/TS — Jest __tests__ directory
+    if fp.contains("/__tests__/") || fp.contains("\\__tests__\\") {
+        return true;
+    }
+    // Python
+    if fp.ends_with("_test.py") {
+        return true;
+    }
+    // Go
+    if fp.ends_with("_test.go") {
+        return true;
+    }
+    // JS/TS — .test.* / .spec.*
+    if fp.ends_with(".test.ts")
+        || fp.ends_with(".test.tsx")
+        || fp.ends_with(".test.js")
+        || fp.ends_with(".test.jsx")
+        || fp.ends_with(".spec.ts")
+        || fp.ends_with(".spec.js")
+    {
+        return true;
+    }
+    // Java/Kotlin — Maven src/test/ layout
+    if fp.contains("/src/test/") {
+        return true;
+    }
+    // Java — *Test.java / *Tests.java
+    if fp.ends_with("Test.java") || fp.ends_with("Tests.java") {
+        return true;
+    }
+    // Ruby
+    if fp.ends_with("_test.rb") || fp.contains("/spec/") {
+        return true;
+    }
+
+    // ── Rust name_path patterns ───────────────────────────────────────
     if sym.name_path.starts_with("tests::")
         || sym.name_path.contains("::tests::")
         || sym.name_path.starts_with("test::")
@@ -1761,12 +1801,54 @@ fn is_test_only_symbol(sym: &crate::db::SymbolWithFile, source: Option<&str>) ->
     let start = usize::try_from(sym.start_byte.max(0))
         .unwrap_or(0)
         .min(source.len());
+
+    // ── Source-based: Rust attributes ────────────────────────────────
     let window_start = start.saturating_sub(2048);
     let attrs = String::from_utf8_lossy(&source.as_bytes()[window_start..start]);
-    attrs.contains("#[test]")
+    if attrs.contains("#[test]")
         || attrs.contains("#[tokio::test]")
         || attrs.contains("#[cfg(test)]")
         || attrs.contains("#[cfg(all(test")
+    {
+        return true;
+    }
+
+    // ── Source-based: Python ─────────────────────────────────────────
+    // Function names starting with `test_` or class names starting with `Test`
+    if fp.ends_with(".py") {
+        if sym.name.starts_with("test_") {
+            return true;
+        }
+        // Class whose name starts with "Test" — also matches TestCase subclasses
+        if sym.kind == "class" && sym.name.starts_with("Test") {
+            return true;
+        }
+    }
+
+    // ── Source-based: Go ─────────────────────────────────────────────
+    // func TestXxx(...) pattern; file must end with _test.go (already caught above),
+    // but guard on .go extension for any edge-case non-test files with Test* helpers.
+    if fp.ends_with(".go") && sym.name.starts_with("Test") && sym.kind == "function" {
+        return true;
+    }
+
+    // ── Source-based: Java / Kotlin ──────────────────────────────────
+    if fp.ends_with(".java") || fp.ends_with(".kt") {
+        let before = &source[..start];
+        let window = if before.len() > 200 {
+            &before[before.len() - 200..]
+        } else {
+            before
+        };
+        if window.contains("@Test")
+            || window.contains("@ParameterizedTest")
+            || window.contains("@RepeatedTest")
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> String {

@@ -13,6 +13,7 @@
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
+- Current enterprise productization decision record: [docs/adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md](adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md)
 
 This document describes the product shape and the stable architectural layers.
 The audit document above captures the current overdesign, duplication, and drift findings against the latest code.

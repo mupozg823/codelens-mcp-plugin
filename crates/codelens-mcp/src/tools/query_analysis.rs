@@ -1,5 +1,7 @@
 #[cfg(feature = "semantic")]
 use codelens_engine::SemanticMatch;
+use std::collections::HashSet;
+use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RetrievalQueryAnalysis {
@@ -193,72 +195,101 @@ pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
     analyze_retrieval_query(query).semantic_query
 }
 
-pub(crate) fn semantic_query_for_embedding_search(analysis: &RetrievalQueryAnalysis) -> String {
+pub(crate) fn semantic_query_for_embedding_search(
+    analysis: &RetrievalQueryAnalysis,
+    project_root: Option<&Path>,
+) -> String {
     if analysis.natural_language {
-        // Bridge NL vocabulary → code vocabulary before embedding.
-        // The CodeSearchNet model understands code tokens better than NL prose.
-        let bridged = bridge_nl_to_code_vocabulary(&analysis.semantic_query);
+        let project_bridges = project_root.map(load_project_bridges).unwrap_or_default();
+        let bridged = bridge_nl_to_code_vocabulary(&analysis.semantic_query, &project_bridges);
         format!("function {}", bridged)
     } else {
         analysis.semantic_query.clone()
     }
 }
 
-/// Map common NL terms to their code-domain equivalents so the embedding
-/// model can match. CodeSearchNet was trained on docstring↔code pairs,
-/// so queries phrased as docstrings match better than pure NL.
-fn bridge_nl_to_code_vocabulary(query: &str) -> String {
+/// Load project-specific NL→code bridges from `.codelens/bridges.json`.
+/// Format: `[{"nl": "stdin", "code": "run_stdio stdio"}, ...]`
+/// Returns empty vec if file missing or malformed.
+fn load_project_bridges(project_root: &Path) -> Vec<(String, String)> {
+    let path = project_root.join(".codelens/bridges.json");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let parsed: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!("invalid bridges.json: {e}");
+            return Vec::new();
+        }
+    };
+    parsed
+        .as_array()
+        .unwrap_or(&Vec::new())
+        .iter()
+        .filter_map(|entry| {
+            let nl = entry.get("nl")?.as_str()?;
+            let code = entry.get("code")?.as_str()?;
+            Some((nl.to_owned(), code.to_owned()))
+        })
+        .collect()
+}
+
+/// Map common NL terms to code-domain equivalents. Two tiers:
+/// 1. GENERIC_BRIDGES — language/project independent, always active
+/// 2. project_bridges — from `.codelens/bridges.json`, project-specific
+fn bridge_nl_to_code_vocabulary(query: &str, project_bridges: &[(String, String)]) -> String {
     let mut result = query.to_owned();
     let mut lowered_result = query.to_ascii_lowercase();
-    // Each pair: (NL phrase, code-equivalent phrase to append)
-    static BRIDGES: &[(&str, &str)] = &[
+    let mut seen_tokens: HashSet<String> = lowered_result
+        .split_whitespace()
+        .map(str::to_owned)
+        .collect();
+
+    // Generic bridges: language/project independent vocabulary mappings.
+    static GENERIC_BRIDGES: &[(&str, &str)] = &[
         ("categorize", "classify"),
         ("category", "classify"),
         ("sort by relevance", "rank score"),
-        ("get project structure", "onboard project"),
-        ("first load", "onboard initialize"),
         ("skip comments", "non-code ranges"),
         ("string literals", "non-code ranges"),
-        ("build embedding", "index_from_project embed"),
-        ("embedding vectors", "index embed vectors"),
-        ("all symbols", "project symbols index"),
-        ("preflight", "mutation gate verify"),
-        ("truncate response", "bounded_result_payload limit"),
-        ("too large", "bounded limit truncate"),
-        ("recently accessed", "record_file_access recency"),
-        ("timestamp", "now_ms time"),
-        ("current time", "now_ms timestamp"),
-        ("which language", "language_for_path lang config"),
-        ("file type", "language_for_path"),
-        ("stdin", "stdio run_stdio"),
-        ("read input", "stdio stdin"),
-        ("parse source", "parse_symbols tree-sitter"),
-        ("into an ast", "parse_symbols tree-sitter"),
-        ("diagnose", "diagnostics unresolved"),
-        ("workflow", "WorkflowFirst profile"),
-        ("store embedding", "insert_batch upsert sqlite"),
-        ("sqlite database", "insert_batch SqliteVecStore"),
-        ("embedding index", "index_embeddings index_from_project"),
-        ("resolve which file", "collect_candidate_files resolve"),
-        ("belongs to", "collect_candidate resolve_module"),
-        ("functions that call", "extract_calls callers call_graph"),
-        ("who calls", "extract_calls callers"),
-        ("rename a variable", "rename_symbol rename"),
-        ("rename a function", "rename_symbol rename"),
-        ("search code", "search semantic_search"),
-        ("natural language query", "semantic_search NL"),
-        ("language config", "language_for_path call_language"),
-        ("camelcase", "split_identifier camel snake"),
-        ("snake_case", "split_identifier camel snake"),
+        ("functions that call", "callers call_graph"),
+        ("who calls", "callers"),
+        ("rename a variable", "rename"),
+        ("rename a function", "rename"),
+        ("search code", "search"),
+        ("camelcase", "split identifier camel snake"),
+        ("snake_case", "split identifier camel snake"),
+        ("parse source", "AST parse"),
+        ("into an ast", "AST parse"),
+        ("diagnose", "diagnostics"),
     ];
-    for (nl_term, code_term) in BRIDGES {
-        let lowered_code_term = code_term.to_ascii_lowercase();
-        if lowered_result.contains(nl_term) && !lowered_result.contains(&lowered_code_term) {
-            result.push(' ');
-            result.push_str(code_term);
-            lowered_result.push(' ');
-            lowered_result.push_str(&lowered_code_term);
+
+    // Apply a single bridge entry.
+    let mut apply = |nl_term: &str, code_term: &str| {
+        if !lowered_result.contains(nl_term) {
+            return;
         }
+        let missing: Vec<&str> = code_term
+            .split_whitespace()
+            .filter(|t| seen_tokens.insert(t.to_ascii_lowercase()))
+            .collect();
+        if missing.is_empty() {
+            return;
+        }
+        let joined = missing.join(" ");
+        result.push(' ');
+        result.push_str(&joined);
+        lowered_result.push(' ');
+        lowered_result.push_str(&joined.to_ascii_lowercase());
+    };
+
+    for (nl, code) in GENERIC_BRIDGES {
+        apply(nl, code);
+    }
+    for (nl, code) in project_bridges {
+        apply(nl, code);
     }
     result
 }
@@ -666,6 +697,7 @@ mod tests {
         analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_embedding_search,
         semantic_query_for_retrieval,
     };
+    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
 
     #[cfg(feature = "semantic")]
     use super::{rerank_semantic_matches, semantic_adjusted_score_parts};
@@ -729,7 +761,7 @@ mod tests {
     fn embedding_search_query_frames_natural_language_with_code_prefix() {
         let analysis =
             analyze_retrieval_query("route an incoming tool request to the right handler");
-        let framed = semantic_query_for_embedding_search(&analysis);
+        let framed = semantic_query_for_embedding_search(&analysis, None);
         assert!(framed.starts_with("function "));
         assert!(framed.contains("route an incoming tool request to the right handler"));
     }
@@ -737,14 +769,14 @@ mod tests {
     #[test]
     fn embedding_search_query_leaves_identifier_queries_unframed() {
         let analysis = analyze_retrieval_query("change_signature");
-        let framed = semantic_query_for_embedding_search(&analysis);
+        let framed = semantic_query_for_embedding_search(&analysis, None);
         assert_eq!(framed, "change_signature change signature");
     }
 
     #[test]
     fn embedding_search_query_bridges_nl_terms_to_code_vocabulary() {
         let analysis = analyze_retrieval_query("categorize a function by its purpose");
-        let framed = semantic_query_for_embedding_search(&analysis);
+        let framed = semantic_query_for_embedding_search(&analysis, None);
         assert!(framed.starts_with("function "));
         assert!(framed.contains("categorize a function by its purpose"));
         assert!(framed.contains("classify"));
@@ -755,8 +787,45 @@ mod tests {
         let analysis = analyze_retrieval_query(
             "search code with SEMANTIC_SEARCH for a natural language query",
         );
-        let framed = semantic_query_for_embedding_search(&analysis);
-        assert_eq!(framed.matches("semantic_search").count(), 1);
+        let framed = semantic_query_for_embedding_search(&analysis, None);
+        assert_eq!(
+            framed
+                .to_ascii_lowercase()
+                .matches("semantic_search")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn embedding_search_query_does_not_apply_project_specific_bridge_without_project_root() {
+        let analysis = analyze_retrieval_query("record which files were recently accessed");
+        let framed = semantic_query_for_embedding_search(&analysis, None);
+        assert!(!framed.contains("record_file_access"));
+    }
+
+    #[test]
+    fn embedding_search_query_applies_project_specific_bridge_from_project_file() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-query-bridge-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        fs::create_dir_all(dir.join(".codelens")).expect("bridge dir");
+        fs::write(
+            dir.join(".codelens/bridges.json"),
+            r#"[{"nl":"recently accessed","code":"record_file_access recency"}]"#,
+        )
+        .expect("bridge file");
+
+        let analysis = analyze_retrieval_query("record which files were recently accessed");
+        let framed = semantic_query_for_embedding_search(&analysis, Some(dir.as_path()));
+        assert!(framed.contains("record_file_access"));
+        assert!(framed.contains("recency"));
+
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]

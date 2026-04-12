@@ -92,6 +92,7 @@ RUN_CLIPPY_GATE=0
 RUN_RELEASE_GATE=0
 RUN_NO_SEMANTIC_GATE=0
 RUN_PHASE3_MATRIX_GATE=0
+RUN_DATASET_LINT_GATE=0
 PHASE3_REQUIRED_DATASETS="ripgrep,requests,jest,typescript,next-js,react-core,django,axum"
 
 if [[ "$MODE" == "ci" ]]; then
@@ -101,6 +102,7 @@ if [[ "$MODE" == "ci" ]]; then
 	RUN_RELEASE_GATE=1
 	RUN_NO_SEMANTIC_GATE=1
 	RUN_PHASE3_MATRIX_GATE=1
+	RUN_DATASET_LINT_GATE=1
 elif [[ "$MODE" == "build" ]]; then
 	RUN_RUST_GATE=1
 	RUN_RELEASE_GATE=1
@@ -119,6 +121,12 @@ else
 		"benchmarks/README.md" \
 		"docs/benchmarks.md"; then
 		RUN_PHASE3_MATRIX_GATE=1
+	fi
+
+	if matches_any "benchmarks/lint-datasets.py" \
+		"benchmarks/embedding-quality-dataset-self.json" \
+		"benchmarks/role-retrieval-dataset.json"; then
+		RUN_DATASET_LINT_GATE=1
 	fi
 
 	if matches_any "crates/codelens-mcp/src/server/*" "crates/codelens-mcp/src/transport*" "crates/codelens-mcp/src/resources*" "crates/codelens-mcp/src/dispatch*" "crates/codelens-mcp/src/session*" "crates/codelens-mcp/src/*http*" "crates/codelens-mcp/src/*resource*" "crates/codelens-mcp/src/state.rs"; then
@@ -149,8 +157,8 @@ else
 	fi
 fi
 
-if [[ "$RUN_RUST_GATE" -eq 0 && "$RUN_PY_GATE" -eq 0 && "$RUN_PHASE3_MATRIX_GATE" -eq 0 && "$RUN_NO_SEMANTIC_GATE" -eq 0 ]]; then
-	echo "[gate] no relevant Rust, harness-Python, matrix, or no-semantic files changed; skipping repo-local gate."
+if [[ "$RUN_RUST_GATE" -eq 0 && "$RUN_PY_GATE" -eq 0 && "$RUN_PHASE3_MATRIX_GATE" -eq 0 && "$RUN_NO_SEMANTIC_GATE" -eq 0 && "$RUN_DATASET_LINT_GATE" -eq 0 ]]; then
+	echo "[gate] no relevant Rust, harness-Python, matrix, no-semantic, or dataset files changed; skipping repo-local gate."
 	exit 0
 fi
 
@@ -163,6 +171,15 @@ if [[ "$RUN_PY_GATE" -eq 1 ]]; then
 		done < <(changed_files || true)
 	else
 		echo "[gate] python3 not installed; skipping harness Python gate."
+	fi
+fi
+
+if [[ "$RUN_DATASET_LINT_GATE" -eq 1 ]]; then
+	if has_cmd python3; then
+		echo "[gate] running dataset hygiene lint"
+		python3 benchmarks/lint-datasets.py --project .
+	else
+		echo "[gate] python3 not installed; skipping dataset lint gate."
 	fi
 fi
 

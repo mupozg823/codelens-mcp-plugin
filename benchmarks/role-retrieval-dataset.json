@@ -51,10 +51,7 @@
         "new",
         "writer"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which helper implements find range",
@@ -69,10 +66,7 @@
         "new",
         "writer"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "apply edits primary implementation",
@@ -87,10 +81,7 @@
         "collect_project_scope_edits",
         "rename_symbol"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which symbol is responsible for apply edits",
@@ -105,10 +96,7 @@
         "collect_project_scope_edits",
         "rename_symbol"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "search primary implementation",
@@ -153,10 +141,7 @@
         "InlineResult",
         "parse_function_parts"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/inline.rs",
-        "crates/codelens-engine/src/inline.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which entrypoint handles inline",
@@ -171,10 +156,7 @@
         "InlineResult",
         "parse_function_parts"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/inline.rs",
-        "crates/codelens-engine/src/inline.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "primary move handler",
@@ -189,10 +171,7 @@
         "MoveResult",
         "MoveEdit"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/move_symbol.rs",
-        "crates/codelens-engine/src/move_symbol.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which entrypoint handles move",
@@ -207,10 +186,7 @@
         "MoveResult",
         "MoveEdit"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/move_symbol.rs",
-        "crates/codelens-engine/src/move_symbol.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "primary change signature handler",
@@ -225,10 +201,7 @@
         "ParamSpec",
         "ChangeSignatureResult"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/change_signature.rs",
-        "crates/codelens-engine/src/change_signature.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which entrypoint handles change signature",
@@ -243,10 +216,7 @@
         "ParamSpec",
         "ChangeSignatureResult"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/change_signature.rs",
-        "crates/codelens-engine/src/change_signature.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "find circular dependencies internal helper",
@@ -261,10 +231,7 @@
         "temp_project_dir",
         "detects_simple_cycle"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/circular.rs",
-        "crates/codelens-engine/src/circular.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which helper implements find circular dependencies",
@@ -279,10 +246,7 @@
         "temp_project_dir",
         "detects_simple_cycle"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/circular.rs",
-        "crates/codelens-engine/src/circular.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "parse symbols internal helper",
@@ -297,10 +261,7 @@
         "flatten_symbols",
         "nest_symbols"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/parser.rs",
-        "crates/codelens-engine/src/symbols/parser.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which helper implements parse symbols",
@@ -315,10 +276,7 @@
         "flatten_symbols",
         "nest_symbols"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/parser.rs",
-        "crates/codelens-engine/src/symbols/parser.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "primary index from project handler",
@@ -391,10 +349,7 @@
         "index_files_with_retry",
         "is_lock_contention_error"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/watcher.rs",
-        "crates/codelens-engine/src/watcher.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which symbol is responsible for file watcher",
@@ -409,10 +364,7 @@
         "index_files_with_retry",
         "is_lock_contention_error"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/watcher.rs",
-        "crates/codelens-engine/src/watcher.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "build non ranges construction",
@@ -427,10 +379,7 @@
         "is_in_ranges",
         "NON_CODE_KINDS"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which builder creates build non ranges",
@@ -445,10 +394,7 @@
         "is_in_ranges",
         "NON_CODE_KINDS"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "build embedding text construction",
@@ -493,10 +439,7 @@
         "new",
         "new_exact"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/project.rs",
-        "crates/codelens-engine/src/project.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which predicate decides is excluded",
@@ -511,10 +454,7 @@
         "new",
         "new_exact"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/project.rs",
-        "crates/codelens-engine/src/project.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "extract calls internal helper",
@@ -529,10 +469,7 @@
         "extract_calls_from_source",
         "extracts_python_calls"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/call_graph.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which helper implements extract calls",
@@ -547,10 +484,7 @@
         "extract_calls_from_source",
         "extracts_python_calls"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/call_graph.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "is noise callee decision check",
@@ -565,10 +499,7 @@
         "cached_call_query",
         "call_language_for_path"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/call_graph.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which predicate decides is noise callee",
@@ -583,10 +514,7 @@
         "cached_call_query",
         "call_language_for_path"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/call_graph.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "collect candidate files internal helper",
@@ -601,10 +529,7 @@
         "is_noise_callee",
         "call_language_for_path"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/call_graph.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which helper implements collect candidate files",
@@ -619,10 +544,7 @@
         "is_noise_callee",
         "call_language_for_path"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/call_graph.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "detect communities primary implementation",
@@ -637,10 +559,7 @@
         "calculate_modularity",
         "community_density"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/community.rs",
-        "crates/codelens-engine/src/community.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which symbol is responsible for detect communities",
@@ -655,10 +574,7 @@
         "calculate_modularity",
         "community_density"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/community.rs",
-        "crates/codelens-engine/src/community.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "calculate modularity primary implementation",
@@ -673,10 +589,7 @@
         "community_density",
         "common_path_prefix"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/community.rs",
-        "crates/codelens-engine/src/community.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which symbol is responsible for calculate modularity",
@@ -691,10 +604,7 @@
         "community_density",
         "common_path_prefix"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/community.rs",
-        "crates/codelens-engine/src/community.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "common path prefix primary implementation",
@@ -709,10 +619,7 @@
         "calculate_modularity",
         "community_density"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/community.rs",
-        "crates/codelens-engine/src/community.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which symbol is responsible for common path prefix",
@@ -727,10 +634,7 @@
         "calculate_modularity",
         "community_density"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/community.rs",
-        "crates/codelens-engine/src/community.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "community density primary implementation",
@@ -746,8 +650,7 @@
         "detect_communities"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/community.rs"
+        "crates/codelens-engine/src/call_graph.rs"
       ]
     },
     {
@@ -764,8 +667,7 @@
         "detect_communities"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
-        "crates/codelens-engine/src/community.rs"
+        "crates/codelens-engine/src/call_graph.rs"
       ]
     },
     {
@@ -841,10 +743,7 @@
         "IDENTIFIER_RE",
         "rename_symbol"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which symbol is responsible for validate identifier",
@@ -859,10 +758,7 @@
         "IDENTIFIER_RE",
         "rename_symbol"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "find word matches in files internal helper",
@@ -877,10 +773,7 @@
         "find_word_matches_walkdir",
         "find_shadowing_files"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which helper implements find word matches in files",
@@ -895,10 +788,7 @@
         "find_word_matches_walkdir",
         "find_shadowing_files"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "collect file scope edits internal helper",
@@ -913,10 +803,7 @@
         "file_scope_renames_within_symbol_body",
         "apply_edits"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which helper implements collect file scope edits",
@@ -931,10 +818,7 @@
         "file_scope_renames_within_symbol_body",
         "apply_edits"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "get symbols overview primary implementation",
@@ -949,10 +833,7 @@
         "get_file_symbols",
         "select_solve_symbols"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which symbol is responsible for get symbols overview",
@@ -967,10 +848,7 @@
         "get_file_symbols",
         "select_solve_symbols"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "find internal helper",
@@ -986,8 +864,7 @@
         "new"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/db/ops.rs",
-        "crates/codelens-engine/src/symbols/mod.rs"
+        "crates/codelens-engine/src/db/ops.rs"
       ]
     },
     {
@@ -1004,8 +881,7 @@
         "new"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/db/ops.rs",
-        "crates/codelens-engine/src/symbols/mod.rs"
+        "crates/codelens-engine/src/db/ops.rs"
       ]
     },
     {
@@ -1021,10 +897,7 @@
         "get_symbols_overview",
         "get_directory_symbols"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which symbol is responsible for get project structure",
@@ -1039,10 +912,7 @@
         "get_symbols_overview",
         "get_directory_symbols"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "EmbeddingEngine struct type definition and fields",
@@ -1080,7 +950,6 @@
         "LanguageConfig"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/lang_config.rs"
       ]
     },
@@ -1098,7 +967,6 @@
         "LanguageConfig"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/call_graph.rs",
         "crates/codelens-engine/src/lang_config.rs"
       ]
     },
@@ -1115,10 +983,7 @@
         "get_directory_symbols",
         "get_file_symbols"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which symbol is responsible for select solve symbols",
@@ -1133,10 +998,7 @@
         "get_directory_symbols",
         "get_file_symbols"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/symbols/mod.rs",
-        "crates/codelens-engine/src/symbols/mod.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "collect project scope edits internal helper",
@@ -1151,10 +1013,7 @@
         "project_scope_renames_across_files",
         "RenameEdit"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which helper implements collect project scope edits",
@@ -1169,10 +1028,7 @@
         "project_scope_renames_across_files",
         "RenameEdit"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "find all word matches internal helper",
@@ -1187,10 +1043,7 @@
         "find_word_matches_walkdir",
         "find_shadowing_files"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     },
     {
       "query": "which helper implements find all word matches",
@@ -1205,10 +1058,7 @@
         "find_word_matches_walkdir",
         "find_shadowing_files"
       ],
-      "negative_file_suffixes": [
-        "crates/codelens-engine/src/rename.rs",
-        "crates/codelens-engine/src/rename.rs"
-      ]
+      "negative_file_suffixes": []
     }
   ]
 }

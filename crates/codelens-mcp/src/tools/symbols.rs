@@ -121,7 +121,7 @@ pub(crate) fn semantic_results_for_query(
         && engine.is_indexed()
     {
         let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
-        let search_query = semantic_query_for_embedding_search(&query_analysis);
+        let search_query = semantic_query_for_embedding_search(&query_analysis, Some(state.project().as_path()));
         let results = engine
             .search(&search_query, candidate_limit)
             .unwrap_or_default();

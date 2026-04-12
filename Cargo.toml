@@ -9,7 +9,7 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 license = "Apache-2.0"
-version = "1.9.12"
+version = "1.9.13"
 description = "Pure Rust MCP server for code intelligence — 101 tools (+6 semantic), 25 languages, tree-sitter-first, 50-87% fewer tokens"
 repository = "https://github.com/mupozg823/codelens-mcp-plugin"
 homepage = "https://github.com/mupozg823/codelens-mcp-plugin"
