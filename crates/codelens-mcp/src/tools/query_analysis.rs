@@ -121,6 +121,20 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
 
     let semantic_query = if natural_language && !alias_expansion_phrase {
         trimmed.to_owned()
+    } else if alias_expansion_phrase && has_builder_cue(&lowered) {
+        // Builder queries: semantic query uses identifier-only form so the
+        // embedding model matches code symbols, not NL prose.
+        // "which builder creates build embedding text" → "build_embedding_text embedding_text"
+        let expanded = expand_retrieval_query(trimmed);
+        let identifiers: Vec<&str> = expanded
+            .split_whitespace()
+            .filter(|t| t.contains('_') || t.chars().any(|c| c.is_uppercase()))
+            .collect();
+        if identifiers.is_empty() {
+            expanded
+        } else {
+            identifiers.join(" ")
+        }
     } else if alias_expansion_phrase {
         expand_retrieval_query(trimmed)
     } else if let Some(split) = split_identifier_terms(trimmed) {
@@ -604,6 +618,19 @@ mod tests {
     }
 
     #[test]
+    fn helper_alias_expansion_prefers_exact_word_match_helpers() {
+        let semantic =
+            semantic_query_for_retrieval("which helper implements find all word matches");
+        assert!(semantic.contains("find_all_word_matches"));
+        assert!(!semantic.contains("find_symbol"));
+
+        let semantic =
+            semantic_query_for_retrieval("which helper implements find word matches in files");
+        assert!(semantic.contains("find_word_matches_in_files"));
+        assert!(!semantic.contains("find_symbol"));
+    }
+
+    #[test]
     fn trigram_alias_expansion_covers_three_token_concepts() {
         let query = "which builder creates build embedding text";
         let semantic = semantic_query_for_retrieval(query);
@@ -806,6 +833,36 @@ mod tests {
             2,
         );
         assert_eq!(reranked[0].symbol_name, "find_symbol");
+    }
+
+    #[cfg(feature = "semantic")]
+    #[test]
+    fn exact_word_match_helper_outranks_generic_find_symbol() {
+        let reranked = rerank_semantic_matches(
+            "which helper implements find all word matches",
+            vec![
+                SemanticMatch {
+                    symbol_name: "find_symbol".to_owned(),
+                    kind: "function".to_owned(),
+                    file_path: "crates/codelens-engine/src/symbols/mod.rs".to_owned(),
+                    line: 20,
+                    signature: "pub fn find_symbol".to_owned(),
+                    name_path: "find_symbol".to_owned(),
+                    score: 0.299,
+                },
+                SemanticMatch {
+                    symbol_name: "find_all_word_matches".to_owned(),
+                    kind: "function".to_owned(),
+                    file_path: "crates/codelens-engine/src/rename.rs".to_owned(),
+                    line: 182,
+                    signature: "pub fn find_all_word_matches".to_owned(),
+                    name_path: "find_all_word_matches".to_owned(),
+                    score: 0.230,
+                },
+            ],
+            2,
+        );
+        assert_eq!(reranked[0].symbol_name, "find_all_word_matches");
     }
 
     #[cfg(feature = "semantic")]

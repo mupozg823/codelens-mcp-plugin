@@ -273,6 +273,8 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
     }
     if query_lower.contains("find")
         && query_targets_helper_impl(query_lower)
+        && !query_lower.contains("find all word matches")
+        && !query_lower.contains("find word matches in files")
         && symbol.name == "find_symbol"
         && symbol.file_path.contains("symbols/mod.rs")
     {
@@ -554,6 +556,41 @@ mod tests {
 
         let query = "which builder creates build embedding text";
         assert!(symbol_kind_prior(query, &target) > symbol_kind_prior(query, &generic));
+    }
+
+    #[test]
+    fn exact_word_match_helper_beats_find_symbol() {
+        let exact = SymbolInfo {
+            name: "find_all_word_matches".into(),
+            kind: SymbolKind::Function,
+            file_path: "crates/codelens-engine/src/rename.rs".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "find_all_word_matches".into(),
+            id: "find_all_word_matches".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let generic = SymbolInfo {
+            name: "find_symbol".into(),
+            kind: SymbolKind::Function,
+            file_path: "crates/codelens-engine/src/symbols/mod.rs".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "find_symbol".into(),
+            id: "find_symbol".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+
+        let query = "which helper implements find all word matches";
+        assert!(symbol_kind_prior(query, &exact) > symbol_kind_prior(query, &generic));
     }
 }
 
