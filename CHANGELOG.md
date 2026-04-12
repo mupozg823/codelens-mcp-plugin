@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] — 2026-04-12
+
+### Release summary
+
+Architecture-level release: problem-first workflow collapse, state.rs God Object decomposition, output schema expansion, and honest competitive repositioning. First minor version bump since v1.6.0.
+
+### Architecture
+
+- **Problem-first workflows** (CLAUDE.md): 90 tools collapsed into 7 workflow patterns (explore-codebase, plan-safe-refactor, audit-architecture, trace-request-path, review-changes, cleanup-duplicates, assess-security). Agents enter by problem type, not by individual tool selection.
+- **State.rs God Object decomposition** (ADR-0007): extracted `session_runtime.rs`, `project_runtime.rs`, `watcher_health.rs` as sub-modules. The original monolithic state.rs (122 symbols) is now distributed across 4 files with clear concern boundaries.
+- **ADR-0001**: runtime boundaries and single-source registries. LSP default registry consolidated. symbols.rs dead code paths removed (−546 lines).
+- **Architecture audit report**: `docs/architecture-audit-2026-04-12.md` (381 lines) + `docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md` (142 lines).
+
+### Added
+
+- **Output schema Group A** (8 tools): `activate_project`, `get_capabilities`, `get_current_config`, `search_for_pattern`, `find_annotations`, `find_tests`, `get_project_structure`, `get_type_hierarchy`. Coverage: 46/91 → 54/91 (59%).
+- **`docs/serena-comparison.md`**: 314-line competitive analysis.
+- **`query_analysis.rs`**: extracted query pipeline logic from symbols.rs.
+
+### Performance
+
+- **Sparse corpus direct lowercase**: build corpus as lowercase in-place, halving per-candidate allocations in the sparse bonus path (Rust/C/Go/Java projects).
+- **`contains_ascii_ci` reuse in `find_symbol`**: eliminate per-symbol `to_lowercase()` in fuzzy matching. Promoted from private to `pub(crate)` for cross-module reuse.
+
+### Changed
+
+- **Honest competitive framing**: "definitive upper-compatible vs Serena" → "broader tool surface, not yet as precise on semantic fidelity." Axis-specific leaders documented.
+- **TECH_DECISIONS**: added ADR-009 (workflow collapse), ADR-010 (honest framing).
+
+### Metrics
+
+| metric                 | v1.6.4       | v1.7.0                   |
+| ---------------------- | ------------ | ------------------------ |
+| Output schema coverage | 50%          | **59%**                  |
+| state.rs symbols       | 122 (1 file) | distributed (4 files)    |
+| symbols.rs LOC         | ~600         | **~60** (−546 dead code) |
+| Engine tests           | 260          | **262**                  |
+| MCP tests              | 170          | **172**                  |
+
 ## [1.6.4] — 2026-04-12
 
 ### Release summary
