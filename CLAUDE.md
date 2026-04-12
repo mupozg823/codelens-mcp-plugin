@@ -28,6 +28,8 @@ cargo test -p codelens-mcp
 # Extended:
 cargo test -p codelens-mcp --features http
 cargo test -p codelens-mcp --no-default-features
+# Dataset hygiene:
+python3 benchmarks/lint-datasets.py --project .
 cargo clippy -- -W clippy::all
 ```
 

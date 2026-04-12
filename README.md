@@ -50,6 +50,8 @@ curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
 ```
 
+Latest release notes: [v1.9.14](docs/release-notes/v1.9.14.md)
+
 ## Setup
 
 ### Claude Code / Cursor
@@ -87,13 +89,13 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 ### Distribution Channels
 
-| Channel | Delivery | Notes |
-| ------- | -------- | ----- |
-| crates.io | `cargo install codelens-mcp` | Standard Rust install path |
-| Homebrew tap | `brew install mupozg823/tap/codelens-mcp` | macOS/Linux package install |
-| GitHub Releases | prebuilt archives | `darwin-arm64`, `linux-x86_64`, `windows-x86_64` |
-| installer script | `install.sh` | Convenience bootstrap for release assets |
-| source build | `cargo build --release` | Custom feature builds and local hacking |
+| Channel          | Delivery                                  | Notes                                            |
+| ---------------- | ----------------------------------------- | ------------------------------------------------ |
+| crates.io        | `cargo install codelens-mcp`              | Standard Rust install path                       |
+| Homebrew tap     | `brew install mupozg823/tap/codelens-mcp` | macOS/Linux package install                      |
+| GitHub Releases  | prebuilt archives                         | `darwin-arm64`, `linux-x86_64`, `windows-x86_64` |
+| installer script | `install.sh`                              | Convenience bootstrap for release assets         |
+| source build     | `cargo build --release`                   | Custom feature builds and local hacking          |
 
 ## Why CodeLens?
 
@@ -123,13 +125,13 @@ Instead of starting from the full raw tool registry, begin with the workflow-fir
 
 ### Role-Based Surfaces
 
-| Profile            | Tools Visible   | Use Case                                 |
-| ------------------ | --------------- | ---------------------------------------- |
-| `planner-readonly` | Workflow-first  | Planner/architect context compression    |
-| `builder-minimal`  | Workflow-first  | Implementation with focused Codex/agent surface |
-| `reviewer-graph`   | Review-heavy    | Graph-aware review and risk analysis     |
-| `refactor-full`    | Preview-first + gated mutation | Safe refactors               |
-| `ci-audit`         | Machine-oriented| CI/CD review and report emission         |
+| Profile            | Tools Visible                  | Use Case                                        |
+| ------------------ | ------------------------------ | ----------------------------------------------- |
+| `planner-readonly` | Workflow-first                 | Planner/architect context compression           |
+| `builder-minimal`  | Workflow-first                 | Implementation with focused Codex/agent surface |
+| `reviewer-graph`   | Review-heavy                   | Graph-aware review and risk analysis            |
+| `refactor-full`    | Preview-first + gated mutation | Safe refactors                                  |
+| `ci-audit`         | Machine-oriented               | CI/CD review and report emission                |
 
 ### Adaptive Token Compression
 
@@ -178,7 +180,20 @@ Optional embedding-based code search (feature-gated: `semantic`):
 
 - **Bundled MiniLM-L12 CodeSearchNet** model (ONNX INT8) — works offline
 - Hybrid ranking: semantic supplements structural in `get_ranked_context`
-- Measured quality: `MRR 0.639` hybrid vs `0.417` lexical-only (+53% uplift)
+- 2-tier NL→code bridging: generic core (15 entries) + auto-generated project bridges (`.codelens/bridges.json`)
+- Multi-language test symbol filtering: Python, JS/TS, Go, Java, Kotlin, Ruby
+
+### Retrieval Quality (v1.9.14)
+
+| Project            | Language | Hybrid MRR | Semantic MRR | Queries |
+| ------------------ | -------- | ---------- | ------------ | ------- |
+| Self (CodeLens)    | Rust     | **0.841**  | 0.798        | 104     |
+| Role (adversarial) | Rust     | **0.962**  | 0.900        | 70      |
+| Flask              | Python   | 0.563      | **0.577**    | 20      |
+| curl               | C        | **0.623**  | 0.555        | 18      |
+
+> Generic bridge only — no project-specific tuning. Hybrid > lexical in all languages.
+> With project bridges (`.codelens/bridges.json`): self MRR rises to 0.841.
 
 ```bash
 # Measure on your project
@@ -265,7 +280,7 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 | Streamable HTTP + SSE                   | Supported                              |
 | Role-based capability negotiation       | `--profile` flag                       |
 | Tool Annotations (readOnly/destructive) | Supported                              |
-| Tool Output Schemas                     | 65 / 101 tools covered                 |
+| Tool Output Schemas                     | 32+ schemas covering core tools        |
 | `.well-known/mcp.json` Server Card      | HTTP transport                         |
 | Analysis handles + section expansion    | Supported                              |
 | Durable analysis jobs                   | Supported                              |
@@ -273,6 +288,22 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 | Multi-project queries                   | `query_project`                        |
 | Contextual tool chaining                | `suggested_next_tools`                 |
 | MCP 2025-03-26 spec                     | Full compliance                        |
+
+## Quality Assurance
+
+| Suite                      | Tests   | Scope                                      |
+| -------------------------- | ------- | ------------------------------------------ |
+| codelens-engine            | 279     | Parsing, ranking, embedding, IR            |
+| codelens-mcp               | 204     | Dispatch, workflows, profiles, schemas     |
+| codelens-mcp (no semantic) | 184     | Feature-off path verification              |
+| Dataset lint               | 5 rules | file_exists, negative≠positive, duplicates |
+
+```bash
+# Full verification
+cargo test -p codelens-engine && cargo test -p codelens-mcp
+cargo test -p codelens-mcp --no-default-features  # semantic=off path
+python3 benchmarks/lint-datasets.py --project .     # dataset hygiene
+```
 
 ## Contributing
 
