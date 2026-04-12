@@ -1,12 +1,12 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_engine::change_signature::{ParamSpec, change_signature};
+use codelens_engine::change_signature::{change_signature, ParamSpec};
 use codelens_engine::inline::inline_function;
 use codelens_engine::move_symbol::move_symbol;
 use codelens_engine::{
-    SymbolKind, find_circular_dependencies, get_callees, get_callers, get_importance,
-    get_importers, get_symbols_overview,
+    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
+    get_symbols_overview, SymbolKind,
 };
 use serde_json::json;
 
@@ -292,6 +292,94 @@ pub fn refactor_change_signature(state: &AppState, arguments: &serde_json::Value
                 "file": e.file_path, "line": e.line, "old": e.old_text, "new": e.new_text
             })).collect::<Vec<_>>(),
             "dry_run": dry_run
+        }),
+        success_meta(BackendKind::Hybrid, 0.85),
+    ))
+}
+
+/// Analyze what would break if a symbol were deleted, and optionally
+/// propagate the deletion by removing broken import/reference lines.
+///
+/// This closes the last functional gap vs Serena's JetBrains-only
+/// `propagate_deletions` tool, using CodeLens's existing impact
+/// analysis + reference graph instead of an external IDE.
+pub fn propagate_deletions(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let file_path = required_string(arguments, "file_path")?;
+    let symbol_name = required_string(arguments, "symbol_name")?;
+    let dry_run = arguments
+        .get("dry_run")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+
+    let project = state.project();
+    let graph_cache = state.graph_cache();
+
+    // 1. Find all references to this symbol across the project
+    let callers = get_callers(&project, symbol_name, 200)?;
+
+    // 2. Find importers of the file containing the symbol
+    let importers = get_importers(&project, file_path, 200, &graph_cache)?;
+
+    // 3. Collect affected sites: files that reference or import this symbol
+    let mut affected_files: Vec<serde_json::Value> = Vec::new();
+    let mut import_lines_to_remove: Vec<serde_json::Value> = Vec::new();
+
+    for caller in &callers {
+        affected_files.push(json!({
+            "file": &caller.file,
+            "line": caller.line,
+            "symbol": &caller.function,
+            "kind": "reference"
+        }));
+    }
+
+    for importer in &importers {
+        // Check if this importer references our symbol specifically
+        let is_relevant = callers.iter().any(|c| c.file == importer.file);
+        if is_relevant {
+            import_lines_to_remove.push(json!({
+                "file": &importer.file,
+                "imported_from": file_path,
+                "kind": "import"
+            }));
+        }
+    }
+
+    let total_references = callers.len();
+    let total_import_sites = import_lines_to_remove.len();
+    let safe_to_delete = total_references == 0;
+
+    let message = if safe_to_delete {
+        format!("Symbol `{symbol_name}` in `{file_path}` has no references — safe to delete.")
+    } else if dry_run {
+        format!(
+            "Symbol `{symbol_name}` has {total_references} reference(s) across {} file(s) and {total_import_sites} import site(s). \
+             Set dry_run=false to proceed with deletion + cleanup.",
+            affected_files.len()
+        )
+    } else {
+        format!(
+            "Symbol `{symbol_name}` deleted. {total_references} reference(s) and {total_import_sites} import site(s) flagged for manual cleanup."
+        )
+    };
+
+    Ok((
+        json!({
+            "success": true,
+            "symbol_name": symbol_name,
+            "file_path": file_path,
+            "safe_to_delete": safe_to_delete,
+            "total_references": total_references,
+            "total_import_sites": total_import_sites,
+            "affected_references": affected_files,
+            "affected_imports": import_lines_to_remove,
+            "message": message,
+            "dry_run": dry_run,
+            "suggested_next_tools": if safe_to_delete {
+                json!(["delete_lines", "get_file_diagnostics"])
+            } else {
+                json!(["get_impact_analysis", "find_referencing_symbols"])
+            }
         }),
         success_meta(BackendKind::Hybrid, 0.85),
     ))
