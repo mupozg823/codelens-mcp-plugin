@@ -121,6 +121,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "refactor_inline_function"     => composite::refactor_inline_function,
         "refactor_move_to_file"        => composite::refactor_move_to_file,
         "refactor_change_signature"    => composite::refactor_change_signature,
+        "propagate_deletions"          => composite::propagate_deletions,
         "onboard_project"              => composite::onboard_project,
         // ── Reports / compressed context ──
         "analyze_change_request"       => reports::analyze_change_request,
@@ -600,6 +601,7 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],
         "refactor_change_signature" => &["get_file_diagnostics", "find_referencing_symbols"],
+        "propagate_deletions" => &["delete_lines", "get_file_diagnostics", "get_impact_analysis"],
         "analyze_change_request" => &[
             "get_analysis_section",
             "verify_change_readiness",
