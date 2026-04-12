@@ -1,0 +1,7 @@
+# Linguist overrides — keep GitHub language stats focused on core Rust code
+scripts/finetune/** linguist-vendored
+benchmarks/** linguist-vendored
+models/** linguist-vendored
+checkpoints/** linguist-vendored
+*.py linguist-vendored
+*.json linguist-documentation
