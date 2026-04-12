@@ -1,4 +1,5 @@
 use crate::app::{App, Panel};
+use codelens_engine::SymbolInfo;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
@@ -83,10 +84,20 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_symbol_list(f: &mut Frame, app: &App, area: Rect) {
     let active = matches!(app.active_panel, Panel::Symbols);
-    let items: Vec<ListItem> = app
-        .symbols
-        .iter()
-        .enumerate()
+
+    let search_results = if app.symbol_search_mode {
+        app.search_symbols()
+    } else {
+        vec![]
+    };
+
+    let sym_iter: Box<dyn Iterator<Item = (usize, &SymbolInfo)>> = if app.symbol_search_mode {
+        Box::new(search_results.iter().enumerate())
+    } else {
+        Box::new(app.symbols.iter().enumerate())
+    };
+
+    let items: Vec<ListItem> = sym_iter
         .map(|(i, sym)| {
             let kind_icon = match sym.kind {
                 codelens_engine::SymbolKind::Function | codelens_engine::SymbolKind::Method => "fn",
@@ -110,7 +121,9 @@ fn draw_symbol_list(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let title = if let Some(file) = app.files.get(app.file_cursor) {
+    let title = if app.symbol_search_mode {
+        format!(" Symbols [s/{}] ", app.symbol_search_query)
+    } else if let Some(file) = app.files.get(app.file_cursor) {
         format!(
             " Symbols — {} ",
             file.path.rsplit('/').next().unwrap_or(&file.path)
@@ -178,13 +191,15 @@ fn draw_metrics(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
-    let prefix = if app.search_mode {
+    let prefix = if app.symbol_search_mode {
+        format!(" Symbol search: {} |", app.symbol_search_query)
+    } else if app.search_mode {
         format!(" Search: {} |", app.search_query)
     } else {
         format!(" {} |", app.project_name)
     };
     let status = format!(
-        "{} {} indexed files | [q]Quit [Tab]Panel [↑↓]Nav [/]Search",
+        "{} {} indexed files | [q]Quit [Tab]Panel [↑↓]Nav [/]Search [s]Symbol",
         prefix, app.total_indexed_files,
     );
 

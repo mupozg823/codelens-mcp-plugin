@@ -532,5 +532,101 @@
     "query_type": "identifier",
     "expected_symbol": "CalleeEntry",
     "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs"
+  },
+  {
+    "query": "Relation type for symbol dependencies",
+    "query_type": "natural_language",
+    "expected_symbol": "Relation",
+    "expected_file_suffix": "crates/codelens-engine/src/ir.rs"
+  },
+  {
+    "query": "ImpactNode",
+    "query_type": "identifier",
+    "expected_symbol": "ImpactNode",
+    "expected_file_suffix": "crates/codelens-engine/src/ir.rs"
+  },
+  {
+    "query": "EditPlan",
+    "query_type": "identifier",
+    "expected_symbol": "EditPlan",
+    "expected_file_suffix": "crates/codelens-engine/src/ir.rs"
+  },
+  {
+    "query": "RetrievalConfig",
+    "query_type": "identifier",
+    "expected_symbol": "RetrievalConfig",
+    "expected_file_suffix": "crates/codelens-engine/src/ir.rs"
+  },
+  {
+    "query": "workflow delegation to lower level tools",
+    "query_type": "natural_language",
+    "expected_symbol": "delegate_workflow",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/workflows.rs"
+  },
+  {
+    "query": "explore_codebase",
+    "query_type": "identifier",
+    "expected_symbol": "explore_codebase",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/workflows.rs"
+  },
+  {
+    "query": "review_changes",
+    "query_type": "identifier",
+    "expected_symbol": "review_changes",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/workflows.rs"
+  },
+  {
+    "query": "assess mutation readiness before code changes",
+    "query_type": "natural_language",
+    "expected_symbol": "assess_change_readiness",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/workflows.rs"
+  },
+  {
+    "query": "diagnose file issues and unresolved references",
+    "query_type": "natural_language",
+    "expected_symbol": "diagnose_issues",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/workflows.rs"
+  },
+  {
+    "query": "strip empty null fields from JSON response",
+    "query_type": "natural_language",
+    "expected_symbol": "strip_empty_fields",
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response_support.rs"
+  },
+  {
+    "query": "format structured pretty print response",
+    "query_type": "short_phrase",
+    "expected_symbol": "format_structured_response",
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response_support.rs"
+  },
+  {
+    "query": "suggestion_reasons_for",
+    "query_type": "identifier",
+    "expected_symbol": "suggestion_reasons_for",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/mod.rs"
+  },
+  {
+    "query": "WORKFLOW_FIRST_TOOLS",
+    "query_type": "identifier",
+    "expected_symbol": "WORKFLOW_FIRST_TOOLS",
+    "expected_file_suffix": "crates/codelens-mcp/src/tool_defs/presets.rs"
+  },
+  {
+    "query": "WorkflowFirst profile for agents",
+    "query_type": "natural_language",
+    "expected_symbol": "WorkflowFirst",
+    "expected_file_suffix": "crates/codelens-mcp/src/tool_defs/presets.rs"
+  },
+  {
+    "query": "TUI file entry for dashboard",
+    "query_type": "short_phrase",
+    "expected_symbol": "FileEntry",
+    "expected_file_suffix": "crates/codelens-tui/src/app.rs"
+  },
+  {
+    "query": "draw file tree in terminal",
+    "query_type": "natural_language",
+    "expected_symbol": "draw_file_tree",
+    "expected_file_suffix": "crates/codelens-tui/src/ui.rs"
   }
 ]

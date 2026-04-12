@@ -29,6 +29,8 @@ pub struct App {
     pub total_indexed_files: usize,
     pub search_mode: bool,
     pub search_query: String,
+    pub symbol_search_mode: bool,
+    pub symbol_search_query: String,
 }
 
 impl App {
@@ -61,6 +63,8 @@ impl App {
             total_indexed_files,
             search_mode: false,
             search_query: String::new(),
+            symbol_search_mode: false,
+            symbol_search_query: String::new(),
         };
         app.load_files();
         Ok(app)
@@ -124,8 +128,45 @@ impl App {
             .collect()
     }
 
+    pub fn search_symbols(&self) -> Vec<SymbolInfo> {
+        if self.symbol_search_query.is_empty() {
+            return vec![];
+        }
+        self.index
+            .find_symbol(&self.symbol_search_query, None, false, false, 20)
+            .unwrap_or_default()
+    }
+
     pub fn handle_key(&mut self, key: KeyCode) -> Action {
-        // Handle search mode input first.
+        // Handle symbol search mode input first.
+        if self.symbol_search_mode {
+            match key {
+                KeyCode::Esc => {
+                    self.symbol_search_mode = false;
+                }
+                KeyCode::Enter => {
+                    self.symbol_search_mode = false;
+                    let results = self.search_symbols();
+                    if let Some(first) = results.first() {
+                        let file_path = first.file_path.clone();
+                        if let Some(pos) = self.files.iter().position(|f| f.path == file_path) {
+                            self.file_cursor = pos;
+                            self.load_symbols_for_current_file();
+                        }
+                    }
+                }
+                KeyCode::Backspace => {
+                    self.symbol_search_query.pop();
+                }
+                KeyCode::Char(c) => {
+                    self.symbol_search_query.push(c);
+                }
+                _ => {}
+            }
+            return Action::Continue;
+        }
+
+        // Handle file search mode input.
         if self.search_mode {
             match key {
                 KeyCode::Esc | KeyCode::Enter => {
@@ -147,6 +188,11 @@ impl App {
             KeyCode::Char('/') => {
                 self.search_mode = true;
                 self.search_query.clear();
+                Action::Continue
+            }
+            KeyCode::Char('s') => {
+                self.symbol_search_mode = true;
+                self.symbol_search_query.clear();
                 Action::Continue
             }
             KeyCode::Tab => {

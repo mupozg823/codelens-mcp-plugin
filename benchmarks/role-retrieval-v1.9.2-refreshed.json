@@ -1,11 +1,11 @@
 {
   "schema_version": "codelens-role-retrieval-v1",
-  "project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-role-retrieval-mcl4_xn7/codelens-mcp-plugin",
+  "project": "/Users/bagjaeseog/codelens-mcp-plugin",
   "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
   "runtime_model": {
-    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-core/models/codesearch",
-    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-core/models/codesearch/model.onnx",
-    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-core/models/codesearch/config.json",
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
     "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
     "size_bytes": 34000281,
     "num_hidden_layers": 12,
@@ -22,27 +22,27 @@
   },
   "methods": [
     {
-      "mrr": 0.741326530612245,
-      "acc1": 0.6857142857142857,
-      "acc3": 0.8,
-      "acc5": 0.8142857142857143,
-      "avg_elapsed_ms": 507.0334285714286,
+      "mrr": 0.8191836734693877,
+      "acc1": 0.7571428571428571,
+      "acc3": 0.8714285714285714,
+      "acc5": 0.9142857142857143,
+      "avg_elapsed_ms": 609.5424285714286,
       "by_query_type": {
         "natural_language": {
           "count": 35,
-          "mrr": 0.8326530612244898,
-          "acc1": 0.7714285714285715,
-          "acc3": 0.8857142857142857,
+          "mrr": 0.8064625850340136,
+          "acc1": 0.7428571428571429,
+          "acc3": 0.8571428571428571,
           "acc5": 0.8857142857142857,
-          "avg_elapsed_ms": 503.99171428571424
+          "avg_elapsed_ms": 570.8925714285714
         },
         "short_phrase": {
           "count": 35,
-          "mrr": 0.65,
-          "acc1": 0.6,
-          "acc3": 0.7142857142857143,
-          "acc5": 0.7428571428571429,
-          "avg_elapsed_ms": 510.0751428571429
+          "mrr": 0.8319047619047619,
+          "acc1": 0.7714285714285715,
+          "acc3": 0.8857142857142857,
+          "acc5": 0.9428571428571428,
+          "avg_elapsed_ms": 648.1922857142857
         }
       },
       "by_role": {
@@ -52,31 +52,31 @@
           "acc1": 0.6666666666666666,
           "acc3": 0.6666666666666666,
           "acc5": 0.6666666666666666,
-          "avg_elapsed_ms": 459.83166666666665
+          "avg_elapsed_ms": 613.7133333333334
         },
         "entrypoint": {
           "count": 10,
-          "mrr": 0.475,
-          "acc1": 0.3,
-          "acc3": 0.6,
-          "acc5": 0.7,
-          "avg_elapsed_ms": 672.8140000000001
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 910.019
         },
         "generic": {
           "count": 28,
-          "mrr": 0.7312925170068026,
-          "acc1": 0.6785714285714286,
-          "acc3": 0.7857142857142857,
-          "acc5": 0.7857142857142857,
-          "avg_elapsed_ms": 451.74392857142857
+          "mrr": 0.8035714285714286,
+          "acc1": 0.7142857142857143,
+          "acc3": 0.8571428571428571,
+          "acc5": 0.9285714285714286,
+          "avg_elapsed_ms": 542.9860714285714
         },
         "helper": {
           "count": 22,
-          "mrr": 0.8484848484848485,
-          "acc1": 0.8181818181818182,
-          "acc3": 0.9090909090909091,
+          "mrr": 0.7655844155844155,
+          "acc1": 0.6818181818181818,
+          "acc3": 0.8636363636363636,
           "acc5": 0.9090909090909091,
-          "avg_elapsed_ms": 468.8454545454546
+          "avg_elapsed_ms": 575.9763636363637
         },
         "predicate": {
           "count": 4,
@@ -84,24 +84,24 @@
           "acc1": 1.0,
           "acc3": 1.0,
           "acc5": 1.0,
-          "avg_elapsed_ms": 760.445
+          "avg_elapsed_ms": 502.6025
         }
       },
       "by_adversarial_group": {
         "080167332f7e": {
           "count": 2,
-          "mrr": 0.25,
+          "mrr": 0.375,
           "acc1": 0.0
         },
         "0c1187c1f78f": {
           "count": 2,
-          "mrr": 0.6666666666666666,
-          "acc1": 0.5
+          "mrr": 0.3333333333333333,
+          "acc1": 0.0
         },
         "0e84454a16e0": {
           "count": 2,
-          "mrr": 0.625,
-          "acc1": 0.5
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "327b0a3208f5": {
           "count": 2,
@@ -110,13 +110,13 @@
         },
         "4adf3955648c": {
           "count": 2,
-          "mrr": 0.07142857142857142,
+          "mrr": 0.375,
           "acc1": 0.0
         },
         "4bf72b51ca10": {
           "count": 2,
-          "mrr": 0.5,
-          "acc1": 0.0
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "5b9255153f3e": {
           "count": 2,
@@ -125,13 +125,13 @@
         },
         "6314dd463cef": {
           "count": 2,
-          "mrr": 1.0,
-          "acc1": 1.0
+          "mrr": 0.5714285714285714,
+          "acc1": 0.5
         },
         "6ab8eea6fcf7": {
           "count": 2,
-          "mrr": 0.25,
-          "acc1": 0.0
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "6f9f5c0febd1": {
           "count": 2,
@@ -155,13 +155,13 @@
         },
         "82dbc79022e1": {
           "count": 2,
-          "mrr": 1.0,
-          "acc1": 1.0
+          "mrr": 0.75,
+          "acc1": 0.5
         },
         "911c129b0af8": {
           "count": 2,
-          "mrr": 0.5,
-          "acc1": 0.5
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "92cf7fb5dadb": {
           "count": 2,
@@ -180,7 +180,7 @@
         },
         "9f543c76643a": {
           "count": 2,
-          "mrr": 0.41666666666666663,
+          "mrr": 0.5,
           "acc1": 0.0
         },
         "9f7e94717879": {
@@ -205,8 +205,8 @@
         },
         "bce5c600343c": {
           "count": 2,
-          "mrr": 0.6666666666666666,
-          "acc1": 0.5
+          "mrr": 0.16666666666666666,
+          "acc1": 0.0
         },
         "bd0150db5be3": {
           "count": 2,
@@ -215,13 +215,13 @@
         },
         "c13f376149f6": {
           "count": 2,
-          "mrr": 0.0,
-          "acc1": 0.0
+          "mrr": 0.6,
+          "acc1": 0.5
         },
         "c39b9f98598e": {
           "count": 2,
-          "mrr": 0.5,
-          "acc1": 0.5
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "d25b66767dfb": {
           "count": 2,
@@ -240,8 +240,8 @@
         },
         "dfbc1f4db914": {
           "count": 2,
-          "mrr": 0.5,
-          "acc1": 0.5
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "e19ee4b2f06e": {
           "count": 2,
@@ -272,11 +272,11 @@
           "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
           "role": "entrypoint",
           "adversarial_group": "6ab8eea6fcf7",
-          "rank": null,
-          "elapsed_ms": 473.17,
+          "rank": 1,
+          "elapsed_ms": 3453.33,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "RenameEdit",
+            "name": "rename_symbol",
             "file": "crates/codelens-engine/src/rename.rs"
           }
         },
@@ -287,12 +287,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
           "role": "entrypoint",
           "adversarial_group": "6ab8eea6fcf7",
-          "rank": 2,
-          "elapsed_ms": 383.17,
+          "rank": 1,
+          "elapsed_ms": 626.16,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "rename",
-            "file": "crates/codelens-engine/src/lib.rs"
+            "name": "rename_symbol",
+            "file": "crates/codelens-engine/src/rename.rs"
           }
         },
         {
@@ -303,7 +303,7 @@
           "role": "helper",
           "adversarial_group": "b9058f612267",
           "rank": 1,
-          "elapsed_ms": 395.95,
+          "elapsed_ms": 540.64,
           "candidate_count": 10,
           "top_candidate": {
             "name": "find_symbol_range",
@@ -318,7 +318,7 @@
           "role": "helper",
           "adversarial_group": "b9058f612267",
           "rank": 1,
-          "elapsed_ms": 436.72,
+          "elapsed_ms": 628.46,
           "candidate_count": 10,
           "top_candidate": {
             "name": "find_symbol_range",
@@ -333,7 +333,7 @@
           "role": "generic",
           "adversarial_group": "f3bdbeae18fe",
           "rank": 1,
-          "elapsed_ms": 388.68,
+          "elapsed_ms": 493.99,
           "candidate_count": 10,
           "top_candidate": {
             "name": "apply_edits",
@@ -348,7 +348,7 @@
           "role": "generic",
           "adversarial_group": "f3bdbeae18fe",
           "rank": 1,
-          "elapsed_ms": 499.54,
+          "elapsed_ms": 721.64,
           "candidate_count": 10,
           "top_candidate": {
             "name": "apply_edits",
@@ -359,30 +359,30 @@
           "query": "search primary implementation",
           "query_type": "short_phrase",
           "expected_symbol": "search",
-          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
           "role": "generic",
           "adversarial_group": "4adf3955648c",
-          "rank": null,
-          "elapsed_ms": 343.35,
+          "rank": 2,
+          "elapsed_ms": 389.18,
           "candidate_count": 10,
           "top_candidate": {
             "name": "search",
-            "file": "crates/codelens-engine/src/lib.rs"
+            "file": "crates/codelens-engine/src/embedding/mod.rs"
           }
         },
         {
           "query": "which symbol is responsible for search",
           "query_type": "natural_language",
           "expected_symbol": "search",
-          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
           "role": "generic",
           "adversarial_group": "4adf3955648c",
-          "rank": 7,
-          "elapsed_ms": 597.47,
+          "rank": 4,
+          "elapsed_ms": 607.66,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "find_symbol",
-            "file": "crates/codelens-engine/src/symbols/mod.rs"
+            "name": "search_symbols",
+            "file": "crates/codelens-tui/src/app.rs"
           }
         },
         {
@@ -392,12 +392,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/inline.rs",
           "role": "entrypoint",
           "adversarial_group": "c39b9f98598e",
-          "rank": null,
-          "elapsed_ms": 1693.48,
+          "rank": 1,
+          "elapsed_ms": 570.17,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "all_src",
-            "file": "benchmarks/benchmark_project_context.py"
+            "name": "inline_function",
+            "file": "crates/codelens-engine/src/inline.rs"
           }
         },
         {
@@ -408,7 +408,7 @@
           "role": "entrypoint",
           "adversarial_group": "c39b9f98598e",
           "rank": 1,
-          "elapsed_ms": 1009.46,
+          "elapsed_ms": 554.98,
           "candidate_count": 10,
           "top_candidate": {
             "name": "inline_function",
@@ -422,12 +422,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/move_symbol.rs",
           "role": "entrypoint",
           "adversarial_group": "dfbc1f4db914",
-          "rank": null,
-          "elapsed_ms": 650.64,
+          "rank": 1,
+          "elapsed_ms": 581.47,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "all_src",
-            "file": "benchmarks/benchmark_project_context.py"
+            "name": "move_symbol",
+            "file": "crates/codelens-engine/src/move_symbol.rs"
           }
         },
         {
@@ -438,7 +438,7 @@
           "role": "entrypoint",
           "adversarial_group": "dfbc1f4db914",
           "rank": 1,
-          "elapsed_ms": 435.6,
+          "elapsed_ms": 558.65,
           "candidate_count": 10,
           "top_candidate": {
             "name": "move_symbol",
@@ -452,12 +452,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/change_signature.rs",
           "role": "entrypoint",
           "adversarial_group": "4bf72b51ca10",
-          "rank": 2,
-          "elapsed_ms": 534.43,
+          "rank": 1,
+          "elapsed_ms": 646.69,
           "candidate_count": 10,
           "top_candidate": {
             "name": "change_signature",
-            "file": "crates/codelens-engine/src/lib.rs"
+            "file": "crates/codelens-engine/src/change_signature.rs"
           }
         },
         {
@@ -467,12 +467,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/change_signature.rs",
           "role": "entrypoint",
           "adversarial_group": "4bf72b51ca10",
-          "rank": 2,
-          "elapsed_ms": 475.53,
+          "rank": 1,
+          "elapsed_ms": 630.99,
           "candidate_count": 10,
           "top_candidate": {
             "name": "change_signature",
-            "file": "crates/codelens-engine/src/lib.rs"
+            "file": "crates/codelens-engine/src/change_signature.rs"
           }
         },
         {
@@ -483,7 +483,7 @@
           "role": "helper",
           "adversarial_group": "e19ee4b2f06e",
           "rank": 1,
-          "elapsed_ms": 477.12,
+          "elapsed_ms": 672.02,
           "candidate_count": 10,
           "top_candidate": {
             "name": "find_circular_dependencies",
@@ -498,7 +498,7 @@
           "role": "helper",
           "adversarial_group": "e19ee4b2f06e",
           "rank": 1,
-          "elapsed_ms": 491.82,
+          "elapsed_ms": 768.92,
           "candidate_count": 10,
           "top_candidate": {
             "name": "find_circular_dependencies",
@@ -513,7 +513,7 @@
           "role": "helper",
           "adversarial_group": "d3420d7eb4f0",
           "rank": 1,
-          "elapsed_ms": 376.66,
+          "elapsed_ms": 500.03,
           "candidate_count": 10,
           "top_candidate": {
             "name": "parse_symbols",
@@ -528,7 +528,7 @@
           "role": "helper",
           "adversarial_group": "d3420d7eb4f0",
           "rank": 1,
-          "elapsed_ms": 435.96,
+          "elapsed_ms": 608.13,
           "candidate_count": 10,
           "top_candidate": {
             "name": "parse_symbols",
@@ -542,11 +542,11 @@
           "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
           "role": "entrypoint",
           "adversarial_group": "0e84454a16e0",
-          "rank": 4,
-          "elapsed_ms": 570.3,
+          "rank": 1,
+          "elapsed_ms": 752.06,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "filters_cfg_test_module_symbols_from_embedding_index",
+            "name": "index_from_project",
             "file": "crates/codelens-engine/src/embedding/mod.rs"
           }
         },
@@ -558,7 +558,7 @@
           "role": "entrypoint",
           "adversarial_group": "0e84454a16e0",
           "rank": 1,
-          "elapsed_ms": 502.36,
+          "elapsed_ms": 725.69,
           "candidate_count": 10,
           "top_candidate": {
             "name": "index_from_project",
@@ -573,7 +573,7 @@
           "role": "helper",
           "adversarial_group": "df4c695ed556",
           "rank": 1,
-          "elapsed_ms": 379.53,
+          "elapsed_ms": 559.99,
           "candidate_count": 10,
           "top_candidate": {
             "name": "find_duplicates",
@@ -588,7 +588,7 @@
           "role": "helper",
           "adversarial_group": "df4c695ed556",
           "rank": 1,
-          "elapsed_ms": 430.4,
+          "elapsed_ms": 670.58,
           "candidate_count": 10,
           "top_candidate": {
             "name": "find_duplicates",
@@ -603,7 +603,7 @@
           "role": "generic",
           "adversarial_group": "9f7e94717879",
           "rank": 1,
-          "elapsed_ms": 377.26,
+          "elapsed_ms": 510.45,
           "candidate_count": 10,
           "top_candidate": {
             "name": "FileWatcher",
@@ -618,7 +618,7 @@
           "role": "generic",
           "adversarial_group": "9f7e94717879",
           "rank": 1,
-          "elapsed_ms": 489.34,
+          "elapsed_ms": 722.93,
           "candidate_count": 10,
           "top_candidate": {
             "name": "FileWatcher",
@@ -633,7 +633,7 @@
           "role": "builder",
           "adversarial_group": "6f9f5c0febd1",
           "rank": 1,
-          "elapsed_ms": 379.38,
+          "elapsed_ms": 500.35,
           "candidate_count": 10,
           "top_candidate": {
             "name": "build_non_code_ranges",
@@ -648,7 +648,7 @@
           "role": "builder",
           "adversarial_group": "6f9f5c0febd1",
           "rank": 1,
-          "elapsed_ms": 504.97,
+          "elapsed_ms": 718.48,
           "candidate_count": 10,
           "top_candidate": {
             "name": "build_non_code_ranges",
@@ -663,10 +663,10 @@
           "role": "builder",
           "adversarial_group": "bba7c1a1e434",
           "rank": null,
-          "elapsed_ms": 379.81,
+          "elapsed_ms": 509.98,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "load_codesearch_model",
+            "name": "build_coreml_execution_provider",
             "file": "crates/codelens-engine/src/embedding/mod.rs"
           }
         },
@@ -678,10 +678,10 @@
           "role": "builder",
           "adversarial_group": "bba7c1a1e434",
           "rank": null,
-          "elapsed_ms": 510.8,
+          "elapsed_ms": 711.59,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "text_embedding_cache_can_be_disabled",
+            "name": "build_coreml_execution_provider",
             "file": "crates/codelens-engine/src/embedding/mod.rs"
           }
         },
@@ -693,7 +693,7 @@
           "role": "predicate",
           "adversarial_group": "7554cd636eb7",
           "rank": 1,
-          "elapsed_ms": 400.78,
+          "elapsed_ms": 390.5,
           "candidate_count": 10,
           "top_candidate": {
             "name": "is_excluded",
@@ -708,7 +708,7 @@
           "role": "predicate",
           "adversarial_group": "7554cd636eb7",
           "rank": 1,
-          "elapsed_ms": 1713.89,
+          "elapsed_ms": 500.7,
           "candidate_count": 10,
           "top_candidate": {
             "name": "is_excluded",
@@ -723,7 +723,7 @@
           "role": "helper",
           "adversarial_group": "82dbc79022e1",
           "rank": 1,
-          "elapsed_ms": 1083.45,
+          "elapsed_ms": 494.3,
           "candidate_count": 10,
           "top_candidate": {
             "name": "extract_calls",
@@ -737,11 +737,11 @@
           "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
           "role": "helper",
           "adversarial_group": "82dbc79022e1",
-          "rank": 1,
-          "elapsed_ms": 482.89,
+          "rank": 2,
+          "elapsed_ms": 613.26,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "extract_calls",
+            "name": "extract_calls_from_source",
             "file": "crates/codelens-engine/src/call_graph.rs"
           }
         },
@@ -753,7 +753,7 @@
           "role": "predicate",
           "adversarial_group": "5b9255153f3e",
           "rank": 1,
-          "elapsed_ms": 434.88,
+          "elapsed_ms": 486.35,
           "candidate_count": 10,
           "top_candidate": {
             "name": "is_noise_callee",
@@ -768,7 +768,7 @@
           "role": "predicate",
           "adversarial_group": "5b9255153f3e",
           "rank": 1,
-          "elapsed_ms": 492.23,
+          "elapsed_ms": 632.86,
           "candidate_count": 10,
           "top_candidate": {
             "name": "is_noise_callee",
@@ -783,7 +783,7 @@
           "role": "helper",
           "adversarial_group": "0c1187c1f78f",
           "rank": 3,
-          "elapsed_ms": 496.56,
+          "elapsed_ms": 610.24,
           "candidate_count": 10,
           "top_candidate": {
             "name": "collect_candidate_files",
@@ -797,12 +797,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
           "role": "helper",
           "adversarial_group": "0c1187c1f78f",
-          "rank": 1,
-          "elapsed_ms": 560.6,
+          "rank": 3,
+          "elapsed_ms": 726.31,
           "candidate_count": 10,
           "top_candidate": {
             "name": "collect_candidate_files",
-            "file": "crates/codelens-engine/src/call_graph.rs"
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -812,12 +812,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/community.rs",
           "role": "generic",
           "adversarial_group": "911c129b0af8",
-          "rank": null,
-          "elapsed_ms": 432.42,
+          "rank": 1,
+          "elapsed_ms": 503.31,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "contains_format_specifier_detects_c_and_python_style",
-            "file": "crates/codelens-engine/src/embedding/mod.rs"
+            "name": "detect_communities",
+            "file": "crates/codelens-engine/src/community.rs"
           }
         },
         {
@@ -828,7 +828,7 @@
           "role": "generic",
           "adversarial_group": "911c129b0af8",
           "rank": 1,
-          "elapsed_ms": 551.78,
+          "elapsed_ms": 730.6,
           "candidate_count": 10,
           "top_candidate": {
             "name": "detect_communities",
@@ -843,7 +843,7 @@
           "role": "generic",
           "adversarial_group": "e7968e2d41c9",
           "rank": 1,
-          "elapsed_ms": 427.48,
+          "elapsed_ms": 498.64,
           "candidate_count": 10,
           "top_candidate": {
             "name": "calculate_modularity",
@@ -858,7 +858,7 @@
           "role": "generic",
           "adversarial_group": "e7968e2d41c9",
           "rank": 1,
-          "elapsed_ms": 559.69,
+          "elapsed_ms": 722.65,
           "candidate_count": 10,
           "top_candidate": {
             "name": "calculate_modularity",
@@ -873,7 +873,7 @@
           "role": "generic",
           "adversarial_group": "bd0150db5be3",
           "rank": 1,
-          "elapsed_ms": 494.61,
+          "elapsed_ms": 619.41,
           "candidate_count": 10,
           "top_candidate": {
             "name": "common_path_prefix",
@@ -888,7 +888,7 @@
           "role": "generic",
           "adversarial_group": "bd0150db5be3",
           "rank": 1,
-          "elapsed_ms": 321.5,
+          "elapsed_ms": 292.99,
           "candidate_count": 10,
           "top_candidate": {
             "name": "common_path_prefix",
@@ -903,7 +903,7 @@
           "role": "generic",
           "adversarial_group": "d25b66767dfb",
           "rank": 1,
-          "elapsed_ms": 428.97,
+          "elapsed_ms": 507.77,
           "candidate_count": 10,
           "top_candidate": {
             "name": "community_density",
@@ -918,7 +918,7 @@
           "role": "generic",
           "adversarial_group": "d25b66767dfb",
           "rank": 1,
-          "elapsed_ms": 558.05,
+          "elapsed_ms": 716.06,
           "candidate_count": 10,
           "top_candidate": {
             "name": "community_density",
@@ -933,7 +933,7 @@
           "role": "builder",
           "adversarial_group": "7fcb4e0acb48",
           "rank": 1,
-          "elapsed_ms": 425.28,
+          "elapsed_ms": 501.46,
           "candidate_count": 10,
           "top_candidate": {
             "name": "register_sqlite_vec",
@@ -948,7 +948,7 @@
           "role": "builder",
           "adversarial_group": "7fcb4e0acb48",
           "rank": 1,
-          "elapsed_ms": 558.75,
+          "elapsed_ms": 740.42,
           "candidate_count": 10,
           "top_candidate": {
             "name": "register_sqlite_vec",
@@ -963,7 +963,7 @@
           "role": "generic",
           "adversarial_group": "f826f5ae9546",
           "rank": null,
-          "elapsed_ms": 432.57,
+          "elapsed_ms": 501.79,
           "candidate_count": 10,
           "top_candidate": {
             "name": "insert_batch",
@@ -978,7 +978,7 @@
           "role": "generic",
           "adversarial_group": "f826f5ae9546",
           "rank": null,
-          "elapsed_ms": 557.68,
+          "elapsed_ms": 724.15,
           "candidate_count": 10,
           "top_candidate": {
             "name": "insert_batch",
@@ -993,7 +993,7 @@
           "role": "generic",
           "adversarial_group": "a37c6186a1c3",
           "rank": 1,
-          "elapsed_ms": 429.05,
+          "elapsed_ms": 496.84,
           "candidate_count": 10,
           "top_candidate": {
             "name": "validate_identifier",
@@ -1008,7 +1008,7 @@
           "role": "generic",
           "adversarial_group": "a37c6186a1c3",
           "rank": 1,
-          "elapsed_ms": 561.58,
+          "elapsed_ms": 712.19,
           "candidate_count": 10,
           "top_candidate": {
             "name": "validate_identifier",
@@ -1023,7 +1023,7 @@
           "role": "helper",
           "adversarial_group": "6314dd463cef",
           "rank": 1,
-          "elapsed_ms": 557.28,
+          "elapsed_ms": 785.45,
           "candidate_count": 10,
           "top_candidate": {
             "name": "find_word_matches_in_files",
@@ -1037,12 +1037,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
           "role": "helper",
           "adversarial_group": "6314dd463cef",
-          "rank": 1,
-          "elapsed_ms": 318.49,
+          "rank": 7,
+          "elapsed_ms": 346.4,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "find_word_matches_in_files",
-            "file": "crates/codelens-engine/src/rename.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -1053,7 +1053,7 @@
           "role": "helper",
           "adversarial_group": "327b0a3208f5",
           "rank": 1,
-          "elapsed_ms": 555.47,
+          "elapsed_ms": 717.68,
           "candidate_count": 10,
           "top_candidate": {
             "name": "collect_file_scope_edits",
@@ -1068,7 +1068,7 @@
           "role": "helper",
           "adversarial_group": "327b0a3208f5",
           "rank": 1,
-          "elapsed_ms": 317.06,
+          "elapsed_ms": 292.0,
           "candidate_count": 10,
           "top_candidate": {
             "name": "collect_file_scope_edits",
@@ -1083,7 +1083,7 @@
           "role": "generic",
           "adversarial_group": "710469774839",
           "rank": 1,
-          "elapsed_ms": 490.52,
+          "elapsed_ms": 602.75,
           "candidate_count": 10,
           "top_candidate": {
             "name": "get_symbols_overview",
@@ -1098,7 +1098,7 @@
           "role": "generic",
           "adversarial_group": "710469774839",
           "rank": 1,
-          "elapsed_ms": 345.7,
+          "elapsed_ms": 291.9,
           "candidate_count": 10,
           "top_candidate": {
             "name": "get_symbols_overview",
@@ -1112,12 +1112,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
           "role": "helper",
           "adversarial_group": "c13f376149f6",
-          "rank": null,
-          "elapsed_ms": 347.1,
+          "rank": 5,
+          "elapsed_ms": 449.81,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "find_code_duplicates_handler",
-            "file": "crates/codelens-mcp/src/dispatch/mod.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-mcp/src/tools/symbols.rs"
           }
         },
         {
@@ -1127,12 +1127,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
           "role": "helper",
           "adversarial_group": "c13f376149f6",
-          "rank": null,
-          "elapsed_ms": 425.16,
+          "rank": 1,
+          "elapsed_ms": 547.35,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "get_callers_finds_callers",
-            "file": "crates/codelens-engine/src/call_graph.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -1142,12 +1142,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
           "role": "generic",
           "adversarial_group": "9f543c76643a",
-          "rank": 3,
-          "elapsed_ms": 493.1,
+          "rank": 2,
+          "elapsed_ms": 605.15,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "get",
-            "file": "crates/codelens-mcp/src/artifact_store.rs"
+            "name": "get_project_structure",
+            "file": "crates/codelens-mcp/src/tools/symbols.rs"
           }
         },
         {
@@ -1158,7 +1158,7 @@
           "role": "generic",
           "adversarial_group": "9f543c76643a",
           "rank": 2,
-          "elapsed_ms": 314.87,
+          "elapsed_ms": 287.47,
           "candidate_count": 10,
           "top_candidate": {
             "name": "get_project_structure",
@@ -1172,12 +1172,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
           "role": "generic",
           "adversarial_group": "080167332f7e",
-          "rank": null,
-          "elapsed_ms": 350.94,
+          "rank": 4,
+          "elapsed_ms": 383.81,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "primary_ext",
-            "file": "benchmarks/token-efficiency.py"
+            "name": "new",
+            "file": "crates/codelens-mcp/src/artifact_store.rs"
           }
         },
         {
@@ -1188,11 +1188,11 @@
           "role": "generic",
           "adversarial_group": "080167332f7e",
           "rank": 2,
-          "elapsed_ms": 483.85,
+          "elapsed_ms": 607.68,
           "candidate_count": 10,
           "top_candidate": {
             "name": "new",
-            "file": "crates/codelens-mcp/src/protocol.rs"
+            "file": "crates/codelens-mcp/src/preflight_store.rs"
           }
         },
         {
@@ -1203,7 +1203,7 @@
           "role": "generic",
           "adversarial_group": "93ac61e4424f",
           "rank": 1,
-          "elapsed_ms": 553.69,
+          "elapsed_ms": 734.64,
           "candidate_count": 10,
           "top_candidate": {
             "name": "call_language_for_path",
@@ -1218,7 +1218,7 @@
           "role": "generic",
           "adversarial_group": "93ac61e4424f",
           "rank": 1,
-          "elapsed_ms": 345.76,
+          "elapsed_ms": 313.83,
           "candidate_count": 10,
           "top_candidate": {
             "name": "call_language_for_path",
@@ -1233,7 +1233,7 @@
           "role": "generic",
           "adversarial_group": "92cf7fb5dadb",
           "rank": 1,
-          "elapsed_ms": 490.46,
+          "elapsed_ms": 613.73,
           "candidate_count": 10,
           "top_candidate": {
             "name": "select_solve_symbols",
@@ -1248,7 +1248,7 @@
           "role": "generic",
           "adversarial_group": "92cf7fb5dadb",
           "rank": 1,
-          "elapsed_ms": 328.92,
+          "elapsed_ms": 290.4,
           "candidate_count": 10,
           "top_candidate": {
             "name": "select_solve_symbols",
@@ -1263,7 +1263,7 @@
           "role": "helper",
           "adversarial_group": "9da0f9d20203",
           "rank": 1,
-          "elapsed_ms": 547.66,
+          "elapsed_ms": 725.43,
           "candidate_count": 10,
           "top_candidate": {
             "name": "collect_project_scope_edits",
@@ -1278,7 +1278,7 @@
           "role": "helper",
           "adversarial_group": "9da0f9d20203",
           "rank": 1,
-          "elapsed_ms": 318.24,
+          "elapsed_ms": 291.27,
           "candidate_count": 10,
           "top_candidate": {
             "name": "collect_project_scope_edits",
@@ -1293,11 +1293,11 @@
           "role": "helper",
           "adversarial_group": "bce5c600343c",
           "rank": 3,
-          "elapsed_ms": 560.6,
+          "elapsed_ms": 777.32,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "matches_scope",
-            "file": "crates/codelens-mcp/src/artifact_store.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -1307,73 +1307,73 @@
           "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
           "role": "helper",
           "adversarial_group": "bce5c600343c",
-          "rank": 1,
-          "elapsed_ms": 319.88,
+          "rank": null,
+          "elapsed_ms": 345.89,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "find_all_word_matches",
-            "file": "crates/codelens-engine/src/rename.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         }
       ],
       "method": "semantic_search"
     },
     {
-      "mrr": 0.8185714285714285,
-      "acc1": 0.7571428571428571,
-      "acc3": 0.8714285714285714,
-      "acc5": 0.8857142857142857,
-      "avg_elapsed_ms": 139.86457142857142,
+      "mrr": 0.8403811524609844,
+      "acc1": 0.7857142857142857,
+      "acc3": 0.8857142857142857,
+      "acc5": 0.9,
+      "avg_elapsed_ms": 157.8874285714286,
       "by_query_type": {
         "natural_language": {
           "count": 35,
-          "mrr": 0.8347619047619047,
-          "acc1": 0.7714285714285715,
-          "acc3": 0.8857142857142857,
-          "acc5": 0.8857142857142857,
-          "avg_elapsed_ms": 139.81057142857142
-        },
-        "short_phrase": {
-          "count": 35,
-          "mrr": 0.8023809523809523,
+          "mrr": 0.808843537414966,
           "acc1": 0.7428571428571429,
           "acc3": 0.8571428571428571,
           "acc5": 0.8857142857142857,
-          "avg_elapsed_ms": 139.91857142857143
+          "avg_elapsed_ms": 157.76171428571428
+        },
+        "short_phrase": {
+          "count": 35,
+          "mrr": 0.8719187675070028,
+          "acc1": 0.8285714285714286,
+          "acc3": 0.9142857142857143,
+          "acc5": 0.9142857142857143,
+          "avg_elapsed_ms": 158.01314285714287
         }
       },
       "by_role": {
         "builder": {
           "count": 6,
-          "mrr": 0.6842592592592592,
+          "mrr": 0.676470588235294,
           "acc1": 0.6666666666666666,
           "acc3": 0.6666666666666666,
           "acc5": 0.6666666666666666,
-          "avg_elapsed_ms": 146.51500000000001
+          "avg_elapsed_ms": 164.0716666666667
         },
         "entrypoint": {
           "count": 10,
-          "mrr": 0.7083333333333333,
-          "acc1": 0.5,
-          "acc3": 0.9,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
           "acc5": 1.0,
-          "avg_elapsed_ms": 149.618
+          "avg_elapsed_ms": 157.436
         },
         "generic": {
           "count": 28,
-          "mrr": 0.8134920634920635,
+          "mrr": 0.8110119047619048,
           "acc1": 0.75,
           "acc3": 0.8571428571428571,
-          "acc5": 0.8571428571428571,
-          "avg_elapsed_ms": 137.24392857142857
+          "acc5": 0.8928571428571429,
+          "avg_elapsed_ms": 155.52964285714285
         },
         "helper": {
           "count": 22,
-          "mrr": 0.8787878787878788,
-          "acc1": 0.8636363636363636,
+          "mrr": 0.8208874458874459,
+          "acc1": 0.7272727272727273,
           "acc3": 0.9090909090909091,
           "acc5": 0.9090909090909091,
-          "avg_elapsed_ms": 138.34227272727273
+          "avg_elapsed_ms": 157.87727272727273
         },
         "predicate": {
           "count": 4,
@@ -1381,19 +1381,19 @@
           "acc1": 1.0,
           "acc3": 1.0,
           "acc5": 1.0,
-          "avg_elapsed_ms": 132.2225
+          "avg_elapsed_ms": 166.3
         }
       },
       "by_adversarial_group": {
         "080167332f7e": {
           "count": 2,
-          "mrr": 0.3055555555555556,
+          "mrr": 0.1875,
           "acc1": 0.0
         },
         "0c1187c1f78f": {
           "count": 2,
-          "mrr": 0.6666666666666666,
-          "acc1": 0.5
+          "mrr": 0.41666666666666663,
+          "acc1": 0.0
         },
         "0e84454a16e0": {
           "count": 2,
@@ -1407,7 +1407,7 @@
         },
         "4adf3955648c": {
           "count": 2,
-          "mrr": 0.3333333333333333,
+          "mrr": 0.41666666666666663,
           "acc1": 0.0
         },
         "4bf72b51ca10": {
@@ -1422,13 +1422,13 @@
         },
         "6314dd463cef": {
           "count": 2,
-          "mrr": 1.0,
-          "acc1": 1.0
+          "mrr": 0.5416666666666666,
+          "acc1": 0.5
         },
         "6ab8eea6fcf7": {
           "count": 2,
-          "mrr": 0.41666666666666663,
-          "acc1": 0.0
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "6f9f5c0febd1": {
           "count": 2,
@@ -1452,8 +1452,8 @@
         },
         "82dbc79022e1": {
           "count": 2,
-          "mrr": 1.0,
-          "acc1": 1.0
+          "mrr": 0.75,
+          "acc1": 0.5
         },
         "911c129b0af8": {
           "count": 2,
@@ -1497,13 +1497,13 @@
         },
         "bba7c1a1e434": {
           "count": 2,
-          "mrr": 0.05277777777777778,
+          "mrr": 0.029411764705882353,
           "acc1": 0.0
         },
         "bce5c600343c": {
           "count": 2,
-          "mrr": 1.0,
-          "acc1": 1.0
+          "mrr": 0.3214285714285714,
+          "acc1": 0.0
         },
         "bd0150db5be3": {
           "count": 2,
@@ -1512,13 +1512,13 @@
         },
         "c13f376149f6": {
           "count": 2,
-          "mrr": 0.0,
-          "acc1": 0.0
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "c39b9f98598e": {
           "count": 2,
-          "mrr": 0.75,
-          "acc1": 0.5
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "d25b66767dfb": {
           "count": 2,
@@ -1537,8 +1537,8 @@
         },
         "dfbc1f4db914": {
           "count": 2,
-          "mrr": 0.375,
-          "acc1": 0.0
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "e19ee4b2f06e": {
           "count": 2,
@@ -1569,11 +1569,11 @@
           "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
           "role": "entrypoint",
           "adversarial_group": "6ab8eea6fcf7",
-          "rank": 3,
-          "elapsed_ms": 146.52,
-          "candidate_count": 23,
+          "rank": 1,
+          "elapsed_ms": 155.9,
+          "candidate_count": 22,
           "top_candidate": {
-            "name": "RenameEdit",
+            "name": "rename_symbol",
             "file": "crates/codelens-engine/src/rename.rs"
           }
         },
@@ -1584,12 +1584,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
           "role": "entrypoint",
           "adversarial_group": "6ab8eea6fcf7",
-          "rank": 2,
-          "elapsed_ms": 140.56,
-          "candidate_count": 27,
+          "rank": 1,
+          "elapsed_ms": 154.37,
+          "candidate_count": 29,
           "top_candidate": {
-            "name": "rename",
-            "file": "crates/codelens-engine/src/lib.rs"
+            "name": "rename_symbol",
+            "file": "crates/codelens-engine/src/rename.rs"
           }
         },
         {
@@ -1600,7 +1600,7 @@
           "role": "helper",
           "adversarial_group": "b9058f612267",
           "rank": 1,
-          "elapsed_ms": 146.96,
+          "elapsed_ms": 153.56,
           "candidate_count": 24,
           "top_candidate": {
             "name": "find_symbol_range",
@@ -1615,7 +1615,7 @@
           "role": "helper",
           "adversarial_group": "b9058f612267",
           "rank": 1,
-          "elapsed_ms": 142.87,
+          "elapsed_ms": 157.83,
           "candidate_count": 24,
           "top_candidate": {
             "name": "find_symbol_range",
@@ -1630,8 +1630,8 @@
           "role": "generic",
           "adversarial_group": "f3bdbeae18fe",
           "rank": 1,
-          "elapsed_ms": 144.22,
-          "candidate_count": 26,
+          "elapsed_ms": 147.78,
+          "candidate_count": 29,
           "top_candidate": {
             "name": "apply_edits",
             "file": "crates/codelens-engine/src/rename.rs"
@@ -1645,7 +1645,7 @@
           "role": "generic",
           "adversarial_group": "f3bdbeae18fe",
           "rank": 1,
-          "elapsed_ms": 151.0,
+          "elapsed_ms": 154.29,
           "candidate_count": 27,
           "top_candidate": {
             "name": "apply_edits",
@@ -1656,30 +1656,30 @@
           "query": "search primary implementation",
           "query_type": "short_phrase",
           "expected_symbol": "search",
-          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
           "role": "generic",
           "adversarial_group": "4adf3955648c",
           "rank": 2,
-          "elapsed_ms": 140.15,
+          "elapsed_ms": 142.46,
           "candidate_count": 25,
           "top_candidate": {
             "name": "search",
-            "file": "crates/codelens-engine/src/lib.rs"
+            "file": "crates/codelens-engine/src/embedding/mod.rs"
           }
         },
         {
           "query": "which symbol is responsible for search",
           "query_type": "natural_language",
           "expected_symbol": "search",
-          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
           "role": "generic",
           "adversarial_group": "4adf3955648c",
-          "rank": 6,
-          "elapsed_ms": 148.24,
-          "candidate_count": 29,
+          "rank": 3,
+          "elapsed_ms": 150.57,
+          "candidate_count": 28,
           "top_candidate": {
-            "name": "find_symbol",
-            "file": "crates/codelens-mcp/src/tools/symbols.rs"
+            "name": "search_symbols",
+            "file": "crates/codelens-tui/src/app.rs"
           }
         },
         {
@@ -1689,12 +1689,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/inline.rs",
           "role": "entrypoint",
           "adversarial_group": "c39b9f98598e",
-          "rank": 2,
-          "elapsed_ms": 153.93,
+          "rank": 1,
+          "elapsed_ms": 154.68,
           "candidate_count": 21,
           "top_candidate": {
-            "name": "classify_symbol_handler",
-            "file": "crates/codelens-mcp/src/dispatch/mod.rs"
+            "name": "inline_function",
+            "file": "crates/codelens-engine/src/inline.rs"
           }
         },
         {
@@ -1705,8 +1705,8 @@
           "role": "entrypoint",
           "adversarial_group": "c39b9f98598e",
           "rank": 1,
-          "elapsed_ms": 147.75,
-          "candidate_count": 24,
+          "elapsed_ms": 152.25,
+          "candidate_count": 25,
           "top_candidate": {
             "name": "inline_function",
             "file": "crates/codelens-engine/src/inline.rs"
@@ -1719,11 +1719,11 @@
           "expected_file_suffix": "crates/codelens-engine/src/move_symbol.rs",
           "role": "entrypoint",
           "adversarial_group": "dfbc1f4db914",
-          "rank": 4,
-          "elapsed_ms": 151.32,
-          "candidate_count": 23,
+          "rank": 1,
+          "elapsed_ms": 158.94,
+          "candidate_count": 22,
           "top_candidate": {
-            "name": "MoveEdit",
+            "name": "move_symbol",
             "file": "crates/codelens-engine/src/move_symbol.rs"
           }
         },
@@ -1734,12 +1734,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/move_symbol.rs",
           "role": "entrypoint",
           "adversarial_group": "dfbc1f4db914",
-          "rank": 2,
-          "elapsed_ms": 148.16,
-          "candidate_count": 26,
+          "rank": 1,
+          "elapsed_ms": 155.41,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "move_symbol",
-            "file": "crates/codelens-engine/src/lib.rs"
+            "file": "crates/codelens-engine/src/move_symbol.rs"
           }
         },
         {
@@ -1750,8 +1750,8 @@
           "role": "entrypoint",
           "adversarial_group": "4bf72b51ca10",
           "rank": 1,
-          "elapsed_ms": 152.93,
-          "candidate_count": 23,
+          "elapsed_ms": 159.96,
+          "candidate_count": 26,
           "top_candidate": {
             "name": "change_signature",
             "file": "crates/codelens-engine/src/change_signature.rs"
@@ -1765,8 +1765,8 @@
           "role": "entrypoint",
           "adversarial_group": "4bf72b51ca10",
           "rank": 1,
-          "elapsed_ms": 146.48,
-          "candidate_count": 23,
+          "elapsed_ms": 156.75,
+          "candidate_count": 27,
           "top_candidate": {
             "name": "change_signature",
             "file": "crates/codelens-engine/src/change_signature.rs"
@@ -1780,8 +1780,8 @@
           "role": "helper",
           "adversarial_group": "e19ee4b2f06e",
           "rank": 1,
-          "elapsed_ms": 147.87,
-          "candidate_count": 27,
+          "elapsed_ms": 162.27,
+          "candidate_count": 26,
           "top_candidate": {
             "name": "find_circular_dependencies",
             "file": "crates/codelens-engine/src/circular.rs"
@@ -1795,8 +1795,8 @@
           "role": "helper",
           "adversarial_group": "e19ee4b2f06e",
           "rank": 1,
-          "elapsed_ms": 148.95,
-          "candidate_count": 27,
+          "elapsed_ms": 165.42,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "find_circular_dependencies",
             "file": "crates/codelens-engine/src/circular.rs"
@@ -1810,8 +1810,8 @@
           "role": "helper",
           "adversarial_group": "d3420d7eb4f0",
           "rank": 1,
-          "elapsed_ms": 147.78,
-          "candidate_count": 25,
+          "elapsed_ms": 152.3,
+          "candidate_count": 26,
           "top_candidate": {
             "name": "parse_symbols",
             "file": "crates/codelens-engine/src/symbols/parser.rs"
@@ -1825,8 +1825,8 @@
           "role": "helper",
           "adversarial_group": "d3420d7eb4f0",
           "rank": 1,
-          "elapsed_ms": 149.65,
-          "candidate_count": 24,
+          "elapsed_ms": 156.88,
+          "candidate_count": 26,
           "top_candidate": {
             "name": "parse_symbols",
             "file": "crates/codelens-engine/src/symbols/parser.rs"
@@ -1840,8 +1840,8 @@
           "role": "entrypoint",
           "adversarial_group": "0e84454a16e0",
           "rank": 1,
-          "elapsed_ms": 156.32,
-          "candidate_count": 25,
+          "elapsed_ms": 163.93,
+          "candidate_count": 29,
           "top_candidate": {
             "name": "index_from_project",
             "file": "crates/codelens-engine/src/embedding/mod.rs"
@@ -1855,8 +1855,8 @@
           "role": "entrypoint",
           "adversarial_group": "0e84454a16e0",
           "rank": 1,
-          "elapsed_ms": 152.21,
-          "candidate_count": 25,
+          "elapsed_ms": 162.17,
+          "candidate_count": 26,
           "top_candidate": {
             "name": "index_from_project",
             "file": "crates/codelens-engine/src/embedding/mod.rs"
@@ -1870,8 +1870,8 @@
           "role": "helper",
           "adversarial_group": "df4c695ed556",
           "rank": 1,
-          "elapsed_ms": 143.84,
-          "candidate_count": 29,
+          "elapsed_ms": 152.24,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "find_duplicates",
             "file": "crates/codelens-engine/src/embedding/mod.rs"
@@ -1885,8 +1885,8 @@
           "role": "helper",
           "adversarial_group": "df4c695ed556",
           "rank": 1,
-          "elapsed_ms": 149.33,
-          "candidate_count": 29,
+          "elapsed_ms": 167.99,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "find_duplicates",
             "file": "crates/codelens-engine/src/embedding/mod.rs"
@@ -1900,8 +1900,8 @@
           "role": "generic",
           "adversarial_group": "9f7e94717879",
           "rank": 1,
-          "elapsed_ms": 147.81,
-          "candidate_count": 26,
+          "elapsed_ms": 156.84,
+          "candidate_count": 25,
           "top_candidate": {
             "name": "FileWatcher",
             "file": "crates/codelens-engine/src/watcher.rs"
@@ -1915,8 +1915,8 @@
           "role": "generic",
           "adversarial_group": "9f7e94717879",
           "rank": 1,
-          "elapsed_ms": 153.5,
-          "candidate_count": 27,
+          "elapsed_ms": 189.47,
+          "candidate_count": 25,
           "top_candidate": {
             "name": "FileWatcher",
             "file": "crates/codelens-engine/src/watcher.rs"
@@ -1930,8 +1930,8 @@
           "role": "builder",
           "adversarial_group": "6f9f5c0febd1",
           "rank": 1,
-          "elapsed_ms": 150.2,
-          "candidate_count": 24,
+          "elapsed_ms": 155.62,
+          "candidate_count": 28,
           "top_candidate": {
             "name": "build_non_code_ranges",
             "file": "crates/codelens-engine/src/rename.rs"
@@ -1945,8 +1945,8 @@
           "role": "builder",
           "adversarial_group": "6f9f5c0febd1",
           "rank": 1,
-          "elapsed_ms": 157.08,
-          "candidate_count": 23,
+          "elapsed_ms": 168.26,
+          "candidate_count": 25,
           "top_candidate": {
             "name": "build_non_code_ranges",
             "file": "crates/codelens-engine/src/rename.rs"
@@ -1959,11 +1959,11 @@
           "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
           "role": "builder",
           "adversarial_group": "bba7c1a1e434",
-          "rank": 18,
-          "elapsed_ms": 150.0,
+          "rank": 17,
+          "elapsed_ms": 158.31,
           "candidate_count": 24,
           "top_candidate": {
-            "name": "EmbeddingEngine",
+            "name": "build_coreml_execution_provider",
             "file": "crates/codelens-engine/src/embedding/mod.rs"
           }
         },
@@ -1974,12 +1974,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
           "role": "builder",
           "adversarial_group": "bba7c1a1e434",
-          "rank": 20,
-          "elapsed_ms": 152.65,
-          "candidate_count": 24,
+          "rank": null,
+          "elapsed_ms": 180.3,
+          "candidate_count": 29,
           "top_candidate": {
-            "name": "EmbeddingEngine",
-            "file": "crates/codelens-engine/src/embedding/mod.rs"
+            "name": "prefers_builder_phrase",
+            "file": "crates/codelens-mcp/src/tools/query_analysis.rs"
           }
         },
         {
@@ -1990,7 +1990,7 @@
           "role": "predicate",
           "adversarial_group": "7554cd636eb7",
           "rank": 1,
-          "elapsed_ms": 134.32,
+          "elapsed_ms": 183.1,
           "candidate_count": 24,
           "top_candidate": {
             "name": "is_excluded",
@@ -2005,7 +2005,7 @@
           "role": "predicate",
           "adversarial_group": "7554cd636eb7",
           "rank": 1,
-          "elapsed_ms": 129.58,
+          "elapsed_ms": 175.6,
           "candidate_count": 9,
           "top_candidate": {
             "name": "is_excluded",
@@ -2020,7 +2020,7 @@
           "role": "helper",
           "adversarial_group": "82dbc79022e1",
           "rank": 1,
-          "elapsed_ms": 134.11,
+          "elapsed_ms": 155.83,
           "candidate_count": 29,
           "top_candidate": {
             "name": "extract_calls",
@@ -2034,11 +2034,11 @@
           "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
           "role": "helper",
           "adversarial_group": "82dbc79022e1",
-          "rank": 1,
-          "elapsed_ms": 134.94,
+          "rank": 2,
+          "elapsed_ms": 159.11,
           "candidate_count": 29,
           "top_candidate": {
-            "name": "extract_calls",
+            "name": "extract_calls_from_source",
             "file": "crates/codelens-engine/src/call_graph.rs"
           }
         },
@@ -2050,7 +2050,7 @@
           "role": "predicate",
           "adversarial_group": "5b9255153f3e",
           "rank": 1,
-          "elapsed_ms": 129.8,
+          "elapsed_ms": 149.96,
           "candidate_count": 24,
           "top_candidate": {
             "name": "is_noise_callee",
@@ -2065,7 +2065,7 @@
           "role": "predicate",
           "adversarial_group": "5b9255153f3e",
           "rank": 1,
-          "elapsed_ms": 135.19,
+          "elapsed_ms": 156.54,
           "candidate_count": 10,
           "top_candidate": {
             "name": "is_noise_callee",
@@ -2080,8 +2080,8 @@
           "role": "helper",
           "adversarial_group": "0c1187c1f78f",
           "rank": 3,
-          "elapsed_ms": 137.6,
-          "candidate_count": 33,
+          "elapsed_ms": 156.04,
+          "candidate_count": 32,
           "top_candidate": {
             "name": "collect_candidate_files",
             "file": "crates/codelens-engine/src/symbols/mod.rs"
@@ -2094,12 +2094,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
           "role": "helper",
           "adversarial_group": "0c1187c1f78f",
-          "rank": 1,
-          "elapsed_ms": 139.91,
-          "candidate_count": 33,
+          "rank": 2,
+          "elapsed_ms": 161.0,
+          "candidate_count": 32,
           "top_candidate": {
             "name": "collect_candidate_files",
-            "file": "crates/codelens-engine/src/call_graph.rs"
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -2110,8 +2110,8 @@
           "role": "generic",
           "adversarial_group": "911c129b0af8",
           "rank": 1,
-          "elapsed_ms": 131.39,
-          "candidate_count": 12,
+          "elapsed_ms": 153.19,
+          "candidate_count": 14,
           "top_candidate": {
             "name": "detect_communities",
             "file": "crates/codelens-engine/src/community.rs"
@@ -2125,7 +2125,7 @@
           "role": "generic",
           "adversarial_group": "911c129b0af8",
           "rank": 1,
-          "elapsed_ms": 145.13,
+          "elapsed_ms": 160.89,
           "candidate_count": 27,
           "top_candidate": {
             "name": "detect_communities",
@@ -2140,8 +2140,8 @@
           "role": "generic",
           "adversarial_group": "e7968e2d41c9",
           "rank": 1,
-          "elapsed_ms": 145.85,
-          "candidate_count": 7,
+          "elapsed_ms": 153.85,
+          "candidate_count": 11,
           "top_candidate": {
             "name": "calculate_modularity",
             "file": "crates/codelens-engine/src/community.rs"
@@ -2155,8 +2155,8 @@
           "role": "generic",
           "adversarial_group": "e7968e2d41c9",
           "rank": 1,
-          "elapsed_ms": 150.08,
-          "candidate_count": 26,
+          "elapsed_ms": 157.97,
+          "candidate_count": 27,
           "top_candidate": {
             "name": "calculate_modularity",
             "file": "crates/codelens-engine/src/community.rs"
@@ -2170,8 +2170,8 @@
           "role": "generic",
           "adversarial_group": "bd0150db5be3",
           "rank": 1,
-          "elapsed_ms": 140.56,
-          "candidate_count": 24,
+          "elapsed_ms": 164.54,
+          "candidate_count": 31,
           "top_candidate": {
             "name": "common_path_prefix",
             "file": "crates/codelens-engine/src/community.rs"
@@ -2185,8 +2185,8 @@
           "role": "generic",
           "adversarial_group": "bd0150db5be3",
           "rank": 1,
-          "elapsed_ms": 132.35,
-          "candidate_count": 28,
+          "elapsed_ms": 152.24,
+          "candidate_count": 29,
           "top_candidate": {
             "name": "common_path_prefix",
             "file": "crates/codelens-engine/src/community.rs"
@@ -2200,8 +2200,8 @@
           "role": "generic",
           "adversarial_group": "d25b66767dfb",
           "rank": 1,
-          "elapsed_ms": 131.55,
-          "candidate_count": 14,
+          "elapsed_ms": 153.33,
+          "candidate_count": 16,
           "top_candidate": {
             "name": "community_density",
             "file": "crates/codelens-engine/src/community.rs"
@@ -2215,8 +2215,8 @@
           "role": "generic",
           "adversarial_group": "d25b66767dfb",
           "rank": 1,
-          "elapsed_ms": 134.74,
-          "candidate_count": 27,
+          "elapsed_ms": 162.41,
+          "candidate_count": 28,
           "top_candidate": {
             "name": "community_density",
             "file": "crates/codelens-engine/src/community.rs"
@@ -2230,8 +2230,8 @@
           "role": "builder",
           "adversarial_group": "7fcb4e0acb48",
           "rank": 1,
-          "elapsed_ms": 134.26,
-          "candidate_count": 22,
+          "elapsed_ms": 155.03,
+          "candidate_count": 23,
           "top_candidate": {
             "name": "register_sqlite_vec",
             "file": "crates/codelens-engine/src/embedding/mod.rs"
@@ -2245,8 +2245,8 @@
           "role": "builder",
           "adversarial_group": "7fcb4e0acb48",
           "rank": 1,
-          "elapsed_ms": 134.9,
-          "candidate_count": 23,
+          "elapsed_ms": 166.91,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "register_sqlite_vec",
             "file": "crates/codelens-engine/src/embedding/mod.rs"
@@ -2260,7 +2260,7 @@
           "role": "generic",
           "adversarial_group": "f826f5ae9546",
           "rank": null,
-          "elapsed_ms": 130.61,
+          "elapsed_ms": 154.46,
           "candidate_count": 22,
           "top_candidate": {
             "name": "insert_batch",
@@ -2275,7 +2275,7 @@
           "role": "generic",
           "adversarial_group": "f826f5ae9546",
           "rank": null,
-          "elapsed_ms": 135.24,
+          "elapsed_ms": 163.84,
           "candidate_count": 27,
           "top_candidate": {
             "name": "insert_batch",
@@ -2290,8 +2290,8 @@
           "role": "generic",
           "adversarial_group": "a37c6186a1c3",
           "rank": 1,
-          "elapsed_ms": 133.24,
-          "candidate_count": 23,
+          "elapsed_ms": 152.35,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "validate_identifier",
             "file": "crates/codelens-engine/src/rename.rs"
@@ -2305,7 +2305,7 @@
           "role": "generic",
           "adversarial_group": "a37c6186a1c3",
           "rank": 1,
-          "elapsed_ms": 136.8,
+          "elapsed_ms": 163.5,
           "candidate_count": 25,
           "top_candidate": {
             "name": "validate_identifier",
@@ -2320,8 +2320,8 @@
           "role": "helper",
           "adversarial_group": "6314dd463cef",
           "rank": 1,
-          "elapsed_ms": 134.79,
-          "candidate_count": 29,
+          "elapsed_ms": 170.85,
+          "candidate_count": 27,
           "top_candidate": {
             "name": "find_word_matches_in_files",
             "file": "crates/codelens-engine/src/rename.rs"
@@ -2334,12 +2334,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
           "role": "helper",
           "adversarial_group": "6314dd463cef",
-          "rank": 1,
-          "elapsed_ms": 127.06,
+          "rank": 12,
+          "elapsed_ms": 150.33,
           "candidate_count": 28,
           "top_candidate": {
-            "name": "find_word_matches_in_files",
-            "file": "crates/codelens-engine/src/rename.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -2350,8 +2350,8 @@
           "role": "helper",
           "adversarial_group": "327b0a3208f5",
           "rank": 1,
-          "elapsed_ms": 136.65,
-          "candidate_count": 25,
+          "elapsed_ms": 168.88,
+          "candidate_count": 29,
           "top_candidate": {
             "name": "collect_file_scope_edits",
             "file": "crates/codelens-engine/src/rename.rs"
@@ -2365,7 +2365,7 @@
           "role": "helper",
           "adversarial_group": "327b0a3208f5",
           "rank": 1,
-          "elapsed_ms": 128.89,
+          "elapsed_ms": 144.48,
           "candidate_count": 28,
           "top_candidate": {
             "name": "collect_file_scope_edits",
@@ -2380,8 +2380,8 @@
           "role": "generic",
           "adversarial_group": "710469774839",
           "rank": 1,
-          "elapsed_ms": 136.88,
-          "candidate_count": 25,
+          "elapsed_ms": 160.53,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "get_symbols_overview",
             "file": "crates/codelens-engine/src/symbols/mod.rs"
@@ -2395,7 +2395,7 @@
           "role": "generic",
           "adversarial_group": "710469774839",
           "rank": 1,
-          "elapsed_ms": 132.54,
+          "elapsed_ms": 145.49,
           "candidate_count": 24,
           "top_candidate": {
             "name": "get_symbols_overview",
@@ -2409,12 +2409,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
           "role": "helper",
           "adversarial_group": "c13f376149f6",
-          "rank": null,
-          "elapsed_ms": 127.03,
-          "candidate_count": 16,
+          "rank": 1,
+          "elapsed_ms": 152.82,
+          "candidate_count": 24,
           "top_candidate": {
-            "name": "test_helpers",
-            "file": "crates/codelens-mcp/src/main.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -2424,12 +2424,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
           "role": "helper",
           "adversarial_group": "c13f376149f6",
-          "rank": null,
-          "elapsed_ms": 131.01,
-          "candidate_count": 19,
+          "rank": 1,
+          "elapsed_ms": 158.84,
+          "candidate_count": 27,
           "top_candidate": {
-            "name": "find_files",
-            "file": "crates/codelens-engine/src/file_ops/reader.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -2440,8 +2440,8 @@
           "role": "generic",
           "adversarial_group": "9f543c76643a",
           "rank": 1,
-          "elapsed_ms": 132.15,
-          "candidate_count": 25,
+          "elapsed_ms": 159.81,
+          "candidate_count": 23,
           "top_candidate": {
             "name": "get_project_structure",
             "file": "crates/codelens-engine/src/symbols/mod.rs"
@@ -2455,8 +2455,8 @@
           "role": "generic",
           "adversarial_group": "9f543c76643a",
           "rank": 2,
-          "elapsed_ms": 128.26,
-          "candidate_count": 24,
+          "elapsed_ms": 142.96,
+          "candidate_count": 25,
           "top_candidate": {
             "name": "get_project_structure",
             "file": "crates/codelens-mcp/src/tools/symbols.rs"
@@ -2469,12 +2469,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
           "role": "generic",
           "adversarial_group": "080167332f7e",
-          "rank": 9,
-          "elapsed_ms": 125.87,
-          "candidate_count": 12,
+          "rank": 8,
+          "elapsed_ms": 149.33,
+          "candidate_count": 13,
           "top_candidate": {
-            "name": "primary_ext",
-            "file": "benchmarks/token-efficiency.py"
+            "name": "new",
+            "file": "crates/codelens-mcp/src/artifact_store.rs"
           }
         },
         {
@@ -2484,12 +2484,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
           "role": "generic",
           "adversarial_group": "080167332f7e",
-          "rank": 2,
-          "elapsed_ms": 133.27,
+          "rank": 4,
+          "elapsed_ms": 153.28,
           "candidate_count": 27,
           "top_candidate": {
             "name": "new",
-            "file": "crates/codelens-mcp/src/protocol.rs"
+            "file": "crates/codelens-mcp/src/preflight_store.rs"
           }
         },
         {
@@ -2500,7 +2500,7 @@
           "role": "generic",
           "adversarial_group": "93ac61e4424f",
           "rank": 1,
-          "elapsed_ms": 133.71,
+          "elapsed_ms": 165.67,
           "candidate_count": 30,
           "top_candidate": {
             "name": "call_language_for_path",
@@ -2515,8 +2515,8 @@
           "role": "generic",
           "adversarial_group": "93ac61e4424f",
           "rank": 1,
-          "elapsed_ms": 128.84,
-          "candidate_count": 29,
+          "elapsed_ms": 140.77,
+          "candidate_count": 30,
           "top_candidate": {
             "name": "call_language_for_path",
             "file": "crates/codelens-engine/src/call_graph.rs"
@@ -2530,7 +2530,7 @@
           "role": "generic",
           "adversarial_group": "92cf7fb5dadb",
           "rank": 1,
-          "elapsed_ms": 131.78,
+          "elapsed_ms": 158.76,
           "candidate_count": 28,
           "top_candidate": {
             "name": "select_solve_symbols",
@@ -2545,7 +2545,7 @@
           "role": "generic",
           "adversarial_group": "92cf7fb5dadb",
           "rank": 1,
-          "elapsed_ms": 127.07,
+          "elapsed_ms": 144.25,
           "candidate_count": 29,
           "top_candidate": {
             "name": "select_solve_symbols",
@@ -2560,8 +2560,8 @@
           "role": "helper",
           "adversarial_group": "9da0f9d20203",
           "rank": 1,
-          "elapsed_ms": 138.31,
-          "candidate_count": 26,
+          "elapsed_ms": 170.33,
+          "candidate_count": 28,
           "top_candidate": {
             "name": "collect_project_scope_edits",
             "file": "crates/codelens-engine/src/rename.rs"
@@ -2575,8 +2575,8 @@
           "role": "helper",
           "adversarial_group": "9da0f9d20203",
           "rank": 1,
-          "elapsed_ms": 131.57,
-          "candidate_count": 27,
+          "elapsed_ms": 144.17,
+          "candidate_count": 28,
           "top_candidate": {
             "name": "collect_project_scope_edits",
             "file": "crates/codelens-engine/src/rename.rs"
@@ -2589,12 +2589,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
           "role": "helper",
           "adversarial_group": "bce5c600343c",
-          "rank": 1,
-          "elapsed_ms": 136.84,
-          "candidate_count": 26,
+          "rank": 2,
+          "elapsed_ms": 167.01,
+          "candidate_count": 27,
           "top_candidate": {
-            "name": "find_all_word_matches",
-            "file": "crates/codelens-engine/src/rename.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -2604,73 +2604,73 @@
           "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
           "role": "helper",
           "adversarial_group": "bce5c600343c",
-          "rank": 1,
-          "elapsed_ms": 127.57,
-          "candidate_count": 29,
+          "rank": 7,
+          "elapsed_ms": 145.12,
+          "candidate_count": 27,
           "top_candidate": {
-            "name": "find_all_word_matches",
-            "file": "crates/codelens-engine/src/rename.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         }
       ],
       "method": "get_ranked_context"
     },
     {
-      "mrr": 0.6927669552669553,
+      "mrr": 0.7185714285714285,
       "acc1": 0.6714285714285714,
-      "acc3": 0.7,
-      "acc5": 0.7,
-      "avg_elapsed_ms": 36.59742857142857,
+      "acc3": 0.7571428571428571,
+      "acc5": 0.7714285714285715,
+      "avg_elapsed_ms": 45.65142857142857,
       "by_query_type": {
         "natural_language": {
           "count": 35,
-          "mrr": 0.719047619047619,
-          "acc1": 0.7142857142857143,
-          "acc3": 0.7142857142857143,
-          "acc5": 0.7142857142857143,
-          "avg_elapsed_ms": 36.72714285714286
+          "mrr": 0.7,
+          "acc1": 0.6571428571428571,
+          "acc3": 0.7428571428571429,
+          "acc5": 0.7428571428571429,
+          "avg_elapsed_ms": 45.73314285714286
         },
         "short_phrase": {
           "count": 35,
-          "mrr": 0.6664862914862915,
-          "acc1": 0.6285714285714286,
-          "acc3": 0.6857142857142857,
-          "acc5": 0.6857142857142857,
-          "avg_elapsed_ms": 36.46771428571428
+          "mrr": 0.7371428571428572,
+          "acc1": 0.6857142857142857,
+          "acc3": 0.7714285714285715,
+          "acc5": 0.8,
+          "avg_elapsed_ms": 45.56971428571429
         }
       },
       "by_role": {
         "builder": {
           "count": 6,
-          "mrr": 1.0,
-          "acc1": 1.0,
-          "acc3": 1.0,
-          "acc5": 1.0,
-          "avg_elapsed_ms": 37.375
+          "mrr": 0.8333333333333334,
+          "acc1": 0.8333333333333334,
+          "acc3": 0.8333333333333334,
+          "acc5": 0.8333333333333334,
+          "avg_elapsed_ms": 48.145
         },
         "entrypoint": {
           "count": 10,
-          "mrr": 0.4257575757575758,
-          "acc1": 0.3,
-          "acc3": 0.5,
-          "acc5": 0.5,
-          "avg_elapsed_ms": 37.679
+          "mrr": 0.8,
+          "acc1": 0.8,
+          "acc3": 0.8,
+          "acc5": 0.8,
+          "avg_elapsed_ms": 47.811
         },
         "generic": {
           "count": 28,
-          "mrr": 0.722718253968254,
+          "mrr": 0.725,
           "acc1": 0.7142857142857143,
           "acc3": 0.7142857142857143,
-          "acc5": 0.7142857142857143,
-          "avg_elapsed_ms": 36.255714285714284
+          "acc5": 0.75,
+          "avg_elapsed_ms": 44.48642857142857
         },
         "helper": {
           "count": 22,
-          "mrr": 0.6363636363636364,
-          "acc1": 0.6363636363636364,
-          "acc3": 0.6363636363636364,
-          "acc5": 0.6363636363636364,
-          "avg_elapsed_ms": 36.846363636363634
+          "mrr": 0.5909090909090909,
+          "acc1": 0.45454545454545453,
+          "acc3": 0.7272727272727273,
+          "acc5": 0.7272727272727273,
+          "avg_elapsed_ms": 46.17318181818182
         },
         "predicate": {
           "count": 4,
@@ -2678,13 +2678,13 @@
           "acc1": 1.0,
           "acc3": 1.0,
           "acc5": 1.0,
-          "avg_elapsed_ms": 33.75
+          "avg_elapsed_ms": 41.7975
         }
       },
       "by_adversarial_group": {
         "080167332f7e": {
           "count": 2,
-          "mrr": 0.05555555555555555,
+          "mrr": 0.05,
           "acc1": 0.0
         },
         "0c1187c1f78f": {
@@ -2704,13 +2704,13 @@
         },
         "4adf3955648c": {
           "count": 2,
-          "mrr": 0.0625,
+          "mrr": 0.1,
           "acc1": 0.0
         },
         "4bf72b51ca10": {
           "count": 2,
-          "mrr": 0.75,
-          "acc1": 0.5
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "5b9255153f3e": {
           "count": 2,
@@ -2724,8 +2724,8 @@
         },
         "6ab8eea6fcf7": {
           "count": 2,
-          "mrr": 0.5454545454545454,
-          "acc1": 0.5
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "6f9f5c0febd1": {
           "count": 2,
@@ -2789,13 +2789,13 @@
         },
         "b9058f612267": {
           "count": 2,
-          "mrr": 1.0,
-          "acc1": 1.0
+          "mrr": 0.5,
+          "acc1": 0.0
         },
         "bba7c1a1e434": {
           "count": 2,
-          "mrr": 1.0,
-          "acc1": 1.0
+          "mrr": 0.5,
+          "acc1": 0.5
         },
         "bce5c600343c": {
           "count": 2,
@@ -2809,13 +2809,13 @@
         },
         "c13f376149f6": {
           "count": 2,
-          "mrr": 0.0,
-          "acc1": 0.0
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "c39b9f98598e": {
           "count": 2,
-          "mrr": 0.08333333333333333,
-          "acc1": 0.0
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "d25b66767dfb": {
           "count": 2,
@@ -2829,18 +2829,18 @@
         },
         "df4c695ed556": {
           "count": 2,
-          "mrr": 1.0,
-          "acc1": 1.0
+          "mrr": 0.5,
+          "acc1": 0.0
         },
         "dfbc1f4db914": {
           "count": 2,
-          "mrr": 0.75,
-          "acc1": 0.5
+          "mrr": 1.0,
+          "acc1": 1.0
         },
         "e19ee4b2f06e": {
           "count": 2,
-          "mrr": 1.0,
-          "acc1": 1.0
+          "mrr": 0.5,
+          "acc1": 0.0
         },
         "e7968e2d41c9": {
           "count": 2,
@@ -2866,12 +2866,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
           "role": "entrypoint",
           "adversarial_group": "6ab8eea6fcf7",
-          "rank": 11,
-          "elapsed_ms": 37.72,
+          "rank": 1,
+          "elapsed_ms": 46.96,
           "candidate_count": 22,
           "top_candidate": {
-            "name": "dispatch_tool",
-            "file": "crates/codelens-mcp/src/dispatch/mod.rs"
+            "name": "rename_symbol",
+            "file": "crates/codelens-engine/src/rename.rs"
           }
         },
         {
@@ -2882,7 +2882,7 @@
           "role": "entrypoint",
           "adversarial_group": "6ab8eea6fcf7",
           "rank": 1,
-          "elapsed_ms": 33.81,
+          "elapsed_ms": 45.66,
           "candidate_count": 23,
           "top_candidate": {
             "name": "rename_symbol",
@@ -2896,11 +2896,11 @@
           "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
           "role": "helper",
           "adversarial_group": "b9058f612267",
-          "rank": 1,
-          "elapsed_ms": 33.2,
-          "candidate_count": 24,
+          "rank": 2,
+          "elapsed_ms": 44.94,
+          "candidate_count": 23,
           "top_candidate": {
-            "name": "find_symbol_range",
+            "name": "find_symbol",
             "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
@@ -2911,11 +2911,11 @@
           "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
           "role": "helper",
           "adversarial_group": "b9058f612267",
-          "rank": 1,
-          "elapsed_ms": 34.73,
-          "candidate_count": 24,
+          "rank": 2,
+          "elapsed_ms": 49.03,
+          "candidate_count": 23,
           "top_candidate": {
-            "name": "find_symbol_range",
+            "name": "find_symbol",
             "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
@@ -2927,7 +2927,7 @@
           "role": "generic",
           "adversarial_group": "f3bdbeae18fe",
           "rank": 1,
-          "elapsed_ms": 33.46,
+          "elapsed_ms": 42.5,
           "candidate_count": 24,
           "top_candidate": {
             "name": "apply_edits",
@@ -2942,7 +2942,7 @@
           "role": "generic",
           "adversarial_group": "f3bdbeae18fe",
           "rank": 1,
-          "elapsed_ms": 38.41,
+          "elapsed_ms": 53.01,
           "candidate_count": 23,
           "top_candidate": {
             "name": "apply_edits",
@@ -2953,29 +2953,29 @@
           "query": "search primary implementation",
           "query_type": "short_phrase",
           "expected_symbol": "search",
-          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
           "role": "generic",
           "adversarial_group": "4adf3955648c",
-          "rank": 8,
-          "elapsed_ms": 31.65,
+          "rank": 5,
+          "elapsed_ms": 38.55,
           "candidate_count": 25,
           "top_candidate": {
-            "name": "search_dual",
-            "file": "crates/codelens-engine/src/embedding_store.rs"
+            "name": "search_symbols",
+            "file": "crates/codelens-tui/src/app.rs"
           }
         },
         {
           "query": "which symbol is responsible for search",
           "query_type": "natural_language",
           "expected_symbol": "search",
-          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
           "role": "generic",
           "adversarial_group": "4adf3955648c",
           "rank": null,
-          "elapsed_ms": 35.92,
-          "candidate_count": 22,
+          "elapsed_ms": 47.67,
+          "candidate_count": 23,
           "top_candidate": {
-            "name": "get_file_symbols",
+            "name": "select_solve_symbols",
             "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
@@ -2986,12 +2986,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/inline.rs",
           "role": "entrypoint",
           "adversarial_group": "c39b9f98598e",
-          "rank": null,
-          "elapsed_ms": 36.68,
+          "rank": 1,
+          "elapsed_ms": 46.29,
           "candidate_count": 22,
           "top_candidate": {
-            "name": "dispatch_tool",
-            "file": "crates/codelens-mcp/src/dispatch/mod.rs"
+            "name": "inline_function",
+            "file": "crates/codelens-engine/src/inline.rs"
           }
         },
         {
@@ -3001,12 +3001,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/inline.rs",
           "role": "entrypoint",
           "adversarial_group": "c39b9f98598e",
-          "rank": 6,
-          "elapsed_ms": 32.25,
-          "candidate_count": 24,
+          "rank": 1,
+          "elapsed_ms": 44.25,
+          "candidate_count": 22,
           "top_candidate": {
-            "name": "port_is_occupied_handles_port_zero_gracefully",
-            "file": "crates/codelens-mcp/src/server/transport_http.rs"
+            "name": "inline_function",
+            "file": "crates/codelens-engine/src/inline.rs"
           }
         },
         {
@@ -3016,12 +3016,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/move_symbol.rs",
           "role": "entrypoint",
           "adversarial_group": "dfbc1f4db914",
-          "rank": 2,
-          "elapsed_ms": 38.74,
+          "rank": 1,
+          "elapsed_ms": 46.77,
           "candidate_count": 22,
           "top_candidate": {
-            "name": "dispatch_tool",
-            "file": "crates/codelens-mcp/src/dispatch/mod.rs"
+            "name": "move_symbol",
+            "file": "crates/codelens-engine/src/move_symbol.rs"
           }
         },
         {
@@ -3032,8 +3032,8 @@
           "role": "entrypoint",
           "adversarial_group": "dfbc1f4db914",
           "rank": 1,
-          "elapsed_ms": 35.71,
-          "candidate_count": 23,
+          "elapsed_ms": 46.2,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "move_symbol",
             "file": "crates/codelens-engine/src/move_symbol.rs"
@@ -3046,12 +3046,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/change_signature.rs",
           "role": "entrypoint",
           "adversarial_group": "4bf72b51ca10",
-          "rank": 2,
-          "elapsed_ms": 41.36,
+          "rank": 1,
+          "elapsed_ms": 50.92,
           "candidate_count": 22,
           "top_candidate": {
-            "name": "dispatch_tool",
-            "file": "crates/codelens-mcp/src/dispatch/mod.rs"
+            "name": "change_signature",
+            "file": "crates/codelens-engine/src/change_signature.rs"
           }
         },
         {
@@ -3062,7 +3062,7 @@
           "role": "entrypoint",
           "adversarial_group": "4bf72b51ca10",
           "rank": 1,
-          "elapsed_ms": 37.45,
+          "elapsed_ms": 46.96,
           "candidate_count": 23,
           "top_candidate": {
             "name": "change_signature",
@@ -3076,12 +3076,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/circular.rs",
           "role": "helper",
           "adversarial_group": "e19ee4b2f06e",
-          "rank": 1,
-          "elapsed_ms": 35.33,
-          "candidate_count": 27,
+          "rank": 2,
+          "elapsed_ms": 49.88,
+          "candidate_count": 24,
           "top_candidate": {
-            "name": "find_circular_dependencies",
-            "file": "crates/codelens-engine/src/circular.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -3091,12 +3091,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/circular.rs",
           "role": "helper",
           "adversarial_group": "e19ee4b2f06e",
-          "rank": 1,
-          "elapsed_ms": 37.07,
-          "candidate_count": 26,
+          "rank": 2,
+          "elapsed_ms": 53.6,
+          "candidate_count": 24,
           "top_candidate": {
-            "name": "find_circular_dependencies",
-            "file": "crates/codelens-engine/src/circular.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -3107,7 +3107,7 @@
           "role": "helper",
           "adversarial_group": "d3420d7eb4f0",
           "rank": 1,
-          "elapsed_ms": 36.32,
+          "elapsed_ms": 43.87,
           "candidate_count": 23,
           "top_candidate": {
             "name": "parse_symbols",
@@ -3122,8 +3122,8 @@
           "role": "helper",
           "adversarial_group": "d3420d7eb4f0",
           "rank": 1,
-          "elapsed_ms": 40.5,
-          "candidate_count": 22,
+          "elapsed_ms": 47.35,
+          "candidate_count": 23,
           "top_candidate": {
             "name": "parse_symbols",
             "file": "crates/codelens-engine/src/symbols/parser.rs"
@@ -3137,8 +3137,8 @@
           "role": "entrypoint",
           "adversarial_group": "0e84454a16e0",
           "rank": null,
-          "elapsed_ms": 43.34,
-          "candidate_count": 21,
+          "elapsed_ms": 52.8,
+          "candidate_count": 22,
           "top_candidate": {
             "name": "dispatch_tool",
             "file": "crates/codelens-mcp/src/dispatch/mod.rs"
@@ -3152,7 +3152,7 @@
           "role": "entrypoint",
           "adversarial_group": "0e84454a16e0",
           "rank": null,
-          "elapsed_ms": 39.73,
+          "elapsed_ms": 51.3,
           "candidate_count": 23,
           "top_candidate": {
             "name": "from_str",
@@ -3166,12 +3166,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
           "role": "helper",
           "adversarial_group": "df4c695ed556",
-          "rank": 1,
-          "elapsed_ms": 33.81,
-          "candidate_count": 25,
+          "rank": 2,
+          "elapsed_ms": 45.13,
+          "candidate_count": 23,
           "top_candidate": {
-            "name": "find_duplicates",
-            "file": "crates/codelens-engine/src/embedding/mod.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -3181,12 +3181,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
           "role": "helper",
           "adversarial_group": "df4c695ed556",
-          "rank": 1,
-          "elapsed_ms": 36.32,
-          "candidate_count": 25,
+          "rank": 2,
+          "elapsed_ms": 48.1,
+          "candidate_count": 23,
           "top_candidate": {
-            "name": "find_duplicates",
-            "file": "crates/codelens-engine/src/embedding/mod.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -3197,11 +3197,11 @@
           "role": "generic",
           "adversarial_group": "9f7e94717879",
           "rank": null,
-          "elapsed_ms": 34.75,
-          "candidate_count": 25,
+          "elapsed_ms": 42.29,
+          "candidate_count": 24,
           "top_candidate": {
-            "name": "watcher_failure_health",
-            "file": "crates/codelens-mcp/src/state/watcher_health.rs"
+            "name": "watcher_stats",
+            "file": "crates/codelens-mcp/src/state.rs"
           }
         },
         {
@@ -3212,7 +3212,7 @@
           "role": "generic",
           "adversarial_group": "9f7e94717879",
           "rank": null,
-          "elapsed_ms": 39.59,
+          "elapsed_ms": 51.09,
           "candidate_count": 23,
           "top_candidate": {
             "name": "for_file",
@@ -3227,7 +3227,7 @@
           "role": "builder",
           "adversarial_group": "6f9f5c0febd1",
           "rank": 1,
-          "elapsed_ms": 37.01,
+          "elapsed_ms": 45.26,
           "candidate_count": 24,
           "top_candidate": {
             "name": "build_non_code_ranges",
@@ -3242,7 +3242,7 @@
           "role": "builder",
           "adversarial_group": "6f9f5c0febd1",
           "rank": 1,
-          "elapsed_ms": 39.23,
+          "elapsed_ms": 52.25,
           "candidate_count": 23,
           "top_candidate": {
             "name": "build_non_code_ranges",
@@ -3257,7 +3257,7 @@
           "role": "builder",
           "adversarial_group": "bba7c1a1e434",
           "rank": 1,
-          "elapsed_ms": 36.3,
+          "elapsed_ms": 44.43,
           "candidate_count": 22,
           "top_candidate": {
             "name": "build_embedding_text",
@@ -3271,12 +3271,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
           "role": "builder",
           "adversarial_group": "bba7c1a1e434",
-          "rank": 1,
-          "elapsed_ms": 39.24,
-          "candidate_count": 22,
+          "rank": null,
+          "elapsed_ms": 53.81,
+          "candidate_count": 23,
           "top_candidate": {
-            "name": "build_embedding_text",
-            "file": "crates/codelens-engine/src/embedding/mod.rs"
+            "name": "builder_query_prefers_exact_build_embedding_text_symbol",
+            "file": "crates/codelens-engine/src/symbols/ranking.rs"
           }
         },
         {
@@ -3287,7 +3287,7 @@
           "role": "predicate",
           "adversarial_group": "7554cd636eb7",
           "rank": 1,
-          "elapsed_ms": 31.58,
+          "elapsed_ms": 37.98,
           "candidate_count": 24,
           "top_candidate": {
             "name": "is_excluded",
@@ -3302,7 +3302,7 @@
           "role": "predicate",
           "adversarial_group": "7554cd636eb7",
           "rank": 1,
-          "elapsed_ms": 33.49,
+          "elapsed_ms": 40.55,
           "candidate_count": 8,
           "top_candidate": {
             "name": "is_excluded",
@@ -3317,8 +3317,8 @@
           "role": "helper",
           "adversarial_group": "82dbc79022e1",
           "rank": 1,
-          "elapsed_ms": 33.94,
-          "candidate_count": 25,
+          "elapsed_ms": 43.53,
+          "candidate_count": 22,
           "top_candidate": {
             "name": "extract_calls",
             "file": "crates/codelens-engine/src/call_graph.rs"
@@ -3332,8 +3332,8 @@
           "role": "helper",
           "adversarial_group": "82dbc79022e1",
           "rank": 1,
-          "elapsed_ms": 35.83,
-          "candidate_count": 25,
+          "elapsed_ms": 48.16,
+          "candidate_count": 22,
           "top_candidate": {
             "name": "extract_calls",
             "file": "crates/codelens-engine/src/call_graph.rs"
@@ -3347,7 +3347,7 @@
           "role": "predicate",
           "adversarial_group": "5b9255153f3e",
           "rank": 1,
-          "elapsed_ms": 34.3,
+          "elapsed_ms": 42.82,
           "candidate_count": 24,
           "top_candidate": {
             "name": "is_noise_callee",
@@ -3362,7 +3362,7 @@
           "role": "predicate",
           "adversarial_group": "5b9255153f3e",
           "rank": 1,
-          "elapsed_ms": 35.63,
+          "elapsed_ms": 45.84,
           "candidate_count": 10,
           "top_candidate": {
             "name": "is_noise_callee",
@@ -3377,8 +3377,8 @@
           "role": "helper",
           "adversarial_group": "0c1187c1f78f",
           "rank": null,
-          "elapsed_ms": 36.61,
-          "candidate_count": 27,
+          "elapsed_ms": 46.89,
+          "candidate_count": 25,
           "top_candidate": {
             "name": "collect_files",
             "file": "crates/codelens-engine/src/project.rs"
@@ -3392,8 +3392,8 @@
           "role": "helper",
           "adversarial_group": "0c1187c1f78f",
           "rank": null,
-          "elapsed_ms": 39.36,
-          "candidate_count": 27,
+          "elapsed_ms": 50.83,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "collect_files",
             "file": "crates/codelens-engine/src/project.rs"
@@ -3407,7 +3407,7 @@
           "role": "generic",
           "adversarial_group": "911c129b0af8",
           "rank": 1,
-          "elapsed_ms": 32.98,
+          "elapsed_ms": 40.63,
           "candidate_count": 12,
           "top_candidate": {
             "name": "detect_communities",
@@ -3422,8 +3422,8 @@
           "role": "generic",
           "adversarial_group": "911c129b0af8",
           "rank": 1,
-          "elapsed_ms": 38.53,
-          "candidate_count": 23,
+          "elapsed_ms": 51.89,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "detect_communities",
             "file": "crates/codelens-engine/src/community.rs"
@@ -3437,7 +3437,7 @@
           "role": "generic",
           "adversarial_group": "e7968e2d41c9",
           "rank": 1,
-          "elapsed_ms": 32.9,
+          "elapsed_ms": 40.4,
           "candidate_count": 7,
           "top_candidate": {
             "name": "calculate_modularity",
@@ -3452,8 +3452,8 @@
           "role": "generic",
           "adversarial_group": "e7968e2d41c9",
           "rank": 1,
-          "elapsed_ms": 38.01,
-          "candidate_count": 23,
+          "elapsed_ms": 52.35,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "calculate_modularity",
             "file": "crates/codelens-engine/src/community.rs"
@@ -3467,7 +3467,7 @@
           "role": "generic",
           "adversarial_group": "bd0150db5be3",
           "rank": 1,
-          "elapsed_ms": 37.81,
+          "elapsed_ms": 50.03,
           "candidate_count": 24,
           "top_candidate": {
             "name": "common_path_prefix",
@@ -3482,7 +3482,7 @@
           "role": "generic",
           "adversarial_group": "bd0150db5be3",
           "rank": 1,
-          "elapsed_ms": 31.13,
+          "elapsed_ms": 35.56,
           "candidate_count": 23,
           "top_candidate": {
             "name": "common_path_prefix",
@@ -3497,7 +3497,7 @@
           "role": "generic",
           "adversarial_group": "d25b66767dfb",
           "rank": 1,
-          "elapsed_ms": 31.32,
+          "elapsed_ms": 41.62,
           "candidate_count": 14,
           "top_candidate": {
             "name": "community_density",
@@ -3512,8 +3512,8 @@
           "role": "generic",
           "adversarial_group": "d25b66767dfb",
           "rank": 1,
-          "elapsed_ms": 37.33,
-          "candidate_count": 24,
+          "elapsed_ms": 51.53,
+          "candidate_count": 25,
           "top_candidate": {
             "name": "community_density",
             "file": "crates/codelens-engine/src/community.rs"
@@ -3527,7 +3527,7 @@
           "role": "builder",
           "adversarial_group": "7fcb4e0acb48",
           "rank": 1,
-          "elapsed_ms": 34.22,
+          "elapsed_ms": 42.11,
           "candidate_count": 22,
           "top_candidate": {
             "name": "register_sqlite_vec",
@@ -3542,7 +3542,7 @@
           "role": "builder",
           "adversarial_group": "7fcb4e0acb48",
           "rank": 1,
-          "elapsed_ms": 38.25,
+          "elapsed_ms": 51.01,
           "candidate_count": 22,
           "top_candidate": {
             "name": "register_sqlite_vec",
@@ -3557,7 +3557,7 @@
           "role": "generic",
           "adversarial_group": "f826f5ae9546",
           "rank": null,
-          "elapsed_ms": 34.84,
+          "elapsed_ms": 41.12,
           "candidate_count": 21,
           "top_candidate": {
             "name": "insert_batch",
@@ -3572,7 +3572,7 @@
           "role": "generic",
           "adversarial_group": "f826f5ae9546",
           "rank": null,
-          "elapsed_ms": 41.87,
+          "elapsed_ms": 51.33,
           "candidate_count": 24,
           "top_candidate": {
             "name": "insert_batch",
@@ -3587,7 +3587,7 @@
           "role": "generic",
           "adversarial_group": "a37c6186a1c3",
           "rank": 1,
-          "elapsed_ms": 34.57,
+          "elapsed_ms": 40.85,
           "candidate_count": 22,
           "top_candidate": {
             "name": "validate_identifier",
@@ -3602,8 +3602,8 @@
           "role": "generic",
           "adversarial_group": "a37c6186a1c3",
           "rank": 1,
-          "elapsed_ms": 40.87,
-          "candidate_count": 23,
+          "elapsed_ms": 53.16,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "validate_identifier",
             "file": "crates/codelens-engine/src/rename.rs"
@@ -3617,11 +3617,11 @@
           "role": "helper",
           "adversarial_group": "6314dd463cef",
           "rank": null,
-          "elapsed_ms": 39.84,
-          "candidate_count": 23,
+          "elapsed_ms": 53.08,
+          "candidate_count": 24,
           "top_candidate": {
-            "name": "watcher_running",
-            "file": "crates/codelens-mcp/src/state.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -3632,11 +3632,11 @@
           "role": "helper",
           "adversarial_group": "6314dd463cef",
           "rank": null,
-          "elapsed_ms": 33.51,
-          "candidate_count": 22,
+          "elapsed_ms": 38.02,
+          "candidate_count": 24,
           "top_candidate": {
-            "name": "bind_project_to_session",
-            "file": "crates/codelens-mcp/src/state.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -3647,7 +3647,7 @@
           "role": "helper",
           "adversarial_group": "327b0a3208f5",
           "rank": 1,
-          "elapsed_ms": 40.98,
+          "elapsed_ms": 53.49,
           "candidate_count": 25,
           "top_candidate": {
             "name": "collect_file_scope_edits",
@@ -3662,7 +3662,7 @@
           "role": "helper",
           "adversarial_group": "327b0a3208f5",
           "rank": 1,
-          "elapsed_ms": 35.69,
+          "elapsed_ms": 35.18,
           "candidate_count": 25,
           "top_candidate": {
             "name": "collect_file_scope_edits",
@@ -3677,8 +3677,8 @@
           "role": "generic",
           "adversarial_group": "710469774839",
           "rank": 1,
-          "elapsed_ms": 40.36,
-          "candidate_count": 23,
+          "elapsed_ms": 48.99,
+          "candidate_count": 22,
           "top_candidate": {
             "name": "get_symbols_overview",
             "file": "crates/codelens-engine/src/symbols/mod.rs"
@@ -3692,8 +3692,8 @@
           "role": "generic",
           "adversarial_group": "710469774839",
           "rank": 1,
-          "elapsed_ms": 33.94,
-          "candidate_count": 22,
+          "elapsed_ms": 35.65,
+          "candidate_count": 23,
           "top_candidate": {
             "name": "get_symbols_overview",
             "file": "crates/codelens-engine/src/symbols/mod.rs"
@@ -3706,12 +3706,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
           "role": "helper",
           "adversarial_group": "c13f376149f6",
-          "rank": null,
-          "elapsed_ms": 34.69,
-          "candidate_count": 16,
+          "rank": 1,
+          "elapsed_ms": 41.19,
+          "candidate_count": 22,
           "top_candidate": {
-            "name": "prefers_stdio_entrypoint_over_generic_read_helpers",
-            "file": "crates/codelens-mcp/src/dispatch/mod.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -3721,12 +3721,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
           "role": "helper",
           "adversarial_group": "c13f376149f6",
-          "rank": null,
-          "elapsed_ms": 35.65,
-          "candidate_count": 16,
+          "rank": 1,
+          "elapsed_ms": 44.07,
+          "candidate_count": 22,
           "top_candidate": {
-            "name": "prefers_stdio_entrypoint_over_generic_read_helpers",
-            "file": "crates/codelens-mcp/src/dispatch/mod.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -3737,7 +3737,7 @@
           "role": "generic",
           "adversarial_group": "9f543c76643a",
           "rank": 1,
-          "elapsed_ms": 38.45,
+          "elapsed_ms": 47.21,
           "candidate_count": 21,
           "top_candidate": {
             "name": "get_project_structure",
@@ -3752,7 +3752,7 @@
           "role": "generic",
           "adversarial_group": "9f543c76643a",
           "rank": 1,
-          "elapsed_ms": 33.19,
+          "elapsed_ms": 34.75,
           "candidate_count": 22,
           "top_candidate": {
             "name": "get_project_structure",
@@ -3766,12 +3766,12 @@
           "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
           "role": "generic",
           "adversarial_group": "080167332f7e",
-          "rank": 9,
-          "elapsed_ms": 32.21,
-          "candidate_count": 12,
+          "rank": 10,
+          "elapsed_ms": 36.37,
+          "candidate_count": 13,
           "top_candidate": {
             "name": "new",
-            "file": "crates/codelens-engine/src/symbols/mod.rs"
+            "file": "crates/codelens-engine/src/project.rs"
           }
         },
         {
@@ -3782,11 +3782,11 @@
           "role": "generic",
           "adversarial_group": "080167332f7e",
           "rank": null,
-          "elapsed_ms": 38.55,
+          "elapsed_ms": 48.26,
           "candidate_count": 24,
           "top_candidate": {
-            "name": "SymbolKind",
-            "file": "crates/codelens-engine/src/symbols/types.rs"
+            "name": "SymbolIndex",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -3797,7 +3797,7 @@
           "role": "generic",
           "adversarial_group": "93ac61e4424f",
           "rank": 1,
-          "elapsed_ms": 40.43,
+          "elapsed_ms": 49.83,
           "candidate_count": 25,
           "top_candidate": {
             "name": "call_language_for_path",
@@ -3812,8 +3812,8 @@
           "role": "generic",
           "adversarial_group": "93ac61e4424f",
           "rank": 1,
-          "elapsed_ms": 34.96,
-          "candidate_count": 23,
+          "elapsed_ms": 35.58,
+          "candidate_count": 24,
           "top_candidate": {
             "name": "call_language_for_path",
             "file": "crates/codelens-engine/src/call_graph.rs"
@@ -3827,8 +3827,8 @@
           "role": "generic",
           "adversarial_group": "92cf7fb5dadb",
           "rank": 1,
-          "elapsed_ms": 41.29,
-          "candidate_count": 21,
+          "elapsed_ms": 48.73,
+          "candidate_count": 22,
           "top_candidate": {
             "name": "select_solve_symbols",
             "file": "crates/codelens-engine/src/symbols/mod.rs"
@@ -3842,8 +3842,8 @@
           "role": "generic",
           "adversarial_group": "92cf7fb5dadb",
           "rank": 1,
-          "elapsed_ms": 35.84,
-          "candidate_count": 24,
+          "elapsed_ms": 34.67,
+          "candidate_count": 25,
           "top_candidate": {
             "name": "select_solve_symbols",
             "file": "crates/codelens-engine/src/symbols/mod.rs"
@@ -3857,7 +3857,7 @@
           "role": "helper",
           "adversarial_group": "9da0f9d20203",
           "rank": 1,
-          "elapsed_ms": 42.02,
+          "elapsed_ms": 53.97,
           "candidate_count": 24,
           "top_candidate": {
             "name": "collect_project_scope_edits",
@@ -3872,7 +3872,7 @@
           "role": "helper",
           "adversarial_group": "9da0f9d20203",
           "rank": 1,
-          "elapsed_ms": 39.23,
+          "elapsed_ms": 35.48,
           "candidate_count": 24,
           "top_candidate": {
             "name": "collect_project_scope_edits",
@@ -3887,11 +3887,11 @@
           "role": "helper",
           "adversarial_group": "bce5c600343c",
           "rank": null,
-          "elapsed_ms": 41.36,
-          "candidate_count": 25,
+          "elapsed_ms": 53.51,
+          "candidate_count": 23,
           "top_candidate": {
-            "name": "mutation_allowed_in_runtime",
-            "file": "crates/codelens-mcp/src/state.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         },
         {
@@ -3902,11 +3902,11 @@
           "role": "helper",
           "adversarial_group": "bce5c600343c",
           "rank": null,
-          "elapsed_ms": 34.63,
-          "candidate_count": 25,
+          "elapsed_ms": 36.51,
+          "candidate_count": 22,
           "top_candidate": {
-            "name": "analysis_parallelism_for_profile",
-            "file": "crates/codelens-mcp/src/state.rs"
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
           }
         }
       ],

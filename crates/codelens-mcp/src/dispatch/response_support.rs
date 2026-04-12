@@ -173,6 +173,11 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
 
     out.insert("success".to_owned(), Value::Bool(resp.success));
 
+    // Error message (if present)
+    if let Some(ref err) = resp.error {
+        out.insert("error".to_owned(), Value::String(err.clone()));
+    }
+
     // Header: compact metadata on key fields only
     if let Some(ref backend) = resp.backend_used {
         out.insert("backend_used".to_owned(), Value::String(backend.clone()));
