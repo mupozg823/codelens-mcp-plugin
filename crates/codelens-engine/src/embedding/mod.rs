@@ -486,6 +486,29 @@ fn configure_embedding_runtime() {
     );
 }
 
+fn requested_embedding_model_override() -> Result<Option<String>> {
+    let env_model = std::env::var("CODELENS_EMBED_MODEL").ok();
+    let Some(model_id) = env_model else {
+        return Ok(None);
+    };
+    if model_id.is_empty() || model_id == CODESEARCH_MODEL_NAME {
+        return Ok(None);
+    }
+
+    #[cfg(feature = "model-bakeoff")]
+    {
+        return Ok(Some(model_id));
+    }
+
+    #[cfg(not(feature = "model-bakeoff"))]
+    {
+        anyhow::bail!(
+            "CODELENS_EMBED_MODEL={model_id} requires the `model-bakeoff` feature; \
+             rebuild the binary with `--features model-bakeoff` to run alternative model bake-offs"
+        );
+    }
+}
+
 pub fn configured_embedding_runtime_info() -> EmbeddingRuntimeInfo {
     let runtime_preference = configured_embedding_runtime_preference();
     let threads = configured_embedding_threads();
@@ -665,17 +688,15 @@ fn load_fastembed_builtin(
 fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, EmbeddingRuntimeInfo)> {
     configure_embedding_runtime();
 
-    // Check if user requested a fastembed built-in model via env var.
-    // If CODELENS_EMBED_MODEL is set and doesn't match the bundled model,
-    // try loading it as a fastembed built-in (auto-downloads from HuggingFace).
-    #[cfg(feature = "model-bakeoff")]
-    {
-        let env_model = std::env::var("CODELENS_EMBED_MODEL").ok();
-        if let Some(ref model_id) = env_model {
-            if model_id != CODESEARCH_MODEL_NAME && !model_id.is_empty() {
-                return load_fastembed_builtin(model_id);
-            }
+    // Alternative model overrides are only valid when the bakeoff feature is enabled.
+    if let Some(model_id) = requested_embedding_model_override()? {
+        #[cfg(feature = "model-bakeoff")]
+        {
+            return load_fastembed_builtin(&model_id);
         }
+
+        #[cfg(not(feature = "model-bakeoff"))]
+        unreachable!("alternative embedding model override should have errored");
     }
 
     let model_dir = resolve_model_dir()?;
@@ -4425,6 +4446,65 @@ fn search_for_matches() {
     #[test]
     fn configured_embedding_model_name_defaults_to_codesearchnet() {
         assert_eq!(configured_embedding_model_name(), CODESEARCH_MODEL_NAME);
+    }
+
+    #[test]
+    fn requested_embedding_model_override_ignores_default_model_name() {
+        let previous = std::env::var("CODELENS_EMBED_MODEL").ok();
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_MODEL", CODESEARCH_MODEL_NAME);
+        }
+
+        let result = requested_embedding_model_override().unwrap();
+
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("CODELENS_EMBED_MODEL", value),
+                None => std::env::remove_var("CODELENS_EMBED_MODEL"),
+            }
+        }
+
+        assert_eq!(result, None);
+    }
+
+    #[cfg(not(feature = "model-bakeoff"))]
+    #[test]
+    fn requested_embedding_model_override_requires_bakeoff_feature() {
+        let previous = std::env::var("CODELENS_EMBED_MODEL").ok();
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_MODEL", "all-MiniLM-L12-v2");
+        }
+
+        let err = requested_embedding_model_override().unwrap_err();
+
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("CODELENS_EMBED_MODEL", value),
+                None => std::env::remove_var("CODELENS_EMBED_MODEL"),
+            }
+        }
+
+        assert!(err.to_string().contains("model-bakeoff"));
+    }
+
+    #[cfg(feature = "model-bakeoff")]
+    #[test]
+    fn requested_embedding_model_override_accepts_alternative_model() {
+        let previous = std::env::var("CODELENS_EMBED_MODEL").ok();
+        unsafe {
+            std::env::set_var("CODELENS_EMBED_MODEL", "all-MiniLM-L12-v2");
+        }
+
+        let result = requested_embedding_model_override().unwrap();
+
+        unsafe {
+            match previous {
+                Some(value) => std::env::set_var("CODELENS_EMBED_MODEL", value),
+                None => std::env::remove_var("CODELENS_EMBED_MODEL"),
+            }
+        }
+
+        assert_eq!(result.as_deref(), Some("all-MiniLM-L12-v2"));
     }
 
     #[test]

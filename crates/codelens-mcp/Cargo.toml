@@ -22,7 +22,7 @@ tokio-stream = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
-codelens-engine = { path = "../codelens-engine", version = "=1.9.9" }
+codelens-engine = { path = "../codelens-engine", version = "=1.9.10" }
 thiserror.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
@@ -35,4 +35,5 @@ http-body-util = { workspace = true }
 [features]
 default = ["semantic"]
 semantic = ["codelens-engine/semantic"]
+model-bakeoff = ["semantic", "codelens-engine/model-bakeoff"]
 http = ["dep:axum", "dep:tokio", "dep:uuid", "dep:tokio-stream"]
