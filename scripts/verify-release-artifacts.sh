@@ -227,6 +227,7 @@ verify_release_manifest() {
 	local manifest="$1"
 	python3 - "$manifest" "$checksums_path" <<'PY'
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -257,10 +258,20 @@ for raw_line in checksums_path.read_text().splitlines():
     checksum, name = line.split(maxsplit=1)
     checksum_entries[name] = checksum
 
+payload_patterns = [
+    re.compile(r"^codelens-mcp-airgap-.+\.tar\.gz$"),
+    re.compile(r"^codelens-mcp-.+\.tar\.gz$"),
+    re.compile(r"^codelens-mcp-.+\.zip$"),
+    re.compile(r"^codelens-mcp-.+\.cdx\.json$"),
+]
+
+def is_payload_asset(name: str) -> bool:
+    return any(pattern.match(name) for pattern in payload_patterns)
+
 payload_entries = {
     name: checksum
     for name, checksum in checksum_entries.items()
-    if name != manifest_path.name
+    if name != manifest_path.name and is_payload_asset(name)
 }
 manifest_entries = {}
 for asset in assets:
@@ -291,6 +302,63 @@ if set(manifest_entries) != set(payload_entries):
 PY
 }
 
+verify_signature_file() {
+	local signature="$1"
+	local base="${signature%.sig}"
+	is_signable_asset "$(basename "$base")" || {
+		echo "unexpected signature sidecar without signable payload: $signature" >&2
+		return 1
+	}
+	if [[ ! -s "$signature" ]]; then
+		echo "signature file is empty: $signature" >&2
+		return 1
+	fi
+}
+
+verify_certificate_file() {
+	local cert="$1"
+	local base="${cert%.pem}"
+	is_signable_asset "$(basename "$base")" || {
+		echo "unexpected certificate sidecar without signable payload: $cert" >&2
+		return 1
+	}
+	if command -v openssl >/dev/null 2>&1; then
+		openssl x509 -in "$cert" -noout >/dev/null 2>&1 || {
+			echo "invalid X.509 certificate file: $cert" >&2
+			return 1
+		}
+	else
+		grep -q "BEGIN CERTIFICATE" "$cert" || {
+			echo "certificate file missing PEM header: $cert" >&2
+			return 1
+		}
+	fi
+}
+
+is_signable_asset() {
+	case "$1" in
+		codelens-mcp-airgap-*.tar.gz|codelens-mcp-*.tar.gz|codelens-mcp-*.zip|codelens-mcp-*.cdx.json|release-manifest.json)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+for asset in "${assets[@]}"; do
+	if is_signable_asset "$asset"; then
+		if [[ ! -f "$bundle_dir/$asset.sig" ]]; then
+			echo "missing signature sidecar for $asset: $bundle_dir/$asset.sig" >&2
+			exit 1
+		fi
+		if [[ ! -f "$bundle_dir/$asset.pem" ]]; then
+			echo "missing certificate sidecar for $asset: $bundle_dir/$asset.pem" >&2
+			exit 1
+		fi
+	fi
+done
+
 for asset in "${assets[@]}"; do
 	case "$asset" in
 		codelens-mcp-airgap-*.tar.gz)
@@ -307,6 +375,12 @@ for asset in "${assets[@]}"; do
 			;;
 		release-manifest.json)
 			verify_release_manifest "$bundle_dir/$asset"
+			;;
+		*.sig)
+			verify_signature_file "$bundle_dir/$asset"
+			;;
+		*.pem)
+			verify_certificate_file "$bundle_dir/$asset"
 			;;
 		*)
 			echo "unexpected release artifact type in checksums file: $asset" >&2

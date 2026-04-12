@@ -26,6 +26,8 @@ The workflow is also configured to publish:
 
 - `checksums-sha256.txt`
 - `release-manifest.json`
+- `*.sig` keyless blob signatures for release payloads
+- `*.pem` Fulcio-issued signing certificates for release payloads
 - `codelens-mcp-<target>.cdx.json` per-target CycloneDX SBOM files
 - a Linux OCI image to GHCR from the released `linux-x86_64` archive payload
 - `codelens-mcp-airgap-linux-x86_64.tar.gz` self-contained offline bundle
@@ -41,6 +43,7 @@ and then uses those release checksums to update the Homebrew tap formula.
 
 - release archives are built in CI from tagged source
 - SHA-256 checksums are published alongside the assets
+- keyless blob signatures and signing certificates are published for each archive, SBOM, air-gapped bundle, and `release-manifest.json`
 - per-target CycloneDX SBOMs are generated in the release workflow
 - provenance and SBOM attestations are generated in the release workflow
 - an OCI image is built from the released Linux binary and pushed to GHCR
@@ -52,7 +55,8 @@ and then uses those release checksums to update the Homebrew tap formula.
 
 ### What is **not** currently true
 
-- no artifact signing step exists
+- no Sigstore bundle export is mirrored as a plain release asset
+- `checksums-sha256.txt` itself is not separately signed
 
 The remaining items are roadmap gaps, not shipped capabilities.
 
@@ -62,7 +66,7 @@ The remaining items are roadmap gaps, not shipped capabilities.
 
 ### 1. Download a release bundle
 
-Download the published archives, `release-manifest.json`, per-target SBOM files, and `checksums-sha256.txt` from a tagged GitHub release into a single directory.
+Download the published archives, `release-manifest.json`, matching `*.sig` and `*.pem` sidecars, per-target SBOM files, and `checksums-sha256.txt` from a tagged GitHub release into a single directory.
 
 ### 2. Run the local verification script
 
@@ -85,6 +89,7 @@ It verifies:
 5. each `*.cdx.json` file is valid JSON and declares a CycloneDX SBOM for `codelens-mcp`
 6. each `codelens-mcp-airgap-*.tar.gz` bundle contains the binary, bundled model assets, examples, manifest, and internally valid checksums
 7. `release-manifest.json` matches the checksum manifest and enumerates the published assets
+8. each signable release payload has a non-empty `.sig` sidecar and a parseable `.pem` certificate sidecar
 
 ### 3. Verify only a subset of targets when needed
 
@@ -107,7 +112,25 @@ gh attestation verify ./codelens-mcp-linux-x86_64.tar.gz \
 
 This verifies the default SLSA provenance predicate bound to the artifact.
 
-### 5. Pull the published OCI image
+### 5. Verify a keyless blob signature
+
+Example for the Linux archive:
+
+```bash
+cosign verify-blob codelens-mcp-linux-x86_64.tar.gz \
+  --signature codelens-mcp-linux-x86_64.tar.gz.sig \
+  --certificate codelens-mcp-linux-x86_64.tar.gz.pem \
+  --certificate-identity-regexp "https://github.com/mupozg823/codelens-mcp-plugin/.github/workflows/release.yml@refs/tags/.*" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+```
+
+Use the same pattern for:
+
+- `codelens-mcp-<target>.cdx.json`
+- `codelens-mcp-airgap-linux-x86_64.tar.gz`
+- `release-manifest.json`
+
+### 6. Pull the published OCI image
 
 Once a new tag has gone through the release workflow, the container image is published to:
 
@@ -121,7 +144,7 @@ Example:
 docker pull ghcr.io/mupozg823/codelens-mcp-plugin:1.9.14
 ```
 
-### 6. Use the air-gapped bundle
+### 7. Use the air-gapped bundle
 
 The release workflow also publishes a Linux offline bundle:
 
@@ -161,6 +184,7 @@ The OCI image is built from the released `linux-x86_64` binary artifact rather t
 | Reproducible tagged binary builds | GitHub Actions release workflow | Partial |
 | Published checksums | `checksums-sha256.txt` | Present |
 | Published release inventory | `release-manifest.json` | Present |
+| Published keyless signatures | `*.sig` + `*.pem` sidecars | Present |
 | Published per-target CycloneDX SBOMs | release workflow configured | Present |
 | GitHub provenance attestation | `actions/attest@v4` in release workflow | Present |
 | GitHub SBOM attestation | `actions/attest@v4` in release workflow | Present |
@@ -168,7 +192,7 @@ The OCI image is built from the released `linux-x86_64` binary artifact rather t
 | Air-gapped bundle | Linux offline tarball via `build-airgap-bundle.sh` | Present |
 | Local artifact verification path | `scripts/verify-release-artifacts.sh` | Present |
 | Homebrew derivation from published assets | Implemented in release workflow | Present |
-| Signature verification path | Not implemented | Missing |
+| Signature verification path | Cosign keyless blob verification for release payloads | Present |
 
 Interpretation:
 
@@ -189,13 +213,13 @@ Interpretation:
 
 This document plus `scripts/verify-release-artifacts.sh` closes that P0 gap.
 
-### P1: add supply-chain metadata
+### P1: harden signature portability
 
-1. Export or mirror attestation bundles for environments that cannot depend on GitHub's attestation API at verification time.
-2. Document explicit verification policy for SBOM attestations, not just provenance attestations.
-3. Add release-promotion enforcement so attestation generation failure blocks publication.
+1. Export or mirror Sigstore bundles so transparency-log evidence is available without a live Rekor lookup.
+2. Decide whether `checksums-sha256.txt` should also be signed or replaced operationally by the signed release manifest.
+3. Document explicit verification policy for SBOM attestations, not just provenance attestations.
 
-This is the minimum bar to move from "developer-grade release assets" to "enterprise-reviewable release assets."
+This is the minimum bar to move from "developer-grade release assets" to "enterprise-reviewable signed release assets."
 
 ### P2: add enterprise delivery formats
 

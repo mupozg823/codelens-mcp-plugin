@@ -97,6 +97,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      id-token: write
       packages: write
     steps:
       - uses: actions/checkout@v4
@@ -153,7 +154,7 @@ jobs:
             --models-dir crates/codelens-engine/models \
             --output codelens-mcp-airgap-linux-x86_64.tar.gz
 
-      - name: Generate checksums
+      - name: Generate payload checksums
         run: |
           find . -maxdepth 1 -type f \
             \( -name 'codelens-mcp-*.tar.gz' -o -name 'codelens-mcp-*.zip' -o -name 'codelens-mcp-*.cdx.json' \) \
@@ -162,20 +163,51 @@ jobs:
             | LC_ALL=C sort \
             | while IFS= read -r asset; do
                 sha256sum "$asset"
-              done > checksums-sha256.txt
+              done > release-payload-checksums-sha256.txt
 
       - name: Generate release manifest
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           python3 scripts/generate-release-manifest.py \
             --bundle-dir . \
-            --checksums checksums-sha256.txt \
+            --checksums release-payload-checksums-sha256.txt \
             --repo "${GITHUB_REPOSITORY}" \
             --tag "${GITHUB_REF_NAME}" \
             --version "${VERSION}" \
             --image "ghcr.io/${GITHUB_REPOSITORY}" \
             --output release-manifest.json
-          sha256sum release-manifest.json >> checksums-sha256.txt
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign release artifacts
+        env:
+          COSIGN_YES: "true"
+        run: |
+          find . -maxdepth 1 -type f \
+            \( -name 'codelens-mcp-airgap-*.tar.gz' -o -name 'codelens-mcp-*.tar.gz' -o -name 'codelens-mcp-*.zip' -o -name 'codelens-mcp-*.cdx.json' -o -name 'release-manifest.json' \) \
+            -print \
+            | sed 's#^\./##' \
+            | LC_ALL=C sort \
+            | while IFS= read -r asset; do
+                cosign sign-blob \
+                  --yes \
+                  --output-signature "${asset}.sig" \
+                  --output-certificate "${asset}.pem" \
+                  "$asset"
+              done
+
+      - name: Generate final checksums
+        run: |
+          find . -maxdepth 1 -type f \
+            \( -name 'codelens-mcp-airgap-*.tar.gz' -o -name 'codelens-mcp-*.tar.gz' -o -name 'codelens-mcp-*.zip' -o -name 'codelens-mcp-*.cdx.json' -o -name 'release-manifest.json' -o -name 'codelens-mcp-airgap-*.tar.gz.sig' -o -name 'codelens-mcp-airgap-*.tar.gz.pem' -o -name 'codelens-mcp-*.tar.gz.sig' -o -name 'codelens-mcp-*.tar.gz.pem' -o -name 'codelens-mcp-*.zip.sig' -o -name 'codelens-mcp-*.zip.pem' -o -name 'codelens-mcp-*.cdx.json.sig' -o -name 'codelens-mcp-*.cdx.json.pem' -o -name 'release-manifest.json.sig' -o -name 'release-manifest.json.pem' \) \
+            -print \
+            | sed 's#^\./##' \
+            | LC_ALL=C sort \
+            | while IFS= read -r asset; do
+                sha256sum "$asset"
+              done > checksums-sha256.txt
+          rm -f release-payload-checksums-sha256.txt
 
       - name: Verify release artifacts before publish
         run: |
@@ -191,6 +223,16 @@ jobs:
             codelens-mcp-*.zip
             codelens-mcp-*.cdx.json
             release-manifest.json
+            codelens-mcp-airgap-*.tar.gz.sig
+            codelens-mcp-airgap-*.tar.gz.pem
+            codelens-mcp-*.tar.gz.sig
+            codelens-mcp-*.tar.gz.pem
+            codelens-mcp-*.zip.sig
+            codelens-mcp-*.zip.pem
+            codelens-mcp-*.cdx.json.sig
+            codelens-mcp-*.cdx.json.pem
+            release-manifest.json.sig
+            release-manifest.json.pem
             checksums-sha256.txt
           generate_release_notes: true
         env:
