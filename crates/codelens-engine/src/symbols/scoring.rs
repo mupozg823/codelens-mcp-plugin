@@ -83,39 +83,6 @@ fn query_has_action_verb(tokens: &[&str]) -> bool {
     tokens.iter().any(|t| ACTION_VERBS.contains(t))
 }
 
-/// Split a CamelCase or PascalCase name into lowercase tokens.
-/// e.g. "FileWatcher" → ["file", "watcher"], "getHTTPResponse" → ["get", "http", "response"]
-fn split_camel_case(name: &str) -> Vec<String> {
-    let mut tokens = Vec::new();
-    let mut current = String::new();
-    let chars: Vec<char> = name.chars().collect();
-
-    for i in 0..chars.len() {
-        let c = chars[i];
-        if c == '_' || c == '-' {
-            if !current.is_empty() {
-                tokens.push(current.to_lowercase());
-                current.clear();
-            }
-            continue;
-        }
-        if c.is_uppercase() && !current.is_empty() {
-            // Check if this starts a new word (not a consecutive uppercase like "HTTP")
-            let prev_lower = i > 0 && chars[i - 1].is_lowercase();
-            let next_lower = i + 1 < chars.len() && chars[i + 1].is_lowercase();
-            if prev_lower || (next_lower && current.len() > 1) {
-                tokens.push(current.to_lowercase());
-                current.clear();
-            }
-        }
-        current.push(c);
-    }
-    if !current.is_empty() {
-        tokens.push(current.to_lowercase());
-    }
-    tokens
-}
-
 /// Score a symbol's relevance to a query string.
 /// Returns None if no match, Some(1..=100) for match strength.
 ///
@@ -189,15 +156,18 @@ pub(crate) fn score_symbol_with_lower(
         return None;
     }
 
-    // Split CamelCase name into tokens for matching (e.g. FileWatcher → ["file","watcher"])
-    let name_camel_tokens = split_camel_case(&symbol.name);
+    // Token-level name matching: contains_ascii_ci already covers
+    // CamelCase segments because every CamelCase segment is a contiguous
+    // substring of the original name. The old split_camel_case() call
+    // allocated Vec<char> + Vec<String> per candidate but could never
+    // produce a hit that contains_ascii_ci missed. Removed in v1.6.2+
+    // to eliminate the last per-candidate allocation in this function.
 
     let mut name_hits = 0i32;
     let mut sig_hits = 0i32;
     let mut path_hits = 0i32;
     for token in &tokens {
-        if contains_ascii_ci(&symbol.name, token) || name_camel_tokens.iter().any(|ct| ct == token)
-        {
+        if contains_ascii_ci(&symbol.name, token) {
             name_hits += 1;
         }
         if contains_ascii_ci(&symbol.signature, token) {
