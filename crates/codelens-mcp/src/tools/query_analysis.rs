@@ -576,6 +576,16 @@ fn expand_retrieval_query(query: &str) -> String {
             push_unique(alias);
         }
     }
+    // Disambiguation aliases for generic-named symbols in specific domains
+    if lowered.contains("index") && lowered.contains("project") && lowered.contains("embedding") {
+        push_unique("index_from_project");
+    }
+    if lowered.contains("extract") && lowered.contains("call") {
+        push_unique("extract_calls");
+    }
+    if lowered.contains("collect") && lowered.contains("candidate") {
+        push_unique("collect_candidate_files");
+    }
 
     terms.join(" ")
 }

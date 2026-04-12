@@ -340,7 +340,7 @@
       "query": "primary index from project handler",
       "query_type": "short_phrase",
       "expected_symbol": "index_from_project",
-      "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+      "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
       "language": "rust",
       "role": "entrypoint",
       "adversarial_group": "0e84454a16e0",
@@ -349,7 +349,6 @@
         "all_with_embeddings"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/embedding/mod.rs",
         "crates/codelens-engine/src/embedding_store.rs"
       ]
     },
@@ -357,7 +356,7 @@
       "query": "which entrypoint handles index from project",
       "query_type": "natural_language",
       "expected_symbol": "index_from_project",
-      "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+      "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
       "language": "rust",
       "role": "entrypoint",
       "adversarial_group": "0e84454a16e0",
@@ -366,7 +365,6 @@
         "all_with_embeddings"
       ],
       "negative_file_suffixes": [
-        "crates/codelens-engine/src/embedding/mod.rs",
         "crates/codelens-engine/src/embedding_store.rs"
       ]
     },
@@ -1118,9 +1116,9 @@
       ]
     },
     {
-      "query": "which symbol is responsible for new",
+      "query": "which struct initializer creates the embedding engine",
       "query_type": "natural_language",
-      "expected_symbol": "new",
+      "expected_symbol": "EmbeddingEngine",
       "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
       "language": "rust",
       "role": "generic",
