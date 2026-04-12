@@ -110,14 +110,13 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         ));
     }
 
-    let semantic_query = crate::tools::symbols::semantic_query_for_retrieval(query);
-    let expanded_query = crate::tools::symbols::expanded_query_for_retrieval(query);
+    let query_analysis = crate::tools::query_analysis::analyze_retrieval_query(query);
 
     // Structural boosting: find name-matching candidates from SymbolIndex
     // and boost semantic results that overlap with structural hits.
     let structural_names: std::collections::HashSet<String> = state
         .symbol_index()
-        .get_ranked_context(&expanded_query, None, 4000, false, 2)
+        .get_ranked_context(&query_analysis.expanded_query, None, 4000, false, 2)
         .map(|rc| {
             rc.symbols
                 .into_iter()
@@ -180,13 +179,13 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
     }
 
     // Re-sort and truncate
-    results = crate::tools::symbols::rerank_semantic_matches(query, results, max_results);
+    results = crate::tools::query_analysis::rerank_semantic_matches(query, results, max_results);
 
     let result_scores = results
         .iter()
         .map(|result| {
             let (prior_delta, adjusted_score) =
-                crate::tools::symbols::semantic_adjusted_score_parts(query, result);
+                crate::tools::query_analysis::semantic_adjusted_score_parts(query, result);
             (
                 (prior_delta * 1000.0).round() / 1000.0,
                 (adjusted_score * 1000.0).round() / 1000.0,
@@ -200,7 +199,7 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
         "retrieval": {
             "semantic_enabled": true,
             "requested_query": query,
-            "semantic_query": semantic_query,
+            "semantic_query": query_analysis.semantic_query,
         }
     });
     if let Some(entries) = payload
@@ -828,7 +827,7 @@ mod doom_loop_hash_tests {
 
 #[cfg(all(test, feature = "semantic"))]
 mod semantic_tests {
-    use crate::tools::symbols::rerank_semantic_matches;
+    use crate::tools::query_analysis::{analyze_retrieval_query, rerank_semantic_matches};
     use codelens_engine::SemanticMatch;
 
     fn semantic_match(file_path: &str, symbol_name: &str, kind: &str, score: f64) -> SemanticMatch {
@@ -965,9 +964,7 @@ mod semantic_tests {
 
     #[test]
     fn expands_stdio_alias_terms() {
-        let expanded = crate::tools::symbols::expanded_query_for_retrieval(
-            "read input from stdin line by line",
-        );
+        let expanded = analyze_retrieval_query("read input from stdin line by line").expanded_query;
         assert!(expanded.contains("run_stdio"));
         assert!(expanded.contains("stdio"));
     }

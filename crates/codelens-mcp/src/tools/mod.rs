@@ -4,6 +4,7 @@ pub mod graph;
 pub mod lsp;
 pub mod memory;
 pub mod mutation;
+pub(crate) mod query_analysis;
 mod report_contract;
 pub(crate) mod report_jobs;
 mod report_payload;
@@ -169,57 +170,15 @@ pub fn parse_lsp_args(arguments: &serde_json::Value, command: &str) -> Vec<Strin
 }
 
 pub fn default_lsp_command_for_path(file_path: &str) -> Option<String> {
-    match std::path::Path::new(file_path)
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "py" => Some("pyright-langserver".to_owned()),
-        "js" | "jsx" | "ts" | "tsx" | "mjs" | "cjs" => {
-            Some("typescript-language-server".to_owned())
-        }
-        "rs" => Some("rust-analyzer".to_owned()),
-        "cs" => Some("csharp-ls".to_owned()),
-        "dart" => Some("dart".to_owned()),
-        "go" => Some("gopls".to_owned()),
-        "java" => Some("jdtls".to_owned()),
-        "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" => Some("clangd".to_owned()),
-        "rb" => Some("solargraph".to_owned()),
-        "php" => Some("intelephense".to_owned()),
-        "kt" | "kts" => Some("kotlin-language-server".to_owned()),
-        "scala" | "sc" => Some("metals".to_owned()),
-        "swift" => Some("sourcekit-lsp".to_owned()),
-        // Phase 6a languages
-        "lua" => Some("lua-language-server".to_owned()),
-        "zig" => Some("zls".to_owned()),
-        "ex" | "exs" => Some("nextls".to_owned()),
-        "hs" => Some("haskell-language-server-wrapper".to_owned()),
-        "ml" | "mli" => Some("ocamllsp".to_owned()),
-        "erl" | "hrl" => Some("erlang_ls".to_owned()),
-        "r" => Some("R".to_owned()),
-        "sh" | "bash" => Some("bash-language-server".to_owned()),
-        "jl" => Some("julia".to_owned()),
-        _ => None,
-    }
+    codelens_engine::default_lsp_command_for_path(file_path).map(str::to_owned)
 }
 
 pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
-    match command {
-        "pyright-langserver" => vec!["--stdio".to_owned()],
-        "typescript-language-server" => vec!["--stdio".to_owned()],
-        "dart" => vec!["language-server".to_owned(), "--protocol=lsp".to_owned()],
-        "clangd" => vec!["--background-index".to_owned()],
-        "solargraph" => vec!["stdio".to_owned()],
-        "intelephense" => vec!["--stdio".to_owned()],
-        // Phase 6a languages
-        "nextls" => vec!["--stdio".to_owned()],
-        "haskell-language-server-wrapper" => vec!["--lsp".to_owned()],
-        "bash-language-server" => vec!["start".to_owned()],
-        "perlnavigator" => vec!["--stdio".to_owned()],
-        _ => Vec::new(),
-    }
+    codelens_engine::default_lsp_args_for_command(command)
+        .unwrap_or(&[])
+        .iter()
+        .map(|arg| (*arg).to_owned())
+        .collect()
 }
 
 /// Tools relevant during harness PLAN phase
