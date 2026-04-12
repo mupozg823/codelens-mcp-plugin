@@ -17,21 +17,16 @@ pub(crate) fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> Stri
     ) {
         return "overview complete — drill into specific files or symbols".to_owned();
     }
-    if tokens > budget {
-        return format!(
-            "response ({tokens} tokens) exceeds budget ({budget}) — narrow with path filter or max_tokens"
-        );
+    let pct = if budget > 0 { tokens * 100 / budget } else { 100 };
+    let base = format!("{tokens} tokens ({pct}% of {budget} budget)");
+
+    if pct > 95 {
+        format!("{base}. Response near limit — use get_analysis_section to expand specific parts instead of full reports.")
+    } else if pct > 75 {
+        format!("{base}. Consider narrowing scope with path or max_tokens parameter.")
+    } else {
+        base
     }
-    if tokens > budget * 3 / 4 {
-        return format!("near budget ({tokens}/{budget} tokens) — consider narrowing scope");
-    }
-    if tokens > 100 {
-        return "context sufficient — proceed to edit or analysis".to_owned();
-    }
-    if tokens < 50 {
-        return "minimal results — try broader query or different tool".to_owned();
-    }
-    "focused result — ready for next step".to_owned()
 }
 
 pub(crate) fn apply_contextual_guidance(
@@ -89,7 +84,38 @@ pub(crate) fn routing_hint_for_payload(resp: &ToolCallResponse) -> RoutingHint {
     }
 }
 
+/// Recursively strip empty arrays, null values, and empty strings from a JSON Value.
+pub(crate) fn strip_empty_fields(value: &mut serde_json::Value) {
+    match value {
+        serde_json::Value::Object(map) => {
+            map.retain(|_, v| {
+                strip_empty_fields(v);
+                !is_empty_value(v)
+            });
+        }
+        serde_json::Value::Array(arr) => {
+            for item in arr.iter_mut() {
+                strip_empty_fields(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_empty_value(v: &serde_json::Value) -> bool {
+    match v {
+        serde_json::Value::Null => true,
+        serde_json::Value::String(s) => s.is_empty(),
+        serde_json::Value::Array(a) => a.is_empty(),
+        serde_json::Value::Object(m) => m.is_empty(),
+        _ => false,
+    }
+}
+
 pub(crate) fn compact_response_payload(resp: &mut ToolCallResponse) {
+    if let Some(ref mut data) = resp.data {
+        strip_empty_fields(data);
+    }
     if let Some(ref mut data) = resp.data
         && let Some(obj) = data.as_object_mut()
     {
