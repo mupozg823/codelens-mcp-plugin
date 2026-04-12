@@ -209,25 +209,26 @@ Current reproducible local quality snapshot (`benchmarks/embedding-quality-summa
 
 ## vs Serena
 
-Both are code intelligence MCP servers. Different trade-offs:
+Both are code intelligence MCP servers, but they optimize for different things.
 
-|                       | CodeLens                          | Serena                                 |
-| --------------------- | --------------------------------- | -------------------------------------- |
-| **Language**          | Rust                              | Python                                 |
-| **Core engine**       | tree-sitter (AST)                 | LSP (language servers)                 |
-| **Type resolution**   | Opt-in via LSP (`use_lsp=true`)   | Always-on (LSP is the core engine)     |
-| **Setup**             | Single binary, zero config        | Python + uv + per-language LSP servers |
-| **Cold start**        | 12ms                              | Seconds (LSP boot per language)        |
-| **Offline / air-gap** | Fully offline (ML model bundled)  | Partial (needs LSP binaries)           |
-| **ML / semantic**     | Bundled CodeSearchNet ONNX model  | None                                   |
-| **Refactoring**       | 4 operations (inline, move, etc.) | 1 (replace symbol body)                |
-| **Languages**         | 30 (tree-sitter grammars)         | 40+ (via LSP ecosystem)                |
-| **Token budget**      | Role profiles + legacy presets    | No                                     |
-| **Stars**             | New project                       | 22K+                                   |
+| Axis | CodeLens | Serena |
+| --- | --- | --- |
+| Primary shape | Harness optimization layer | IDE-style semantic backend for agents |
+| Runtime | Single Rust binary | Python + `uv` |
+| Default intelligence backend | tree-sitter + SQLite + optional LSP | LSP by default, JetBrains plugin optionally |
+| Tool-surface control | Profiles, presets, deferred tool loading | YAML-configurable tool sets and modes |
+| Bounded workflows | Composite reports, handles, durable jobs | Strong symbolic tools, lighter workflow layer |
+| Semantic retrieval | Bundled ONNX model + hybrid ranking | Symbolic/LSP retrieval, no bundled embedding model |
+| Refactoring depth | Preview-first gated mutations, hybrid native/LSP | Stronger IDE/LSP-backed semantic edits today |
+| Offline / air-gap | Strong | Depends on backend and language-server setup |
 
-**When to choose CodeLens:** Fast setup, offline environments, token-efficient agent workflows, refactoring operations.
+Current honest summary:
 
-**When to choose Serena:** Deep type-aware analysis, languages not covered by tree-sitter, existing LSP infrastructure.
+- CodeLens is stronger for bounded, token-aware harness workflows.
+- Serena is stronger for deep IDE-backed semantic editing and broader language-backend coverage.
+- CodeLens is **not yet** a strict superset of Serena across all axes.
+
+See [docs/serena-comparison.md](docs/serena-comparison.md) for the current gap analysis and the architecture path to become a real superset.
 
 ## Building
 
