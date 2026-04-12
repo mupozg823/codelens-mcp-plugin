@@ -161,6 +161,25 @@ verify_zip_structure() {
 	fi
 }
 
+verify_sbom_structure() {
+	local sbom="$1"
+	python3 - "$sbom" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+obj = json.loads(path.read_text())
+if obj.get("bomFormat") != "CycloneDX":
+    raise SystemExit(f"unexpected bomFormat in {path}: {obj.get('bomFormat')!r}")
+if not obj.get("specVersion"):
+    raise SystemExit(f"missing specVersion in {path}")
+component = obj.get("metadata", {}).get("component", {})
+if component.get("name") != "codelens-mcp":
+    raise SystemExit(f"unexpected metadata.component.name in {path}: {component.get('name')!r}")
+PY
+}
+
 for asset in "${assets[@]}"; do
 	case "$asset" in
 		*.tar.gz)
@@ -168,6 +187,9 @@ for asset in "${assets[@]}"; do
 			;;
 		*.zip)
 			verify_zip_structure "$bundle_dir/$asset"
+			;;
+		*.cdx.json)
+			verify_sbom_structure "$bundle_dir/$asset"
 			;;
 		*)
 			echo "unexpected release artifact type in checksums file: $asset" >&2

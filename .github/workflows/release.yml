@@ -9,6 +9,11 @@ jobs:
   build:
     name: Build (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
     strategy:
       fail-fast: false
       matrix:
@@ -17,16 +22,19 @@ jobs:
             os: macos-latest
             name: darwin-arm64
             ext: ""
+            archive_ext: ".tar.gz"
           # x86_64-apple-darwin removed: ort-sys has no prebuilt binaries
           # aarch64-unknown-linux-gnu removed: openssl cross-compile fails with ort
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             name: linux-x86_64
             ext: ""
+            archive_ext: ".tar.gz"
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             name: windows-x86_64
             ext: ".exe"
+            archive_ext: ".zip"
 
     steps:
       - uses: actions/checkout@v4
@@ -35,8 +43,23 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked
+
       - name: Build
         run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Generate CycloneDX SBOM
+        shell: bash
+        run: |
+          cargo cyclonedx \
+            --manifest-path Cargo.toml \
+            --format json \
+            --describe binaries \
+            --target ${{ matrix.target }} \
+            --target-in-filename
+          cp "crates/codelens-mcp/codelens-mcp_bin_${{ matrix.target }}.cdx.json" \
+            "codelens-mcp-${{ matrix.name }}.cdx.json"
 
       - name: Package (Unix)
         if: runner.os != 'Windows'
@@ -50,6 +73,17 @@ jobs:
         run: |
           cp target/${{ matrix.target }}/release/codelens-mcp.exe codelens-mcp.exe
           7z a codelens-mcp-${{ matrix.name }}.zip codelens-mcp.exe
+
+      - name: Attest build provenance
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ github.workspace }}/codelens-mcp-${{ matrix.name }}${{ matrix.archive_ext }}
+
+      - name: Attest SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: ${{ github.workspace }}/codelens-mcp-${{ matrix.name }}${{ matrix.archive_ext }}
+          sbom-path: ${{ github.workspace }}/codelens-mcp-${{ matrix.name }}.cdx.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -68,7 +102,12 @@ jobs:
           merge-multiple: true
 
       - name: Generate checksums
-        run: sha256sum codelens-mcp-* > checksums-sha256.txt
+        run: |
+          sha256sum \
+            codelens-mcp-*.tar.gz \
+            codelens-mcp-*.zip \
+            codelens-mcp-*.cdx.json \
+            > checksums-sha256.txt
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -76,6 +115,7 @@ jobs:
           files: |
             codelens-mcp-*.tar.gz
             codelens-mcp-*.zip
+            codelens-mcp-*.cdx.json
             checksums-sha256.txt
           generate_release_notes: true
         env:

@@ -1,6 +1,6 @@
 # CodeLens MCP — Release Verification and Packaging Status
 
-This document is the operational reference for what the current release pipeline produces, how to verify a published release, and what still needs to land before CodeLens can claim supply-chain-grade packaging.
+This document is the operational reference for what the current release pipeline is configured to produce, how to verify a published release, and what still needs to land before CodeLens can claim supply-chain-grade packaging.
 
 It is intentionally split into:
 
@@ -12,7 +12,7 @@ That keeps public packaging claims grounded in what the repository actually ship
 
 ---
 
-## Current release outputs
+## Configured release outputs
 
 The tag-driven GitHub release workflow in [`.github/workflows/release.yml`](../.github/workflows/release.yml) currently builds and publishes three release artifacts:
 
@@ -22,28 +22,34 @@ The tag-driven GitHub release workflow in [`.github/workflows/release.yml`](../.
 | `linux-x86_64` | `codelens-mcp-linux-x86_64.tar.gz` | `codelens-mcp` |
 | `windows-x86_64` | `codelens-mcp-windows-x86_64.zip` | `codelens-mcp.exe` |
 
-The workflow also publishes:
+The workflow is also configured to publish:
 
 - `checksums-sha256.txt`
+- `codelens-mcp-<target>.cdx.json` per-target CycloneDX SBOM files
+
+The workflow is also configured to generate GitHub artifact attestations for each packaged archive:
+
+- one provenance attestation
+- one SBOM attestation bound to the corresponding archive
 
 and then uses those release checksums to update the Homebrew tap formula.
 
-### What is currently true
+### What is currently true in repository configuration
 
 - release archives are built in CI from tagged source
 - SHA-256 checksums are published alongside the assets
+- per-target CycloneDX SBOMs are generated in the release workflow
+- provenance and SBOM attestations are generated in the release workflow
 - Homebrew is derived from the published release checksums rather than from a separate manual path
 - release notes can be generated from GitHub plus repository-maintained notes under [`docs/release-notes`](release-notes)
 
 ### What is **not** currently true
 
-- no SBOM is generated in the release workflow
-- no provenance statement is generated in the release workflow
 - no artifact signing step exists
 - no OCI image is produced
 - no air-gapped bundle is produced
 
-Those are roadmap items, not shipped capabilities.
+Those remaining items are roadmap gaps, not shipped capabilities.
 
 ---
 
@@ -51,7 +57,7 @@ Those are roadmap items, not shipped capabilities.
 
 ### 1. Download a release bundle
 
-Download the published archives and `checksums-sha256.txt` from a tagged GitHub release into a single directory.
+Download the published archives, per-target SBOM files, and `checksums-sha256.txt` from a tagged GitHub release into a single directory.
 
 ### 2. Run the local verification script
 
@@ -71,6 +77,7 @@ It verifies:
 2. every checksum matches
 3. each tarball contains exactly one `codelens-mcp` binary
 4. each zip contains exactly one `codelens-mcp.exe`
+5. each `*.cdx.json` file is valid JSON and declares a CycloneDX SBOM for `codelens-mcp`
 
 ### 3. Verify only a subset of targets when needed
 
@@ -81,6 +88,29 @@ scripts/verify-release-artifacts.sh ./release-bundle \
 
 This is useful for partial mirrors or internal staging environments.
 
+### 4. Verify provenance attestation from GitHub
+
+For provenance verification against GitHub attestations:
+
+```bash
+gh attestation verify ./codelens-mcp-linux-x86_64.tar.gz \
+  --repo mupozg823/codelens-mcp-plugin \
+  --signer-workflow mupozg823/codelens-mcp-plugin/.github/workflows/release.yml
+```
+
+This verifies the default SLSA provenance predicate bound to the artifact.
+
+---
+
+## Current configured attestation model
+
+Each matrix build is configured to create:
+
+- one provenance attestation for the packaged release archive
+- one SBOM attestation using the generated CycloneDX JSON for that same archive
+
+The release assets themselves remain the archives, SBOM files, and checksum manifest. The attestation bundles are stored through GitHub's attestation API rather than mirrored as plain release assets.
+
 ---
 
 ## Release packaging status by enterprise gate
@@ -89,10 +119,11 @@ This is useful for partial mirrors or internal staging environments.
 | ---- | ------------- | ------ |
 | Reproducible tagged binary builds | GitHub Actions release workflow | Partial |
 | Published checksums | `checksums-sha256.txt` | Present |
+| Published per-target CycloneDX SBOMs | release workflow configured | Present |
+| GitHub provenance attestation | `actions/attest@v4` in release workflow | Present |
+| GitHub SBOM attestation | `actions/attest@v4` in release workflow | Present |
 | Local artifact verification path | `scripts/verify-release-artifacts.sh` | Present |
 | Homebrew derivation from published assets | Implemented in release workflow | Present |
-| SBOM generation | Not implemented | Missing |
-| Provenance generation | Not implemented | Missing |
 | Signature verification path | Not implemented | Missing |
 | OCI image publishing | Not implemented | Missing |
 | Air-gapped bundle | Not implemented | Missing |
@@ -110,16 +141,17 @@ Interpretation:
 ### P0: make current release artifacts auditable
 
 1. Keep the checksum-based release verification path green.
-2. Fail release promotion if expected target archives are missing.
-3. Publish one stable verification document and keep it version-agnostic.
+2. Keep the GitHub attestation path green on every tagged release.
+3. Fail release promotion if expected target archives or SBOM files are missing.
+4. Publish one stable verification document and keep it version-agnostic.
 
 This document plus `scripts/verify-release-artifacts.sh` closes that P0 gap.
 
 ### P1: add supply-chain metadata
 
-1. Generate a CycloneDX SBOM in the release workflow.
-2. Publish provenance metadata for each tagged release.
-3. Document how operators validate both the checksum and provenance layers.
+1. Export or mirror attestation bundles for environments that cannot depend on GitHub's attestation API at verification time.
+2. Document explicit verification policy for SBOM attestations, not just provenance attestations.
+3. Add release-promotion enforcement so attestation generation failure blocks publication.
 
 This is the minimum bar to move from "developer-grade release assets" to "enterprise-reviewable release assets."
 
