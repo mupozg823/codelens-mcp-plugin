@@ -340,10 +340,18 @@ pub(crate) fn rank_symbols(
     // Reusable key buffer to avoid per-symbol format! allocation
     let mut sem_key_buf = String::with_capacity(128);
 
+    // Pre-compute the snake_case form of the query once — `joined_snake`
+    // is used by score_symbol_with_lower for identifier matching (e.g.
+    // "rename symbol" → "rename_symbol"). It is query-derived and
+    // identical for every candidate, so hoisting it here eliminates one
+    // String allocation per candidate in the hot loop.
+    let joined_snake = query_lower.replace(|c: char| c.is_whitespace() || c == '-', "_");
+
     let mut scored: Vec<(SymbolInfo, i32)> = symbols
         .into_iter()
         .filter_map(|symbol| {
-            let text_score = score_symbol_with_lower(query, &query_lower, &symbol).unwrap_or(0);
+            let text_score =
+                score_symbol_with_lower(query, &query_lower, &joined_snake, &symbol).unwrap_or(0);
 
             // Semantic: cosine similarity via reusable buffer (no format! alloc)
             let sem_score = if has_semantic {
