@@ -352,6 +352,64 @@ fn file_path_prior(query_lower: &str, file_path: &str) -> f64 {
     if file_path.starts_with("crates/") {
         prior += 8.0;
     }
+
+    // Domain-file affinity: when query mentions a domain keyword,
+    // boost symbols in the matching file. Critical for disambiguating
+    // generic names like "search", "new", "index_from_project".
+    let domain_affinities: &[(&[&str], &str, f64)] = &[
+        (
+            &[
+                "call graph",
+                "call_graph",
+                "callers",
+                "callees",
+                "extract calls",
+                "candidate files",
+            ],
+            "call_graph.rs",
+            14.0,
+        ),
+        (
+            &["embedding", "vector", "vec_store", "batch insert"],
+            "vec_store.rs",
+            14.0,
+        ),
+        (
+            &["embedding", "embed model", "embedding engine"],
+            "embedding/mod.rs",
+            10.0,
+        ),
+        (
+            &["project structure", "directory stats"],
+            "symbols/mod.rs",
+            10.0,
+        ),
+        (
+            &["scope", "scope analysis", "block scope"],
+            "scope_analysis.rs",
+            10.0,
+        ),
+        (
+            &["import graph", "import resolution", "module resolution"],
+            "import_graph",
+            10.0,
+        ),
+        (
+            &["rename", "word match", "refactor rename"],
+            "rename.rs",
+            10.0,
+        ),
+        (
+            &["type hierarchy", "inheritance", "implements"],
+            "type_hierarchy.rs",
+            10.0,
+        ),
+    ];
+    for (keywords, file_fragment, boost) in domain_affinities {
+        if keywords.iter().any(|kw| query_lower.contains(kw)) && file_path.contains(file_fragment) {
+            prior += boost;
+        }
+    }
     if file_path.starts_with("benchmarks/")
         || file_path.starts_with("models/")
         || file_path.starts_with("docs/")
