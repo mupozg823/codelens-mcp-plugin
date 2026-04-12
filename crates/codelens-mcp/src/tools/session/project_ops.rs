@@ -249,15 +249,15 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                     .and_then(|available| available.as_bool())
                     .unwrap_or(false)
             })
-        {
-            warnings.push(json!({
+    {
+        warnings.push(json!({
                 "code": guidance.get("reason_code").and_then(|value| value.as_str()).unwrap_or("diagnostics_unavailable"),
                 "message": guidance.get("reason").and_then(|value| value.as_str()).unwrap_or("diagnostics are unavailable"),
                 "restart_recommended": false,
                 "recommended_action": guidance.get("recommended_action").and_then(|value| value.as_str()).unwrap_or("inspect_lsp_configuration"),
                 "action_target": guidance.get("action_target").and_then(|value| value.as_str()).unwrap_or("diagnostics"),
             }));
-        }
+    }
 
     let visible = build_visible_tool_context(state, &request);
     let visible_tool_names = visible

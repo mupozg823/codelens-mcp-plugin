@@ -449,7 +449,11 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     let include_body = optional_bool(arguments, "include_body", false);
     let depth = optional_usize(arguments, "depth", 2);
     let disable_semantic = optional_bool(arguments, "disable_semantic", false);
-    let effective_disable_semantic = disable_semantic || query_analysis.prefer_lexical_only;
+    let exact_identifier_projection = query_analysis.original_query
+        != query_analysis.expanded_query
+        && !query_analysis.expanded_query.contains(char::is_whitespace);
+    let effective_disable_semantic =
+        disable_semantic || query_analysis.prefer_lexical_only || exact_identifier_projection;
     let use_semantic_in_core = !effective_disable_semantic;
     // Build semantic scores for hybrid ranking if embeddings are available.
     // The default model is the bundled CodeSearchNet MiniLM-L12 INT8 variant.

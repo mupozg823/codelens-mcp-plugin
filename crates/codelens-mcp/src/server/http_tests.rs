@@ -1134,7 +1134,8 @@ async fn mutation_enabled_daemon_rejects_untrusted_client_mutation() {
     assert_eq!(preflight.status(), StatusCode::OK);
     let preflight_body = body_string(preflight).await;
     assert!(
-        preflight_body.contains("\\\"success\\\": true") || preflight_body.contains("\\\"success\\\":true")
+        preflight_body.contains("\\\"success\\\": true")
+            || preflight_body.contains("\\\"success\\\":true")
     );
 
     let resp = app
@@ -1788,7 +1789,8 @@ async fn deferred_namespace_load_expands_default_surface_and_allows_calls() {
     assert_eq!(allowed.status(), StatusCode::OK);
     let allowed_body = body_string(allowed).await;
     assert!(
-        allowed_body.contains("\\\"success\\\": true") || allowed_body.contains("\\\"success\\\":true"),
+        allowed_body.contains("\\\"success\\\": true")
+            || allowed_body.contains("\\\"success\\\":true"),
         "deferred_namespace body: {allowed_body}"
     );
 }
@@ -1907,7 +1909,8 @@ async fn deferred_tier_load_expands_default_surface_and_allows_calls() {
     assert_eq!(allowed.status(), StatusCode::OK);
     let allowed_body = body_string(allowed).await;
     assert!(
-        allowed_body.contains("\\\"success\\\": true") || allowed_body.contains("\\\"success\\\":true")
+        allowed_body.contains("\\\"success\\\": true")
+            || allowed_body.contains("\\\"success\\\":true")
     );
 }
 

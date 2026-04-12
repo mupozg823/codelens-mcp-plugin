@@ -67,7 +67,10 @@ fn run_check(project_path: &str) -> Result<()> {
         println!("  First:    {}", first.path);
     }
     if let Some(sym) = app.symbols.first() {
-        println!("  Symbol:   {} ({:?}, line {})", sym.name, sym.kind, sym.line);
+        println!(
+            "  Symbol:   {} ({:?}, line {})",
+            sym.name, sym.kind, sym.line
+        );
     }
     println!("  Status:   OK");
     Ok(())
