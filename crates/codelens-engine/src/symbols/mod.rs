@@ -137,11 +137,23 @@ impl SymbolIndex {
 
     /// SelectSolve file pre-filtering: score files by name relevance to query,
     /// then extract symbols only from top-scoring files.
+    /// Path-first retrieval with FTS5 boost: file paths scored by query token
+    /// matching, then boosted by FTS5 symbol hits in the same file.
     fn select_solve_symbols(&self, query: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
         // Collect file paths and compute top matches inside a block so the
         // MutexGuard (ReadDb::Writer) is dropped before we call find_symbol /
         // get_symbols_overview_cached, which also need the lock.  Holding the
         // guard across those calls causes a deadlock with in-memory DBs.
+        //
+        // FTS5 boost: run a quick symbol name search, collect which files
+        // have matching symbols, then add +2 to those files' path scores.
+        // This surfaces files with matching content even when the file path
+        // itself doesn't match the query tokens.
+        let fts_file_boost: std::collections::HashSet<String> = self
+            .find_symbol(query, None, false, false, 30)
+            .map(|hits| hits.into_iter().map(|s| s.file_path).collect())
+            .unwrap_or_default();
+
         let top_files: Vec<String> = {
             let db = self.reader()?;
             let all_paths = db.all_file_paths()?;
@@ -156,10 +168,14 @@ impl SymbolIndex {
                 .into_iter()
                 .map(|path| {
                     let path_lower = path.to_ascii_lowercase();
-                    let score = query_tokens
+                    let mut score = query_tokens
                         .iter()
                         .filter(|token| path_lower.contains(**token))
                         .count();
+                    // FTS5 boost: files containing matching symbols get +2
+                    if fts_file_boost.contains(&path) {
+                        score += 2;
+                    }
                     (path, score)
                 })
                 .collect();
@@ -174,7 +190,7 @@ impl SymbolIndex {
             // db (MutexGuard) dropped here
         };
 
-        // If no file matches, fall back to direct symbol name search
+        // If no file matches (path + FTS5 both empty), fall back to broad symbol search
         if top_files.is_empty() {
             return self.find_symbol(query, None, false, false, 500);
         }

@@ -899,6 +899,49 @@ async fn codex_session_prepare_harness_session_bootstraps_without_tools_list() {
 }
 
 #[tokio::test]
+async fn post_get_capabilities_returns_machine_readable_guidance() {
+    let state = test_state();
+    let app = build_router(state.clone());
+
+    std::fs::write(state.project().as_path().join("notes.unknown"), "hello\n").unwrap();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_capabilities","arguments":{"file_path":"notes.unknown"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let payload = first_tool_payload(&body_string(resp).await);
+    assert_eq!(payload["success"], serde_json::json!(true));
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["status"],
+        serde_json::json!("unsupported_extension")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["reason_code"],
+        serde_json::json!("diagnostics_unsupported_extension")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["recommended_action"],
+        serde_json::json!("pass_explicit_lsp_command")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["file_extension"],
+        serde_json::json!("unknown")
+    );
+    assert!(payload["data"]["daemon_binary_drift"]["status"].is_string());
+}
+
+#[tokio::test]
 async fn codex_session_uses_lean_tools_list_contract_by_default() {
     let state = test_state();
     let app = build_router(state.clone());

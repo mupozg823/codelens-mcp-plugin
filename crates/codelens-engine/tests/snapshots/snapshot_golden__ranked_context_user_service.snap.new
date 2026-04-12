@@ -1,5 +1,6 @@
 ---
 source: crates/codelens-engine/tests/snapshot_golden.rs
+assertion_line: 71
 expression: summary
 ---
 [
