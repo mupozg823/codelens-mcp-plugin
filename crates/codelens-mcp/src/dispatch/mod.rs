@@ -532,7 +532,15 @@ pub(crate) fn dispatch_tool(
     let harness_phase = envelope.harness_phase;
     REQUEST_BUDGET.set(envelope.budget);
 
-    let span = info_span!("tool_call", tool = name);
+    let span = info_span!(
+        "tool_call",
+        tool = name,
+        otel.status_code = tracing::field::Empty,
+        tool.success = tracing::field::Empty,
+        tool.backend = tracing::field::Empty,
+        tool.elapsed_ms = tracing::field::Empty,
+        tool.surface = tracing::field::Empty,
+    );
     let _guard = span.enter();
     let start = std::time::Instant::now();
     state.push_recent_tool_for_session(session, name);
@@ -689,6 +697,21 @@ pub(crate) fn dispatch_tool(
     }
 
     let elapsed_ms = start.elapsed().as_millis();
+
+    // Record span fields for observability (OTel-compatible via tracing-opentelemetry)
+    let success = result.is_ok();
+    span.record("tool.success", success);
+    span.record("tool.elapsed_ms", elapsed_ms as u64);
+    span.record("tool.surface", active_surface.as_str());
+    if success {
+        span.record("otel.status_code", "OK");
+        if let Ok((_, ref meta)) = result {
+            span.record("tool.backend", meta.backend_used.as_str());
+        }
+    } else {
+        span.record("otel.status_code", "ERROR");
+    }
+
     if elapsed_ms > 5000 {
         warn!(
             tool = name,

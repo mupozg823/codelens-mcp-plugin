@@ -11,6 +11,7 @@
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
 - Current release notes: [docs/release-notes/v1.9.14.md](release-notes/v1.9.14.md)
+- Current release verification guide: [docs/release-verification.md](release-verification.md)
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)

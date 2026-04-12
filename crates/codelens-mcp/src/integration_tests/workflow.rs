@@ -74,23 +74,19 @@ fn impact_report_surfaces_unavailable_semantic_status() {
     let analysis_id = payload["data"]["analysis_id"]
         .as_str()
         .expect("analysis_id should be present");
-    assert!(
-        payload["data"]["available_sections"]
-            .as_array()
-            .map(|sections| sections.iter().any(|section| section == "semantic_status"))
-            .unwrap_or(false)
-    );
-    assert!(
-        payload["data"]["next_actions"]
-            .as_array()
-            .map(|actions| {
-                actions
-                    .iter()
-                    .filter_map(|value| value.as_str())
-                    .any(|value| value.contains("index_embeddings"))
-            })
-            .unwrap_or(false)
-    );
+    assert!(payload["data"]["available_sections"]
+        .as_array()
+        .map(|sections| sections.iter().any(|section| section == "semantic_status"))
+        .unwrap_or(false));
+    assert!(payload["data"]["next_actions"]
+        .as_array()
+        .map(|actions| {
+            actions
+                .iter()
+                .filter_map(|value| value.as_str())
+                .any(|value| value.contains("index_embeddings"))
+        })
+        .unwrap_or(false));
 
     let section = call_tool(
         &state,
@@ -107,12 +103,10 @@ fn impact_report_surfaces_unavailable_semantic_status() {
     let expected_reason_fragment = "index_embeddings";
     #[cfg(not(feature = "semantic"))]
     let expected_reason_fragment = "not compiled";
-    assert!(
-        section["data"]["content"]["reason"]
-            .as_str()
-            .unwrap_or("")
-            .contains(expected_reason_fragment)
-    );
+    assert!(section["data"]["content"]["reason"]
+        .as_str()
+        .unwrap_or("")
+        .contains(expected_reason_fragment));
 }
 
 #[cfg(feature = "semantic")]
@@ -170,16 +164,12 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"]["available"].is_array());
     assert!(payload["data"].get("lsp_attached").is_some());
     assert!(payload["data"]["diagnostics_guidance"].is_object());
-    assert!(
-        payload["data"]["diagnostics_guidance"]
-            .get("recommended_action")
-            .is_some()
-    );
-    assert!(
-        payload["data"]["diagnostics_guidance"]
-            .get("reason_code")
-            .is_some()
-    );
+    assert!(payload["data"]["diagnostics_guidance"]
+        .get("recommended_action")
+        .is_some());
+    assert!(payload["data"]["diagnostics_guidance"]
+        .get("reason_code")
+        .is_some());
     assert!(payload["data"].get("embeddings_loaded").is_some());
     assert_eq!(
         payload["data"]["embedding_model"],
@@ -197,16 +187,12 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"]["daemon_binary_drift"].is_object());
     assert!(payload["data"]["daemon_binary_drift"]["status"].is_string());
     assert!(payload["data"]["daemon_binary_drift"]["stale_daemon"].is_boolean());
-    assert!(
-        payload["data"]["daemon_binary_drift"]
-            .get("recommended_action")
-            .is_some()
-    );
-    assert!(
-        payload["data"]["daemon_binary_drift"]
-            .get("reason_code")
-            .is_some()
-    );
+    assert!(payload["data"]["daemon_binary_drift"]
+        .get("recommended_action")
+        .is_some());
+    assert!(payload["data"]["daemon_binary_drift"]
+        .get("reason_code")
+        .is_some());
 }
 
 #[test]
@@ -449,19 +435,17 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
         payload["data"]["health_summary"],
         payload["data"]["capabilities"]["health_summary"]
     );
-    assert!(
-        payload["data"]["warnings"]
-            .as_array()
-            .map(|warnings| {
-                warnings.iter().any(|warning| {
-                    warning["code"] == "stale_daemon_binary"
-                        && warning["restart_recommended"] == json!(true)
-                        && warning["recommended_action"] == json!("restart_mcp_server")
-                        && warning["action_target"] == json!("daemon")
-                })
+    assert!(payload["data"]["warnings"]
+        .as_array()
+        .map(|warnings| {
+            warnings.iter().any(|warning| {
+                warning["code"] == "stale_daemon_binary"
+                    && warning["restart_recommended"] == json!(true)
+                    && warning["recommended_action"] == json!("restart_mcp_server")
+                    && warning["action_target"] == json!("daemon")
             })
-            .unwrap_or(false)
-    );
+        })
+        .unwrap_or(false));
 }
 
 #[test]
@@ -481,19 +465,17 @@ fn prepare_harness_session_warns_when_diagnostics_recipe_is_missing() {
         payload["data"]["capabilities"]["diagnostics_guidance"]["status"],
         json!("unsupported_extension")
     );
-    assert!(
-        payload["data"]["warnings"]
-            .as_array()
-            .map(|warnings| {
-                warnings.iter().any(|warning| {
-                    warning["code"] == "diagnostics_unsupported_extension"
-                        && warning["restart_recommended"] == json!(false)
-                        && warning["recommended_action"] == json!("pass_explicit_lsp_command")
-                        && warning["action_target"] == json!("file_extension")
-                })
+    assert!(payload["data"]["warnings"]
+        .as_array()
+        .map(|warnings| {
+            warnings.iter().any(|warning| {
+                warning["code"] == "diagnostics_unsupported_extension"
+                    && warning["restart_recommended"] == json!(false)
+                    && warning["recommended_action"] == json!("pass_explicit_lsp_command")
+                    && warning["action_target"] == json!("file_extension")
             })
-            .unwrap_or(false)
-    );
+        })
+        .unwrap_or(false));
 }
 
 #[test]
@@ -599,13 +581,11 @@ fn analyze_change_request_returns_handle_and_section() {
     );
     assert_eq!(section["success"], json!(true));
     assert_eq!(section["data"]["analysis_id"], json!(analysis_id));
-    assert!(
-        state
-            .analysis_dir()
-            .join(analysis_id)
-            .join("ranked_files.json")
-            .exists()
-    );
+    assert!(state
+        .analysis_dir()
+        .join(analysis_id)
+        .join("ranked_files.json")
+        .exists());
 }
 
 #[test]
@@ -1622,11 +1602,9 @@ fn oversized_analysis_handle_keeps_structured_content_schema_shape() {
         json!(true)
     );
     assert_eq!(value["result"]["structuredContent"].get("truncated"), None);
-    assert!(
-        value["result"]["structuredContent"]["analysis_id"]
-            .as_str()
-            .is_some()
-    );
+    assert!(value["result"]["structuredContent"]["analysis_id"]
+        .as_str()
+        .is_some());
     assert!(
         value["result"]["structuredContent"]["readiness"]["mutation_ready"]
             .as_str()
@@ -1705,7 +1683,7 @@ fn prepare_harness_session_schema_matches_payload_shape() {
 fn workflow_first_surfaces_prefer_alias_bootstrap() {
     use crate::protocol::ToolTier;
     use crate::tool_defs::{
-        ToolPreset, ToolProfile, ToolSurface, preferred_bootstrap_tools, preferred_tiers,
+        preferred_bootstrap_tools, preferred_tiers, ToolPreset, ToolProfile, ToolSurface,
     };
 
     let builder_tiers = preferred_tiers(ToolSurface::Profile(ToolProfile::BuilderMinimal));
@@ -1720,7 +1698,7 @@ fn workflow_first_surfaces_prefer_alias_bootstrap() {
 
 #[test]
 fn visible_tools_order_workflow_surfaces_bootstrap_first() {
-    use crate::tool_defs::{ToolProfile, ToolSurface, visible_tools};
+    use crate::tool_defs::{visible_tools, ToolProfile, ToolSurface};
 
     let builder_tools = visible_tools(ToolSurface::Profile(ToolProfile::BuilderMinimal))
         .into_iter()
@@ -1777,12 +1755,10 @@ fn prepare_harness_session_defaults_to_surface_bootstrap_entrypoints() {
         payload["data"]["routing"]["recommended_entrypoint"],
         json!("explore_codebase")
     );
-    assert!(
-        payload["data"]["routing"]["preferred_entrypoints"]
-            .as_array()
-            .map(|items| items.iter().any(|value| value == "trace_request_path"))
-            .unwrap_or(false)
-    );
+    assert!(payload["data"]["routing"]["preferred_entrypoints"]
+        .as_array()
+        .map(|items| items.iter().any(|value| value == "trace_request_path"))
+        .unwrap_or(false));
 }
 
 #[test]
@@ -1918,11 +1894,9 @@ fn foreign_project_scoped_analysis_is_ignored_for_reuse() {
     .unwrap();
 
     assert!(state.get_analysis(analysis_id).is_none());
-    assert!(
-        state
-            .find_reusable_analysis_for_current_scope("analyze_change_request", &cache_key)
-            .is_none()
-    );
+    assert!(state
+        .find_reusable_analysis_for_current_scope("analyze_change_request", &cache_key)
+        .is_none());
 }
 
 #[test]
@@ -1998,12 +1972,10 @@ fn analysis_artifacts_expire_by_ttl() {
 
     assert!(state.get_analysis(&analysis_id).is_none());
     assert!(!state.analysis_dir().join(&analysis_id).exists());
-    assert!(
-        state
-            .list_analysis_summaries()
-            .into_iter()
-            .all(|summary| summary.id != analysis_id)
-    );
+    assert!(state
+        .list_analysis_summaries()
+        .into_iter()
+        .all(|summary| summary.id != analysis_id));
 }
 
 #[test]
@@ -2189,12 +2161,10 @@ fn refactor_surface_requires_preflight_before_create_text_file() {
         json!({"relative_path": "mutated.txt", "content": "hello"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("requires a fresh preflight")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("requires a fresh preflight"));
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2242,11 +2212,9 @@ fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
         }),
     );
     assert_eq!(payload["success"], json!(true));
-    assert!(
-        fs::read_to_string(project.as_path().join("gated.py"))
-            .unwrap()
-            .contains("new")
-    );
+    assert!(fs::read_to_string(project.as_path().join("gated.py"))
+        .unwrap()
+        .contains("new"));
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2294,12 +2262,10 @@ fn safe_rename_report_blocked_preflight_blocks_rename_symbol() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("blocked by verifier readiness")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("blocked by verifier readiness"));
 }
 
 #[test]
@@ -2334,12 +2300,10 @@ fn rename_symbol_requires_symbol_aware_preflight() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("symbol-aware preflight")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("symbol-aware preflight"));
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2418,12 +2382,10 @@ fn session_scoped_preflight_does_not_cross_sessions() {
         "session-b",
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("requires a fresh preflight")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("requires a fresh preflight"));
 }
 
 #[test]
@@ -2487,20 +2449,180 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
         search["data"]["retrieval"]["semantic_query"],
         json!("ember archive delta")
     );
-    assert!(
-        search["data"]["results"]
-            .as_array()
-            .map(|results| {
-                results
+    assert!(search["data"]["results"]
+        .as_array()
+        .map(|results| {
+            results
+                .iter()
+                .all(|result| result["provenance"]["source"] == json!("semantic"))
+                && results
                     .iter()
-                    .all(|result| result["provenance"]["source"] == json!("semantic"))
-                    && results
-                        .iter()
-                        .all(|result| result["provenance"]["adjusted_score"].is_number())
-                    && results.iter().any(|result| {
-                        result.get("symbol_name") == Some(&json!("ember_archive_delta"))
-                    })
-            })
-            .unwrap_or(false)
+                    .all(|result| result["provenance"]["adjusted_score"].is_number())
+                && results
+                    .iter()
+                    .any(|result| result.get("symbol_name") == Some(&json!("ember_archive_delta")))
+        })
+        .unwrap_or(false));
+}
+
+// ── Workflow alias success-contract tests ────────────────────────────────────
+
+/// Global mutex to serialise tests that temporarily mutate PATH so they don't
+/// stomp each other when the test runner uses multiple threads.
+static PATH_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[test]
+fn diagnose_issues_returns_structured_content() {
+    // diagnose_issues with a path delegates to get_file_diagnostics, which
+    // needs an LSP server.  We create a minimal python3-based mock named
+    // `pyright-langserver` (the default binary for .py files) in a temp bin
+    // directory and prepend it to PATH for the duration of the test.
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'textDocumentSync':1,'diagnosticProvider':{}}}})\n",
+        "    elif m == 'textDocument/diagnostic':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'kind':'full','items':[]}})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+
+    let bin_dir = std::env::temp_dir().join(format!(
+        "codelens-test-bin-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&bin_dir).unwrap();
+    let mock_bin = bin_dir.join("pyright-langserver");
+    fs::write(&mock_bin, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_bin, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    let project = project_root();
+    fs::write(
+        project.as_path().join("diag_test.py"),
+        "def hello():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _guard = PATH_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
+    let original_path = std::env::var("PATH").unwrap_or_default();
+    // SAFETY: protected by PATH_MUTEX; no other thread modifies PATH concurrently.
+    unsafe {
+        std::env::set_var("PATH", format!("{}:{original_path}", bin_dir.display()));
+    }
+
+    let payload = call_tool(&state, "diagnose_issues", json!({"path": "diag_test.py"}));
+
+    // SAFETY: restoring PATH; still under PATH_MUTEX.
+    unsafe {
+        std::env::set_var("PATH", original_path);
+    }
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("diagnose_issues"));
+    assert_eq!(
+        payload["data"]["delegated_tool"],
+        json!("get_file_diagnostics")
+    );
+}
+
+#[test]
+fn assess_change_readiness_returns_structured_content() {
+    // assess_change_readiness delegates to verify_change_readiness which
+    // requires a `task` string (used as the ranked-context query).
+    let project = project_root();
+    fs::write(
+        project.as_path().join("ready_test.py"),
+        "class Foo:\n    pass\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "assess_change_readiness",
+        json!({
+            "task": "check readiness for ready_test.py",
+            "changed_files": ["ready_test.py"]
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["workflow"],
+        json!("assess_change_readiness")
+    );
+    assert_eq!(
+        payload["data"]["delegated_tool"],
+        json!("verify_change_readiness")
+    );
+}
+
+#[test]
+fn review_changes_returns_structured_content() {
+    // review_changes with changed_files delegates to diff_aware_references.
+    let project = project_root();
+    fs::write(project.as_path().join("review_test.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["review_test.py"]}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("review_changes"));
+    assert_eq!(
+        payload["data"]["delegated_tool"],
+        json!("diff_aware_references")
+    );
+}
+
+#[test]
+fn cleanup_duplicate_logic_returns_structured_content() {
+    // cleanup_duplicate_logic without the semantic feature delegates to
+    // dead_code_report (no required args).
+    let project = project_root();
+    fs::write(
+        project.as_path().join("dup_test.py"),
+        "def foo():\n    return 1\ndef bar():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(&state, "cleanup_duplicate_logic", json!({}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["workflow"],
+        json!("cleanup_duplicate_logic")
     );
 }
