@@ -79,7 +79,35 @@ pub(super) fn extract_tool_text(response: &crate::protocol::JsonRpcResponse) -> 
 }
 
 pub(super) fn parse_tool_payload(text: &str) -> serde_json::Value {
-    serde_json::from_str(text).unwrap_or(json!({}))
+    // Try direct JSON parse first (legacy flat JSON format).
+    if let Ok(v) = serde_json::from_str(text) {
+        return v;
+    }
+    // Structured text format: extract the JSON object between the header
+    // line and the "→ Next:" footer. The JSON block starts at the first `{`.
+    if let Some(start) = text.find('{') {
+        let json_part = &text[start..];
+        // Find the matching closing brace by counting depth
+        let mut depth = 0i32;
+        let mut end = json_part.len();
+        for (i, ch) in json_part.char_indices() {
+            match ch {
+                '{' | '[' => depth += 1,
+                '}' | ']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = i + 1;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if let Ok(v) = serde_json::from_str(&json_part[..end]) {
+            return v;
+        }
+    }
+    json!({})
 }
 
 pub(super) fn parse_tool_response(

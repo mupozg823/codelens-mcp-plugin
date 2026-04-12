@@ -153,16 +153,61 @@ pub(crate) fn text_payload_for_response(
     structured_content: Option<&Value>,
 ) -> String {
     // Async handles get a slim payload that cherry-picks essential fields.
-    // For everything else, serialize the ToolCallResponse directly to
-    // String instead of going through an intermediate Value (saves one
-    // full JSON tree allocation on the common non-async path).
     if let Some(slim) = slim_text_payload_for_async_handle(resp, structured_content) {
         return serde_json::to_string(&slim).unwrap_or_else(|_| {
             "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
         });
     }
-    serde_json::to_string(resp)
-        .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())
+    // Pretty-print the full response as structured JSON with readable formatting.
+    // Agents get valid JSON (parseability preserved) but with indentation and
+    // newlines instead of a single flat line.
+    format_structured_response(resp)
+}
+
+/// Format a ToolCallResponse as pretty-printed JSON.
+/// Preserves JSON validity for parsing while being much more readable than
+/// a single-line blob. Strips redundant metadata fields that waste tokens.
+fn format_structured_response(resp: &ToolCallResponse) -> String {
+    // Build a clean output object with only the fields agents need.
+    let mut out = serde_json::Map::new();
+
+    out.insert("success".to_owned(), Value::Bool(resp.success));
+
+    // Header: compact metadata on key fields only
+    if let Some(ref backend) = resp.backend_used {
+        out.insert("backend_used".to_owned(), Value::String(backend.clone()));
+    }
+    if let Some(c) = resp.confidence {
+        out.insert("confidence".to_owned(), Value::from(c));
+    }
+    if let Some(ms) = resp.elapsed_ms {
+        out.insert("elapsed_ms".to_owned(), Value::from(ms));
+    }
+    if let Some(ref hint) = resp.budget_hint {
+        out.insert("budget_hint".to_owned(), Value::String(hint.clone()));
+    }
+
+    // Data: the core payload
+    if let Some(ref data) = resp.data {
+        out.insert("data".to_owned(), data.clone());
+    }
+
+    // Suggested next tools (preserve original key for compatibility)
+    if let Some(ref tools) = resp.suggested_next_tools {
+        out.insert(
+            "suggested_next_tools".to_owned(),
+            serde_json::to_value(tools).unwrap_or(Value::Array(vec![])),
+        );
+        // Reasons as separate map (agents can read both)
+        if let Some(ref reasons) = resp.suggestion_reasons {
+            if let Ok(v) = serde_json::to_value(reasons) {
+                out.insert("suggestion_reasons".to_owned(), v);
+            }
+        }
+    }
+
+    serde_json::to_string_pretty(&Value::Object(out))
+        .unwrap_or_else(|_| "{\"error\":\"serialization failed\"}".to_owned())
 }
 
 fn slim_text_payload_for_async_handle(

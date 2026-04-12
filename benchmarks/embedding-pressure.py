@@ -18,6 +18,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from benchmark_runtime_common import parse_output_json
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -85,16 +87,7 @@ def time_command(argv: list[str], env: dict[str, str]) -> dict:
         env=env,
     )
 
-    payload = None
-    stdout = result.stdout.strip()
-    if stdout:
-        try:
-            payload = json.loads(stdout)
-        except json.JSONDecodeError:
-            try:
-                payload = json.loads(stdout.splitlines()[-1])
-            except json.JSONDecodeError:
-                payload = None
+    payload = parse_output_json(result.stdout)
 
     parsed = parse_time_output(result.stderr)
     return {

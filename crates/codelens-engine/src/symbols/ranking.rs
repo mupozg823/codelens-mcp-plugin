@@ -152,12 +152,20 @@ fn is_natural_language_query(query_lower: &str) -> bool {
     query_lower.split_whitespace().count() >= 4
 }
 
+fn prefers_entrypoint_symbol(query_lower: &str) -> bool {
+    query_lower.contains("entrypoint")
+        || query_lower.contains(" handler")
+        || query_lower.starts_with("handler ")
+        || query_lower.contains("primary implementation")
+}
+
 fn mentions_any(query_lower: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| query_lower.contains(needle))
 }
 
 fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
-    if !is_natural_language_query(query_lower) {
+    let entrypoint_query = prefers_entrypoint_symbol(query_lower);
+    if !is_natural_language_query(query_lower) && !entrypoint_query {
         return 0.0;
     }
 
@@ -208,6 +216,22 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
             SymbolKind::Unknown => 0.0,
         };
     }
+    if entrypoint_query {
+        prior += match symbol.kind {
+            SymbolKind::Function | SymbolKind::Method => 10.0,
+            SymbolKind::Class
+            | SymbolKind::Interface
+            | SymbolKind::Enum
+            | SymbolKind::TypeAlias => -8.0,
+            _ => 0.0,
+        };
+        if symbol.name.ends_with("Edit")
+            || symbol.name.ends_with("Result")
+            || symbol.name.ends_with("Error")
+        {
+            prior -= 6.0;
+        }
+    }
 
     if query_lower.contains("http") && symbol.file_path.contains("transport_http") {
         prior += 12.0;
@@ -237,7 +261,7 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
 }
 
 fn file_path_prior(query_lower: &str, file_path: &str) -> f64 {
-    if !is_natural_language_query(query_lower) {
+    if !is_natural_language_query(query_lower) && !prefers_entrypoint_symbol(query_lower) {
         return 0.0;
     }
 
@@ -303,6 +327,43 @@ mod tests {
         };
 
         let query = "route an incoming tool request to the right handler";
+        assert!(
+            symbol_kind_prior(query, &function_symbol) > symbol_kind_prior(query, &type_symbol)
+        );
+    }
+
+    #[test]
+    fn short_entrypoint_phrase_prefers_functions_over_edit_types() {
+        let function_symbol = SymbolInfo {
+            name: "move_symbol".into(),
+            kind: SymbolKind::Function,
+            file_path: "crates/codelens-engine/src/move_symbol.rs".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "move_symbol".into(),
+            id: "fn".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let type_symbol = SymbolInfo {
+            name: "MoveEdit".into(),
+            kind: SymbolKind::TypeAlias,
+            file_path: "crates/codelens-engine/src/move_symbol.rs".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "MoveEdit".into(),
+            id: "type".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+
+        let query = "primary move handler";
         assert!(
             symbol_kind_prior(query, &function_symbol) > symbol_kind_prior(query, &type_symbol)
         );

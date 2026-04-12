@@ -15,6 +15,8 @@ import time
 from pathlib import Path
 from statistics import mean, median
 
+from benchmark_runtime_common import parse_output_json, tool_payload_succeeded
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -66,12 +68,7 @@ def run_tool(cmd, args, timeout=120):
     )
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
     output = result.stdout.strip()
-    payload = None
-    if output:
-        try:
-            payload = json.loads(output.splitlines()[-1])
-        except json.JSONDecodeError:
-            payload = None
+    payload = parse_output_json(output)
     return {
         "elapsed_ms": elapsed_ms,
         "returncode": result.returncode,
@@ -82,11 +79,7 @@ def run_tool(cmd, args, timeout=120):
 
 def tool_succeeded(result):
     payload = result.get("payload")
-    return (
-        result.get("returncode") == 0
-        and isinstance(payload, dict)
-        and payload.get("success") is True
-    )
+    return result.get("returncode") == 0 and tool_payload_succeeded(payload)
 
 
 def require_tool_success(name, result, context=""):

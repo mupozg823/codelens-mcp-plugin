@@ -61,10 +61,25 @@ def parse_output_json(output: str):
     text = (output or "").strip()
     if not text:
         return None
+    decoder = json.JSONDecoder()
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
     try:
         return json.loads(text.splitlines()[-1])
     except Exception:
-        return None
+        pass
+
+    for idx, ch in enumerate(text):
+        if ch not in "{[":
+            continue
+        try:
+            payload, _ = decoder.raw_decode(text, idx)
+            return payload
+        except Exception:
+            continue
+    return None
 
 
 def count_json_tokens(payload, count_tokens):
@@ -74,6 +89,18 @@ def count_json_tokens(payload, count_tokens):
         return count_tokens(json.dumps(payload, ensure_ascii=False, sort_keys=True))
     except Exception:
         return 0
+
+
+def tool_payload_succeeded(payload):
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("success") is False:
+        return False
+    if "error" in payload:
+        return False
+    if payload.get("success") is True or payload.get("status") == "ok":
+        return True
+    return True
 
 
 def codelens(bin_path, project, cmd, args, count_tokens, timeout=15, preset=None, profile=None):

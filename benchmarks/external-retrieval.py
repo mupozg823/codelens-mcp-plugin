@@ -14,7 +14,11 @@ import tempfile
 import time
 from pathlib import Path
 
-from benchmark_runtime_common import validate_expected_file_suffixes
+from benchmark_runtime_common import (
+    parse_output_json,
+    tool_payload_succeeded,
+    validate_expected_file_suffixes,
+)
 
 
 DEFAULT_BINARY = (
@@ -121,12 +125,7 @@ def run_tool(project: str, cmd: str, arguments: dict, timeout: int = 240):
         check=False,
     )
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
-    payload = None
-    if result.stdout.strip():
-        try:
-            payload = json.loads(result.stdout.splitlines()[-1])
-        except json.JSONDecodeError:
-            payload = None
+    payload = parse_output_json(result.stdout)
     return {
         "elapsed_ms": elapsed_ms,
         "returncode": result.returncode,
@@ -137,11 +136,7 @@ def run_tool(project: str, cmd: str, arguments: dict, timeout: int = 240):
 
 def tool_succeeded(result) -> bool:
     payload = result.get("payload")
-    return (
-        result.get("returncode") == 0
-        and isinstance(payload, dict)
-        and payload.get("success") is True
-    )
+    return result.get("returncode") == 0 and tool_payload_succeeded(payload)
 
 
 def require_tool_success(name: str, result: dict, context: str = "") -> dict:
@@ -206,7 +201,8 @@ def copy_project_for_benchmark(
 
 
 def candidate_rows(method_name: str, payload: dict) -> list[dict]:
-    data = (payload or {}).get("data", {})
+    payload = payload or {}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     if method_name == "semantic_search":
         return [
             {"name": row.get("symbol_name"), "file": row.get("file_path")}

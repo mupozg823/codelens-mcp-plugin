@@ -12,7 +12,11 @@ import tempfile
 import time
 from pathlib import Path
 
-from benchmark_runtime_common import validate_expected_file_suffixes
+from benchmark_runtime_common import (
+    parse_output_json,
+    tool_payload_succeeded,
+    validate_expected_file_suffixes,
+)
 
 
 def parse_args():
@@ -110,12 +114,7 @@ def run_tool(cmd, args, timeout=120):
     )
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
     output = result.stdout.strip()
-    payload = None
-    if output:
-        try:
-            payload = json.loads(output.splitlines()[-1])
-        except json.JSONDecodeError:
-            payload = None
+    payload = parse_output_json(output)
     return {
         "elapsed_ms": elapsed_ms,
         "returncode": result.returncode,
@@ -126,11 +125,7 @@ def run_tool(cmd, args, timeout=120):
 
 def tool_succeeded(result):
     payload = result.get("payload")
-    return (
-        result.get("returncode") == 0
-        and isinstance(payload, dict)
-        and payload.get("success") is True
-    )
+    return result.get("returncode") == 0 and tool_payload_succeeded(payload)
 
 
 def require_tool_success(name, result, context=""):
@@ -190,7 +185,8 @@ def query_type_for_item(item):
 
 
 def candidate_rows(method_name, payload):
-    data = (payload or {}).get("data", {})
+    payload = payload or {}
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     if method_name == "semantic_search":
         return [
             {"name": row.get("symbol_name"), "file": row.get("file_path")}
