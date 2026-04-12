@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.3] — 2026-04-12
+
+### Release summary
+
+Complete the scoring hot-path zero-allocation arc. `score_symbol_with_lower` now has **zero per-candidate allocations** — down from 6 000 per `get_ranked_context` call on a 1 000-symbol codebase at v1.6.1.
+
+### Performance
+
+- **Remove `split_camel_case`** (`scoring.rs`, −30 lines): the function allocated `Vec<char>` + `Vec<String>` per candidate for CamelCase segment matching. Proven redundant: `contains_ascii_ci` (added in v1.6.2) already covers all CamelCase segment matches because every segment is a contiguous substring of the original name. The CamelCase exact-segment check could never produce a hit that `contains_ascii_ci` missed.
+
+Scoring loop allocation timeline (per `get_ranked_context`, 1 000 candidates):
+
+| version    | per-candidate allocs | total |
+| ---------- | -------------------: | ----: |
+| v1.6.1     |                    6 | 6 000 |
+| v1.6.2     |                    1 | 1 000 |
+| **v1.6.3** |                **0** | **0** |
+
 ## [1.6.2] — 2026-04-12
 
 ### Release summary
