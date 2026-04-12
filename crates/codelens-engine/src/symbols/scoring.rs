@@ -94,13 +94,24 @@ fn split_camel_case(name: &str) -> Vec<String> {
 /// Accepts pre-computed `query_lower` to avoid repeated allocation
 /// when scoring many symbols against the same query.
 pub(crate) fn score_symbol(query: &str, symbol: &SymbolInfo) -> Option<i32> {
-    score_symbol_with_lower(query, &query.to_lowercase(), symbol)
+    let lower = query.to_lowercase();
+    let snake = lower.replace(|c: char| c.is_whitespace() || c == '-', "_");
+    score_symbol_with_lower(query, &lower, &snake, symbol)
 }
 
-/// Inner scoring with pre-lowercased query — call this from hot loops.
+/// Inner scoring with pre-lowercased query and pre-computed joined-snake
+/// form — call this from hot loops where both are invariant across
+/// candidates.
+///
+/// `joined_snake` is the query with whitespace/hyphens replaced by
+/// underscores, used for snake_case identifier matching (e.g.
+/// "rename symbol" → "rename_symbol"). It is query-derived and
+/// identical for every candidate, so computing it once in the caller
+/// eliminates one String allocation per candidate in the hot loop.
 pub(crate) fn score_symbol_with_lower(
     query: &str,
     query_lower: &str,
+    joined_snake: &str,
     symbol: &SymbolInfo,
 ) -> Option<i32> {
     // Exact full-query match (no allocation needed)
@@ -127,7 +138,8 @@ pub(crate) fn score_symbol_with_lower(
 
     // Check if query tokens form the symbol name when joined with underscore
     // e.g. "rename symbol" → "rename_symbol" → exact match bonus
-    let joined_snake = query_lower.replace(|c: char| c.is_whitespace() || c == '-', "_");
+    // `joined_snake` is pre-computed by the caller to avoid one String
+    // allocation per candidate in the hot loop.
     if name_lower == joined_snake {
         return Some(80);
     }
