@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [ main ]
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     name: Build & Test
@@ -36,4 +40,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: codelens-mcp
+          retention-days: 3
           path: target/release/codelens-mcp

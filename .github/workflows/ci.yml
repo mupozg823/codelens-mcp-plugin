@@ -9,6 +9,10 @@ on:
     branches:
       - main
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   ci:
     name: CI (${{ matrix.os }})
@@ -104,6 +108,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: token-efficiency-benchmark
+          retention-days: 3
           path: |
             benchmarks/benchmark_results.json
             benchmarks/token-efficiency-ci.txt
