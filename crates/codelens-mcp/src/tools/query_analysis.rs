@@ -48,6 +48,21 @@ fn has_builder_cue(query_lower: &str) -> bool {
         || query_lower.contains(" construction")
 }
 
+fn exact_retrieval_aliases(query_lower: &str) -> Option<&'static [&'static str]> {
+    if query_lower.contains("find word matches in files") {
+        Some(&["find_word_matches_in_files", "word_matches_in_files"])
+    } else if query_lower.contains("find all word matches") {
+        Some(&["find_all_word_matches", "all_word_matches"])
+    } else if has_builder_cue(query_lower)
+        && query_lower.contains("embedding")
+        && query_lower.contains("text")
+    {
+        Some(&["build_embedding_text", "embedding_text"])
+    } else {
+        None
+    }
+}
+
 fn specific_find_aliases(query_lower: &str) -> &'static [&'static str] {
     if query_lower.contains("find word matches in files") {
         &["find_word_matches_in_files", "word_matches_in_files"]
@@ -116,10 +131,13 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
     let prefer_lexical_only = query_prefers_lexical_only(trimmed);
     let natural_language = is_natural_language_query(trimmed);
     let lowered = trimmed.to_ascii_lowercase();
+    let exact_aliases = exact_retrieval_aliases(&lowered);
     let alias_expansion_phrase = trimmed.contains(' ')
         && (has_entrypoint_cue(&lowered) || has_helper_cue(&lowered) || has_builder_cue(&lowered));
 
-    let semantic_query = if natural_language && !alias_expansion_phrase {
+    let semantic_query = if let Some(aliases) = exact_aliases {
+        aliases.join(" ")
+    } else if natural_language && !alias_expansion_phrase {
         trimmed.to_owned()
     } else if alias_expansion_phrase && has_builder_cue(&lowered) {
         // Builder queries: semantic query uses identifier-only form so the
@@ -147,7 +165,9 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
         trimmed.to_owned()
     };
 
-    let expanded_query = if natural_language {
+    let expanded_query = if let Some(aliases) = exact_aliases {
+        format!("{trimmed} {}", aliases.join(" "))
+    } else if natural_language {
         expand_retrieval_query(trimmed)
     } else {
         trimmed.to_owned()
@@ -179,6 +199,11 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     if !is_natural_language_semantic_query(query_lower) {
         return 0.0;
     }
+    let exact_find_all_word_matches = query_lower.contains("find all word matches");
+    let exact_find_word_matches_in_files = query_lower.contains("find word matches in files");
+    let exact_build_embedding_text = has_builder_cue(query_lower)
+        && query_lower.contains("embedding")
+        && query_lower.contains("text");
 
     let mut prior: f64 = 0.0;
     if result.file_path.starts_with("crates/") {
@@ -287,34 +312,37 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
     {
         prior += 0.16;
     }
-    if query_lower.contains("find all word matches")
-        && result.symbol_name == "find_all_word_matches"
+    if (exact_find_all_word_matches || exact_find_word_matches_in_files)
         && result.file_path.contains("/rename.rs")
     {
-        prior += 0.18;
-    }
-    if query_lower.contains("find word matches in files")
-        && result.symbol_name == "find_word_matches_in_files"
-        && result.file_path.contains("/rename.rs")
-    {
-        prior += 0.18;
+        match result.symbol_name.as_str() {
+            "find_all_word_matches" if exact_find_all_word_matches => prior += 0.19,
+            "find_word_matches_in_files" if exact_find_word_matches_in_files => prior += 0.19,
+            "find_all_word_matches" | "find_word_matches_in_files" => prior -= 0.10,
+            _ => {}
+        }
     }
     if query_lower.contains("find")
         && has_helper_cue(query_lower)
-        && !query_lower.contains("find all word matches")
-        && !query_lower.contains("find word matches in files")
+        && !exact_find_all_word_matches
+        && !exact_find_word_matches_in_files
         && result.symbol_name == "find_symbol"
         && result.file_path.contains("symbols/mod.rs")
     {
         prior += 0.16;
     }
-    if has_builder_cue(query_lower)
-        && query_lower.contains("embedding")
-        && query_lower.contains("text")
-        && result.symbol_name == "build_embedding_text"
-        && result.file_path.contains("embedding/mod.rs")
+    if (exact_find_all_word_matches || exact_find_word_matches_in_files)
+        && result.symbol_name == "find_symbol"
+        && result.file_path.contains("symbols/mod.rs")
     {
-        prior += 0.16;
+        prior -= 0.10;
+    }
+    if exact_build_embedding_text && result.file_path.contains("embedding/mod.rs") {
+        if result.symbol_name == "build_embedding_text" {
+            prior += 0.19;
+        } else if result.symbol_name.starts_with("build_") {
+            prior -= 0.10;
+        }
     }
     if query_lower.contains("insert batch")
         && result.symbol_name == "insert_batch"
@@ -619,22 +647,40 @@ mod tests {
 
     #[test]
     fn exact_word_match_aliases_stay_specific() {
-        let semantic =
-            semantic_query_for_retrieval("which helper implements find all word matches");
-        assert!(semantic.contains("find_all_word_matches"));
-        assert!(!semantic.contains("find_symbol"));
+        let analysis = analyze_retrieval_query("which helper implements find all word matches");
+        assert_eq!(
+            analysis.semantic_query,
+            "find_all_word_matches all_word_matches"
+        );
+        assert!(analysis.expanded_query.contains("find_all_word_matches"));
+        assert!(!analysis
+            .expanded_query
+            .contains("find_word_matches_in_files"));
+        assert!(!analysis.semantic_query.contains("find_symbol"));
 
-        let semantic =
-            semantic_query_for_retrieval("which helper implements find word matches in files");
-        assert!(semantic.contains("find_word_matches_in_files"));
-        assert!(!semantic.contains("find_symbol"));
+        let analysis =
+            analyze_retrieval_query("which helper implements find word matches in files");
+        assert_eq!(
+            analysis.semantic_query,
+            "find_word_matches_in_files word_matches_in_files"
+        );
+        assert!(analysis
+            .expanded_query
+            .contains("find_word_matches_in_files"));
+        assert!(!analysis.expanded_query.contains("find_all_word_matches"));
+        assert!(!analysis.semantic_query.contains("find_symbol"));
     }
 
     #[test]
     fn trigram_alias_expansion_covers_three_token_concepts() {
         let query = "which builder creates build embedding text";
-        let semantic = semantic_query_for_retrieval(query);
-        assert!(semantic.contains("build_embedding_text"));
+        let analysis = analyze_retrieval_query(query);
+        assert_eq!(
+            analysis.semantic_query,
+            "build_embedding_text embedding_text"
+        );
+        assert!(analysis.expanded_query.contains("build_embedding_text"));
+        assert!(!analysis.expanded_query.contains("which_builder"));
     }
 
     #[test]

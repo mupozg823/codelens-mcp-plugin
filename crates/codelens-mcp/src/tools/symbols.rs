@@ -541,6 +541,9 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
             json!({
                 "semantic_enabled": !effective_disable_semantic,
                 "semantic_used_in_core": use_semantic_in_core,
+                "query_type": if query_analysis.prefer_lexical_only { "identifier" }
+                    else if query_analysis.natural_language { "natural_language" }
+                    else { "short_phrase" },
                 "lexical_query": query_analysis.expanded_query,
                 "semantic_query": query_analysis.semantic_query,
             }),

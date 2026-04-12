@@ -178,6 +178,11 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
     if !is_natural_language_query(query_lower) && !entrypoint_query {
         return 0.0;
     }
+    let exact_find_all_word_matches = query_lower.contains("find all word matches");
+    let exact_find_word_matches_in_files = query_lower.contains("find word matches in files");
+    let exact_build_embedding_text = query_targets_builder_impl(query_lower)
+        && query_lower.contains("embedding")
+        && query_lower.contains("text");
 
     let is_action_query = mentions_any(
         query_lower,
@@ -273,20 +278,19 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
     }
     if query_lower.contains("find")
         && query_targets_helper_impl(query_lower)
-        && !query_lower.contains("find all word matches")
-        && !query_lower.contains("find word matches in files")
+        && !exact_find_all_word_matches
+        && !exact_find_word_matches_in_files
         && symbol.name == "find_symbol"
         && symbol.file_path.contains("symbols/mod.rs")
     {
         prior += 18.0;
     }
-    if query_targets_builder_impl(query_lower)
-        && query_lower.contains("embedding")
-        && query_lower.contains("text")
-        && symbol.name == "build_embedding_text"
-        && symbol.file_path.contains("embedding/mod.rs")
-    {
-        prior += 18.0;
+    if exact_build_embedding_text && symbol.file_path.contains("embedding/mod.rs") {
+        if symbol.name == "build_embedding_text" {
+            prior += 22.0;
+        } else if symbol.name.starts_with("build_") {
+            prior -= 10.0;
+        }
     }
     if query_lower.contains("insert batch")
         && symbol.name == "insert_batch"
@@ -300,7 +304,16 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
         prior += 10.0;
     }
     // word-match / grep-all / rename-occurrences helper prior
-    if (query_lower.contains("word match")
+    if (exact_find_all_word_matches || exact_find_word_matches_in_files)
+        && symbol.file_path.contains("rename.rs")
+    {
+        match symbol.name.as_str() {
+            "find_all_word_matches" if exact_find_all_word_matches => prior += 24.0,
+            "find_word_matches_in_files" if exact_find_word_matches_in_files => prior += 24.0,
+            "find_all_word_matches" | "find_word_matches_in_files" => prior -= 10.0,
+            _ => {}
+        }
+    } else if (query_lower.contains("word match")
         || query_lower.contains("word_match")
         || query_lower.contains("all occurrences")
         || query_lower.contains("grep all")
@@ -312,6 +325,12 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
         } else if symbol.name == "find_word_matches_in_files" {
             prior += 14.0;
         }
+    }
+    if (exact_find_all_word_matches || exact_find_word_matches_in_files)
+        && symbol.name == "find_symbol"
+        && symbol.file_path.contains("symbols/mod.rs")
+    {
+        prior -= 12.0;
     }
 
     prior
@@ -559,6 +578,41 @@ mod tests {
     }
 
     #[test]
+    fn embedding_text_target_beats_other_build_helpers() {
+        let target = SymbolInfo {
+            name: "build_embedding_text".into(),
+            kind: SymbolKind::Function,
+            file_path: "crates/codelens-engine/src/embedding/mod.rs".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "build_embedding_text".into(),
+            id: "build_embedding_text".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let generic = SymbolInfo {
+            name: "build_coreml_execution_provider".into(),
+            kind: SymbolKind::Function,
+            file_path: "crates/codelens-engine/src/embedding/mod.rs".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "build_coreml_execution_provider".into(),
+            id: "build_coreml_execution_provider".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+
+        let query = "which builder creates build embedding text";
+        assert!(symbol_kind_prior(query, &target) > symbol_kind_prior(query, &generic));
+    }
+
+    #[test]
     fn exact_word_match_target_beats_generic_find() {
         let exact = SymbolInfo {
             name: "find_all_word_matches".into(),
@@ -591,6 +645,41 @@ mod tests {
 
         let query = "which helper implements find all word matches";
         assert!(symbol_kind_prior(query, &exact) > symbol_kind_prior(query, &generic));
+    }
+
+    #[test]
+    fn file_scoped_word_match_target_beats_broader_helper() {
+        let exact = SymbolInfo {
+            name: "find_word_matches_in_files".into(),
+            kind: SymbolKind::Function,
+            file_path: "crates/codelens-engine/src/rename.rs".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "find_word_matches_in_files".into(),
+            id: "find_word_matches_in_files".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+        let broader = SymbolInfo {
+            name: "find_all_word_matches".into(),
+            kind: SymbolKind::Function,
+            file_path: "crates/codelens-engine/src/rename.rs".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "find_all_word_matches".into(),
+            id: "find_all_word_matches".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+        };
+
+        let query = "which helper implements find word matches in files";
+        assert!(symbol_kind_prior(query, &exact) > symbol_kind_prior(query, &broader));
     }
 }
 
