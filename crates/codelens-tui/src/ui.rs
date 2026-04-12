@@ -110,6 +110,14 @@ fn draw_symbol_list(f: &mut Frame, app: &App, area: Rect) {
                 codelens_engine::SymbolKind::Property => "pr",
                 _ => "  ",
             };
+            let prov_tag = match sym.provenance {
+                codelens_engine::SymbolProvenance::EngineCore => "E",
+                codelens_engine::SymbolProvenance::McpTool => "T",
+                codelens_engine::SymbolProvenance::McpInfra => "I",
+                codelens_engine::SymbolProvenance::TuiSurface => "U",
+                codelens_engine::SymbolProvenance::Test => "t",
+                codelens_engine::SymbolProvenance::Benchmark => "b",
+            };
             let style = if i == app.symbol_cursor {
                 Style::default()
                     .fg(Color::Green)
@@ -117,7 +125,11 @@ fn draw_symbol_list(f: &mut Frame, app: &App, area: Rect) {
             } else {
                 Style::default()
             };
-            ListItem::new(format!(" {kind_icon}  {}  :{}", sym.name, sym.line)).style(style)
+            ListItem::new(format!(
+                " {kind_icon} {prov_tag} {}  :{}",
+                sym.name, sym.line
+            ))
+            .style(style)
         })
         .collect();
 

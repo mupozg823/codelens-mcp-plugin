@@ -689,6 +689,7 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, EmbeddingRun
     configure_embedding_runtime();
 
     // Alternative model overrides are only valid when the bakeoff feature is enabled.
+    #[allow(unused_variables)]
     if let Some(model_id) = requested_embedding_model_override()? {
         #[cfg(feature = "model-bakeoff")]
         {
@@ -696,7 +697,10 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, EmbeddingRun
         }
 
         #[cfg(not(feature = "model-bakeoff"))]
-        unreachable!("alternative embedding model override should have errored");
+        {
+            let _ = model_id;
+            unreachable!("alternative embedding model override should have errored");
+        }
     }
 
     let model_dir = resolve_model_dir()?;
@@ -810,6 +814,14 @@ fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, EmbeddingRun
 
 pub fn configured_embedding_model_name() -> String {
     std::env::var("CODELENS_EMBED_MODEL").unwrap_or_else(|_| CODESEARCH_MODEL_NAME.to_string())
+}
+
+fn configured_rerank_blend() -> f64 {
+    std::env::var("CODELENS_RERANK_BLEND")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .and_then(|v| if (0.0..=1.0).contains(&v) { Some(v) } else { None })
+        .unwrap_or(0.8) // default: 80% bi-encoder, 20% text overlap
 }
 
 pub fn embedding_model_assets_available() -> bool {
@@ -1163,6 +1175,7 @@ impl EmbeddingEngine {
             return Ok(candidates);
         }
 
+        let blend = configured_rerank_blend();
         for chunk in &mut candidates {
             // Build searchable text from available fields
             let searchable = format!(
@@ -1176,8 +1189,8 @@ impl EmbeddingEngine {
                 .filter(|t| searchable.contains(**t))
                 .count() as f64;
             let overlap_ratio = overlap / query_tokens.len().max(1) as f64;
-            // Blend: 80% bi-encoder + 20% text overlap
-            chunk.score = chunk.score * 0.8 + overlap_ratio * 0.2;
+            // Blend: configurable bi-encoder + text overlap (default 80/20)
+            chunk.score = chunk.score * blend + overlap_ratio * (1.0 - blend);
         }
 
         candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
@@ -4450,6 +4463,7 @@ fn search_for_matches() {
 
     #[test]
     fn requested_embedding_model_override_ignores_default_model_name() {
+        let _lock = MODEL_LOCK.lock().unwrap();
         let previous = std::env::var("CODELENS_EMBED_MODEL").ok();
         unsafe {
             std::env::set_var("CODELENS_EMBED_MODEL", CODESEARCH_MODEL_NAME);
@@ -4470,6 +4484,7 @@ fn search_for_matches() {
     #[cfg(not(feature = "model-bakeoff"))]
     #[test]
     fn requested_embedding_model_override_requires_bakeoff_feature() {
+        let _lock = MODEL_LOCK.lock().unwrap();
         let previous = std::env::var("CODELENS_EMBED_MODEL").ok();
         unsafe {
             std::env::set_var("CODELENS_EMBED_MODEL", "all-MiniLM-L12-v2");
@@ -4490,6 +4505,7 @@ fn search_for_matches() {
     #[cfg(feature = "model-bakeoff")]
     #[test]
     fn requested_embedding_model_override_accepts_alternative_model() {
+        let _lock = MODEL_LOCK.lock().unwrap();
         let previous = std::env::var("CODELENS_EMBED_MODEL").ok();
         unsafe {
             std::env::set_var("CODELENS_EMBED_MODEL", "all-MiniLM-L12-v2");
