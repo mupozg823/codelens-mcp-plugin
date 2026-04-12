@@ -1,8 +1,12 @@
 use crate::AppState;
 use crate::error::CodeLensError;
-use crate::protocol::BackendKind;
-use crate::tool_runtime::{ToolHandler, ToolResult, success_meta};
+use crate::tool_runtime::{ToolHandler, ToolResult};
 use serde_json::{Value, json};
+
+#[cfg(feature = "semantic")]
+use crate::protocol::BackendKind;
+#[cfg(feature = "semantic")]
+use crate::tool_runtime::success_meta;
 
 fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
     match payload {

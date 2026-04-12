@@ -204,10 +204,10 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
             serde_json::to_value(tools).unwrap_or(Value::Array(vec![])),
         );
         // Reasons as separate map (agents can read both)
-        if let Some(ref reasons) = resp.suggestion_reasons {
-            if let Ok(v) = serde_json::to_value(reasons) {
-                out.insert("suggestion_reasons".to_owned(), v);
-            }
+        if let Some(ref reasons) = resp.suggestion_reasons
+            && let Ok(v) = serde_json::to_value(reasons)
+        {
+            out.insert("suggestion_reasons".to_owned(), v);
         }
     }
 

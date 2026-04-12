@@ -4,14 +4,26 @@
 
 ## Quick Install
 
-```bash
-# Option 1: Cargo (recommended)
-cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
+| Channel | Command | Best for |
+| ------- | ------- | -------- |
+| crates.io | `cargo install codelens-mcp` | Standard Rust installs |
+| Homebrew | `brew install mupozg823/tap/codelens-mcp` | macOS/Linux workstation installs |
+| GitHub installer | `curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash` | Fast binary bootstrap |
+| Source build | `cargo build --release` | Custom feature combinations |
 
-# Option 2: One-line installer (downloads pre-built binary)
+### Commands
+
+```bash
+# Option 1: crates.io
+cargo install codelens-mcp
+
+# Option 2: Homebrew
+brew install mupozg823/tap/codelens-mcp
+
+# Option 3: One-line installer (downloads pre-built binary)
 curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
 
-# Option 3: Build from source
+# Option 4: Build from source
 git clone https://github.com/mupozg823/codelens-mcp-plugin
 cd codelens-mcp-plugin && cargo build --release
 cp target/release/codelens-mcp ~/.local/bin/
@@ -34,6 +46,11 @@ codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-
 ```
 
 Use HTTP as the default for multi-agent harnesses. Keep stdio for single local sessions only.
+
+Recommended daemon split:
+
+- `7837` read-only daemon for planning, review, CI, and remote bootstrap
+- `7838` mutation-enabled daemon only for explicit gated refactor sessions
 
 For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces and tiers first, and omits `outputSchema` during bootstrap to keep session overhead bounded. Clients can expand one namespace at a time with `{"namespace":"reports"}`, open primitive tools with `{"tier":"primitive"}`, request the full surface explicitly with `{"full": true}`, or opt back into schemas with `{"includeOutputSchema": true}`. In deferred sessions, hidden namespaces and primitive tiers can gate `tools/call` until the client explicitly loads them, and `codelens://tools/list` / `codelens://session/http` resources reflect the same session state.
 
@@ -80,7 +97,7 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 3. `trace_request_path` or `analyze_change_impact`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current `1.8.0` debug/runtime shape, `builder-minimal` exposes a bounded 30-tool surface in this repository, but the first visible tools are workflow aliases rather than low-level primitives.
+On the current `1.9.13` runtime shape, `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
 
 For `refactor-full`, use a preflight-first path:
 
@@ -158,7 +175,7 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 3. `trace_request_path` or `analyze_change_impact`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current `1.8.0` runtime shape in this repository, `builder-minimal` exposes a bounded 30-tool surface after bootstrap, with workflow aliases shown before lower-level primitives.
+On the current `1.9.13` runtime shape in this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
 
 For `refactor-full`, use a preflight-first path:
 
@@ -246,6 +263,12 @@ codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-
 #   GET  http://localhost:7837/mcp          (SSE stream)
 #   GET  http://localhost:7837/.well-known/mcp.json  (Server Card)
 ```
+
+Published binary targets in the current release workflow:
+
+- `darwin-arm64`
+- `linux-x86_64`
+- `windows-x86_64`
 
 **Docker:**
 

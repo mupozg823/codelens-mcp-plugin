@@ -1,7 +1,6 @@
 use super::{
     AppState, ToolResult, optional_bool, optional_string, optional_usize,
-    query_analysis::{analyze_retrieval_query, semantic_query_for_embedding_search},
-    required_string, success_meta,
+    query_analysis::analyze_retrieval_query, required_string, success_meta,
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
@@ -10,6 +9,9 @@ use codelens_engine::{
     search_symbols_hybrid_with_semantic,
 };
 use serde_json::{Value, json};
+
+#[cfg(feature = "semantic")]
+use super::query_analysis::semantic_query_for_embedding_search;
 
 #[cfg(feature = "semantic")]
 pub(crate) fn semantic_status(state: &AppState) -> Value {
@@ -121,7 +123,8 @@ pub(crate) fn semantic_results_for_query(
         && engine.is_indexed()
     {
         let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
-        let search_query = semantic_query_for_embedding_search(&query_analysis, Some(state.project().as_path()));
+        let search_query =
+            semantic_query_for_embedding_search(&query_analysis, Some(state.project().as_path()));
         let results = engine
             .search(&search_query, candidate_limit)
             .unwrap_or_default();

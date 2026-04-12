@@ -282,6 +282,7 @@ impl SymbolIndex {
     /// Like `get_ranked_context_cached` but accepts an optional query type
     /// (`"identifier"`, `"natural_language"`, `"short_phrase"`) to tune
     /// ranking weights per query category.
+    #[allow(clippy::too_many_arguments)]
     pub fn get_ranked_context_cached_with_query_type(
         &self,
         query: &str,

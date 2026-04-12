@@ -1,15 +1,15 @@
 # CodeLens MCP — Architecture & Project Overview
 
 > Pure Rust MCP server and harness optimization tool for code intelligence
-> 2 crates | 25 languages | tree-sitter-first | 50.9K Rust LOC (44.9K prod + 6.0K test)
+> 3 crates in the workspace | 2 primary runtime boundaries | 25 languages | tree-sitter-first
 
-## Current Snapshot (2026-04-12)
+## Current Snapshot (2026-04-13)
 
-- Workspace version: `1.8.0`
+- Workspace version: `1.9.13`
 - Registered tool definitions in source: `101` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
-- Current balanced runtime listing in this repo: `70` visible tools via `tools/list { "full": true }`
-- Current `builder-minimal` bootstrap in this repo: `30` visible tools via [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs)
-- Indexed files in the current project: `240 / 240`, stale `0`
+- Tool output schemas in source: `65 / 101`
+- Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
+- Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
@@ -17,6 +17,56 @@
 
 This document describes the product shape and the stable architectural layers.
 The audit document above captures the current overdesign, duplication, and drift findings against the latest code.
+
+---
+
+## Retrieval Adaptation Tiers
+
+Semantic query shaping is split into two explicit tiers:
+
+- generic adaptation lives in code and is expected to transfer across repositories
+- project-specific adaptation lives in `.codelens/bridges.json` at the project root
+
+Generic adaptation is limited to repository-agnostic shaping such as identifier splitting, natural-language code framing, and generic NL-to-code vocabulary alignment.
+
+Project-specific adaptation is opt-in and file-backed. It is intended for repository-local vocabulary only and must not be used as evidence for general retrieval claims.
+
+Current project bridge file format:
+
+```json
+[
+  { "nl": "recently accessed", "code": "record_file_access recency" },
+  { "nl": "stdin", "code": "run_stdio stdio" }
+]
+```
+
+Rules:
+
+- `nl` is the lower-signal natural-language phrase to detect
+- `code` is the repository-local code vocabulary appended for embedding search
+- missing or malformed `.codelens/bridges.json` is treated as empty
+- generic bridges remain active without any project file
+
+---
+
+## Distribution Surface
+
+CodeLens is currently packaged and deployed through four user-facing channels and one source path:
+
+| Channel | Current shape | Notes |
+| ------- | ------------- | ----- |
+| crates.io | `cargo install codelens-mcp` | Fastest path for Rust users |
+| GitHub Releases | prebuilt tar/zip artifacts | `darwin-arm64`, `linux-x86_64`, `windows-x86_64` |
+| Homebrew tap | `brew install mupozg823/tap/codelens-mcp` | Generated from release checksums in CI |
+| Installer script | `install.sh` | Convenience wrapper over published binaries |
+| Source build | `cargo build --release` | Required for custom feature combinations |
+
+Operational deployment modes:
+
+- stdio for single local agent sessions
+- Streamable HTTP + SSE for shared daemon or multi-agent deployments
+- read-only daemon mode for reviewer/planner/CI surfaces
+- mutation-enabled daemon mode only for explicit refactor surfaces
 
 ---
 
@@ -396,7 +446,7 @@ MINIMAL  (20)   ██████████████                      
 
 ### Output Schemas
 
-- **64 of 101 tools** declare a JSON output schema in the current source tree
+- **65 of 101 tools** declare a JSON output schema in the current source tree
 - All read handles (`analysis_handle`), mutation results, and primary symbol/reference payloads are schema-typed
 - Response annotations include `_meta["anthropic/maxResultSizeChars"]` per MCP v2.1.91+
 
@@ -492,7 +542,7 @@ All mutation tools are gated:
 │  │                                                   │  │
 │  │  ✅ Streamable HTTP + SSE                         │  │
 │  │  ✅ Tool Annotations (readOnly/destructive)       │  │
-│  │  ✅ Tool Output Schemas (64/101 tools)            │  │
+│  │  ✅ Tool Output Schemas (65/101 tools)            │  │
 │  │  ✅ Preset + Role Profile subsetting              │  │
 │  │  ✅ Token budget control (_profile)               │  │
 │  │  ✅ Adaptive compression (OpenDev 5-stage)        │  │
@@ -527,9 +577,9 @@ Use the **Current Snapshot** above and `docs/benchmarks.md` for current measurem
 | Tools (FULL / BALANCED / MINIMAL) | 89 / 55 / 20                                                                           |
 | Tool categories (base)            | File 7 · Symbol 7 · LSP 7 · Analysis 7 · Edit 17 · Workflow 17 · Memory 5 · Session 16 |
 | Semantic tools (cfg-gated)        | 6                                                                                      |
-| Output schemas                    | 45 / 89 (51%)                                                                          |
+| Output schemas                    | historical snapshot, superseded by current `65 / 101` snapshot above                   |
 | Languages                         | 25 (+ Perl deferred)                                                                   |
-| Tests                             | 537 (engine 222 + mcp 136 + mcp-http 179)                                              |
+| Tests                             | historical snapshot, superseded by current gate totals                                 |
 | Clippy                            | 0 warnings (default + http feature)                                                    |
 | DB schema version                 | v4 (FTS5 + sqlite-vec + self-heal)                                                     |
 | tree-sitter grammars              | 25 (statically linked)                                                                 |

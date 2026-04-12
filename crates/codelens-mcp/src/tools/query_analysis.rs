@@ -294,10 +294,12 @@ fn bridge_nl_to_code_vocabulary(query: &str, project_bridges: &[(String, String)
     result
 }
 
+#[cfg(feature = "semantic")]
 fn prefers_semantic_entrypoint_prior(query_lower: &str) -> bool {
     has_entrypoint_cue(query_lower) && query_lower.split_whitespace().count() >= 3
 }
 
+#[cfg(feature = "semantic")]
 fn is_natural_language_semantic_query(query_lower: &str) -> bool {
     query_lower.split_whitespace().count() >= 4 || prefers_semantic_entrypoint_prior(query_lower)
 }
@@ -697,7 +699,10 @@ mod tests {
         analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_embedding_search,
         semantic_query_for_retrieval,
     };
-    use std::{fs, time::{SystemTime, UNIX_EPOCH}};
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[cfg(feature = "semantic")]
     use super::{rerank_semantic_matches, semantic_adjusted_score_parts};

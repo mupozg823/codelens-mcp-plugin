@@ -391,18 +391,15 @@ impl App {
                 Action::Continue
             }
             KeyCode::Enter => {
-                match self.active_panel {
-                    Panel::Symbols => {
-                        if let Some(sym) = self.selected_symbol() {
-                            let target = sym.file_path.clone();
-                            if let Some(pos) = self.files.iter().position(|f| f.path == target) {
-                                self.file_cursor = pos;
-                                self.load_symbols_for_current_file();
-                                self.active_panel = Panel::Tree;
-                            }
-                        }
+                if let Panel::Symbols = self.active_panel
+                    && let Some(sym) = self.selected_symbol()
+                {
+                    let target = sym.file_path.clone();
+                    if let Some(pos) = self.files.iter().position(|f| f.path == target) {
+                        self.file_cursor = pos;
+                        self.load_symbols_for_current_file();
+                        self.active_panel = Panel::Tree;
                     }
-                    _ => {}
                 }
                 Action::Continue
             }

@@ -1,0 +1,919 @@
+{
+  "project": "/tmp/codelens-ext-repos/flask",
+  "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-embed-quality-rrah0t_4/flask",
+  "isolated_copy": true,
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "requested_embed_model": null,
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+    "runtime_preference": "coreml_preferred",
+    "backend": "not_loaded",
+    "threads": 8,
+    "max_length": 256,
+    "fallback_reason": null,
+    "requested_embed_model": null,
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/external-flask-dataset.json",
+  "dataset_size": 20,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.5770833333333333,
+      "acc1": 0.5,
+      "acc3": 0.65,
+      "acc5": 0.7,
+      "avg_elapsed_ms": 323.15549999999996,
+      "by_query_type": {
+        "identifier": {
+          "count": 5,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 140.796
+        },
+        "natural_language": {
+          "count": 15,
+          "mrr": 0.4361111111111111,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.5333333333333333,
+          "acc5": 0.6,
+          "avg_elapsed_ms": 383.942
+        }
+      },
+      "rows": [
+        {
+          "query": "render HTML template with context variables",
+          "query_type": "natural_language",
+          "expected_symbol": "render_template",
+          "expected_file_suffix": "src/flask/templating.py",
+          "rank": 1,
+          "elapsed_ms": 433.55,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "render_template",
+            "file": "src/flask/templating.py"
+          }
+        },
+        {
+          "query": "register a blueprint for modular application",
+          "query_type": "natural_language",
+          "expected_symbol": "register_blueprint",
+          "expected_file_suffix": "src/flask/sansio/app.py",
+          "rank": 3,
+          "elapsed_ms": 368.05,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "register_blueprint",
+            "file": "src/flask/sansio/blueprints.py"
+          }
+        },
+        {
+          "query": "handle application errors with custom handler",
+          "query_type": "natural_language",
+          "expected_symbol": "errorhandler",
+          "expected_file_suffix": "src/flask/sansio/scaffold.py",
+          "rank": null,
+          "elapsed_ms": 495.28,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "handle_custom",
+            "file": "tests/type_check/typing_error_handler.py"
+          }
+        },
+        {
+          "query": "define route decorator for URL mapping",
+          "query_type": "natural_language",
+          "expected_symbol": "decorator",
+          "expected_file_suffix": "src/flask/sansio/scaffold.py",
+          "rank": 1,
+          "elapsed_ms": 487.34,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "decorator",
+            "file": "src/flask/sansio/scaffold.py"
+          }
+        },
+        {
+          "query": "redirect user to another URL",
+          "query_type": "natural_language",
+          "expected_symbol": "redirect",
+          "expected_file_suffix": "src/flask/helpers.py",
+          "rank": 3,
+          "elapsed_ms": 303.49,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "redirect",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "abort request with HTTP error code",
+          "query_type": "natural_language",
+          "expected_symbol": "abort",
+          "expected_file_suffix": "src/flask/helpers.py",
+          "rank": 4,
+          "elapsed_ms": 497.11,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "allow_abort",
+            "file": "tests/test_basic.py"
+          }
+        },
+        {
+          "query": "run before each request hook",
+          "query_type": "natural_language",
+          "expected_symbol": "before_request",
+          "expected_file_suffix": "tests/test_basic.py",
+          "rank": 8,
+          "elapsed_ms": 427.78,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "before",
+            "file": "tests/test_async.py"
+          }
+        },
+        {
+          "query": "create WSGI application instance",
+          "query_type": "natural_language",
+          "expected_symbol": "wsgi_app",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": 1,
+          "elapsed_ms": 302.24,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "wsgi_app",
+            "file": "src/flask/app.py"
+          }
+        },
+        {
+          "query": "manage user session data",
+          "query_type": "natural_language",
+          "expected_symbol": "session",
+          "expected_file_suffix": "src/flask/ctx.py",
+          "rank": 1,
+          "elapsed_ms": 301.0,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "session",
+            "file": "src/flask/ctx.py"
+          }
+        },
+        {
+          "query": "configure application logging",
+          "query_type": "natural_language",
+          "expected_symbol": "logger",
+          "expected_file_suffix": "src/flask/logging.py",
+          "rank": 1,
+          "elapsed_ms": 246.5,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "logger",
+            "file": "src/flask/logging.py"
+          }
+        },
+        {
+          "query": "parse multipart form data from POST",
+          "query_type": "natural_language",
+          "expected_symbol": "formparse",
+          "expected_file_suffix": "src/flask",
+          "rank": null,
+          "elapsed_ms": 417.89,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "parse_args",
+            "file": "src/flask/cli.py"
+          }
+        },
+        {
+          "query": "create test client for unit testing",
+          "query_type": "natural_language",
+          "expected_symbol": "client",
+          "expected_file_suffix": "tests/test_testing.py",
+          "rank": 2,
+          "elapsed_ms": 422.51,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "client",
+            "file": "tests/conftest.py"
+          }
+        },
+        {
+          "query": "define URL routing rule",
+          "query_type": "natural_language",
+          "expected_symbol": "rule",
+          "expected_file_suffix": "src/flask/sansio/blueprints.py",
+          "rank": null,
+          "elapsed_ms": 329.76,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "add_url_rule",
+            "file": "src/flask/sansio/scaffold.py"
+          }
+        },
+        {
+          "query": "create application with factory pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "app_factory",
+          "expected_file_suffix": "src/flask/cli.py",
+          "rank": null,
+          "elapsed_ms": 366.66,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "create_app",
+            "file": "tests/test_apps/cliapp/factory.py"
+          }
+        },
+        {
+          "query": "load configuration from Python object",
+          "query_type": "natural_language",
+          "expected_symbol": "test_config_from_object",
+          "expected_file_suffix": "tests/test_config.py",
+          "rank": null,
+          "elapsed_ms": 359.97,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "loads",
+            "file": "src/flask/json/tag.py"
+          }
+        },
+        {
+          "query": "render_template",
+          "query_type": "identifier",
+          "expected_symbol": "render_template",
+          "expected_file_suffix": "src/flask/templating.py",
+          "rank": 1,
+          "elapsed_ms": 146.47,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "render_template",
+            "file": "src/flask/templating.py"
+          }
+        },
+        {
+          "query": "register_blueprint",
+          "query_type": "identifier",
+          "expected_symbol": "register_blueprint",
+          "expected_file_suffix": "src/flask/sansio/app.py",
+          "rank": 1,
+          "elapsed_ms": 145.09,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "register_blueprint",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "wsgi_app",
+          "query_type": "identifier",
+          "expected_symbol": "wsgi_app",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": 1,
+          "elapsed_ms": 142.34,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "wsgi_app",
+            "file": "src/flask/app.py"
+          }
+        },
+        {
+          "query": "errorhandler",
+          "query_type": "identifier",
+          "expected_symbol": "errorhandler",
+          "expected_file_suffix": "src/flask/sansio/scaffold.py",
+          "rank": 1,
+          "elapsed_ms": 127.77,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "errorhandler",
+            "file": "src/flask/sansio/scaffold.py"
+          }
+        },
+        {
+          "query": "request_context",
+          "query_type": "identifier",
+          "expected_symbol": "request_context",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": 1,
+          "elapsed_ms": 142.31,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "request_context",
+            "file": "src/flask/app.py"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.3633152958152958,
+      "acc1": 0.3,
+      "acc3": 0.35,
+      "acc5": 0.45,
+      "avg_elapsed_ms": 25.073,
+      "by_query_type": {
+        "identifier": {
+          "count": 5,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 17.386000000000003
+        },
+        "natural_language": {
+          "count": 15,
+          "mrr": 0.1510870610870611,
+          "acc1": 0.06666666666666667,
+          "acc3": 0.13333333333333333,
+          "acc5": 0.26666666666666666,
+          "avg_elapsed_ms": 27.63533333333333
+        }
+      },
+      "rows": [
+        {
+          "query": "render HTML template with context variables",
+          "query_type": "natural_language",
+          "expected_symbol": "render_template",
+          "expected_file_suffix": "src/flask/templating.py",
+          "rank": 3,
+          "elapsed_ms": 30.71,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "_render",
+            "file": "src/flask/templating.py"
+          }
+        },
+        {
+          "query": "register a blueprint for modular application",
+          "query_type": "natural_language",
+          "expected_symbol": "register_blueprint",
+          "expected_file_suffix": "src/flask/sansio/app.py",
+          "rank": null,
+          "elapsed_ms": 30.97,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "register_blueprint",
+            "file": "src/flask/sansio/blueprints.py"
+          }
+        },
+        {
+          "query": "handle application errors with custom handler",
+          "query_type": "natural_language",
+          "expected_symbol": "errorhandler",
+          "expected_file_suffix": "src/flask/sansio/scaffold.py",
+          "rank": null,
+          "elapsed_ms": 33.0,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "dispatch_request",
+            "file": "src/flask/app.py"
+          }
+        },
+        {
+          "query": "define route decorator for URL mapping",
+          "query_type": "natural_language",
+          "expected_symbol": "decorator",
+          "expected_file_suffix": "src/flask/sansio/scaffold.py",
+          "rank": 5,
+          "elapsed_ms": 33.36,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "decorator",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "redirect user to another URL",
+          "query_type": "natural_language",
+          "expected_symbol": "redirect",
+          "expected_file_suffix": "src/flask/helpers.py",
+          "rank": 4,
+          "elapsed_ms": 23.7,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "handle_user_exception",
+            "file": "src/flask/app.py"
+          }
+        },
+        {
+          "query": "abort request with HTTP error code",
+          "query_type": "natural_language",
+          "expected_symbol": "abort",
+          "expected_file_suffix": "src/flask/helpers.py",
+          "rank": 9,
+          "elapsed_ms": 33.17,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "dispatch_request",
+            "file": "src/flask/app.py"
+          }
+        },
+        {
+          "query": "run before each request hook",
+          "query_type": "natural_language",
+          "expected_symbol": "before_request",
+          "expected_file_suffix": "tests/test_basic.py",
+          "rank": null,
+          "elapsed_ms": 29.73,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "dispatch_request",
+            "file": "src/flask/app.py"
+          }
+        },
+        {
+          "query": "create WSGI application instance",
+          "query_type": "natural_language",
+          "expected_symbol": "wsgi_app",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": 1,
+          "elapsed_ms": 23.6,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "wsgi_app",
+            "file": "src/flask/app.py"
+          }
+        },
+        {
+          "query": "manage user session data",
+          "query_type": "natural_language",
+          "expected_symbol": "session",
+          "expected_file_suffix": "src/flask/ctx.py",
+          "rank": 15,
+          "elapsed_ms": 25.6,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "SecureCookieSession",
+            "file": "src/flask/sessions.py"
+          }
+        },
+        {
+          "query": "configure application logging",
+          "query_type": "natural_language",
+          "expected_symbol": "logger",
+          "expected_file_suffix": "src/flask/logging.py",
+          "rank": 11,
+          "elapsed_ms": 22.23,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "application",
+            "file": "src/flask/testing.py"
+          }
+        },
+        {
+          "query": "parse multipart form data from POST",
+          "query_type": "natural_language",
+          "expected_symbol": "formparse",
+          "expected_file_suffix": "src/flask",
+          "rank": null,
+          "elapsed_ms": 26.97,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "_load_form_data",
+            "file": "src/flask/wrappers.py"
+          }
+        },
+        {
+          "query": "create test client for unit testing",
+          "query_type": "natural_language",
+          "expected_symbol": "client",
+          "expected_file_suffix": "tests/test_testing.py",
+          "rank": null,
+          "elapsed_ms": 30.74,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "testing",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "define URL routing rule",
+          "query_type": "natural_language",
+          "expected_symbol": "rule",
+          "expected_file_suffix": "src/flask/sansio/blueprints.py",
+          "rank": 14,
+          "elapsed_ms": 21.95,
+          "candidate_count": 24,
+          "top_candidate": {
+            "name": "add_url_rule",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "create application with factory pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "app_factory",
+          "expected_file_suffix": "src/flask/cli.py",
+          "rank": 7,
+          "elapsed_ms": 24.39,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "create_app",
+            "file": "tests/test_cli.py"
+          }
+        },
+        {
+          "query": "load configuration from Python object",
+          "query_type": "natural_language",
+          "expected_symbol": "test_config_from_object",
+          "expected_file_suffix": "tests/test_config.py",
+          "rank": null,
+          "elapsed_ms": 24.41,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "from_object",
+            "file": "src/flask/config.py"
+          }
+        },
+        {
+          "query": "render_template",
+          "query_type": "identifier",
+          "expected_symbol": "render_template",
+          "expected_file_suffix": "src/flask/templating.py",
+          "rank": 1,
+          "elapsed_ms": 18.18,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "render_template",
+            "file": "src/flask/templating.py"
+          }
+        },
+        {
+          "query": "register_blueprint",
+          "query_type": "identifier",
+          "expected_symbol": "register_blueprint",
+          "expected_file_suffix": "src/flask/sansio/app.py",
+          "rank": 1,
+          "elapsed_ms": 18.09,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "register_blueprint",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "wsgi_app",
+          "query_type": "identifier",
+          "expected_symbol": "wsgi_app",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": 1,
+          "elapsed_ms": 17.34,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "wsgi_app",
+            "file": "src/flask/app.py"
+          }
+        },
+        {
+          "query": "errorhandler",
+          "query_type": "identifier",
+          "expected_symbol": "errorhandler",
+          "expected_file_suffix": "src/flask/sansio/scaffold.py",
+          "rank": 1,
+          "elapsed_ms": 16.43,
+          "candidate_count": 6,
+          "top_candidate": {
+            "name": "errorhandler",
+            "file": "src/flask/sansio/scaffold.py"
+          }
+        },
+        {
+          "query": "request_context",
+          "query_type": "identifier",
+          "expected_symbol": "request_context",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": 1,
+          "elapsed_ms": 16.89,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "request_context",
+            "file": "src/flask/app.py"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.5633333333333332,
+      "acc1": 0.45,
+      "acc3": 0.65,
+      "acc5": 0.75,
+      "avg_elapsed_ms": 99.127,
+      "by_query_type": {
+        "identifier": {
+          "count": 5,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 17.872
+        },
+        "natural_language": {
+          "count": 15,
+          "mrr": 0.41777777777777775,
+          "acc1": 0.26666666666666666,
+          "acc3": 0.5333333333333333,
+          "acc5": 0.6666666666666666,
+          "avg_elapsed_ms": 126.212
+        }
+      },
+      "rows": [
+        {
+          "query": "render HTML template with context variables",
+          "query_type": "natural_language",
+          "expected_symbol": "render_template",
+          "expected_file_suffix": "src/flask/templating.py",
+          "rank": 1,
+          "elapsed_ms": 126.99,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "render_template",
+            "file": "src/flask/templating.py"
+          }
+        },
+        {
+          "query": "register a blueprint for modular application",
+          "query_type": "natural_language",
+          "expected_symbol": "register_blueprint",
+          "expected_file_suffix": "src/flask/sansio/app.py",
+          "rank": 1,
+          "elapsed_ms": 129.43,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "register_blueprint",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "handle application errors with custom handler",
+          "query_type": "natural_language",
+          "expected_symbol": "errorhandler",
+          "expected_file_suffix": "src/flask/sansio/scaffold.py",
+          "rank": null,
+          "elapsed_ms": 136.42,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "app_errorhandler",
+            "file": "src/flask/sansio/blueprints.py"
+          }
+        },
+        {
+          "query": "define route decorator for URL mapping",
+          "query_type": "natural_language",
+          "expected_symbol": "decorator",
+          "expected_file_suffix": "src/flask/sansio/scaffold.py",
+          "rank": 4,
+          "elapsed_ms": 130.82,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "decorator",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "redirect user to another URL",
+          "query_type": "natural_language",
+          "expected_symbol": "redirect",
+          "expected_file_suffix": "src/flask/helpers.py",
+          "rank": 3,
+          "elapsed_ms": 120.96,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "redirect",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "abort request with HTTP error code",
+          "query_type": "natural_language",
+          "expected_symbol": "abort",
+          "expected_file_suffix": "src/flask/helpers.py",
+          "rank": 3,
+          "elapsed_ms": 129.93,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "allow_abort",
+            "file": "tests/test_basic.py"
+          }
+        },
+        {
+          "query": "run before each request hook",
+          "query_type": "natural_language",
+          "expected_symbol": "before_request",
+          "expected_file_suffix": "tests/test_basic.py",
+          "rank": 6,
+          "elapsed_ms": 125.88,
+          "candidate_count": 35,
+          "top_candidate": {
+            "name": "before_request",
+            "file": "src/flask/sansio/scaffold.py"
+          }
+        },
+        {
+          "query": "create WSGI application instance",
+          "query_type": "natural_language",
+          "expected_symbol": "wsgi_app",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": 1,
+          "elapsed_ms": 123.3,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "wsgi_app",
+            "file": "src/flask/app.py"
+          }
+        },
+        {
+          "query": "manage user session data",
+          "query_type": "natural_language",
+          "expected_symbol": "session",
+          "expected_file_suffix": "src/flask/ctx.py",
+          "rank": 3,
+          "elapsed_ms": 127.03,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "session_transaction",
+            "file": "src/flask/testing.py"
+          }
+        },
+        {
+          "query": "configure application logging",
+          "query_type": "natural_language",
+          "expected_symbol": "logger",
+          "expected_file_suffix": "src/flask/logging.py",
+          "rank": 2,
+          "elapsed_ms": 123.08,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "logger",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "parse multipart form data from POST",
+          "query_type": "natural_language",
+          "expected_symbol": "formparse",
+          "expected_file_suffix": "src/flask",
+          "rank": null,
+          "elapsed_ms": 126.78,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "_load_form_data",
+            "file": "src/flask/wrappers.py"
+          }
+        },
+        {
+          "query": "create test client for unit testing",
+          "query_type": "natural_language",
+          "expected_symbol": "client",
+          "expected_file_suffix": "tests/test_testing.py",
+          "rank": 1,
+          "elapsed_ms": 126.73,
+          "candidate_count": 36,
+          "top_candidate": {
+            "name": "client",
+            "file": "tests/test_testing.py"
+          }
+        },
+        {
+          "query": "define URL routing rule",
+          "query_type": "natural_language",
+          "expected_symbol": "rule",
+          "expected_file_suffix": "src/flask/sansio/blueprints.py",
+          "rank": 10,
+          "elapsed_ms": 120.57,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "add_url_rule",
+            "file": "src/flask/sansio/scaffold.py"
+          }
+        },
+        {
+          "query": "create application with factory pattern",
+          "query_type": "natural_language",
+          "expected_symbol": "app_factory",
+          "expected_file_suffix": "src/flask/cli.py",
+          "rank": 4,
+          "elapsed_ms": 123.08,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "create_app",
+            "file": "tests/test_apps/cliapp/factory.py"
+          }
+        },
+        {
+          "query": "load configuration from Python object",
+          "query_type": "natural_language",
+          "expected_symbol": "test_config_from_object",
+          "expected_file_suffix": "tests/test_config.py",
+          "rank": null,
+          "elapsed_ms": 122.18,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "loads",
+            "file": "src/flask/json/tag.py"
+          }
+        },
+        {
+          "query": "render_template",
+          "query_type": "identifier",
+          "expected_symbol": "render_template",
+          "expected_file_suffix": "src/flask/templating.py",
+          "rank": 1,
+          "elapsed_ms": 19.83,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "render_template",
+            "file": "src/flask/templating.py"
+          }
+        },
+        {
+          "query": "register_blueprint",
+          "query_type": "identifier",
+          "expected_symbol": "register_blueprint",
+          "expected_file_suffix": "src/flask/sansio/app.py",
+          "rank": 1,
+          "elapsed_ms": 18.57,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "register_blueprint",
+            "file": "src/flask/sansio/app.py"
+          }
+        },
+        {
+          "query": "wsgi_app",
+          "query_type": "identifier",
+          "expected_symbol": "wsgi_app",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": 1,
+          "elapsed_ms": 18.71,
+          "candidate_count": 29,
+          "top_candidate": {
+            "name": "wsgi_app",
+            "file": "src/flask/app.py"
+          }
+        },
+        {
+          "query": "errorhandler",
+          "query_type": "identifier",
+          "expected_symbol": "errorhandler",
+          "expected_file_suffix": "src/flask/sansio/scaffold.py",
+          "rank": 1,
+          "elapsed_ms": 15.67,
+          "candidate_count": 6,
+          "top_candidate": {
+            "name": "errorhandler",
+            "file": "src/flask/sansio/scaffold.py"
+          }
+        },
+        {
+          "query": "request_context",
+          "query_type": "identifier",
+          "expected_symbol": "request_context",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": 1,
+          "elapsed_ms": 16.58,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "request_context",
+            "file": "src/flask/app.py"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": 0.20001803751803743,
+    "acc1_delta": 0.15000000000000002,
+    "acc3_delta": 0.30000000000000004,
+    "acc5_delta": 0.3
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": 0.26669071669071664,
+      "acc1_delta": 0.2,
+      "acc3_delta": 0.4,
+      "acc5_delta": 0.39999999999999997
+    }
+  }
+}

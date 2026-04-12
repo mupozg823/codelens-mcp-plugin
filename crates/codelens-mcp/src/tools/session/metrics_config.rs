@@ -383,16 +383,18 @@ pub(crate) fn build_health_summary(
     let stale_files = index_stats.map(|s| s.stale_files).unwrap_or(0);
     let mut warnings = Vec::new();
 
-    let mut push_warning =
-        |code: &str, message: String, recommended_action: Option<&str>, action_target: Option<&str>| {
-            warnings.push(json!({
-                "code": code,
-                "severity": "warn",
-                "message": message,
-                "recommended_action": recommended_action,
-                "action_target": action_target,
-            }));
-        };
+    let mut push_warning = |code: &str,
+                            message: String,
+                            recommended_action: Option<&str>,
+                            action_target: Option<&str>| {
+        warnings.push(json!({
+            "code": code,
+            "severity": "warn",
+            "message": message,
+            "recommended_action": recommended_action,
+            "action_target": action_target,
+        }));
+    };
 
     if supported_files == 0 {
         push_warning(
@@ -478,7 +480,9 @@ pub(crate) fn build_health_summary(
             daemon_binary_drift
                 .get("recommended_action")
                 .and_then(|v| v.as_str()),
-            daemon_binary_drift.get("action_target").and_then(|v| v.as_str()),
+            daemon_binary_drift
+                .get("action_target")
+                .and_then(|v| v.as_str()),
         );
     }
 
@@ -1044,7 +1048,8 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
 
 #[cfg(test)]
 mod capability_reporting_tests {
-    use super::*;
+    #[cfg(feature = "semantic")]
+    use super::SemanticSearchStatus;
 
     /// Phase 4a AC1: the LSP fallback helper must resolve a binary
     /// that exists in a known install directory even when the daemon

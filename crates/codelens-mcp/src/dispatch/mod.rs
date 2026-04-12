@@ -239,8 +239,28 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
         .ok_or_else(|| anyhow::anyhow!("Embedding engine not available"))?;
 
     let count = engine.index_from_project(&project)?;
+
+    // Auto-generate project-specific NL→code bridges from docstrings.
+    // Written to .codelens/bridges.json for semantic_query_for_embedding_search().
+    let bridges_generated = match engine.generate_bridge_candidates(&project) {
+        Ok(bridges) if !bridges.is_empty() => {
+            let bridges_dir = project.as_path().join(".codelens");
+            let _ = std::fs::create_dir_all(&bridges_dir);
+            let json_entries: Vec<serde_json::Value> = bridges
+                .iter()
+                .map(|(nl, code)| json!({"nl": nl, "code": code}))
+                .collect();
+            let _ = std::fs::write(
+                bridges_dir.join("bridges.json"),
+                serde_json::to_string_pretty(&json_entries).unwrap_or_default(),
+            );
+            bridges.len()
+        }
+        _ => 0,
+    };
+
     Ok((
-        json!({"indexed_symbols": count, "status": "ok"}),
+        json!({"indexed_symbols": count, "bridges_generated": bridges_generated, "status": "ok"}),
         tools::success_meta(crate::protocol::BackendKind::Semantic, 0.95),
     ))
 }

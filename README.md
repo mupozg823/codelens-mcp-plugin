@@ -43,6 +43,9 @@ cargo install codelens-mcp
 # Homebrew (macOS / Linux)
 brew install mupozg823/tap/codelens-mcp
 
+# GitHub installer (prebuilt release binary)
+curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
+
 # From source
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
 ```
@@ -81,6 +84,16 @@ codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-
 ```
 
 See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.
+
+### Distribution Channels
+
+| Channel | Delivery | Notes |
+| ------- | -------- | ----- |
+| crates.io | `cargo install codelens-mcp` | Standard Rust install path |
+| Homebrew tap | `brew install mupozg823/tap/codelens-mcp` | macOS/Linux package install |
+| GitHub Releases | prebuilt archives | `darwin-arm64`, `linux-x86_64`, `windows-x86_64` |
+| installer script | `install.sh` | Convenience bootstrap for release assets |
+| source build | `cargo build --release` | Custom feature builds and local hacking |
 
 ## Why CodeLens?
 
@@ -193,8 +206,10 @@ cargo build --release                         # includes semantic (76MB)
 cargo build --release --no-default-features   # without ML model (23MB)
 cargo build --release --features http         # add HTTP transport
 
-# Tests (537)
-cargo test -p codelens-engine && cargo test -p codelens-mcp
+# Core verification
+cargo test -p codelens-engine
+cargo test -p codelens-mcp
+cargo test -p codelens-mcp --features http
 ```
 
 ## Harness Architecture
@@ -250,7 +265,7 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 | Streamable HTTP + SSE                   | Supported                              |
 | Role-based capability negotiation       | `--profile` flag                       |
 | Tool Annotations (readOnly/destructive) | Supported                              |
-| Tool Output Schemas                     | 45 tools covered                       |
+| Tool Output Schemas                     | 65 / 101 tools covered                 |
 | `.well-known/mcp.json` Server Card      | HTTP transport                         |
 | Analysis handles + section expansion    | Supported                              |
 | Durable analysis jobs                   | Supported                              |

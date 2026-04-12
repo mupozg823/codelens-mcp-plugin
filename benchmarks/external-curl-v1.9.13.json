@@ -1,0 +1,841 @@
+{
+  "project": "/tmp/codelens-ext-repos/curl",
+  "benchmark_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-embed-quality-09j5347o/curl",
+  "isolated_copy": true,
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "requested_embed_model": null,
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+    "runtime_preference": "coreml_preferred",
+    "backend": "not_loaded",
+    "threads": 8,
+    "max_length": 256,
+    "fallback_reason": null,
+    "requested_embed_model": null,
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/external-curl-dataset.json",
+  "dataset_size": 18,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "method": "semantic_search",
+      "mrr": 0.5550925925925926,
+      "acc1": 0.5,
+      "acc3": 0.5555555555555556,
+      "acc5": 0.6111111111111112,
+      "avg_elapsed_ms": 1350.201111111111,
+      "by_query_type": {
+        "identifier": {
+          "count": 6,
+          "mrr": 0.8666666666666667,
+          "acc1": 0.8333333333333334,
+          "acc3": 0.8333333333333334,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 321.2816666666667
+        },
+        "natural_language": {
+          "count": 12,
+          "mrr": 0.3993055555555556,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.4166666666666667,
+          "acc5": 0.4166666666666667,
+          "avg_elapsed_ms": 1864.6608333333334
+        }
+      },
+      "rows": [
+        {
+          "query": "parse URL string into components",
+          "query_type": "natural_language",
+          "expected_symbol": "parseurl",
+          "expected_file_suffix": "lib/urlapi.c",
+          "rank": 1,
+          "elapsed_ms": 4690.75,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "parseurl",
+            "file": "lib/urlapi.c"
+          }
+        },
+        {
+          "query": "upload file to remote server",
+          "query_type": "natural_language",
+          "expected_symbol": "file_upload",
+          "expected_file_suffix": "lib/file.c",
+          "rank": 1,
+          "elapsed_ms": 1615.79,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "file_upload",
+            "file": "lib/file.c"
+          }
+        },
+        {
+          "query": "handle HTTP cookies",
+          "query_type": "natural_language",
+          "expected_symbol": "Cookie",
+          "expected_file_suffix": "lib/cookie.h",
+          "rank": null,
+          "elapsed_ms": 1139.66,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "http_cookies",
+            "file": "lib/http.c"
+          }
+        },
+        {
+          "query": "parse multipart form data",
+          "query_type": "natural_language",
+          "expected_symbol": "formparse",
+          "expected_file_suffix": "src/tool_formparse.c",
+          "rank": 1,
+          "elapsed_ms": 1583.41,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "formparse",
+            "file": "src/tool_formparse.c"
+          }
+        },
+        {
+          "query": "parse HTTP response headers",
+          "query_type": "natural_language",
+          "expected_symbol": "_parse_headerfile",
+          "expected_file_suffix": "tests/http/testenv/curl.py",
+          "rank": 2,
+          "elapsed_ms": 1566.43,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "http_parse_headers",
+            "file": "lib/http.c"
+          }
+        },
+        {
+          "query": "format and print error messages",
+          "query_type": "natural_language",
+          "expected_symbol": "errorf",
+          "expected_file_suffix": "src/tool_msgs.c",
+          "rank": 1,
+          "elapsed_ms": 1939.6,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "errorf",
+            "file": "src/tool_msgs.c"
+          }
+        },
+        {
+          "query": "send HTTP request to server",
+          "query_type": "natural_language",
+          "expected_symbol": "send_request",
+          "expected_file_suffix": "tests/libtest/lib2023.c",
+          "rank": 8,
+          "elapsed_ms": 2063.59,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "init_httprequest",
+            "file": "tests/server/sws.c"
+          }
+        },
+        {
+          "query": "establish TCP connection to host",
+          "query_type": "natural_language",
+          "expected_symbol": "http_connect",
+          "expected_file_suffix": "tests/server/sws.c",
+          "rank": null,
+          "elapsed_ms": 1539.88,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "tcpdump",
+            "file": "tests/http/testenv/env.py"
+          }
+        },
+        {
+          "query": "resolve DNS hostname to IP address",
+          "query_type": "natural_language",
+          "expected_symbol": "test_resolve",
+          "expected_file_suffix": "tests/server/resolve.c",
+          "rank": null,
+          "elapsed_ms": 1571.3,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "can_resolve_dns_queries",
+            "file": "lib/hostip.c"
+          }
+        },
+        {
+          "query": "show download or upload progress",
+          "query_type": "natural_language",
+          "expected_symbol": "Progress",
+          "expected_file_suffix": "lib/getinfo.c",
+          "rank": null,
+          "elapsed_ms": 1547.36,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "progress_callback",
+            "file": "tests/libtest/cli_upload_pausing.c"
+          }
+        },
+        {
+          "query": "handle SSL TLS handshake",
+          "query_type": "natural_language",
+          "expected_symbol": "handshakes",
+          "expected_file_suffix": "tests/http/scorecard.py",
+          "rank": 6,
+          "elapsed_ms": 1569.26,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "wssl_handshake",
+            "file": "lib/vtls/wolfssl.c"
+          }
+        },
+        {
+          "query": "verify SSL certificate chain",
+          "query_type": "natural_language",
+          "expected_symbol": "certificate",
+          "expected_file_suffix": "tests/http/testenv/certs.py",
+          "rank": null,
+          "elapsed_ms": 1548.9,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "use_certificate_chain_blob",
+            "file": "lib/vtls/openssl.c"
+          }
+        },
+        {
+          "query": "parseurl",
+          "query_type": "identifier",
+          "expected_symbol": "parseurl",
+          "expected_file_suffix": "lib/urlapi.c",
+          "rank": 1,
+          "elapsed_ms": 281.28,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "parseurl",
+            "file": "lib/urlapi.c"
+          }
+        },
+        {
+          "query": "file_upload",
+          "query_type": "identifier",
+          "expected_symbol": "file_upload",
+          "expected_file_suffix": "lib/file.c",
+          "rank": 1,
+          "elapsed_ms": 387.97,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "file_upload",
+            "file": "lib/file.c"
+          }
+        },
+        {
+          "query": "formparse",
+          "query_type": "identifier",
+          "expected_symbol": "formparse",
+          "expected_file_suffix": "src/tool_formparse.c",
+          "rank": 1,
+          "elapsed_ms": 275.77,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "formparse",
+            "file": "src/tool_formparse.c"
+          }
+        },
+        {
+          "query": "Cookie",
+          "query_type": "identifier",
+          "expected_symbol": "Cookie",
+          "expected_file_suffix": "lib/cookie.h",
+          "rank": 5,
+          "elapsed_ms": 300.02,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "Cookie",
+            "file": "lib/http.c"
+          }
+        },
+        {
+          "query": "errorf",
+          "query_type": "identifier",
+          "expected_symbol": "errorf",
+          "expected_file_suffix": "src/tool_msgs.c",
+          "rank": 1,
+          "elapsed_ms": 286.53,
+          "candidate_count": 2,
+          "top_candidate": {
+            "name": "errorf",
+            "file": "src/tool_msgs.c"
+          }
+        },
+        {
+          "query": "send_request",
+          "query_type": "identifier",
+          "expected_symbol": "send_request",
+          "expected_file_suffix": "tests/libtest/lib2023.c",
+          "rank": 1,
+          "elapsed_ms": 396.12,
+          "candidate_count": 10,
+          "top_candidate": {
+            "name": "send_request",
+            "file": "tests/libtest/lib2023.c"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context_no_semantic",
+      "mrr": 0.5122100122100122,
+      "acc1": 0.5,
+      "acc3": 0.5,
+      "acc5": 0.5,
+      "avg_elapsed_ms": 91.80333333333334,
+      "by_query_type": {
+        "identifier": {
+          "count": 6,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 69.15166666666667
+        },
+        "natural_language": {
+          "count": 12,
+          "mrr": 0.2683150183150183,
+          "acc1": 0.25,
+          "acc3": 0.25,
+          "acc5": 0.25,
+          "avg_elapsed_ms": 103.12916666666666
+        }
+      },
+      "rows": [
+        {
+          "query": "parse URL string into components",
+          "query_type": "natural_language",
+          "expected_symbol": "parseurl",
+          "expected_file_suffix": "lib/urlapi.c",
+          "rank": 1,
+          "elapsed_ms": 109.56,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "parseurl",
+            "file": "lib/urlapi.c"
+          }
+        },
+        {
+          "query": "upload file to remote server",
+          "query_type": "natural_language",
+          "expected_symbol": "file_upload",
+          "expected_file_suffix": "lib/file.c",
+          "rank": 7,
+          "elapsed_ms": 99.26,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "file",
+            "file": "tests/http/testenv/curl.py"
+          }
+        },
+        {
+          "query": "handle HTTP cookies",
+          "query_type": "natural_language",
+          "expected_symbol": "Cookie",
+          "expected_file_suffix": "lib/cookie.h",
+          "rank": null,
+          "elapsed_ms": 91.79,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "http_cookies",
+            "file": "lib/http.c"
+          }
+        },
+        {
+          "query": "parse multipart form data",
+          "query_type": "natural_language",
+          "expected_symbol": "formparse",
+          "expected_file_suffix": "src/tool_formparse.c",
+          "rank": 1,
+          "elapsed_ms": 101.14,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "formparse",
+            "file": "src/tool_formparse.c"
+          }
+        },
+        {
+          "query": "parse HTTP response headers",
+          "query_type": "natural_language",
+          "expected_symbol": "_parse_headerfile",
+          "expected_file_suffix": "tests/http/testenv/curl.py",
+          "rank": null,
+          "elapsed_ms": 99.92,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "httpd",
+            "file": "tests/http/testenv/env.py"
+          }
+        },
+        {
+          "query": "format and print error messages",
+          "query_type": "natural_language",
+          "expected_symbol": "errorf",
+          "expected_file_suffix": "src/tool_msgs.c",
+          "rank": null,
+          "elapsed_ms": 110.88,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "nsprintf",
+            "file": "lib/mprintf.c"
+          }
+        },
+        {
+          "query": "send HTTP request to server",
+          "query_type": "natural_language",
+          "expected_symbol": "send_request",
+          "expected_file_suffix": "tests/libtest/lib2023.c",
+          "rank": null,
+          "elapsed_ms": 111.16,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "httpd",
+            "file": "tests/http/testenv/env.py"
+          }
+        },
+        {
+          "query": "establish TCP connection to host",
+          "query_type": "natural_language",
+          "expected_symbol": "http_connect",
+          "expected_file_suffix": "tests/server/sws.c",
+          "rank": null,
+          "elapsed_ms": 105.4,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "tcpdump",
+            "file": "tests/http/testenv/env.py"
+          }
+        },
+        {
+          "query": "resolve DNS hostname to IP address",
+          "query_type": "natural_language",
+          "expected_symbol": "test_resolve",
+          "expected_file_suffix": "tests/server/resolve.c",
+          "rank": null,
+          "elapsed_ms": 99.88,
+          "candidate_count": 36,
+          "top_candidate": {
+            "name": "hostname",
+            "file": "lib/urldata.h"
+          }
+        },
+        {
+          "query": "show download or upload progress",
+          "query_type": "natural_language",
+          "expected_symbol": "Progress",
+          "expected_file_suffix": "lib/getinfo.c",
+          "rank": 13,
+          "elapsed_ms": 104.6,
+          "candidate_count": 30,
+          "top_candidate": {
+            "name": "ftp_upload",
+            "file": "tests/http/testenv/curl.py"
+          }
+        },
+        {
+          "query": "handle SSL TLS handshake",
+          "query_type": "natural_language",
+          "expected_symbol": "handshakes",
+          "expected_file_suffix": "tests/http/scorecard.py",
+          "rank": null,
+          "elapsed_ms": 101.67,
+          "candidate_count": 25,
+          "top_candidate": {
+            "name": "openssl",
+            "file": "tests/http/testenv/env.py"
+          }
+        },
+        {
+          "query": "verify SSL certificate chain",
+          "query_type": "natural_language",
+          "expected_symbol": "certificate",
+          "expected_file_suffix": "tests/http/testenv/certs.py",
+          "rank": 1,
+          "elapsed_ms": 102.29,
+          "candidate_count": 27,
+          "top_candidate": {
+            "name": "certificate",
+            "file": "tests/http/testenv/certs.py"
+          }
+        },
+        {
+          "query": "parseurl",
+          "query_type": "identifier",
+          "expected_symbol": "parseurl",
+          "expected_file_suffix": "lib/urlapi.c",
+          "rank": 1,
+          "elapsed_ms": 66.95,
+          "candidate_count": 4,
+          "top_candidate": {
+            "name": "parseurl",
+            "file": "lib/urlapi.c"
+          }
+        },
+        {
+          "query": "file_upload",
+          "query_type": "identifier",
+          "expected_symbol": "file_upload",
+          "expected_file_suffix": "lib/file.c",
+          "rank": 1,
+          "elapsed_ms": 70.68,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "file_upload",
+            "file": "lib/file.c"
+          }
+        },
+        {
+          "query": "formparse",
+          "query_type": "identifier",
+          "expected_symbol": "formparse",
+          "expected_file_suffix": "src/tool_formparse.c",
+          "rank": 1,
+          "elapsed_ms": 70.46,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "formparse",
+            "file": "src/tool_formparse.c"
+          }
+        },
+        {
+          "query": "Cookie",
+          "query_type": "identifier",
+          "expected_symbol": "Cookie",
+          "expected_file_suffix": "lib/cookie.h",
+          "rank": 1,
+          "elapsed_ms": 69.45,
+          "candidate_count": 36,
+          "top_candidate": {
+            "name": "Cookie",
+            "file": "lib/cookie.h"
+          }
+        },
+        {
+          "query": "errorf",
+          "query_type": "identifier",
+          "expected_symbol": "errorf",
+          "expected_file_suffix": "src/tool_msgs.c",
+          "rank": 1,
+          "elapsed_ms": 66.42,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "errorf",
+            "file": "src/tool_msgs.c"
+          }
+        },
+        {
+          "query": "send_request",
+          "query_type": "identifier",
+          "expected_symbol": "send_request",
+          "expected_file_suffix": "tests/libtest/lib2023.c",
+          "rank": 1,
+          "elapsed_ms": 70.95,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "send_request",
+            "file": "tests/libtest/lib2023.c"
+          }
+        }
+      ]
+    },
+    {
+      "method": "get_ranked_context",
+      "mrr": 0.622895622895623,
+      "acc1": 0.5555555555555556,
+      "acc3": 0.6666666666666666,
+      "acc5": 0.6666666666666666,
+      "avg_elapsed_ms": 174.53944444444446,
+      "by_query_type": {
+        "identifier": {
+          "count": 6,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 70.25333333333333
+        },
+        "natural_language": {
+          "count": 12,
+          "mrr": 0.4343434343434343,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.5,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 226.6825
+        }
+      },
+      "rows": [
+        {
+          "query": "parse URL string into components",
+          "query_type": "natural_language",
+          "expected_symbol": "parseurl",
+          "expected_file_suffix": "lib/urlapi.c",
+          "rank": 1,
+          "elapsed_ms": 225.64,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "parseurl",
+            "file": "lib/urlapi.c"
+          }
+        },
+        {
+          "query": "upload file to remote server",
+          "query_type": "natural_language",
+          "expected_symbol": "file_upload",
+          "expected_file_suffix": "lib/file.c",
+          "rank": 1,
+          "elapsed_ms": 214.96,
+          "candidate_count": 38,
+          "top_candidate": {
+            "name": "file_upload",
+            "file": "lib/file.c"
+          }
+        },
+        {
+          "query": "handle HTTP cookies",
+          "query_type": "natural_language",
+          "expected_symbol": "Cookie",
+          "expected_file_suffix": "lib/cookie.h",
+          "rank": null,
+          "elapsed_ms": 197.22,
+          "candidate_count": 31,
+          "top_candidate": {
+            "name": "Cookie",
+            "file": "lib/http.c"
+          }
+        },
+        {
+          "query": "parse multipart form data",
+          "query_type": "natural_language",
+          "expected_symbol": "formparse",
+          "expected_file_suffix": "src/tool_formparse.c",
+          "rank": 1,
+          "elapsed_ms": 220.65,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "formparse",
+            "file": "src/tool_formparse.c"
+          }
+        },
+        {
+          "query": "parse HTTP response headers",
+          "query_type": "natural_language",
+          "expected_symbol": "_parse_headerfile",
+          "expected_file_suffix": "tests/http/testenv/curl.py",
+          "rank": 2,
+          "elapsed_ms": 217.54,
+          "candidate_count": 37,
+          "top_candidate": {
+            "name": "http_parse_headers",
+            "file": "lib/http.c"
+          }
+        },
+        {
+          "query": "format and print error messages",
+          "query_type": "natural_language",
+          "expected_symbol": "errorf",
+          "expected_file_suffix": "src/tool_msgs.c",
+          "rank": 1,
+          "elapsed_ms": 220.09,
+          "candidate_count": 38,
+          "top_candidate": {
+            "name": "errorf",
+            "file": "src/tool_msgs.c"
+          }
+        },
+        {
+          "query": "send HTTP request to server",
+          "query_type": "natural_language",
+          "expected_symbol": "send_request",
+          "expected_file_suffix": "tests/libtest/lib2023.c",
+          "rank": 3,
+          "elapsed_ms": 244.56,
+          "candidate_count": 34,
+          "top_candidate": {
+            "name": "init_httprequest",
+            "file": "tests/server/sws.c"
+          }
+        },
+        {
+          "query": "establish TCP connection to host",
+          "query_type": "natural_language",
+          "expected_symbol": "http_connect",
+          "expected_file_suffix": "tests/server/sws.c",
+          "rank": null,
+          "elapsed_ms": 257.2,
+          "candidate_count": 36,
+          "top_candidate": {
+            "name": "__init__",
+            "file": "tests/negtelnetserver.py"
+          }
+        },
+        {
+          "query": "resolve DNS hostname to IP address",
+          "query_type": "natural_language",
+          "expected_symbol": "test_resolve",
+          "expected_file_suffix": "tests/server/resolve.c",
+          "rank": 22,
+          "elapsed_ms": 236.17,
+          "candidate_count": 34,
+          "top_candidate": {
+            "name": "can_resolve_dns_queries",
+            "file": "lib/hostip.c"
+          }
+        },
+        {
+          "query": "show download or upload progress",
+          "query_type": "natural_language",
+          "expected_symbol": "Progress",
+          "expected_file_suffix": "lib/getinfo.c",
+          "rank": 8,
+          "elapsed_ms": 228.81,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "progress_callback",
+            "file": "tests/libtest/cli_upload_pausing.c"
+          }
+        },
+        {
+          "query": "handle SSL TLS handshake",
+          "query_type": "natural_language",
+          "expected_symbol": "handshakes",
+          "expected_file_suffix": "tests/http/scorecard.py",
+          "rank": 6,
+          "elapsed_ms": 225.65,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "wssl_handshake",
+            "file": "lib/vtls/wolfssl.c"
+          }
+        },
+        {
+          "query": "verify SSL certificate chain",
+          "query_type": "natural_language",
+          "expected_symbol": "certificate",
+          "expected_file_suffix": "tests/http/testenv/certs.py",
+          "rank": 24,
+          "elapsed_ms": 231.7,
+          "candidate_count": 33,
+          "top_candidate": {
+            "name": "cert_chain_engine_config_win8",
+            "file": "lib/vtls/schannel_verify.c"
+          }
+        },
+        {
+          "query": "parseurl",
+          "query_type": "identifier",
+          "expected_symbol": "parseurl",
+          "expected_file_suffix": "lib/urlapi.c",
+          "rank": 1,
+          "elapsed_ms": 68.3,
+          "candidate_count": 4,
+          "top_candidate": {
+            "name": "parseurl",
+            "file": "lib/urlapi.c"
+          }
+        },
+        {
+          "query": "file_upload",
+          "query_type": "identifier",
+          "expected_symbol": "file_upload",
+          "expected_file_suffix": "lib/file.c",
+          "rank": 1,
+          "elapsed_ms": 72.02,
+          "candidate_count": 32,
+          "top_candidate": {
+            "name": "file_upload",
+            "file": "lib/file.c"
+          }
+        },
+        {
+          "query": "formparse",
+          "query_type": "identifier",
+          "expected_symbol": "formparse",
+          "expected_file_suffix": "src/tool_formparse.c",
+          "rank": 1,
+          "elapsed_ms": 66.77,
+          "candidate_count": 26,
+          "top_candidate": {
+            "name": "formparse",
+            "file": "src/tool_formparse.c"
+          }
+        },
+        {
+          "query": "Cookie",
+          "query_type": "identifier",
+          "expected_symbol": "Cookie",
+          "expected_file_suffix": "lib/cookie.h",
+          "rank": 1,
+          "elapsed_ms": 79.16,
+          "candidate_count": 36,
+          "top_candidate": {
+            "name": "Cookie",
+            "file": "lib/cookie.h"
+          }
+        },
+        {
+          "query": "errorf",
+          "query_type": "identifier",
+          "expected_symbol": "errorf",
+          "expected_file_suffix": "src/tool_msgs.c",
+          "rank": 1,
+          "elapsed_ms": 65.34,
+          "candidate_count": 1,
+          "top_candidate": {
+            "name": "errorf",
+            "file": "src/tool_msgs.c"
+          }
+        },
+        {
+          "query": "send_request",
+          "query_type": "identifier",
+          "expected_symbol": "send_request",
+          "expected_file_suffix": "tests/libtest/lib2023.c",
+          "rank": 1,
+          "elapsed_ms": 69.93,
+          "candidate_count": 28,
+          "top_candidate": {
+            "name": "send_request",
+            "file": "tests/libtest/lib2023.c"
+          }
+        }
+      ]
+    }
+  ],
+  "hybrid_uplift": {
+    "mrr_delta": 0.11068561068561078,
+    "acc1_delta": 0.05555555555555558,
+    "acc3_delta": 0.16666666666666663,
+    "acc5_delta": 0.16666666666666663
+  },
+  "hybrid_uplift_by_query_type": {
+    "identifier": {
+      "mrr_delta": 0.0,
+      "acc1_delta": 0.0,
+      "acc3_delta": 0.0,
+      "acc5_delta": 0.0
+    },
+    "natural_language": {
+      "mrr_delta": 0.166028416028416,
+      "acc1_delta": 0.08333333333333331,
+      "acc3_delta": 0.25,
+      "acc5_delta": 0.25
+    }
+  }
+}
