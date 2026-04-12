@@ -523,3 +523,165 @@ pub(super) fn find_misplaced_code_output_schema() -> serde_json::Value {
         }
     })
 }
+
+// ── Group A: Agent high-frequency tools (v1.7 schema expansion) ────
+
+pub(super) fn activate_project_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "activated": {"type": "boolean"},
+            "switched": {"type": "boolean"},
+            "project_name": {"type": "string"},
+            "project_base_path": {"type": "string"},
+            "backend_id": {"type": "string"},
+            "memory_count": {"type": "integer"},
+            "file_watcher": {"type": "boolean"},
+            "frameworks": {"type": "array", "items": {"type": "string"}},
+            "auto_surface": {"type": "string"},
+            "auto_budget": {"type": "integer"},
+            "indexed_files": {"type": "integer"},
+            "embedding_ready": {"type": "boolean"}
+        }
+    })
+}
+
+pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "version": {"type": "string"},
+            "tool_count": {"type": "integer"},
+            "language_count": {"type": "integer"},
+            "languages": {"type": "array", "items": {"type": "string"}},
+            "active_surface": {"type": "string"},
+            "token_budget": {"type": "integer"},
+            "semantic_search_status": {"type": "string", "enum": ["available", "model_assets_unavailable", "not_in_active_surface", "index_missing", "feature_disabled", "not_compiled"]},
+            "embedding_model": {"type": "string"},
+            "lsp_daemons": {"type": "object"}
+        }
+    })
+}
+
+pub(super) fn get_current_config_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "project_name": {"type": "string"},
+            "project_base_path": {"type": "string"},
+            "preset": {"type": "string"},
+            "profile": {"type": "string"},
+            "surface": {"type": "string"},
+            "token_budget": {"type": "integer"},
+            "effort_level": {"type": "string"},
+            "daemon_mode": {"type": "boolean"},
+            "transport": {"type": "string"}
+        }
+    })
+}
+
+pub(super) fn search_for_pattern_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "matches": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "column": {"type": "integer"},
+                        "text": {"type": "string"},
+                        "context_before": {"type": "string"},
+                        "context_after": {"type": "string"}
+                    }
+                }
+            },
+            "count": {"type": "integer"},
+            "truncated": {"type": "boolean"}
+        }
+    })
+}
+
+pub(super) fn find_annotations_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "annotations": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "tag": {"type": "string"},
+                        "text": {"type": "string"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn find_tests_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "tests": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file": {"type": "string"},
+                        "name": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "kind": {"type": "string"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn get_project_structure_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "directories": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"},
+                        "files": {"type": "integer"},
+                        "languages": {"type": "array", "items": {"type": "string"}}
+                    }
+                }
+            },
+            "total_files": {"type": "integer"},
+            "total_directories": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn get_type_hierarchy_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "root": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "kind": {"type": "string"},
+                    "file": {"type": "string"},
+                    "line": {"type": "integer"},
+                    "children": {"type": "array"}
+                }
+            },
+            "depth": {"type": "integer"}
+        }
+    })
+}
