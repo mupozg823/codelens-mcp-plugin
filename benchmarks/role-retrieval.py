@@ -14,6 +14,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from benchmark_runtime_common import validate_expected_file_suffixes
+
 
 DEFAULT_BINARY = (
     Path(__file__).resolve().parent.parent / "target" / "debug" / "codelens-mcp"
@@ -183,6 +185,12 @@ def load_dataset():
     rows = raw.get("rows") if isinstance(raw, dict) else raw
     if not isinstance(rows, list) or not rows:
         raise SystemExit(f"role dataset has no rows: {DATASET_PATH}")
+    validate_expected_file_suffixes(
+        rows,
+        DATASET_PATH,
+        lambda _row: PROJECT,
+        row_label=lambda row: row.get("query") or row.get("expected_symbol"),
+    )
     return raw, rows
 
 

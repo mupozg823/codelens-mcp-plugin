@@ -147,8 +147,14 @@ impl App {
             KeyCode::Up => {
                 match self.active_panel {
                     Panel::Tree => {
-                        self.file_cursor = self.file_cursor.saturating_sub(1);
-                        self.load_symbols_for_current_file();
+                        let filtered = self.filtered_files();
+                        if let Some(pos) = filtered.iter().position(|(i, _)| *i == self.file_cursor)
+                        {
+                            if pos > 0 {
+                                self.file_cursor = filtered[pos - 1].0;
+                                self.load_symbols_for_current_file();
+                            }
+                        }
                     }
                     Panel::Symbols => {
                         self.symbol_cursor = self.symbol_cursor.saturating_sub(1);
@@ -160,8 +166,16 @@ impl App {
             KeyCode::Down => {
                 match self.active_panel {
                     Panel::Tree => {
-                        if self.file_cursor + 1 < self.files.len() {
-                            self.file_cursor += 1;
+                        let filtered = self.filtered_files();
+                        if let Some(pos) = filtered.iter().position(|(i, _)| *i == self.file_cursor)
+                        {
+                            if pos + 1 < filtered.len() {
+                                self.file_cursor = filtered[pos + 1].0;
+                                self.load_symbols_for_current_file();
+                            }
+                        } else if let Some((first_idx, _)) = filtered.first() {
+                            // Cursor is not in filtered results — snap to first match
+                            self.file_cursor = *first_idx;
                             self.load_symbols_for_current_file();
                         }
                     }

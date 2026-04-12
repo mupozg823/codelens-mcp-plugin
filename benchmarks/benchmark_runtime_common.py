@@ -102,6 +102,53 @@ def read_file(project, path):
         return ""
 
 
+def validate_expected_file_suffixes(
+    rows,
+    dataset_path,
+    project_for_row,
+    *,
+    row_label=None,
+    max_errors=10,
+):
+    missing = []
+    for index, row in enumerate(rows, start=1):
+        suffix = str(row.get("expected_file_suffix", "") or "").strip()
+        if not suffix:
+            continue
+        project_root = Path(project_for_row(row)).resolve()
+        expected = project_root / suffix
+        if expected.exists():
+            continue
+        label = row_label(row) if row_label else row.get("query") or f"row {index}"
+        missing.append(
+            {
+                "index": index,
+                "label": label,
+                "suffix": suffix,
+                "project_root": str(project_root),
+            }
+        )
+
+    if not missing:
+        return
+
+    lines = [
+        f"dataset expected_file_suffix drift detected: {len(missing)} invalid row(s) in {dataset_path}",
+        "examples:",
+    ]
+    for item in missing[:max_errors]:
+        lines.append(
+            f"  - row {item['index']}: {item['label']} -> {item['suffix']} "
+            f"(root={item['project_root']})"
+        )
+    if len(missing) > max_errors:
+        lines.append(f"  - ... and {len(missing) - max_errors} more")
+    lines.append(
+        "update the dataset to the current repo layout before trusting benchmark scores"
+    )
+    raise SystemExit("\n".join(lines))
+
+
 def run_search(project, pattern, include="*.rs", max_lines=50):
     t0 = time.monotonic()
     try:

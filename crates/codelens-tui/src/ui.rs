@@ -162,8 +162,8 @@ fn draw_metrics(f: &mut Frame, app: &App, area: Rect) {
     let child_total: usize = app.symbols.iter().map(|s| s.children.len()).sum();
 
     let text = format!(
-        " File:     {}\n Symbols:  {}\n Children: {}",
-        file_name, sym_count, child_total,
+        " File:     {}\n Symbols:  {}\n Children: {}\n Total:    {} indexed files",
+        file_name, sym_count, child_total, app.total_indexed_files,
     );
 
     let block = Block::default()

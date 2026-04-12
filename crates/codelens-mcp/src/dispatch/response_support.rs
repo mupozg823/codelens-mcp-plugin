@@ -230,6 +230,13 @@ fn slim_text_payload_for_async_handle(
             .and_then(|hint| serde_json::to_value(hint).ok()),
     );
     insert_if_present(&mut payload, "elapsed_ms", resp.elapsed_ms.map(Value::from));
+    insert_if_present(
+        &mut payload,
+        "suggestion_reasons",
+        resp.suggestion_reasons
+            .as_ref()
+            .and_then(|reasons| serde_json::to_value(reasons).ok()),
+    );
 
     let mut text_data = Map::new();
     copy_summarized_field(&mut text_data, data, "analysis_id");

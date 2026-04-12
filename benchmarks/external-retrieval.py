@@ -14,6 +14,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from benchmark_runtime_common import validate_expected_file_suffixes
+
 
 DEFAULT_BINARY = (
     Path(__file__).resolve().parent.parent / "target" / "debug" / "codelens-mcp"
@@ -362,6 +364,12 @@ def main():
                 "index_embeddings",
                 run_tool(project_path, "index_embeddings", {}, timeout=600),
                 context=repo["repo_id"],
+            )
+            validate_expected_file_suffixes(
+                repo.get("queries", []),
+                DATASET_PATH,
+                lambda _row, project_path=project_path: project_path,
+                row_label=lambda row, repo_id=repo["repo_id"]: f"{repo_id}::{row.get('query') or row.get('expected_symbol')}",
             )
             index_payload = index_result["payload"] or {}
             indexed_symbols = (

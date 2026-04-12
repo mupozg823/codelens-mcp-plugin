@@ -21,7 +21,7 @@
     "query": "search code by natural language query",
     "query_type": "natural_language",
     "expected_symbol": "search",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "inline a function and remove its definition",
@@ -69,19 +69,19 @@
     "query": "build embedding vectors for all symbols",
     "query_type": "natural_language",
     "expected_symbol": "index_from_project",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "find near-duplicate code in the codebase",
     "query_type": "natural_language",
     "expected_symbol": "find_duplicates",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "categorize a function by its purpose",
     "query_type": "natural_language",
     "expected_symbol": "classify_symbol",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "get project structure and key files on first load",
@@ -111,7 +111,7 @@
     "query": "compute similarity between two vectors",
     "query_type": "short_phrase",
     "expected_symbol": "cosine_similarity",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "route an incoming tool request to the right handler",
@@ -135,7 +135,7 @@
     "query": "cosine_similarity",
     "query_type": "identifier",
     "expected_symbol": "cosine_similarity",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "find_circular_dependencies",
@@ -147,7 +147,7 @@
     "query": "how to build embedding text from a symbol",
     "query_type": "natural_language",
     "expected_symbol": "build_embedding_text",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "mutation gate preflight check before editing",
@@ -189,7 +189,7 @@
     "query": "EmbeddingEngine",
     "query_type": "identifier",
     "expected_symbol": "EmbeddingEngine",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "find all functions that call a given function",
@@ -255,31 +255,31 @@
     "query": "register sqlite vector extension for similarity search",
     "query_type": "natural_language",
     "expected_symbol": "register_sqlite_vec",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "store embedding vectors in sqlite database",
     "query_type": "natural_language",
     "expected_symbol": "insert_batch",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs"
   },
   {
     "query": "split camelCase or snake_case identifier into words",
     "query_type": "natural_language",
     "expected_symbol": "split_identifier",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "SemanticMatch",
     "query_type": "identifier",
     "expected_symbol": "SemanticMatch",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "SqliteVecStore",
     "query_type": "identifier",
     "expected_symbol": "SqliteVecStore",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs"
   },
   {
     "query": "validate that a new name is a valid identifier",
@@ -423,7 +423,7 @@
     "query": "how does the embedding engine initialize the model",
     "query_type": "natural_language",
     "expected_symbol": "new",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs"
   },
   {
     "query": "determine which language config to use for a file",
@@ -471,7 +471,7 @@
     "query": "upsert embedding vector for a symbol",
     "query_type": "natural_language",
     "expected_symbol": "upsert",
-    "expected_file_suffix": "crates/codelens-engine/src/embedding.rs"
+    "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs"
   },
   {
     "query": "find all word matches in a single file",

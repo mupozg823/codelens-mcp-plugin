@@ -12,6 +12,8 @@ import tempfile
 import time
 from pathlib import Path
 
+from benchmark_runtime_common import validate_expected_file_suffixes
+
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -173,7 +175,14 @@ def copy_project_for_benchmark(source_project: str) -> str:
 
 
 def load_dataset():
-    return json.loads(Path(DATASET).read_text(encoding="utf-8"))
+    dataset = json.loads(Path(DATASET).read_text(encoding="utf-8"))
+    validate_expected_file_suffixes(
+        dataset,
+        DATASET,
+        lambda _row: PROJECT,
+        row_label=lambda row: row.get("query") or row.get("expected_symbol"),
+    )
+    return dataset
 
 
 def query_type_for_item(item):
