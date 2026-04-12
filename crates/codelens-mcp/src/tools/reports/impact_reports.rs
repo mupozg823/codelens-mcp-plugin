@@ -1,11 +1,11 @@
-use crate::AppState;
-use crate::tool_runtime::{ToolResult, required_string};
+use crate::tool_runtime::{required_string, ToolResult};
 use crate::tools::query_analysis::semantic_query_for_retrieval;
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use crate::tools::symbols::{semantic_results_for_query, semantic_status};
+use crate::AppState;
 use codelens_engine::search::{SEMANTIC_COUPLING_THRESHOLD, SEMANTIC_NEW_RESULT_THRESHOLD};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 fn semantic_status_is_ready(status: &Value) -> bool {
@@ -92,14 +92,25 @@ fn mermaid_escape_label(raw: &str) -> String {
     raw.replace('"', "'")
 }
 
+/// Returns the parent directory portion of a path, or `"."` for bare filenames.
+fn parent_dir(path: &str) -> &str {
+    path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or(".")
+}
+
+/// Returns only the last path component (filename) of a path.
+fn file_name(path: &str) -> &str {
+    path.rsplit_once('/').map(|(_, name)| name).unwrap_or(path)
+}
+
 /// Render a Mermaid `flowchart LR` diagram summarising direct importers
 /// (upstream) and blast-radius dependencies (downstream) of a target file.
 ///
-/// The output is pure text and can be embedded directly into a fenced
-/// ```mermaid block to render in GitHub, GitLab, VS Code, or any Markdown
-/// host that supports Mermaid. Both sides are capped independently by
-/// `max_nodes` so the resulting diagram stays readable even on hub files
-/// with hundreds of importers.
+/// Nodes are clustered into `subgraph` blocks by parent directory.  Each node
+/// label shows only the filename; the full path lives in the subgraph title.
+/// `classDef` blocks style target / upstream / downstream nodes distinctly.
+/// When either side exceeds `max_nodes`, a `...+N more` note node is appended.
+/// Downstream edges carry a label when the entry contains `symbols_affected`
+/// or `depth`.
 pub(crate) fn render_module_mermaid(
     target: &str,
     importers: &[Value],
@@ -107,27 +118,123 @@ pub(crate) fn render_module_mermaid(
     max_nodes: usize,
 ) -> String {
     let mut out = String::from("flowchart LR\n");
+
+    // ── classDef styling ─────────────────────────────────────────────────────
+    out.push_str("    classDef target fill:#f9f,stroke:#333,stroke-width:2px\n");
+    out.push_str("    classDef upstream fill:#bbf,stroke:#333\n");
+    out.push_str("    classDef downstream fill:#fbb,stroke:#333\n");
+    out.push_str("    classDef note fill:#ffffcc,stroke:#999,stroke-dasharray:4\n");
+
+    // ── target node ──────────────────────────────────────────────────────────
     out.push_str(&format!(
-        "    target0[\"{}\"]\n",
-        mermaid_escape_label(target)
+        "    target0[\"{}\"]:::target\n",
+        mermaid_escape_label(file_name(target))
     ));
 
-    for (idx, entry) in importers.iter().take(max_nodes).enumerate() {
-        let file = impact_entry_file(entry).unwrap_or("<unknown>");
-        out.push_str(&format!(
-            "    up{idx}[\"{}\"]\n",
-            mermaid_escape_label(file)
-        ));
-        out.push_str(&format!("    up{idx} --> target0\n"));
+    // ── helper: collect (node_id, file_path) pairs for a side ────────────────
+    let capped_importers: Vec<(String, &str)> = importers
+        .iter()
+        .take(max_nodes)
+        .enumerate()
+        .map(|(i, e)| {
+            (
+                format!("up{i}"),
+                impact_entry_file(e).unwrap_or("<unknown>"),
+            )
+        })
+        .collect();
+
+    let capped_downstream: Vec<(String, &Value)> = downstream
+        .iter()
+        .take(max_nodes)
+        .enumerate()
+        .map(|(i, e)| (format!("down{i}"), e))
+        .collect();
+
+    // ── upstream subgraphs ───────────────────────────────────────────────────
+    // Group by parent dir, preserving insertion order via BTreeMap for stable output.
+    let mut up_by_dir: std::collections::BTreeMap<&str, Vec<(&str, &str)>> =
+        std::collections::BTreeMap::new();
+    for (node_id, file) in &capped_importers {
+        up_by_dir
+            .entry(parent_dir(file))
+            .or_default()
+            .push((node_id, file));
     }
 
-    for (idx, entry) in downstream.iter().take(max_nodes).enumerate() {
+    for (dir, nodes) in &up_by_dir {
+        out.push_str(&format!("    subgraph {}\n", mermaid_escape_label(dir)));
+        for (node_id, file) in nodes {
+            out.push_str(&format!(
+                "        {}[\"{}\"]:::upstream\n",
+                node_id,
+                mermaid_escape_label(file_name(file))
+            ));
+        }
+        out.push_str("    end\n");
+    }
+
+    // ── downstream subgraphs ─────────────────────────────────────────────────
+    let mut down_by_dir: std::collections::BTreeMap<&str, Vec<(&str, &Value)>> =
+        std::collections::BTreeMap::new();
+    for (node_id, entry) in &capped_downstream {
         let file = impact_entry_file(entry).unwrap_or("<unknown>");
-        out.push_str(&format!(
-            "    down{idx}[\"{}\"]\n",
-            mermaid_escape_label(file)
-        ));
-        out.push_str(&format!("    target0 --> down{idx}\n"));
+        down_by_dir
+            .entry(parent_dir(file))
+            .or_default()
+            .push((node_id, entry));
+    }
+
+    for (dir, nodes) in &down_by_dir {
+        out.push_str(&format!("    subgraph {}\n", mermaid_escape_label(dir)));
+        for (node_id, entry) in nodes {
+            let file = impact_entry_file(entry).unwrap_or("<unknown>");
+            out.push_str(&format!(
+                "        {}[\"{}\"]:::downstream\n",
+                node_id,
+                mermaid_escape_label(file_name(file))
+            ));
+        }
+        out.push_str("    end\n");
+    }
+
+    // ── upstream edges ───────────────────────────────────────────────────────
+    for (node_id, _file) in &capped_importers {
+        out.push_str(&format!("    {node_id} --> target0\n"));
+    }
+
+    // ── truncation note for upstream ─────────────────────────────────────────
+    if importers.len() > max_nodes {
+        let extra = importers.len() - max_nodes;
+        out.push_str(&format!("    up_more[\"... +{extra} more\"]:::note\n"));
+        out.push_str("    up_more --> target0\n");
+    }
+
+    // ── downstream edges (with optional labels) ───────────────────────────────
+    for (node_id, entry) in &capped_downstream {
+        let label = if let Some(n) = entry.get("symbols_affected").and_then(Value::as_u64) {
+            Some(format!("{n} symbols"))
+        } else if let Some(d) = entry.get("depth").and_then(Value::as_u64) {
+            Some(format!("depth {d}"))
+        } else {
+            None
+        };
+
+        if let Some(lbl) = label {
+            out.push_str(&format!(
+                "    target0 -->|\"{}\"|{node_id}\n",
+                mermaid_escape_label(&lbl)
+            ));
+        } else {
+            out.push_str(&format!("    target0 --> {node_id}\n"));
+        }
+    }
+
+    // ── truncation note for downstream ───────────────────────────────────────
+    if downstream.len() > max_nodes {
+        let extra = downstream.len() - max_nodes;
+        out.push_str(&format!("    down_more[\"... +{extra} more\"]:::note\n"));
+        out.push_str("    target0 --> down_more\n");
     }
 
     out
@@ -632,7 +739,8 @@ mod tests {
     fn mermaid_header_and_target_node_are_first() {
         let out = render_module_mermaid("src/foo.rs", &[], &[], 10);
         assert!(out.starts_with("flowchart LR\n"));
-        assert!(out.contains("target0[\"src/foo.rs\"]"));
+        assert!(out.contains("target0[\"foo.rs\"]:::target"));
+        assert!(out.contains("classDef target"));
         // Zero upstream / downstream → only the target node, no edges.
         assert!(!out.contains("-->"));
     }
@@ -646,9 +754,12 @@ mod tests {
         let downstream = vec![json!({"path": "src/c.rs"})];
         let out = render_module_mermaid("src/target.rs", &importers, &downstream, 10);
 
-        assert!(out.contains("src/a.rs"));
-        assert!(out.contains("src/b.rs"));
-        assert!(out.contains("src/c.rs"));
+        assert!(out.contains("subgraph src"));
+        assert!(out.contains("a.rs"));
+        assert!(out.contains("b.rs"));
+        assert!(out.contains("c.rs"));
+        assert!(out.contains(":::upstream"));
+        assert!(out.contains(":::downstream"));
         assert!(out.contains("up0 --> target0"));
         assert!(out.contains("up1 --> target0"));
         assert!(out.contains("target0 --> down0"));
@@ -664,9 +775,11 @@ mod tests {
         assert!(out.contains("up4["));
         // Node index 5 must be capped out.
         assert!(!out.contains("up5["));
-        // Exactly 5 upstream edges.
+        // Truncation note for remaining 15 nodes.
+        assert!(out.contains("up_more[\"... +15 more\"]:::note"));
+        // 5 regular edges + 1 truncation edge = 6 edges to target0.
         let edges = out.matches("--> target0").count();
-        assert_eq!(edges, 5);
+        assert_eq!(edges, 6);
     }
 
     #[test]
@@ -778,13 +891,11 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         0.9,
         next_actions,
         sections,
-        vec![
-            arguments
-                .get("file_path")
-                .and_then(|value| value.as_str())
-                .unwrap_or(path)
-                .to_owned(),
-        ],
+        vec![arguments
+            .get("file_path")
+            .and_then(|value| value.as_str())
+            .unwrap_or(path)
+            .to_owned()],
         symbol.map(ToOwned::to_owned),
     )
 }
