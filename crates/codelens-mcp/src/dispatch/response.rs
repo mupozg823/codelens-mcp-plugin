@@ -1,9 +1,9 @@
-use crate::AppState;
-use crate::dispatch_response_support::{
+use super::response_support::{
     apply_contextual_guidance, bounded_result_payload, budget_hint, compact_response_payload,
     effective_budget_for_tool, max_result_size_chars_for_tool, routing_hint_for_payload,
     success_jsonrpc_response, text_payload_for_response,
 };
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
 use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};

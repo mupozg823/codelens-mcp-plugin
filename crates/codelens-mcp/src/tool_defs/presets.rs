@@ -143,6 +143,11 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "set_profile",
     "set_preset",
     "get_tool_metrics",
+    // Workflow-first entrypoints
+    "explore_codebase",
+    "review_architecture",
+    "analyze_change_impact",
+    "plan_safe_refactor",
     // Symbol exploration
     "find_symbol",
     "get_symbols_overview",
@@ -180,6 +185,10 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "set_profile",
     "set_preset",
     "get_tool_metrics",
+    "explore_codebase",
+    "trace_request_path",
+    "plan_safe_refactor",
+    "analyze_change_impact",
     "find_symbol",
     "get_symbols_overview",
     "get_ranked_context",
@@ -214,6 +223,11 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "get_current_config",
     "set_profile",
     "set_preset",
+    // Workflow-first entrypoints
+    "review_architecture",
+    "analyze_change_impact",
+    "audit_security_context",
+    "cleanup_duplicate_logic",
     // Symbol exploration
     "find_symbol",
     "get_symbols_overview",
@@ -248,6 +262,12 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "set_profile",
     "set_preset",
     "get_tool_metrics",
+    // Workflow-first entrypoints
+    "explore_codebase",
+    "trace_request_path",
+    "review_architecture",
+    "plan_safe_refactor",
+    "analyze_change_impact",
     // Symbol exploration
     "find_symbol",
     "get_symbols_overview",
@@ -297,6 +317,11 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "set_preset",
     "get_tool_metrics",
     "export_session_markdown",
+    "explore_codebase",
+    "review_architecture",
+    "analyze_change_impact",
+    "audit_security_context",
+    "cleanup_duplicate_logic",
     "read_file",
     "search_for_pattern",
     "find_tests",
@@ -435,6 +460,13 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "refactor_move_to_file"
         | "refactor_change_signature" => "mutation",
         "analyze_change_request"
+        | "explore_codebase"
+        | "trace_request_path"
+        | "review_architecture"
+        | "plan_safe_refactor"
+        | "audit_security_context"
+        | "analyze_change_impact"
+        | "cleanup_duplicate_logic"
         | "verify_change_readiness"
         | "find_minimal_context_for_change"
         | "summarize_symbol_impact"

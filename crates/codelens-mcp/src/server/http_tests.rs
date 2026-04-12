@@ -859,7 +859,7 @@ async fn codex_session_prepare_harness_session_bootstraps_without_tools_list() {
                 .header("content-type", "application/json")
                 .header("mcp-session-id", &sid)
                 .body(axum::body::Body::from(format!(
-                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"prepare_harness_session","arguments":{{"project":"{}","preferred_entrypoints":["verify_change_readiness","get_ranked_context"]}}}}}}"#,
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"prepare_harness_session","arguments":{{"project":"{}","preferred_entrypoints":["explore_codebase","plan_safe_refactor"]}}}}}}"#,
                     state.project().as_path().display()
                 )))
                 .unwrap(),
@@ -885,7 +885,7 @@ async fn codex_session_prepare_harness_session_bootstraps_without_tools_list() {
     );
     assert_eq!(
         payload["data"]["routing"]["recommended_entrypoint"],
-        serde_json::json!("get_ranked_context")
+        serde_json::json!("explore_codebase")
     );
     let tool_names = payload["data"]["visible_tools"]["tool_names"]
         .as_array()
@@ -1281,7 +1281,9 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     assert!(body.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(body.contains("\"loaded_namespaces\":[]"));
     assert!(body.contains("\"loaded_tiers\":[]"));
-    assert!(body.contains("\"impact_report\""));
+    assert!(body.contains("\"review_architecture\""));
+    assert!(body.contains("\"analyze_change_impact\""));
+    assert!(body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"find_symbol\""));
     assert!(!body.contains("\"read_file\""));
 }
@@ -1335,18 +1337,17 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
     assert!(body.contains("\"deferred_loading_active\":true"));
     assert!(body.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
     assert!(body.contains("\"tool_count\":"));
-    assert!(body.contains("\"verify_change_readiness\""));
-    assert!(body.contains("\"refactor_safety_report\""));
-    assert!(body.contains("\"safe_rename_report\""));
-    assert!(body.contains("\"start_analysis_job\""));
+    assert!(body.contains("\"plan_safe_refactor\""));
+    assert!(body.contains("\"analyze_change_impact\""));
+    assert!(body.contains("\"trace_request_path\""));
     assert!(body.contains("\"activate_project\""));
     assert!(body.contains("\"set_profile\""));
     assert!(!body.contains("\"name\":\"rename_symbol\""));
     assert!(!body.contains("\"name\":\"replace_symbol_body\""));
     assert!(!body.contains("\"name\":\"refactor_extract_function\""));
-    assert!(!body.contains("\"name\":\"impact_report\""));
-    assert!(!body.contains("\"name\":\"diff_aware_references\""));
-    assert!(!body.contains("\"name\":\"unresolved_reference_check\""));
+    assert!(!body.contains("\"name\":\"verify_change_readiness\""));
+    assert!(!body.contains("\"name\":\"refactor_safety_report\""));
+    assert!(!body.contains("\"name\":\"safe_rename_report\""));
 }
 
 #[tokio::test]

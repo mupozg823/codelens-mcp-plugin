@@ -4,9 +4,6 @@ mod authority;
 mod build_info;
 mod client_profile;
 mod dispatch;
-mod dispatch_access;
-mod dispatch_response;
-mod dispatch_response_support;
 mod error;
 mod job_store;
 mod mutation_audit;
@@ -421,6 +418,6 @@ mod startup_tests {
     }
 }
 
-#[path = "integration_tests.rs"]
+#[path = "integration_tests/mod.rs"]
 #[cfg(test)]
 mod tests;

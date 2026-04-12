@@ -26,7 +26,9 @@ pub(super) fn watcher_failure_health(state: &AppState) -> WatcherFailureHealth {
     }
 }
 
-pub(super) fn prune_index_failures(state: &AppState) -> Result<WatcherFailureHealth, CodeLensError> {
+pub(super) fn prune_index_failures(
+    state: &AppState,
+) -> Result<WatcherFailureHealth, CodeLensError> {
     let project = state.project();
     let scope = state.current_project_scope();
     let symbol_index = state.symbol_index();

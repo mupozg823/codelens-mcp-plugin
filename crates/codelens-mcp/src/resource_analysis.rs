@@ -144,7 +144,15 @@ fn infer_summary_quality_focus(
     push_unique("correctness");
     if matches!(
         tool_name,
-        "analyze_change_request"
+        "explore_codebase"
+            | "trace_request_path"
+            | "review_architecture"
+            | "plan_safe_refactor"
+            | "audit_security_context"
+            | "analyze_change_impact"
+            | "cleanup_duplicate_logic"
+            | "onboard_project"
+            | "analyze_change_request"
             | "verify_change_readiness"
             | "impact_report"
             | "refactor_safety_report"

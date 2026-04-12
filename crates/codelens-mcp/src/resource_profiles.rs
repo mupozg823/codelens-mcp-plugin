@@ -15,35 +15,35 @@ pub(crate) fn profile_guide(profile: ToolProfile) -> Value {
         ToolProfile::PlannerReadonly => json!({
             "profile": profile.as_str(),
             "intent": "Use bounded, read-only analysis to plan changes and rank context before implementation.",
-            "preferred_tools": ["verify_change_readiness", "analyze_change_request", "find_minimal_context_for_change", "impact_report"],
+            "preferred_tools": ["explore_codebase", "review_architecture", "analyze_change_impact", "plan_safe_refactor"],
             "preferred_namespaces": ["reports", "symbols", "graph", "filesystem", "session"],
             "avoid": ["rename_symbol", "replace_content", "raw graph expansion unless necessary"]
         }),
         ToolProfile::BuilderMinimal => json!({
             "profile": profile.as_str(),
             "intent": "Keep the visible surface small while implementing changes with only the essential symbol and edit tools.",
-            "preferred_tools": ["verify_change_readiness", "find_symbol", "get_symbols_overview", "add_import"],
-            "preferred_namespaces": ["symbols", "filesystem", "session"],
+            "preferred_tools": ["explore_codebase", "trace_request_path", "plan_safe_refactor", "analyze_change_impact"],
+            "preferred_namespaces": ["reports", "symbols", "filesystem", "session"],
             "avoid": ["dead-code audits", "full-graph exploration", "broad multi-project search"]
         }),
         ToolProfile::ReviewerGraph => json!({
             "profile": profile.as_str(),
             "intent": "Review risky changes with graph-aware, read-only evidence.",
-            "preferred_tools": ["verify_change_readiness", "impact_report", "diff_aware_references", "dead_code_report"],
+            "preferred_tools": ["review_architecture", "analyze_change_impact", "audit_security_context", "cleanup_duplicate_logic"],
             "preferred_namespaces": ["reports", "graph", "symbols", "session"],
             "avoid": ["mutation tools"]
         }),
         ToolProfile::RefactorFull => json!({
             "profile": profile.as_str(),
             "intent": "Run high-safety refactors only after a fresh preflight has narrowed the target surface and cleared blockers.",
-            "preferred_tools": ["verify_change_readiness", "safe_rename_report", "unresolved_reference_check", "start_analysis_job"],
+            "preferred_tools": ["plan_safe_refactor", "analyze_change_impact", "trace_request_path", "review_architecture"],
             "preferred_namespaces": ["reports", "session"],
             "avoid": ["mutation before preflight", "broad edits without diagnostics or preview"]
         }),
         ToolProfile::CiAudit => json!({
             "profile": profile.as_str(),
             "intent": "Produce machine-friendly review output around diffs, impact, dead code, and structural risk.",
-            "preferred_tools": ["verify_change_readiness", "impact_report", "diff_aware_references", "dead_code_report"],
+            "preferred_tools": ["analyze_change_impact", "audit_security_context", "review_architecture", "cleanup_duplicate_logic"],
             "preferred_namespaces": ["reports", "graph", "session"],
             "avoid": ["interactive mutation flows"]
         }),

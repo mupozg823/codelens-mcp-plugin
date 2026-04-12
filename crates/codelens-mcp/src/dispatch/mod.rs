@@ -1,10 +1,10 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
+mod access;
+mod response;
+mod response_support;
+
 use crate::AppState;
-use crate::dispatch_access::validate_tool_access;
-use crate::dispatch_response::{
-    SuccessResponseInput, build_error_response, build_success_response,
-};
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
     MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
@@ -13,6 +13,8 @@ use crate::mutation_gate::{
 use crate::protocol::JsonRpcResponse;
 use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
 use crate::tools::{self, ToolHandler, ToolResult};
+use access::validate_tool_access;
+use response::{SuccessResponseInput, build_error_response, build_success_response};
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;

@@ -1,7 +1,6 @@
 use super::{
     AppState, ToolResult, optional_bool, optional_string, optional_usize,
-    query_analysis::analyze_retrieval_query,
-    required_string, success_meta,
+    query_analysis::analyze_retrieval_query, required_string, success_meta,
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;

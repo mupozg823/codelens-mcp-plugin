@@ -83,7 +83,7 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                     "indexed_files": stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),
                     "stale_files": stats.as_ref().map(|s| s.stale_files).unwrap_or(0),
                     "notes": [
-                        "Use composite workflow tools first to keep model-visible context bounded.",
+                        "Use workflow-first entrypoints such as explore_codebase, review_architecture, and analyze_change_impact before low-level expansion.",
                         "Prefer HTTP + role profiles for multi-agent harnesses."
                     ]
                 }),

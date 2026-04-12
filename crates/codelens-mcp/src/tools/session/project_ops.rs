@@ -3,7 +3,9 @@ use crate::protocol::BackendKind;
 use crate::resource_context::{
     ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
 };
-use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile};
+use crate::tool_defs::{
+    ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile, preferred_bootstrap_tools,
+};
 use crate::tool_runtime::{ToolResult, required_string, success_meta};
 use codelens_engine::memory::list_memory_names;
 use codelens_engine::{compute_dominant_language, detect_frameworks};
@@ -207,7 +209,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         .iter()
         .map(|tool| tool.name.to_owned())
         .collect::<Vec<_>>();
-    let preferred_entrypoints = arguments
+    let requested_entrypoints = arguments
         .get("preferred_entrypoints")
         .and_then(|value| value.as_array())
         .map(|items| {
@@ -218,6 +220,20 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let preferred_entrypoints_source = if requested_entrypoints.is_empty() {
+        "surface_default"
+    } else {
+        "provided"
+    };
+    let preferred_entrypoints = if requested_entrypoints.is_empty() {
+        preferred_bootstrap_tools(active_surface)
+            .unwrap_or(&[])
+            .iter()
+            .map(|tool| (*tool).to_owned())
+            .collect::<Vec<_>>()
+    } else {
+        requested_entrypoints
+    };
     let preferred_entrypoints_visible = preferred_entrypoints
         .iter()
         .filter(|tool| visible_tool_names.iter().any(|name| name == *tool))
@@ -253,6 +269,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             },
             "routing": {
                 "preferred_entrypoints": preferred_entrypoints,
+                "preferred_entrypoints_source": preferred_entrypoints_source,
                 "preferred_entrypoints_visible": preferred_entrypoints_visible,
                 "recommended_entrypoint": recommended_entrypoint,
             },

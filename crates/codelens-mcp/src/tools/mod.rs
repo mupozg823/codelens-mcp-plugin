@@ -13,6 +13,7 @@ mod report_verifier;
 pub mod reports;
 pub mod session;
 pub mod symbols;
+pub mod workflows;
 
 use crate::AppState;
 use crate::tool_defs::{ToolProfile, ToolSurface};
@@ -124,6 +125,14 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "refactor_change_signature"    => composite::refactor_change_signature,
         "propagate_deletions"          => composite::propagate_deletions,
         "onboard_project"              => composite::onboard_project,
+        // ── Workflow aliases (problem-first) ──
+        "explore_codebase"             => workflows::explore_codebase,
+        "trace_request_path"           => workflows::trace_request_path,
+        "review_architecture"          => workflows::review_architecture,
+        "plan_safe_refactor"           => workflows::plan_safe_refactor,
+        "audit_security_context"       => workflows::audit_security_context,
+        "analyze_change_impact"        => workflows::analyze_change_impact,
+        "cleanup_duplicate_logic"      => workflows::cleanup_duplicate_logic,
         // ── Reports / compressed context ──
         "analyze_change_request"       => reports::analyze_change_request,
         "verify_change_readiness"      => reports::verify_change_readiness,
@@ -183,6 +192,9 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
 
 /// Tools relevant during harness PLAN phase
 pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
+    "explore_codebase",
+    "review_architecture",
+    "analyze_change_impact",
     "analyze_change_request",
     "verify_change_readiness",
     "find_minimal_context_for_change",
@@ -201,6 +213,9 @@ pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
 
 /// Tools relevant during harness BUILD phase
 pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
+    "explore_codebase",
+    "trace_request_path",
+    "plan_safe_refactor",
     "find_symbol",
     "get_symbols_overview",
     "get_ranked_context",
@@ -220,6 +235,10 @@ pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
 
 /// Tools relevant during harness REVIEW phase
 pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
+    "review_architecture",
+    "analyze_change_impact",
+    "audit_security_context",
+    "cleanup_duplicate_logic",
     "verify_change_readiness",
     "get_file_diagnostics",
     "get_impact_analysis",
@@ -239,6 +258,8 @@ pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
 
 /// Tools relevant during harness EVAL phase
 pub(crate) const EVAL_PHASE_TOOLS: &[&str] = &[
+    "analyze_change_impact",
+    "audit_security_context",
     "verify_change_readiness",
     "get_file_diagnostics",
     "get_changed_files",
@@ -269,12 +290,17 @@ const MUTATION_TOOLS: &[&str] = &[
 ];
 
 const REVIEW_TOOLS: &[&str] = &[
+    "review_architecture",
+    "analyze_change_impact",
+    "audit_security_context",
     "get_changed_files",
     "get_impact_analysis",
     "find_scoped_references",
 ];
 
 const EXPLORATION_TOOLS: &[&str] = &[
+    "explore_codebase",
+    "trace_request_path",
     "get_symbols_overview",
     "get_project_structure",
     "onboard_project",
@@ -362,7 +388,14 @@ pub fn suggest_next_contextual(
 fn is_workflow_tool_name(name: &str) -> bool {
     matches!(
         name,
-        "analyze_change_request"
+        "explore_codebase"
+            | "trace_request_path"
+            | "review_architecture"
+            | "plan_safe_refactor"
+            | "audit_security_context"
+            | "analyze_change_impact"
+            | "cleanup_duplicate_logic"
+            | "analyze_change_request"
             | "verify_change_readiness"
             | "find_minimal_context_for_change"
             | "summarize_symbol_impact"
@@ -392,22 +425,23 @@ fn has_recent_low_level_chain(recent_tools: &[String]) -> bool {
 fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static str] {
     match surface {
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => &[
-            "verify_change_readiness",
-            "find_minimal_context_for_change",
-            "analyze_change_request",
-            "impact_report",
+            "explore_codebase",
+            "review_architecture",
+            "analyze_change_impact",
+            "plan_safe_refactor",
         ],
         ToolSurface::Profile(ToolProfile::ReviewerGraph)
         | ToolSurface::Profile(ToolProfile::CiAudit) => &[
-            "verify_change_readiness",
-            "impact_report",
-            "diff_aware_references",
+            "review_architecture",
+            "analyze_change_impact",
+            "audit_security_context",
+            "cleanup_duplicate_logic",
         ],
         ToolSurface::Profile(ToolProfile::RefactorFull) => &[
-            "verify_change_readiness",
-            "refactor_safety_report",
-            "safe_rename_report",
-            "unresolved_reference_check",
+            "plan_safe_refactor",
+            "analyze_change_impact",
+            "trace_request_path",
+            "review_architecture",
         ],
         ToolSurface::Profile(ToolProfile::EvaluatorCompact) => &[
             "verify_change_readiness",
@@ -415,9 +449,10 @@ fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static
             "find_tests",
         ],
         ToolSurface::Profile(ToolProfile::BuilderMinimal) | ToolSurface::Preset(_) => &[
-            "verify_change_readiness",
-            "find_minimal_context_for_change",
-            "analyze_change_request",
+            "explore_codebase",
+            "trace_request_path",
+            "plan_safe_refactor",
+            "analyze_change_impact",
         ],
     }
 }
@@ -526,6 +561,37 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "get_current_config",
             "get_capabilities",
             "get_ranked_context",
+        ],
+        "explore_codebase" => &[
+            "find_symbol",
+            "review_architecture",
+            "analyze_change_impact",
+        ],
+        "trace_request_path" => &["plan_safe_refactor", "find_symbol", "analyze_change_impact"],
+        "review_architecture" => &[
+            "analyze_change_impact",
+            "explore_codebase",
+            "plan_safe_refactor",
+        ],
+        "plan_safe_refactor" => &[
+            "trace_request_path",
+            "analyze_change_impact",
+            "get_file_diagnostics",
+        ],
+        "audit_security_context" => &[
+            "analyze_change_impact",
+            "get_analysis_section",
+            "review_architecture",
+        ],
+        "analyze_change_impact" => &[
+            "review_architecture",
+            "audit_security_context",
+            "get_analysis_section",
+        ],
+        "cleanup_duplicate_logic" => &[
+            "audit_security_context",
+            "review_architecture",
+            "get_analysis_section",
         ],
         "onboard_project" => &["get_ranked_context", "find_symbol", "get_capabilities"],
         "get_watch_status" => &["refresh_symbol_index", "prune_index_failures"],

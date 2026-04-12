@@ -367,6 +367,17 @@ pub(super) fn analysis_handle_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn workflow_alias_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "workflow": {"type": "string"},
+            "delegated_tool": {"type": "string"},
+            "result": {}
+        }
+    })
+}
+
 pub(super) fn analysis_section_output_schema() -> serde_json::Value {
     json!({
         "type": "object",

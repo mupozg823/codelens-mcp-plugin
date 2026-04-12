@@ -5,19 +5,16 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::analysis_queue::{
-    AnalysisJobRequest, AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT,
-    STDIO_ANALYSIS_WORKER_COUNT, analysis_job_cost_units,
-};
+use crate::analysis_queue::{AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT, STDIO_ANALYSIS_WORKER_COUNT};
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::error::CodeLensError;
-use crate::mutation_audit;
 use crate::preflight_store::RecentPreflightStore;
-use crate::runtime_types::JobLifecycle;
 use crate::telemetry::ToolMetricsRegistry;
 use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface};
 use serde_json::Value;
 
+mod analysis;
+mod preflight;
 mod project_runtime;
 mod session_runtime;
 mod watcher_health;
@@ -36,17 +33,17 @@ pub(crate) fn preflight_ttl_ms() -> u64 {
 
 pub(crate) use crate::client_profile::{ClientProfile, EffortLevel};
 pub(crate) use crate::runtime_types::{
-    AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisSummary, AnalysisVerifierCheck,
-    RecentPreflight, RuntimeDaemonMode, RuntimeTransportMode, WatcherFailureHealth,
+    AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisVerifierCheck, RuntimeDaemonMode,
+    RuntimeTransportMode, WatcherFailureHealth,
 };
 
-fn push_unique_string(items: &mut Vec<String>, value: String) {
+pub(super) fn push_unique_string(items: &mut Vec<String>, value: String) {
     if !items.iter().any(|existing| existing == &value) {
         items.push(value);
     }
 }
 
-fn normalize_path_for_project(project_root: &Path, path: &str) -> String {
+pub(super) fn normalize_path_for_project(project_root: &Path, path: &str) -> String {
     let normalized = if Path::new(path).is_absolute() {
         PathBuf::from(path)
     } else {
@@ -294,99 +291,6 @@ impl AppState {
         _session: &crate::session_context::SessionRequestContext,
     ) -> Result<Option<std::sync::MutexGuard<'a, ()>>, CodeLensError> {
         session_runtime::ensure_session_project(self, _session)
-    }
-
-    pub(crate) fn preflight_ttl_seconds(&self) -> u64 {
-        preflight_ttl_ms() / 1000
-    }
-
-    fn preflight_key_for_scope(&self, scope: &str, logical_session: &str) -> String {
-        RecentPreflightStore::key(scope, logical_session)
-    }
-
-    fn preflight_key_for_session(
-        &self,
-        session: &crate::session_context::SessionRequestContext,
-        logical_session: &str,
-    ) -> String {
-        self.preflight_key_for_scope(&self.project_scope_for_session(session), logical_session)
-    }
-
-    pub(crate) fn clear_recent_preflights(&self) {
-        self.preflight_store.clear();
-    }
-
-    pub(crate) fn normalize_target_path(&self, path: &str) -> String {
-        normalize_path_for_project(self.project().as_path(), path)
-    }
-
-    pub(crate) fn extract_target_paths(&self, arguments: &Value) -> Vec<String> {
-        let mut targets = Vec::new();
-
-        for key in ["file_path", "relative_path", "path", "target_file"] {
-            if let Some(path) = arguments.get(key).and_then(|value| value.as_str()) {
-                push_unique_string(&mut targets, self.normalize_target_path(path));
-            }
-        }
-
-        if let Some(paths) = arguments
-            .get("changed_files")
-            .and_then(|value| value.as_array())
-        {
-            for value in paths {
-                if let Some(path) = value.as_str() {
-                    push_unique_string(&mut targets, self.normalize_target_path(path));
-                } else if let Some(path) = value.get("path").and_then(|item| item.as_str()) {
-                    push_unique_string(&mut targets, self.normalize_target_path(path));
-                }
-            }
-        }
-
-        targets
-    }
-
-    pub(crate) fn record_recent_preflight_from_payload(
-        &self,
-        tool_name: &str,
-        surface: &str,
-        logical_session: &str,
-        arguments: &Value,
-        payload: &Value,
-    ) {
-        let key = self.preflight_key_for_scope(
-            &self.project_scope_for_arguments(arguments),
-            logical_session,
-        );
-        self.preflight_store.record_from_payload(
-            key,
-            tool_name,
-            surface,
-            Self::now_ms(),
-            self.extract_target_paths(arguments),
-            extract_symbol_hint(arguments),
-            payload,
-        );
-    }
-
-    pub(crate) fn recent_preflight_for_session(
-        &self,
-        session: &crate::session_context::SessionRequestContext,
-        logical_session: &str,
-    ) -> Option<RecentPreflight> {
-        self.preflight_store
-            .get(&self.preflight_key_for_session(session, logical_session))
-    }
-
-    #[cfg(test)]
-    pub(crate) fn set_recent_preflight_timestamp_for_test(
-        &self,
-        logical_session: &str,
-        timestamp_ms: u64,
-    ) {
-        self.preflight_store.set_timestamp_for_test(
-            &self.preflight_key_for_scope(&self.current_project_scope(), logical_session),
-            timestamp_ms,
-        );
     }
 
     // ── Embedding engine accessors ──────────────────────────────────────
@@ -723,286 +627,6 @@ impl AppState {
         self.recent_analysis_ids.snapshot()
     }
 
-    // ── Job Store delegations ────────────────────────────────────────────
-
-    pub(crate) fn enqueue_analysis_job(
-        &self,
-        job_id: String,
-        kind: String,
-        arguments: Value,
-        profile_hint: Option<String>,
-    ) -> Result<(), CodeLensError> {
-        let (depth, weighted_depth, priority_promoted) = self
-            .analysis_queue
-            .get_or_init(|| AnalysisWorkerQueue::new(self))
-            .enqueue(AnalysisJobRequest {
-                job_id,
-                cost_units: analysis_job_cost_units(&kind),
-                kind,
-                arguments,
-                profile_hint,
-            })?;
-        self.metrics
-            .record_analysis_job_enqueued(depth, weighted_depth, priority_promoted);
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn store_analysis_job(
-        &self,
-        scope: &str,
-        kind: &str,
-        profile_hint: Option<String>,
-        estimated_sections: Vec<String>,
-        status: JobLifecycle,
-        progress: u8,
-        current_step: Option<String>,
-        analysis_id: Option<String>,
-        error: Option<String>,
-    ) -> Result<AnalysisJob, CodeLensError> {
-        self.job_store.store(
-            kind,
-            profile_hint,
-            estimated_sections,
-            status,
-            progress,
-            current_step,
-            analysis_id,
-            error,
-            scope.to_owned(),
-        )
-    }
-
-    // Test-only delegate: matches the param list of store_analysis_job so
-    // refactoring to a struct would cascade into the production caller path.
-    #[cfg(test)]
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn store_analysis_job_for_current_scope(
-        &self,
-        kind: &str,
-        profile_hint: Option<String>,
-        estimated_sections: Vec<String>,
-        status: JobLifecycle,
-        progress: u8,
-        current_step: Option<String>,
-        analysis_id: Option<String>,
-        error: Option<String>,
-    ) -> Result<AnalysisJob, CodeLensError> {
-        self.store_analysis_job(
-            &self.current_project_scope(),
-            kind,
-            profile_hint,
-            estimated_sections,
-            status,
-            progress,
-            current_step,
-            analysis_id,
-            error,
-        )
-    }
-
-    pub(crate) fn list_analysis_jobs_for_scope(
-        &self,
-        scope: &str,
-        status_filter: Option<&str>,
-    ) -> Vec<AnalysisJob> {
-        self.job_store.list(status_filter, Some(scope))
-    }
-
-    pub(crate) fn get_analysis_job_for_scope(
-        &self,
-        scope: &str,
-        job_id: &str,
-    ) -> Option<AnalysisJob> {
-        let job = self.job_store.get(job_id, Some(scope))?;
-        // Cross-concern: warm artifact cache when job references an analysis
-        if let Some(analysis_id) = job.analysis_id.as_deref() {
-            let _ = self.get_analysis_for_scope(scope, analysis_id);
-        }
-        Some(job)
-    }
-
-    #[cfg(test)]
-    pub(crate) fn get_analysis_job(&self, job_id: &str) -> Option<AnalysisJob> {
-        self.get_analysis_job_for_scope(&self.current_project_scope(), job_id)
-    }
-
-    pub(crate) fn cancel_analysis_job_for_scope(
-        &self,
-        scope: &str,
-        job_id: &str,
-    ) -> Result<AnalysisJob, CodeLensError> {
-        let job = self.job_store.cancel(job_id, Some(scope))?;
-        if job.status == JobLifecycle::Cancelled {
-            self.metrics.record_analysis_job_cancelled(0, 0);
-        }
-        Ok(job)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn update_analysis_job(
-        &self,
-        scope: &str,
-        job_id: &str,
-        status: Option<JobLifecycle>,
-        progress: Option<u8>,
-        current_step: Option<Option<String>>,
-        estimated_sections: Option<Vec<String>>,
-        analysis_id: Option<Option<String>>,
-        error: Option<Option<String>>,
-    ) -> Result<AnalysisJob, CodeLensError> {
-        self.job_store.update(
-            job_id,
-            status,
-            progress,
-            current_step,
-            estimated_sections,
-            analysis_id,
-            error,
-            Some(scope),
-        )
-    }
-
-    pub(crate) fn record_mutation_audit(
-        &self,
-        tool: &str,
-        surface: &str,
-        arguments: &serde_json::Value,
-        session: &crate::session_context::SessionRequestContext,
-    ) -> Result<(), CodeLensError> {
-        mutation_audit::record_mutation_audit(
-            &self.audit_dir(),
-            Self::now_ms(),
-            &self.current_project_scope(),
-            self.daemon_mode().as_str(),
-            surface,
-            tool,
-            arguments,
-            session,
-        )
-    }
-
-    // ── Artifact Store delegations ────────────────────────────────────────
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn store_analysis(
-        &self,
-        scope: &str,
-        tool_name: &str,
-        cache_key: Option<String>,
-        summary: String,
-        top_findings: Vec<String>,
-        risk_level: String,
-        confidence: f64,
-        next_actions: Vec<String>,
-        blockers: Vec<String>,
-        readiness: AnalysisReadiness,
-        verifier_checks: Vec<AnalysisVerifierCheck>,
-        sections: std::collections::BTreeMap<String, serde_json::Value>,
-    ) -> Result<AnalysisArtifact, CodeLensError> {
-        let artifact = self.artifact_store.store(
-            tool_name,
-            self.surface().as_label(),
-            scope.to_owned(),
-            cache_key,
-            summary,
-            top_findings,
-            risk_level,
-            confidence,
-            next_actions,
-            blockers,
-            readiness,
-            verifier_checks,
-            sections,
-        )?;
-        // Cross-phase context: track recent analysis IDs so subsequent
-        // tool calls can reference prior analysis results.
-        self.push_recent_analysis_id(artifact.id.clone());
-        Ok(artifact)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn store_analysis_for_current_scope(
-        &self,
-        tool_name: &str,
-        cache_key: Option<String>,
-        summary: String,
-        top_findings: Vec<String>,
-        risk_level: String,
-        confidence: f64,
-        next_actions: Vec<String>,
-        blockers: Vec<String>,
-        readiness: AnalysisReadiness,
-        verifier_checks: Vec<AnalysisVerifierCheck>,
-        sections: std::collections::BTreeMap<String, serde_json::Value>,
-    ) -> Result<AnalysisArtifact, CodeLensError> {
-        self.store_analysis(
-            &self.current_project_scope(),
-            tool_name,
-            cache_key,
-            summary,
-            top_findings,
-            risk_level,
-            confidence,
-            next_actions,
-            blockers,
-            readiness,
-            verifier_checks,
-            sections,
-        )
-    }
-
-    pub(crate) fn find_reusable_analysis(
-        &self,
-        scope: &str,
-        tool_name: &str,
-        cache_key: &str,
-    ) -> Option<AnalysisArtifact> {
-        self.artifact_store.find_reusable(
-            tool_name,
-            cache_key,
-            self.surface().as_label(),
-            Some(scope),
-        )
-    }
-
-    pub(crate) fn find_reusable_analysis_for_current_scope(
-        &self,
-        tool_name: &str,
-        cache_key: &str,
-    ) -> Option<AnalysisArtifact> {
-        self.find_reusable_analysis(&self.current_project_scope(), tool_name, cache_key)
-    }
-
-    pub(crate) fn get_analysis_for_scope(
-        &self,
-        scope: &str,
-        analysis_id: &str,
-    ) -> Option<AnalysisArtifact> {
-        self.artifact_store.get(analysis_id, Some(scope))
-    }
-
-    pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
-        self.get_analysis_for_scope(&self.current_project_scope(), analysis_id)
-    }
-
-    pub(crate) fn list_analysis_summaries_for_scope(&self, scope: &str) -> Vec<AnalysisSummary> {
-        self.artifact_store.list_summaries(Some(scope))
-    }
-
-    pub(crate) fn list_analysis_summaries(&self) -> Vec<AnalysisSummary> {
-        self.list_analysis_summaries_for_scope(&self.current_project_scope())
-    }
-
-    pub(crate) fn get_analysis_section(
-        &self,
-        analysis_id: &str,
-        section: &str,
-    ) -> Result<serde_json::Value, CodeLensError> {
-        self.metrics.record_analysis_read(true);
-        self.artifact_store.get_section(analysis_id, section)
-    }
-
     /// Current global token budget.
     pub(crate) fn token_budget(&self) -> usize {
         self.token_budget.load(std::sync::atomic::Ordering::Relaxed)
@@ -1249,16 +873,6 @@ impl AppState {
         false
     }
 
-    #[cfg(test)]
-    pub(crate) fn set_analysis_created_at_for_test(
-        &self,
-        analysis_id: &str,
-        created_at_ms: u64,
-    ) -> Result<(), CodeLensError> {
-        self.artifact_store
-            .set_created_at_for_test(analysis_id, created_at_ms)
-            .map_err(|e| CodeLensError::Internal(e.into()))
-    }
 }
 
 // ── Free functions (extracted from AppState for SRP) ─────────────────

@@ -1,7 +1,7 @@
 use super::{
     LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
-    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, find_referencing_symbols_via_lsp,
-    default_lsp_args_for_command, default_lsp_command_for_path, get_diagnostics_via_lsp,
+    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, default_lsp_args_for_command,
+    default_lsp_command_for_path, find_referencing_symbols_via_lsp, get_diagnostics_via_lsp,
     get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
 };
 use crate::ProjectRoot;
@@ -215,10 +215,7 @@ fn default_lsp_command_is_derived_from_registry_by_path() {
         default_lsp_command_for_path("src/main.py"),
         Some("pyright-langserver")
     );
-    assert_eq!(
-        default_lsp_command_for_path("src/Build.SC"),
-        Some("metals")
-    );
+    assert_eq!(default_lsp_command_for_path("src/Build.SC"), Some("metals"));
     assert_eq!(
         default_lsp_command_for_path("src/native/foo.hpp"),
         Some("clangd")

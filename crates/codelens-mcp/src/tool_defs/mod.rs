@@ -50,7 +50,7 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
             vec!["reports", "symbols", "graph", "session"]
         }
         ToolSurface::Profile(ToolProfile::BuilderMinimal) => {
-            vec!["symbols", "filesystem", "session"]
+            vec!["reports", "symbols", "filesystem", "session"]
         }
         ToolSurface::Profile(ToolProfile::ReviewerGraph) => {
             vec!["reports", "graph", "symbols", "session"]
@@ -74,13 +74,49 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
 
 pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static [&'static str]> {
     match surface {
+        ToolSurface::Profile(ToolProfile::PlannerReadonly) => Some(&[
+            "explore_codebase",
+            "review_architecture",
+            "analyze_change_impact",
+            "prepare_harness_session",
+        ]),
+        ToolSurface::Profile(ToolProfile::BuilderMinimal) => Some(&[
+            "explore_codebase",
+            "trace_request_path",
+            "plan_safe_refactor",
+            "prepare_harness_session",
+        ]),
+        ToolSurface::Profile(ToolProfile::ReviewerGraph) => Some(&[
+            "review_architecture",
+            "analyze_change_impact",
+            "audit_security_context",
+            "prepare_harness_session",
+        ]),
         // Keep refactor bootstrap preview-first. Mutation and broader report tools
         // are still reachable after an explicit expansion or follow-up step.
         ToolSurface::Profile(ToolProfile::RefactorFull) => Some(&[
-            "verify_change_readiness",
-            "safe_rename_report",
-            "refactor_safety_report",
-            "start_analysis_job",
+            "plan_safe_refactor",
+            "analyze_change_impact",
+            "trace_request_path",
+            "prepare_harness_session",
+        ]),
+        ToolSurface::Profile(ToolProfile::CiAudit) => Some(&[
+            "analyze_change_impact",
+            "audit_security_context",
+            "review_architecture",
+            "prepare_harness_session",
+        ]),
+        ToolSurface::Preset(ToolPreset::Balanced) => Some(&[
+            "explore_codebase",
+            "review_architecture",
+            "analyze_change_impact",
+            "prepare_harness_session",
+        ]),
+        ToolSurface::Preset(ToolPreset::Full) => Some(&[
+            "explore_codebase",
+            "review_architecture",
+            "plan_safe_refactor",
+            "prepare_harness_session",
         ]),
         _ => None,
     }
@@ -96,7 +132,7 @@ pub(crate) fn preferred_tiers(surface: ToolSurface) -> Vec<ToolTier> {
             vec![ToolTier::Primitive, ToolTier::Analysis]
         }
         ToolSurface::Profile(ToolProfile::BuilderMinimal) => {
-            vec![ToolTier::Analysis, ToolTier::Primitive]
+            vec![ToolTier::Workflow, ToolTier::Analysis, ToolTier::Primitive]
         }
         ToolSurface::Preset(ToolPreset::Minimal) => vec![ToolTier::Primitive, ToolTier::Analysis],
         ToolSurface::Preset(ToolPreset::Balanced) => vec![ToolTier::Workflow, ToolTier::Analysis],

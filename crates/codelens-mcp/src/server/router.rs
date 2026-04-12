@@ -85,7 +85,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     "name": "codelens-mcp",
                     "version": env!("CARGO_PKG_VERSION")
                 },
-                "instructions": "CodeLens is a compressed context provider for agent harnesses. Prefer high-level workflow tools such as analyze_change_request, impact_report, diff_aware_references, module_boundary_report, refactor_safety_report, dead_code_report, and safe_rename_report before expanding raw symbols or graph data. Keep the visible context bounded, and use get_analysis_section or analysis resources only when you need one section in more detail. For longer reports, start_analysis_job and poll with get_analysis_job."
+                "instructions": "CodeLens is a compressed context provider for agent harnesses. Prefer problem-first workflow entrypoints such as explore_codebase, review_architecture, analyze_change_impact, plan_safe_refactor, audit_security_context, trace_request_path, and cleanup_duplicate_logic before expanding raw symbols or graph data. Legacy report tools remain available, but the workflow-first surface is the default path. Keep the visible context bounded, and use get_analysis_section or analysis resources only when you need one section in more detail. For longer reports, start_analysis_job and poll with get_analysis_job."
             }),
         )),
         "resources/list" => Some(JsonRpcResponse::result(
