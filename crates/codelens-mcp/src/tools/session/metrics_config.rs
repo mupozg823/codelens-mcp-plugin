@@ -1,11 +1,27 @@
-use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
+    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
 };
-use crate::tool_runtime::{ToolResult, success_meta};
+use crate::tool_runtime::{success_meta, ToolResult};
+use crate::AppState;
 use serde_json::json;
+use std::collections::VecDeque;
+
+/// Bucket latency samples into a compact histogram: <10ms, <50ms, <200ms, <1s, 1s+.
+fn latency_histogram(samples: &VecDeque<u64>) -> serde_json::Value {
+    let (mut lt10, mut lt50, mut lt200, mut lt1000, mut gte1000) = (0u32, 0, 0, 0, 0);
+    for &ms in samples {
+        match ms {
+            0..=9 => lt10 += 1,
+            10..=49 => lt50 += 1,
+            50..=199 => lt200 += 1,
+            200..=999 => lt1000 += 1,
+            _ => gte1000 += 1,
+        }
+    }
+    json!({"<10ms": lt10, "10-49ms": lt50, "50-199ms": lt200, "200-999ms": lt1000, "1s+": gte1000})
+}
 
 #[cfg(feature = "semantic")]
 use crate::tool_defs::is_tool_in_surface;
@@ -618,6 +634,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
                     m.total_tokens / m.call_count as usize
                 } else { 0 },
                 "p95_latency_ms": crate::telemetry::percentile_95(&m.latency_samples),
+                "latency_histogram": latency_histogram(&m.latency_samples),
                 "success_rate": if m.call_count > 0 {
                     m.success_count as f64 / m.call_count as f64
                 } else { 0.0 },
@@ -970,7 +987,7 @@ mod capability_reporting_tests {
     #[cfg(feature = "semantic")]
     #[test]
     fn planner_readonly_and_builder_minimal_expose_semantic_search() {
-        use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
+        use crate::tool_defs::{is_tool_in_surface, ToolProfile, ToolSurface};
 
         for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
             let surface = ToolSurface::Profile(profile);

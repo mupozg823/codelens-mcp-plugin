@@ -221,7 +221,7 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         format!(" {} |", app.project_name)
     };
     let status = format!(
-        "{} {} indexed files | [q]Quit [Tab]Panel [↑↓]Nav [/]Search [s]Symbol",
+        "{} {} indexed files | [q]Quit [Tab]Panel [↑↓]Nav [/]Search [s]Symbol [Enter]Jump",
         prefix, app.total_indexed_files,
     );
 
