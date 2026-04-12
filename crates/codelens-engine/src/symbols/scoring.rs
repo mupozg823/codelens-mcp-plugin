@@ -394,16 +394,19 @@ pub fn sparse_coverage_bonus_from_fields(
     if tokens.len() < 2 {
         return 0.0;
     }
-    let mut corpus =
-        String::with_capacity(name.len() + name_path.len() + signature.len() + file_path.len() + 3);
-    corpus.push_str(name);
-    corpus.push(' ');
-    corpus.push_str(name_path);
-    corpus.push(' ');
-    corpus.push_str(signature);
-    corpus.push(' ');
-    corpus.push_str(file_path);
-    let corpus_lower = corpus.to_lowercase();
+    // Build the corpus directly as lowercase to avoid a second String
+    // allocation. Previously this was corpus + corpus.to_lowercase() =
+    // 2 allocations per candidate; now it's 1.
+    let cap = name.len() + name_path.len() + signature.len() + file_path.len() + 3;
+    let mut corpus_lower = String::with_capacity(cap);
+    for field in [name, name_path, signature, file_path] {
+        if !corpus_lower.is_empty() {
+            corpus_lower.push(' ');
+        }
+        for ch in field.chars() {
+            corpus_lower.push(ch.to_ascii_lowercase());
+        }
+    }
 
     let matched = tokens
         .iter()
