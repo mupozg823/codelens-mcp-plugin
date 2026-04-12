@@ -117,7 +117,7 @@
     "query": "route an incoming tool request to the right handler",
     "query_type": "natural_language",
     "expected_symbol": "dispatch_tool",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
   },
   {
     "query": "rename_symbol",
@@ -129,7 +129,7 @@
     "query": "dispatch_tool",
     "query_type": "identifier",
     "expected_symbol": "dispatch_tool",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
   },
   {
     "query": "cosine_similarity",
@@ -171,7 +171,7 @@
     "query": "truncate response when too large",
     "query_type": "natural_language",
     "expected_symbol": "bounded_result_payload",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch_response_support.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response_support.rs"
   },
   {
     "query": "record which files were recently accessed",
@@ -339,31 +339,31 @@
     "query": "check if a query is natural language for semantic search",
     "query_type": "natural_language",
     "expected_symbol": "is_natural_language_semantic_query",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
   },
   {
     "query": "handle semantic search tool request",
     "query_type": "natural_language",
     "expected_symbol": "semantic_search_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
   },
   {
     "query": "build embedding index for all project symbols",
     "query_type": "natural_language",
     "expected_symbol": "index_embeddings_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
   },
   {
     "query": "rerank semantic search results by relevance",
     "query_type": "natural_language",
     "expected_symbol": "rerank_semantic_matches",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
   },
   {
     "query": "ToolCallEnvelope",
     "query_type": "identifier",
     "expected_symbol": "ToolCallEnvelope",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
   },
   {
     "query": "get preflight TTL timeout in milliseconds",
@@ -405,19 +405,19 @@
     "query": "build a success response with suggested next tools",
     "query_type": "natural_language",
     "expected_symbol": "build_success_response",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch_response.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response.rs"
   },
   {
     "query": "build an error response with failure kind",
     "query_type": "natural_language",
     "expected_symbol": "build_error_response",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch_response.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response.rs"
   },
   {
     "query": "SuccessResponseInput",
     "query_type": "identifier",
     "expected_symbol": "SuccessResponseInput",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch_response.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/response.rs"
   },
   {
     "query": "how does the embedding engine initialize the model",
@@ -447,13 +447,13 @@
     "query": "find similar code snippets using embeddings",
     "query_type": "natural_language",
     "expected_symbol": "find_similar_code_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
   },
   {
     "query": "classify what kind of symbol this is",
     "query_type": "natural_language",
     "expected_symbol": "classify_symbol_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
   },
   {
     "query": "check if a tool is a symbol-aware mutation",
@@ -489,7 +489,7 @@
     "query": "parse incoming MCP tool call JSON",
     "query_type": "natural_language",
     "expected_symbol": "parse",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
   },
   {
     "query": "ProjectOverride",
