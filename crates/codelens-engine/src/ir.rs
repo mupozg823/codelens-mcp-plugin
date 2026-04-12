@@ -147,3 +147,78 @@ pub enum EditActionKind {
     /// Create a new file.
     Create,
 }
+
+// ---------------------------------------------------------------------------
+// Retrieval pipeline types
+// ---------------------------------------------------------------------------
+
+/// Describes a stage in the retrieval pipeline.
+///
+/// The full pipeline is: `Lexical → SymbolScore → DenseRetrieval → Rerank → GraphExpand`
+///
+/// Each stage can be enabled/disabled and contributes a weighted score.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum RetrievalStage {
+    /// FTS5 / BM25 corpus search — file-level pre-filtering.
+    Lexical,
+    /// Symbol name/signature scoring — AST-aware matching.
+    SymbolScore,
+    /// Embedding-based dense retrieval — semantic similarity.
+    DenseRetrieval,
+    /// Multi-signal blending — text + pagerank + recency + semantic.
+    Rerank,
+    /// Graph expansion — callers, importers, type hierarchy of top results.
+    GraphExpand,
+}
+
+/// Configuration for a retrieval pipeline run.
+#[derive(Debug, Clone, Serialize)]
+pub struct RetrievalConfig {
+    /// Which stages are enabled.
+    pub stages: Vec<RetrievalStage>,
+    /// Maximum results to return.
+    pub max_results: usize,
+    /// Token budget for response.
+    pub token_budget: usize,
+    /// Whether to include symbol bodies.
+    pub include_body: bool,
+    /// Weight overrides per stage (default: equal weighting).
+    pub weights: RetrievalWeights,
+}
+
+/// Weights for each retrieval signal in the rerank stage.
+#[derive(Debug, Clone, Serialize)]
+pub struct RetrievalWeights {
+    pub text: f64,
+    pub pagerank: f64,
+    pub recency: f64,
+    pub semantic: f64,
+}
+
+impl Default for RetrievalWeights {
+    fn default() -> Self {
+        Self {
+            text: 0.40,
+            pagerank: 0.20,
+            recency: 0.10,
+            semantic: 0.30,
+        }
+    }
+}
+
+impl Default for RetrievalConfig {
+    fn default() -> Self {
+        Self {
+            stages: vec![
+                RetrievalStage::Lexical,
+                RetrievalStage::SymbolScore,
+                RetrievalStage::DenseRetrieval,
+                RetrievalStage::Rerank,
+            ],
+            max_results: 20,
+            token_budget: 4000,
+            include_body: true,
+            weights: RetrievalWeights::default(),
+        }
+    }
+}

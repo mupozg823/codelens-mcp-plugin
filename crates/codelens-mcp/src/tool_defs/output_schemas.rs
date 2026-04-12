@@ -561,15 +561,58 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
-            "version": {"type": "string"},
-            "tool_count": {"type": "integer"},
-            "language_count": {"type": "integer"},
-            "languages": {"type": "array", "items": {"type": "string"}},
-            "active_surface": {"type": "string"},
-            "token_budget": {"type": "integer"},
+            "language": {"type": ["string", "null"]},
+            "lsp_attached": {"type": "boolean"},
+            "embeddings_loaded": {"type": "boolean"},
             "semantic_search_status": {"type": "string", "enum": ["available", "model_assets_unavailable", "not_in_active_surface", "index_missing", "feature_disabled", "not_compiled"]},
             "embedding_model": {"type": "string"},
-            "lsp_daemons": {"type": "object"}
+            "embedding_runtime_preference": {"type": "string"},
+            "embedding_runtime_backend": {"type": "string"},
+            "embedding_threads": {"type": ["integer", "null"]},
+            "embedding_max_length": {"type": ["integer", "null"]},
+            "embedding_indexed": {"type": "boolean"},
+            "embedding_indexed_symbols": {"type": "integer"},
+            "index_fresh": {"type": "boolean"},
+            "indexed_files": {"type": "integer"},
+            "available": {"type": "array", "items": {"type": "string"}},
+            "unavailable": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "feature": {"type": "string"},
+                        "reason": {"type": "string"},
+                        "status": {"type": "string"}
+                    }
+                }
+            },
+            "binary_version": {"type": "string"},
+            "binary_git_sha": {"type": "string"},
+            "binary_build_time": {"type": "string"},
+            "daemon_started_at": {"type": "string"},
+            "daemon_binary_drift": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["ok", "stale", "unknown"]},
+                    "stale_daemon": {"type": "boolean"},
+                    "restart_recommended": {"type": "boolean"},
+                    "executable_path": {"type": "string"},
+                    "executable_modified_at": {"type": "string"},
+                    "daemon_started_at": {"type": "string"},
+                    "binary_build_time": {"type": "string"},
+                    "binary_git_sha": {"type": "string"},
+                    "reason": {"type": ["string", "null"]}
+                }
+            },
+            "binary_build_info": {
+                "type": "object",
+                "properties": {
+                    "version": {"type": "string"},
+                    "git_sha": {"type": "string"},
+                    "git_dirty": {"type": "boolean"},
+                    "build_time": {"type": "string"}
+                }
+            }
         }
     })
 }

@@ -97,24 +97,26 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 ### Problem-First Workflows
 
-Instead of 89 individual tools, use high-level workflow patterns:
+Instead of starting from the full raw tool registry, begin with the workflow-first entrypoints:
 
-| Workflow           | Tool                                                 | When                          |
-| ------------------ | ---------------------------------------------------- | ----------------------------- |
-| Explore codebase   | `onboard_project`                                    | First look at unfamiliar code |
-| Plan safe refactor | `analyze_change_request` → `verify_change_readiness` | Before multi-file changes     |
-| Review changes     | `impact_report` → `diff_aware_references`            | Pre-merge review              |
-| Audit architecture | `module_boundary_report` → `dead_code_report`        | Tech debt assessment          |
+| Workflow           | Tool                     | When                                  |
+| ------------------ | ------------------------ | ------------------------------------- |
+| Explore codebase   | `explore_codebase`       | First look or targeted context search |
+| Trace execution    | `trace_request_path`     | Follow request or symbol flow         |
+| Plan safe refactor | `plan_safe_refactor`     | Preview rename/refactor risk first    |
+| Review changes     | `analyze_change_impact`  | Pre-merge impact and blast radius     |
+| Audit architecture | `review_architecture`    | Boundaries, coupling, module shape    |
+| Audit security     | `audit_security_context` | Risk-oriented changed-file review     |
 
 ### Role-Based Surfaces
 
 | Profile            | Tools Visible   | Use Case                                 |
 | ------------------ | --------------- | ---------------------------------------- |
-| `planner-readonly` | Balanced        | Planner/architect context compression    |
-| `builder-minimal`  | Minimal (20)    | Implementation with focused tool surface |
-| `reviewer-graph`   | Full            | Graph-aware review and risk analysis     |
-| `refactor-full`    | Full + mutation | Preview-first refactors                  |
-| `ci-audit`         | Full            | Machine-friendly CI/CD review            |
+| `planner-readonly` | Workflow-first  | Planner/architect context compression    |
+| `builder-minimal`  | Workflow-first  | Implementation with focused Codex/agent surface |
+| `reviewer-graph`   | Review-heavy    | Graph-aware review and risk analysis     |
+| `refactor-full`    | Preview-first + gated mutation | Safe refactors               |
+| `ci-audit`         | Machine-oriented| CI/CD review and report emission         |
 
 ### Adaptive Token Compression
 

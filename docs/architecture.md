@@ -5,10 +5,11 @@
 
 ## Current Snapshot (2026-04-12)
 
-- Workspace version: `1.6.4`
-- Registered tool definitions: `91` in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
-- Active runtime surface in this repo session: `builder-minimal`, `26` visible tools via `codelens://tools/list/full`
-- Indexed files in the current project: `226 / 226`, stale `0`
+- Workspace version: `1.8.0`
+- Registered tool definitions in source: `101` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
+- Current balanced runtime listing in this repo: `70` visible tools via `tools/list { "full": true }`
+- Current `builder-minimal` bootstrap in this repo: `30` visible tools via [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs)
+- Indexed files in the current project: `240 / 240`, stale `0`
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
@@ -160,11 +161,9 @@ codelens-mcp-plugin/
 │       ├── Cargo.toml                    # deps: axum, tokio, serde_json
 │       └── src/
 │           ├── main.rs                   # Entry: CLI args, transport selection
-│           ├── state.rs                  # AppState + ProjectOverride
-│           ├── dispatch.rs               # Dispatcher: profile, telemetry, budget
-│           ├── dispatch_access.rs        # Capability gates
-│           ├── dispatch_response.rs      # Truncation + annotation envelope
-│           ├── dispatch_response_support.rs
+│           ├── state.rs                  # AppState assembly + shared runtime helpers
+│           ├── state/                    # Project/session/preflight/watcher services
+│           ├── dispatch/                 # Dispatcher, access, response shaping
 │           ├── protocol.rs               # Tool, ToolAnnotations, OutputSchema
 │           ├── error.rs                  # CodeLensError enum
 │           ├── telemetry.rs              # ToolMetricsRegistry (in-memory session)
@@ -206,6 +205,7 @@ codelens-mcp-plugin/
 │           └── tools/                    # Tool handler implementations
 │               ├── mod.rs                # Dispatch table + suggest_next_tools
 │               ├── symbols.rs            # Symbol lookup handlers
+│               ├── workflows.rs          # Workflow-first alias layer for agent entrypoints
 │               ├── lsp.rs                # LSP-backed handlers
 │               ├── graph.rs              # Analysis graph handlers
 │               ├── filesystem.rs         # File I/O handlers
@@ -264,7 +264,7 @@ codelens-mcp-plugin/
               └─────────────┬─────────────┘
                             │
               ┌─────────────▼─────────────┐
-              │       dispatch.rs         │
+              │      dispatch/mod.rs      │
               │  ┌─────────────────────┐  │
               │  │ schema pre-validate │  │  ← MissingParam fast-fail
               │  │ _profile override   │  │  ← token budget control
@@ -272,7 +272,7 @@ codelens-mcp-plugin/
               │  │ DISPATCH_TABLE      │  │  ← handler lookup
               │  │ telemetry record    │  │  ← latency tracking
               │  │ doom-loop detect    │  │  ← recent_buffer
-              │  │ response envelope   │  │  ← truncation + _meta
+              │  │ response envelope   │  │  ← dispatch/response.rs + _meta
               │  └─────────────────────┘  │
               └─────────────┬─────────────┘
                             │
@@ -395,7 +395,7 @@ MINIMAL  (20)   ██████████████                      
 
 ### Output Schemas
 
-- **45 of 89 tools** declare a JSON output schema (Phase 8-1 complete, 2026-04-11)
+- **64 of 101 tools** declare a JSON output schema in the current source tree
 - All read handles (`analysis_handle`), mutation results, and primary symbol/reference payloads are schema-typed
 - Response annotations include `_meta["anthropic/maxResultSizeChars"]` per MCP v2.1.91+
 
@@ -491,7 +491,7 @@ All mutation tools are gated:
 │  │                                                   │  │
 │  │  ✅ Streamable HTTP + SSE                         │  │
 │  │  ✅ Tool Annotations (readOnly/destructive)       │  │
-│  │  ✅ Tool Output Schemas (45/89 tools)             │  │
+│  │  ✅ Tool Output Schemas (64/101 tools)            │  │
 │  │  ✅ Preset + Role Profile subsetting              │  │
 │  │  ✅ Token budget control (_profile)               │  │
 │  │  ✅ Adaptive compression (OpenDev 5-stage)        │  │

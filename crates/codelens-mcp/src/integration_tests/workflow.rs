@@ -174,9 +174,13 @@ fn get_capabilities_returns_features() {
         payload["data"]["embedding_model"],
         json!("MiniLM-L12-CodeSearchNet-INT8")
     );
+    assert!(payload["data"].get("semantic_search_status").is_some());
     assert!(payload["data"].get("embedding_indexed").is_some());
     assert!(payload["data"].get("embedding_indexed_symbols").is_some());
     assert!(payload["data"].get("index_fresh").is_some());
+    assert!(payload["data"]["daemon_binary_drift"].is_object());
+    assert!(payload["data"]["daemon_binary_drift"]["status"].is_string());
+    assert!(payload["data"]["daemon_binary_drift"]["stale_daemon"].is_boolean());
 }
 
 #[test]
@@ -206,6 +210,71 @@ fn get_capabilities_reports_existing_embedding_index_without_loading_engine() {
     );
     assert_eq!(payload["data"]["embedding_indexed"], json!(true));
     assert_eq!(payload["data"]["embedding_indexed_symbols"], json!(indexed));
+}
+
+#[test]
+fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("stale_daemon.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    // `daemon_started_at` is second-granularity RFC3339. Sleep just over
+    // one second so the override file's mtime is guaranteed to be newer.
+    std::thread::sleep(std::time::Duration::from_millis(1_100));
+
+    let override_path = std::env::temp_dir().join(format!(
+        "codelens-stale-daemon-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::write(&override_path, "newer-binary-marker").unwrap();
+
+    let previous = std::env::var_os("CODELENS_EXECUTABLE_PATH_OVERRIDE");
+    // SAFETY: this test mutates a process env var for the duration of a
+    // synchronous tool call, then restores the previous value.
+    unsafe {
+        std::env::set_var("CODELENS_EXECUTABLE_PATH_OVERRIDE", &override_path);
+    }
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "builder-minimal"}),
+    );
+
+    unsafe {
+        match previous {
+            Some(value) => std::env::set_var("CODELENS_EXECUTABLE_PATH_OVERRIDE", value),
+            None => std::env::remove_var("CODELENS_EXECUTABLE_PATH_OVERRIDE"),
+        }
+    }
+    let _ = fs::remove_file(&override_path);
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["capabilities"]["daemon_binary_drift"]["status"],
+        json!("stale")
+    );
+    assert_eq!(
+        payload["data"]["capabilities"]["daemon_binary_drift"]["stale_daemon"],
+        json!(true)
+    );
+    assert!(payload["data"]["warnings"]
+        .as_array()
+        .map(|warnings| {
+            warnings.iter().any(|warning| {
+                warning["code"] == "stale_daemon_binary"
+                    && warning["restart_recommended"] == json!(true)
+            })
+        })
+        .unwrap_or(false));
 }
 
 #[test]

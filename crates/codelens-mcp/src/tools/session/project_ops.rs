@@ -1,12 +1,12 @@
-use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::resource_context::{
-    ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
+    build_http_session_payload, build_visible_tool_context, ResourceRequestContext,
 };
 use crate::tool_defs::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile, preferred_bootstrap_tools,
+    default_budget_for_profile, preferred_bootstrap_tools, ToolPreset, ToolProfile, ToolSurface,
 };
-use crate::tool_runtime::{ToolResult, required_string, success_meta};
+use crate::tool_runtime::{required_string, success_meta, ToolResult};
+use crate::AppState;
 use codelens_engine::memory::list_memory_names;
 use codelens_engine::{compute_dominant_language, detect_frameworks};
 use serde_json::json;
@@ -202,6 +202,19 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     };
     let (capabilities_payload, _) =
         crate::tools::session::get_capabilities(state, &capabilities_arguments)?;
+    let warnings = capabilities_payload
+        .get("daemon_binary_drift")
+        .and_then(|value| value.get("stale_daemon"))
+        .and_then(|value| value.as_bool())
+        .filter(|stale| *stale)
+        .map(|_| {
+            vec![json!({
+                "code": "stale_daemon_binary",
+                "message": "running daemon is older than the executable on disk; restart the MCP server to pick up the latest build",
+                "restart_recommended": true,
+            })]
+        })
+        .unwrap_or_default();
 
     let visible = build_visible_tool_context(state, &request);
     let visible_tool_names = visible
@@ -249,6 +262,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "token_budget": token_budget,
             "config": config_payload,
             "capabilities": capabilities_payload,
+            "warnings": warnings,
             "http_session": build_http_session_payload(state, &request),
             "visible_tools": {
                 "tool_count": visible.tools.len(),

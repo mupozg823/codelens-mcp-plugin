@@ -1,5 +1,7 @@
 # CodeLens Architecture Audit (2026-04-12)
 
+> Historical audit snapshot. The repository has since moved some MCP internals from flat files into `dispatch/` and `state/` directories, and current runtime/version counts should be taken from [`docs/architecture.md`](architecture.md) or a live `prepare_harness_session` run rather than from this audit's point-in-time numbers.
+
 ## 1. Scope And Method
 
 This report analyzes the current repository shape from four evidence sources:

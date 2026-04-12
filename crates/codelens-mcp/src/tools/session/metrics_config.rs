@@ -1,10 +1,10 @@
-use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
+    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
 };
-use crate::tool_runtime::{ToolResult, success_meta};
+use crate::tool_runtime::{success_meta, ToolResult};
+use crate::AppState;
 use serde_json::json;
 
 #[cfg(feature = "semantic")]
@@ -116,6 +116,20 @@ pub(crate) enum SemanticSearchStatus {
 }
 
 impl SemanticSearchStatus {
+    pub(crate) fn status_key(&self) -> &'static str {
+        match self {
+            #[cfg(feature = "semantic")]
+            Self::Available => "available",
+            #[cfg(feature = "semantic")]
+            Self::ModelAssetsUnavailable => "model_assets_unavailable",
+            #[cfg(feature = "semantic")]
+            Self::NotInActiveSurface => "not_in_active_surface",
+            #[cfg(feature = "semantic")]
+            Self::IndexMissing => "index_missing",
+            Self::FeatureDisabled => "feature_disabled",
+        }
+    }
+
     pub(crate) fn reason_str(&self) -> Option<&'static str> {
         match self {
             #[cfg(feature = "semantic")]
@@ -414,12 +428,15 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         "git_dirty": crate::build_info::build_git_dirty(),
         "build_time": crate::build_info::BUILD_TIME,
     });
+    let daemon_binary_drift =
+        crate::build_info::daemon_binary_drift_payload(state.daemon_started_at());
 
     Ok((
         json!({
             "language": language,
             "lsp_attached": lsp_attached,
             "embeddings_loaded": embeddings_loaded,
+            "semantic_search_status": semantic_status.status_key(),
             "embedding_model": configured_embedding_model,
             "embedding_runtime_preference": embedding_runtime.runtime_preference,
             "embedding_runtime_backend": embedding_runtime.backend,
@@ -445,6 +462,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "binary_git_sha": crate::build_info::BUILD_GIT_SHA,
             "binary_build_time": crate::build_info::BUILD_TIME,
             "daemon_started_at": state.daemon_started_at(),
+            "daemon_binary_drift": daemon_binary_drift,
             "binary_build_info": binary_build_info,
         }),
         success_meta(BackendKind::Config, 0.95),
@@ -820,7 +838,7 @@ mod capability_reporting_tests {
     #[cfg(feature = "semantic")]
     #[test]
     fn planner_readonly_and_builder_minimal_expose_semantic_search() {
-        use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
+        use crate::tool_defs::{is_tool_in_surface, ToolProfile, ToolSurface};
 
         for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
             let surface = ToolSurface::Profile(profile);

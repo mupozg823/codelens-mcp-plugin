@@ -68,10 +68,19 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 **Profiles (preferred):**
 
 - `planner-readonly` — bounded planning/report surface
-- `builder-minimal` — implementation with minimal symbol/edit tools
+- `builder-minimal` — workflow-first implementation surface for builder agents
 - `reviewer-graph` — graph-aware review and risk analysis
 - `refactor-full` — preview-first refactoring surface
 - `ci-audit` — diff-aware review/report surface
+
+**Recommended bootstrap order:**
+
+1. `prepare_harness_session`
+2. `explore_codebase`
+3. `trace_request_path` or `analyze_change_impact`
+4. `plan_safe_refactor` before any multi-file mutation
+
+On the current `1.8.0` debug/runtime shape, `builder-minimal` exposes a bounded 30-tool surface in this repository, but the first visible tools are workflow aliases rather than low-level primitives.
 
 For `refactor-full`, use a preflight-first path:
 
@@ -82,11 +91,11 @@ For `refactor-full`, use a preflight-first path:
 
 Recent matching preflight is required before `refactor-full` content mutations execute.
 
-**Legacy presets (current default semantic build):**
+**Legacy presets:**
 
-- `minimal` — 20 tools, fastest, read-only exploration + safe edits
-- `balanced` — 55 tools, default, excludes niche analysis + Claude built-in overlaps
-- `full` — 89 tools, full registry
+- `minimal` — smallest point-tool surface
+- `balanced` — default workflow-first surface
+- `full` — full visible registry for the current build
 
 ---
 
@@ -138,9 +147,18 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 **Profiles (preferred):**
 
 - `planner-readonly` — bounded planning/report surface
-- `builder-minimal` — implementation with minimal symbol/edit tools
+- `builder-minimal` — workflow-first implementation surface for Codex and builder agents
 - `reviewer-graph` — graph-aware review and risk analysis
 - `refactor-full` — preview-first refactoring surface
+
+**Recommended Codex bootstrap order:**
+
+1. `prepare_harness_session`
+2. `explore_codebase`
+3. `trace_request_path` or `analyze_change_impact`
+4. `plan_safe_refactor` before any multi-file mutation
+
+On the current `1.8.0` runtime shape in this repository, `builder-minimal` exposes a bounded 30-tool surface after bootstrap, with workflow aliases shown before lower-level primitives.
 
 For `refactor-full`, use a preflight-first path:
 
