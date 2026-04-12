@@ -1,6 +1,7 @@
 use super::{
     AppState, ToolResult, optional_bool, optional_string, optional_usize,
-    query_analysis::analyze_retrieval_query, required_string, success_meta,
+    query_analysis::{analyze_retrieval_query, semantic_query_for_embedding_search},
+    required_string, success_meta,
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
@@ -120,14 +121,7 @@ pub(crate) fn semantic_results_for_query(
         && engine.is_indexed()
     {
         let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
-        // Frame NL queries with code context prefix for better CodeSearchNet
-        // embedding alignment. The model was fine-tuned on (NL, code) pairs
-        // where code starts with "function" or "class" — prefixing helps.
-        let search_query = if query_analysis.natural_language {
-            format!("function {}", query_analysis.semantic_query)
-        } else {
-            query_analysis.semantic_query.clone()
-        };
+        let search_query = semantic_query_for_embedding_search(&query_analysis);
         let results = engine
             .search(&search_query, candidate_limit)
             .unwrap_or_default();

@@ -193,6 +193,16 @@ pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
     analyze_retrieval_query(query).semantic_query
 }
 
+pub(crate) fn semantic_query_for_embedding_search(
+    analysis: &RetrievalQueryAnalysis,
+) -> String {
+    if analysis.natural_language {
+        format!("function {}", analysis.semantic_query)
+    } else {
+        analysis.semantic_query.clone()
+    }
+}
+
 fn prefers_semantic_entrypoint_prior(query_lower: &str) -> bool {
     has_entrypoint_cue(query_lower) && query_lower.split_whitespace().count() >= 3
 }
@@ -593,7 +603,8 @@ fn expand_retrieval_query(query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_retrieval,
+        analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_embedding_search,
+        semantic_query_for_retrieval,
     };
 
     #[cfg(feature = "semantic")]
@@ -652,6 +663,21 @@ mod tests {
         let semantic = semantic_query_for_retrieval(query);
         assert!(semantic.contains("dispatchToolRequest"));
         assert!(semantic.contains("dispatch tool request"));
+    }
+
+    #[test]
+    fn embedding_search_query_frames_natural_language_with_code_prefix() {
+        let analysis = analyze_retrieval_query("route an incoming tool request to the right handler");
+        let framed = semantic_query_for_embedding_search(&analysis);
+        assert!(framed.starts_with("function "));
+        assert!(framed.contains("route an incoming tool request to the right handler"));
+    }
+
+    #[test]
+    fn embedding_search_query_leaves_identifier_queries_unframed() {
+        let analysis = analyze_retrieval_query("change_signature");
+        let framed = semantic_query_for_embedding_search(&analysis);
+        assert_eq!(framed, "change_signature change signature");
     }
 
     #[test]
