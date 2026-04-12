@@ -59,6 +59,12 @@ DATASET = os.path.abspath(ARGS.dataset)
 RUN_ENV = os.environ.copy()
 if ARGS.embed_model:
     RUN_ENV["CODELENS_EMBED_MODEL"] = ARGS.embed_model
+if "CODELENS_MODEL_DIR" not in RUN_ENV:
+    repo_model_dir = (
+        Path(__file__).resolve().parent.parent / "crates" / "codelens-engine" / "models"
+    )
+    if (repo_model_dir / "codesearch" / "model.onnx").exists():
+        RUN_ENV["CODELENS_MODEL_DIR"] = str(repo_model_dir)
 
 
 def compute_file_sha256(path):

@@ -39,6 +39,11 @@ def parse_args():
     parser.add_argument("--output", default="benchmarks/role-retrieval-results.json")
     parser.add_argument("--markdown-output", default="")
     parser.add_argument("--max-results", type=int, default=10)
+    parser.add_argument(
+        "--embed-model",
+        default=os.environ.get("CODELENS_EMBED_MODEL", ""),
+        help="Override CODELENS_EMBED_MODEL for this benchmark run",
+    )
     parser.add_argument("--isolated-copy", action="store_true")
     parser.add_argument("--keep-isolated-copy", action="store_true")
     return parser.parse_args()
@@ -49,6 +54,15 @@ SOURCE_PROJECT = str(Path(ARGS.project_path).expanduser().resolve())
 PROJECT = SOURCE_PROJECT
 BIN = str(Path(ARGS.binary).expanduser().resolve())
 DATASET_PATH = Path(ARGS.dataset).expanduser().resolve()
+RUN_ENV = os.environ.copy()
+if ARGS.embed_model:
+    RUN_ENV["CODELENS_EMBED_MODEL"] = ARGS.embed_model
+if "CODELENS_MODEL_DIR" not in RUN_ENV:
+    repo_model_dir = (
+        Path(__file__).resolve().parent.parent / "crates" / "codelens-engine" / "models"
+    )
+    if (repo_model_dir / "codesearch" / "model.onnx").exists():
+        RUN_ENV["CODELENS_MODEL_DIR"] = str(repo_model_dir)
 
 
 def compute_file_sha256(path: Path) -> str:
@@ -60,44 +74,63 @@ def compute_file_sha256(path: Path) -> str:
 
 
 def resolve_runtime_model_dir() -> Path:
+    configured = RUN_ENV.get("CODELENS_EMBED_MODEL", "")
+    if configured and configured != "MiniLM-L12-CodeSearchNet-INT8":
+        return None
     exe_dir = Path(BIN).resolve().parent
     candidates = [
         (
-            Path(os.environ["CODELENS_MODEL_DIR"]).expanduser().resolve() / "codesearch"
-            if "CODELENS_MODEL_DIR" in os.environ
+            Path(RUN_ENV["CODELENS_MODEL_DIR"]).expanduser().resolve() / "codesearch"
+            if "CODELENS_MODEL_DIR" in RUN_ENV
             else None
         ),
         exe_dir / "models" / "codesearch",
         Path.home() / ".cache" / "codelens" / "models" / "codesearch",
         Path(__file__).resolve().parent.parent
         / "crates"
-        / "codelens-core"
+        / "codelens-engine"
         / "models"
         / "codesearch",
     ]
     for candidate in candidates:
         if candidate is not None and (candidate / "model.onnx").exists():
             return candidate
-    raise SystemExit(
-        "Cannot resolve runtime model dir. Checked:\n"
-        + "\n".join(f"  - {candidate}" for candidate in candidates if candidate)
-    )
+    return None
 
 
-def snapshot_runtime_model() -> dict:
+def payload_data(payload):
+    return payload.get("data") if isinstance(payload.get("data"), dict) else payload
+
+
+def snapshot_runtime_model(capabilities_payload=None) -> dict:
+    data = payload_data(capabilities_payload or {}) or {}
+    runtime = {
+        "embedding_model": data.get("embedding_model"),
+        "runtime_preference": data.get("embedding_runtime_preference"),
+        "backend": data.get("embedding_runtime_backend"),
+        "threads": data.get("embedding_threads"),
+        "max_length": data.get("embedding_max_length"),
+        "fallback_reason": data.get("embedding_runtime_fallback_reason"),
+        "requested_embed_model": ARGS.embed_model or None,
+    }
     model_dir = resolve_runtime_model_dir()
+    if model_dir is None:
+        return runtime
     model_path = model_dir / "model.onnx"
     config_path = model_dir / "config.json"
     config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
-    return {
-        "model_dir": str(model_dir),
-        "model_path": str(model_path),
-        "config_path": str(config_path),
-        "sha256": compute_file_sha256(model_path),
-        "size_bytes": model_path.stat().st_size,
-        "num_hidden_layers": config.get("num_hidden_layers"),
-        "hidden_size": config.get("hidden_size"),
-    }
+    runtime.update(
+        {
+            "model_dir": str(model_dir),
+            "model_path": str(model_path),
+            "config_path": str(config_path),
+            "sha256": compute_file_sha256(model_path),
+            "size_bytes": model_path.stat().st_size,
+            "num_hidden_layers": config.get("num_hidden_layers"),
+            "hidden_size": config.get("hidden_size"),
+        }
+    )
+    return runtime
 
 
 def run_tool(cmd: str, arguments: dict, timeout: int = 180):
@@ -118,6 +151,7 @@ def run_tool(cmd: str, arguments: dict, timeout: int = 180):
         text=True,
         timeout=timeout,
         check=False,
+        env=RUN_ENV,
     )
     elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
     payload = parse_output_json(result.stdout)
@@ -322,13 +356,22 @@ def render_markdown(result: dict) -> str:
     a("")
     a(f"- Project: `{result['project']}`")
     a(f"- Binary: `{result['binary']}`")
+    a(f"- Embedding model: `{result.get('embedding_model')}`")
+    if result.get("requested_embed_model"):
+        a(f"- Requested embed model override: `{result['requested_embed_model']}`")
     if runtime_model:
         a(
-            f"- Runtime model: `{runtime_model.get('num_hidden_layers', '?')}L`, "
-            f"`{runtime_model.get('size_bytes', 0) // (1024 * 1024)}MB`, "
-            f"`sha256:{str(runtime_model.get('sha256', ''))[:16]}`"
+            f"- Runtime backend: `{runtime_model.get('backend')}`, "
+            f"preference=`{runtime_model.get('runtime_preference')}`, "
+            f"max_length=`{runtime_model.get('max_length')}`"
         )
-        a(f"- Runtime model path: `{runtime_model.get('model_path')}`")
+        if runtime_model.get("model_path"):
+            a(
+                f"- Runtime model: `{runtime_model.get('num_hidden_layers', '?')}L`, "
+                f"`{runtime_model.get('size_bytes', 0) // (1024 * 1024)}MB`, "
+                f"`sha256:{str(runtime_model.get('sha256', ''))[:16]}`"
+            )
+            a(f"- Runtime model path: `{runtime_model.get('model_path')}`")
     a(f"- Dataset: `{result['dataset_path']}`")
     a(f"- Dataset size: {result['dataset_size']}")
     a(f"- Ranking cutoff: top-{result['ranking_cutoff']}")
@@ -348,12 +391,14 @@ def render_markdown(result: dict) -> str:
 def main():
     global PROJECT
     dataset_meta, rows = load_dataset()
-    runtime_model = snapshot_runtime_model()
     cleanup_dir = None
     if ARGS.isolated_copy:
         PROJECT = copy_project_for_benchmark(SOURCE_PROJECT)
         cleanup_dir = Path(PROJECT).parent
 
+    capabilities = require_tool_success("get_capabilities", run_tool("get_capabilities", {}))
+    capability_data = payload_data(capabilities.get("payload") or {}) or {}
+    runtime_model = snapshot_runtime_model(capabilities.get("payload") or {})
     require_tool_success("index_embeddings", run_tool("index_embeddings", {}, timeout=600))
     methods = [
         evaluate_method(
@@ -388,6 +433,8 @@ def main():
         "schema_version": "codelens-role-retrieval-v1",
         "project": PROJECT,
         "binary": BIN,
+        "requested_embed_model": ARGS.embed_model or None,
+        "embedding_model": capability_data.get("embedding_model"),
         "runtime_model": runtime_model,
         "dataset_path": str(DATASET_PATH),
         "dataset_size": len(rows),
