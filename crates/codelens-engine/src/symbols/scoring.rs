@@ -10,7 +10,7 @@ use super::types::SymbolInfo;
 /// which paid one `String` allocation per call. Since code identifiers
 /// in all 25 supported tree-sitter languages are ASCII, the ASCII-only
 /// comparison is both correct and faster than Unicode `to_lowercase`.
-fn contains_ascii_ci(haystack: &str, needle: &str) -> bool {
+pub(crate) fn contains_ascii_ci(haystack: &str, needle: &str) -> bool {
     let h = haystack.as_bytes();
     let n = needle.as_bytes();
     if n.len() > h.len() {

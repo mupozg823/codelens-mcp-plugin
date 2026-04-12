@@ -521,7 +521,7 @@ pub fn find_symbol(
             let matched = if exact_match {
                 symbol.name == name
             } else {
-                symbol.name.to_lowercase().contains(&query)
+                scoring::contains_ascii_ci(&symbol.name, &query)
             };
             if matched {
                 results.push(to_symbol_info(symbol, usize::MAX));
