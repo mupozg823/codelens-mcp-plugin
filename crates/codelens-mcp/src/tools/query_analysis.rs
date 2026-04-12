@@ -48,7 +48,7 @@ fn has_builder_cue(query_lower: &str) -> bool {
         || query_lower.contains(" construction")
 }
 
-fn helper_aliases_for_query(query_lower: &str) -> &'static [&'static str] {
+fn specific_find_aliases(query_lower: &str) -> &'static [&'static str] {
     if query_lower.contains("find word matches in files") {
         &["find_word_matches_in_files", "word_matches_in_files"]
     } else if query_lower.contains("find all word matches") {
@@ -493,7 +493,7 @@ fn expand_retrieval_query(query: &str) -> String {
             push_unique(alias);
         }
     }
-    for alias in helper_aliases_for_query(&lowered) {
+    for alias in specific_find_aliases(&lowered) {
         push_unique(alias);
     }
     // word-match / grep-all / rename-occurrences helper queries
@@ -618,7 +618,7 @@ mod tests {
     }
 
     #[test]
-    fn helper_alias_expansion_prefers_exact_word_match_helpers() {
+    fn exact_word_match_aliases_stay_specific() {
         let semantic =
             semantic_query_for_retrieval("which helper implements find all word matches");
         assert!(semantic.contains("find_all_word_matches"));
@@ -837,7 +837,7 @@ mod tests {
 
     #[cfg(feature = "semantic")]
     #[test]
-    fn exact_word_match_helper_outranks_generic_find_symbol() {
+    fn exact_word_match_prior_beats_generic_find() {
         let reranked = rerank_semantic_matches(
             "which helper implements find all word matches",
             vec![

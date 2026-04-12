@@ -559,7 +559,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_word_match_helper_beats_find_symbol() {
+    fn exact_word_match_target_beats_generic_find() {
         let exact = SymbolInfo {
             name: "find_all_word_matches".into(),
             kind: SymbolKind::Function,
