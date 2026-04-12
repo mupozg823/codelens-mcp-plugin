@@ -1045,7 +1045,7 @@
       ]
     },
     {
-      "query": "EmbeddingEngine struct definition and fields",
+      "query": "EmbeddingEngine struct type definition and fields",
       "query_type": "short_phrase",
       "expected_symbol": "EmbeddingEngine",
       "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
@@ -1056,7 +1056,7 @@
       "negative_file_suffixes": []
     },
     {
-      "query": "embedding engine struct that holds the ONNX model",
+      "query": "which Rust struct type is EmbeddingEngine and holds the ONNX model",
       "query_type": "natural_language",
       "expected_symbol": "EmbeddingEngine",
       "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",

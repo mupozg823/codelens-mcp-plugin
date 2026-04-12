@@ -1590,6 +1590,11 @@ async fn deferred_resources_read_tracks_loaded_namespaces_for_session() {
     assert!(session_text.contains("\"workflow\""));
     assert!(session_text.contains("\"client_profile\": \"generic\""));
     assert!(session_text.contains("\"default_tools_list_contract_mode\": \"full\""));
+    assert!(session_text.contains("\"semantic_search_status\":"));
+    assert!(session_text.contains("\"supported_files\":"));
+    assert!(session_text.contains("\"stale_files\":"));
+    assert!(session_text.contains("\"daemon_binary_drift\":"));
+    assert!(session_text.contains("\"health_summary\":"));
     assert!(session_text.contains("\"deferred_tier_gate\": true"));
     assert!(session_text.contains("\"requires_tier_listing_before_tool_call\": true"));
 }

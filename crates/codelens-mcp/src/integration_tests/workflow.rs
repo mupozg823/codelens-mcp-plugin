@@ -189,6 +189,11 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"].get("embedding_indexed").is_some());
     assert!(payload["data"].get("embedding_indexed_symbols").is_some());
     assert!(payload["data"].get("index_fresh").is_some());
+    assert!(payload["data"].get("supported_files").is_some());
+    assert!(payload["data"].get("stale_files").is_some());
+    assert!(payload["data"]["health_summary"].is_object());
+    assert!(payload["data"]["health_summary"]["status"].is_string());
+    assert!(payload["data"]["health_summary"]["warnings"].is_array());
     assert!(payload["data"]["daemon_binary_drift"].is_object());
     assert!(payload["data"]["daemon_binary_drift"]["status"].is_string());
     assert!(payload["data"]["daemon_binary_drift"]["stale_daemon"].is_boolean());
@@ -231,6 +236,70 @@ fn get_capabilities_reports_existing_embedding_index_without_loading_engine() {
     );
     assert_eq!(payload["data"]["embedding_indexed"], json!(true));
     assert_eq!(payload["data"]["embedding_indexed_symbols"], json!(indexed));
+}
+
+#[test]
+fn project_overview_resource_includes_health_summary() {
+    let project = project_root();
+    fs::write(project.as_path().join("overview.py"), "def alpha():\n    return 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(250)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://project/overview"})),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    let text = value["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("resource text");
+    let payload: serde_json::Value = serde_json::from_str(text).expect("valid overview JSON");
+
+    assert!(payload["symbol_index"].is_object() || payload["symbol_index"].is_null());
+    assert!(payload["health_summary"].is_object());
+    assert!(payload["health_summary"]["status"].is_string());
+    assert!(payload["health_summary"]["warning_count"].is_u64());
+    assert!(payload["health_summary"]["warnings"].is_array());
+    assert!(payload["project_root"].is_string());
+    assert!(payload["active_surface"].is_string());
+}
+
+#[test]
+fn session_http_resource_includes_health_contract() {
+    let project = project_root();
+    fs::write(project.as_path().join("session.py"), "def alpha():\n    return 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(251)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://session/http"})),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    let text = value["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("resource text");
+    let payload: serde_json::Value = serde_json::from_str(text).expect("valid session JSON");
+
+    assert!(payload["active_surface"].is_string());
+    assert!(payload["semantic_search_status"].is_string());
+    assert!(payload["indexed_files"].is_u64());
+    assert!(payload["supported_files"].is_u64());
+    assert!(payload["stale_files"].is_u64());
+    assert!(payload["daemon_binary_drift"].is_object());
+    assert!(payload["health_summary"].is_object());
+    assert!(payload["health_summary"]["status"].is_string());
+    assert!(payload["health_summary"]["warnings"].is_array());
 }
 
 #[test]
@@ -357,6 +426,16 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
     assert_eq!(
         payload["data"]["capabilities"]["daemon_binary_drift"]["recommended_action"],
         json!("restart_mcp_server")
+    );
+    assert!(
+        payload["data"]["capabilities"]["health_summary"]["warnings"]
+            .as_array()
+            .map(|warnings| {
+                warnings
+                    .iter()
+                    .any(|warning| warning["code"] == "stale_daemon_binary")
+            })
+            .unwrap_or(false)
     );
     assert!(
         payload["data"]["warnings"]
@@ -1521,6 +1600,7 @@ fn get_capabilities_schema_matches_payload_shape() {
     assert!(properties.contains_key("diagnostics_guidance"));
     assert!(properties.contains_key("semantic_search_guidance"));
     assert!(properties.contains_key("daemon_binary_drift"));
+    assert!(properties.contains_key("health_summary"));
 }
 
 #[test]
@@ -1536,6 +1616,13 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     assert!(properties.contains_key("visible_tools"));
     assert!(properties.contains_key("routing"));
     assert!(properties.contains_key("harness"));
+    let http_session = schema["properties"]["http_session"]["properties"]
+        .as_object()
+        .expect("http_session properties");
+    assert!(http_session.contains_key("health_summary"));
+    assert!(http_session.contains_key("daemon_binary_drift"));
+    assert!(http_session.contains_key("supported_files"));
+    assert!(http_session.contains_key("stale_files"));
 }
 
 #[test]

@@ -10,6 +10,7 @@ use crate::tool_runtime::{ToolResult, required_string, success_meta};
 use codelens_engine::memory::list_memory_names;
 use codelens_engine::{compute_dominant_language, detect_frameworks};
 use serde_json::json;
+use std::collections::HashSet;
 
 pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     // If a project path is provided, switch the active project
@@ -203,22 +204,52 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     let (capabilities_payload, _) =
         crate::tools::session::get_capabilities(state, &capabilities_arguments)?;
     let mut warnings = Vec::new();
-    if let Some(drift) = capabilities_payload
-        .get("daemon_binary_drift")
-        .filter(|value| {
-            value
-                .get("stale_daemon")
-                .and_then(|stale| stale.as_bool())
-                .unwrap_or(false)
-        })
+    let mut warning_codes = HashSet::new();
+    let mut push_warning = |code: &str,
+                            message: &str,
+                            restart_recommended: bool,
+                            recommended_action: &str,
+                            action_target: &str| {
+        if warning_codes.insert(code.to_owned()) {
+            warnings.push(json!({
+                "code": code,
+                "message": message,
+                "restart_recommended": restart_recommended,
+                "recommended_action": recommended_action,
+                "action_target": action_target,
+            }));
+        }
+    };
+    if let Some(items) = capabilities_payload
+        .get("health_summary")
+        .and_then(|value| value.get("warnings"))
+        .and_then(|value| value.as_array())
     {
-        warnings.push(json!({
-            "code": drift.get("reason_code").and_then(|value| value.as_str()).unwrap_or("stale_daemon_binary"),
-            "message": drift.get("reason").and_then(|value| value.as_str()).unwrap_or("running daemon is older than the executable on disk; restart the MCP server to pick up the latest build"),
-            "restart_recommended": drift.get("restart_recommended").and_then(|value| value.as_bool()).unwrap_or(true),
-            "recommended_action": drift.get("recommended_action").and_then(|value| value.as_str()).unwrap_or("restart_mcp_server"),
-            "action_target": drift.get("action_target").and_then(|value| value.as_str()).unwrap_or("daemon"),
-        }));
+        for warning in items {
+            let code = warning
+                .get("code")
+                .and_then(|value| value.as_str())
+                .unwrap_or("health_warning");
+            let message = warning
+                .get("message")
+                .and_then(|value| value.as_str())
+                .unwrap_or("health warning");
+            let recommended_action = warning
+                .get("recommended_action")
+                .and_then(|value| value.as_str())
+                .unwrap_or("inspect_health_status");
+            let action_target = warning
+                .get("action_target")
+                .and_then(|value| value.as_str())
+                .unwrap_or("project");
+            push_warning(
+                code,
+                message,
+                code == "stale_daemon_binary" || action_target == "daemon",
+                recommended_action,
+                action_target,
+            );
+        }
     }
     if let Some(guidance) = capabilities_payload
         .get("semantic_search_guidance")
@@ -229,13 +260,25 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 .unwrap_or(false)
         })
     {
-        warnings.push(json!({
-            "code": guidance.get("reason_code").and_then(|value| value.as_str()).unwrap_or("semantic_search_unavailable"),
-            "message": guidance.get("reason").and_then(|value| value.as_str()).unwrap_or("semantic_search is unavailable"),
-            "restart_recommended": false,
-            "recommended_action": guidance.get("recommended_action").and_then(|value| value.as_str()).unwrap_or("inspect_semantic_configuration"),
-            "action_target": guidance.get("action_target").and_then(|value| value.as_str()).unwrap_or("semantic_search"),
-        }));
+        push_warning(
+            guidance
+                .get("reason_code")
+                .and_then(|value| value.as_str())
+                .unwrap_or("semantic_search_unavailable"),
+            guidance
+                .get("reason")
+                .and_then(|value| value.as_str())
+                .unwrap_or("semantic_search is unavailable"),
+            false,
+            guidance
+                .get("recommended_action")
+                .and_then(|value| value.as_str())
+                .unwrap_or("inspect_semantic_configuration"),
+            guidance
+                .get("action_target")
+                .and_then(|value| value.as_str())
+                .unwrap_or("semantic_search"),
+        );
     }
     if arguments
         .get("file_path")
@@ -246,17 +289,29 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             .filter(|value| {
                 !value
                     .get("available")
-                    .and_then(|available| available.as_bool())
-                    .unwrap_or(false)
+                .and_then(|available| available.as_bool())
+                .unwrap_or(false)
             })
     {
-        warnings.push(json!({
-                "code": guidance.get("reason_code").and_then(|value| value.as_str()).unwrap_or("diagnostics_unavailable"),
-                "message": guidance.get("reason").and_then(|value| value.as_str()).unwrap_or("diagnostics are unavailable"),
-                "restart_recommended": false,
-                "recommended_action": guidance.get("recommended_action").and_then(|value| value.as_str()).unwrap_or("inspect_lsp_configuration"),
-                "action_target": guidance.get("action_target").and_then(|value| value.as_str()).unwrap_or("diagnostics"),
-            }));
+        push_warning(
+            guidance
+                .get("reason_code")
+                .and_then(|value| value.as_str())
+                .unwrap_or("diagnostics_unavailable"),
+            guidance
+                .get("reason")
+                .and_then(|value| value.as_str())
+                .unwrap_or("diagnostics are unavailable"),
+            false,
+            guidance
+                .get("recommended_action")
+                .and_then(|value| value.as_str())
+                .unwrap_or("inspect_lsp_configuration"),
+            guidance
+                .get("action_target")
+                .and_then(|value| value.as_str())
+                .unwrap_or("diagnostics"),
+        );
     }
 
     let visible = build_visible_tool_context(state, &request);

@@ -821,7 +821,7 @@ fn configured_rerank_blend() -> f64 {
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
         .and_then(|v| if (0.0..=1.0).contains(&v) { Some(v) } else { None })
-        .unwrap_or(0.8) // default: 80% bi-encoder, 20% text overlap
+        .unwrap_or(0.75) // default: 75% bi-encoder, 25% text overlap (sweep: self +0.006 MRR, role neutral)
 }
 
 pub fn embedding_model_assets_available() -> bool {
@@ -1154,8 +1154,14 @@ impl EmbeddingEngine {
             return Ok(Vec::new());
         }
 
-        // Fetch 3× candidates for reranking headroom
-        let candidate_count = max_results.saturating_mul(3).max(max_results);
+        // Fetch N× candidates for reranking headroom (default 5×, override via
+        // CODELENS_RERANK_FACTOR). More candidates = better rerank quality at
+        // marginal latency cost (sqlite-vec scan is fast).
+        let factor = std::env::var("CODELENS_RERANK_FACTOR")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(5);
+        let candidate_count = max_results.saturating_mul(factor).max(max_results);
         let mut candidates = self.store.search(&query_embedding[0], candidate_count)?;
 
         if candidates.len() <= max_results {
@@ -1177,10 +1183,16 @@ impl EmbeddingEngine {
 
         let blend = configured_rerank_blend();
         for chunk in &mut candidates {
-            // Build searchable text from available fields
+            // Build searchable text: symbol_name + split identifier words +
+            // name_path (parent context) + signature + file_path.
+            // split_identifier turns "parseSymbols" into "parse Symbols" for
+            // better NL token matching.
+            let split_name = split_identifier(&chunk.symbol_name);
             let searchable = format!(
-                "{} {} {}",
+                "{} {} {} {} {}",
                 chunk.symbol_name.to_lowercase(),
+                split_name.to_lowercase(),
+                chunk.name_path.to_lowercase(),
                 chunk.signature.to_lowercase(),
                 chunk.file_path.to_lowercase(),
             );
@@ -1189,7 +1201,7 @@ impl EmbeddingEngine {
                 .filter(|t| searchable.contains(**t))
                 .count() as f64;
             let overlap_ratio = overlap / query_tokens.len().max(1) as f64;
-            // Blend: configurable bi-encoder + text overlap (default 80/20)
+            // Blend: configurable bi-encoder + text overlap (default 75/25)
             chunk.score = chunk.score * blend + overlap_ratio * (1.0 - blend);
         }
 

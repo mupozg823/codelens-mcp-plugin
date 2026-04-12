@@ -9,6 +9,7 @@ use crate::resource_context::{ResourceRequestContext, build_http_session_payload
 use crate::resource_profiles::{profile_guide, profile_guide_summary, profile_resource_entries};
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{ToolProfile, visible_tools};
+use crate::tools::session::{build_health_summary, determine_semantic_search_status};
 use codelens_engine::{detect_frameworks, detect_workspace_packages};
 use serde_json::{Value, json};
 
@@ -56,6 +57,11 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             let stats = state.symbol_index().stats().ok();
             let surface = state.execution_surface(&request.session);
             let visible = visible_tools(surface);
+            let semantic_status = determine_semantic_search_status(state, surface);
+            let daemon_binary_drift =
+                crate::build_info::daemon_binary_drift_payload(state.daemon_started_at());
+            let health_summary =
+                build_health_summary(stats.as_ref(), &semantic_status, &daemon_binary_drift);
             json_resource(
                 uri,
                 json!({
@@ -64,6 +70,7 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                     "daemon_mode": state.daemon_mode().as_str(),
                     "visible_tool_count": visible.len(),
                     "symbol_index": stats,
+                    "health_summary": health_summary,
                     "memories_dir": state.memories_dir().to_string_lossy(),
                 }),
             )

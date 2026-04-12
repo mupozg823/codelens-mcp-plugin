@@ -339,7 +339,7 @@
     "query": "check if a query is natural language for semantic search",
     "query_type": "natural_language",
     "expected_symbol": "is_natural_language_semantic_query",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/query_analysis.rs"
   },
   {
     "query": "handle semantic search tool request",
@@ -357,7 +357,7 @@
     "query": "rerank semantic search results by relevance",
     "query_type": "natural_language",
     "expected_symbol": "rerank_semantic_matches",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/query_analysis.rs"
   },
   {
     "query": "ToolCallEnvelope",
@@ -490,12 +490,6 @@
     "query_type": "natural_language",
     "expected_symbol": "parse",
     "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
-  },
-  {
-    "query": "ProjectOverride",
-    "query_type": "identifier",
-    "expected_symbol": "ProjectOverride",
-    "expected_file_suffix": "crates/codelens-mcp/src/state.rs"
   },
   {
     "query": "SecondaryProject",

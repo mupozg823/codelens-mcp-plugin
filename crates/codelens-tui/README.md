@@ -21,6 +21,12 @@ codelens-tui /path/to/project
 
 # Non-interactive health check
 codelens-tui --check
+
+# Machine-readable operator health report
+codelens-tui --check --json
+
+# Fail CI if the local index is degraded
+codelens-tui --check --strict
 ```
 
 ## Keys

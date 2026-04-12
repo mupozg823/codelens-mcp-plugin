@@ -11,20 +11,49 @@ use crossterm::{
 use ratatui::prelude::*;
 use std::io;
 
-fn main() -> Result<()> {
-    let args: Vec<String> = std::env::args().collect();
+struct CliArgs {
+    project_path: String,
+    check: bool,
+    json: bool,
+    strict: bool,
+}
 
-    // --check mode: non-interactive verification of index health
-    if args.iter().any(|a| a == "--check") {
-        let project_path = args.get(1).map(|s| s.as_str()).unwrap_or(".");
-        return run_check(project_path);
+fn parse_cli_args(argv: &[String]) -> CliArgs {
+    let mut project_path = ".".to_string();
+    let mut check = false;
+    let mut json = false;
+    let mut strict = false;
+
+    for arg in argv.iter().skip(1) {
+        match arg.as_str() {
+            "--check" => check = true,
+            "--json" => json = true,
+            "--strict" => strict = true,
+            _ if !arg.starts_with('-') => project_path = arg.clone(),
+            _ => {}
+        }
     }
 
-    let project_path = args.get(1).map(|s| s.as_str()).unwrap_or(".");
+    CliArgs {
+        project_path,
+        check,
+        json,
+        strict,
+    }
+}
+
+fn main() -> Result<()> {
+    let argv: Vec<String> = std::env::args().collect();
+    let args = parse_cli_args(&argv);
+
+    // --check mode: non-interactive verification of index health
+    if args.check {
+        return run_check(&args.project_path, args.json, args.strict);
+    }
 
     // Build index before entering TUI (shows progress on stderr)
-    eprintln!("CodeLens TUI: indexing {}...", project_path);
-    let mut app = App::new(project_path)?;
+    eprintln!("CodeLens TUI: indexing {}...", args.project_path);
+    let mut app = App::new(&args.project_path)?;
     eprintln!(
         "Indexed {} files, {} symbols. Launching dashboard...",
         app.total_indexed_files,
@@ -56,22 +85,71 @@ fn main() -> Result<()> {
 }
 
 /// Non-interactive check: build index, print stats, exit.
-fn run_check(project_path: &str) -> Result<()> {
+fn run_check(project_path: &str, json_output: bool, strict: bool) -> Result<()> {
     let app = App::new(project_path)?;
-    let filtered = app.filtered_files();
-    println!("CodeLens TUI Check");
-    println!("  Project:  {}", app.project_name);
-    println!("  Files:    {}", app.total_indexed_files);
-    println!("  Visible:  {}", filtered.len());
-    if let Some((_, first)) = filtered.first() {
-        println!("  First:    {}", first.path);
-    }
-    if let Some(sym) = app.symbols.first() {
+    let payload = app.check_payload();
+    if json_output {
+        println!("{}", serde_json::to_string_pretty(&payload)?);
+    } else {
+        println!("CodeLens TUI Check");
+        println!("  Project:   {}", app.project_name);
+        println!("  Root:      {}", app.health.project_root);
         println!(
-            "  Symbol:   {} ({:?}, line {})",
-            sym.name, sym.kind, sym.line
+            "  Index:     {}/{} ({}%)",
+            app.health.indexed_files,
+            app.health.supported_files,
+            app.health.coverage_percent()
         );
+        println!("  Stale:     {}", app.health.stale_files);
+        println!(
+            "  Semantic:  {}",
+            if app.health.semantic_assets_available {
+                "ready"
+            } else {
+                "missing"
+            }
+        );
+        println!("  Model:     {}", app.health.embedding_model);
+        println!(
+            "  Runtime:   {} / {} threads / max {}",
+            app.health.embedding_runtime_backend,
+            app.health.embedding_threads,
+            app.health.embedding_max_length
+        );
+        if let Some(first) = payload.get("first_file").and_then(|v| v.as_str()) {
+            println!("  First:     {first}");
+        }
+        if let Some(sym) = payload.get("first_symbol") {
+            println!("  Symbol:    {}", sym);
+        }
+        for warning in &app.health.warnings {
+            println!("  Warning:   {warning}");
+        }
+        println!("  Status:    {}", app.health.status_label());
     }
-    println!("  Status:   OK");
+    if strict && !app.health.warnings.is_empty() {
+        anyhow::bail!("TUI health check reported warnings");
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_cli_args;
+
+    #[test]
+    fn parse_cli_args_collects_check_flags_and_path() {
+        let argv = vec![
+            "codelens-tui".to_string(),
+            "--check".to_string(),
+            "--json".to_string(),
+            "--strict".to_string(),
+            "/tmp/project".to_string(),
+        ];
+        let args = parse_cli_args(&argv);
+        assert!(args.check);
+        assert!(args.json);
+        assert!(args.strict);
+        assert_eq!(args.project_path, "/tmp/project");
+    }
 }

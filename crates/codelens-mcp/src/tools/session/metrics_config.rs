@@ -373,6 +373,178 @@ pub(crate) fn determine_semantic_search_status(
     SemanticSearchStatus::FeatureDisabled
 }
 
+pub(crate) fn build_health_summary(
+    index_stats: Option<&codelens_engine::IndexStats>,
+    semantic_status: &SemanticSearchStatus,
+    daemon_binary_drift: &serde_json::Value,
+) -> serde_json::Value {
+    let indexed_files = index_stats.map(|s| s.indexed_files).unwrap_or(0);
+    let supported_files = index_stats.map(|s| s.supported_files).unwrap_or(0);
+    let stale_files = index_stats.map(|s| s.stale_files).unwrap_or(0);
+    let mut warnings = Vec::new();
+
+    let mut push_warning =
+        |code: &str, message: String, recommended_action: Option<&str>, action_target: Option<&str>| {
+            warnings.push(json!({
+                "code": code,
+                "severity": "warn",
+                "message": message,
+                "recommended_action": recommended_action,
+                "action_target": action_target,
+            }));
+        };
+
+    if supported_files == 0 {
+        push_warning(
+            "no_supported_files",
+            "no supported source files detected".to_string(),
+            None,
+            None,
+        );
+    }
+    if indexed_files == 0 {
+        push_warning(
+            "empty_index",
+            "symbol index is empty".to_string(),
+            Some("refresh_symbol_index"),
+            Some("symbol_index"),
+        );
+    }
+    if supported_files > 0 && indexed_files < supported_files {
+        push_warning(
+            "partial_index_coverage",
+            format!("index coverage incomplete ({indexed_files}/{supported_files})"),
+            Some("refresh_symbol_index"),
+            Some("symbol_index"),
+        );
+    }
+    if stale_files > 0 {
+        push_warning(
+            "stale_index",
+            format!("{stale_files} indexed files are stale"),
+            Some("refresh_symbol_index"),
+            Some("symbol_index"),
+        );
+    }
+
+    #[cfg(feature = "semantic")]
+    match semantic_status {
+        SemanticSearchStatus::ModelAssetsUnavailable | SemanticSearchStatus::IndexMissing => {
+            push_warning(
+                semantic_status
+                    .reason_code()
+                    .unwrap_or("semantic_unavailable"),
+                semantic_status
+                    .reason_str()
+                    .unwrap_or("semantic search unavailable")
+                    .to_string(),
+                semantic_status.recommended_action(),
+                semantic_status.action_target(),
+            );
+        }
+        _ => {}
+    }
+
+    #[cfg(not(feature = "semantic"))]
+    if matches!(semantic_status, SemanticSearchStatus::FeatureDisabled) {
+        push_warning(
+            semantic_status
+                .reason_code()
+                .unwrap_or("semantic_feature_disabled"),
+            semantic_status
+                .reason_str()
+                .unwrap_or("semantic feature disabled")
+                .to_string(),
+            semantic_status.recommended_action(),
+            semantic_status.action_target(),
+        );
+    }
+
+    if daemon_binary_drift
+        .get("stale_daemon")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        push_warning(
+            daemon_binary_drift
+                .get("reason_code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("stale_daemon"),
+            daemon_binary_drift
+                .get("reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("daemon binary drift detected")
+                .to_string(),
+            daemon_binary_drift
+                .get("recommended_action")
+                .and_then(|v| v.as_str()),
+            daemon_binary_drift.get("action_target").and_then(|v| v.as_str()),
+        );
+    }
+
+    json!({
+        "status": if warnings.is_empty() { "ok" } else { "warn" },
+        "warning_count": warnings.len(),
+        "warnings": warnings,
+    })
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct RuntimeHealthSnapshot {
+    pub(crate) index_stats: Option<codelens_engine::IndexStats>,
+    pub(crate) semantic_status: SemanticSearchStatus,
+    pub(crate) daemon_binary_drift: serde_json::Value,
+    pub(crate) health_summary: serde_json::Value,
+}
+
+impl RuntimeHealthSnapshot {
+    pub(crate) fn index_fresh(&self) -> bool {
+        self.index_stats
+            .as_ref()
+            .map(|stats| stats.stale_files == 0 && stats.indexed_files > 0)
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn indexed_files(&self) -> usize {
+        self.index_stats
+            .as_ref()
+            .map(|stats| stats.indexed_files)
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn supported_files(&self) -> usize {
+        self.index_stats
+            .as_ref()
+            .map(|stats| stats.supported_files)
+            .unwrap_or(0)
+    }
+
+    pub(crate) fn stale_files(&self) -> usize {
+        self.index_stats
+            .as_ref()
+            .map(|stats| stats.stale_files)
+            .unwrap_or(0)
+    }
+}
+
+pub(crate) fn collect_runtime_health_snapshot(
+    state: &AppState,
+    surface: ToolSurface,
+) -> RuntimeHealthSnapshot {
+    let index_stats = state.symbol_index().stats().ok();
+    let semantic_status = determine_semantic_search_status(state, surface);
+    let daemon_binary_drift =
+        crate::build_info::daemon_binary_drift_payload(state.daemon_started_at());
+    let health_summary =
+        build_health_summary(index_stats.as_ref(), &semantic_status, &daemon_binary_drift);
+    RuntimeHealthSnapshot {
+        index_stats,
+        semantic_status,
+        daemon_binary_drift,
+        health_summary,
+    }
+}
+
 pub fn get_watch_status(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let failure_health = state.watcher_failure_health();
     match state.watcher_stats() {
@@ -576,6 +748,8 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     });
     let daemon_binary_drift =
         crate::build_info::daemon_binary_drift_payload(state.daemon_started_at());
+    let health_summary =
+        build_health_summary(index_stats.as_ref(), &semantic_status, &daemon_binary_drift);
 
     Ok((
         json!({
@@ -601,6 +775,9 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "embedding_indexed_symbols": embedding_index_info.as_ref().map(|info| info.indexed_symbols).unwrap_or(0),
             "index_fresh": index_fresh,
             "indexed_files": index_stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),
+            "supported_files": index_stats.as_ref().map(|s| s.supported_files).unwrap_or(0),
+            "stale_files": index_stats.as_ref().map(|s| s.stale_files).unwrap_or(0),
+            "health_summary": health_summary,
             "available": available,
             "unavailable": unavailable,
             // Phase 4b: flat top-level fields for easy jq-scraping

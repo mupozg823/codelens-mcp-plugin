@@ -211,12 +211,30 @@ fn draw_metrics(f: &mut Frame, app: &App, area: Rect) {
     let importer_count = app.current_file_importer_count();
 
     let text = format!(
-        " File:      {}\n Symbols:   {}\n Children:  {}\n Importers: {}\n Total:     {} indexed files",
-        file_name, sym_count, child_total, importer_count, app.total_indexed_files,
+        " Status:    {} ({} warnings)\n File:      {}\n Symbols:   {}\n Children:  {}\n Importers: {}\n Index:     {}/{} ({}%)\n Stale:     {}\n Semantic:  {} | {}\n Runtime:   {} / {} thr / max {}",
+        app.health.status_label(),
+        app.health.warnings.len(),
+        file_name,
+        sym_count,
+        child_total,
+        importer_count,
+        app.health.indexed_files,
+        app.health.supported_files,
+        app.health.coverage_percent(),
+        app.health.stale_files,
+        if app.health.semantic_assets_available {
+            "ready"
+        } else {
+            "missing"
+        },
+        app.health.embedding_model,
+        app.health.embedding_runtime_backend,
+        app.health.embedding_threads,
+        app.health.embedding_max_length,
     );
 
     let block = Block::default()
-        .title(" File Metrics ")
+        .title(" Health + File Metrics ")
         .borders(Borders::ALL)
         .border_style(Style::default().fg(Color::DarkGray));
 
@@ -233,8 +251,12 @@ fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
         format!(" {} |", app.project_name)
     };
     let status = format!(
-        "{} {} indexed files | [q]Quit [Tab]Panel [↑↓]Nav [/]Search [s]Symbol [Enter]Jump",
-        prefix, app.total_indexed_files,
+        "{} {} | {} indexed / {} supported | stale {} | [q]Quit [Tab]Panel [↑↓]Nav [/]Search [s]Symbol [Enter]Jump",
+        prefix,
+        app.health.status_label(),
+        app.health.indexed_files,
+        app.health.supported_files,
+        app.health.stale_files,
     );
 
     let block = Block::default()

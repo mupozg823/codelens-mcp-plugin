@@ -195,6 +195,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             let preferred_namespaces = preferred_namespaces(surface);
             let preferred_bootstrap = preferred_bootstrap_tools(surface);
             let preferred_tiers = preferred_tier_labels(surface);
+            let has_loaded_expansions = !loaded_namespaces.is_empty() || !loaded_tiers.is_empty();
             let deferred_loading_active = deferred_loading_requested
                 && requested_namespace.is_none()
                 && requested_tier.is_none()
@@ -217,7 +218,9 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     Some(namespace) => tool_namespace(tool.name) == namespace,
                     None if deferred_loading_active => {
                         let namespace = tool_namespace(tool.name);
+                        let tier = tool_tier_label(tool.name);
                         preferred_namespaces.contains(&namespace)
+                            || loaded_tiers.contains(&tier)
                             || loaded_namespaces.contains(&namespace)
                     }
                     None => true,
@@ -226,14 +229,19 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
                     Some(tier) => tool_tier_label(tool.name) == tier,
                     None if deferred_loading_active => {
+                        let namespace = tool_namespace(tool.name);
                         let tier = tool_tier_label(tool.name);
-                        preferred_tiers.contains(&tier) || loaded_tiers.contains(&tier)
+                        preferred_tiers.contains(&tier)
+                            || loaded_namespaces.contains(&namespace)
+                            || loaded_tiers.contains(&tier)
                     }
                     None => true,
                 })
                 .filter(|tool| match preferred_bootstrap {
                     _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
-                    Some(tool_names) if deferred_loading_active => tool_names.contains(&tool.name),
+                    Some(tool_names) if deferred_loading_active && !has_loaded_expansions => {
+                        tool_names.contains(&tool.name)
+                    }
                     _ => true,
                 })
                 .collect::<Vec<_>>();

@@ -601,6 +601,42 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                     "client_profile": {"type": "string"},
                     "client_name": {"type": ["string", "null"]},
                     "active_surface": {"type": "string"},
+                    "semantic_search_status": {"type": "string", "enum": ["available", "model_assets_unavailable", "not_in_active_surface", "index_missing", "feature_disabled", "not_compiled"]},
+                    "indexed_files": {"type": "integer"},
+                    "supported_files": {"type": "integer"},
+                    "stale_files": {"type": "integer"},
+                    "daemon_binary_drift": {
+                        "type": "object",
+                        "properties": {
+                            "status": {"type": "string"},
+                            "stale_daemon": {"type": "boolean"},
+                            "reason": {"type": "string"},
+                            "reason_code": {"type": "string"},
+                            "recommended_action": {"type": "string"},
+                            "action_target": {"type": "string"},
+                            "restart_recommended": {"type": "boolean"}
+                        }
+                    },
+                    "health_summary": {
+                        "type": "object",
+                        "properties": {
+                            "status": {"type": "string", "enum": ["ok", "warn"]},
+                            "warning_count": {"type": "integer"},
+                            "warnings": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "code": {"type": "string"},
+                                        "severity": {"type": "string", "enum": ["warn"]},
+                                        "message": {"type": "string"},
+                                        "recommended_action": {"type": ["string", "null"]},
+                                        "action_target": {"type": ["string", "null"]}
+                                    }
+                                }
+                            }
+                        }
+                    },
                     "deferred_loading_supported": {"type": "boolean"},
                     "default_deferred_tool_loading": {"type": "boolean"},
                     "default_tools_list_contract_mode": {"type": "string"},
@@ -710,6 +746,28 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
             "embedding_indexed_symbols": {"type": "integer"},
             "index_fresh": {"type": "boolean"},
             "indexed_files": {"type": "integer"},
+            "supported_files": {"type": "integer"},
+            "stale_files": {"type": "integer"},
+            "health_summary": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["ok", "warn"]},
+                    "warning_count": {"type": "integer"},
+                    "warnings": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "code": {"type": "string"},
+                                "severity": {"type": "string", "enum": ["warn"]},
+                                "message": {"type": "string"},
+                                "recommended_action": {"type": ["string", "null"]},
+                                "action_target": {"type": ["string", "null"]}
+                            }
+                        }
+                    }
+                }
+            },
             "available": {"type": "array", "items": {"type": "string"}},
             "unavailable": {
                 "type": "array",

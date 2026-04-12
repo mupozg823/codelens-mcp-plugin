@@ -6,6 +6,7 @@ use crate::tool_defs::{
     preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
     visible_namespaces, visible_tiers, visible_tools,
 };
+use crate::tools::session::{build_health_summary, determine_semantic_search_status};
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug)]
@@ -115,7 +116,9 @@ pub(crate) fn build_visible_tool_context(
     let preferred = preferred_namespaces(surface);
     let preferred_bootstrap = preferred_bootstrap_tools(surface);
     let preferred_tiers = preferred_tier_labels(surface);
-    let tools = all_tools
+    let has_loaded_expansions =
+        !request.loaded_namespaces.is_empty() || !request.loaded_tiers.is_empty();
+    let mut tools = all_tools
         .iter()
         .copied()
         .filter(|tool| match request.requested_namespace.as_deref() {
@@ -126,7 +129,9 @@ pub(crate) fn build_visible_tool_context(
                     return true;
                 }
                 let namespace = tool_namespace(tool.name);
+                let tier = tool_tier_label(tool.name);
                 preferred.contains(&namespace)
+                    || request.loaded_tiers.iter().any(|value| value == tier)
                     || request
                         .loaded_namespaces
                         .iter()
@@ -141,20 +146,51 @@ pub(crate) fn build_visible_tool_context(
                 if is_deferred_control_tool(tool.name) {
                     return true;
                 }
+                let namespace = tool_namespace(tool.name);
                 let tier = tool_tier_label(tool.name);
                 preferred_tiers.contains(&tier)
+                    || request
+                        .loaded_namespaces
+                        .iter()
+                        .any(|value| value == namespace)
                     || request.loaded_tiers.iter().any(|value| value == tier)
             }
             None => true,
         })
         .filter(|tool| match preferred_bootstrap {
             _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
-            Some(tool_names) if request.deferred_loading_active() => {
+            Some(tool_names) if request.deferred_loading_active() && !has_loaded_expansions => {
                 tool_names.contains(&tool.name)
             }
             _ => true,
         })
         .collect::<Vec<_>>();
+    if request.deferred_loading_active() && has_loaded_expansions {
+        tools.sort_by_key(|tool| {
+            let namespace = tool_namespace(tool.name);
+            let tier = tool_tier_label(tool.name);
+            let namespace_rank = if request
+                .loaded_namespaces
+                .iter()
+                .any(|value| value == namespace)
+            {
+                0usize
+            } else {
+                1
+            };
+            let tier_rank = if request.loaded_tiers.iter().any(|value| value == tier) {
+                0usize
+            } else {
+                1
+            };
+            let control_rank = if is_deferred_control_tool(tool.name) {
+                2usize
+            } else {
+                0
+            };
+            (namespace_rank, tier_rank, control_rank)
+        });
+    }
 
     let mut effective_namespaces = preferred
         .iter()
@@ -201,6 +237,11 @@ pub(crate) fn build_http_session_payload(
     request: &ResourceRequestContext,
 ) -> Value {
     let surface = state.execution_surface(&request.session);
+    let index_stats = state.symbol_index().stats().ok();
+    let semantic_status = determine_semantic_search_status(state, surface);
+    let daemon_binary_drift = crate::build_info::daemon_binary_drift_payload(state.daemon_started_at());
+    let health_summary =
+        build_health_summary(index_stats.as_ref(), &semantic_status, &daemon_binary_drift);
     json!({
         "enabled": state.session_resume_supported(),
         "active_sessions": state.active_session_count(),
@@ -210,6 +251,12 @@ pub(crate) fn build_http_session_payload(
         "client_profile": request.client_profile.as_str(),
         "client_name": request.client_name,
         "active_surface": surface.as_label(),
+        "semantic_search_status": semantic_status.status_key(),
+        "indexed_files": index_stats.as_ref().map(|stats| stats.indexed_files).unwrap_or(0),
+        "supported_files": index_stats.as_ref().map(|stats| stats.supported_files).unwrap_or(0),
+        "stale_files": index_stats.as_ref().map(|stats| stats.stale_files).unwrap_or(0),
+        "daemon_binary_drift": daemon_binary_drift,
+        "health_summary": health_summary,
         "deferred_loading_supported": true,
         "default_deferred_tool_loading": request.client_profile.default_deferred_tool_loading(),
         "default_tools_list_contract_mode": request.client_profile.default_tool_contract_mode(),
