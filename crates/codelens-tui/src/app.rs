@@ -116,6 +116,30 @@ impl App {
         }
     }
 
+    /// Files that import the currently selected file (who depends on us).
+    pub fn current_file_importers(&self) -> Vec<String> {
+        if let Some(file) = self.files.get(self.file_cursor) {
+            self.index
+                .db()
+                .get_importers(&file.path)
+                .unwrap_or_default()
+        } else {
+            vec![]
+        }
+    }
+
+    /// Files that the currently selected file imports (what we depend on).
+    pub fn current_file_imports(&self) -> Vec<String> {
+        if let Some(file) = self.files.get(self.file_cursor) {
+            self.index
+                .db()
+                .get_imports_of(&file.path)
+                .unwrap_or_default()
+        } else {
+            vec![]
+        }
+    }
+
     pub fn filtered_files(&self) -> Vec<(usize, &FileEntry)> {
         if self.search_query.is_empty() {
             return self.files.iter().enumerate().collect();

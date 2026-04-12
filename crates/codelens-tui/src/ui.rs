@@ -146,20 +146,42 @@ fn draw_symbol_list(f: &mut Frame, app: &App, area: Rect) {
 
 fn draw_detail(f: &mut Frame, app: &App, area: Rect) {
     let active = matches!(app.active_panel, Panel::Detail);
-    let text = if let Some(sym) = app.selected_symbol() {
-        format!(
-            " Name:      {}\n Kind:      {:?}\n Line:      {}\n Signature: {}\n ID:        {}",
-            sym.name, sym.kind, sym.line, sym.signature, sym.id,
-        )
-    } else {
-        " Select a symbol to view details".to_string()
-    };
 
+    let importers = app.current_file_importers();
+    let imports = app.current_file_imports();
+
+    let mut lines = vec![];
+
+    // Symbol detail (if selected)
+    if let Some(sym) = app.selected_symbol() {
+        lines.push(format!(" {} {:?} :{}", sym.name, sym.kind, sym.line));
+        lines.push(format!(" {}", sym.signature));
+        lines.push(String::new());
+    }
+
+    // Upstream (who imports us)
+    lines.push(format!(" \u{25b2} Imported by ({}):", importers.len()));
+    for imp in importers.iter().take(8) {
+        lines.push(format!("   {}", imp));
+    }
+    if importers.len() > 8 {
+        lines.push(format!("   ... +{} more", importers.len() - 8));
+    }
+
+    // Downstream (what we import) - if available
+    if !imports.is_empty() {
+        lines.push(String::new());
+        lines.push(format!(" \u{25bc} Imports ({}):", imports.len()));
+        for dep in imports.iter().take(5) {
+            lines.push(format!("   {}", dep));
+        }
+    }
+
+    let text = lines.join("\n");
     let block = Block::default()
-        .title(" Detail ")
+        .title(" Detail + Imports ")
         .borders(Borders::ALL)
         .border_style(panel_style(active));
-
     let paragraph = Paragraph::new(text).block(block).wrap(Wrap { trim: false });
     f.render_widget(paragraph, area);
 }

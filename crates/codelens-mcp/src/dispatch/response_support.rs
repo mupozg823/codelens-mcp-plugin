@@ -211,8 +211,20 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
         }
     }
 
-    serde_json::to_string_pretty(&Value::Object(out))
-        .unwrap_or_else(|_| "{\"error\":\"serialization failed\"}".to_owned())
+    // CI/batch mode: check if routing hint is Async (analysis handles)
+    // or if the response is very small — use compact JSON for efficiency.
+    let use_compact = out
+        .get("data")
+        .and_then(|d| d.as_object())
+        .is_some_and(|obj| obj.contains_key("job_id") || obj.contains_key("analysis_id"));
+
+    if use_compact {
+        serde_json::to_string(&Value::Object(out))
+            .unwrap_or_else(|_| "{\"error\":\"serialization failed\"}".to_owned())
+    } else {
+        serde_json::to_string_pretty(&Value::Object(out))
+            .unwrap_or_else(|_| "{\"error\":\"serialization failed\"}".to_owned())
+    }
 }
 
 fn slim_text_payload_for_async_handle(

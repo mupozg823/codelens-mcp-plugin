@@ -32,17 +32,17 @@ fn is_natural_language_query(query: &str) -> bool {
         && trimmed.split_whitespace().count() >= 3
 }
 
-fn prefers_entrypoint_phrase(query_lower: &str) -> bool {
+fn has_entrypoint_cue(query_lower: &str) -> bool {
     query_lower.contains("entrypoint")
         || query_lower.contains("handler")
         || query_lower.contains("primary implementation")
 }
 
-fn prefers_helper_phrase(query_lower: &str) -> bool {
+fn has_helper_cue(query_lower: &str) -> bool {
     query_lower.contains("helper") || query_lower.contains("internal helper")
 }
 
-fn prefers_builder_phrase(query_lower: &str) -> bool {
+fn has_builder_cue(query_lower: &str) -> bool {
     query_lower.contains("builder")
         || query_lower.contains("build ")
         || query_lower.contains(" construction")
@@ -105,9 +105,9 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
     let natural_language = is_natural_language_query(trimmed);
     let lowered = trimmed.to_ascii_lowercase();
     let alias_expansion_phrase = trimmed.contains(' ')
-        && (prefers_entrypoint_phrase(&lowered)
-            || prefers_helper_phrase(&lowered)
-            || prefers_builder_phrase(&lowered));
+        && (has_entrypoint_cue(&lowered)
+            || has_helper_cue(&lowered)
+            || has_builder_cue(&lowered));
 
     let semantic_query = if natural_language && !alias_expansion_phrase {
         trimmed.to_owned()
@@ -143,7 +143,7 @@ pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
 }
 
 fn prefers_semantic_entrypoint_prior(query_lower: &str) -> bool {
-    prefers_entrypoint_phrase(query_lower) && query_lower.split_whitespace().count() >= 3
+    has_entrypoint_cue(query_lower) && query_lower.split_whitespace().count() >= 3
 }
 
 fn is_natural_language_semantic_query(query_lower: &str) -> bool {
@@ -264,13 +264,13 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
         prior += 0.16;
     }
     if query_lower.contains("find")
-        && prefers_helper_phrase(query_lower)
+        && has_helper_cue(query_lower)
         && result.symbol_name == "find_symbol"
         && result.file_path.contains("symbols/mod.rs")
     {
         prior += 0.16;
     }
-    if prefers_builder_phrase(query_lower)
+    if has_builder_cue(query_lower)
         && query_lower.contains("embedding")
         && query_lower.contains("text")
         && result.symbol_name == "build_embedding_text"
@@ -455,7 +455,7 @@ fn expand_retrieval_query(query: &str) -> String {
             push_unique(alias);
         }
     }
-    if lowered.contains("find") && prefers_helper_phrase(&lowered) {
+    if lowered.contains("find") && has_helper_cue(&lowered) {
         for alias in ["find_symbol", "find"] {
             push_unique(alias);
         }
@@ -478,7 +478,7 @@ fn expand_retrieval_query(query: &str) -> String {
             push_unique(alias);
         }
     }
-    if prefers_builder_phrase(&lowered) && lowered.contains("embedding") && lowered.contains("text")
+    if has_builder_cue(&lowered) && lowered.contains("embedding") && lowered.contains("text")
     {
         for alias in ["build_embedding_text", "embedding_text"] {
             push_unique(alias);

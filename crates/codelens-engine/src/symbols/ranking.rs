@@ -152,18 +152,18 @@ fn is_natural_language_query(query_lower: &str) -> bool {
     query_lower.split_whitespace().count() >= 4
 }
 
-fn prefers_entrypoint_symbol(query_lower: &str) -> bool {
+fn query_targets_entrypoint_impl(query_lower: &str) -> bool {
     query_lower.contains("entrypoint")
         || query_lower.contains(" handler")
         || query_lower.starts_with("handler ")
         || query_lower.contains("primary implementation")
 }
 
-fn prefers_helper_symbol(query_lower: &str) -> bool {
+fn query_targets_helper_impl(query_lower: &str) -> bool {
     query_lower.contains("helper") || query_lower.contains("internal helper")
 }
 
-fn prefers_builder_symbol(query_lower: &str) -> bool {
+fn query_targets_builder_impl(query_lower: &str) -> bool {
     query_lower.contains("builder")
         || query_lower.contains("build ")
         || query_lower.contains(" construction")
@@ -174,7 +174,7 @@ fn mentions_any(query_lower: &str, needles: &[&str]) -> bool {
 }
 
 fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
-    let entrypoint_query = prefers_entrypoint_symbol(query_lower);
+    let entrypoint_query = query_targets_entrypoint_impl(query_lower);
     if !is_natural_language_query(query_lower) && !entrypoint_query {
         return 0.0;
     }
@@ -272,13 +272,13 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
         prior += 18.0;
     }
     if query_lower.contains("find")
-        && prefers_helper_symbol(query_lower)
+        && query_targets_helper_impl(query_lower)
         && symbol.name == "find_symbol"
         && symbol.file_path.contains("symbols/mod.rs")
     {
         prior += 18.0;
     }
-    if prefers_builder_symbol(query_lower)
+    if query_targets_builder_impl(query_lower)
         && query_lower.contains("embedding")
         && query_lower.contains("text")
         && symbol.name == "build_embedding_text"
@@ -302,7 +302,7 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
 }
 
 fn file_path_prior(query_lower: &str, file_path: &str) -> f64 {
-    if !is_natural_language_query(query_lower) && !prefers_entrypoint_symbol(query_lower) {
+    if !is_natural_language_query(query_lower) && !query_targets_entrypoint_impl(query_lower) {
         return 0.0;
     }
 
@@ -320,6 +320,31 @@ fn file_path_prior(query_lower: &str, file_path: &str) -> f64 {
         prior -= 8.0;
     }
     prior
+}
+
+/// Returns ranking weights tuned for the detected query type.
+pub fn weights_for_query_type(query_type: &str) -> RankWeights {
+    match query_type {
+        "identifier" => RankWeights {
+            text: 0.70,
+            pagerank: 0.15,
+            recency: 0.05,
+            semantic: 0.10,
+        },
+        "natural_language" => RankWeights {
+            text: 0.25,
+            pagerank: 0.15,
+            recency: 0.15,
+            semantic: 0.45,
+        },
+        "short_phrase" => RankWeights {
+            text: 0.35,
+            pagerank: 0.15,
+            recency: 0.15,
+            semantic: 0.35,
+        },
+        _ => RankWeights::default(),
+    }
 }
 
 #[cfg(test)]
@@ -442,7 +467,9 @@ mod tests {
         };
 
         let query = "which entrypoint handles inline";
-        assert!(symbol_kind_prior(query, &inline_symbol) > symbol_kind_prior(query, &helper_symbol));
+        assert!(
+            symbol_kind_prior(query, &inline_symbol) > symbol_kind_prior(query, &helper_symbol)
+        );
     }
 
     #[test]
