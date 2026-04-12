@@ -1045,8 +1045,8 @@
       ]
     },
     {
-      "query": "EmbeddingEngine constructor initializes model and index",
-      "query_type": "natural_language",
+      "query": "EmbeddingEngine struct definition and fields",
+      "query_type": "short_phrase",
       "expected_symbol": "EmbeddingEngine",
       "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
       "language": "rust",
@@ -1056,7 +1056,7 @@
       "negative_file_suffixes": []
     },
     {
-      "query": "which struct initializer creates the embedding engine",
+      "query": "embedding engine struct that holds the ONNX model",
       "query_type": "natural_language",
       "expected_symbol": "EmbeddingEngine",
       "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",

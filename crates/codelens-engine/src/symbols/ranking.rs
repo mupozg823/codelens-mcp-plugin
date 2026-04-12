@@ -340,27 +340,10 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
         prior -= 12.0;
     }
 
-    // Engine-internal same-name disambiguation: when multiple modules define
-    // the same function, boost the canonical owner for that query context.
-    if symbol.name == "collect_candidate_files" {
-        if query_lower.contains("call") && symbol.file_path.contains("call_graph.rs") {
-            prior += 12.0;
-        } else if !symbol.file_path.contains("call_graph.rs")
-            && (query_lower.contains("call") || query_lower.contains("candidate"))
-        {
-            prior -= 6.0; // penalize non-canonical owners
-        }
-    }
-    if symbol.name == "get_project_structure" && symbol.file_path.contains("symbols/mod.rs") {
-        prior += 8.0; // canonical location
-    }
-    // "search" in vec_store.rs vs search_symbols in tui — vec_store is canonical
-    if symbol.name == "search"
-        && query_lower.contains("search")
-        && symbol.file_path.contains("vec_store.rs")
-    {
-        prior += 10.0;
-    }
+    // NOTE: exact-name priors for specific symbols (collect_candidate_files,
+    // get_project_structure, search) were removed — they were benchmark
+    // overfitting, not generalizable disambiguation. The correct path is
+    // index-level ownership/provenance signals. See code-comment on 696fc9a.
 
     prior
 }
