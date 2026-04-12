@@ -1,10 +1,9 @@
 use crate::AppState;
 use crate::tool_runtime::{ToolResult, required_string};
+use crate::tools::query_analysis::semantic_query_for_retrieval;
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use crate::tools::symbols::{
-    semantic_query_for_retrieval, semantic_results_for_query, semantic_status,
-};
+use crate::tools::symbols::{semantic_results_for_query, semantic_status};
 use codelens_engine::search::{SEMANTIC_COUPLING_THRESHOLD, SEMANTIC_NEW_RESULT_THRESHOLD};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;

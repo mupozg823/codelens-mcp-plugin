@@ -1,6 +1,7 @@
 use super::{
-    AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
-    success_meta,
+    AppState, ToolResult, optional_bool, optional_string, optional_usize,
+    query_analysis::analyze_retrieval_query,
+    required_string, success_meta,
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
@@ -9,407 +10,6 @@ use codelens_engine::{
     search_symbols_hybrid_with_semantic,
 };
 use serde_json::{Value, json};
-
-fn query_prefers_lexical_only(query: &str) -> bool {
-    let trimmed = query.trim();
-    if trimmed.is_empty() {
-        return false;
-    }
-    if trimmed.contains(char::is_whitespace) {
-        return false;
-    }
-    let looks_path_like = trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("::");
-    let identifier_chars_only = trimmed
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
-    looks_path_like || identifier_chars_only
-}
-
-fn is_natural_language_query(query: &str) -> bool {
-    let trimmed = query.trim();
-    !trimmed.is_empty()
-        && !query_prefers_lexical_only(trimmed)
-        && trimmed.split_whitespace().count() >= 3
-}
-
-fn split_identifier_terms(query: &str) -> Option<String> {
-    let trimmed = query.trim();
-    if trimmed.is_empty()
-        || trimmed.contains(char::is_whitespace)
-        || trimmed.contains('/')
-        || trimmed.contains('\\')
-        || trimmed.contains("::")
-    {
-        return None;
-    }
-
-    // Build the split form directly into the final output instead of
-    // allocating `Vec<char>` + per-segment `String`s + `join(" ")`.
-    // This keeps the existing split behavior but reduces intermediate
-    // allocations on the semantic-query hot path.
-    let mut split = String::with_capacity(trimmed.len() + 4);
-    let mut last_emitted_is_lowercase = false;
-    let mut in_segment = false;
-    let mut iter = trimmed.chars().peekable();
-
-    while let Some(ch) = iter.next() {
-        if ch == '_' || ch == '-' {
-            if !split.is_empty() && !split.ends_with(' ') {
-                split.push(' ');
-            }
-            in_segment = false;
-            last_emitted_is_lowercase = false;
-            continue;
-        }
-
-        let next_is_lowercase = iter.peek().map(|c| c.is_lowercase()).unwrap_or(false);
-        if ch.is_uppercase() && in_segment && (last_emitted_is_lowercase || next_is_lowercase) {
-            split.push(' ');
-        }
-
-        for lowered in ch.to_lowercase() {
-            split.push(lowered);
-            last_emitted_is_lowercase = lowered.is_lowercase();
-        }
-        in_segment = true;
-    }
-
-    split.contains(' ').then_some(split)
-}
-
-pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
-    let trimmed = query.trim();
-    if trimmed.is_empty() {
-        return String::new();
-    }
-
-    if is_natural_language_query(trimmed) {
-        return trimmed.to_owned();
-    }
-
-    if let Some(split) = split_identifier_terms(trimmed)
-        && split != trimmed
-    {
-        return format!("{trimmed} {split}");
-    }
-
-    trimmed.to_owned()
-}
-
-#[cfg(feature = "semantic")]
-fn is_natural_language_semantic_query(query: &str) -> bool {
-    query.split_whitespace().count() >= 4
-}
-
-#[cfg(feature = "semantic")]
-fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
-    if !is_natural_language_semantic_query(query_lower) {
-        return 0.0;
-    }
-
-    let mut prior: f64 = 0.0;
-    if result.file_path.starts_with("crates/") {
-        prior += 0.02;
-    }
-    if result.file_path.starts_with("benchmarks/")
-        || result.file_path.starts_with("models/")
-        || result.file_path.starts_with("docs/")
-        || result.file_path.starts_with("scripts/finetune/")
-    {
-        prior -= 0.08;
-    }
-    if result.file_path.contains("/tests") || result.file_path.ends_with("_tests.rs") {
-        prior -= 0.05;
-    }
-    if result.file_path.contains("util")
-        || result.file_path.contains("helper")
-        || result.file_path.contains("common")
-    {
-        prior -= 0.02;
-    }
-
-    prior += match result.kind.as_str() {
-        "function" | "method" => 0.04,
-        "module" => 0.02,
-        "class" | "interface" | "enum" | "typealias" | "unknown" => -0.02,
-        "variable" | "property" => -0.04,
-        _ => 0.0,
-    };
-
-    if (query_lower.contains("dispatch")
-        || query_lower.contains("route")
-        || query_lower.contains("handler"))
-        && result.file_path.contains("dispatch.rs")
-    {
-        prior += 0.14;
-    }
-    if query_lower.contains("extract")
-        && (result.symbol_name.contains("extract") || result.file_path.contains("tools/composite"))
-    {
-        prior += 0.12;
-    }
-    if (query_lower.contains("truncate") || query_lower.contains("response"))
-        && result.file_path.contains("dispatch_response")
-    {
-        prior += 0.12;
-    }
-    if (query_lower.contains("mutation")
-        || query_lower.contains("preflight")
-        || query_lower.contains("gate"))
-        && result.file_path.contains("mutation_gate")
-    {
-        prior += 0.22;
-    }
-    if query_lower.contains("http") && result.file_path.contains("transport_http") {
-        prior += 0.14;
-    }
-    if query_lower.contains("stdin") && result.file_path.contains("transport_stdio") {
-        prior += 0.26;
-    }
-    if query_lower.contains("watch") && result.file_path.contains("watcher") {
-        prior += 0.14;
-    }
-    if (query_lower.contains("parse") || query_lower.contains("ast"))
-        && (result.symbol_name.contains("parse") || result.file_path.contains("parser"))
-    {
-        prior += 0.14;
-    }
-    if (query_lower.contains("embed")
-        || query_lower.contains("vector")
-        || query_lower.contains("index"))
-        && result.file_path.contains("embedding")
-    {
-        prior += 0.10;
-    }
-    if (query_lower.contains("duplicate") || query_lower.contains("similar"))
-        && (result.symbol_name.contains("duplicate") || result.symbol_name.contains("similar"))
-    {
-        prior += 0.10;
-    }
-    if (query_lower.contains("review") || query_lower.contains("diff"))
-        && (result.file_path.contains("report") || result.symbol_name.contains("review"))
-    {
-        prior += 0.10;
-    }
-
-    // Keep heuristics as a bounded bias so embedding similarity remains primary.
-    prior.clamp(-0.10_f64, 0.19_f64)
-}
-
-#[cfg(feature = "semantic")]
-fn semantic_adjusted_score_with_lower(query_lower: &str, result: &SemanticMatch) -> (f64, f64) {
-    let prior = semantic_result_prior(query_lower, result);
-    (prior, result.score + prior)
-}
-
-#[cfg(feature = "semantic")]
-pub(crate) fn semantic_adjusted_score_parts(query: &str, result: &SemanticMatch) -> (f64, f64) {
-    semantic_adjusted_score_with_lower(&query.to_ascii_lowercase(), result)
-}
-
-#[cfg(feature = "semantic")]
-pub(crate) fn rerank_semantic_matches(
-    query: &str,
-    mut results: Vec<SemanticMatch>,
-    max_results: usize,
-) -> Vec<SemanticMatch> {
-    let query_lower = query.to_ascii_lowercase();
-    results.sort_by(|a, b| {
-        let (_, a_score) = semantic_adjusted_score_with_lower(&query_lower, a);
-        let (_, b_score) = semantic_adjusted_score_with_lower(&query_lower, b);
-        b_score
-            .partial_cmp(&a_score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                b.score
-                    .partial_cmp(&a.score)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-    });
-    results.truncate(max_results);
-    results
-}
-
-pub(crate) fn expanded_query_for_retrieval(query: &str) -> String {
-    if !is_natural_language_query(query) {
-        return query.trim().to_owned();
-    }
-
-    let lowered = query.to_lowercase();
-    let mut terms = vec![query.trim().to_owned()];
-    let mut push_unique = |term: &str| {
-        if !terms.iter().any(|existing| existing == term) {
-            terms.push(term.to_owned());
-        }
-    };
-
-    // Dynamic expansion: bidirectional snake_case ↔ CamelCase conversion
-    // The distill-v2 model learned identifier splitting, so both forms help retrieval.
-    let words: Vec<&str> = lowered.split_whitespace().filter(|w| w.len() > 2).collect();
-    if words.len() >= 2 && words.len() <= 6 {
-        // NL → snake_case: "fetch profile" → "fetch_profile"
-        for window in words.windows(2) {
-            push_unique(&format!("{}_{}", window[0], window[1]));
-        }
-        // NL → CamelCase: "fetch profile" → "fetchProfile"
-        let camel: String = words
-            .iter()
-            .enumerate()
-            .map(|(i, w)| {
-                if i == 0 {
-                    w.to_string()
-                } else {
-                    let mut c = w.chars();
-                    match c.next() {
-                        None => String::new(),
-                        Some(f) => f.to_uppercase().to_string() + c.as_str(),
-                    }
-                }
-            })
-            .collect();
-        push_unique(&camel);
-        // NL → PascalCase: "fetch profile" → "FetchProfile"
-        if words.len() >= 2 {
-            let pascal: String = words
-                .iter()
-                .map(|w| {
-                    let mut c = w.chars();
-                    match c.next() {
-                        None => String::new(),
-                        Some(f) => f.to_uppercase().to_string() + c.as_str(),
-                    }
-                })
-                .collect();
-            push_unique(&pascal);
-        }
-    }
-    // If query IS a snake_case identifier, also expand to CamelCase
-    if query.contains('_') && !query.contains(' ') {
-        let parts: Vec<&str> = query.split('_').filter(|p| !p.is_empty()).collect();
-        let camel: String = parts
-            .iter()
-            .enumerate()
-            .map(|(i, p)| {
-                if i == 0 {
-                    p.to_lowercase()
-                } else {
-                    let mut c = p.chars();
-                    match c.next() {
-                        None => String::new(),
-                        Some(f) => f.to_uppercase().to_string() + &c.as_str().to_lowercase(),
-                    }
-                }
-            })
-            .collect();
-        push_unique(&camel);
-    }
-    // If query IS CamelCase, also expand to snake_case
-    if query.chars().any(|c| c.is_uppercase()) && !query.contains(' ') {
-        let snake = query
-            .chars()
-            .enumerate()
-            .fold(String::new(), |mut acc, (i, c)| {
-                if c.is_uppercase() && i > 0 {
-                    acc.push('_');
-                }
-                acc.push(c.to_ascii_lowercase());
-                acc
-            });
-        push_unique(&snake);
-    }
-
-    let alias_groups: &[(&[&str], &[&str])] = &[
-        (
-            &["rename", "refactor"],
-            &["rename_symbol", "refactor", "rename"],
-        ),
-        (
-            &["defined", "definition", "symbol is defined"],
-            &["find_symbol_range", "definition", "range", "reader"],
-        ),
-        (&["search", "query"], &["search", "semantic", "embedding"]),
-        (&["inline"], &["inline_function", "inline", "refactor"]),
-        (
-            &["http", "server", "routes"],
-            &["run_http", "transport_http", "router"],
-        ),
-        (&["stdin", "line by line"], &["run_stdio", "stdio", "stdin"]),
-        (
-            &["parse", "ast"],
-            &["parse_symbols", "parser", "ast", "tree_sitter"],
-        ),
-        (
-            &["embedding", "vectors"],
-            &["index_from_project", "embedding", "index"],
-        ),
-        (
-            &["duplicate", "near-duplicate", "similar"],
-            &["find_duplicates", "similarity", "dedupe"],
-        ),
-        (
-            &["categorize", "purpose"],
-            &["classify_symbol", "classify", "category"],
-        ),
-        (
-            &["project structure", "first load", "key files"],
-            &["onboard_project", "project_structure", "overview"],
-        ),
-        (
-            &["watch", "filesystem", "file changes"],
-            &["FileWatcher", "watcher", "notify", "watch"],
-        ),
-        (
-            &["extract", "new function"],
-            &["refactor_extract_function", "extract", "refactor"],
-        ),
-        (
-            &["change", "parameters", "signature"],
-            &["change_signature", "signature", "parameters"],
-        ),
-        (
-            &["comments", "string literals"],
-            &[
-                "build_non_code_ranges",
-                "non_code_ranges",
-                "comments strings",
-            ],
-        ),
-        (
-            &["route", "handler", "tool request"],
-            &["dispatch_tool", "dispatch", "handler"],
-        ),
-        (
-            &["mutation", "gate", "preflight"],
-            &["evaluate_mutation_gate", "mutation_gate", "preflight"],
-        ),
-        (
-            &["truncat", "budget", "payload"],
-            &["bounded_result_payload", "truncate", "budget_hint"],
-        ),
-        (
-            &["recently accessed", "recent files"],
-            &["record_file_access", "recent_files", "recent"],
-        ),
-        (
-            &["client", "detect", "codex", "claude"],
-            &["detect", "ClientProfile", "client_profile"],
-        ),
-        (
-            &["exclude", "ignore", "node_modules"],
-            &["is_excluded", "EXCLUDED_DIRS", "excluded"],
-        ),
-    ];
-
-    for (needles, aliases) in alias_groups {
-        if needles.iter().any(|needle| lowered.contains(needle)) {
-            for alias in *aliases {
-                push_unique(alias);
-            }
-        }
-    }
-
-    terms.join(" ")
-}
 
 #[cfg(feature = "semantic")]
 pub(crate) fn semantic_status(state: &AppState) -> Value {
@@ -505,13 +105,14 @@ pub(crate) fn semantic_results_for_query(
         return Vec::new();
     }
 
+    let query_analysis = analyze_retrieval_query(query);
+
     // Skip embedding lookup for short single-word identifiers where FTS is more accurate
-    if query_prefers_lexical_only(query) && query.trim().len() <= 40 {
+    if query_analysis.prefer_lexical_only && query_analysis.original_query.len() <= 40 {
         return Vec::new();
     }
 
-    let semantic_query = semantic_query_for_retrieval(query);
-    if semantic_query.is_empty() {
+    if query_analysis.semantic_query.is_empty() {
         return Vec::new();
     }
 
@@ -521,9 +122,9 @@ pub(crate) fn semantic_results_for_query(
     {
         let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
         let results = engine
-            .search(&semantic_query, candidate_limit)
+            .search(&query_analysis.semantic_query, candidate_limit)
             .unwrap_or_default();
-        return rerank_semantic_matches(query, results, limit);
+        return crate::tools::query_analysis::rerank_semantic_matches(query, results, limit);
     }
     Vec::new()
 }
@@ -834,8 +435,7 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
 
 pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = required_string(arguments, "query")?;
-    let expanded_query = expanded_query_for_retrieval(query);
-    let semantic_query = semantic_query_for_retrieval(query);
+    let query_analysis = analyze_retrieval_query(query);
     let path = optional_string(arguments, "path");
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let max_tokens = arguments
@@ -846,7 +446,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     let include_body = optional_bool(arguments, "include_body", false);
     let depth = optional_usize(arguments, "depth", 2);
     let disable_semantic = optional_bool(arguments, "disable_semantic", false);
-    let effective_disable_semantic = disable_semantic || query_prefers_lexical_only(query);
+    let effective_disable_semantic = disable_semantic || query_analysis.prefer_lexical_only;
     let use_semantic_in_core = !effective_disable_semantic;
     // Build semantic scores for hybrid ranking if embeddings are available.
     // The default model is the bundled CodeSearchNet MiniLM-L12 INT8 variant.
@@ -874,7 +474,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     }
 
     let mut result = state.symbol_index().get_ranked_context_cached(
-        &expanded_query,
+        &query_analysis.expanded_query,
         path,
         max_tokens,
         include_body,
@@ -939,8 +539,8 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
             json!({
                 "semantic_enabled": !effective_disable_semantic,
                 "semantic_used_in_core": use_semantic_in_core,
-                "lexical_query": expanded_query,
-                "semantic_query": semantic_query,
+                "lexical_query": query_analysis.expanded_query,
+                "semantic_query": query_analysis.semantic_query,
             }),
         );
         if !semantic_evidence.is_empty() {
@@ -1126,25 +726,10 @@ fn count_word_occurrences(line: &str, needle: &str) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::{
-        annotate_ranked_context_provenance, merge_semantic_ranked_entries,
-        query_prefers_lexical_only, semantic_query_for_retrieval, truncate_body_preview,
+        annotate_ranked_context_provenance, merge_semantic_ranked_entries, truncate_body_preview,
     };
     use codelens_engine::{RankedContextEntry, RankedContextResult, SemanticMatch};
     use serde_json::json;
-
-    #[cfg(feature = "semantic")]
-    use super::semantic_adjusted_score_parts;
-
-    #[test]
-    fn identifier_queries_prefer_lexical_only() {
-        assert!(query_prefers_lexical_only("rename_symbol"));
-        assert!(query_prefers_lexical_only("dispatch_tool"));
-        assert!(query_prefers_lexical_only("crate::dispatch_tool"));
-        assert!(!query_prefers_lexical_only(
-            "rename a variable or function across the project"
-        ));
-        assert!(!query_prefers_lexical_only("change function parameters"));
-    }
 
     #[test]
     fn merge_semantic_ranked_entries_inserts_and_upgrades() {
@@ -1271,71 +856,6 @@ mod tests {
     }
 
     #[test]
-    fn semantic_query_keeps_natural_language_clean() {
-        let query = "route an incoming tool request to the right handler";
-        assert_eq!(semantic_query_for_retrieval(query), query);
-    }
-
-    #[test]
-    fn semantic_query_splits_identifier_terms_without_alias_injection() {
-        let query = "change_signature";
-        let semantic = semantic_query_for_retrieval(query);
-        assert!(semantic.contains("change_signature"));
-        assert!(semantic.contains("change signature"));
-        assert!(!semantic.contains("run_stdio"));
-    }
-
-    #[test]
-    fn semantic_query_splits_camel_case_identifiers() {
-        let query = "dispatchToolRequest";
-        let semantic = semantic_query_for_retrieval(query);
-        assert!(semantic.contains("dispatchToolRequest"));
-        assert!(semantic.contains("dispatch tool request"));
-    }
-
-    #[cfg(feature = "semantic")]
-    #[test]
-    fn semantic_adjusted_score_exposes_positive_prior_for_dispatch_entrypoint() {
-        let match_ = SemanticMatch {
-            symbol_name: "dispatch_tool".to_owned(),
-            kind: "function".to_owned(),
-            file_path: "crates/codelens-mcp/src/dispatch.rs".to_owned(),
-            line: 42,
-            signature: "fn dispatch_tool".to_owned(),
-            name_path: "dispatch_tool".to_owned(),
-            score: 0.224,
-        };
-
-        let (prior, adjusted) = semantic_adjusted_score_parts(
-            "route an incoming tool request to the right handler",
-            &match_,
-        );
-        assert!(prior > 0.0);
-        assert!(adjusted > match_.score);
-    }
-
-    #[cfg(feature = "semantic")]
-    #[test]
-    fn semantic_prior_is_bounded_for_high_bonus_entrypoints() {
-        let match_ = SemanticMatch {
-            symbol_name: "run_stdio".to_owned(),
-            kind: "function".to_owned(),
-            file_path: "crates/codelens-mcp/src/server/transport_stdio.rs".to_owned(),
-            line: 9,
-            signature: "fn run_stdio".to_owned(),
-            name_path: "run_stdio".to_owned(),
-            score: 0.148,
-        };
-
-        let (prior, _) = semantic_adjusted_score_parts(
-            "read input from stdin line by line run_stdio stdio stdin",
-            &match_,
-        );
-        assert!(prior <= 0.19);
-        assert!(prior >= -0.10);
-    }
-
-    #[test]
     fn annotate_ranked_context_provenance_marks_structural_and_semantic_entries() {
         let result = RankedContextResult {
             query: "rename across project".to_owned(),
@@ -1399,40 +919,4 @@ mod tests {
         assert_eq!(symbols[1]["provenance"]["source"], json!("semantic_added"));
         assert_eq!(symbols[1]["provenance"]["semantic_score"], json!(0.933));
     }
-}
-
-#[test]
-fn route_query_expansion_includes_dispatch_aliases() {
-    let query = "route an incoming tool request to the right handler";
-    let expanded = expanded_query_for_retrieval(query);
-    assert!(expanded.contains("dispatch_tool"));
-    assert!(expanded.contains("handler"));
-    assert!(expanded.contains(query));
-}
-
-#[test]
-fn stdio_query_expansion_includes_stdio_aliases() {
-    let query = "read input from stdin line by line";
-    let expanded = expanded_query_for_retrieval(query);
-    assert!(expanded.contains("run_stdio"));
-    assert!(expanded.contains("stdio"));
-    assert!(expanded.contains(query));
-}
-
-#[test]
-fn definition_query_expansion_includes_find_symbol_range_alias() {
-    let query = "find where a symbol is defined in a file";
-    let expanded = expanded_query_for_retrieval(query);
-    assert!(expanded.contains("find_symbol_range"));
-    assert!(expanded.contains("definition"));
-    assert!(expanded.contains(query));
-}
-
-#[test]
-fn change_signature_query_expansion_includes_exact_alias() {
-    let query = "change function parameters";
-    let expanded = expanded_query_for_retrieval(query);
-    assert!(expanded.contains("change_signature"));
-    assert!(expanded.contains("signature"));
-    assert!(expanded.contains(query));
 }

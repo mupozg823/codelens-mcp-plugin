@@ -1,4 +1,5 @@
 use serde::Serialize;
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LspRecipe {
@@ -72,7 +73,7 @@ pub const LSP_RECIPES: &[LspRecipe] = &[
         server_name: "clangd",
         install_command: "brew install llvm",
         binary_name: "clangd",
-        args: &[],
+        args: &["--background-index"],
         package_manager: "brew",
     },
     LspRecipe {
@@ -92,6 +93,15 @@ pub const LSP_RECIPES: &[LspRecipe] = &[
         binary_name: "intelephense",
         args: &["--stdio"],
         package_manager: "npm",
+    },
+    LspRecipe {
+        language: "scala",
+        extensions: &["scala", "sc"],
+        server_name: "metals",
+        install_command: "cs install metals",
+        binary_name: "metals",
+        args: &[],
+        package_manager: "coursier",
     },
     LspRecipe {
         language: "swift",
@@ -239,4 +249,22 @@ pub fn get_lsp_recipe(extension: &str) -> Option<&'static LspRecipe> {
     LSP_RECIPES
         .iter()
         .find(|r| r.extensions.contains(&ext.as_str()))
+}
+
+pub fn default_lsp_command_for_extension(extension: &str) -> Option<&'static str> {
+    get_lsp_recipe(extension).map(|recipe| recipe.binary_name)
+}
+
+pub fn default_lsp_command_for_path(file_path: &str) -> Option<&'static str> {
+    Path::new(file_path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .and_then(default_lsp_command_for_extension)
+}
+
+pub fn default_lsp_args_for_command(command: &str) -> Option<&'static [&'static str]> {
+    LSP_RECIPES
+        .iter()
+        .find(|recipe| recipe.binary_name == command)
+        .map(|recipe| recipe.args)
 }

@@ -1,8 +1,8 @@
 use super::{
     LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
     LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, find_referencing_symbols_via_lsp,
-    get_diagnostics_via_lsp, get_rename_plan_via_lsp, get_type_hierarchy_via_lsp,
-    search_workspace_symbols_via_lsp,
+    default_lsp_args_for_command, default_lsp_command_for_path, get_diagnostics_via_lsp,
+    get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
 };
 use crate::ProjectRoot;
 use serde_json::Value;
@@ -207,6 +207,35 @@ fn reads_rename_plan_from_mock_lsp() {
     assert_eq!(plan.current_name, "Service");
     assert_eq!(plan.placeholder.as_deref(), Some("Service"));
     assert_eq!(plan.new_name.as_deref(), Some("RenamedService"));
+}
+
+#[test]
+fn default_lsp_command_is_derived_from_registry_by_path() {
+    assert_eq!(
+        default_lsp_command_for_path("src/main.py"),
+        Some("pyright-langserver")
+    );
+    assert_eq!(
+        default_lsp_command_for_path("src/Build.SC"),
+        Some("metals")
+    );
+    assert_eq!(
+        default_lsp_command_for_path("src/native/foo.hpp"),
+        Some("clangd")
+    );
+}
+
+#[test]
+fn default_lsp_args_are_derived_from_registry_by_command() {
+    assert_eq!(
+        default_lsp_args_for_command("clangd"),
+        Some(&["--background-index"][..])
+    );
+    assert_eq!(
+        default_lsp_args_for_command("typescript-language-server"),
+        Some(&["--stdio"][..])
+    );
+    assert_eq!(default_lsp_args_for_command("metals"), Some(&[][..]));
 }
 
 fn chmod_exec(path: &std::path::Path) {
