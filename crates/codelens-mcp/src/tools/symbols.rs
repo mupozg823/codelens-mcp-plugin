@@ -120,8 +120,16 @@ pub(crate) fn semantic_results_for_query(
         && engine.is_indexed()
     {
         let candidate_limit = limit.saturating_mul(4).clamp(limit, 80);
+        // Frame NL queries with code context prefix for better CodeSearchNet
+        // embedding alignment. The model was fine-tuned on (NL, code) pairs
+        // where code starts with "function" or "class" — prefixing helps.
+        let search_query = if query_analysis.natural_language {
+            format!("function {}", query_analysis.semantic_query)
+        } else {
+            query_analysis.semantic_query.clone()
+        };
         let results = engine
-            .search(&query_analysis.semantic_query, candidate_limit)
+            .search(&search_query, candidate_limit)
             .unwrap_or_default();
         return crate::tools::query_analysis::rerank_semantic_matches(
             &query_analysis.semantic_query,
