@@ -1040,9 +1040,12 @@ impl EmbeddingEngine {
         Ok(results.into_iter().map(SemanticMatch::from).collect())
     }
 
-    /// Search returning raw ScoredChunks (for ranking integration).
-    /// When a cross-encoder reranker is loaded, fetches 3× candidates from
-    /// the bi-encoder and reranks to return the top `max_results`.
+    /// Search returning raw ScoredChunks with optional reranking.
+    ///
+    /// Pipeline: bi-encoder → candidate pool (3× requested) → rerank → top-N.
+    /// Reranking uses query-document text overlap scoring to refine bi-encoder
+    /// cosine similarity. This catches cases where embedding similarity is high
+    /// but the actual text relevance is low (or vice versa).
     pub fn search_scored(&self, query: &str, max_results: usize) -> Result<Vec<ScoredChunk>> {
         let query_embedding = self.embed_texts_cached(&[query])?;
 
@@ -1050,7 +1053,47 @@ impl EmbeddingEngine {
             return Ok(Vec::new());
         }
 
-        self.store.search(&query_embedding[0], max_results)
+        // Fetch 3× candidates for reranking headroom
+        let candidate_count = max_results.saturating_mul(3).max(max_results);
+        let mut candidates = self.store.search(&query_embedding[0], candidate_count)?;
+
+        if candidates.len() <= max_results {
+            return Ok(candidates);
+        }
+
+        // Lightweight rerank: blend bi-encoder score with text overlap signal.
+        // This is a stopgap until a proper cross-encoder is plugged in.
+        let query_lower = query.to_lowercase();
+        let query_tokens: Vec<&str> = query_lower
+            .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+            .filter(|t| t.len() >= 2)
+            .collect();
+
+        if query_tokens.is_empty() {
+            candidates.truncate(max_results);
+            return Ok(candidates);
+        }
+
+        for chunk in &mut candidates {
+            // Build searchable text from available fields
+            let searchable = format!(
+                "{} {} {}",
+                chunk.symbol_name.to_lowercase(),
+                chunk.signature.to_lowercase(),
+                chunk.file_path.to_lowercase(),
+            );
+            let overlap = query_tokens
+                .iter()
+                .filter(|t| searchable.contains(**t))
+                .count() as f64;
+            let overlap_ratio = overlap / query_tokens.len().max(1) as f64;
+            // Blend: 80% bi-encoder + 20% text overlap
+            chunk.score = chunk.score * 0.8 + overlap_ratio * 0.2;
+        }
+
+        candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        candidates.truncate(max_results);
+        Ok(candidates)
     }
 
     /// Incrementally re-index only the given files.
