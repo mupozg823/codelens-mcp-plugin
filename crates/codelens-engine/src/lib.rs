@@ -79,6 +79,7 @@ pub use scope_analysis::{
 pub use search::{SearchResult, search_symbols_hybrid, search_symbols_hybrid_with_semantic};
 pub use symbols::{
     IndexStats, RankedContextEntry, RankedContextResult, SymbolIndex, SymbolInfo, SymbolKind,
+    SymbolProvenance,
     find_symbol, find_symbol_range, get_symbols_overview, make_symbol_id, parse_symbol_id,
     sparse_coverage_bonus_from_fields, sparse_max_bonus, sparse_threshold,
     sparse_weighting_enabled,

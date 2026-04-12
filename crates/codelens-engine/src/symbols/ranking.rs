@@ -251,6 +251,18 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
         prior -= 10.0;
     }
 
+    // Provenance-based owner prior: structural disambiguation using
+    // the symbol's crate/module ownership, not hardcoded symbol names.
+    let is_impl_query = query_lower.contains("implementation")
+        || query_lower.contains("handler")
+        || query_lower.contains("helper")
+        || query_lower.contains("entrypoint")
+        || query_lower.contains("primary")
+        || query_lower.contains("responsible");
+    if is_impl_query {
+        prior += symbol.provenance.impl_query_prior();
+    }
+
     if query_lower.contains("http") && symbol.file_path.contains("transport_http") {
         prior += 12.0;
     }
@@ -415,27 +427,7 @@ fn file_path_prior(query_lower: &str, file_path: &str) -> f64 {
             prior += boost;
         }
     }
-    // Owner prior: for implementation/handler/helper queries, prefer engine
-    // implementations over mcp/tui wrappers. Engine symbols are the canonical
-    // implementation; mcp tools and tui code are thin dispatch/display layers.
-    let is_impl_query = query_lower.contains("implementation")
-        || query_lower.contains("handler")
-        || query_lower.contains("helper")
-        || query_lower.contains("entrypoint")
-        || query_lower.contains("primary")
-        || query_lower.contains("responsible");
-    if is_impl_query {
-        if file_path.contains("codelens-engine/src/") {
-            prior += 6.0;
-        }
-        if file_path.contains("codelens-tui/") {
-            prior -= 8.0;
-        }
-        // mcp tools/ are wrappers; engine src/ has the real impl
-        if file_path.contains("codelens-mcp/src/tools/") {
-            prior -= 4.0;
-        }
-    }
+    // Owner prior is in symbol_kind_prior via SymbolInfo.provenance.
 
     if file_path.starts_with("benchmarks/")
         || file_path.starts_with("models/")
@@ -478,7 +470,7 @@ pub fn weights_for_query_type(query_type: &str) -> RankWeights {
 #[allow(clippy::items_after_test_module)]
 mod tests {
     use super::{auto_weights_with_semantic_count, symbol_kind_prior};
-    use crate::{SymbolInfo, SymbolKind};
+    use crate::{SymbolInfo, SymbolKind, SymbolProvenance};
 
     #[test]
     fn short_phrase_prefers_text_over_semantic_even_with_rich_signal() {
@@ -503,6 +495,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
         let type_symbol = SymbolInfo {
             name: "ToolHandler".into(),
@@ -517,6 +510,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
 
         let query = "route an incoming tool request to the right handler";
@@ -540,6 +534,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
         let type_symbol = SymbolInfo {
             name: "MoveEdit".into(),
@@ -554,6 +549,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
 
         let query = "primary move handler";
@@ -577,6 +573,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
         let helper_symbol = SymbolInfo {
             name: "is_entry_point_file".into(),
@@ -591,6 +588,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
 
         let query = "which entrypoint handles inline";
@@ -614,6 +612,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
         let generic = SymbolInfo {
             name: "find_files".into(),
@@ -628,6 +627,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
 
         let query = "which helper implements find";
@@ -649,6 +649,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
         let generic = SymbolInfo {
             name: "EmbeddingEngine".into(),
@@ -663,6 +664,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
 
         let query = "which builder creates build embedding text";
@@ -684,6 +686,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
         let generic = SymbolInfo {
             name: "build_coreml_execution_provider".into(),
@@ -698,6 +701,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
 
         let query = "which builder creates build embedding text";
@@ -719,6 +723,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
         let generic = SymbolInfo {
             name: "embed_texts_cached".into(),
@@ -733,6 +738,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
 
         let query = "which builder creates build embedding text";
@@ -754,6 +760,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
         let generic = SymbolInfo {
             name: "find_symbol".into(),
@@ -768,6 +775,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
 
         let query = "which helper implements find all word matches";
@@ -789,6 +797,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
         let broader = SymbolInfo {
             name: "find_all_word_matches".into(),
@@ -803,6 +812,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         };
 
         let query = "which helper implements find word matches in files";

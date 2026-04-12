@@ -1,7 +1,9 @@
-use super::SymbolIndex;
 use super::parser::{flatten_symbol_infos, slice_source};
-use super::ranking::{self, RankingContext, prune_to_budget, rank_symbols};
-use super::types::{RankedContextResult, SymbolInfo, SymbolKind, make_symbol_id, parse_symbol_id};
+use super::ranking::{self, prune_to_budget, rank_symbols, RankingContext};
+use super::types::{
+    make_symbol_id, parse_symbol_id, RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance,
+};
+use super::SymbolIndex;
 use crate::db::IndexDb;
 use crate::project::ProjectRoot;
 use anyhow::Result;
@@ -187,8 +189,9 @@ impl SymbolIndex {
                             .unwrap_or(&rel),
                         file_symbols.len()
                     ),
-                    name_path: rel,
+                    name_path: rel.clone(),
                     id,
+                    provenance: SymbolProvenance::from_path(&rel),
                     body: None,
                     children: file_symbols
                         .into_iter()
@@ -204,6 +207,7 @@ impl SymbolIndex {
                                 signature: row.signature,
                                 name_path: row.name_path,
                                 id: sid,
+                                provenance: SymbolProvenance::default(),
                                 body: None,
                                 children: Vec::new(),
                                 start_byte: row.start_byte as u32,
@@ -234,6 +238,7 @@ impl SymbolIndex {
                     name: row.name,
                     kind,
                     file_path: relative.clone(),
+                    provenance: SymbolProvenance::from_path(&relative),
                     line: row.line as usize,
                     column: row.column_num as usize,
                     signature: row.signature,
@@ -377,6 +382,7 @@ impl SymbolIndex {
             results.push(SymbolInfo {
                 name: row.name,
                 kind,
+                provenance: SymbolProvenance::from_path(&rel_path),
                 file_path: rel_path,
                 line: row.line as usize,
                 column: row.column_num as usize,

@@ -1,5 +1,5 @@
+use super::types::{make_symbol_id, ParsedSymbol, SymbolInfo, SymbolKind, SymbolProvenance};
 use super::LanguageConfig;
-use super::types::{ParsedSymbol, SymbolInfo, SymbolKind, make_symbol_id};
 use anyhow::{Context, Result};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -134,6 +134,7 @@ pub(crate) fn to_symbol_info_with_source(
     };
 
     let id = make_symbol_id(&symbol.file_path, &symbol.kind, &symbol.name_path);
+    let provenance = SymbolProvenance::from_path(&symbol.file_path);
     SymbolInfo {
         name: symbol.name,
         kind: symbol.kind,
@@ -143,6 +144,7 @@ pub(crate) fn to_symbol_info_with_source(
         signature: symbol.signature,
         name_path: symbol.name_path,
         id,
+        provenance,
         body: source
             .map(|source| slice_source(source, symbol.start_byte, symbol.end_byte))
             .or(symbol.body),

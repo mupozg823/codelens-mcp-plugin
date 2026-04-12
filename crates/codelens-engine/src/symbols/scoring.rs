@@ -440,7 +440,7 @@ pub(crate) fn sparse_coverage_bonus(query_lower: &str, symbol: &SymbolInfo) -> f
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::{SymbolInfo, SymbolKind};
+    use super::super::types::{SymbolInfo, SymbolKind, SymbolProvenance};
     use super::*;
     use std::sync::Mutex;
 
@@ -460,6 +460,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+            provenance: SymbolProvenance::default(),
         }
     }
 

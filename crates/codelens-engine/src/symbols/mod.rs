@@ -15,15 +15,15 @@ pub use scoring::{
 };
 pub(crate) use types::ReadDb;
 pub use types::{
-    IndexStats, RankedContextEntry, RankedContextResult, SymbolInfo, SymbolKind, make_symbol_id,
-    parse_symbol_id,
+    make_symbol_id, parse_symbol_id, IndexStats, RankedContextEntry, RankedContextResult,
+    SymbolInfo, SymbolKind, SymbolProvenance,
 };
 
-use crate::db::{self, IndexDb, content_hash, index_db_path};
+use crate::db::{self, content_hash, index_db_path, IndexDb};
 // Re-export language_for_path so downstream crate modules keep working.
-pub(crate) use crate::lang_config::{LanguageConfig, language_for_path};
+pub(crate) use crate::lang_config::{language_for_path, LanguageConfig};
 use crate::project::ProjectRoot;
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -312,6 +312,7 @@ impl SymbolIndex {
                         name: relative.clone(),
                         kind: SymbolKind::File,
                         file_path: relative.clone(),
+                        provenance: SymbolProvenance::from_path(&relative),
                         line: 0,
                         column: 0,
                         signature: format!(
@@ -375,9 +376,11 @@ impl SymbolIndex {
                 };
                 let kind = SymbolKind::from_str_label(&row.kind);
                 let id = make_symbol_id(&rel_path, &kind, &row.name_path);
+                let prov = SymbolProvenance::from_path(&rel_path);
                 results.push(SymbolInfo {
                     name: row.name,
                     kind,
+                    provenance: prov,
                     file_path: rel_path,
                     line: row.line as usize,
                     column: row.column_num as usize,
@@ -423,9 +426,11 @@ impl SymbolIndex {
             };
             let kind = SymbolKind::from_str_label(&row.kind);
             let id = make_symbol_id(&rel_path, &kind, &row.name_path);
+            let prov = SymbolProvenance::from_path(&rel_path);
             results.push(SymbolInfo {
                 name: row.name,
                 kind,
+                provenance: prov,
                 file_path: rel_path,
                 line: row.line as usize,
                 column: row.column_num as usize,
@@ -620,6 +625,7 @@ fn get_directory_symbols(
                 name: relative.clone(),
                 kind: SymbolKind::File,
                 file_path: relative.clone(),
+                provenance: SymbolProvenance::from_path(&relative),
                 line: 0,
                 column: 0,
                 signature: format!(

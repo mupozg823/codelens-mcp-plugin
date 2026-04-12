@@ -1,4 +1,4 @@
-use super::{SymbolIndex, SymbolKind, find_symbol, get_symbols_overview};
+use super::{find_symbol, get_symbols_overview, SymbolIndex, SymbolKind};
 use crate::ProjectRoot;
 use std::fs;
 
@@ -20,13 +20,11 @@ fn finds_typescript_symbol_with_body() {
     let matches = find_symbol(&project, "fetchUser", None, true, true, 10).expect("find symbol");
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].kind, SymbolKind::Function);
-    assert!(
-        matches[0]
-            .body
-            .as_ref()
-            .expect("body")
-            .contains("return userId")
-    );
+    assert!(matches[0]
+        .body
+        .as_ref()
+        .expect("body")
+        .contains("return userId"));
 }
 
 #[test]
@@ -50,13 +48,11 @@ fn index_refreshes_after_file_change() {
         .find_symbol("loadUser", None, true, true, 10)
         .expect("refreshed symbol lookup");
     assert_eq!(refreshed.len(), 1);
-    assert!(
-        refreshed[0]
-            .body
-            .as_ref()
-            .expect("body")
-            .contains("loadUser")
-    );
+    assert!(refreshed[0]
+        .body
+        .as_ref()
+        .expect("body")
+        .contains("loadUser"));
 }
 
 #[test]
@@ -97,13 +93,11 @@ fn ranked_context_prefers_exact_matches_and_respects_budget() {
     assert!(!ranked.symbols.is_empty());
     assert_eq!(ranked.symbols[0].name, "fetchUser");
     assert_eq!(ranked.symbols[0].relevance_score, 100);
-    assert!(
-        ranked.symbols[0]
-            .body
-            .as_ref()
-            .expect("body")
-            .contains("fetchUser")
-    );
+    assert!(ranked.symbols[0]
+        .body
+        .as_ref()
+        .expect("body")
+        .contains("fetchUser"));
     assert!(ranked.chars_used <= ranked.token_budget * 4);
 }
 
@@ -377,7 +371,7 @@ fn extracts_dart_symbols() {
 #[test]
 fn prune_to_budget_respects_char_limit() {
     use super::ranking::prune_to_budget;
-    use super::types::SymbolInfo;
+    use super::types::{SymbolInfo, SymbolProvenance};
 
     let symbols: Vec<(SymbolInfo, i32)> = (0..20)
         .map(|i| {
@@ -395,6 +389,7 @@ fn prune_to_budget_respects_char_limit() {
                     children: Vec::new(),
                     start_byte: 0,
                     end_byte: 0,
+                provenance: SymbolProvenance::default(),
                 },
                 100 - i as i32,
             )
@@ -412,7 +407,7 @@ fn prune_to_budget_respects_char_limit() {
 #[test]
 fn prune_to_budget_includes_first_even_if_oversized() {
     use super::ranking::prune_to_budget;
-    use super::types::SymbolInfo;
+    use super::types::{SymbolInfo, SymbolProvenance};
 
     let symbols = vec![(
         SymbolInfo {
@@ -428,6 +423,7 @@ fn prune_to_budget_includes_first_even_if_oversized() {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+                provenance: SymbolProvenance::default(),
         },
         100,
     )];
@@ -443,8 +439,8 @@ fn prune_to_budget_includes_first_even_if_oversized() {
 
 #[test]
 fn rank_symbols_returns_full_scored_list() {
-    use super::ranking::{RankingContext, rank_symbols};
-    use super::types::SymbolInfo;
+    use super::ranking::{rank_symbols, RankingContext};
+    use super::types::{SymbolInfo, SymbolProvenance};
 
     let symbols: Vec<SymbolInfo> = ["alpha", "beta_alpha", "gamma"]
         .iter()
@@ -461,6 +457,7 @@ fn rank_symbols_returns_full_scored_list() {
             children: Vec::new(),
             start_byte: 0,
             end_byte: 0,
+                provenance: SymbolProvenance::default(),
         })
         .collect();
 
@@ -475,8 +472,8 @@ fn rank_symbols_returns_full_scored_list() {
 
 #[test]
 fn score_and_rank_empty_query() {
-    use super::ranking::{RankingContext, rank_symbols};
-    use super::types::SymbolInfo;
+    use super::ranking::{rank_symbols, RankingContext};
+    use super::types::{SymbolInfo, SymbolProvenance};
 
     let symbols = vec![SymbolInfo {
         name: "anything".into(),
@@ -491,6 +488,7 @@ fn score_and_rank_empty_query() {
         children: Vec::new(),
         start_byte: 0,
         end_byte: 0,
+                provenance: SymbolProvenance::default(),
     }];
 
     let ctx = RankingContext::text_only();

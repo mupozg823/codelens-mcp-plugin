@@ -1,6 +1,70 @@
 use crate::db::IndexDb;
 use serde::{Deserialize, Serialize};
 
+/// Structural ownership category derived from file path.
+/// Used by the ranker to disambiguate same-name symbols across
+/// crate boundaries without hardcoding specific symbol names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SymbolProvenance {
+    /// Core engine implementation (codelens-engine/src/)
+    #[default]
+    EngineCore,
+    /// MCP tool handler (codelens-mcp/src/tools/)
+    McpTool,
+    /// MCP dispatch/protocol layer (codelens-mcp/src/dispatch/, protocol.rs)
+    McpInfra,
+    /// TUI surface layer (codelens-tui/src/)
+    TuiSurface,
+    /// Test code (**/tests/, *_tests.rs)
+    Test,
+    /// Benchmark/script code (benchmarks/, scripts/)
+    Benchmark,
+}
+
+impl SymbolProvenance {
+    /// Derive provenance from a relative file path.
+    pub fn from_path(path: &str) -> Self {
+        if path.contains("/tests/")
+            || path.contains("/tests.")
+            || path.ends_with("_tests.rs")
+            || path.contains("/integration_tests/")
+        {
+            return Self::Test;
+        }
+        if path.starts_with("benchmarks/")
+            || path.starts_with("scripts/")
+            || path.starts_with("models/")
+        {
+            return Self::Benchmark;
+        }
+        if path.contains("codelens-tui/") {
+            return Self::TuiSurface;
+        }
+        if path.contains("codelens-mcp/src/tools/") {
+            return Self::McpTool;
+        }
+        if path.contains("codelens-mcp/") {
+            return Self::McpInfra;
+        }
+        // Default: engine core or any other source
+        Self::EngineCore
+    }
+
+    /// Ranking penalty/boost for "implementation" queries.
+    /// Positive = prefer, negative = demote.
+    pub fn impl_query_prior(self) -> f64 {
+        match self {
+            Self::EngineCore => 6.0,
+            Self::McpTool => -4.0,
+            Self::McpInfra => -2.0,
+            Self::TuiSurface => -8.0,
+            Self::Test => -12.0,
+            Self::Benchmark => -14.0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum SymbolKind {
@@ -60,6 +124,10 @@ pub struct SymbolInfo {
     pub signature: String,
     pub name_path: String,
     pub id: String,
+    /// Structural ownership derived from file path. Not stored in DB —
+    /// computed on construction. Used by ranker for disambiguation.
+    #[serde(skip)]
+    pub provenance: SymbolProvenance,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub body: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
