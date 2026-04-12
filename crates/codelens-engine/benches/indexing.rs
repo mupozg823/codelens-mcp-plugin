@@ -1,8 +1,8 @@
 use codelens_engine::{
-    GraphCache, ProjectRoot, SymbolIndex, content_hash, find_circular_dependencies,
-    get_blast_radius, get_callers, get_symbols_overview, search_for_pattern, search_symbols_hybrid,
+    content_hash, find_circular_dependencies, get_blast_radius, get_callers, get_symbols_overview,
+    search_for_pattern, search_symbols_hybrid, GraphCache, ProjectRoot, SymbolIndex,
 };
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::fs;
 
 /// Create a realistic multi-language fixture project for benchmarking.
@@ -331,6 +331,73 @@ fn bench_content_hash(c: &mut Criterion) {
     });
 }
 
+/// Create a stress fixture with many symbols to exercise the scoring loop.
+/// 20 files × ~4 symbols each ≈ 80 indexed symbols.
+fn create_scoring_stress_fixture() -> (tempfile::TempDir, ProjectRoot) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let root = dir.path();
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    for i in 0..20 {
+        let content = format!(
+            r#"
+pub struct Widget{i} {{
+    pub name: String,
+    pub value: i32,
+}}
+
+impl Widget{i} {{
+    pub fn new(name: &str, value: i32) -> Self {{
+        Self {{ name: name.to_owned(), value }}
+    }}
+
+    pub fn process_data(&self) -> i32 {{
+        self.value * 2
+    }}
+
+    pub fn validate_input(&self) -> bool {{
+        !self.name.is_empty() && self.value > 0
+    }}
+}}
+"#,
+            i = i
+        );
+        fs::write(root.join(format!("src/widget_{i}.rs")), content).unwrap();
+    }
+
+    // Add a mod.rs to tie them together
+    let mods: String = (0..20).map(|i| format!("pub mod widget_{i};\n")).collect();
+    fs::write(root.join("src/lib.rs"), mods).unwrap();
+
+    let project = ProjectRoot::new(root).expect("project");
+    (dir, project)
+}
+
+fn bench_scoring_stress_nl(c: &mut Criterion) {
+    let (_dir, project) = create_scoring_stress_fixture();
+    let index = SymbolIndex::new_memory(project.clone());
+    index.refresh_all().unwrap();
+
+    c.bench_function("search_hybrid_stress (NL, 200 syms)", |b| {
+        b.iter(|| {
+            search_symbols_hybrid(black_box(&project), "process data from widget", 20, 0.6)
+                .unwrap();
+        })
+    });
+}
+
+fn bench_scoring_stress_identifier(c: &mut Criterion) {
+    let (_dir, project) = create_scoring_stress_fixture();
+    let index = SymbolIndex::new_memory(project.clone());
+    index.refresh_all().unwrap();
+
+    c.bench_function("search_hybrid_stress (ident, 200 syms)", |b| {
+        b.iter(|| {
+            search_symbols_hybrid(black_box(&project), "validate_input", 20, 0.6).unwrap();
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_refresh_all,
@@ -343,5 +410,7 @@ criterion_group!(
     bench_get_callers,
     bench_circular_deps,
     bench_content_hash,
+    bench_scoring_stress_nl,
+    bench_scoring_stress_identifier,
 );
 criterion_main!(benches);
