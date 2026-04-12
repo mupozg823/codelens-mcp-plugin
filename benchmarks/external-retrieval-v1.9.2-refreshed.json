@@ -31,9 +31,12 @@
       "path": "/Users/bagjaeseog/Downloads/claudex/claw-dev",
       "path_exists": true,
       "query_count": 12,
-      "indexed_symbols": 97,
-      "index_elapsed_ms": 2051.28,
-      "isolated_project": null
+      "indexed_symbols": 413,
+      "index_elapsed_ms": 2147.29,
+      "isolated_project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-external-retrieval-ee5ve8sz/claw-dev",
+      "ignore_paths": [
+        "Leonxlnx-claude-code"
+      ]
     },
     {
       "repo_id": "rg-family-clone",
@@ -41,44 +44,45 @@
       "path": "/Users/bagjaeseog/Projects/rg-family-clone",
       "path_exists": true,
       "query_count": 12,
-      "indexed_symbols": 391,
-      "index_elapsed_ms": 3759.17,
-      "isolated_project": null
+      "indexed_symbols": 4885,
+      "index_elapsed_ms": 28394.9,
+      "isolated_project": null,
+      "ignore_paths": []
     }
   ],
   "methods": [
     {
-      "mrr": 0.2791666666666667,
-      "acc1": 0.25,
-      "acc3": 0.2916666666666667,
-      "acc5": 0.3333333333333333,
-      "avg_elapsed_ms": 1194.0295833333332,
+      "mrr": 0.4628472222222222,
+      "acc1": 0.3333333333333333,
+      "acc3": 0.5416666666666666,
+      "acc5": 0.6666666666666666,
+      "avg_elapsed_ms": 155.17249999999999,
       "by_query_type": {
         "natural_language": {
           "count": 16,
-          "mrr": 0.16875,
-          "acc1": 0.125,
-          "acc3": 0.1875,
-          "acc5": 0.25,
-          "avg_elapsed_ms": 1335.366875
+          "mrr": 0.30364583333333334,
+          "acc1": 0.1875,
+          "acc3": 0.375,
+          "acc5": 0.5,
+          "avg_elapsed_ms": 155.040625
         },
         "short_phrase": {
           "count": 8,
-          "mrr": 0.5,
-          "acc1": 0.5,
-          "acc3": 0.5,
-          "acc5": 0.5,
-          "avg_elapsed_ms": 911.355
+          "mrr": 0.78125,
+          "acc1": 0.625,
+          "acc3": 0.875,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 155.43625
         }
       },
       "by_repo": {
         "claw-dev": {
           "count": 12,
-          "mrr": 0.0,
-          "acc1": 0.0,
-          "acc3": 0.0,
-          "acc5": 0.0,
-          "avg_elapsed_ms": 2213.798333333333
+          "mrr": 0.3673611111111111,
+          "acc1": 0.16666666666666666,
+          "acc3": 0.5,
+          "acc5": 0.6666666666666666,
+          "avg_elapsed_ms": 127.29583333333333
         },
         "rg-family-clone": {
           "count": 12,
@@ -86,7 +90,7 @@
           "acc1": 0.5,
           "acc3": 0.5833333333333334,
           "acc5": 0.6666666666666666,
-          "avg_elapsed_ms": 174.26083333333335
+          "avg_elapsed_ms": 183.04916666666668
         }
       },
       "rows": [
@@ -97,12 +101,12 @@
           "query_type": "short_phrase",
           "expected_symbol": "CodingAgent",
           "expected_file_suffix": "src/agent.ts",
-          "rank": null,
-          "elapsed_ms": 1699.21,
+          "rank": 2,
+          "elapsed_ms": 137.14,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "code",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "agent",
+            "file": "src/index.ts"
           }
         },
         {
@@ -112,12 +116,12 @@
           "query_type": "short_phrase",
           "expected_symbol": "AnthropicProvider",
           "expected_file_suffix": "src/providers.ts",
-          "rank": null,
-          "elapsed_ms": 1507.24,
+          "rank": 2,
+          "elapsed_ms": 123.26,
           "candidate_count": 10,
           "top_candidate": {
             "name": "provider",
-            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+            "file": "src/index.ts"
           }
         },
         {
@@ -127,11 +131,11 @@
           "query_type": "short_phrase",
           "expected_symbol": "GeminiProvider",
           "expected_file_suffix": "src/providers.ts",
-          "rank": null,
-          "elapsed_ms": 1483.1,
+          "rank": 1,
+          "elapsed_ms": 125.51,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "clear",
+            "name": "GeminiProvider",
             "file": "src/providers.ts"
           }
         },
@@ -143,11 +147,11 @@
           "expected_symbol": "toolDefinitions",
           "expected_file_suffix": "src/tools.ts",
           "rank": null,
-          "elapsed_ms": 2933.77,
+          "elapsed_ms": 133.48,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "renderToolActivity",
-            "file": "Leonxlnx-claude-code/src/components/tasks/renderToolActivity.tsx"
+            "name": "ToolDefinition",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -157,12 +161,12 @@
           "query_type": "natural_language",
           "expected_symbol": "toolHandlers",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 3289.49,
+          "rank": 2,
+          "elapsed_ms": 134.74,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "ToolSelector",
-            "file": "Leonxlnx-claude-code/src/components/agents/ToolSelector.tsx"
+            "name": "ToolHandler",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -172,12 +176,12 @@
           "query_type": "natural_language",
           "expected_symbol": "startRepl",
           "expected_file_suffix": "src/cli.tsx",
-          "rank": null,
-          "elapsed_ms": 2165.22,
+          "rank": 3,
+          "elapsed_ms": 120.56,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "start",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "p",
+            "file": "index.html"
           }
         },
         {
@@ -188,11 +192,11 @@
           "expected_symbol": "listFiles",
           "expected_file_suffix": "src/tools.ts",
           "rank": null,
-          "elapsed_ms": 2159.19,
+          "elapsed_ms": 119.49,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "list",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "searchText",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -202,12 +206,12 @@
           "query_type": "natural_language",
           "expected_symbol": "searchText",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 2132.04,
+          "rank": 5,
+          "elapsed_ms": 118.63,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "send",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "sseText",
+            "file": "src/anthropicCompatProxy.ts"
           }
         },
         {
@@ -218,11 +222,11 @@
           "expected_symbol": "runShell",
           "expected_file_suffix": "src/tools.ts",
           "rank": null,
-          "elapsed_ms": 2210.69,
+          "elapsed_ms": 119.82,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "workspaceRoot",
-            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+            "name": "readFile",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -232,12 +236,12 @@
           "query_type": "natural_language",
           "expected_symbol": "resolveOpenAIAuth",
           "expected_file_suffix": "shared/openaiAuth.js",
-          "rank": null,
-          "elapsed_ms": 2474.31,
+          "rank": 8,
+          "elapsed_ms": 132.44,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "reset",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "OPENAI_AUTH",
+            "file": "src/anthropicCompatProxy.ts"
           }
         },
         {
@@ -247,12 +251,12 @@
           "query_type": "natural_language",
           "expected_symbol": "formatOpenAIAuthHint",
           "expected_file_suffix": "shared/openaiAuth.js",
-          "rank": null,
-          "elapsed_ms": 2709.25,
+          "rank": 1,
+          "elapsed_ms": 132.95,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "format",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "formatOpenAIAuthHint",
+            "file": "shared/openaiAuth.js"
           }
         },
         {
@@ -262,12 +266,12 @@
           "query_type": "short_phrase",
           "expected_symbol": "resolveCompatPortAssignment",
           "expected_file_suffix": "shared/compatProxyPort.js",
-          "rank": null,
-          "elapsed_ms": 1802.07,
+          "rank": 4,
+          "elapsed_ms": 129.53,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "XRz",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "compactTools",
+            "file": "src/anthropicCompatProxy.ts"
           }
         },
         {
@@ -278,7 +282,7 @@
           "expected_symbol": "RootLayout",
           "expected_file_suffix": "src/app/layout.tsx",
           "rank": 1,
-          "elapsed_ms": 321.04,
+          "elapsed_ms": 198.65,
           "candidate_count": 10,
           "top_candidate": {
             "name": "RootLayout",
@@ -293,7 +297,7 @@
           "expected_symbol": "AuthLayout",
           "expected_file_suffix": "src/app/(auth)/layout.tsx",
           "rank": 1,
-          "elapsed_ms": 162.98,
+          "elapsed_ms": 188.19,
           "candidate_count": 10,
           "top_candidate": {
             "name": "AuthLayout",
@@ -308,7 +312,7 @@
           "expected_symbol": "Providers",
           "expected_file_suffix": "src/components/Providers.tsx",
           "rank": null,
-          "elapsed_ms": 183.29,
+          "elapsed_ms": 209.33,
           "candidate_count": 10,
           "top_candidate": {
             "name": "TableHeader",
@@ -323,10 +327,10 @@
           "expected_symbol": "cn",
           "expected_file_suffix": "src/lib/utils.ts",
           "rank": null,
-          "elapsed_ms": 116.0,
+          "elapsed_ms": 133.27,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "SheetFooter",
+            "name": "SheetHeader",
             "file": "src/components/ui/sheet.tsx"
           }
         },
@@ -338,7 +342,7 @@
           "expected_symbol": "LoginPage",
           "expected_file_suffix": "src/app/(auth)/login/page.tsx",
           "rank": 1,
-          "elapsed_ms": 151.8,
+          "elapsed_ms": 171.55,
           "candidate_count": 10,
           "top_candidate": {
             "name": "LoginPage",
@@ -353,7 +357,7 @@
           "expected_symbol": "LoginForm",
           "expected_file_suffix": "src/app/(auth)/login/page.tsx",
           "rank": 1,
-          "elapsed_ms": 154.25,
+          "elapsed_ms": 172.93,
           "candidate_count": 10,
           "top_candidate": {
             "name": "LoginForm",
@@ -368,7 +372,7 @@
           "expected_symbol": "RegisterPage",
           "expected_file_suffix": "src/app/(auth)/register/page.tsx",
           "rank": 1,
-          "elapsed_ms": 153.7,
+          "elapsed_ms": 176.92,
           "candidate_count": 10,
           "top_candidate": {
             "name": "RegisterPage",
@@ -383,7 +387,7 @@
           "expected_symbol": "PostForm",
           "expected_file_suffix": "src/components/community/PostForm.tsx",
           "rank": 5,
-          "elapsed_ms": 162.08,
+          "elapsed_ms": 184.85,
           "candidate_count": 10,
           "top_candidate": {
             "name": "formatDuration",
@@ -398,11 +402,11 @@
           "expected_symbol": "PostDetail",
           "expected_file_suffix": "src/components/community/PostDetail.tsx",
           "rank": null,
-          "elapsed_ms": 176.34,
+          "elapsed_ms": 201.54,
           "candidate_count": 10,
           "top_candidate": {
-            "name": "peerDependencies",
-            "file": "pnpm-lock.yaml"
+            "name": "POST",
+            "file": "src/app/api/comments/route.ts"
           }
         },
         {
@@ -413,7 +417,7 @@
           "expected_symbol": "PostList",
           "expected_file_suffix": "src/components/community/PostList.tsx",
           "rank": 2,
-          "elapsed_ms": 167.96,
+          "elapsed_ms": 187.9,
           "candidate_count": 10,
           "top_candidate": {
             "name": "PostFormData",
@@ -428,7 +432,7 @@
           "expected_symbol": "MemberCard",
           "expected_file_suffix": "src/components/member/MemberCard.tsx",
           "rank": 1,
-          "elapsed_ms": 172.13,
+          "elapsed_ms": 184.92,
           "candidate_count": 10,
           "top_candidate": {
             "name": "MemberCard",
@@ -443,7 +447,7 @@
           "expected_symbol": "prisma",
           "expected_file_suffix": "src/lib/prisma.ts",
           "rank": null,
-          "elapsed_ms": 169.56,
+          "elapsed_ms": 186.54,
           "candidate_count": 10,
           "top_candidate": {
             "name": "sharp",
@@ -454,45 +458,45 @@
       "method": "semantic_search"
     },
     {
-      "mrr": 0.5041666666666667,
-      "acc1": 0.4166666666666667,
-      "acc3": 0.5416666666666666,
-      "acc5": 0.6666666666666666,
-      "avg_elapsed_ms": 253.17166666666665,
+      "mrr": 0.7527777777777778,
+      "acc1": 0.625,
+      "acc3": 0.8333333333333334,
+      "acc5": 0.9166666666666666,
+      "avg_elapsed_ms": 124.69749999999999,
       "by_query_type": {
         "natural_language": {
           "count": 16,
-          "mrr": 0.37604166666666666,
-          "acc1": 0.3125,
-          "acc3": 0.375,
-          "acc5": 0.5,
-          "avg_elapsed_ms": 261.27375
+          "mrr": 0.7229166666666667,
+          "acc1": 0.625,
+          "acc3": 0.75,
+          "acc5": 0.875,
+          "avg_elapsed_ms": 125.02625
         },
         "short_phrase": {
           "count": 8,
-          "mrr": 0.7604166666666666,
+          "mrr": 0.8125,
           "acc1": 0.625,
-          "acc3": 0.875,
+          "acc3": 1.0,
           "acc5": 1.0,
-          "avg_elapsed_ms": 236.9675
+          "avg_elapsed_ms": 124.04
         }
       },
       "by_repo": {
         "claw-dev": {
           "count": 12,
-          "mrr": 0.19999999999999998,
-          "acc1": 0.08333333333333333,
-          "acc3": 0.25,
-          "acc5": 0.4166666666666667,
-          "avg_elapsed_ms": 384.90000000000003
+          "mrr": 0.725,
+          "acc1": 0.5,
+          "acc3": 0.9166666666666666,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 119.52166666666666
         },
         "rg-family-clone": {
           "count": 12,
-          "mrr": 0.8083333333333332,
+          "mrr": 0.7805555555555556,
           "acc1": 0.75,
-          "acc3": 0.8333333333333334,
-          "acc5": 0.9166666666666666,
-          "avg_elapsed_ms": 121.44333333333333
+          "acc3": 0.75,
+          "acc5": 0.8333333333333334,
+          "avg_elapsed_ms": 129.87333333333333
         }
       },
       "rows": [
@@ -504,11 +508,11 @@
           "expected_symbol": "CodingAgent",
           "expected_file_suffix": "src/agent.ts",
           "rank": 2,
-          "elapsed_ms": 345.24,
-          "candidate_count": 25,
+          "elapsed_ms": 116.13,
+          "candidate_count": 7,
           "top_candidate": {
-            "name": "N",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "agent",
+            "file": "src/index.ts"
           }
         },
         {
@@ -518,12 +522,12 @@
           "query_type": "short_phrase",
           "expected_symbol": "AnthropicProvider",
           "expected_file_suffix": "src/providers.ts",
-          "rank": 3,
-          "elapsed_ms": 370.87,
+          "rank": 2,
+          "elapsed_ms": 119.8,
           "candidate_count": 26,
           "top_candidate": {
-            "name": "providerArg",
-            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+            "name": "provider",
+            "file": "src/index.ts"
           }
         },
         {
@@ -534,8 +538,8 @@
           "expected_symbol": "GeminiProvider",
           "expected_file_suffix": "src/providers.ts",
           "rank": 1,
-          "elapsed_ms": 341.03,
-          "candidate_count": 25,
+          "elapsed_ms": 119.79,
+          "candidate_count": 27,
           "top_candidate": {
             "name": "GeminiProvider",
             "file": "src/providers.ts"
@@ -548,12 +552,12 @@
           "query_type": "natural_language",
           "expected_symbol": "toolDefinitions",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 442.95,
-          "candidate_count": 25,
+          "rank": 5,
+          "elapsed_ms": 119.61,
+          "candidate_count": 28,
           "top_candidate": {
-            "name": "getUserAgent",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "ToolDefinition",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -563,12 +567,12 @@
           "query_type": "natural_language",
           "expected_symbol": "toolHandlers",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 468.62,
-          "candidate_count": 23,
+          "rank": 2,
+          "elapsed_ms": 121.98,
+          "candidate_count": 28,
           "top_candidate": {
-            "name": "handleToolResult",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "ToolHandler",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -578,12 +582,12 @@
           "query_type": "natural_language",
           "expected_symbol": "startRepl",
           "expected_file_suffix": "src/cli.tsx",
-          "rank": null,
-          "elapsed_ms": 385.67,
-          "candidate_count": 20,
+          "rank": 1,
+          "elapsed_ms": 117.92,
+          "candidate_count": 7,
           "top_candidate": {
-            "name": "repoRoot",
-            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+            "name": "startRepl",
+            "file": "src/cli.tsx"
           }
         },
         {
@@ -593,12 +597,12 @@
           "query_type": "natural_language",
           "expected_symbol": "listFiles",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 373.42,
-          "candidate_count": 21,
+          "rank": 1,
+          "elapsed_ms": 118.5,
+          "candidate_count": 3,
           "top_candidate": {
-            "name": "getSafeWorkingDir",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "listFiles",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -608,12 +612,12 @@
           "query_type": "natural_language",
           "expected_symbol": "searchText",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 375.47,
-          "candidate_count": 23,
+          "rank": 1,
+          "elapsed_ms": 117.81,
+          "candidate_count": 11,
           "top_candidate": {
-            "name": "K",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "searchText",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -623,12 +627,12 @@
           "query_type": "natural_language",
           "expected_symbol": "runShell",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 374.71,
-          "candidate_count": 27,
+          "rank": 1,
+          "elapsed_ms": 120.7,
+          "candidate_count": 3,
           "top_candidate": {
-            "name": "workspaceRoot",
-            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+            "name": "runShell",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -638,12 +642,12 @@
           "query_type": "natural_language",
           "expected_symbol": "resolveOpenAIAuth",
           "expected_file_suffix": "shared/openaiAuth.js",
-          "rank": 15,
-          "elapsed_ms": 394.34,
-          "candidate_count": 29,
+          "rank": 2,
+          "elapsed_ms": 121.77,
+          "candidate_count": 25,
           "top_candidate": {
-            "name": "resolveOpenAIAuthForLauncher",
-            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+            "name": "OPENAI_AUTH",
+            "file": "src/anthropicCompatProxy.ts"
           }
         },
         {
@@ -653,12 +657,12 @@
           "query_type": "natural_language",
           "expected_symbol": "formatOpenAIAuthHint",
           "expected_file_suffix": "shared/openaiAuth.js",
-          "rank": 4,
-          "elapsed_ms": 389.61,
-          "candidate_count": 25,
+          "rank": 1,
+          "elapsed_ms": 121.62,
+          "candidate_count": 26,
           "top_candidate": {
-            "name": "auth",
-            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+            "name": "formatOpenAIAuthHint",
+            "file": "shared/openaiAuth.js"
           }
         },
         {
@@ -668,12 +672,12 @@
           "query_type": "short_phrase",
           "expected_symbol": "resolveCompatPortAssignment",
           "expected_file_suffix": "shared/compatProxyPort.js",
-          "rank": 4,
-          "elapsed_ms": 356.87,
+          "rank": 2,
+          "elapsed_ms": 118.63,
           "candidate_count": 26,
           "top_candidate": {
-            "name": "proxyPort",
-            "file": "Leonxlnx-claude-code/claw-dev-launcher.js"
+            "name": "PORT",
+            "file": "src/anthropicCompatProxy.ts"
           }
         },
         {
@@ -684,7 +688,7 @@
           "expected_symbol": "RootLayout",
           "expected_file_suffix": "src/app/layout.tsx",
           "rank": 1,
-          "elapsed_ms": 122.1,
+          "elapsed_ms": 129.3,
           "candidate_count": 30,
           "top_candidate": {
             "name": "RootLayout",
@@ -699,8 +703,8 @@
           "expected_symbol": "AuthLayout",
           "expected_file_suffix": "src/app/(auth)/layout.tsx",
           "rank": 1,
-          "elapsed_ms": 124.0,
-          "candidate_count": 31,
+          "elapsed_ms": 127.38,
+          "candidate_count": 32,
           "top_candidate": {
             "name": "AuthLayout",
             "file": "src/app/(auth)/layout.tsx"
@@ -714,7 +718,7 @@
           "expected_symbol": "Providers",
           "expected_file_suffix": "src/components/Providers.tsx",
           "rank": 1,
-          "elapsed_ms": 126.61,
+          "elapsed_ms": 134.48,
           "candidate_count": 32,
           "top_candidate": {
             "name": "Providers",
@@ -729,11 +733,11 @@
           "expected_symbol": "cn",
           "expected_file_suffix": "src/lib/utils.ts",
           "rank": null,
-          "elapsed_ms": 126.07,
+          "elapsed_ms": 132.97,
           "candidate_count": 23,
           "top_candidate": {
-            "name": "defaultClassNames",
-            "file": "src/components/ui/calendar.tsx"
+            "name": "merge2@1.4.1",
+            "file": "pnpm-lock.yaml"
           }
         },
         {
@@ -744,7 +748,7 @@
           "expected_symbol": "LoginPage",
           "expected_file_suffix": "src/app/(auth)/login/page.tsx",
           "rank": 1,
-          "elapsed_ms": 123.28,
+          "elapsed_ms": 128.1,
           "candidate_count": 28,
           "top_candidate": {
             "name": "LoginPage",
@@ -759,7 +763,7 @@
           "expected_symbol": "LoginForm",
           "expected_file_suffix": "src/app/(auth)/login/page.tsx",
           "rank": 1,
-          "elapsed_ms": 120.56,
+          "elapsed_ms": 127.36,
           "candidate_count": 28,
           "top_candidate": {
             "name": "LoginForm",
@@ -774,7 +778,7 @@
           "expected_symbol": "RegisterPage",
           "expected_file_suffix": "src/app/(auth)/register/page.tsx",
           "rank": 1,
-          "elapsed_ms": 119.66,
+          "elapsed_ms": 127.63,
           "candidate_count": 28,
           "top_candidate": {
             "name": "RegisterPage",
@@ -789,7 +793,7 @@
           "expected_symbol": "PostForm",
           "expected_file_suffix": "src/components/community/PostForm.tsx",
           "rank": 5,
-          "elapsed_ms": 126.04,
+          "elapsed_ms": 128.22,
           "candidate_count": 28,
           "top_candidate": {
             "name": "EditPostPage",
@@ -804,7 +808,7 @@
           "expected_symbol": "PostDetail",
           "expected_file_suffix": "src/components/community/PostDetail.tsx",
           "rank": 1,
-          "elapsed_ms": 121.36,
+          "elapsed_ms": 129.47,
           "candidate_count": 28,
           "top_candidate": {
             "name": "PostDetail",
@@ -819,7 +823,7 @@
           "expected_symbol": "PostList",
           "expected_file_suffix": "src/components/community/PostList.tsx",
           "rank": 1,
-          "elapsed_ms": 118.59,
+          "elapsed_ms": 128.93,
           "candidate_count": 28,
           "top_candidate": {
             "name": "PostList",
@@ -834,7 +838,7 @@
           "expected_symbol": "MemberCard",
           "expected_file_suffix": "src/components/member/MemberCard.tsx",
           "rank": 1,
-          "elapsed_ms": 115.79,
+          "elapsed_ms": 133.21,
           "candidate_count": 27,
           "top_candidate": {
             "name": "MemberCard",
@@ -848,31 +852,31 @@
           "query_type": "natural_language",
           "expected_symbol": "prisma",
           "expected_file_suffix": "src/lib/prisma.ts",
-          "rank": 2,
-          "elapsed_ms": 113.26,
+          "rank": 6,
+          "elapsed_ms": 131.43,
           "candidate_count": 29,
           "top_candidate": {
-            "name": "globalForPrisma",
-            "file": "src/lib/prisma.ts"
+            "name": "'@prisma/client'",
+            "file": "pnpm-lock.yaml"
           }
         }
       ],
       "method": "get_ranked_context"
     },
     {
-      "mrr": 0.43421183607542635,
-      "acc1": 0.3333333333333333,
-      "acc3": 0.5416666666666666,
-      "acc5": 0.5416666666666666,
-      "avg_elapsed_ms": 166.10208333333333,
+      "mrr": 0.5965382249643152,
+      "acc1": 0.4583333333333333,
+      "acc3": 0.75,
+      "acc5": 0.75,
+      "avg_elapsed_ms": 18.817916666666665,
       "by_query_type": {
         "natural_language": {
           "count": 16,
-          "mrr": 0.26624830966869506,
-          "acc1": 0.125,
-          "acc3": 0.4375,
-          "acc5": 0.4375,
-          "avg_elapsed_ms": 174.02
+          "mrr": 0.5097378930020284,
+          "acc1": 0.3125,
+          "acc3": 0.75,
+          "acc5": 0.75,
+          "avg_elapsed_ms": 19.119375
         },
         "short_phrase": {
           "count": 8,
@@ -880,17 +884,17 @@
           "acc1": 0.75,
           "acc3": 0.75,
           "acc5": 0.75,
-          "avg_elapsed_ms": 150.26624999999999
+          "avg_elapsed_ms": 18.215
         }
       },
       "by_repo": {
         "claw-dev": {
           "count": 12,
-          "mrr": 0.4166666666666667,
-          "acc1": 0.3333333333333333,
-          "acc3": 0.5,
-          "acc5": 0.5,
-          "avg_elapsed_ms": 307.4325
+          "mrr": 0.7413194444444445,
+          "acc1": 0.5833333333333334,
+          "acc3": 0.9166666666666666,
+          "acc5": 0.9166666666666666,
+          "avg_elapsed_ms": 14.9525
         },
         "rg-family-clone": {
           "count": 12,
@@ -898,7 +902,7 @@
           "acc1": 0.3333333333333333,
           "acc3": 0.5833333333333334,
           "acc5": 0.5833333333333334,
-          "avg_elapsed_ms": 24.771666666666665
+          "avg_elapsed_ms": 22.683333333333334
         }
       },
       "rows": [
@@ -910,8 +914,8 @@
           "expected_symbol": "CodingAgent",
           "expected_file_suffix": "src/agent.ts",
           "rank": 1,
-          "elapsed_ms": 336.94,
-          "candidate_count": 24,
+          "elapsed_ms": 13.01,
+          "candidate_count": 7,
           "top_candidate": {
             "name": "CodingAgent",
             "file": "src/agent.ts"
@@ -925,7 +929,7 @@
           "expected_symbol": "AnthropicProvider",
           "expected_file_suffix": "src/providers.ts",
           "rank": 1,
-          "elapsed_ms": 238.32,
+          "elapsed_ms": 15.13,
           "candidate_count": 25,
           "top_candidate": {
             "name": "AnthropicProvider",
@@ -940,8 +944,8 @@
           "expected_symbol": "GeminiProvider",
           "expected_file_suffix": "src/providers.ts",
           "rank": 1,
-          "elapsed_ms": 226.29,
-          "candidate_count": 25,
+          "elapsed_ms": 14.72,
+          "candidate_count": 26,
           "top_candidate": {
             "name": "GeminiProvider",
             "file": "src/providers.ts"
@@ -954,12 +958,12 @@
           "query_type": "natural_language",
           "expected_symbol": "toolDefinitions",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 352.11,
-          "candidate_count": 21,
+          "rank": 16,
+          "elapsed_ms": 15.82,
+          "candidate_count": 26,
           "top_candidate": {
-            "name": "_for",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "formatOpenAIAuthHint",
+            "file": "shared/openaiAuth.js"
           }
         },
         {
@@ -969,12 +973,12 @@
           "query_type": "natural_language",
           "expected_symbol": "toolHandlers",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 366.35,
-          "candidate_count": 20,
+          "rank": 3,
+          "elapsed_ms": 15.53,
+          "candidate_count": 27,
           "top_candidate": {
-            "name": "executeTool",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "printTools",
+            "file": "src/index.ts"
           }
         },
         {
@@ -984,12 +988,12 @@
           "query_type": "natural_language",
           "expected_symbol": "startRepl",
           "expected_file_suffix": "src/cli.tsx",
-          "rank": null,
-          "elapsed_ms": 291.2,
-          "candidate_count": 21,
+          "rank": 1,
+          "elapsed_ms": 14.2,
+          "candidate_count": 7,
           "top_candidate": {
-            "name": "migrateReplBridgeEnabledToRemoteControlAtStartup",
-            "file": "Leonxlnx-claude-code/src/migrations/migrateReplBridgeEnabledToRemoteControlAtStartup.ts"
+            "name": "startRepl",
+            "file": "src/cli.tsx"
           }
         },
         {
@@ -999,12 +1003,12 @@
           "query_type": "natural_language",
           "expected_symbol": "listFiles",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 274.89,
-          "candidate_count": 24,
+          "rank": 1,
+          "elapsed_ms": 13.59,
+          "candidate_count": 3,
           "top_candidate": {
-            "name": "themeSetting",
-            "file": "Leonxlnx-claude-code/src/components/ThemePicker.tsx"
+            "name": "listFiles",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -1014,12 +1018,12 @@
           "query_type": "natural_language",
           "expected_symbol": "searchText",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 287.18,
-          "candidate_count": 22,
+          "rank": 1,
+          "elapsed_ms": 13.93,
+          "candidate_count": 11,
           "top_candidate": {
-            "name": "text",
-            "file": "Leonxlnx-claude-code/package/cli.js"
+            "name": "searchText",
+            "file": "src/tools.ts"
           }
         },
         {
@@ -1029,12 +1033,12 @@
           "query_type": "natural_language",
           "expected_symbol": "runShell",
           "expected_file_suffix": "src/tools.ts",
-          "rank": null,
-          "elapsed_ms": 293.34,
-          "candidate_count": 23,
+          "rank": 2,
+          "elapsed_ms": 15.54,
+          "candidate_count": 3,
           "top_candidate": {
-            "name": "ThemePickerCommand",
-            "file": "Leonxlnx-claude-code/src/commands/theme/theme.tsx"
+            "name": "printHelp",
+            "file": "src/index.ts"
           }
         },
         {
@@ -1045,8 +1049,8 @@
           "expected_symbol": "resolveOpenAIAuth",
           "expected_file_suffix": "shared/openaiAuth.js",
           "rank": 2,
-          "elapsed_ms": 375.29,
-          "candidate_count": 26,
+          "elapsed_ms": 16.54,
+          "candidate_count": 25,
           "top_candidate": {
             "name": "OPENAI_AUTH",
             "file": "src/anthropicCompatProxy.ts"
@@ -1060,7 +1064,7 @@
           "expected_symbol": "formatOpenAIAuthHint",
           "expected_file_suffix": "shared/openaiAuth.js",
           "rank": 2,
-          "elapsed_ms": 338.79,
+          "elapsed_ms": 16.01,
           "candidate_count": 25,
           "top_candidate": {
             "name": "OPENAI_AUTH",
@@ -1075,8 +1079,8 @@
           "expected_symbol": "resolveCompatPortAssignment",
           "expected_file_suffix": "shared/compatProxyPort.js",
           "rank": 1,
-          "elapsed_ms": 308.49,
-          "candidate_count": 24,
+          "elapsed_ms": 15.41,
+          "candidate_count": 26,
           "top_candidate": {
             "name": "resolveCompatPortAssignment",
             "file": "shared/compatProxyPort.js"
@@ -1090,7 +1094,7 @@
           "expected_symbol": "RootLayout",
           "expected_file_suffix": "src/app/layout.tsx",
           "rank": 20,
-          "elapsed_ms": 26.39,
+          "elapsed_ms": 21.88,
           "candidate_count": 30,
           "top_candidate": {
             "name": "'@jridgewell/remapping'",
@@ -1105,7 +1109,7 @@
           "expected_symbol": "AuthLayout",
           "expected_file_suffix": "src/app/(auth)/layout.tsx",
           "rank": 3,
-          "elapsed_ms": 22.98,
+          "elapsed_ms": 22.41,
           "candidate_count": 29,
           "top_candidate": {
             "name": "authorize",
@@ -1120,7 +1124,7 @@
           "expected_symbol": "Providers",
           "expected_file_suffix": "src/components/Providers.tsx",
           "rank": 29,
-          "elapsed_ms": 26.62,
+          "elapsed_ms": 26.43,
           "candidate_count": 32,
           "top_candidate": {
             "name": "safe-push-apply@1.0.0",
@@ -1135,7 +1139,7 @@
           "expected_symbol": "cn",
           "expected_file_suffix": "src/lib/utils.ts",
           "rank": null,
-          "elapsed_ms": 21.39,
+          "elapsed_ms": 21.18,
           "candidate_count": 23,
           "top_candidate": {
             "name": "defaultClassNames",
@@ -1150,7 +1154,7 @@
           "expected_symbol": "LoginPage",
           "expected_file_suffix": "src/app/(auth)/login/page.tsx",
           "rank": 1,
-          "elapsed_ms": 21.27,
+          "elapsed_ms": 21.16,
           "candidate_count": 28,
           "top_candidate": {
             "name": "LoginPage",
@@ -1165,7 +1169,7 @@
           "expected_symbol": "LoginForm",
           "expected_file_suffix": "src/app/(auth)/login/page.tsx",
           "rank": 1,
-          "elapsed_ms": 21.98,
+          "elapsed_ms": 21.74,
           "candidate_count": 27,
           "top_candidate": {
             "name": "LoginForm",
@@ -1180,7 +1184,7 @@
           "expected_symbol": "RegisterPage",
           "expected_file_suffix": "src/app/(auth)/register/page.tsx",
           "rank": 1,
-          "elapsed_ms": 21.45,
+          "elapsed_ms": 21.57,
           "candidate_count": 27,
           "top_candidate": {
             "name": "RegisterPage",
@@ -1195,7 +1199,7 @@
           "expected_symbol": "PostForm",
           "expected_file_suffix": "src/components/community/PostForm.tsx",
           "rank": 3,
-          "elapsed_ms": 23.5,
+          "elapsed_ms": 22.73,
           "candidate_count": 28,
           "top_candidate": {
             "name": "PostFormProps",
@@ -1210,7 +1214,7 @@
           "expected_symbol": "PostDetail",
           "expected_file_suffix": "src/components/community/PostDetail.tsx",
           "rank": 2,
-          "elapsed_ms": 32.68,
+          "elapsed_ms": 24.73,
           "candidate_count": 28,
           "top_candidate": {
             "name": "PostDetailProps",
@@ -1225,7 +1229,7 @@
           "expected_symbol": "PostList",
           "expected_file_suffix": "src/components/community/PostList.tsx",
           "rank": 17,
-          "elapsed_ms": 29.32,
+          "elapsed_ms": 23.06,
           "candidate_count": 28,
           "top_candidate": {
             "name": "'@eslint-community/eslint-utils'",
@@ -1240,7 +1244,7 @@
           "expected_symbol": "MemberCard",
           "expected_file_suffix": "src/components/member/MemberCard.tsx",
           "rank": 9,
-          "elapsed_ms": 22.45,
+          "elapsed_ms": 22.67,
           "candidate_count": 27,
           "top_candidate": {
             "name": "Card",
@@ -1255,7 +1259,7 @@
           "expected_symbol": "prisma",
           "expected_file_suffix": "src/lib/prisma.ts",
           "rank": 1,
-          "elapsed_ms": 27.23,
+          "elapsed_ms": 22.64,
           "candidate_count": 29,
           "top_candidate": {
             "name": "prisma",

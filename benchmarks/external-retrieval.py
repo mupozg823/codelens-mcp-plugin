@@ -160,7 +160,25 @@ def require_tool_success(name: str, result: dict, context: str = "") -> dict:
     raise SystemExit(" | ".join(parts))
 
 
-def copy_project_for_benchmark(source_project: str) -> str:
+def remove_relative_path(root: Path, relative_path: str) -> None:
+    target = (root / relative_path).resolve()
+    try:
+        target.relative_to(root.resolve())
+    except ValueError as exc:
+        raise SystemExit(
+            f"ignore_paths entry escapes benchmark root: {relative_path}"
+        ) from exc
+    if not target.exists():
+        return
+    if target.is_dir():
+        shutil.rmtree(target)
+    else:
+        target.unlink()
+
+
+def copy_project_for_benchmark(
+    source_project: str, ignore_paths: list[str] | None = None
+) -> str:
     source = Path(source_project).resolve()
     temp_root = Path(tempfile.mkdtemp(prefix="codelens-external-retrieval-"))
     bench_project = temp_root / source.name
@@ -182,6 +200,8 @@ def copy_project_for_benchmark(source_project: str) -> str:
             ".pytest_cache",
         ),
     )
+    for relative_path in ignore_paths or []:
+        remove_relative_path(bench_project, relative_path)
     return str(bench_project)
 
 
@@ -332,11 +352,11 @@ def render_markdown(result: dict) -> str:
     a("")
     a("## Repo Evidence")
     a("")
-    a("| Repo | Exists | Queries | Indexed symbols | Isolation |")
-    a("|---|---|---:|---:|---|")
+    a("| Repo | Exists | Queries | Indexed symbols | Isolation | Ignored paths |")
+    a("|---|---|---:|---:|---|---|")
     for repo in result["repos"]:
         a(
-            f"| {repo['repo_id']} | {repo['path_exists']} | {repo['query_count']} | {repo.get('indexed_symbols', 0)} | {repo['isolated_project'] or 'no'} |"
+            f"| {repo['repo_id']} | {repo['path_exists']} | {repo['query_count']} | {repo.get('indexed_symbols', 0)} | {repo['isolated_project'] or 'no'} | {', '.join(repo.get('ignore_paths', [])) or '—'} |"
         )
     a("")
     return "\n".join(lines) + "\n"
@@ -350,13 +370,16 @@ def main():
     cleanup_dirs: list[Path] = []
     for repo in repos:
         source_path = Path(repo["path"]).expanduser()
+        ignore_paths = [str(path) for path in repo.get("ignore_paths", [])]
         path_exists = source_path.exists()
         project_path = str(source_path.resolve()) if path_exists else None
         isolated_project = None
         indexed_symbols = 0
         index_elapsed_ms = None
-        if path_exists and ARGS.isolated_copy:
-            isolated_project = copy_project_for_benchmark(str(source_path.resolve()))
+        if path_exists and (ARGS.isolated_copy or ignore_paths):
+            isolated_project = copy_project_for_benchmark(
+                str(source_path.resolve()), ignore_paths=ignore_paths
+            )
             cleanup_dirs.append(Path(isolated_project).parent)
             project_path = isolated_project
         if path_exists and project_path:
@@ -398,6 +421,7 @@ def main():
                 "indexed_symbols": indexed_symbols,
                 "index_elapsed_ms": index_elapsed_ms,
                 "isolated_project": isolated_project,
+                "ignore_paths": ignore_paths,
             }
         )
 

@@ -158,6 +158,23 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
         _ => 0.0,
     };
 
+    let prefers_entrypoint = query_lower.contains("entrypoint")
+        || query_lower.contains("primary implementation")
+        || query_lower.contains("which entrypoint")
+        || query_lower.contains("handles ");
+    if prefers_entrypoint {
+        if matches!(result.kind.as_str(), "function" | "method") {
+            prior += 0.06;
+        }
+        if result.symbol_name.ends_with("Edit")
+            || result.symbol_name.ends_with("Result")
+            || result.symbol_name.ends_with("Error")
+            || result.symbol_name.ends_with("Config")
+        {
+            prior -= 0.05;
+        }
+    }
+
     if (query_lower.contains("dispatch")
         || query_lower.contains("route")
         || query_lower.contains("handler"))
@@ -202,6 +219,13 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
         && result.file_path.contains("embedding")
     {
         prior += 0.10;
+    }
+    if query_lower.contains("move")
+        && prefers_entrypoint
+        && result.file_path.contains("move_symbol")
+        && result.symbol_name == "move_symbol"
+    {
+        prior += 0.14;
     }
     if (query_lower.contains("duplicate") || query_lower.contains("similar"))
         && (result.symbol_name.contains("duplicate") || result.symbol_name.contains("similar"))
@@ -339,6 +363,15 @@ fn expand_retrieval_query(query: &str) -> String {
             "dispatch",
             "handler",
         ] {
+            push_unique(alias);
+        }
+    }
+    if lowered.contains("move")
+        && (lowered.contains("entrypoint")
+            || lowered.contains("handler")
+            || lowered.contains("implementation"))
+    {
+        for alias in ["move_symbol", "move"] {
             push_unique(alias);
         }
     }
@@ -494,6 +527,36 @@ mod tests {
         );
         assert!(prior <= 0.19);
         assert!(prior >= -0.10);
+    }
+
+    #[cfg(feature = "semantic")]
+    #[test]
+    fn entrypoint_queries_prefer_move_function_over_edit_type() {
+        let reranked = rerank_semantic_matches(
+            "which entrypoint handles move",
+            vec![
+                SemanticMatch {
+                    symbol_name: "MoveEdit".to_owned(),
+                    kind: "unknown".to_owned(),
+                    file_path: "crates/codelens-engine/src/move_symbol.rs".to_owned(),
+                    line: 1,
+                    signature: "struct MoveEdit".to_owned(),
+                    name_path: "MoveEdit".to_owned(),
+                    score: 0.302,
+                },
+                SemanticMatch {
+                    symbol_name: "move_symbol".to_owned(),
+                    kind: "function".to_owned(),
+                    file_path: "crates/codelens-engine/src/move_symbol.rs".to_owned(),
+                    line: 20,
+                    signature: "fn move_symbol".to_owned(),
+                    name_path: "move_symbol".to_owned(),
+                    score: 0.241,
+                },
+            ],
+            2,
+        );
+        assert_eq!(reranked[0].symbol_name, "move_symbol");
     }
 
     #[cfg(feature = "semantic")]

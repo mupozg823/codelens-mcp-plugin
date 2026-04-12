@@ -44,6 +44,16 @@ expression: summary
     15
   ],
   [
+    "findById",
+    "src/models.ts",
+    15
+  ],
+  [
+    "save",
+    "src/models.ts",
+    15
+  ],
+  [
     "logout",
     "src/service.py",
     3

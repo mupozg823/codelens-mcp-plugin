@@ -1,5 +1,5 @@
 {
-  "schema_version": "codelens-external-retrieval-dataset-v1",
+  "schema_version": "codelens-external-retrieval-dataset-v2",
   "minimum_repo_count": 2,
   "minimum_queries_per_repo": 10,
   "repos": [
@@ -7,6 +7,9 @@
       "repo_id": "claw-dev",
       "label": "claw-dev",
       "path": "/Users/bagjaeseog/Downloads/claudex/claw-dev",
+      "ignore_paths": [
+        "Leonxlnx-claude-code"
+      ],
       "queries": [
         {
           "query": "coding agent class",

@@ -145,14 +145,34 @@ impl SymbolIndex {
         // get_symbols_overview_cached, which also need the lock.  Holding the
         // guard across those calls causes a deadlock with in-memory DBs.
         //
-        // FTS5 boost: run a quick symbol name search, collect which files
-        // have matching symbols, then add +2 to those files' path scores.
-        // This surfaces files with matching content even when the file path
-        // itself doesn't match the query tokens.
-        let fts_file_boost: std::collections::HashSet<String> = self
-            .find_symbol(query, None, false, false, 30)
-            .map(|hits| hits.into_iter().map(|s| s.file_path).collect())
-            .unwrap_or_default();
+        // FTS5 boost: search each query token as a symbol name via FTS5,
+        // collect which files contain matching symbols, and boost those files.
+        // Token-level search is critical for NL queries like "how does dispatch
+        // work" — the full query won't match any symbol, but "dispatch" will
+        // find dispatch_tool in dispatch/mod.rs.
+        let fts_file_boost: std::collections::HashSet<String> = {
+            let query_lower = query.to_ascii_lowercase();
+            let tokens: Vec<&str> = query_lower
+                .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+                .filter(|t| t.len() >= 3)
+                .collect();
+            let mut boost_files = std::collections::HashSet::new();
+            // First try full query (catches exact symbol names like "dispatch_tool")
+            if let Ok(hits) = self.find_symbol(query, None, false, false, 15) {
+                for sym in hits {
+                    boost_files.insert(sym.file_path);
+                }
+            }
+            // Then try individual tokens (catches NL queries)
+            for token in &tokens {
+                if let Ok(hits) = self.find_symbol(token, None, false, false, 10) {
+                    for sym in hits {
+                        boost_files.insert(sym.file_path);
+                    }
+                }
+            }
+            boost_files
+        };
 
         let (top_files, importer_files): (Vec<String>, Vec<String>) = {
             let db = self.reader()?;
