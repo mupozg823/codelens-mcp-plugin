@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.2] — 2026-04-12
+
+### Release summary
+
+Scoring hot-path performance: eliminate 5 000 String allocations per `get_ranked_context` call on a 1 000-symbol codebase, plus a God Object decomposition first step.
+
+### Performance
+
+- **Hoist `joined_snake` from per-candidate loop** (`scoring.rs`, `ranking.rs`): the snake_case form of the query (e.g. "rename symbol" → "rename_symbol") was recomputed identically for every candidate. Now computed once in the caller. Eliminates 1 000 allocs/query.
+- **Zero-alloc ASCII case-insensitive scoring** (`scoring.rs`): replace 4 × `to_lowercase()` per candidate with `contains_ascii_ci()` / `eq_ascii_ci()` byte-window comparisons. Code identifiers are ASCII — ASCII folding is correct and allocation-free. Eliminates 4 000 allocs/query.
+
+Combined per-`get_ranked_context` allocation reduction on a 1 000-symbol codebase:
+
+| stage                    |    allocs |
+| ------------------------ | --------: |
+| v1.6.1                   |     6 000 |
+| After joined_snake hoist |     5 000 |
+| After ASCII CI scoring   | **1 000** |
+
+### Refactored
+
+- **`extract_symbol_hint` free fn** (`state.rs`, `mutation_gate.rs`): extracted from `AppState` impl — the function never used `&self`. First incremental step toward decomposing the state.rs God Object (identified via CodeLens `find_misplaced_code`, avg_similarity 0.389 — top outlier).
+
 ## [1.6.1] — 2026-04-12
 
 ### Release summary
