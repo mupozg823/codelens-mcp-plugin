@@ -5,11 +5,12 @@
 
 ## Current Snapshot (2026-04-13)
 
-- Workspace version: `1.9.13`
+- Workspace version: `1.9.14`
 - Registered tool definitions in source: `101` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
 - Tool output schemas in source: `65 / 101`
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
+- Current release notes: [docs/release-notes/v1.9.14.md](release-notes/v1.9.14.md)
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
@@ -595,24 +596,25 @@ Use the **Current Snapshot** above and `docs/benchmarks.md` for current measurem
 
 | Operation            | Latency                            | Source                       |
 | -------------------- | ---------------------------------- | ---------------------------- |
-| find_symbol          | <1ms                               | SQLite FTS5                  |
-| get_symbols_overview | <1ms                               | Cached                       |
-| get_ranked_context   | ~265ms (hybrid) / ~168ms (lexical) | benchmarks/embedding-quality |
-| get_impact_analysis  | ~1ms                               | Graph cache                  |
-| semantic_search      | ~574ms                             | warm, workload-dependent     |
-| Project onboard      | ~21ms                              | benchmarks/token-efficiency  |
-| Cold start           | ~12ms                              | No LSP boot                  |
+| find_symbol          | <1ms                              | SQLite FTS5               |
+| get_symbols_overview | <1ms                              | Cached                    |
+| get_ranked_context   | ~135ms (hybrid) / ~39ms (lexical) | self regression benchmark |
+| get_impact_analysis  | ~1ms                              | Graph cache               |
+| semantic_search      | ~507ms                            | self regression benchmark |
+| Project onboard      | ~21ms                             | benchmarks/token-efficiency |
+| Cold start           | ~12ms                             | No LSP boot               |
 
-### Quality Snapshot (MRR, self-matching dataset, 89 queries)
+### Quality Snapshot (Current Regression Tiers)
 
-| Method                         | MRR       | Acc@1 | Acc@5 |
-| ------------------------------ | --------- | ----- | ----- |
-| `semantic_search`              | 0.598     | 0.539 | 0.663 |
-| `get_ranked_context` (lexical) | 0.604     | 0.528 | 0.697 |
-| `get_ranked_context` (hybrid)  | **0.664** | 0.584 | 0.775 |
+| Dataset | Semantic MRR | Lexical MRR | Hybrid MRR | Notes |
+| ------- | ------------: | ----------: | ---------: | ----- |
+| Self regression (`104` queries) | 0.798 | 0.614 | **0.841** | Mixed identifier, short-phrase, and natural-language queries on this repo |
+| Role regression (`70` queries) | 0.900 | 0.832 | **0.962** | Workflow-style phrasing and implementation ownership queries |
+| External smoke: Flask (`20` queries) | **0.577** | 0.363 | 0.563 | Python app repo; semantic still slightly ahead hybrid |
+| External smoke: curl (`18` queries) | 0.555 | 0.512 | **0.623** | C systems repo; hybrid leads both standalone paths |
 
-- By query type (hybrid): identifier **0.960** · short_phrase **0.676** · natural_language **0.528**
-- NL 쿼리는 구조적 약점 — 임베딩 모델 교체 또는 AST-aware chunking으로 개선 대상
+- Hybrid remains the default product path because it is strongest on both promoted internal regression sets and on the curl external smoke set.
+- Flask is a visible calibration gap rather than hidden drift; external smoke evidence is published, but it is not yet a promotion-grade multi-language matrix.
 
 ### Token Efficiency Snapshot (vs Read/Grep, tiktoken cl100k_base)
 

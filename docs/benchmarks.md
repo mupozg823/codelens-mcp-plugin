@@ -1,7 +1,7 @@
 # CodeLens MCP — Benchmarks
 
 > Reproducible token-efficiency and search-quality measurements.
-> Last measurement: **2026-04-11**.
+> Last measurement: **2026-04-13**.
 
 This document is the authoritative source for CodeLens's public performance claims. Every number below is produced by an executable script in `benchmarks/` and can be re-run on any machine.
 
@@ -14,8 +14,9 @@ This document is the authoritative source for CodeLens's public performance clai
 | Token reduction vs Read/Grep (total, structured tasks)  | **6.1x (84% fewer tokens)** | `benchmarks/token-efficiency.py`      |
 | Token reduction on best single task (context retrieval) | **167x**                    | `benchmarks/token-efficiency.py`      |
 | Workflow profile compression (planner/reviewer)         | **15-16x**                  | `benchmarks/token-efficiency.py`      |
-| Search quality, hybrid (MRR)                            | **0.573**                   | `benchmarks/embedding-quality.py`     |
-| Search quality, hybrid (Accuracy@5)                     | **0.660**                   | `benchmarks/embedding-quality.py`     |
+| Search quality, hybrid (self regression, MRR)          | **0.841**                   | `benchmarks/embedding-quality.py`     |
+| Search quality, hybrid (role regression, MRR)          | **0.962**                   | `benchmarks/embedding-quality.py`     |
+| Search quality, hybrid (external smoke, MRR range)     | **0.563-0.623**             | `benchmarks/embedding-quality.py`     |
 | Cold start (no LSP)                                     | **~12 ms**                  | `target/release/codelens-mcp` startup |
 
 All token counts use **tiktoken `cl100k_base`** — the same tokenizer used by Claude and GPT-4 — so "tokens saved" maps directly to "prompt budget saved."
@@ -74,37 +75,66 @@ The compression ratio grows when agents would otherwise expand raw graph data (i
 
 ## 4. Search Quality — MRR / Accuracy@k
 
-**What we measure**: self-matching retrieval accuracy. We take 89 queries that describe real symbols in this repository (identifier, short phrase, natural language styles), ask CodeLens to find each one, and score where the intended symbol appears in the ranked results.
+**What we measure**: three benchmark tiers.
+
+1. **Self regression** — 104 queries against real symbols in this repository.
+2. **Role regression** — 70 workflow-oriented queries phrased the way harness agents actually ask for implementations, handlers, helpers, and entrypoints.
+3. **External smoke** — small non-CodeLens datasets used to ensure the promoted numbers are not purely repo-local.
 
 **Scripts**:
 
 - `benchmarks/embedding-quality.py` — runs the full quality suite
-- `benchmarks/embedding-quality-dataset-self.json` — the 89-query dataset, versioned in the repo
+- `benchmarks/embedding-quality-dataset-self.json` — the 104-query self regression dataset
+- `benchmarks/role-retrieval-dataset.json` — the 70-query role regression dataset
+- `benchmarks/external-*.json` — smoke datasets for non-CodeLens repositories
 
 **Metrics**:
 
 - **MRR** (Mean Reciprocal Rank) — `1/rank` of the correct answer, averaged. Higher is better. `1.0` means always rank-1.
 - **Accuracy@k** — fraction of queries where the correct symbol lands in the top-k results.
 
-**Result snapshot** (2026-04-11, 89 queries, hybrid ranking on, post-path-fix apples-to-apples baseline):
+### Current promoted regression baselines
+
+**Self regression snapshot** (2026-04-12, 104 queries, artifact: `embedding-quality-self-v1.9.12-bridge.json`):
 
 | Method                         |       MRR | Acc@1 | Acc@5 | Latency |
 | ------------------------------ | --------: | ----: | ----: | ------: |
-| `semantic_search`              |     0.528 | 0.480 | 0.570 |  247 ms |
-| `get_ranked_context` (lexical) |     0.492 | 0.420 | 0.600 |   32 ms |
-| `get_ranked_context` (hybrid)  | **0.573** | 0.510 | 0.660 |  102 ms |
+| `semantic_search`              |     0.798 | 0.712 | 0.913 |  507 ms |
+| `get_ranked_context` (lexical) |     0.614 | 0.529 | 0.740 |   39 ms |
+| `get_ranked_context` (hybrid)  | **0.841** | 0.760 | 0.952 |  135 ms |
 
-**By query type (hybrid)**:
+**By query type (hybrid, self regression)**:
 
 | Query type         |   MRR | Count | Notes                                          |
 | ------------------ | ----: | ----: | ---------------------------------------------- |
-| `identifier`       | 0.800 |    25 | Near-perfect enough — lexical path dominates   |
-| `short_phrase`     | 0.559 |     9 | Hybrid helps, but the sample is still small    |
-| `natural_language` | 0.472 |    55 | Weakest — primary retrieval quality bottleneck |
+| `identifier`       | 1.000 |    31 | Lexical path is effectively saturated          |
+| `short_phrase`     | 0.818 |    11 | Hybrid benefits without sacrificing precision  |
+| `natural_language` | 0.771 |    62 | Still the hardest tier, but no longer a floor  |
 
-Identifier queries hit a lexical fast path (FTS5 + jaro_winkler). Natural-language queries rely on the bundled MiniLM-L12-CodeSearchNet INT8 model plus the MCP-layer hybrid merge. The NL gap is the current weakness we track — see [docs/architecture.md §8 Key Metrics](architecture.md#8-key-metrics) for the current critical paths.
+**Role regression snapshot** (2026-04-12, 70 queries, artifact: `embedding-quality-role-v1.9.12-bridge.json`):
 
-> **Authoritative baseline rule**: the numbers above are the current regression baseline for this repo because they use the post-rename dataset whose file suffixes match the current `crates/codelens-engine/...` paths. The older `0.664` hybrid MRR snapshot remains historically useful, but it is not the apples-to-apples baseline for future comparisons.
+| Method                         |       MRR | Acc@1 | Acc@5 | Latency |
+| ------------------------------ | --------: | ----: | ----: | ------: |
+| `semantic_search`              |     0.900 | 0.843 | 0.971 |  869 ms |
+| `get_ranked_context` (lexical) |     0.832 | 0.786 | 0.886 |  123 ms |
+| `get_ranked_context` (hybrid)  | **0.962** | 0.943 | 0.986 |  246 ms |
+
+### External generalization smoke
+
+These are intentionally small and do **not** replace a promotion-grade cross-repo matrix. They do, however, prevent us from presenting a pure self-repo success story as if it were universal.
+
+| Repo | Queries | Semantic MRR | Lexical MRR | Hybrid MRR | Hybrid Acc@1 | Hybrid Acc@3 |
+| ---- | ------: | -----------: | ----------: | ---------: | -----------: | -----------: |
+| Flask | 20 | **0.577** | 0.363 | 0.563 | 0.450 | 0.650 |
+| curl  | 18 | 0.555 | 0.512 | **0.623** | 0.556 | 0.667 |
+
+Interpretation:
+
+- Hybrid is the promoted default because it is strongest on both internal regression sets and also wins on curl.
+- Flask is a visible exception: pure semantic slightly beats hybrid there, which means Python app repos still need additional calibration work.
+- Public claims should distinguish clearly between **self regression**, **role regression**, and **external smoke**.
+
+> **Authoritative baseline rule**: current public regression claims are based on the 104-query self dataset and the 70-query role dataset above. Older 89-query numbers remain historically useful for experiment logs below, but they are not the current promoted baseline.
 
 ### Re-running
 
@@ -123,9 +153,9 @@ Use `--isolated-copy` to avoid index pollution when the script mutates the worki
 | ---------------------- | ----------------------------------- | ------------------------- |
 | `find_symbol`          | < 1 ms                              | SQLite FTS5               |
 | `get_symbols_overview` | < 1 ms                              | Cached                    |
-| `get_ranked_context`   | ~102 ms (hybrid) / ~32 ms (lexical) | 4-signal + semantic blend |
+| `get_ranked_context`   | ~135 ms (hybrid) / ~39 ms (lexical) | 4-signal + semantic blend |
 | `get_impact_analysis`  | ~1 ms                               | Graph cache (petgraph)    |
-| `semantic_search`      | ~247 ms                             | Warm embedding pool       |
+| `semantic_search`      | ~507 ms                             | Warm embedding pool       |
 | `onboard_project`      | ~21 ms                              | Composite workflow        |
 | Cold start             | ~12 ms                              | No LSP boot               |
 
@@ -167,14 +197,14 @@ All three scripts are deterministic given the same input repo and binary. Result
 `cl100k_base` is the tokenizer used by GPT-4 / Claude. A token saved by CodeLens is a token the agent does not have to pay for on the next LLM call. Character counts and whitespace counts are not comparable.
 
 **Why self-matching queries?**
-The 89-query dataset targets symbols that actually exist in this repo. Cross-repo generalization is a separate question we do not currently claim. Use your own project to verify the numbers before relying on them in production.
+The promoted internal baselines still come from symbols that actually exist in this repo, because that is the fastest regression detector for day-to-day development. We now publish small external smoke datasets as well, but they are not yet broad enough to justify a sweeping cross-repo quality claim.
 
 **Why hybrid ranking?**
-Pure semantic search (MRR 0.528) and pure lexical search (MRR 0.492) are in the same ballpark. Hybrid blending takes the best of both — identifier queries stay lexical-first, natural-language queries get semantic boosting — and lifts MRR to 0.573 with about +70 ms over the lexical-only path.
+On the current self regression set, pure semantic search (`0.798`) and pure lexical search (`0.614`) are both materially below hybrid (`0.841`). On the role regression set, the same pattern holds (`0.900` semantic, `0.832` lexical, `0.962` hybrid). The external smoke picture is more mixed: hybrid wins on curl, while Flask still prefers pure semantic.
 
 **What we don't measure (yet)**
 
-- Cross-repo retrieval quality (coming with multi-repo datasets)
+- Promotion-grade cross-repo retrieval quality across Python, JS/TS, JVM, and systems-language families
 - Incremental indexing latency under heavy file churn
 - Cold-start wall time on Windows CI runners
 
@@ -190,13 +220,14 @@ Pure semantic search (MRR 0.528) and pure lexical search (MRR 0.492) are in the 
 
 | Date                         | Token efficiency (Total) | Hybrid MRR | Notes                                                                                                                          |
 | ---------------------------- | -----------------------: | ---------: | ------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-04-13 (current promoted baseline) |               6.1x (84%) |      0.841 | 104-query self regression baseline. Role baseline is `0.962`; external smoke is Flask `0.563`, curl `0.623`.                 |
 | 2026-04-11 (post-PoC revert) |               6.1x (84%) |      0.573 | v1.5 apples-to-apples baseline after dataset path fix (`codelens-core` → `codelens-engine`), defaults `HINT_LINES=1` / `60ch`. |
 | 2026-04-11 (Phase 2 PoC)     |                        — |      0.568 | Experimental 3-line / 180-char body hints. **Reverted** — see §8.1.                                                            |
 | 2026-04-11 (v1.4.0 cut)      |               6.1x (84%) |      0.664 | Measured against the pre-rename dataset; suffix mismatch after the crate rename means this row is _not_ apples-to-apples.      |
 | 2026-04-08                   |                        — |      0.688 | Pre-dataset expansion (89 subset, different queries).                                                                          |
 | earlier                      |         "estimated 2-5x" |          — | No formal measurement before 2026-04.                                                                                          |
 
-> **Note on 0.664 vs 0.573** — both numbers are real, but they measure slightly different things. The 0.664 row used a dataset whose `expected_file_suffix` fields still pointed at the pre-rename `crates/codelens-core/...` paths. After v1.5's crate rename those suffixes no longer matched any real file, so we updated the dataset in-place. The 0.573 row is the first hybrid MRR measured after that fix and is therefore the correct apples-to-apples baseline for all future comparisons. Token-efficiency numbers (6.1x) are independent of the dataset fix and remain valid.
+> **Note on baseline evolution** — `0.841` is the current promoted self-regression baseline on the 104-query dataset. `0.573` and `0.664` remain historically useful, but they describe earlier dataset shapes and should be read as experiment history below, not as the current public performance claim.
 
 Historical result JSON files live under `benchmarks/*.json` with timestamps in filenames. When you upgrade CodeLens, the suggested flow is: (1) check out the new version, (2) re-run the three scripts above, (3) compare against your last `benchmarks/*.json` from the previous version to catch regressions.
 
