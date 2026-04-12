@@ -25,6 +25,7 @@ The tag-driven GitHub release workflow in [`.github/workflows/release.yml`](../.
 The workflow is also configured to publish:
 
 - `checksums-sha256.txt`
+- `release-manifest.json`
 - `codelens-mcp-<target>.cdx.json` per-target CycloneDX SBOM files
 - a Linux OCI image to GHCR from the released `linux-x86_64` archive payload
 - `codelens-mcp-airgap-linux-x86_64.tar.gz` self-contained offline bundle
@@ -44,6 +45,7 @@ and then uses those release checksums to update the Homebrew tap formula.
 - provenance and SBOM attestations are generated in the release workflow
 - an OCI image is built from the released Linux binary and pushed to GHCR
 - an air-gapped Linux bundle is assembled from the released Linux binary plus bundled model assets
+- a machine-readable `release-manifest.json` is generated from the checksum set before publication
 - the publish job verifies the assembled release bundle locally before creating the GitHub release
 - Homebrew is derived from the published release checksums rather than from a separate manual path
 - release notes can be generated from GitHub plus repository-maintained notes under [`docs/release-notes`](release-notes)
@@ -60,7 +62,7 @@ The remaining items are roadmap gaps, not shipped capabilities.
 
 ### 1. Download a release bundle
 
-Download the published archives, per-target SBOM files, and `checksums-sha256.txt` from a tagged GitHub release into a single directory.
+Download the published archives, `release-manifest.json`, per-target SBOM files, and `checksums-sha256.txt` from a tagged GitHub release into a single directory.
 
 ### 2. Run the local verification script
 
@@ -82,6 +84,7 @@ It verifies:
 4. each zip contains exactly one `codelens-mcp.exe`
 5. each `*.cdx.json` file is valid JSON and declares a CycloneDX SBOM for `codelens-mcp`
 6. each `codelens-mcp-airgap-*.tar.gz` bundle contains the binary, bundled model assets, examples, manifest, and internally valid checksums
+7. `release-manifest.json` matches the checksum manifest and enumerates the published assets
 
 ### 3. Verify only a subset of targets when needed
 
@@ -157,6 +160,7 @@ The OCI image is built from the released `linux-x86_64` binary artifact rather t
 | ---- | ------------- | ------ |
 | Reproducible tagged binary builds | GitHub Actions release workflow | Partial |
 | Published checksums | `checksums-sha256.txt` | Present |
+| Published release inventory | `release-manifest.json` | Present |
 | Published per-target CycloneDX SBOMs | release workflow configured | Present |
 | GitHub provenance attestation | `actions/attest@v4` in release workflow | Present |
 | GitHub SBOM attestation | `actions/attest@v4` in release workflow | Present |

@@ -164,6 +164,19 @@ jobs:
                 sha256sum "$asset"
               done > checksums-sha256.txt
 
+      - name: Generate release manifest
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python3 scripts/generate-release-manifest.py \
+            --bundle-dir . \
+            --checksums checksums-sha256.txt \
+            --repo "${GITHUB_REPOSITORY}" \
+            --tag "${GITHUB_REF_NAME}" \
+            --version "${VERSION}" \
+            --image "ghcr.io/${GITHUB_REPOSITORY}" \
+            --output release-manifest.json
+          sha256sum release-manifest.json >> checksums-sha256.txt
+
       - name: Verify release artifacts before publish
         run: |
           bash scripts/verify-release-artifacts.sh . \
@@ -177,6 +190,7 @@ jobs:
             codelens-mcp-*.tar.gz
             codelens-mcp-*.zip
             codelens-mcp-*.cdx.json
+            release-manifest.json
             checksums-sha256.txt
           generate_release_notes: true
         env:

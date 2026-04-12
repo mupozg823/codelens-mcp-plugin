@@ -223,6 +223,74 @@ if component.get("name") != "codelens-mcp":
 PY
 }
 
+verify_release_manifest() {
+	local manifest="$1"
+	python3 - "$manifest" "$checksums_path" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest_path = Path(sys.argv[1])
+checksums_path = Path(sys.argv[2])
+obj = json.loads(manifest_path.read_text())
+
+if obj.get("schema_version") != "codelens-release-manifest-v1":
+    raise SystemExit(
+        f"unexpected schema_version in {manifest_path}: {obj.get('schema_version')!r}"
+    )
+if not obj.get("repository"):
+    raise SystemExit(f"missing repository in {manifest_path}")
+if not obj.get("tag"):
+    raise SystemExit(f"missing tag in {manifest_path}")
+if not obj.get("version"):
+    raise SystemExit(f"missing version in {manifest_path}")
+
+assets = obj.get("assets")
+if not isinstance(assets, list) or not assets:
+    raise SystemExit(f"manifest assets must be a non-empty list in {manifest_path}")
+
+checksum_entries = {}
+for raw_line in checksums_path.read_text().splitlines():
+    line = raw_line.strip()
+    if not line:
+        continue
+    checksum, name = line.split(maxsplit=1)
+    checksum_entries[name] = checksum
+
+payload_entries = {
+    name: checksum
+    for name, checksum in checksum_entries.items()
+    if name != manifest_path.name
+}
+manifest_entries = {}
+for asset in assets:
+    if not isinstance(asset, dict):
+        raise SystemExit(f"manifest asset must be an object in {manifest_path}")
+    name = asset.get("name")
+    sha256 = asset.get("sha256")
+    kind = asset.get("kind")
+    target = asset.get("target")
+    download_url = asset.get("download_url")
+    if not all(isinstance(value, str) and value for value in (name, sha256, kind, target, download_url)):
+        raise SystemExit(f"manifest asset missing required strings in {manifest_path}: {asset!r}")
+    expected_sha = checksum_entries.get(name)
+    if expected_sha != sha256:
+        raise SystemExit(
+            f"manifest checksum mismatch for {name} in {manifest_path}: {sha256!r} != {expected_sha!r}"
+        )
+    if name in manifest_entries:
+        raise SystemExit(f"duplicate manifest asset entry for {name} in {manifest_path}")
+    manifest_entries[name] = sha256
+
+if set(manifest_entries) != set(payload_entries):
+    missing = sorted(set(payload_entries) - set(manifest_entries))
+    extra = sorted(set(manifest_entries) - set(payload_entries))
+    raise SystemExit(
+        f"manifest asset set mismatch in {manifest_path}: missing={missing!r} extra={extra!r}"
+    )
+PY
+}
+
 for asset in "${assets[@]}"; do
 	case "$asset" in
 		codelens-mcp-airgap-*.tar.gz)
@@ -236,6 +304,9 @@ for asset in "${assets[@]}"; do
 			;;
 		*.cdx.json)
 			verify_sbom_structure "$bundle_dir/$asset"
+			;;
+		release-manifest.json)
+			verify_release_manifest "$bundle_dir/$asset"
 			;;
 		*)
 			echo "unexpected release artifact type in checksums file: $asset" >&2
