@@ -671,6 +671,23 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
         "properties": {
             "language": {"type": ["string", "null"]},
             "lsp_attached": {"type": "boolean"},
+            "diagnostics_guidance": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["available", "file_path_required", "unsupported_extension", "lsp_binary_missing"]},
+                    "available": {"type": "boolean"},
+                    "reason": {"type": ["string", "null"]},
+                    "reason_code": {"type": ["string", "null"]},
+                    "recommended_action": {"type": ["string", "null"]},
+                    "action_target": {"type": ["string", "null"]},
+                    "file_extension": {"type": ["string", "null"]},
+                    "language": {"type": ["string", "null"]},
+                    "lsp_command": {"type": ["string", "null"]},
+                    "server_name": {"type": ["string", "null"]},
+                    "install_command": {"type": ["string", "null"]},
+                    "package_manager": {"type": ["string", "null"]}
+                }
+            },
             "embeddings_loaded": {"type": "boolean"},
             "semantic_search_status": {"type": "string", "enum": ["available", "model_assets_unavailable", "not_in_active_surface", "index_missing", "feature_disabled", "not_compiled"]},
             "semantic_search_guidance": {
@@ -704,7 +721,13 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
                         "status": {"type": "string"},
                         "reason_code": {"type": ["string", "null"]},
                         "recommended_action": {"type": ["string", "null"]},
-                        "action_target": {"type": ["string", "null"]}
+                        "action_target": {"type": ["string", "null"]},
+                        "file_extension": {"type": ["string", "null"]},
+                        "language": {"type": ["string", "null"]},
+                        "lsp_command": {"type": ["string", "null"]},
+                        "server_name": {"type": ["string", "null"]},
+                        "install_command": {"type": ["string", "null"]},
+                        "package_manager": {"type": ["string", "null"]}
                     }
                 }
             },

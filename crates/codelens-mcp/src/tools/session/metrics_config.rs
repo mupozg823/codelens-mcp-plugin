@@ -1,10 +1,10 @@
+use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
+    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
 };
-use crate::tool_runtime::{success_meta, ToolResult};
-use crate::AppState;
+use crate::tool_runtime::{ToolResult, success_meta};
 use serde_json::json;
 
 #[cfg(feature = "semantic")]
@@ -860,7 +860,7 @@ mod capability_reporting_tests {
     /// the `CODELENS_LSP_PATH_EXTRA` env var pointing at a temp
     /// directory containing a dummy file named after the query.
     #[test]
-    fn resolve_lsp_binary_exists_finds_via_env_override() {
+    fn lsp_binary_exists_finds_via_env_override() {
         let tempdir = std::env::temp_dir().join(format!(
             "codelens-phase4a-lsp-{}",
             std::time::SystemTime::now()
@@ -885,7 +885,7 @@ mod capability_reporting_tests {
         // Fast path (`which`) will fail for this fabricated binary
         // name; the env-override fallback must catch it.
         assert!(
-            resolve_lsp_binary_exists("phase4a-fake-lsp-server"),
+            codelens_engine::lsp_binary_exists("phase4a-fake-lsp-server"),
             "env override fallback must resolve the dummy binary"
         );
 
@@ -904,7 +904,7 @@ mod capability_reporting_tests {
     /// false so we don't produce false positives in the capability
     /// report.
     #[test]
-    fn resolve_lsp_binary_exists_returns_false_for_unknown_binary() {
+    fn lsp_binary_exists_returns_false_for_unknown_binary() {
         let unique = format!(
             "phase4a-definitely-not-installed-{}",
             std::time::SystemTime::now()
@@ -913,7 +913,7 @@ mod capability_reporting_tests {
                 .unwrap_or(0)
         );
         assert!(
-            !resolve_lsp_binary_exists(&unique),
+            !codelens_engine::lsp_binary_exists(&unique),
             "helper must not return true for a nonexistent binary"
         );
     }
@@ -970,7 +970,7 @@ mod capability_reporting_tests {
     #[cfg(feature = "semantic")]
     #[test]
     fn planner_readonly_and_builder_minimal_expose_semantic_search() {
-        use crate::tool_defs::{is_tool_in_surface, ToolProfile, ToolSurface};
+        use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
 
         for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
             let surface = ToolSurface::Profile(profile);

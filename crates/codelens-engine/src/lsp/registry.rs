@@ -258,13 +258,11 @@ pub fn lsp_binary_exists(command: &str) -> bool {
 pub fn check_lsp_status() -> Vec<LspStatus> {
     LSP_RECIPES
         .iter()
-        .map(|recipe| {
-            LspStatus {
-                language: recipe.language,
-                server_name: recipe.server_name,
-                installed: lsp_binary_exists(recipe.binary_name),
-                install_command: recipe.install_command,
-            }
+        .map(|recipe| LspStatus {
+            language: recipe.language,
+            server_name: recipe.server_name,
+            installed: lsp_binary_exists(recipe.binary_name),
+            install_command: recipe.install_command,
         })
         .collect()
 }

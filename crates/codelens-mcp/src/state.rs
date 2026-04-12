@@ -5,7 +5,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::analysis_queue::{AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT, STDIO_ANALYSIS_WORKER_COUNT};
+use crate::analysis_queue::{
+    AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT, STDIO_ANALYSIS_WORKER_COUNT,
+};
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::error::CodeLensError;
 use crate::preflight_store::RecentPreflightStore;
@@ -873,7 +875,6 @@ impl AppState {
     pub(crate) fn session_resume_supported(&self) -> bool {
         false
     }
-
 }
 
 // ── Free functions (extracted from AppState for SRP) ─────────────────

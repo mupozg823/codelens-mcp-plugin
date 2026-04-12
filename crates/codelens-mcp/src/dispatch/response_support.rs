@@ -17,11 +17,17 @@ pub(crate) fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> Stri
     ) {
         return "overview complete — drill into specific files or symbols".to_owned();
     }
-    let pct = if budget > 0 { tokens * 100 / budget } else { 100 };
+    let pct = if budget > 0 {
+        tokens * 100 / budget
+    } else {
+        100
+    };
     let base = format!("{tokens} tokens ({pct}% of {budget} budget)");
 
     if pct > 95 {
-        format!("{base}. Response near limit — use get_analysis_section to expand specific parts instead of full reports.")
+        format!(
+            "{base}. Response near limit — use get_analysis_section to expand specific parts instead of full reports."
+        )
     } else if pct > 75 {
         format!("{base}. Consider narrowing scope with path or max_tokens parameter.")
     } else {

@@ -7,6 +7,7 @@ pub mod types;
 pub use registry::{
     LSP_RECIPES, LspRecipe, LspStatus, check_lsp_status, default_lsp_args_for_command,
     default_lsp_command_for_extension, default_lsp_command_for_path, get_lsp_recipe,
+    lsp_binary_exists,
 };
 pub use session::LspSessionPool;
 pub use types::{

@@ -1,12 +1,12 @@
+use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::resource_context::{
-    build_http_session_payload, build_visible_tool_context, ResourceRequestContext,
+    ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
 };
 use crate::tool_defs::{
-    default_budget_for_profile, preferred_bootstrap_tools, ToolPreset, ToolProfile, ToolSurface,
+    ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile, preferred_bootstrap_tools,
 };
-use crate::tool_runtime::{required_string, success_meta, ToolResult};
-use crate::AppState;
+use crate::tool_runtime::{ToolResult, required_string, success_meta};
 use codelens_engine::memory::list_memory_names;
 use codelens_engine::{compute_dominant_language, detect_frameworks};
 use serde_json::json;
@@ -236,6 +236,29 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "recommended_action": guidance.get("recommended_action").and_then(|value| value.as_str()).unwrap_or("inspect_semantic_configuration"),
             "action_target": guidance.get("action_target").and_then(|value| value.as_str()).unwrap_or("semantic_search"),
         }));
+    }
+    if arguments
+        .get("file_path")
+        .and_then(|value| value.as_str())
+        .is_some()
+    {
+        if let Some(guidance) = capabilities_payload
+            .get("diagnostics_guidance")
+            .filter(|value| {
+                !value
+                    .get("available")
+                    .and_then(|available| available.as_bool())
+                    .unwrap_or(false)
+            })
+        {
+            warnings.push(json!({
+                "code": guidance.get("reason_code").and_then(|value| value.as_str()).unwrap_or("diagnostics_unavailable"),
+                "message": guidance.get("reason").and_then(|value| value.as_str()).unwrap_or("diagnostics are unavailable"),
+                "restart_recommended": false,
+                "recommended_action": guidance.get("recommended_action").and_then(|value| value.as_str()).unwrap_or("inspect_lsp_configuration"),
+                "action_target": guidance.get("action_target").and_then(|value| value.as_str()).unwrap_or("diagnostics"),
+            }));
+        }
     }
 
     let visible = build_visible_tool_context(state, &request);

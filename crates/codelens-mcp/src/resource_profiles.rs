@@ -1,5 +1,5 @@
-use crate::tool_defs::{preferred_tier_labels, ToolProfile, ToolSurface};
-use serde_json::{json, Value};
+use crate::tool_defs::{ToolProfile, ToolSurface, preferred_tier_labels};
+use serde_json::{Value, json};
 
 pub(crate) const PROFILE_GUIDE_PROFILES: [ToolProfile; 7] = [
     ToolProfile::PlannerReadonly,

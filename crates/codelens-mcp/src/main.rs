@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod analysis_queue;
 mod artifact_store;
 mod authority;

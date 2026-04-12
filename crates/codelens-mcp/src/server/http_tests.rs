@@ -1292,7 +1292,11 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()).map(str::to_owned))
+        .filter_map(|tool| {
+            tool.get("name")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         tool_names.iter().take(3).cloned().collect::<Vec<_>>(),
@@ -1370,7 +1374,11 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
         .cloned()
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|tool| tool.get("name").and_then(|value| value.as_str()).map(str::to_owned))
+        .filter_map(|tool| {
+            tool.get("name")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         tool_names.iter().take(3).cloned().collect::<Vec<_>>(),

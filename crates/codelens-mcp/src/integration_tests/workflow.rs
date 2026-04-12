@@ -74,19 +74,23 @@ fn impact_report_surfaces_unavailable_semantic_status() {
     let analysis_id = payload["data"]["analysis_id"]
         .as_str()
         .expect("analysis_id should be present");
-    assert!(payload["data"]["available_sections"]
-        .as_array()
-        .map(|sections| sections.iter().any(|section| section == "semantic_status"))
-        .unwrap_or(false));
-    assert!(payload["data"]["next_actions"]
-        .as_array()
-        .map(|actions| {
-            actions
-                .iter()
-                .filter_map(|value| value.as_str())
-                .any(|value| value.contains("index_embeddings"))
-        })
-        .unwrap_or(false));
+    assert!(
+        payload["data"]["available_sections"]
+            .as_array()
+            .map(|sections| sections.iter().any(|section| section == "semantic_status"))
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["data"]["next_actions"]
+            .as_array()
+            .map(|actions| {
+                actions
+                    .iter()
+                    .filter_map(|value| value.as_str())
+                    .any(|value| value.contains("index_embeddings"))
+            })
+            .unwrap_or(false)
+    );
 
     let section = call_tool(
         &state,
@@ -103,10 +107,12 @@ fn impact_report_surfaces_unavailable_semantic_status() {
     let expected_reason_fragment = "index_embeddings";
     #[cfg(not(feature = "semantic"))]
     let expected_reason_fragment = "not compiled";
-    assert!(section["data"]["content"]["reason"]
-        .as_str()
-        .unwrap_or("")
-        .contains(expected_reason_fragment));
+    assert!(
+        section["data"]["content"]["reason"]
+            .as_str()
+            .unwrap_or("")
+            .contains(expected_reason_fragment)
+    );
 }
 
 #[cfg(feature = "semantic")]
@@ -163,6 +169,17 @@ fn get_capabilities_returns_features() {
     assert_eq!(payload["success"], json!(true));
     assert!(payload["data"]["available"].is_array());
     assert!(payload["data"].get("lsp_attached").is_some());
+    assert!(payload["data"]["diagnostics_guidance"].is_object());
+    assert!(
+        payload["data"]["diagnostics_guidance"]
+            .get("recommended_action")
+            .is_some()
+    );
+    assert!(
+        payload["data"]["diagnostics_guidance"]
+            .get("reason_code")
+            .is_some()
+    );
     assert!(payload["data"].get("embeddings_loaded").is_some());
     assert_eq!(
         payload["data"]["embedding_model"],
@@ -175,12 +192,16 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"]["daemon_binary_drift"].is_object());
     assert!(payload["data"]["daemon_binary_drift"]["status"].is_string());
     assert!(payload["data"]["daemon_binary_drift"]["stale_daemon"].is_boolean());
-    assert!(payload["data"]["daemon_binary_drift"]
-        .get("recommended_action")
-        .is_some());
-    assert!(payload["data"]["daemon_binary_drift"]
-        .get("reason_code")
-        .is_some());
+    assert!(
+        payload["data"]["daemon_binary_drift"]
+            .get("recommended_action")
+            .is_some()
+    );
+    assert!(
+        payload["data"]["daemon_binary_drift"]
+            .get("reason_code")
+            .is_some()
+    );
 }
 
 #[test]
@@ -210,6 +231,69 @@ fn get_capabilities_reports_existing_embedding_index_without_loading_engine() {
     );
     assert_eq!(payload["data"]["embedding_indexed"], json!(true));
     assert_eq!(payload["data"]["embedding_indexed_symbols"], json!(indexed));
+}
+
+#[test]
+fn get_capabilities_reports_diagnostics_guidance_without_file_path() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let payload = call_tool(&state, "get_capabilities", json!({}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["status"],
+        json!("file_path_required")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["available"],
+        json!(false)
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["reason_code"],
+        json!("diagnostics_file_path_required")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["recommended_action"],
+        json!("provide_file_path")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["action_target"],
+        json!("file_path")
+    );
+}
+
+#[test]
+fn get_capabilities_reports_diagnostics_guidance_for_unsupported_extension() {
+    let project = project_root();
+    fs::write(project.as_path().join("notes.unknown"), "hello\n").unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "get_capabilities",
+        json!({"file_path": "notes.unknown"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["status"],
+        json!("unsupported_extension")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["reason_code"],
+        json!("diagnostics_unsupported_extension")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["recommended_action"],
+        json!("pass_explicit_lsp_command")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["action_target"],
+        json!("file_extension")
+    );
+    assert_eq!(
+        payload["data"]["diagnostics_guidance"]["file_extension"],
+        json!("unknown")
+    );
 }
 
 #[test]
@@ -274,17 +358,51 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
         payload["data"]["capabilities"]["daemon_binary_drift"]["recommended_action"],
         json!("restart_mcp_server")
     );
-    assert!(payload["data"]["warnings"]
-        .as_array()
-        .map(|warnings| {
-            warnings.iter().any(|warning| {
-                warning["code"] == "stale_daemon_binary"
-                    && warning["restart_recommended"] == json!(true)
-                    && warning["recommended_action"] == json!("restart_mcp_server")
-                    && warning["action_target"] == json!("daemon")
+    assert!(
+        payload["data"]["warnings"]
+            .as_array()
+            .map(|warnings| {
+                warnings.iter().any(|warning| {
+                    warning["code"] == "stale_daemon_binary"
+                        && warning["restart_recommended"] == json!(true)
+                        && warning["recommended_action"] == json!("restart_mcp_server")
+                        && warning["action_target"] == json!("daemon")
+                })
             })
-        })
-        .unwrap_or(false));
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn prepare_harness_session_warns_when_diagnostics_recipe_is_missing() {
+    let project = project_root();
+    fs::write(project.as_path().join("diagnose.unknown"), "hello\n").unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "builder-minimal", "file_path": "diagnose.unknown"}),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["capabilities"]["diagnostics_guidance"]["status"],
+        json!("unsupported_extension")
+    );
+    assert!(
+        payload["data"]["warnings"]
+            .as_array()
+            .map(|warnings| {
+                warnings.iter().any(|warning| {
+                    warning["code"] == "diagnostics_unsupported_extension"
+                        && warning["restart_recommended"] == json!(false)
+                        && warning["recommended_action"] == json!("pass_explicit_lsp_command")
+                        && warning["action_target"] == json!("file_extension")
+                })
+            })
+            .unwrap_or(false)
+    );
 }
 
 #[test]
@@ -328,11 +446,13 @@ fn analyze_change_request_returns_handle_and_section() {
     );
     assert_eq!(section["success"], json!(true));
     assert_eq!(section["data"]["analysis_id"], json!(analysis_id));
-    assert!(state
-        .analysis_dir()
-        .join(analysis_id)
-        .join("ranked_files.json")
-        .exists());
+    assert!(
+        state
+            .analysis_dir()
+            .join(analysis_id)
+            .join("ranked_files.json")
+            .exists()
+    );
 }
 
 #[test]
@@ -1177,6 +1297,10 @@ fn output_schema_workflow_tools_return_structured_content() {
     );
     assert!(bootstrap_value["result"]["structuredContent"]["capabilities"].is_object());
     assert!(
+        bootstrap_value["result"]["structuredContent"]["capabilities"]["diagnostics_guidance"]
+            .is_object()
+    );
+    assert!(
         bootstrap_value["result"]["structuredContent"]["visible_tools"]["tool_names"].is_array()
     );
     assert!(bootstrap_value["result"]["structuredContent"]["routing"].is_object());
@@ -1344,9 +1468,11 @@ fn oversized_analysis_handle_keeps_structured_content_schema_shape() {
         json!(true)
     );
     assert_eq!(value["result"]["structuredContent"].get("truncated"), None);
-    assert!(value["result"]["structuredContent"]["analysis_id"]
-        .as_str()
-        .is_some());
+    assert!(
+        value["result"]["structuredContent"]["analysis_id"]
+            .as_str()
+            .is_some()
+    );
     assert!(
         value["result"]["structuredContent"]["readiness"]["mutation_ready"]
             .as_str()
@@ -1383,6 +1509,21 @@ fn onboard_project_schema_matches_payload_shape() {
 }
 
 #[test]
+fn get_capabilities_schema_matches_payload_shape() {
+    let schema = crate::tool_defs::tool_definition("get_capabilities")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let properties = schema["properties"]
+        .as_object()
+        .cloned()
+        .unwrap_or_default();
+    assert!(properties.contains_key("diagnostics_guidance"));
+    assert!(properties.contains_key("semantic_search_guidance"));
+    assert!(properties.contains_key("daemon_binary_drift"));
+}
+
+#[test]
 fn prepare_harness_session_schema_matches_payload_shape() {
     let schema = crate::tool_defs::tool_definition("prepare_harness_session")
         .and_then(|tool| tool.output_schema.as_ref())
@@ -1401,7 +1542,7 @@ fn prepare_harness_session_schema_matches_payload_shape() {
 fn workflow_first_surfaces_prefer_alias_bootstrap() {
     use crate::protocol::ToolTier;
     use crate::tool_defs::{
-        preferred_bootstrap_tools, preferred_tiers, ToolPreset, ToolProfile, ToolSurface,
+        ToolPreset, ToolProfile, ToolSurface, preferred_bootstrap_tools, preferred_tiers,
     };
 
     let builder_tiers = preferred_tiers(ToolSurface::Profile(ToolProfile::BuilderMinimal));
@@ -1416,7 +1557,7 @@ fn workflow_first_surfaces_prefer_alias_bootstrap() {
 
 #[test]
 fn visible_tools_order_workflow_surfaces_bootstrap_first() {
-    use crate::tool_defs::{visible_tools, ToolProfile, ToolSurface};
+    use crate::tool_defs::{ToolProfile, ToolSurface, visible_tools};
 
     let builder_tools = visible_tools(ToolSurface::Profile(ToolProfile::BuilderMinimal))
         .into_iter()
@@ -1473,10 +1614,12 @@ fn prepare_harness_session_defaults_to_surface_bootstrap_entrypoints() {
         payload["data"]["routing"]["recommended_entrypoint"],
         json!("explore_codebase")
     );
-    assert!(payload["data"]["routing"]["preferred_entrypoints"]
-        .as_array()
-        .map(|items| items.iter().any(|value| value == "trace_request_path"))
-        .unwrap_or(false));
+    assert!(
+        payload["data"]["routing"]["preferred_entrypoints"]
+            .as_array()
+            .map(|items| items.iter().any(|value| value == "trace_request_path"))
+            .unwrap_or(false)
+    );
 }
 
 #[test]
@@ -1612,9 +1755,11 @@ fn foreign_project_scoped_analysis_is_ignored_for_reuse() {
     .unwrap();
 
     assert!(state.get_analysis(analysis_id).is_none());
-    assert!(state
-        .find_reusable_analysis_for_current_scope("analyze_change_request", &cache_key)
-        .is_none());
+    assert!(
+        state
+            .find_reusable_analysis_for_current_scope("analyze_change_request", &cache_key)
+            .is_none()
+    );
 }
 
 #[test]
@@ -1690,10 +1835,12 @@ fn analysis_artifacts_expire_by_ttl() {
 
     assert!(state.get_analysis(&analysis_id).is_none());
     assert!(!state.analysis_dir().join(&analysis_id).exists());
-    assert!(state
-        .list_analysis_summaries()
-        .into_iter()
-        .all(|summary| summary.id != analysis_id));
+    assert!(
+        state
+            .list_analysis_summaries()
+            .into_iter()
+            .all(|summary| summary.id != analysis_id)
+    );
 }
 
 #[test]
@@ -1879,10 +2026,12 @@ fn refactor_surface_requires_preflight_before_create_text_file() {
         json!({"relative_path": "mutated.txt", "content": "hello"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("requires a fresh preflight"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("requires a fresh preflight")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -1930,9 +2079,11 @@ fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
         }),
     );
     assert_eq!(payload["success"], json!(true));
-    assert!(fs::read_to_string(project.as_path().join("gated.py"))
-        .unwrap()
-        .contains("new"));
+    assert!(
+        fs::read_to_string(project.as_path().join("gated.py"))
+            .unwrap()
+            .contains("new")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -1980,10 +2131,12 @@ fn safe_rename_report_blocked_preflight_blocks_rename_symbol() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("blocked by verifier readiness"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("blocked by verifier readiness")
+    );
 }
 
 #[test]
@@ -2018,10 +2171,12 @@ fn rename_symbol_requires_symbol_aware_preflight() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("symbol-aware preflight"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("symbol-aware preflight")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2100,10 +2255,12 @@ fn session_scoped_preflight_does_not_cross_sessions() {
         "session-b",
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("requires a fresh preflight"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("requires a fresh preflight")
+    );
 }
 
 #[test]
@@ -2167,18 +2324,20 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
         search["data"]["retrieval"]["semantic_query"],
         json!("ember archive delta")
     );
-    assert!(search["data"]["results"]
-        .as_array()
-        .map(|results| {
-            results
-                .iter()
-                .all(|result| result["provenance"]["source"] == json!("semantic"))
-                && results
+    assert!(
+        search["data"]["results"]
+            .as_array()
+            .map(|results| {
+                results
                     .iter()
-                    .all(|result| result["provenance"]["adjusted_score"].is_number())
-                && results
-                    .iter()
-                    .any(|result| result.get("symbol_name") == Some(&json!("ember_archive_delta")))
-        })
-        .unwrap_or(false));
+                    .all(|result| result["provenance"]["source"] == json!("semantic"))
+                    && results
+                        .iter()
+                        .all(|result| result["provenance"]["adjusted_score"].is_number())
+                    && results.iter().any(|result| {
+                        result.get("symbol_name") == Some(&json!("ember_archive_delta"))
+                    })
+            })
+            .unwrap_or(false)
+    );
 }
