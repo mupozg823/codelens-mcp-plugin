@@ -1,0 +1,19 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --system --uid 10001 --create-home --home-dir /home/codelens codelens \
+    && mkdir -p /workspace \
+    && chown -R codelens:codelens /workspace
+
+WORKDIR /workspace
+
+COPY codelens-mcp /usr/local/bin/codelens-mcp
+
+USER 10001:10001
+
+EXPOSE 7837
+
+ENTRYPOINT ["/usr/local/bin/codelens-mcp"]
+CMD ["/workspace"]

@@ -1,10 +1,10 @@
-use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
+    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
 };
-use crate::tool_runtime::{ToolResult, success_meta};
+use crate::tool_runtime::{success_meta, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::VecDeque;
 
@@ -753,10 +753,25 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     let health_summary = runtime_health.health_summary.clone();
     let daemon_binary_drift = runtime_health.daemon_binary_drift.clone();
 
+    // Intelligence sources: report which backends are active.
+    let mut intelligence_sources = vec!["tree_sitter"];
+    if lsp_attached {
+        intelligence_sources.push("lsp");
+    }
+    if runtime_health.semantic_status.is_available() {
+        intelligence_sources.push("semantic");
+    }
+    // SCIP: check for .scip index file in project root
+    let scip_available = state.project().as_path().join("index.scip").exists();
+    if scip_available {
+        intelligence_sources.push("scip");
+    }
+
     Ok((
         json!({
             "language": language,
             "lsp_attached": lsp_attached,
+            "intelligence_sources": intelligence_sources,
             "diagnostics_guidance": diagnostics_guidance.guidance_payload(),
             "embeddings_loaded": embeddings_loaded,
             "semantic_search_status": semantic_search_status,
@@ -1167,7 +1182,7 @@ mod capability_reporting_tests {
     #[cfg(feature = "semantic")]
     #[test]
     fn planner_readonly_and_builder_minimal_expose_semantic_search() {
-        use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
+        use crate::tool_defs::{is_tool_in_surface, ToolProfile, ToolSurface};
 
         for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
             let surface = ToolSurface::Profile(profile);

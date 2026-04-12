@@ -26,6 +26,7 @@ The workflow is also configured to publish:
 
 - `checksums-sha256.txt`
 - `codelens-mcp-<target>.cdx.json` per-target CycloneDX SBOM files
+- a Linux OCI image to GHCR from the released `linux-x86_64` archive payload
 
 The workflow is also configured to generate GitHub artifact attestations for each packaged archive:
 
@@ -40,13 +41,13 @@ and then uses those release checksums to update the Homebrew tap formula.
 - SHA-256 checksums are published alongside the assets
 - per-target CycloneDX SBOMs are generated in the release workflow
 - provenance and SBOM attestations are generated in the release workflow
+- an OCI image is built from the released Linux binary and pushed to GHCR
 - Homebrew is derived from the published release checksums rather than from a separate manual path
 - release notes can be generated from GitHub plus repository-maintained notes under [`docs/release-notes`](release-notes)
 
 ### What is **not** currently true
 
 - no artifact signing step exists
-- no OCI image is produced
 - no air-gapped bundle is produced
 
 Those remaining items are roadmap gaps, not shipped capabilities.
@@ -100,6 +101,20 @@ gh attestation verify ./codelens-mcp-linux-x86_64.tar.gz \
 
 This verifies the default SLSA provenance predicate bound to the artifact.
 
+### 5. Pull the published OCI image
+
+Once a new tag has gone through the release workflow, the container image is published to:
+
+```text
+ghcr.io/mupozg823/codelens-mcp-plugin:<tag>
+```
+
+Example:
+
+```bash
+docker pull ghcr.io/mupozg823/codelens-mcp-plugin:1.9.14
+```
+
 ---
 
 ## Current configured attestation model
@@ -110,6 +125,8 @@ Each matrix build is configured to create:
 - one SBOM attestation using the generated CycloneDX JSON for that same archive
 
 The release assets themselves remain the archives, SBOM files, and checksum manifest. The attestation bundles are stored through GitHub's attestation API rather than mirrored as plain release assets.
+
+The OCI image is built from the released `linux-x86_64` binary artifact rather than from a second Rust compilation path. That keeps the container packaging path aligned with the release archive it represents.
 
 ---
 
@@ -122,10 +139,10 @@ The release assets themselves remain the archives, SBOM files, and checksum mani
 | Published per-target CycloneDX SBOMs | release workflow configured | Present |
 | GitHub provenance attestation | `actions/attest@v4` in release workflow | Present |
 | GitHub SBOM attestation | `actions/attest@v4` in release workflow | Present |
+| OCI image publishing | GHCR via `docker/build-push-action` | Present |
 | Local artifact verification path | `scripts/verify-release-artifacts.sh` | Present |
 | Homebrew derivation from published assets | Implemented in release workflow | Present |
 | Signature verification path | Not implemented | Missing |
-| OCI image publishing | Not implemented | Missing |
 | Air-gapped bundle | Not implemented | Missing |
 
 Interpretation:
@@ -157,14 +174,15 @@ This is the minimum bar to move from "developer-grade release assets" to "enterp
 
 ### P2: add enterprise delivery formats
 
-1. Publish an OCI image for daemon deployments.
-2. Publish an air-gapped bundle containing:
+1. Publish an air-gapped bundle containing:
    - binary
    - model assets
    - checksums
    - SBOM
    - provenance
    - example configs
+
+2. Add an explicit verification playbook for registry-hosted OCI provenance/SBOM attestations.
 
 This is the point where CodeLens becomes materially easier to operate in locked-down environments.
 

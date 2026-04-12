@@ -88,6 +88,6 @@ pub use watcher::{FileWatcher, WatcherStats};
 // Semantic IR — new types only; existing types are already re-exported above.
 pub use ir::{
     CodeDiagnostic, DiagnosticSeverity, EditAction, EditActionKind, EditPlan, ImpactKind,
-    ImpactNode, IntelligenceSource, IrCallEdge, Relation, RelationKind, RetrievalConfig,
-    RetrievalStage, RetrievalWeights, SearchCandidate,
+    ImpactNode, IntelligenceSource, IrCallEdge, PreciseBackend, Relation, RelationKind,
+    RetrievalConfig, RetrievalStage, RetrievalWeights, SearchCandidate,
 };
