@@ -553,7 +553,7 @@ mod tests {
     }
 
     #[test]
-    fn semantic_query_expands_inline_entrypoint_phrases() {
+    fn inline_alias_expansion_covers_entrypoint_phrase() {
         let query = "which entrypoint handles inline";
         let semantic = semantic_query_for_retrieval(query);
         assert!(semantic.contains("inline_function"));
@@ -561,14 +561,14 @@ mod tests {
     }
 
     #[test]
-    fn semantic_query_expands_helper_find_queries() {
+    fn helper_alias_expansion_covers_find_symbol() {
         let query = "which helper implements find";
         let semantic = semantic_query_for_retrieval(query);
         assert!(semantic.contains("find_symbol"));
     }
 
     #[test]
-    fn semantic_query_adds_trigram_aliases_for_builder_queries() {
+    fn trigram_alias_expansion_covers_three_token_concepts() {
         let query = "which builder creates build embedding text";
         let semantic = semantic_query_for_retrieval(query);
         assert!(semantic.contains("build_embedding_text"));
@@ -714,7 +714,7 @@ mod tests {
 
     #[cfg(feature = "semantic")]
     #[test]
-    fn inline_entrypoint_queries_prefer_inline_function_over_tests() {
+    fn inline_target_outranks_inline_regression_symbol() {
         let reranked = rerank_semantic_matches(
             "which entrypoint handles inline",
             vec![
@@ -744,7 +744,7 @@ mod tests {
 
     #[cfg(feature = "semantic")]
     #[test]
-    fn helper_find_queries_prefer_find_symbol_over_generic_finders() {
+    fn find_symbol_target_outranks_generic_finders() {
         let reranked = rerank_semantic_matches(
             "which helper implements find",
             vec![

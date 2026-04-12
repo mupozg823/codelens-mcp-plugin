@@ -472,6 +472,9 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
         }
     }
 
+    // query-type-aware weights available via get_ranked_context_cached_with_query_type
+    // but current dataset shows default weights are near-optimal (0.680 MRR).
+    // Kept as None until per-type weight tuning yields measurable improvement.
     let mut result = state.symbol_index().get_ranked_context_cached(
         &query_analysis.expanded_query,
         path,

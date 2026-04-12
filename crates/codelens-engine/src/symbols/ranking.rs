@@ -436,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_entrypoint_query_prefers_inline_function_over_entrypoint_helpers() {
+    fn inline_target_beats_generic_entrypoint_helpers() {
         let inline_symbol = SymbolInfo {
             name: "inline_function".into(),
             kind: SymbolKind::Function,
@@ -473,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn helper_find_query_prefers_find_symbol_over_generic_finders() {
+    fn find_symbol_target_beats_generic_finders() {
         let target = SymbolInfo {
             name: "find_symbol".into(),
             kind: SymbolKind::Function,
@@ -508,7 +508,7 @@ mod tests {
     }
 
     #[test]
-    fn builder_query_prefers_exact_build_embedding_text_symbol() {
+    fn embedding_text_target_beats_generic_embedding_symbols() {
         let target = SymbolInfo {
             name: "build_embedding_text".into(),
             kind: SymbolKind::Function,

@@ -1,5 +1,5 @@
 use super::parser::{flatten_symbol_infos, slice_source};
-use super::ranking::{prune_to_budget, rank_symbols, RankingContext};
+use super::ranking::{self, prune_to_budget, rank_symbols, RankingContext};
 use super::types::{make_symbol_id, parse_symbol_id, RankedContextResult, SymbolInfo, SymbolKind};
 use super::SymbolIndex;
 use crate::db::IndexDb;
@@ -262,6 +262,32 @@ impl SymbolIndex {
         graph_cache: Option<&crate::import_graph::GraphCache>,
         semantic_scores: std::collections::HashMap<String, f64>,
     ) -> Result<RankedContextResult> {
+        self.get_ranked_context_cached_with_query_type(
+            query,
+            path,
+            max_tokens,
+            include_body,
+            depth,
+            graph_cache,
+            semantic_scores,
+            None,
+        )
+    }
+
+    /// Like `get_ranked_context_cached` but accepts an optional query type
+    /// (`"identifier"`, `"natural_language"`, `"short_phrase"`) to tune
+    /// ranking weights per query category.
+    pub fn get_ranked_context_cached_with_query_type(
+        &self,
+        query: &str,
+        path: Option<&str>,
+        max_tokens: usize,
+        include_body: bool,
+        depth: usize,
+        graph_cache: Option<&crate::import_graph::GraphCache>,
+        semantic_scores: std::collections::HashMap<String, f64>,
+        query_type: Option<&str>,
+    ) -> Result<RankedContextResult> {
         let all_symbols = if let Some(path) = path {
             self.get_symbols_overview_cached(path, depth)?
         } else {
@@ -288,6 +314,15 @@ impl SymbolIndex {
                     )
                 }
             }
+        };
+
+        // Apply query-type-aware weights when specified.
+        let ranking_ctx = if let Some(qt) = query_type {
+            let mut ctx = ranking_ctx;
+            ctx.weights = ranking::weights_for_query_type(qt);
+            ctx
+        } else {
+            ranking_ctx
         };
 
         let flat_symbols: Vec<SymbolInfo> = all_symbols
