@@ -32,6 +32,12 @@ fn is_natural_language_query(query: &str) -> bool {
         && trimmed.split_whitespace().count() >= 3
 }
 
+fn prefers_entrypoint_phrase(query_lower: &str) -> bool {
+    query_lower.contains("entrypoint")
+        || query_lower.contains("handler")
+        || query_lower.contains("primary implementation")
+}
+
 fn split_identifier_terms(query: &str) -> Option<String> {
     let trimmed = query.trim();
     if trimmed.is_empty()
@@ -87,9 +93,13 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
 
     let prefer_lexical_only = query_prefers_lexical_only(trimmed);
     let natural_language = is_natural_language_query(trimmed);
+    let lowered = trimmed.to_ascii_lowercase();
+    let entrypoint_phrase = prefers_entrypoint_phrase(&lowered) && trimmed.contains(' ');
 
-    let semantic_query = if natural_language {
+    let semantic_query = if natural_language && !entrypoint_phrase {
         trimmed.to_owned()
+    } else if entrypoint_phrase {
+        expand_retrieval_query(trimmed)
     } else if let Some(split) = split_identifier_terms(trimmed) {
         if split != trimmed {
             format!("{trimmed} {split}")
@@ -119,8 +129,12 @@ pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
     analyze_retrieval_query(query).semantic_query
 }
 
-fn is_natural_language_semantic_query(query: &str) -> bool {
-    query.split_whitespace().count() >= 4
+fn prefers_semantic_entrypoint_prior(query_lower: &str) -> bool {
+    prefers_entrypoint_phrase(query_lower) && query_lower.split_whitespace().count() >= 3
+}
+
+fn is_natural_language_semantic_query(query_lower: &str) -> bool {
+    query_lower.split_whitespace().count() >= 4 || prefers_semantic_entrypoint_prior(query_lower)
 }
 
 #[cfg(feature = "semantic")]
@@ -158,8 +172,7 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
         _ => 0.0,
     };
 
-    let prefers_entrypoint = query_lower.contains("entrypoint")
-        || query_lower.contains("primary implementation")
+    let prefers_entrypoint = prefers_semantic_entrypoint_prior(query_lower)
         || query_lower.contains("which entrypoint")
         || query_lower.contains("handles ");
     if prefers_entrypoint {
@@ -375,6 +388,15 @@ fn expand_retrieval_query(query: &str) -> String {
             push_unique(alias);
         }
     }
+    if lowered.contains("rename")
+        && (lowered.contains("entrypoint")
+            || lowered.contains("handler")
+            || lowered.contains("implementation"))
+    {
+        for alias in ["rename_symbol", "rename"] {
+            push_unique(alias);
+        }
+    }
     if lowered.contains("stdin") || lowered.contains("stdio") || lowered.contains("read input") {
         for alias in ["run_stdio", "stdio", "stdin"] {
             push_unique(alias);
@@ -432,6 +454,14 @@ mod tests {
     fn semantic_query_keeps_natural_language_clean() {
         let query = "route an incoming tool request to the right handler";
         assert_eq!(semantic_query_for_retrieval(query), query);
+    }
+
+    #[test]
+    fn semantic_query_expands_short_entrypoint_phrases() {
+        let query = "primary move handler";
+        let semantic = semantic_query_for_retrieval(query);
+        assert!(semantic.contains(query));
+        assert!(semantic.contains("move_symbol"));
     }
 
     #[test]
@@ -527,6 +557,36 @@ mod tests {
         );
         assert!(prior <= 0.19);
         assert!(prior >= -0.10);
+    }
+
+    #[cfg(feature = "semantic")]
+    #[test]
+    fn short_entrypoint_semantic_prior_prefers_rename_function_over_edit_type() {
+        let reranked = rerank_semantic_matches(
+            "primary rename handler",
+            vec![
+                SemanticMatch {
+                    symbol_name: "RenameEdit".to_owned(),
+                    kind: "class".to_owned(),
+                    file_path: "crates/codelens-engine/src/rename.rs".to_owned(),
+                    line: 1,
+                    signature: "pub struct RenameEdit".to_owned(),
+                    name_path: "RenameEdit".to_owned(),
+                    score: 0.318,
+                },
+                SemanticMatch {
+                    symbol_name: "rename_symbol".to_owned(),
+                    kind: "function".to_owned(),
+                    file_path: "crates/codelens-engine/src/rename.rs".to_owned(),
+                    line: 20,
+                    signature: "pub fn rename_symbol".to_owned(),
+                    name_path: "rename_symbol".to_owned(),
+                    score: 0.241,
+                },
+            ],
+            2,
+        );
+        assert_eq!(reranked[0].symbol_name, "rename_symbol");
     }
 
     #[cfg(feature = "semantic")]
