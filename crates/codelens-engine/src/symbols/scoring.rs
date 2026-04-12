@@ -1,5 +1,33 @@
 use super::types::SymbolInfo;
 
+// ── Zero-allocation ASCII case-insensitive helpers ──────────────────
+
+/// ASCII case-insensitive substring search. Returns true if `needle`
+/// appears anywhere in `haystack` ignoring ASCII case differences.
+///
+/// This replaces the previous pattern of allocating
+/// `haystack.to_lowercase()` + `haystack_lower.contains(needle_lower)`
+/// which paid one `String` allocation per call. Since code identifiers
+/// in all 25 supported tree-sitter languages are ASCII, the ASCII-only
+/// comparison is both correct and faster than Unicode `to_lowercase`.
+fn contains_ascii_ci(haystack: &str, needle: &str) -> bool {
+    let h = haystack.as_bytes();
+    let n = needle.as_bytes();
+    if n.len() > h.len() {
+        return false;
+    }
+    if n.is_empty() {
+        return true;
+    }
+    h.windows(n.len())
+        .any(|window| window.eq_ignore_ascii_case(n))
+}
+
+/// ASCII case-insensitive full-string equality.
+fn eq_ascii_ci(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
+
 /// Check if any query token is a common programming action verb.
 fn query_has_action_verb(tokens: &[&str]) -> bool {
     const ACTION_VERBS: &[&str] = &[
@@ -119,38 +147,36 @@ pub(crate) fn score_symbol_with_lower(
         return Some(100);
     }
 
-    // Compute name_lower once, reuse for substring + token checks
-    let name_lower = symbol.name.to_lowercase();
+    // ── Zero-alloc substring checks (replaces 4 × to_lowercase()) ──
+    // All checks below use contains_ascii_ci / eq_ascii_ci instead of
+    // allocating lowered Strings. Code identifiers are ASCII, so
+    // ASCII case folding is correct and avoids one String per field.
 
-    if name_lower.contains(query_lower) {
+    if contains_ascii_ci(&symbol.name, query_lower) {
         return Some(60);
     }
-    // Full query substring in signature
-    let sig_lower = symbol.signature.to_lowercase();
-    if sig_lower.contains(query_lower) {
+    if contains_ascii_ci(&symbol.signature, query_lower) {
         return Some(30);
     }
-    // Full query substring in name_path
-    if symbol.name_path.to_lowercase().contains(query_lower) {
+    if contains_ascii_ci(&symbol.name_path, query_lower) {
         return Some(20);
     }
-    let _is_multi_word = query_lower.contains(' ');
 
     // Check if query tokens form the symbol name when joined with underscore
     // e.g. "rename symbol" → "rename_symbol" → exact match bonus
     // `joined_snake` is pre-computed by the caller to avoid one String
     // allocation per candidate in the hot loop.
-    if name_lower == joined_snake {
+    if eq_ascii_ci(&symbol.name, joined_snake) {
         return Some(80);
     }
     // Partial: symbol name is a subset of joined tokens
     // e.g. "move symbol to file" → joined = "move_symbol_to_file", contains "move_symbol" → 70
-    if joined_snake.contains(&name_lower) && name_lower.contains('_') {
+    if contains_ascii_ci(joined_snake, &symbol.name) && symbol.name.contains('_') {
         return Some(70);
     }
     // Reverse: symbol name contains the joined tokens
     // e.g. "extract function" → "refactor_extract_function" contains "extract_function" → 65
-    if name_lower.contains(&joined_snake) && joined_snake.contains('_') {
+    if contains_ascii_ci(&symbol.name, joined_snake) && joined_snake.contains('_') {
         return Some(65);
     }
 
@@ -166,20 +192,18 @@ pub(crate) fn score_symbol_with_lower(
     // Split CamelCase name into tokens for matching (e.g. FileWatcher → ["file","watcher"])
     let name_camel_tokens = split_camel_case(&symbol.name);
 
-    let path_lower = symbol.file_path.to_lowercase();
-
     let mut name_hits = 0i32;
     let mut sig_hits = 0i32;
     let mut path_hits = 0i32;
     for token in &tokens {
-        if name_lower.contains(token) || name_camel_tokens.iter().any(|ct| ct == token) {
+        if contains_ascii_ci(&symbol.name, token) || name_camel_tokens.iter().any(|ct| ct == token)
+        {
             name_hits += 1;
         }
-        // Non-exclusive: check sig and path independently
-        if sig_lower.contains(token) {
+        if contains_ascii_ci(&symbol.signature, token) {
             sig_hits += 1;
         }
-        if path_lower.contains(token) {
+        if contains_ascii_ci(&symbol.file_path, token) {
             path_hits += 1;
         }
     }
