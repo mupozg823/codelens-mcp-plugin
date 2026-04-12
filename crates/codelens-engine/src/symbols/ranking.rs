@@ -460,8 +460,19 @@ pub(crate) fn prune_to_budget(
             body,
             relevance_score: score,
         };
-        // serde_json::to_string should not fail for this struct, but handle gracefully
-        let entry_size = serde_json::to_string(&entry).map(|s| s.len()).unwrap_or(0);
+        // Estimate entry size from field lengths directly instead of
+        // serializing to JSON and measuring the string. This avoids one
+        // full serde_json::to_string round-trip per selected entry
+        // (~50 entries × ~300 bytes each = ~15 KB of wasted JSON work).
+        // The constant 80 covers JSON keys, braces, commas, and the
+        // integer relevance_score field. This is a budget-stopping
+        // heuristic, not an exact measurement — a ±20% error is fine.
+        let entry_size = entry.name.len()
+            + entry.kind.len()
+            + entry.file.len()
+            + entry.signature.len()
+            + entry.body.as_ref().map(|b| b.len()).unwrap_or(0)
+            + 80;
         if remaining < entry_size && !selected.is_empty() {
             break;
         }
