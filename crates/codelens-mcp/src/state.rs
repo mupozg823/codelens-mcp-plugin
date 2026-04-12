@@ -531,23 +531,6 @@ impl AppState {
         targets
     }
 
-    pub(crate) fn extract_symbol_hint(&self, arguments: &Value) -> Option<String> {
-        for key in [
-            "name_path",
-            "symbol",
-            "symbol_name",
-            "name",
-            "function_name",
-        ] {
-            if let Some(value) = arguments.get(key).and_then(|entry| entry.as_str()) {
-                let trimmed = value.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_owned());
-                }
-            }
-        }
-        None
-    }
 
     pub(crate) fn record_recent_preflight_from_payload(
         &self,
@@ -567,7 +550,7 @@ impl AppState {
             surface,
             Self::now_ms(),
             self.extract_target_paths(arguments),
-            self.extract_symbol_hint(arguments),
+            extract_symbol_hint(arguments),
             payload,
         );
     }
@@ -1497,6 +1480,32 @@ impl AppState {
             .set_created_at_for_test(analysis_id, created_at_ms)
             .map_err(|e| CodeLensError::Internal(e.into()))
     }
+}
+
+// ── Free functions (extracted from AppState for SRP) ─────────────────
+
+/// Extract a symbol name hint from tool arguments by checking a priority
+/// list of common field names (`name_path`, `symbol`, `symbol_name`,
+/// `name`, `function_name`).
+///
+/// This is a pure function that does not need `AppState` — it was
+/// originally an `&self` method but never referenced `self`.
+pub(crate) fn extract_symbol_hint(arguments: &Value) -> Option<String> {
+    for key in [
+        "name_path",
+        "symbol",
+        "symbol_name",
+        "name",
+        "function_name",
+    ] {
+        if let Some(value) = arguments.get(key).and_then(|entry| entry.as_str()) {
+            let trimmed = value.trim();
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_owned());
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
