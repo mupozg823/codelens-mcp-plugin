@@ -175,8 +175,12 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"]["daemon_binary_drift"].is_object());
     assert!(payload["data"]["daemon_binary_drift"]["status"].is_string());
     assert!(payload["data"]["daemon_binary_drift"]["stale_daemon"].is_boolean());
-    assert!(payload["data"]["daemon_binary_drift"].get("recommended_action").is_some());
-    assert!(payload["data"]["daemon_binary_drift"].get("reason_code").is_some());
+    assert!(payload["data"]["daemon_binary_drift"]
+        .get("recommended_action")
+        .is_some());
+    assert!(payload["data"]["daemon_binary_drift"]
+        .get("reason_code")
+        .is_some());
 }
 
 #[test]

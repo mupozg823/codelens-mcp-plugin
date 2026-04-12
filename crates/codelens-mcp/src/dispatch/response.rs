@@ -3,12 +3,12 @@ use super::response_support::{
     effective_budget_for_tool, max_result_size_chars_for_tool, routing_hint_for_payload,
     success_jsonrpc_response, text_payload_for_response,
 };
-use crate::AppState;
 use crate::error::CodeLensError;
-use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
+use crate::mutation_gate::{is_verifier_source_tool, MutationGateAllowance, MutationGateFailure};
 use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};
-use crate::tool_defs::{ToolSurface, tool_definition};
+use crate::tool_defs::{tool_definition, ToolSurface};
 use crate::tools;
+use crate::AppState;
 use serde_json::json;
 
 pub(crate) struct SuccessResponseInput<'a> {
@@ -128,6 +128,10 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
                 "analyze_change_request".to_owned(),
             ]);
         }
+    }
+
+    if let Some(ref next_tools) = resp.suggested_next_tools {
+        resp.suggestion_reasons = Some(tools::suggestion_reasons_for(next_tools, name));
     }
 
     if compact {

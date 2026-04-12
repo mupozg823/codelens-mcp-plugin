@@ -27,6 +27,8 @@ pub struct App {
     pub active_panel: Panel,
     pub project_name: String,
     pub total_indexed_files: usize,
+    pub search_mode: bool,
+    pub search_query: String,
 }
 
 impl App {
@@ -57,6 +59,8 @@ impl App {
             active_panel: Panel::Tree,
             project_name,
             total_indexed_files,
+            search_mode: false,
+            search_query: String::new(),
         };
         app.load_files();
         Ok(app)
@@ -95,9 +99,43 @@ impl App {
         self.symbols.get(self.symbol_cursor)
     }
 
+    pub fn filtered_files(&self) -> Vec<(usize, &FileEntry)> {
+        if self.search_query.is_empty() {
+            return self.files.iter().enumerate().collect();
+        }
+        let q = self.search_query.to_lowercase();
+        self.files
+            .iter()
+            .enumerate()
+            .filter(|(_, f)| f.path.to_lowercase().contains(&q))
+            .collect()
+    }
+
     pub fn handle_key(&mut self, key: KeyCode) -> Action {
+        // Handle search mode input first.
+        if self.search_mode {
+            match key {
+                KeyCode::Esc | KeyCode::Enter => {
+                    self.search_mode = false;
+                }
+                KeyCode::Backspace => {
+                    self.search_query.pop();
+                }
+                KeyCode::Char(c) => {
+                    self.search_query.push(c);
+                }
+                _ => {}
+            }
+            return Action::Continue;
+        }
+
         match key {
             KeyCode::Char('q') | KeyCode::Esc => Action::Quit,
+            KeyCode::Char('/') => {
+                self.search_mode = true;
+                self.search_query.clear();
+                Action::Continue
+            }
             KeyCode::Tab => {
                 self.active_panel = match self.active_panel {
                     Panel::Tree => Panel::Symbols,

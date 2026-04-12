@@ -117,6 +117,8 @@ pub struct ToolCallResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_next_tools: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggestion_reasons: Option<std::collections::HashMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub budget_hint: Option<String>,
     /// Routing hint for external callers.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -340,6 +342,7 @@ impl ToolCallResponse {
             error: None,
             token_estimate: None,
             suggested_next_tools: None,
+            suggestion_reasons: None,
             budget_hint: None,
             routing_hint: None,
             elapsed_ms: None,
@@ -360,6 +363,7 @@ impl ToolCallResponse {
             error: Some(message.into()),
             token_estimate: None,
             suggested_next_tools: None,
+            suggestion_reasons: None,
             budget_hint: None,
             routing_hint: None,
             elapsed_ms: None,

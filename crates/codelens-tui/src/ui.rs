@@ -42,14 +42,13 @@ fn panel_style(active: bool) -> Style {
 
 fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
     let active = matches!(app.active_panel, Panel::Tree);
-    let items: Vec<ListItem> = app
-        .files
+    let filtered = app.filtered_files();
+    let items: Vec<ListItem> = filtered
         .iter()
-        .enumerate()
-        .map(|(i, entry)| {
+        .map(|(orig_idx, entry)| {
             let indent = "  ".repeat(entry.depth);
             let label = entry.path.rsplit('/').next().unwrap_or(&entry.path);
-            let style = if i == app.file_cursor {
+            let style = if *orig_idx == app.file_cursor {
                 Style::default()
                     .fg(Color::Yellow)
                     .add_modifier(Modifier::BOLD)
@@ -60,13 +59,23 @@ fn draw_file_tree(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    let title = if app.search_mode {
+        format!(" Files [/{}] ", app.search_query)
+    } else {
+        " Files ".to_string()
+    };
+
     let block = Block::default()
-        .title(" Files ")
+        .title(title)
         .borders(Borders::ALL)
         .border_style(panel_style(active));
 
+    let cursor_pos = filtered
+        .iter()
+        .position(|(i, _)| *i == app.file_cursor)
+        .unwrap_or(0);
     let mut state = ListState::default();
-    state.select(Some(app.file_cursor));
+    state.select(Some(cursor_pos));
 
     let list = List::new(items).block(block).highlight_symbol("▶ ");
     f.render_stateful_widget(list, area, &mut state);
@@ -167,9 +176,14 @@ fn draw_metrics(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_status_bar(f: &mut Frame, app: &App, area: Rect) {
+    let prefix = if app.search_mode {
+        format!(" Search: {} |", app.search_query)
+    } else {
+        format!(" {} |", app.project_name)
+    };
     let status = format!(
-        " {} | {} indexed files | [q]Quit [Tab]Panel [↑↓]Nav",
-        app.project_name, app.total_indexed_files,
+        "{} {} indexed files | [q]Quit [Tab]Panel [↑↓]Nav [/]Search",
+        prefix, app.total_indexed_files,
     );
 
     let block = Block::default()
