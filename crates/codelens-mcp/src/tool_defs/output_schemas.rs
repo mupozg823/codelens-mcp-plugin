@@ -673,6 +673,17 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
             "lsp_attached": {"type": "boolean"},
             "embeddings_loaded": {"type": "boolean"},
             "semantic_search_status": {"type": "string", "enum": ["available", "model_assets_unavailable", "not_in_active_surface", "index_missing", "feature_disabled", "not_compiled"]},
+            "semantic_search_guidance": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "enum": ["available", "model_assets_unavailable", "not_in_active_surface", "index_missing", "feature_disabled", "not_compiled"]},
+                    "available": {"type": "boolean"},
+                    "reason": {"type": ["string", "null"]},
+                    "reason_code": {"type": ["string", "null"]},
+                    "recommended_action": {"type": ["string", "null"]},
+                    "action_target": {"type": ["string", "null"]}
+                }
+            },
             "embedding_model": {"type": "string"},
             "embedding_runtime_preference": {"type": "string"},
             "embedding_runtime_backend": {"type": "string"},
@@ -690,7 +701,10 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
                     "properties": {
                         "feature": {"type": "string"},
                         "reason": {"type": "string"},
-                        "status": {"type": "string"}
+                        "status": {"type": "string"},
+                        "reason_code": {"type": ["string", "null"]},
+                        "recommended_action": {"type": ["string", "null"]},
+                        "action_target": {"type": ["string", "null"]}
                     }
                 }
             },

@@ -202,7 +202,8 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     };
     let (capabilities_payload, _) =
         crate::tools::session::get_capabilities(state, &capabilities_arguments)?;
-    let warnings = capabilities_payload
+    let mut warnings = Vec::new();
+    if let Some(drift) = capabilities_payload
         .get("daemon_binary_drift")
         .filter(|value| {
             value
@@ -210,16 +211,32 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 .and_then(|stale| stale.as_bool())
                 .unwrap_or(false)
         })
-        .map(|drift| {
-            vec![json!({
-                "code": drift.get("reason_code").and_then(|value| value.as_str()).unwrap_or("stale_daemon_binary"),
-                "message": drift.get("reason").and_then(|value| value.as_str()).unwrap_or("running daemon is older than the executable on disk; restart the MCP server to pick up the latest build"),
-                "restart_recommended": drift.get("restart_recommended").and_then(|value| value.as_bool()).unwrap_or(true),
-                "recommended_action": drift.get("recommended_action").and_then(|value| value.as_str()).unwrap_or("restart_mcp_server"),
-                "action_target": drift.get("action_target").and_then(|value| value.as_str()).unwrap_or("daemon"),
-            })]
+    {
+        warnings.push(json!({
+            "code": drift.get("reason_code").and_then(|value| value.as_str()).unwrap_or("stale_daemon_binary"),
+            "message": drift.get("reason").and_then(|value| value.as_str()).unwrap_or("running daemon is older than the executable on disk; restart the MCP server to pick up the latest build"),
+            "restart_recommended": drift.get("restart_recommended").and_then(|value| value.as_bool()).unwrap_or(true),
+            "recommended_action": drift.get("recommended_action").and_then(|value| value.as_str()).unwrap_or("restart_mcp_server"),
+            "action_target": drift.get("action_target").and_then(|value| value.as_str()).unwrap_or("daemon"),
+        }));
+    }
+    if let Some(guidance) = capabilities_payload
+        .get("semantic_search_guidance")
+        .filter(|value| {
+            !value
+                .get("available")
+                .and_then(|available| available.as_bool())
+                .unwrap_or(false)
         })
-        .unwrap_or_default();
+    {
+        warnings.push(json!({
+            "code": guidance.get("reason_code").and_then(|value| value.as_str()).unwrap_or("semantic_search_unavailable"),
+            "message": guidance.get("reason").and_then(|value| value.as_str()).unwrap_or("semantic_search is unavailable"),
+            "restart_recommended": false,
+            "recommended_action": guidance.get("recommended_action").and_then(|value| value.as_str()).unwrap_or("inspect_semantic_configuration"),
+            "action_target": guidance.get("action_target").and_then(|value| value.as_str()).unwrap_or("semantic_search"),
+        }));
+    }
 
     let visible = build_visible_tool_context(state, &request);
     let visible_tool_names = visible

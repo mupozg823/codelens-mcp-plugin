@@ -152,6 +152,59 @@ impl SemanticSearchStatus {
         }
     }
 
+    pub(crate) fn reason_code(&self) -> Option<&'static str> {
+        match self {
+            #[cfg(feature = "semantic")]
+            Self::Available => None,
+            #[cfg(feature = "semantic")]
+            Self::ModelAssetsUnavailable => Some("semantic_model_assets_unavailable"),
+            #[cfg(feature = "semantic")]
+            Self::NotInActiveSurface => Some("semantic_not_in_active_surface"),
+            #[cfg(feature = "semantic")]
+            Self::IndexMissing => Some("semantic_index_missing"),
+            Self::FeatureDisabled => Some("semantic_feature_disabled"),
+        }
+    }
+
+    pub(crate) fn recommended_action(&self) -> Option<&'static str> {
+        match self {
+            #[cfg(feature = "semantic")]
+            Self::Available => None,
+            #[cfg(feature = "semantic")]
+            Self::ModelAssetsUnavailable => Some("configure_model_assets"),
+            #[cfg(feature = "semantic")]
+            Self::NotInActiveSurface => Some("switch_tool_surface"),
+            #[cfg(feature = "semantic")]
+            Self::IndexMissing => Some("run_index_embeddings"),
+            Self::FeatureDisabled => Some("rebuild_with_semantic_feature"),
+        }
+    }
+
+    pub(crate) fn action_target(&self) -> Option<&'static str> {
+        match self {
+            #[cfg(feature = "semantic")]
+            Self::Available => None,
+            #[cfg(feature = "semantic")]
+            Self::ModelAssetsUnavailable => Some("model_assets"),
+            #[cfg(feature = "semantic")]
+            Self::NotInActiveSurface => Some("tool_surface"),
+            #[cfg(feature = "semantic")]
+            Self::IndexMissing => Some("embedding_index"),
+            Self::FeatureDisabled => Some("binary"),
+        }
+    }
+
+    pub(crate) fn guidance_payload(&self) -> serde_json::Value {
+        json!({
+            "status": self.status_key(),
+            "available": self.is_available(),
+            "reason": self.reason_str(),
+            "reason_code": self.reason_code(),
+            "recommended_action": self.recommended_action(),
+            "action_target": self.action_target(),
+        })
+    }
+
     pub(crate) fn is_available(&self) -> bool {
         #[cfg(feature = "semantic")]
         {
@@ -330,6 +383,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     // mismatch.
     let active_surface = *state.surface();
     let semantic_status = determine_semantic_search_status(state, active_surface);
+    let semantic_search_guidance = semantic_status.guidance_payload();
 
     let configured_embedding_model = codelens_engine::configured_embedding_model_name();
     #[cfg(feature = "semantic")]
@@ -405,7 +459,10 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
         unavailable.push(json!({
             "feature": "semantic_search",
             "reason": reason,
-            "status": format!("{:?}", semantic_status),
+            "status": semantic_status.status_key(),
+            "reason_code": semantic_status.reason_code(),
+            "recommended_action": semantic_status.recommended_action(),
+            "action_target": semantic_status.action_target(),
         }));
     }
 
@@ -437,6 +494,7 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "lsp_attached": lsp_attached,
             "embeddings_loaded": embeddings_loaded,
             "semantic_search_status": semantic_status.status_key(),
+            "semantic_search_guidance": semantic_search_guidance,
             "embedding_model": configured_embedding_model,
             "embedding_runtime_preference": embedding_runtime.runtime_preference,
             "embedding_runtime_backend": embedding_runtime.backend,

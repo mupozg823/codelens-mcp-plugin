@@ -15,15 +15,15 @@ pub use scoring::{
 };
 pub(crate) use types::ReadDb;
 pub use types::{
-    make_symbol_id, parse_symbol_id, IndexStats, RankedContextEntry, RankedContextResult,
-    SymbolInfo, SymbolKind,
+    IndexStats, RankedContextEntry, RankedContextResult, SymbolInfo, SymbolKind, make_symbol_id,
+    parse_symbol_id,
 };
 
-use crate::db::{self, content_hash, index_db_path, IndexDb};
+use crate::db::{self, IndexDb, content_hash, index_db_path};
 // Re-export language_for_path so downstream crate modules keep working.
-pub(crate) use crate::lang_config::{language_for_path, LanguageConfig};
+pub(crate) use crate::lang_config::{LanguageConfig, language_for_path};
 use crate::project::ProjectRoot;
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -137,96 +137,70 @@ impl SymbolIndex {
 
     /// SelectSolve file pre-filtering: score files by name relevance to query,
     /// then extract symbols only from top-scoring files.
-    /// FTS5-first retrieval pipeline: symbol search → file expansion → path boost.
-    ///
-    /// Stage 1 (FTS5): Find symbols matching query via SQLite FTS5 index.
-    /// Stage 2 (File expansion): Load all symbols from files that had FTS5 hits.
-    /// Stage 3 (Path boost): Add files whose path matches query tokens (catches
-    ///          files with matching names but no matching symbol names).
-    /// Stage 4 (Token search): For multi-word queries, search individual tokens.
     fn select_solve_symbols(&self, query: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
-        let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+        // Collect file paths and compute top matches inside a block so the
+        // MutexGuard (ReadDb::Writer) is dropped before we call find_symbol /
+        // get_symbols_overview_cached, which also need the lock.  Holding the
+        // guard across those calls causes a deadlock with in-memory DBs.
+        let top_files: Vec<String> = {
+            let db = self.reader()?;
+            let all_paths = db.all_file_paths()?;
+
+            let query_lower = query.to_ascii_lowercase();
+            let query_tokens: Vec<&str> = query_lower
+                .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+                .filter(|t| t.len() >= 3)
+                .collect();
+
+            let mut file_scores: Vec<(String, usize)> = all_paths
+                .into_iter()
+                .map(|path| {
+                    let path_lower = path.to_ascii_lowercase();
+                    let score = query_tokens
+                        .iter()
+                        .filter(|token| path_lower.contains(**token))
+                        .count();
+                    (path, score)
+                })
+                .collect();
+
+            file_scores.sort_by(|a, b| b.1.cmp(&a.1));
+            file_scores
+                .into_iter()
+                .filter(|(_, score)| *score > 0)
+                .take(10)
+                .map(|(path, _)| path)
+                .collect()
+            // db (MutexGuard) dropped here
+        };
+
+        // If no file matches, fall back to direct symbol name search
+        if top_files.is_empty() {
+            return self.find_symbol(query, None, false, false, 500);
+        }
+
+        // Collect symbols from top files
         let mut all_symbols = Vec::new();
-
-        // ── Stage 1: FTS5 symbol search (primary signal) ────────────────
-        // This is the strongest signal — finds symbols whose names match the
-        // query regardless of file path. Uses SQLite FTS5 for sub-millisecond
-        // lookups across the entire index.
-        let fts_hits = self.find_symbol(query, None, false, false, 100)?;
-        let mut fts_files: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for sym in &fts_hits {
-            fts_files.insert(sym.file_path.clone());
-        }
-        for sym in fts_hits {
-            seen_ids.insert(sym.id.clone());
-            all_symbols.push(sym);
-        }
-
-        // ── Stage 2: File expansion (context from FTS5-hit files) ───────
-        // Load all symbols from files that contained FTS5 hits. This provides
-        // context: if `dispatch_tool` matched, also show other symbols in
-        // dispatch.rs that the agent might need.
-        for file_path in &fts_files {
+        for file_path in &top_files {
             if let Ok(symbols) = self.get_symbols_overview_cached(file_path, depth) {
-                for sym in symbols {
-                    if seen_ids.insert(sym.id.clone()) {
-                        all_symbols.push(sym);
-                    }
+                all_symbols.extend(symbols);
+            }
+        }
+
+        // Also include direct symbol name matches (for exact/substring hits)
+        let mut seen_ids: std::collections::HashSet<String> =
+            all_symbols.iter().map(|s| s.id.clone()).collect();
+
+        if let Ok(direct) = self.find_symbol(query, None, false, false, 50) {
+            for sym in direct {
+                if seen_ids.insert(sym.id.clone()) {
+                    all_symbols.push(sym);
                 }
             }
         }
 
-        // ── Stage 3: Path-based boost (catch file-name matches) ─────────
-        // Some queries match file names rather than symbol names (e.g.,
-        // "watcher" matches watcher.rs). Scan file paths for query tokens
-        // and expand top matches. Only scan if FTS5 returned fewer than 5
-        // files — if FTS5 already found rich results, skip the path scan.
-        if fts_files.len() < 5 {
-            let path_files: Vec<String> = {
-                let db = self.reader()?;
-                let all_paths = db.all_file_paths()?;
-
-                let query_lower = query.to_ascii_lowercase();
-                let query_tokens: Vec<&str> = query_lower
-                    .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
-                    .filter(|t| t.len() >= 3)
-                    .collect();
-
-                let mut file_scores: Vec<(String, usize)> = all_paths
-                    .into_iter()
-                    .filter(|p| !fts_files.contains(p))
-                    .map(|path| {
-                        let path_lower = path.to_ascii_lowercase();
-                        let score = query_tokens
-                            .iter()
-                            .filter(|token| path_lower.contains(**token))
-                            .count();
-                        (path, score)
-                    })
-                    .collect();
-
-                file_scores.sort_by(|a, b| b.1.cmp(&a.1));
-                file_scores
-                    .into_iter()
-                    .filter(|(_, score)| *score > 0)
-                    .take(5)
-                    .map(|(path, _)| path)
-                    .collect()
-            };
-
-            for file_path in &path_files {
-                if let Ok(symbols) = self.get_symbols_overview_cached(file_path, depth) {
-                    for sym in symbols {
-                        if seen_ids.insert(sym.id.clone()) {
-                            all_symbols.push(sym);
-                        }
-                    }
-                }
-            }
-        }
-
-        // ── Stage 4: Token decomposition (multi-word queries) ───────────
-        // "dispatch tool call" → search "dispatch", "tool", "call" individually.
+        // For multi-word queries, also search individual tokens as symbol names
+        // (e.g., "dispatch tool call" → search for "dispatch", "tool", "call")
         let query_lower = query.to_ascii_lowercase();
         let tokens: Vec<&str> = query_lower
             .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
