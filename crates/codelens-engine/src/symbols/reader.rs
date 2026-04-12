@@ -1,9 +1,9 @@
-use super::parser::{flatten_symbol_infos, slice_source};
-use super::ranking::{self, prune_to_budget, rank_symbols, RankingContext};
-use super::types::{
-    make_symbol_id, parse_symbol_id, RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance,
-};
 use super::SymbolIndex;
+use super::parser::{flatten_symbol_infos, slice_source};
+use super::ranking::{self, RankingContext, prune_to_budget, rank_symbols};
+use super::types::{
+    RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance, make_symbol_id, parse_symbol_id,
+};
 use crate::db::IndexDb;
 use crate::project::ProjectRoot;
 use anyhow::Result;

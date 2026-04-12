@@ -1607,10 +1607,14 @@ fn is_test_only_symbol(sym: &crate::db::SymbolWithFile, source: Option<&str>) ->
 }
 
 fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -> String {
+    // File context: use only the filename (not full path) to reduce noise.
+    // Full paths like "crates/codelens-engine/src/symbols/mod.rs" add tokens
+    // that dilute the semantic signal. "mod.rs" is sufficient context.
     let file_ctx = if sym.file_path.is_empty() {
         String::new()
     } else {
-        format!(" in {}", sym.file_path)
+        let filename = sym.file_path.rsplit('/').next().unwrap_or(&sym.file_path);
+        format!(" in {}", filename)
     };
 
     // Include split identifier words for better NL matching
@@ -1634,12 +1638,33 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         String::new()
     };
 
+    // Module context: directory name provides domain signal without full path noise.
+    // "embedding/mod.rs" → module "embedding", "symbols/ranking.rs" → module "symbols"
+    let module_ctx = if sym.file_path.contains('/') {
+        let parts: Vec<&str> = sym.file_path.rsplitn(3, '/').collect();
+        if parts.len() >= 2 {
+            let dir = parts[1];
+            // Skip generic dirs like "src"
+            if dir != "src" && dir != "crates" {
+                format!(" [{dir}]")
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    } else {
+        String::new()
+    };
+
     let base = if sym.signature.is_empty() {
-        format!("{} {}{}{}", sym.kind, name_with_split, parent_ctx, file_ctx)
+        format!(
+            "{} {}{}{}{}", sym.kind, name_with_split, parent_ctx, module_ctx, file_ctx
+        )
     } else {
         format!(
-            "{} {}{}{}: {}",
-            sym.kind, name_with_split, parent_ctx, file_ctx, sym.signature
+            "{} {}{}{}{}: {}",
+            sym.kind, name_with_split, parent_ctx, module_ctx, file_ctx, sym.signature
         )
     };
 

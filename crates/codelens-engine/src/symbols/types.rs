@@ -23,48 +23,80 @@ pub enum SymbolProvenance {
 }
 
 impl SymbolProvenance {
-    /// Derive provenance from a relative file path.
-    /// Derive provenance from a relative file path using structural patterns.
+    /// Derive provenance from a relative file path using package/path structure.
     ///
-    /// Classification is based on path role patterns, not repo-specific names:
+    /// Classification is based on stable path-role conventions rather than
+    /// repository-specific crate names:
     /// - Test: `/tests/`, `_tests.rs`, `/integration_tests/`
     /// - Benchmark: `benchmarks/`, `scripts/`, `models/`
-    /// - TuiSurface: binary crate with `ui.rs`, `app.rs`, `tui` in path
+    /// - TuiSurface: `src/ui/`, `src/tui/`, `src/cli/`, `src/app/` or package
+    ///   names ending in `-ui`, `-tui`, `-cli`, `-app`
     /// - McpTool: `src/tools/` directory (tool handler convention)
-    /// - McpInfra: `src/dispatch/`, `src/server/`, `src/protocol` (infra layer)
+    /// - McpInfra: `src/dispatch/`, `src/server/`, `src/runtime/`,
+    ///   `protocol.rs`, `transport.rs`, or package names ending in `-mcp`
     /// - EngineCore: everything else (library source)
     pub fn from_path(path: &str) -> Self {
+        let normalized = path.replace('\\', "/");
+
         // Test detection (universal pattern)
-        if path.contains("/tests/")
-            || path.contains("/tests.")
-            || path.ends_with("_tests.rs")
-            || path.contains("/integration_tests/")
-            || path.contains("/test_helpers")
+        if normalized.contains("/tests/")
+            || normalized.contains("/tests.")
+            || normalized.ends_with("_tests.rs")
+            || normalized.contains("/integration_tests/")
+            || normalized.contains("/test_helpers")
         {
             return Self::Test;
         }
         // Benchmark/scripts (universal pattern)
-        if path.starts_with("benchmarks/")
-            || path.starts_with("scripts/")
-            || path.starts_with("models/")
+        if normalized.starts_with("benchmarks/")
+            || normalized.starts_with("scripts/")
+            || normalized.starts_with("models/")
         {
             return Self::Benchmark;
         }
-        // TUI surface: crate with tui/ui/app role (not test)
-        if path.contains("/tui/") || path.contains("-tui/") {
-            return Self::TuiSurface;
-        }
-        // Tool handler layer: src/tools/ convention
-        if path.contains("/src/tools/") {
+
+        let segments: Vec<&str> = normalized
+            .split('/')
+            .filter(|segment| !segment.is_empty())
+            .collect();
+        let src_idx = segments.iter().rposition(|segment| *segment == "src");
+        let package_name = src_idx
+            .and_then(|idx| idx.checked_sub(1))
+            .and_then(|idx| segments.get(idx))
+            .copied()
+            .unwrap_or_default();
+        let after_src = src_idx.map(|idx| &segments[idx + 1..]).unwrap_or(&[][..]);
+        let first_after_src = after_src.first().copied().unwrap_or_default();
+        let file_name = segments.last().copied().unwrap_or_default();
+
+        if first_after_src == "tools" {
             return Self::McpTool;
         }
-        // Infrastructure layer: dispatch, server, protocol patterns
-        if path.contains("/src/dispatch/")
-            || path.contains("/src/server/")
-            || path.contains("/protocol.")
+
+        if matches!(first_after_src, "ui" | "tui" | "cli" | "app")
+            || matches!(file_name, "ui.rs" | "tui.rs" | "cli.rs" | "app.rs")
+            || package_name.ends_with("-ui")
+            || package_name.ends_with("_ui")
+            || package_name.ends_with("-tui")
+            || package_name.ends_with("_tui")
+            || package_name.ends_with("-cli")
+            || package_name.ends_with("_cli")
+            || package_name.ends_with("-app")
+            || package_name.ends_with("_app")
+        {
+            return Self::TuiSurface;
+        }
+
+        if matches!(
+            first_after_src,
+            "dispatch" | "server" | "runtime" | "transport"
+        ) || matches!(file_name, "protocol.rs" | "transport.rs" | "runtime.rs")
+            || package_name.ends_with("-mcp")
+            || package_name.ends_with("_mcp")
         {
             return Self::McpInfra;
         }
+
         // Default: library/engine core
         Self::EngineCore
     }
@@ -235,6 +267,55 @@ pub(crate) struct ParsedSymbol {
 pub(crate) enum ReadDb<'a> {
     Owned(IndexDb),
     Writer(std::sync::MutexGuard<'a, IndexDb>),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SymbolProvenance;
+
+    #[test]
+    fn provenance_detects_tool_handlers_by_src_role() {
+        assert_eq!(
+            SymbolProvenance::from_path("crates/agent-runtime/src/tools/symbols.rs"),
+            SymbolProvenance::McpTool
+        );
+    }
+
+    #[test]
+    fn provenance_detects_infra_by_package_or_runtime_path() {
+        assert_eq!(
+            SymbolProvenance::from_path("crates/agent-mcp/src/state.rs"),
+            SymbolProvenance::McpInfra
+        );
+        assert_eq!(
+            SymbolProvenance::from_path("workspace/runtime/src/dispatch/router.rs"),
+            SymbolProvenance::McpInfra
+        );
+    }
+
+    #[test]
+    fn provenance_detects_surface_by_package_or_surface_file() {
+        assert_eq!(
+            SymbolProvenance::from_path("crates/project-tui/src/app.rs"),
+            SymbolProvenance::TuiSurface
+        );
+        assert_eq!(
+            SymbolProvenance::from_path("packages/client-ui/src/lib.rs"),
+            SymbolProvenance::TuiSurface
+        );
+    }
+
+    #[test]
+    fn provenance_defaults_to_engine_core_for_plain_source() {
+        assert_eq!(
+            SymbolProvenance::from_path("crates/foo-core/src/lib.rs"),
+            SymbolProvenance::EngineCore
+        );
+        assert_eq!(
+            SymbolProvenance::from_path("src/service.py"),
+            SymbolProvenance::EngineCore
+        );
+    }
 }
 
 /// Intermediate result of analyzing a single file.
