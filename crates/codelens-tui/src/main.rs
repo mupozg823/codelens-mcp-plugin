@@ -25,12 +25,12 @@ fn main() -> Result<()> {
     loop {
         terminal.draw(|f| ui::draw(f, &mut app))?;
 
-        if let Event::Key(key) = event::read()? {
-            if key.kind == KeyEventKind::Press {
-                match app.handle_key(key.code) {
-                    app::Action::Quit => break,
-                    app::Action::Continue => {}
-                }
+        if let Event::Key(key) = event::read()?
+            && key.kind == KeyEventKind::Press
+        {
+            match app.handle_key(key.code) {
+                app::Action::Quit => break,
+                app::Action::Continue => {}
             }
         }
     }

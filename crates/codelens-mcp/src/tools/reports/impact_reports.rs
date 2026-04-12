@@ -212,13 +212,16 @@ pub(crate) fn render_module_mermaid(
 
     // ── downstream edges (with optional labels) ───────────────────────────────
     for (node_id, entry) in &capped_downstream {
-        let label = if let Some(n) = entry.get("symbols_affected").and_then(Value::as_u64) {
-            Some(format!("{n} symbols"))
-        } else if let Some(d) = entry.get("depth").and_then(Value::as_u64) {
-            Some(format!("depth {d}"))
-        } else {
-            None
-        };
+        let label = entry
+            .get("symbols_affected")
+            .and_then(Value::as_u64)
+            .map(|n| format!("{n} symbols"))
+            .or_else(|| {
+                entry
+                    .get("depth")
+                    .and_then(Value::as_u64)
+                    .map(|d| format!("depth {d}"))
+            });
 
         if let Some(lbl) = label {
             out.push_str(&format!(
