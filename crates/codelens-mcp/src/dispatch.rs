@@ -1,18 +1,18 @@
 //! Tool dispatch: static dispatch table + JSON-RPC tool call routing.
 
+use crate::AppState;
 use crate::dispatch_access::validate_tool_access;
 use crate::dispatch_response::{
-    build_error_response, build_success_response, SuccessResponseInput,
+    SuccessResponseInput, build_error_response, build_success_response,
 };
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
-    MutationGateFailure,
+    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
+    is_refactor_gated_mutation_tool,
 };
 use crate::protocol::JsonRpcResponse;
-use crate::tool_defs::{default_budget_for_profile, is_content_mutation_tool, ToolProfile};
+use crate::tool_defs::{ToolProfile, default_budget_for_profile, is_content_mutation_tool};
 use crate::tools::{self, ToolHandler, ToolResult};
-use crate::AppState;
 use serde_json::json;
 use std::collections::HashMap;
 use std::sync::LazyLock;

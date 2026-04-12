@@ -125,8 +125,9 @@ pub(crate) fn text_payload_for_response(
     // String instead of going through an intermediate Value (saves one
     // full JSON tree allocation on the common non-async path).
     if let Some(slim) = slim_text_payload_for_async_handle(resp, structured_content) {
-        return serde_json::to_string(&slim)
-            .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned());
+        return serde_json::to_string(&slim).unwrap_or_else(|_| {
+            "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
+        });
     }
     serde_json::to_string(resp)
         .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())

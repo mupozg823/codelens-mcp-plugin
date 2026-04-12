@@ -120,11 +120,7 @@ async fn port_is_occupied(port: u16) -> bool {
 /// not yet carry that key, launchd will keep retrying but each retry
 /// will hit the same exit 0 path until the existing instance dies
 /// naturally — so the worst case is log noise, not a spin.
-fn emit_existing_instance_exit(
-    port: u16,
-    project_root: String,
-    daemon_started_at: &str,
-) -> ! {
+fn emit_existing_instance_exit(port: u16, project_root: String, daemon_started_at: &str) -> ! {
     tracing::warn!(
         port,
         project_root = %project_root,

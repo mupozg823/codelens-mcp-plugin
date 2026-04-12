@@ -1,12 +1,12 @@
-use crate::tool_runtime::{required_string, ToolResult};
+use crate::AppState;
+use crate::tool_runtime::{ToolResult, required_string};
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use crate::tools::symbols::{
     semantic_query_for_retrieval, semantic_results_for_query, semantic_status,
 };
-use crate::AppState;
 use codelens_engine::search::{SEMANTIC_COUPLING_THRESHOLD, SEMANTIC_NEW_RESULT_THRESHOLD};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 fn semantic_status_is_ready(status: &Value) -> bool {
@@ -779,11 +779,13 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
         0.9,
         next_actions,
         sections,
-        vec![arguments
-            .get("file_path")
-            .and_then(|value| value.as_str())
-            .unwrap_or(path)
-            .to_owned()],
+        vec![
+            arguments
+                .get("file_path")
+                .and_then(|value| value.as_str())
+                .unwrap_or(path)
+                .to_owned(),
+        ],
         symbol.map(ToOwned::to_owned),
     )
 }

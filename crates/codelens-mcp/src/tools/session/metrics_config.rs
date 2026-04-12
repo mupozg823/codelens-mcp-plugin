@@ -1,10 +1,10 @@
+use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
+    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
 };
-use crate::tool_runtime::{success_meta, ToolResult};
-use crate::AppState;
+use crate::tool_runtime::{ToolResult, success_meta};
 use serde_json::json;
 
 #[cfg(feature = "semantic")]
@@ -820,7 +820,7 @@ mod capability_reporting_tests {
     #[cfg(feature = "semantic")]
     #[test]
     fn planner_readonly_and_builder_minimal_expose_semantic_search() {
-        use crate::tool_defs::{is_tool_in_surface, ToolProfile, ToolSurface};
+        use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
 
         for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
             let surface = ToolSurface::Profile(profile);

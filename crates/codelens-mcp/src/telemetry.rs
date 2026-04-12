@@ -827,7 +827,15 @@ mod tests {
     #[test]
     fn session_metrics_accumulate() {
         let reg = ToolMetricsRegistry::new();
-        reg.record_call_with_tokens("find_symbol", 15, true, 500, "planner-readonly", false, None);
+        reg.record_call_with_tokens(
+            "find_symbol",
+            15,
+            true,
+            500,
+            "planner-readonly",
+            false,
+            None,
+        );
         reg.record_call_with_tokens(
             "get_ranked_context",
             42,
@@ -924,15 +932,7 @@ mod tests {
             false,
             Some("review"),
         );
-        reg.record_call_with_tokens(
-            "impact_report",
-            10,
-            true,
-            500,
-            "reviewer-graph",
-            true,
-            None,
-        );
+        reg.record_call_with_tokens("impact_report", 10, true, 500, "reviewer-graph", true, None);
         reg.record_analysis_read(true);
 
         let session = reg.session_snapshot();
@@ -1028,11 +1028,13 @@ mod tests {
         let lines: Vec<&str> = contents.lines().collect();
         assert_eq!(lines.len(), 3);
         for (i, line) in lines.iter().enumerate() {
-            let parsed: serde_json::Value =
-                serde_json::from_str(line).expect("parse jsonl line");
+            let parsed: serde_json::Value = serde_json::from_str(line).expect("parse jsonl line");
             assert_eq!(parsed["timestamp_ms"], i as u64);
             // phase is None — field must be skipped entirely.
-            assert!(parsed.get("phase").is_none(), "phase should be omitted when None");
+            assert!(
+                parsed.get("phase").is_none(),
+                "phase should be omitted when None"
+            );
         }
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
@@ -1041,9 +1043,8 @@ mod tests {
     #[test]
     fn registry_persists_record_call_when_writer_enabled() {
         let path = unique_telemetry_path("registry");
-        let registry = ToolMetricsRegistry::new_with_writer(Some(TelemetryWriter::with_path(
-            path.clone(),
-        )));
+        let registry =
+            ToolMetricsRegistry::new_with_writer(Some(TelemetryWriter::with_path(path.clone())));
 
         registry.record_call_with_tokens(
             "find_symbol",
@@ -1093,15 +1094,7 @@ mod tests {
     #[test]
     fn registry_without_writer_is_noop_for_persistence() {
         let registry = ToolMetricsRegistry::new_with_writer(None);
-        registry.record_call_with_tokens(
-            "find_symbol",
-            10,
-            true,
-            100,
-            "primitive",
-            false,
-            None,
-        );
+        registry.record_call_with_tokens("find_symbol", 10, true, 100, "primitive", false, None);
         // In-memory must still work
         let session = registry.session_snapshot();
         assert_eq!(session.total_calls, 1);
