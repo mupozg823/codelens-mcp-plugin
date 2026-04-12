@@ -10,7 +10,10 @@
 //! can import everything from a single location:
 //!
 //! ```rust
-//! use codelens_engine::ir::{SymbolInfo, Relation, ImpactNode, EditPlan};
+//! use codelens_engine::ir::{
+//!     SymbolInfo, Relation, ImpactNode, EditPlan,
+//!     SearchCandidate, IntelligenceSource, CodeDiagnostic,
+//! };
 //! ```
 
 use serde::Serialize;
@@ -204,6 +207,111 @@ impl Default for RetrievalWeights {
             semantic: 0.30,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Intelligence source (fast / precise path)
+// ---------------------------------------------------------------------------
+
+/// The backend that produced a result.
+///
+/// Consumers use this to judge confidence: `TreeSitter` results are fast but
+/// approximate; `Lsp` / `Scip` results are precise but require optional backends.
+/// `Semantic` results come from the embedding model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum IntelligenceSource {
+    /// tree-sitter AST parse — always available, fast path.
+    TreeSitter,
+    /// LSP backend (opt-in) — precise type-aware results.
+    Lsp,
+    /// SCIP index import — precise, offline.
+    Scip,
+    /// Embedding-based semantic search.
+    Semantic,
+    /// Hybrid: multiple sources combined.
+    Hybrid,
+}
+
+// ---------------------------------------------------------------------------
+// Unified search candidate
+// ---------------------------------------------------------------------------
+
+/// A search result from any retrieval path. This is the substrate type that
+/// downstream consumers (MCP response builders, workflow tools) should target.
+///
+/// Existing types (`SearchResult`, `ScoredChunk`, `RankedContextEntry`) are
+/// gradually converging toward this shape. New code should prefer
+/// `SearchCandidate` and convert from legacy types via `From` impls.
+#[derive(Debug, Clone, Serialize)]
+pub struct SearchCandidate {
+    pub name: String,
+    pub kind: String,
+    pub file_path: String,
+    pub line: usize,
+    pub signature: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    pub score: f64,
+    pub source: IntelligenceSource,
+}
+
+impl From<crate::search::SearchResult> for SearchCandidate {
+    fn from(r: crate::search::SearchResult) -> Self {
+        Self {
+            name: r.name,
+            kind: r.kind,
+            file_path: r.file,
+            line: r.line,
+            signature: r.signature,
+            name_path: Some(r.name_path),
+            body: None,
+            score: r.score,
+            source: IntelligenceSource::TreeSitter,
+        }
+    }
+}
+
+impl From<crate::embedding_store::ScoredChunk> for SearchCandidate {
+    fn from(c: crate::embedding_store::ScoredChunk) -> Self {
+        Self {
+            name: c.symbol_name,
+            kind: c.kind,
+            file_path: c.file_path,
+            line: c.line,
+            signature: c.signature,
+            name_path: Some(c.name_path),
+            body: None,
+            score: c.score,
+            source: IntelligenceSource::Semantic,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic (unified)
+// ---------------------------------------------------------------------------
+
+/// A code diagnostic from any analysis backend.
+#[derive(Debug, Clone, Serialize)]
+pub struct CodeDiagnostic {
+    pub file_path: String,
+    pub line: usize,
+    pub column: usize,
+    pub severity: DiagnosticSeverity,
+    pub message: String,
+    pub source: IntelligenceSource,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub enum DiagnosticSeverity {
+    Error,
+    Warning,
+    Info,
+    Hint,
 }
 
 impl Default for RetrievalConfig {

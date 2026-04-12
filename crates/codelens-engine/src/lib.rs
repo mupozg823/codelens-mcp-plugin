@@ -87,6 +87,7 @@ pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_nativ
 pub use watcher::{FileWatcher, WatcherStats};
 // Semantic IR — new types only; existing types are already re-exported above.
 pub use ir::{
-    EditAction, EditActionKind, EditPlan, ImpactKind, ImpactNode, IrCallEdge, Relation,
-    RelationKind, RetrievalConfig, RetrievalStage, RetrievalWeights,
+    CodeDiagnostic, DiagnosticSeverity, EditAction, EditActionKind, EditPlan, ImpactKind,
+    ImpactNode, IntelligenceSource, IrCallEdge, Relation, RelationKind, RetrievalConfig,
+    RetrievalStage, RetrievalWeights, SearchCandidate,
 };

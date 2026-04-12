@@ -56,6 +56,7 @@ jobs:
             --manifest-path Cargo.toml \
             --format json \
             --describe binaries \
+            --spec-version 1.5 \
             --target ${{ matrix.target }} \
             --target-in-filename
           cp "crates/codelens-mcp/codelens-mcp_bin_${{ matrix.target }}.cdx.json" \
