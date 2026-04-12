@@ -78,6 +78,9 @@ oxc_span.workspace = true
 [features]
 default = ["semantic"]
 semantic = ["dep:fastembed", "dep:ort", "dep:sqlite-vec"]
+## Enable fastembed built-in model loading (auto-download from HuggingFace).
+## Used for A/B model comparison via CODELENS_EMBED_MODEL env var.
+model-bakeoff = ["semantic", "fastembed/hf-hub"]
 
 [dev-dependencies]
 criterion.workspace = true

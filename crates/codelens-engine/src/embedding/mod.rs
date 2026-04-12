@@ -607,9 +607,77 @@ fn coreml_runtime_info(
     }
 }
 
+/// Load a fastembed built-in model by ID (auto-downloads from HuggingFace).
+/// Used for A/B model comparison via `CODELENS_EMBED_MODEL` env var.
+/// Load a fastembed built-in model by ID (auto-downloads from HuggingFace).
+/// Requires the `model-bakeoff` feature (enables fastembed's hf-hub support).
+#[cfg(feature = "model-bakeoff")]
+fn load_fastembed_builtin(
+    model_id: &str,
+) -> Result<(TextEmbedding, usize, String, EmbeddingRuntimeInfo)> {
+    use fastembed::EmbeddingModel;
+
+    // Match known fastembed model IDs to their enum variants
+    let (model_enum, expected_dim) = match model_id {
+        "all-MiniLM-L6-v2" | "sentence-transformers/all-MiniLM-L6-v2" => {
+            (EmbeddingModel::AllMiniLML6V2, 384)
+        }
+        "all-MiniLM-L12-v2" | "sentence-transformers/all-MiniLM-L12-v2" => {
+            (EmbeddingModel::AllMiniLML12V2, 384)
+        }
+        "bge-small-en-v1.5" | "BAAI/bge-small-en-v1.5" => {
+            (EmbeddingModel::BGESmallENV15, 384)
+        }
+        "bge-base-en-v1.5" | "BAAI/bge-base-en-v1.5" => {
+            (EmbeddingModel::BGEBaseENV15, 768)
+        }
+        "nomic-embed-text-v1.5" | "nomic-ai/nomic-embed-text-v1.5" => {
+            (EmbeddingModel::NomicEmbedTextV15, 768)
+        }
+        other => {
+            anyhow::bail!(
+                "Unknown fastembed model: {other}. \
+                 Supported: all-MiniLM-L6-v2, all-MiniLM-L12-v2, bge-small-en-v1.5, \
+                 bge-base-en-v1.5, nomic-embed-text-v1.5"
+            );
+        }
+    };
+
+    let init = fastembed::InitOptionsWithLength::new(model_enum)
+        .with_max_length(configured_embedding_max_length())
+        .with_cache_dir(std::env::temp_dir().join("codelens-fastembed-cache"))
+        .with_show_download_progress(true);
+    let model =
+        TextEmbedding::try_new(init).with_context(|| format!("failed to load {model_id}"))?;
+
+    let runtime_info = cpu_runtime_info("cpu".to_string(), None);
+
+    tracing::info!(
+        model = model_id,
+        dimension = expected_dim,
+        "loaded fastembed built-in model for A/B comparison"
+    );
+
+    Ok((model, expected_dim, model_id.to_string(), runtime_info))
+}
+
 /// Load the CodeSearchNet model from sidecar files (MiniLM-L12 fine-tuned, ONNX INT8).
 fn load_codesearch_model() -> Result<(TextEmbedding, usize, String, EmbeddingRuntimeInfo)> {
     configure_embedding_runtime();
+
+    // Check if user requested a fastembed built-in model via env var.
+    // If CODELENS_EMBED_MODEL is set and doesn't match the bundled model,
+    // try loading it as a fastembed built-in (auto-downloads from HuggingFace).
+    #[cfg(feature = "model-bakeoff")]
+    {
+        let env_model = std::env::var("CODELENS_EMBED_MODEL").ok();
+        if let Some(ref model_id) = env_model {
+            if model_id != CODESEARCH_MODEL_NAME && !model_id.is_empty() {
+                return load_fastembed_builtin(model_id);
+            }
+        }
+    }
+
     let model_dir = resolve_model_dir()?;
 
     let onnx_bytes =
