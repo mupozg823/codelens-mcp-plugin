@@ -1,11 +1,20 @@
+<div align="center">
+
 # CodeLens MCP
 
-**The compressed context and verification tool for planner, reviewer, and refactor agent harnesses.**
+**The harness-native compressed context engine for AI coding agents.**
 
-Pure Rust MCP server with role-based tool surfaces, composite workflow tools, analysis handles, and tree-sitter-first code intelligence.
+Pure Rust MCP server that plugs into any multi-agent harness — planner, builder, reviewer, refactor — and delivers bounded, ranked code intelligence at 50-87% fewer tokens.
 
-![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)
-![License](https://img.shields.io/badge/license-Apache--2.0-blue)
+[![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/mupozg823/codelens-mcp-plugin/actions)
+[![crates.io](https://img.shields.io/crates/v/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
+[![docs.rs](https://docs.rs/codelens-engine/badge.svg)](https://docs.rs/codelens-engine)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Downloads](https://img.shields.io/crates/d/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
+
+</div>
+
+---
 
 ## The Problem
 
@@ -13,141 +22,124 @@ Multi-agent coding harnesses fail when every agent sees too many tools, too much
 
 ## The Solution
 
-CodeLens maintains a **live, indexed understanding** of your codebase and exposes it as a harness optimization layer. The goal is not to show the model more code. The goal is to let the model ask a precise question and get a bounded answer with a handle for deeper expansion only when needed.
+CodeLens maintains a **live, indexed understanding** of your codebase and exposes it as a harness optimization layer. The model asks a precise question and gets a bounded answer with a handle for deeper expansion only when needed.
 
 ```
-Without CodeLens: Read file + grep references → 4,600 tokens
-With CodeLens:    get_impact_analysis         → 1,500 tokens (67% saved)
-
-Without CodeLens: Read manifest + entry + README + file list → 5,000 tokens
-With CodeLens:    onboard_project                            →   660 tokens (87% saved)
+Without CodeLens                                    With CodeLens
+─────────────────────────────────────────────────────────────────
+Read file + grep references   → 4,600 tokens       get_impact_analysis    → 1,500 tokens  (67% saved)
+Read manifest + entry + files → 5,000 tokens       onboard_project        →   660 tokens  (87% saved)
+Read + grep × 3 files         → 3,200 tokens       get_ranked_context     →   800 tokens  (75% saved)
 ```
 
-**Measured with tiktoken (cl100k_base) on real projects. 50-87% token reduction on structured tasks.**
+> Measured with tiktoken (cl100k_base) on real projects. Reproducible via `benchmarks/token-efficiency.py`.
 
 ## Quick Install
 
 ```bash
+# From crates.io (recommended)
+cargo install codelens-mcp
+
 # Homebrew (macOS / Linux)
 brew install mupozg823/tap/codelens-mcp
 
-# One-line installer (auto-configures Claude Code, Cursor, VS Code, Codex)
-curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
-
-# Cargo
+# From source
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
 ```
 
-## Works With Every AI Agent
+## Setup
 
-### Shared HTTP Daemon (Preferred)
+### Claude Code / Cursor
+
+```json
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "codelens-mcp",
+      "args": []
+    }
+  }
+}
+```
+
+### Shared HTTP Daemon (Multi-Agent)
 
 ```bash
-# Read-only shared daemon for planners, reviewers, and CI
+# Read-only for planners/reviewers
 codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
 
-# Mutation-enabled daemon for explicit refactor passes
+# Mutation-enabled for refactor agents
 codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
 ```
 
-### Claude Code
-
 ```json
-// .mcp.json (project) or ~/.claude.json (global)
 {
   "mcpServers": {
-    "codelens": {
-      "type": "http",
-      "url": "http://127.0.0.1:7837/mcp"
-    }
+    "codelens": { "type": "http", "url": "http://127.0.0.1:7837/mcp" }
   }
 }
 ```
 
-### Cursor / VS Code / Codex / Windsurf
+See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.
 
-See [docs/platform-setup.md](docs/platform-setup.md) for all platforms.
+## Why CodeLens?
 
-### Stdio Fallback
+|                       | CodeLens                             | Read/Grep baseline           |
+| --------------------- | ------------------------------------ | ---------------------------- |
+| **Token cost**        | 50-87% less                          | Full file content every time |
+| **Context quality**   | Ranked, bounded, structured          | Raw text, no prioritization  |
+| **Multi-file impact** | 1 tool call                          | 5-10 grep + read cycles      |
+| **Runtime**           | Single Rust binary, <12ms cold start | N/A                          |
+| **Language support**  | 25 languages, zero runtime deps      | N/A                          |
+| **Agent awareness**   | Doom-loop detection, mutation gates  | None                         |
 
-Use stdio only for single local sessions:
+## Key Features
 
-```json
-{
-  "mcpServers": {
-    "codelens": {
-      "type": "stdio",
-      "command": "codelens-mcp",
-      "args": [".", "--profile", "builder-minimal"]
-    }
-  }
-}
-```
+### Problem-First Workflows
 
-## What It Does
+Instead of 89 individual tools, use high-level workflow patterns:
 
-### For Agent Harnesses
-
-| Need                                     | Preferred Tool                            | Why                                                        |
-| ---------------------------------------- | ----------------------------------------- | ---------------------------------------------------------- |
-| "Compress a change request"              | `analyze_change_request`                  | Returns ranked files, key symbols, risks, and next actions |
-| "Start with the smallest useful context" | `find_minimal_context_for_change`         | Avoids raw file/graph expansion                            |
-| "Review module boundaries"               | `module_boundary_report`                  | Bounded impact, coupling, and cycle evidence               |
-| "Check rename safety"                    | `safe_rename_report`                      | Preview-first report with blockers and sections            |
-| "Compress changed-file impact"           | `impact_report`                           | Reviewer-friendly impact summary with bounded blast radius |
-| "Compress diff references"               | `diff_aware_references`                   | Keeps reviewer/CI context short around changed files       |
-| "Poll a durable report"                  | `start_analysis_job` → `get_analysis_job` | Async-friendly workflow for heavier reports                |
-| "Expand only one stored section"         | `get_analysis_section`                    | Keeps the default answer short                             |
-
-<details>
-<summary>Benchmark methodology</summary>
-
-Token counts measured with **tiktoken cl100k_base** (same tokenizer used by Claude/GPT-4).
-Baselines simulate actual agent workflows: `rg -n` for search, `read file` for structure,
-`read + search` for impact analysis. The benchmark now also compares `preset:balanced` low-level
-tool chains against `planner-readonly` / `reviewer-graph` / `refactor-full` composite workflows.
-No arbitrary multipliers. Tested on 2 projects (Rust 92 files, TypeScript 60 files).
-Run `python3 benchmarks/token-efficiency.py <project>` to reproduce.
-
-</details>
+| Workflow           | Tool                                                 | When                          |
+| ------------------ | ---------------------------------------------------- | ----------------------------- |
+| Explore codebase   | `onboard_project`                                    | First look at unfamiliar code |
+| Plan safe refactor | `analyze_change_request` → `verify_change_readiness` | Before multi-file changes     |
+| Review changes     | `impact_report` → `diff_aware_references`            | Pre-merge review              |
+| Audit architecture | `module_boundary_report` → `dead_code_report`        | Tech debt assessment          |
 
 ### Role-Based Surfaces
 
-| Profile            | Use case                                         | Default transport |
-| ------------------ | ------------------------------------------------ | ----------------- |
-| `planner-readonly` | planner/architect context compression            | `stdio` or HTTP   |
-| `builder-minimal`  | implementation with minimal visible tool surface | `stdio`           |
-| `reviewer-graph`   | graph-aware review and risk analysis             | HTTP preferred    |
-| `refactor-full`    | preview-first refactors and structured edits     | `stdio` or HTTP   |
-| `ci-audit`         | machine-friendly review around diffs and risk    | HTTP preferred    |
+| Profile            | Tools Visible   | Use Case                                 |
+| ------------------ | --------------- | ---------------------------------------- |
+| `planner-readonly` | Balanced        | Planner/architect context compression    |
+| `builder-minimal`  | Minimal (20)    | Implementation with focused tool surface |
+| `reviewer-graph`   | Full            | Graph-aware review and risk analysis     |
+| `refactor-full`    | Full + mutation | Preview-first refactors                  |
+| `ci-audit`         | Full            | Machine-friendly CI/CD review            |
 
-`ci-audit` composite reports use a fixed machine schema with `schema_version`, `report_kind`, `machine_summary`, and `evidence_handles` so CI can parse them without relying on prose.
-`refactor-full` now enforces preflight-first mutation: run `verify_change_readiness` before file mutations, and use `safe_rename_report` or `unresolved_reference_check` before `rename_symbol`.
+### Adaptive Token Compression
 
-## Why This Shape
+5-stage budget-aware compression automatically adjusts response size:
 
-CodeLens is no longer primarily a "more tools" MCP. It is a bounded-answer MCP.
+- **Stage 1** (<75% budget): Full detail pass-through
+- **Stage 2-3** (75-95%): Structured summarization
+- **Stage 4-5** (>95%): Skeleton + truncation with expansion handles
 
-- Composite tools create short, high-value reports.
-- Analysis handles let agents expand only one section at a time.
-- Durable analysis jobs let harnesses poll heavier reports without dumping raw intermediate output into the model.
-- Resources expose stable project/profile context without repeating long prompt instructions.
-- `tools/list` can now be filtered by namespace or tier, and HTTP clients can opt into deferred loading during `initialize` with `{"deferredToolLoading": true}` so the default tool list only loads preferred namespaces and tiers first. In deferred bootstrap mode, `tools/list` omits `outputSchema` by default to reduce token overhead; clients can opt back in with `{"includeOutputSchema": true}`. Once a client expands a namespace or tier, later default `tools/list` calls include it; hidden namespaces and primitive tiers can also gate `tools/call` until the client explicitly loads them.
-- The same deferred session state now applies to `codelens://tools/list` and `codelens://session/http` resources, so tool/resource discovery stays in sync.
-- Legacy presets still work, but profiles are the preferred public interface.
+### Analysis Handles
 
-## Shared Daemon Patterns
+Heavy reports run as durable async jobs. Agents poll for completion and expand only needed sections:
 
-```bash
-# Read-only shared daemon for planner/reviewer agents
-codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
-
-# Mutation-enabled shared daemon for refactor flows
-codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
+```
+start_analysis_job → get_analysis_job → get_analysis_section("impact")
 ```
 
-Use `7837`-style read-only endpoints as the default harness attachment. Reserve mutation-enabled daemons for explicit refactor passes.
-Mutation-enabled flows are gate-aware: recent matching verifier evidence is required before `refactor-full` content mutations execute.
+### Mutation Safety
+
+Refactor flows require verification before code changes:
+
+```
+verify_change_readiness → "ready" → rename_symbol
+                        → "blocked" → fix blockers first
+```
 
 ## 25 Languages
 
@@ -157,78 +149,40 @@ All via statically-linked tree-sitter grammars. Zero runtime dependencies.
 
 ## Performance
 
-| Operation            | Time                     | Notes                                          |
-| -------------------- | ------------------------ | ---------------------------------------------- |
-| find_symbol          | <1ms                     | SQLite FTS5                                    |
-| get_symbols_overview | <1ms                     | Cached                                         |
-| get_ranked_context   | ~20ms                    | 4-signal hybrid ranking                        |
-| get_impact_analysis  | ~1ms                     | Graph cache                                    |
-| semantic_search      | warm, workload-dependent | Measure with `benchmarks/embedding-runtime.py` |
-| Cold start           | ~12ms                    | No LSP boot needed                             |
+| Operation              | Time  | Backend                 |
+| ---------------------- | ----- | ----------------------- |
+| `find_symbol`          | <1ms  | SQLite FTS5             |
+| `get_symbols_overview` | <1ms  | Cached                  |
+| `get_ranked_context`   | ~20ms | 4-signal hybrid ranking |
+| `get_impact_analysis`  | ~1ms  | Graph cache             |
+| Cold start             | ~12ms | No LSP boot needed      |
 
-## Embedding Model
+## Semantic Search
 
-CodeLens defaults to a **bundled MiniLM-L12 CodeSearchNet model** (ONNX INT8) and can optionally use a `fastembed` built-in model via `CODELENS_EMBED_MODEL`:
+Optional embedding-based code search (feature-gated: `semantic`):
 
-- **No download required** — works offline, air-gapped environments
-- **Current default model:** `MiniLM-L12-CodeSearchNet-INT8`
-- **Hybrid usage:** semantic ranking only supplements structural ranking in `get_ranked_context`
-- Powers: `semantic_search`, `get_ranked_context` hybrid ranking, `find_similar_code`, `find_code_duplicates`
-
-Measure current runtime latency, indexing cost, and indexed symbol counts on your machine:
+- **Bundled MiniLM-L12 CodeSearchNet** model (ONNX INT8) — works offline
+- Hybrid ranking: semantic supplements structural in `get_ranked_context`
+- Measured quality: `MRR 0.639` hybrid vs `0.417` lexical-only (+53% uplift)
 
 ```bash
-python3 benchmarks/embedding-runtime.py . --isolated-copy
-```
-
-Measure search quality and hybrid uplift on the current runtime:
-
-```bash
+# Measure on your project
 python3 benchmarks/embedding-quality.py . --isolated-copy
 ```
 
-The quality report now breaks results down by query type:
-
-- `identifier`
-- `short_phrase`
-- `natural_language`
-
-`get_ranked_context` now applies a query-type-aware policy:
-
-- identifier-like queries stay lexical-first
-- short phrases and natural-language queries keep hybrid semantic blending
-
-Current reproducible local quality snapshot (`benchmarks/embedding-quality-summary.md`, 32-query dataset):
-
-- `semantic_search`: `MRR 0.499`, `Acc@1 44%`, `Acc@3 53%`, `Acc@5 62%`
-- `get_ranked_context` lexical-only: `MRR 0.417`, `Acc@1 28%`, `Acc@3 50%`, `Acc@5 53%`
-- `get_ranked_context` hybrid: `MRR 0.639`, `Acc@1 50%`, `Acc@3 69%`, `Acc@5 81%`
-- Hybrid uplift over lexical-only: `+0.222 MRR`, `+22% Acc@1`, `+19% Acc@3`, `+28% Acc@5`
-- Identifier queries: hybrid uplift is neutral because `get_ranked_context` stays lexical-first for identifier-like queries
-- Impact reports now classify changes as `additive`/`breaking`/`mixed` — additive changes (new exports) skip high-impact warnings
-
 ## vs Serena
 
-Both are code intelligence MCP servers, but they optimize for different things.
+| Axis             | CodeLens                             | Serena                    |
+| ---------------- | ------------------------------------ | ------------------------- |
+| Runtime          | Single Rust binary                   | Python + uv               |
+| Intelligence     | tree-sitter + SQLite + optional LSP  | LSP by default            |
+| Token efficiency | Bounded workflows, 50-87% savings    | Standard tool responses   |
+| Workflow layer   | Composite reports + analysis handles | Symbolic tools            |
+| Semantic search  | Bundled ONNX model + hybrid ranking  | No bundled model          |
+| Refactoring      | Preview-first gated mutations        | Stronger IDE-backed edits |
+| Offline          | Full support                         | Depends on backend        |
 
-| Axis | CodeLens | Serena |
-| --- | --- | --- |
-| Primary shape | Harness optimization layer | IDE-style semantic backend for agents |
-| Runtime | Single Rust binary | Python + `uv` |
-| Default intelligence backend | tree-sitter + SQLite + optional LSP | LSP by default, JetBrains plugin optionally |
-| Tool-surface control | Profiles, presets, deferred tool loading | YAML-configurable tool sets and modes |
-| Bounded workflows | Composite reports, handles, durable jobs | Strong symbolic tools, lighter workflow layer |
-| Semantic retrieval | Bundled ONNX model + hybrid ranking | Symbolic/LSP retrieval, no bundled embedding model |
-| Refactoring depth | Preview-first gated mutations, hybrid native/LSP | Stronger IDE/LSP-backed semantic edits today |
-| Offline / air-gap | Strong | Depends on backend and language-server setup |
-
-Current honest summary:
-
-- CodeLens is stronger for bounded, token-aware harness workflows.
-- Serena is stronger for deep IDE-backed semantic editing and broader language-backend coverage.
-- CodeLens is **not yet** a strict superset of Serena across all axes.
-
-See [docs/serena-comparison.md](docs/serena-comparison.md) for the current gap analysis and the architecture path to become a real superset.
+See [docs/serena-comparison.md](docs/serena-comparison.md) for detailed gap analysis.
 
 ## Building
 
@@ -237,30 +191,82 @@ cargo build --release                         # includes semantic (76MB)
 cargo build --release --no-default-features   # without ML model (23MB)
 cargo build --release --features http         # add HTTP transport
 
-# Tests (341)
-# Tests (411)
+# Tests (537)
 cargo test -p codelens-engine && cargo test -p codelens-mcp
 ```
 
-For repo-local verification and harness-facing setup, see `EVAL_CONTRACT.md` and `docs/platform-setup.md`.
+## Harness Architecture
 
-## Agentic Architecture
+CodeLens is designed as a **harness coprocessor** — it doesn't replace your agent, it makes your agent's harness smarter.
 
-| Feature                                 | Status                                    |
-| --------------------------------------- | ----------------------------------------- |
-| Streamable HTTP + SSE                   | Supported                                 |
-| Role-based capability negotiation       | `--profile` + legacy `--preset`           |
-| Tool Annotations (readOnly/destructive) | Supported                                 |
-| Tool Output Schemas                     | Core tools + analysis handles             |
-| `.well-known/mcp.json` Server Card      | HTTP transport                            |
-| Analysis handles + section expansion    | Supported                                 |
-| Durable analysis jobs                   | `start_analysis_job` + `get_analysis_job` |
-| Mutation audit log                      | `.codelens/audit/mutation-audit.jsonl`    |
-| Token budget control (`_profile`)       | legacy shortcuts + role-profile budgets   |
-| Multi-project queries                   | `query_project`                           |
-| Contextual tool chaining                | `suggested_next_tools`                    |
-| MCP 2025-03-26 spec compliant           | Full                                      |
+```
+┌──────────────────────────────────────────────────────────────────┐
+│                        Agent Harness                             │
+│                                                                  │
+│   ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐       │
+│   │ Planner  │  │ Builder  │  │ Reviewer  │  │ Refactor │       │
+│   └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘       │
+│        │              │              │              │             │
+│        └──────────────┴──────────────┴──────────────┘             │
+│                              │ MCP                               │
+│                    ┌─────────▼──────────┐                        │
+│                    │   CodeLens MCP     │                        │
+│                    │  ┌──────────────┐  │                        │
+│                    │  │  Profiles    │  │ planner-readonly       │
+│                    │  │  Workflows   │  │ builder-minimal        │
+│                    │  │  Handles     │  │ reviewer-graph         │
+│                    │  │  Gates       │  │ refactor-full          │
+│                    │  └──────┬───────┘  │                        │
+│                    │         │          │                        │
+│                    │  ┌──────▼───────┐  │                        │
+│                    │  │codelens-engine│  │ tree-sitter + SQLite  │
+│                    │  │  25 langs    │  │ + embedding + graphs  │
+│                    │  └──────────────┘  │                        │
+│                    └────────────────────┘                        │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Each agent role sees a different tool surface:**
+
+- **Planner** gets `analyze_change_request`, `onboard_project` — compressed context, no mutations
+- **Builder** gets `find_symbol`, `get_ranked_context` — minimal surface, focused implementation
+- **Reviewer** gets `impact_report`, `diff_aware_references` — graph-aware bounded reviews
+- **Refactor** gets `safe_rename_report`, `verify_change_readiness` — gate-protected mutations
+
+**Harness primitives built in:**
+
+- **Analysis handles** — agents expand only the section they need, not the full report
+- **Mutation gates** — verification required before code changes, preventing blind rewrites
+- **Doom-loop detection** — identical tool calls auto-detected and redirected
+- **Token compression** — 5-stage adaptive budget keeps responses bounded
+- **Suggested next tools** — contextual chaining guides agents through optimal tool sequences
+
+## MCP Spec Compliance
+
+| Feature                                 | Status                                 |
+| --------------------------------------- | -------------------------------------- |
+| Streamable HTTP + SSE                   | Supported                              |
+| Role-based capability negotiation       | `--profile` flag                       |
+| Tool Annotations (readOnly/destructive) | Supported                              |
+| Tool Output Schemas                     | 45 tools covered                       |
+| `.well-known/mcp.json` Server Card      | HTTP transport                         |
+| Analysis handles + section expansion    | Supported                              |
+| Durable analysis jobs                   | Supported                              |
+| Mutation audit log                      | `.codelens/audit/mutation-audit.jsonl` |
+| Multi-project queries                   | `query_project`                        |
+| Contextual tool chaining                | `suggested_next_tools`                 |
+| MCP 2025-03-26 spec                     | Full compliance                        |
+
+## Contributing
+
+Contributions are welcome! Please open an issue first to discuss what you'd like to change.
+
+```bash
+# Development workflow
+cargo check && cargo test -p codelens-engine && cargo test -p codelens-mcp
+cargo clippy -- -W clippy::all
+```
 
 ## License
 
-Apache-2.0
+[Apache-2.0](LICENSE)
