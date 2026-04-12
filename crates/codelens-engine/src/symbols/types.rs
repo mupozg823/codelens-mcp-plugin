@@ -73,8 +73,19 @@ pub struct SymbolInfo {
 }
 
 /// Construct a stable symbol ID: `{file_path}#{kind}:{name_path}`
+///
+/// Uses `String::with_capacity` to allocate the exact final size in
+/// one shot, avoiding the internal reallocation that `format!()` may
+/// do when it starts from an empty buffer and grows.
 pub fn make_symbol_id(file_path: &str, kind: &SymbolKind, name_path: &str) -> String {
-    format!("{}#{}:{}", file_path, kind.as_label(), name_path)
+    let label = kind.as_label();
+    let mut id = String::with_capacity(file_path.len() + 1 + label.len() + 1 + name_path.len());
+    id.push_str(file_path);
+    id.push('#');
+    id.push_str(label);
+    id.push(':');
+    id.push_str(name_path);
+    id
 }
 
 /// Parse a stable symbol ID. Returns `(file_path, kind_label, name_path)` or `None`.
