@@ -216,7 +216,7 @@ pub(crate) fn evaluate_mutation_gate(
                 false,
             ));
         }
-        let Some(mutation_symbol) = state.extract_symbol_hint(arguments) else {
+        let Some(mutation_symbol) = crate::state::extract_symbol_hint(arguments) else {
             return Err(mutation_gate_failure(
                 name,
                 format!(
