@@ -82,6 +82,8 @@ opentelemetry = { version = "0.28", default-features = false, features = ["trace
 opentelemetry_sdk = { version = "0.28", default-features = false, features = ["trace", "rt-tokio"] }
 opentelemetry-otlp = { version = "0.28", default-features = false, features = ["trace", "grpc-tonic"] }
 tracing-opentelemetry = "0.29"
+scip = "0.7"
+protobuf = "3"
 uuid = { version = "1", features = ["v4"] }
 tokio-stream = "0.1"
 tower = { version = "0.5", features = ["util"] }

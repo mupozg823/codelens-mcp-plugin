@@ -66,6 +66,8 @@ pub mod inline;
 pub mod ir;
 pub mod move_symbol;
 pub mod oxc_analysis;
+#[cfg(feature = "scip-backend")]
+pub mod scip_backend;
 #[cfg(feature = "semantic")]
 pub use embedding::{
     EmbeddingEngine, EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch,
@@ -85,6 +87,8 @@ pub use symbols::{
 };
 pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};
 pub use watcher::{FileWatcher, WatcherStats};
+#[cfg(feature = "scip-backend")]
+pub use scip_backend::ScipBackend;
 // Semantic IR — new types only; existing types are already re-exported above.
 pub use ir::{
     CodeDiagnostic, DiagnosticSeverity, EditAction, EditActionKind, EditPlan, ImpactKind,

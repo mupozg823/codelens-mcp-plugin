@@ -761,8 +761,11 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     if runtime_health.semantic_status.is_available() {
         intelligence_sources.push("semantic");
     }
-    // SCIP: check for .scip index file in project root
-    let scip_available = state.project().as_path().join("index.scip").exists();
+    // SCIP: check for index.scip in standard locations
+    let project_root = state.project();
+    let scip_available = project_root.as_path().join("index.scip").exists()
+        || project_root.as_path().join(".scip/index.scip").exists()
+        || project_root.as_path().join(".codelens/index.scip").exists();
     if scip_available {
         intelligence_sources.push("scip");
     }

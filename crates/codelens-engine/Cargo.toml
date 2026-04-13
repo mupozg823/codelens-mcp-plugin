@@ -74,10 +74,13 @@ oxc_allocator.workspace = true
 oxc_parser.workspace = true
 oxc_semantic.workspace = true
 oxc_span.workspace = true
+scip = { workspace = true, optional = true }
+protobuf = { workspace = true, optional = true }
 
 [features]
 default = ["semantic"]
 semantic = ["dep:fastembed", "dep:ort", "dep:sqlite-vec"]
+scip-backend = ["dep:scip", "dep:protobuf"]
 ## Enable fastembed built-in model loading (auto-download from HuggingFace).
 ## Used for A/B model comparison via CODELENS_EMBED_MODEL env var.
 model-bakeoff = ["semantic", "fastembed/hf-hub"]
