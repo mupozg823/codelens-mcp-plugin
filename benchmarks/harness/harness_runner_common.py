@@ -1415,6 +1415,7 @@ def build_entry_args(
     quality_score: str,
     recommended_policy: str,
     notes: str,
+    recommendation_outcome: dict | None = None,
 ):
     return argparse.Namespace(
         repo=str(repo_path),
@@ -1431,4 +1432,5 @@ def build_entry_args(
         quality_score=float(quality_score) if quality_score else None,
         recommended_policy=recommended_policy,
         notes=notes,
+        recommendation_outcome=recommendation_outcome,
     )

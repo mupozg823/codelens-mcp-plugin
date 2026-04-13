@@ -320,6 +320,21 @@ def mode_stats(entries):
     measured_success = [
         entry.get("success") for entry in entries if entry.get("success") is not None
     ]
+    recommendation_outcomes = [
+        entry.get("recommendation_outcome")
+        for entry in entries
+        if isinstance(entry.get("recommendation_outcome"), dict)
+    ]
+    recommendation_hits = [
+        outcome
+        for outcome in recommendation_outcomes
+        if outcome.get("alignment") in {"matched-entrypoint", "matched-followup"}
+    ]
+    contract_alignment_values = [
+        outcome.get("contract_action_aligned")
+        for outcome in recommendation_outcomes
+        if outcome.get("contract_action_aligned") is not None
+    ]
     return {
         "count": count,
         "measured_count": len(measured_success),
@@ -347,6 +362,16 @@ def mode_stats(entries):
         "success_rate": (
             sum(1 for value in measured_success if value) / len(measured_success)
             if measured_success
+            else None
+        ),
+        "recommendation_alignment_rate": (
+            len(recommendation_hits) / len(recommendation_outcomes)
+            if recommendation_outcomes
+            else None
+        ),
+        "contract_action_alignment_rate": (
+            sum(1 for value in contract_alignment_values if value) / len(contract_alignment_values)
+            if contract_alignment_values
             else None
         ),
         "sample_notes": [
@@ -621,12 +646,18 @@ def render_report(report):
             routed = item["mode_stats"].get("routed-on", {})
             naive = item["mode_stats"].get("naive-on", {})
             baseline_stats = item["mode_stats"].get("baseline", {})
+            recommendation_suffix = ""
+            if routed.get("recommendation_alignment_rate") is not None:
+                recommendation_suffix = (
+                    f", rec-align={routed.get('recommendation_alignment_rate', 0.0):.2f}, "
+                    f"contract-align={routed.get('contract_action_alignment_rate', 0.0):.2f}"
+                )
             a(
                 f"- {item['repo_label']} / {item['task_kind']}: `{item['recommended_policy']}` "
                 f"(baseline={baseline_stats.get('avg_total_tokens', 0):.0f}, "
                 f"naive={naive.get('avg_total_tokens', 0):.0f}, "
                 f"routed={routed.get('avg_total_tokens', 0):.0f}, "
-                f"confidence={item.get('confidence', 'unknown')})"
+                f"confidence={item.get('confidence', 'unknown')}{recommendation_suffix})"
             )
     else:
         a("- no helped segments recorded yet")
@@ -639,12 +670,18 @@ def render_report(report):
             routed = item["mode_stats"].get("routed-on", {})
             naive = item["mode_stats"].get("naive-on", {})
             baseline_stats = item["mode_stats"].get("baseline", {})
+            recommendation_suffix = ""
+            if routed.get("recommendation_alignment_rate") is not None:
+                recommendation_suffix = (
+                    f", rec-align={routed.get('recommendation_alignment_rate', 0.0):.2f}, "
+                    f"contract-align={routed.get('contract_action_alignment_rate', 0.0):.2f}"
+                )
             a(
                 f"- {item['repo_label']} / {item['task_kind']}: `{item['recommended_policy']}` "
                 f"(baseline={baseline_stats.get('avg_total_tokens', 0):.0f}, "
                 f"naive={naive.get('avg_total_tokens', 0):.0f}, "
                 f"routed={routed.get('avg_total_tokens', 0):.0f}, "
-                f"confidence={item.get('confidence', 'unknown')})"
+                f"confidence={item.get('confidence', 'unknown')}{recommendation_suffix})"
             )
     else:
         a("- no hurt segments recorded yet")

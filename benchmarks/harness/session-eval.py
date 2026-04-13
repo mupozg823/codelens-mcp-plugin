@@ -73,6 +73,7 @@ def unwrap_metrics_payload(raw):
 def build_entry(args, payload):
     session = payload.get("session") or {}
     derived = payload.get("derived_kpis") or {}
+    recommendation_outcome = getattr(args, "recommendation_outcome", None)
     repo_path = str(Path(args.repo).expanduser())
     repo_id = getattr(args, "repo_id", "") or Path(repo_path).name or "repo"
     repo_label = getattr(args, "repo_label", "") or repo_id
@@ -92,6 +93,17 @@ def build_entry(args, payload):
         notes.append("mutation preflight gate was exercised")
     if int(session.get("deferred_namespace_expansion_count") or 0) > 0:
         notes.append("deferred loading expansion occurred")
+    if isinstance(recommendation_outcome, dict):
+        alignment = recommendation_outcome.get("alignment")
+        recommended_entrypoint = recommendation_outcome.get("recommended_entrypoint")
+        if alignment == "matched-entrypoint" and recommended_entrypoint:
+            notes.append(f"preflight recommendation matched entrypoint {recommended_entrypoint}")
+        elif alignment == "matched-followup":
+            called = recommendation_outcome.get("recommended_followup_tools_called") or []
+            if called:
+                notes.append(f"preflight recommendation matched follow-up {', '.join(called)}")
+        elif alignment == "no-match" and recommended_entrypoint:
+            notes.append(f"preflight recommendation missed entrypoint {recommended_entrypoint}")
 
     success = args.success
     if success is None:
@@ -145,6 +157,17 @@ def build_entry(args, payload):
         },
         "captured_at": datetime.now().isoformat(timespec="seconds"),
     }
+    if isinstance(recommendation_outcome, dict):
+        entry_draft["recommendation_outcome"] = {
+            "alignment": recommendation_outcome.get("alignment"),
+            "recommended_entrypoint": recommendation_outcome.get("recommended_entrypoint"),
+            "recommended_entrypoint_called": recommendation_outcome.get("recommended_entrypoint_called"),
+            "recommended_entrypoint_call_count": recommendation_outcome.get("recommended_entrypoint_call_count"),
+            "recommended_contract_action": recommendation_outcome.get("recommended_contract_action"),
+            "contract_action_aligned": recommendation_outcome.get("contract_action_aligned"),
+            "recommended_followup_tools_called": recommendation_outcome.get("recommended_followup_tools_called"),
+            "recommended_followup_tools_missed": recommendation_outcome.get("recommended_followup_tools_missed"),
+        }
 
     # Auto-compute quality_score from metrics when not manually set
     if entry_draft["quality_score"] is None:
@@ -172,6 +195,7 @@ def render_markdown(entry):
         f"| Low-level chain count | {entry['low_level_chain_count']} |",
         f"| Elapsed ms | {entry['elapsed_ms']} |",
         f"| Recommended policy | {entry['recommended_policy']} |",
+        f"| Recommendation alignment | {(entry.get('recommendation_outcome') or {}).get('alignment', '-') } |",
         "",
         "## Notes",
         "",
