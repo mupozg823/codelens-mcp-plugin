@@ -293,12 +293,44 @@ fn resolve_symbol_position(
 
 pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?.to_owned();
+    let max_results = optional_usize(arguments, "max_results", 200);
+
+    // Try SCIP diagnostics first (if available).
+    #[cfg(feature = "scip-backend")]
+    if let Some(backend) = state.scip() {
+        use codelens_engine::PreciseBackend as _;
+        if let Ok(scip_diags) = backend.diagnostics(&file_path) {
+            if !scip_diags.is_empty() {
+                let limited: Vec<_> = scip_diags.into_iter().take(max_results).collect();
+                let count = limited.len();
+                let diags_json: Vec<serde_json::Value> = limited
+                    .iter()
+                    .map(|d| {
+                        json!({
+                            "file_path": d.file_path,
+                            "line": d.line,
+                            "column": d.column,
+                            "severity": format!("{:?}", d.severity),
+                            "message": d.message,
+                            "source": "scip",
+                            "code": d.code,
+                        })
+                    })
+                    .collect();
+                return Ok((
+                    json!({ "diagnostics": diags_json, "count": count, "backend": "scip" }),
+                    success_meta(BackendKind::Scip, 0.95),
+                ));
+            }
+        }
+    }
+
+    // Fall back to LSP diagnostics.
     let command = optional_string(arguments, "command")
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_path(&file_path))
         .ok_or_else(|| CodeLensError::LspError("no default LSP mapping for file".into()))?;
     let args = parse_lsp_args(arguments, &command);
-    let max_results = optional_usize(arguments, "max_results", 200);
 
     let command_ref = command.clone();
     state
