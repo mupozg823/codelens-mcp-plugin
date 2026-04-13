@@ -276,6 +276,7 @@ def render_drift_markdown(drift, canonical_policy_path: Path, preview_policy_pat
 def render_refresh_status_markdown(payload):
     promotion_integrity = payload.get("promotion_integrity") or {}
     agent_divergence = payload.get("agent_policy_divergence") or {}
+    codex_recommendation_alignment = payload.get("codex_recommendation_alignment") or {}
     lines = [
         "# Routing Policy Refresh",
         "",
@@ -297,6 +298,21 @@ def render_refresh_status_markdown(payload):
     else:
         lines.append("No active coverage gaps.")
         lines.append("")
+    lines.extend(["## Codex Recommendation Alignment", ""])
+    if codex_recommendation_alignment.get("tasks_with_data", 0) > 0:
+        lines.append(
+            f"- Avg recommendation alignment: `{codex_recommendation_alignment.get('avg_recommendation_alignment_rate')}`"
+        )
+        lines.append(
+            f"- Avg contract-action alignment: `{codex_recommendation_alignment.get('avg_contract_action_alignment_rate')}`"
+        )
+        for row in codex_recommendation_alignment.get("task_rows") or []:
+            lines.append(
+                f"- `{row['repo_label']} / {row['task_kind']}`: rec-align=`{row['recommendation_alignment_rate']}` contract-align=`{row['contract_action_alignment_rate']}` confidence=`{row['confidence']}`"
+            )
+        lines.append("")
+    else:
+        lines.extend(["- no Codex recommendation-alignment data yet", ""])
     if agent_divergence.get("changed"):
         lines.extend(["## Agent Divergence", ""])
         for row in agent_divergence.get("global_rule_changes") or []:
@@ -382,6 +398,41 @@ def run_json_command(cmd):
     return json.loads(proc.stdout)
 
 
+def summarize_codex_recommendation_alignment(preview_report: dict):
+    agent_task_summaries = preview_report.get("agent_task_summaries") or {}
+    codex_task_summaries = agent_task_summaries.get("codex") or preview_report.get("task_summaries") or []
+    rows = []
+    for item in codex_task_summaries:
+        routed = (item.get("mode_stats") or {}).get("routed-on") or {}
+        recommendation_alignment_rate = routed.get("recommendation_alignment_rate")
+        contract_action_alignment_rate = routed.get("contract_action_alignment_rate")
+        if recommendation_alignment_rate is None and contract_action_alignment_rate is None:
+            continue
+        rows.append(
+            {
+                "repo_id": item.get("repo_id"),
+                "repo_label": item.get("repo_label", item.get("repo_id")),
+                "task_kind": item.get("task_kind"),
+                "confidence": item.get("confidence", "unknown"),
+                "recommendation_alignment_rate": recommendation_alignment_rate,
+                "contract_action_alignment_rate": contract_action_alignment_rate,
+            }
+        )
+
+    def avg(values):
+        values = [float(value) for value in values if value is not None]
+        if not values:
+            return None
+        return round(sum(values) / len(values), 4)
+
+    return {
+        "tasks_with_data": len(rows),
+        "avg_recommendation_alignment_rate": avg([row["recommendation_alignment_rate"] for row in rows]),
+        "avg_contract_action_alignment_rate": avg([row["contract_action_alignment_rate"] for row in rows]),
+        "task_rows": rows,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default=str(DEFAULT_CONFIG))
@@ -455,6 +506,8 @@ def main():
     for pattern in session_patterns:
         harness_cmd.extend(["--session-entry-glob", pattern])
     harness_result = run_json_command(harness_cmd)
+    preview_report = common.load_json(preview_report_json)
+    codex_recommendation_alignment = summarize_codex_recommendation_alignment(preview_report)
 
     export_preview_cmd = [
         "python3",
@@ -595,6 +648,7 @@ def main():
         "promoted": promote,
         "preview_report_json": str(preview_report_json),
         "preview_report_markdown": str(preview_report_md),
+        "codex_recommendation_alignment": codex_recommendation_alignment,
         "preview_policy_json": str(preview_policy_json),
         "preview_policy_markdown": str(preview_policy_md),
         "preview_shared_policy_json": preview_policy_result.get("shared_policy_json"),
