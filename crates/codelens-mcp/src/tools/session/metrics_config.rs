@@ -766,8 +766,18 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
     let scip_available = project_root.as_path().join("index.scip").exists()
         || project_root.as_path().join(".scip/index.scip").exists()
         || project_root.as_path().join(".codelens/index.scip").exists();
+    #[allow(unused_mut)]
+    let mut scip_file_count: Option<usize> = None;
+    #[allow(unused_mut)]
+    let mut scip_symbol_count: Option<usize> = None;
     if scip_available {
         intelligence_sources.push("scip");
+        // Report SCIP index stats if the backend is loaded.
+        #[cfg(feature = "scip-backend")]
+        if let Some(backend) = state.scip() {
+            scip_file_count = Some(backend.file_count());
+            scip_symbol_count = Some(backend.symbol_count());
+        }
     }
 
     Ok((
@@ -809,6 +819,9 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
             "daemon_started_at": state.daemon_started_at(),
             "daemon_binary_drift": daemon_binary_drift,
             "binary_build_info": binary_build_info,
+            "scip_available": scip_available,
+            "scip_file_count": scip_file_count,
+            "scip_symbol_count": scip_symbol_count,
         }),
         success_meta(BackendKind::Config, 0.95),
     ))

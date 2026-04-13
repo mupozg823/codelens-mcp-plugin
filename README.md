@@ -216,7 +216,7 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 | SBOM                       | CycloneDX per release                                                      |
 | Dataset lint               | CI-integrated benchmark hygiene (5 rules)                                  |
 | Multi-language test filter | Python, JS/TS, Go, Java, Kotlin, Ruby test symbols excluded from index     |
-| SCIP precise backend       | `--features scip-backend` for type-aware definitions/references            |
+| SCIP precise backend       | `--features scip-backend` — definitions, references, diagnostics, hover    |
 | Docker                     | Multi-stage `Dockerfile.release` with healthcheck                          |
 
 ## vs Serena

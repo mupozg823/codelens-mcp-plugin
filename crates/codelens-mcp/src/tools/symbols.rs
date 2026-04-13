@@ -432,15 +432,25 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
                 let syms: Vec<serde_json::Value> = limited
                     .iter()
                     .map(|d| {
-                        json!({
+                        // Enrich with hover documentation from SCIP if available.
+                        let doc = backend
+                            .hover(&d.file_path, d.line, 0)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default();
+                        let mut sym = json!({
                             "name": d.name,
                             "kind": d.kind,
                             "file_path": d.file_path,
                             "line": d.line,
-                            "signature": d.signature,
+                            "signature": if d.signature.is_empty() { &doc } else { &d.signature },
                             "name_path": d.name_path,
                             "score": d.score,
-                        })
+                        });
+                        if !doc.is_empty() {
+                            sym["documentation"] = serde_json::Value::String(doc);
+                        }
+                        sym
                     })
                     .collect();
                 return Ok((
