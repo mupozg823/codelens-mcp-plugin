@@ -1,3 +1,4 @@
+use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
 use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
 use serde_json::{Value, json};
 
@@ -67,6 +68,8 @@ pub(crate) fn build_handle_payload(
     );
     let performance_watchpoints =
         infer_performance_watchpoints(summary, top_findings, next_actions);
+    let summary_resource = analysis_summary_resource(analysis_id);
+    let section_handles = analysis_section_handles(analysis_id, available_sections);
     let mut payload = json!({
         "analysis_id": analysis_id,
         "summary": summary,
@@ -82,6 +85,8 @@ pub(crate) fn build_handle_payload(
         "recommended_checks": recommended_checks,
         "performance_watchpoints": performance_watchpoints,
         "available_sections": available_sections,
+        "summary_resource": summary_resource,
+        "section_handles": section_handles,
         "reused": reused,
     });
     fn status_to_score(s: &str) -> f64 {
@@ -113,17 +118,27 @@ pub(crate) fn build_handle_payload(
             "recommended_check_count": payload["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
             "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map(|v| v.len()).unwrap_or(0),
         });
-        payload["evidence_handles"] = json!(
-            available_sections
-                .iter()
-                .map(|section| json!({
-                    "section": section,
-                    "uri": format!("codelens://analysis/{analysis_id}/{section}"),
-                }))
-                .collect::<Vec<_>>()
-        );
+        payload["evidence_handles"] = payload["section_handles"].clone();
     }
+    trim_preview_first_handle_payload(tool_name, ci_audit, &mut payload);
     payload
+}
+
+fn trim_preview_first_handle_payload(tool_name: &str, ci_audit: bool, payload: &mut Value) {
+    if ci_audit || tool_name != "refactor_safety_report" {
+        return;
+    }
+    let Some(obj) = payload.as_object_mut() else {
+        return;
+    };
+
+    // `refactor_safety_report` is preview-first: keep readiness, blockers, and section handles
+    // inline, but leave verbose reasoning arrays in the stored artifact/resource summary.
+    obj.remove("top_findings");
+    obj.remove("verifier_checks");
+    obj.remove("quality_focus");
+    obj.remove("recommended_checks");
+    obj.remove("performance_watchpoints");
 }
 
 pub(crate) fn infer_risk_level(

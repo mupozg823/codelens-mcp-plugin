@@ -12,6 +12,8 @@ use codelens_engine::{compute_dominant_language, detect_frameworks};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
+const DEFAULT_AUTO_REFRESH_STALE_THRESHOLD: usize = 32;
+
 fn push_prepare_harness_warning(
     warnings: &mut Vec<Value>,
     warning_codes: &mut HashSet<String>,
@@ -151,6 +153,90 @@ fn collect_prepare_harness_warnings(
     }
 
     warnings
+}
+
+fn index_stats_payload(stats: &codelens_engine::IndexStats) -> Value {
+    json!({
+        "indexed_files": stats.indexed_files,
+        "supported_files": stats.supported_files,
+        "stale_files": stats.stale_files,
+    })
+}
+
+fn prepare_harness_index_recovery(state: &AppState, arguments: &Value) -> Value {
+    let enabled = arguments
+        .get("auto_refresh_stale")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
+    let threshold = arguments
+        .get("auto_refresh_stale_threshold")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize)
+        .unwrap_or(DEFAULT_AUTO_REFRESH_STALE_THRESHOLD);
+
+    let before = match state.symbol_index().stats() {
+        Ok(stats) => stats,
+        Err(error) => {
+            return json!({
+                "enabled": enabled,
+                "threshold": threshold,
+                "status": "unavailable",
+                "reason": "stats_unavailable",
+                "error": error.to_string(),
+            });
+        }
+    };
+
+    if !enabled {
+        return json!({
+            "enabled": false,
+            "threshold": threshold,
+            "status": "disabled",
+            "before": index_stats_payload(&before),
+        });
+    }
+
+    if before.stale_files == 0 {
+        return json!({
+            "enabled": true,
+            "threshold": threshold,
+            "status": "not_needed",
+            "before": index_stats_payload(&before),
+            "after": index_stats_payload(&before),
+        });
+    }
+
+    if before.stale_files > threshold {
+        return json!({
+            "enabled": true,
+            "threshold": threshold,
+            "status": "skipped",
+            "reason": "stale_threshold_exceeded",
+            "before": index_stats_payload(&before),
+        });
+    }
+
+    match state.symbol_index().refresh_all() {
+        Ok(after) => {
+            state.graph_cache().invalidate();
+            json!({
+                "enabled": true,
+                "threshold": threshold,
+                "status": "refreshed",
+                "reason": "stale_detected",
+                "before": index_stats_payload(&before),
+                "after": index_stats_payload(&after),
+            })
+        }
+        Err(error) => json!({
+            "enabled": true,
+            "threshold": threshold,
+            "status": "failed",
+            "reason": "refresh_failed",
+            "error": error.to_string(),
+            "before": index_stats_payload(&before),
+        }),
+    }
 }
 
 pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
@@ -316,6 +402,8 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         }
     }
 
+    let index_recovery = prepare_harness_index_recovery(state, arguments);
+
     let detail = arguments
         .get("detail")
         .and_then(|v| v.as_str())
@@ -355,6 +443,47 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             .and_then(|value| value.as_str())
             .is_some(),
     );
+    let warnings = {
+        let mut warnings = warnings;
+        let mut warning_codes = warnings
+            .iter()
+            .filter_map(|warning| {
+                warning
+                    .get("code")
+                    .and_then(|value| value.as_str())
+                    .map(str::to_owned)
+            })
+            .collect::<HashSet<_>>();
+        match index_recovery
+            .get("status")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown")
+        {
+            "failed" => push_prepare_harness_warning(
+                &mut warnings,
+                &mut warning_codes,
+                "index_refresh_failed",
+                index_recovery
+                    .get("error")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("failed to refresh stale index during bootstrap"),
+                false,
+                "refresh_symbol_index",
+                "symbol_index",
+            ),
+            "skipped" => push_prepare_harness_warning(
+                &mut warnings,
+                &mut warning_codes,
+                "index_refresh_skipped",
+                "stale index detected but auto-refresh threshold was exceeded",
+                false,
+                "refresh_symbol_index",
+                "symbol_index",
+            ),
+            _ => {}
+        }
+        warnings
+    };
 
     let visible = build_visible_tool_context(state, &request);
     let visible_tool_names = visible
@@ -401,6 +530,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "active_surface": active_surface.as_label(),
             "token_budget": token_budget,
             "config": config_payload,
+            "index_recovery": index_recovery,
             "capabilities": capabilities_payload,
             "health_summary": health_summary,
             "warnings": warnings,

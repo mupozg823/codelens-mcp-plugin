@@ -1,7 +1,10 @@
 //! MCP resource definitions and handlers.
 
 use crate::AppState;
-use crate::resource_analysis::{analysis_resource_entries, analysis_summary_payload};
+use crate::resource_analysis::{
+    analysis_resource_entries, analysis_summary_payload, recent_analysis_jobs_payload,
+    recent_analysis_payload,
+};
 use crate::resource_catalog::{
     static_resource_entries, visible_tool_details, visible_tool_summary,
 };
@@ -111,6 +114,8 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
         "codelens://session/http" => {
             json_resource(uri, build_http_session_payload(state, &request))
         }
+        "codelens://analysis/recent" => json_resource(uri, recent_analysis_payload(state)),
+        "codelens://analysis/jobs" => json_resource(uri, recent_analysis_jobs_payload(state)),
         _ if uri.starts_with("codelens://profile/") && uri.ends_with("/guide") => {
             let profile_name = uri
                 .trim_start_matches("codelens://profile/")

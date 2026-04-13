@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 
+mod analysis_handles;
 mod analysis_queue;
 mod artifact_store;
 mod authority;
@@ -229,7 +230,9 @@ fn init_tracing() {
     {
         Ok(exp) => exp,
         Err(e) => {
-            eprintln!("codelens: failed to create OTLP exporter ({e}), falling back to stderr-only tracing");
+            eprintln!(
+                "codelens: failed to create OTLP exporter ({e}), falling back to stderr-only tracing"
+            );
             init_tracing_fmt_only();
             return;
         }
@@ -237,9 +240,11 @@ fn init_tracing() {
 
     let provider = SdkTracerProvider::builder()
         .with_batch_exporter(exporter)
-        .with_resource(opentelemetry_sdk::Resource::builder()
-            .with_service_name("codelens-mcp")
-            .build())
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_service_name("codelens-mcp")
+                .build(),
+        )
         .build();
 
     let tracer = provider.tracer("codelens-mcp");

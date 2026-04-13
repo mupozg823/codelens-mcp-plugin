@@ -1,20 +1,121 @@
 use crate::AppState;
+use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
 use crate::state::AnalysisArtifact;
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 
 pub(crate) fn analysis_resource_entries(state: &AppState) -> Vec<Value> {
-    state
-        .list_analysis_summaries()
-        .into_iter()
-        .map(|artifact| {
+    let mut items = vec![
+        json!({
+            "uri": "codelens://analysis/recent",
+            "name": "Recent Analyses",
+            "description": "Recent stored analyses with summary resource handles",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://analysis/jobs",
+            "name": "Analysis Jobs",
+            "description": "Queued and completed analysis jobs with jump handles",
+            "mimeType": "application/json"
+        }),
+    ];
+    items.extend(
+        state
+            .list_analysis_summaries()
+            .into_iter()
+            .map(|artifact| {
+                json!({
+                    "uri": format!("codelens://analysis/{}/summary", artifact.id),
+                    "name": format!("Analysis: {}", artifact.tool_name),
+                    "description": format!("{} ({})", artifact.summary, artifact.surface),
+                    "mimeType": "application/json"
+                })
+            })
+            .collect::<Vec<_>>(),
+    );
+    items
+}
+
+pub(crate) fn recent_analysis_payload(state: &AppState) -> Value {
+    let mut summaries = state.list_analysis_summaries();
+    summaries.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+    let mut tool_counts = BTreeMap::new();
+    for summary in &summaries {
+        *tool_counts
+            .entry(summary.tool_name.clone())
+            .or_insert(0usize) += 1;
+    }
+    let latest_created_at_ms = summaries
+        .iter()
+        .map(|summary| summary.created_at_ms)
+        .max()
+        .unwrap_or_default();
+    let items = summaries
+        .iter()
+        .take(8)
+        .map(|summary| {
             json!({
-                "uri": format!("codelens://analysis/{}/summary", artifact.id),
-                "name": format!("Analysis: {}", artifact.tool_name),
-                "description": format!("{} ({})", artifact.summary, artifact.surface),
-                "mimeType": "application/json"
+                "analysis_id": summary.id,
+                "tool_name": summary.tool_name,
+                "summary": summary.summary,
+                "surface": summary.surface,
+                "created_at_ms": summary.created_at_ms,
+                "summary_resource": analysis_summary_resource(&summary.id),
             })
         })
-        .collect()
+        .collect::<Vec<_>>();
+    json!({
+        "artifacts": items,
+        "count": summaries.len(),
+        "latest_created_at_ms": latest_created_at_ms,
+        "tool_counts": tool_counts,
+    })
+}
+
+pub(crate) fn recent_analysis_jobs_payload(state: &AppState) -> Value {
+    let scope = state.current_project_scope();
+    let mut jobs = state.list_analysis_jobs_for_scope(&scope, None);
+    jobs.sort_by(|a, b| b.updated_at_ms.cmp(&a.updated_at_ms));
+    let mut status_counts = BTreeMap::new();
+    for job in &jobs {
+        *status_counts
+            .entry(job.status.as_str().to_owned())
+            .or_insert(0usize) += 1;
+    }
+    let items = jobs
+        .iter()
+        .take(8)
+        .map(|job| {
+            let section_handles = job
+                .analysis_id
+                .as_deref()
+                .map(|analysis_id| analysis_section_handles(analysis_id, &job.estimated_sections))
+                .unwrap_or_else(|| json!([]));
+            let summary_resource = job
+                .analysis_id
+                .as_deref()
+                .map(analysis_summary_resource)
+                .unwrap_or(Value::Null);
+            json!({
+                "job_id": job.id,
+                "kind": job.kind,
+                "status": job.status,
+                "progress": job.progress,
+                "current_step": job.current_step,
+                "analysis_id": job.analysis_id,
+                "estimated_sections": job.estimated_sections,
+                "summary_resource": summary_resource,
+                "section_handles": section_handles,
+                "updated_at_ms": job.updated_at_ms,
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "jobs": items,
+        "count": jobs.len(),
+        "active_count": jobs.iter().filter(|job| matches!(job.status, crate::runtime_types::JobLifecycle::Queued | crate::runtime_types::JobLifecycle::Running)).count(),
+        "status_counts": status_counts,
+    })
 }
 
 pub(crate) fn analysis_summary_payload(artifact: &AnalysisArtifact) -> Value {
@@ -80,6 +181,8 @@ pub(crate) fn analysis_summary_payload(artifact: &AnalysisArtifact) -> Value {
         &artifact.top_findings,
         &artifact.next_actions,
     );
+    let summary_resource = analysis_summary_resource(&artifact.id);
+    let section_handles = analysis_section_handles(&artifact.id, &artifact.available_sections);
     let mut payload = json!({
         "analysis_id": artifact.id,
         "tool_name": artifact.tool_name,
@@ -97,6 +200,8 @@ pub(crate) fn analysis_summary_payload(artifact: &AnalysisArtifact) -> Value {
         "recommended_checks": recommended_checks,
         "performance_watchpoints": performance_watchpoints,
         "available_sections": artifact.available_sections,
+        "summary_resource": summary_resource,
+        "section_handles": section_handles,
         "created_at_ms": artifact.created_at_ms,
     });
     if artifact.surface == "ci-audit" {
@@ -115,16 +220,7 @@ pub(crate) fn analysis_summary_payload(artifact: &AnalysisArtifact) -> Value {
             "recommended_check_count": payload["recommended_checks"].as_array().map(|v| v.len()).unwrap_or(0),
             "performance_watchpoint_count": payload["performance_watchpoints"].as_array().map(|v| v.len()).unwrap_or(0),
         });
-        payload["evidence_handles"] = json!(
-            artifact
-                .available_sections
-                .iter()
-                .map(|section| json!({
-                    "section": section,
-                    "uri": format!("codelens://analysis/{}/{section}", artifact.id),
-                }))
-                .collect::<Vec<_>>()
-        );
+        payload["evidence_handles"] = payload["section_handles"].clone();
     }
     payload
 }

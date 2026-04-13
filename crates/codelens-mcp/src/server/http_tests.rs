@@ -546,6 +546,11 @@ async fn analysis_jobs_follow_session_bound_project_scope() {
         .as_str()
         .expect("job id")
         .to_owned();
+    assert!(start_payload["data"]["summary_resource"].is_null());
+    assert_eq!(
+        start_payload["data"]["section_handles"],
+        serde_json::json!([])
+    );
 
     let mut analysis_id = None;
     let mut last_poll_payload = None;
@@ -569,6 +574,18 @@ async fn analysis_jobs_follow_session_bound_project_scope() {
         let poll_payload = first_tool_payload(&body_string(poll).await);
         last_poll_payload = Some(poll_payload.clone());
         if let Some(id) = poll_payload["data"]["analysis_id"].as_str() {
+            assert!(
+                poll_payload["data"]["summary_resource"]["uri"]
+                    .as_str()
+                    .map(|uri| uri.ends_with("/summary"))
+                    .unwrap_or(false)
+            );
+            assert!(
+                poll_payload["data"]["section_handles"]
+                    .as_array()
+                    .map(|items| !items.is_empty())
+                    .unwrap_or(false)
+            );
             analysis_id = Some(id.to_owned());
             break;
         }
@@ -1188,9 +1205,17 @@ async fn verify_change_readiness_http_response_uses_slim_text_wrapper() {
     assert!(text_payload["data"]["analysis_id"].is_string());
     assert!(text_payload["data"]["summary"].is_string());
     assert!(text_payload["data"]["readiness"].is_object());
+    assert!(
+        text_payload["data"]["summary_resource"]["uri"]
+            .as_str()
+            .map(|uri| uri.contains("codelens://analysis/"))
+            .unwrap_or(false)
+    );
+    assert!(text_payload["data"]["section_handles"].is_array());
     assert_eq!(text_payload["routing_hint"], serde_json::json!("async"));
     assert!(text_payload["data"].get("verifier_checks").is_none());
     assert!(text_payload["data"].get("blockers").is_none());
+    assert!(text_payload["data"].get("available_sections").is_none());
     assert!(envelope["result"]["structuredContent"]["analysis_id"].is_string());
     assert!(envelope["result"]["structuredContent"]["verifier_checks"].is_array());
     assert!(envelope["result"]["structuredContent"]["blockers"].is_array());

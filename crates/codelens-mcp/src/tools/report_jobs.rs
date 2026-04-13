@@ -1,5 +1,6 @@
 use super::report_utils::{extract_handle_fields, stable_cache_key, strings_from_array};
 use super::{AppState, ToolResult, required_string, success_meta};
+use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use serde_json::{Value, json};
@@ -55,6 +56,19 @@ fn estimated_sections_for_kind(kind: &str) -> Vec<String> {
         "analyze_change_request" => vec!["change_request".to_owned()],
         "verify_change_readiness" => vec!["readiness".to_owned()],
         _ => Vec::new(),
+    }
+}
+
+fn job_handle_fields(analysis_id: Option<&str>, sections: &[String]) -> Value {
+    match analysis_id {
+        Some(analysis_id) => json!({
+            "summary_resource": analysis_summary_resource(analysis_id),
+            "section_handles": analysis_section_handles(analysis_id, sections),
+        }),
+        None => json!({
+            "summary_resource": Value::Null,
+            "section_handles": Vec::<Value>::new(),
+        }),
     }
 }
 
@@ -710,6 +724,7 @@ pub fn start_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
         arguments.clone(),
         profile_hint.clone(),
     )?;
+    let handle_fields = job_handle_fields(job.analysis_id.as_deref(), &estimated_sections);
     Ok((
         json!({
             "job_id": job.id,
@@ -718,6 +733,8 @@ pub fn start_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
             "current_step": job.current_step,
             "analysis_id": job.analysis_id,
             "estimated_sections": estimated_sections,
+            "summary_resource": handle_fields["summary_resource"].clone(),
+            "section_handles": handle_fields["section_handles"].clone(),
         }),
         success_meta(BackendKind::Hybrid, 0.92),
     ))
@@ -729,6 +746,7 @@ pub fn get_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
     let job = state
         .get_analysis_job_for_scope(&scope, job_id)
         .ok_or_else(|| CodeLensError::NotFound(format!("unknown job_id `{job_id}`")))?;
+    let handle_fields = job_handle_fields(job.analysis_id.as_deref(), &job.estimated_sections);
     Ok((
         json!({
             "job_id": job.id,
@@ -739,6 +757,8 @@ pub fn get_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
             "profile_hint": job.profile_hint,
             "estimated_sections": job.estimated_sections,
             "analysis_id": job.analysis_id,
+            "summary_resource": handle_fields["summary_resource"].clone(),
+            "section_handles": handle_fields["section_handles"].clone(),
             "error": job.error,
             "updated_at_ms": job.updated_at_ms,
         }),
@@ -750,6 +770,7 @@ pub fn cancel_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
     let job_id = required_string(arguments, "job_id")?;
     let scope = state.project_scope_for_arguments(arguments);
     let job = state.cancel_analysis_job_for_scope(&scope, job_id)?;
+    let handle_fields = job_handle_fields(job.analysis_id.as_deref(), &job.estimated_sections);
     Ok((
         json!({
             "job_id": job.id,
@@ -757,6 +778,8 @@ pub fn cancel_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
             "progress": job.progress,
             "current_step": job.current_step,
             "analysis_id": job.analysis_id,
+            "summary_resource": handle_fields["summary_resource"].clone(),
+            "section_handles": handle_fields["section_handles"].clone(),
         }),
         success_meta(BackendKind::Memory, 1.0),
     ))
@@ -799,9 +822,17 @@ pub fn list_analysis_jobs(state: &AppState, arguments: &Value) -> ToolResult {
         .and_then(|v| v.as_str())
         .map(|s| s.to_owned());
     let jobs = state.list_analysis_jobs_for_scope(&scope, status_filter.as_deref());
+    let mut status_counts = BTreeMap::new();
+    for job in &jobs {
+        *status_counts
+            .entry(job.status.as_str().to_owned())
+            .or_insert(0usize) += 1;
+    }
     let items = jobs
         .iter()
         .map(|job| {
+            let handle_fields =
+                job_handle_fields(job.analysis_id.as_deref(), &job.estimated_sections);
             json!({
                 "job_id": job.id,
                 "kind": job.kind,
@@ -809,6 +840,8 @@ pub fn list_analysis_jobs(state: &AppState, arguments: &Value) -> ToolResult {
                 "progress": job.progress,
                 "current_step": job.current_step,
                 "analysis_id": job.analysis_id,
+                "summary_resource": handle_fields["summary_resource"].clone(),
+                "section_handles": handle_fields["section_handles"].clone(),
                 "error": job.error,
                 "updated_at_ms": job.updated_at_ms,
             })
@@ -818,6 +851,8 @@ pub fn list_analysis_jobs(state: &AppState, arguments: &Value) -> ToolResult {
         json!({
             "jobs": items,
             "count": items.len(),
+            "active_count": jobs.iter().filter(|job| matches!(job.status, crate::runtime_types::JobLifecycle::Queued | crate::runtime_types::JobLifecycle::Running)).count(),
+            "status_counts": status_counts,
         }),
         success_meta(BackendKind::Memory, 1.0),
     ))
@@ -826,6 +861,17 @@ pub fn list_analysis_jobs(state: &AppState, arguments: &Value) -> ToolResult {
 pub fn list_analysis_artifacts(state: &AppState, arguments: &Value) -> ToolResult {
     let scope = state.project_scope_for_arguments(arguments);
     let summaries = state.list_analysis_summaries_for_scope(&scope);
+    let mut tool_counts = BTreeMap::new();
+    for summary in &summaries {
+        *tool_counts
+            .entry(summary.tool_name.clone())
+            .or_insert(0usize) += 1;
+    }
+    let latest_created_at_ms = summaries
+        .iter()
+        .map(|summary| summary.created_at_ms)
+        .max()
+        .unwrap_or_default();
     let items = summaries
         .iter()
         .map(|s| {
@@ -835,6 +881,7 @@ pub fn list_analysis_artifacts(state: &AppState, arguments: &Value) -> ToolResul
                 "summary": s.summary,
                 "created_at_ms": s.created_at_ms,
                 "surface": s.surface,
+                "summary_resource": analysis_summary_resource(&s.id),
             })
         })
         .collect::<Vec<_>>();
@@ -842,6 +889,8 @@ pub fn list_analysis_artifacts(state: &AppState, arguments: &Value) -> ToolResul
         json!({
             "artifacts": items,
             "count": items.len(),
+            "latest_created_at_ms": latest_created_at_ms,
+            "tool_counts": tool_counts,
         }),
         success_meta(BackendKind::Memory, 1.0),
     ))

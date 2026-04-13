@@ -357,6 +357,22 @@ pub(super) fn analysis_handle_output_schema() -> serde_json::Value {
             "recommended_checks": {"type": "array", "items": {"type": "string"}},
             "performance_watchpoints": {"type": "array", "items": {"type": "string"}},
             "available_sections": {"type": "array", "items": {"type": "string"}},
+            "summary_resource": {
+                "type": "object",
+                "properties": {
+                    "uri": {"type": "string"}
+                }
+            },
+            "section_handles": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section": {"type": "string"},
+                        "uri": {"type": "string"}
+                    }
+                }
+            },
             "reused": {"type": "boolean"},
             "schema_version": {"type": "string"},
             "report_kind": {"type": "string"},
@@ -424,8 +440,75 @@ pub(super) fn analysis_job_output_schema() -> serde_json::Value {
             "profile_hint": {"type": ["string", "null"]},
             "analysis_id": {"type": ["string", "null"]},
             "estimated_sections": {"type": "array", "items": {"type": "string"}},
+            "summary_resource": {
+                "type": ["object", "null"],
+                "properties": {
+                    "uri": {"type": "string"}
+                }
+            },
+            "section_handles": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "section": {"type": "string"},
+                        "uri": {"type": "string"}
+                    }
+                }
+            },
             "error": {"type": ["string", "null"]},
             "updated_at_ms": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn analysis_job_list_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "jobs": {
+                "type": "array",
+                "items": analysis_job_output_schema()
+            },
+            "count": {"type": "integer"},
+            "active_count": {"type": "integer"},
+            "status_counts": {
+                "type": "object",
+                "additionalProperties": {"type": "integer"}
+            }
+        }
+    })
+}
+
+pub(super) fn analysis_artifact_list_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "artifacts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "analysis_id": {"type": "string"},
+                        "tool_name": {"type": "string"},
+                        "summary": {"type": "string"},
+                        "created_at_ms": {"type": "integer"},
+                        "surface": {"type": "string"},
+                        "summary_resource": {
+                            "type": "object",
+                            "properties": {
+                                "uri": {"type": "string"}
+                            }
+                        }
+                    }
+                }
+            },
+            "count": {"type": "integer"},
+            "latest_created_at_ms": {"type": "integer"},
+            "tool_counts": {
+                "type": "object",
+                "additionalProperties": {"type": "integer"}
+            }
         }
     })
 }
@@ -597,6 +680,32 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                     "token_budget": {"type": "integer"},
                     "tool_count": {"type": "integer"},
                     "client_profile": {"type": "string"}
+                }
+            },
+            "index_recovery": {
+                "type": "object",
+                "properties": {
+                    "enabled": {"type": "boolean"},
+                    "threshold": {"type": "integer"},
+                    "status": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "error": {"type": "string"},
+                    "before": {
+                        "type": "object",
+                        "properties": {
+                            "indexed_files": {"type": "integer"},
+                            "supported_files": {"type": "integer"},
+                            "stale_files": {"type": "integer"}
+                        }
+                    },
+                    "after": {
+                        "type": "object",
+                        "properties": {
+                            "indexed_files": {"type": "integer"},
+                            "supported_files": {"type": "integer"},
+                            "stale_files": {"type": "integer"}
+                        }
+                    }
                 }
             },
             "capabilities": get_capabilities_output_schema(),
