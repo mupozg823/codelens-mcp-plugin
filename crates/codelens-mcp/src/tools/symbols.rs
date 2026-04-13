@@ -420,6 +420,43 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
     let body_full = optional_bool(arguments, "body_full", false);
     let body_line_limit = optional_usize(arguments, "body_line_limit", 12);
     let body_char_limit = optional_usize(arguments, "body_char_limit", 600);
+    // Try SCIP precise definitions first (if available), then tree-sitter.
+    #[cfg(feature = "scip-backend")]
+    if let Some(backend) = state.scip() {
+        use codelens_engine::PreciseBackend as _;
+        let scip_file = file_path.unwrap_or("");
+        if let Ok(defs) = backend.find_definitions(name, scip_file, 0) {
+            if !defs.is_empty() {
+                let limited: Vec<_> = defs.into_iter().take(max_matches).collect();
+                let count = limited.len();
+                let syms: Vec<serde_json::Value> = limited
+                    .iter()
+                    .map(|d| {
+                        json!({
+                            "name": d.name,
+                            "kind": d.kind,
+                            "file_path": d.file_path,
+                            "line": d.line,
+                            "signature": d.signature,
+                            "name_path": d.name_path,
+                            "score": d.score,
+                        })
+                    })
+                    .collect();
+                return Ok((
+                    json!({
+                        "symbols": syms,
+                        "count": count,
+                        "body_truncated_count": 0,
+                        "body_preview": false,
+                        "backend": "scip",
+                    }),
+                    success_meta(BackendKind::Scip, 0.98),
+                ));
+            }
+        }
+    }
+
     Ok(state
         .symbol_index()
         .find_symbol_cached(name, file_path, include_body, exact_match, max_matches)

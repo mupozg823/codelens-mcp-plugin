@@ -155,6 +155,8 @@ pub enum BackendKind {
     Config,
     Session,
     #[allow(dead_code)]
+    Scip,
+    #[allow(dead_code)]
     Noop,
 }
 
@@ -172,6 +174,7 @@ impl std::fmt::Display for BackendKind {
             Self::Memory => write!(f, "memory"),
             Self::Config => write!(f, "config"),
             Self::Session => write!(f, "session"),
+            Self::Scip => write!(f, "scip"),
             Self::Noop => write!(f, "noop"),
         }
     }

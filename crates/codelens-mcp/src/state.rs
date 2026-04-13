@@ -104,6 +104,9 @@ pub(crate) struct AppState {
     project_execution_lock: Mutex<()>,
     #[cfg(feature = "semantic")]
     pub(crate) embedding: std::sync::RwLock<Option<EmbeddingEngine>>,
+    /// Lazy-loaded SCIP precise backend, cached after first access.
+    #[cfg(feature = "scip-backend")]
+    scip_backend: OnceLock<Option<Arc<codelens_engine::ScipBackend>>>,
     /// Secondary (read-only) project indexes for cross-project queries.
     pub(crate) secondary_projects: Mutex<HashMap<String, SecondaryProject>>,
     #[cfg(feature = "http")]
@@ -334,6 +337,28 @@ impl AppState {
     pub(crate) fn reset_embedding(&self) {
         let mut guard = self.embedding.write().unwrap_or_else(|p| p.into_inner());
         *guard = None;
+    }
+
+    /// Lazy-loaded SCIP backend. Loads the SCIP index on first access
+    /// and caches it for subsequent calls. Returns None if no index found.
+    #[cfg(feature = "scip-backend")]
+    pub(crate) fn scip(&self) -> Option<&codelens_engine::ScipBackend> {
+        self.scip_backend
+            .get_or_init(|| {
+                let project = self.project();
+                codelens_engine::ScipBackend::detect(project.as_path())
+                    .and_then(|path| {
+                        tracing::info!(path = %path.display(), "loading SCIP index");
+                        codelens_engine::ScipBackend::load(&path)
+                            .inspect_err(|e| {
+                                tracing::warn!(error = %e, "failed to load SCIP index");
+                            })
+                            .ok()
+                    })
+                    .map(Arc::new)
+            })
+            .as_ref()
+            .map(|arc| arc.as_ref())
     }
 
     // ── Active project accessors (check override, fallback to default) ──
@@ -682,6 +707,8 @@ impl AppState {
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
+            #[cfg(feature = "scip-backend")]
+            scip_backend: OnceLock::new(),
             #[cfg(feature = "http")]
             session_store: None,
             // Phase 4b: workers inherit the parent daemon's start
@@ -763,6 +790,8 @@ impl AppState {
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
+            #[cfg(feature = "scip-backend")]
+            scip_backend: OnceLock::new(),
             #[cfg(feature = "http")]
             session_store: None,
             daemon_started_at: now_rfc3339_utc(),

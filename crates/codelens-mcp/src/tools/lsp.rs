@@ -145,46 +145,35 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         // oxc failed or empty — try SCIP if available, then fall through to tree-sitter
 
         #[cfg(feature = "scip-backend")]
-        {
+        if let Some(backend) = state.scip() {
             use codelens_engine::PreciseBackend as _;
-            if let Some(scip_index_path) =
-                codelens_engine::ScipBackend::detect(state.project().as_path())
-            {
-                if let Ok(backend) = codelens_engine::ScipBackend::load(&scip_index_path) {
-                    if backend.has_index_for(&file_path) {
-                    if let Ok(refs) = backend.find_references(
-                            sym_name,
-                            &file_path,
-                            0,
-                        ) {
-                            if !refs.is_empty() {
-                                let limited: Vec<_> =
-                                    refs.into_iter().take(max_results).collect();
-                                let count = limited.len();
-                                let refs_json: Vec<serde_json::Value> = limited
-                                    .iter()
-                                    .map(|r| {
-                                        json!({
-                                            "name": r.name,
-                                            "kind": r.kind,
-                                            "file_path": r.file_path,
-                                            "line": r.line,
-                                            "score": r.score,
-                                        })
-                                    })
-                                    .collect();
-                                return Ok((
-                                    json!({
-                                        "references": refs_json,
-                                        "count": count,
-                                        "returned_count": count,
-                                        "sampled": false,
-                                        "backend": "scip"
-                                    }),
-                                    meta_for_backend("scip", 0.98),
-                                ));
-                            }
-                        }
+            if backend.has_index_for(&file_path) {
+                if let Ok(refs) = backend.find_references(sym_name, &file_path, 0) {
+                    if !refs.is_empty() {
+                        let limited: Vec<_> = refs.into_iter().take(max_results).collect();
+                        let count = limited.len();
+                        let refs_json: Vec<serde_json::Value> = limited
+                            .iter()
+                            .map(|r| {
+                                json!({
+                                    "name": r.name,
+                                    "kind": r.kind,
+                                    "file_path": r.file_path,
+                                    "line": r.line,
+                                    "score": r.score,
+                                })
+                            })
+                            .collect();
+                        return Ok((
+                            json!({
+                                "references": refs_json,
+                                "count": count,
+                                "returned_count": count,
+                                "sampled": false,
+                                "backend": "scip"
+                            }),
+                            meta_for_backend("scip", 0.98),
+                        ));
                     }
                 }
             }
