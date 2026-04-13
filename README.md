@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
 ```
 
-Latest release notes: [v1.9.22](docs/release-notes/v1.9.22.md)
+Latest release notes: [v1.9.23](docs/release-notes/v1.9.23.md)
 
 ## Setup
 
@@ -183,7 +183,7 @@ Optional embedding-based code search (feature-gated: `semantic`):
 - 2-tier NL→code bridging: generic core (15 entries) + auto-generated project bridges (`.codelens/bridges.json`)
 - Multi-language test symbol filtering: Python, JS/TS, Go, Java, Kotlin, Ruby
 
-### Retrieval Quality (v1.9.22)
+### Retrieval Quality (v1.9.23)
 
 | Project            | Language | Hybrid MRR | Semantic MRR | Queries |
 | ------------------ | -------- | ---------- | ------------ | ------- |
@@ -237,15 +237,28 @@ See [docs/serena-comparison.md](docs/serena-comparison.md) for detailed gap anal
 ## Building
 
 ```bash
-cargo build --release                         # includes semantic (76MB)
-cargo build --release --no-default-features   # without ML model (23MB)
-cargo build --release --features http         # add HTTP transport
+cargo build --release                              # includes semantic (76MB)
+cargo build --release --no-default-features        # without ML model (23MB)
+cargo build --release --features http              # add HTTP transport
+cargo build --release --features otel              # add OpenTelemetry OTLP exporter
+cargo build --release --features scip-backend      # add SCIP precise navigation
+cargo build --release --features http,otel         # HTTP + OTel
 
 # Core verification
 cargo test -p codelens-engine
 cargo test -p codelens-mcp
 cargo test -p codelens-mcp --features http
+cargo test -p codelens-mcp --no-default-features   # semantic=off path
 ```
+
+### Feature Flags
+
+| Feature        | Description                            | Binary Size Impact |
+| -------------- | -------------------------------------- | ------------------ |
+| `semantic`     | Bundled ONNX embedding model (default) | +53MB              |
+| `http`         | Streamable HTTP + SSE transport        | +2MB               |
+| `otel`         | OpenTelemetry OTLP gRPC exporter       | +4MB               |
+| `scip-backend` | SCIP index precise navigation          | +1MB               |
 
 ## Harness Architecture
 

@@ -1,6 +1,8 @@
 #[cfg(feature = "semantic")]
 use codelens_engine::SemanticMatch;
+#[cfg(feature = "semantic")]
 use std::collections::HashSet;
+#[cfg(feature = "semantic")]
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,6 +197,7 @@ pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
     analyze_retrieval_query(query).semantic_query
 }
 
+#[cfg(feature = "semantic")]
 pub(crate) fn semantic_query_for_embedding_search(
     analysis: &RetrievalQueryAnalysis,
     project_root: Option<&Path>,
@@ -208,6 +211,7 @@ pub(crate) fn semantic_query_for_embedding_search(
     }
 }
 
+#[cfg(feature = "semantic")]
 /// Load project-specific NL→code bridges from `.codelens/bridges.json`.
 /// Format: `[{"nl": "stdin", "code": "run_stdio stdio"}, ...]`
 /// Returns empty vec if file missing or malformed.
@@ -236,6 +240,7 @@ fn load_project_bridges(project_root: &Path) -> Vec<(String, String)> {
         .collect()
 }
 
+#[cfg(feature = "semantic")]
 /// Map common NL terms to code-domain equivalents. Two tiers:
 /// 1. GENERIC_BRIDGES — language/project independent, always active
 /// 2. project_bridges — from `.codelens/bridges.json`, project-specific

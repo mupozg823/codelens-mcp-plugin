@@ -230,6 +230,15 @@ if [[ "$RUN_RUST_GATE" -eq 1 ]]; then
 		cargo test -p codelens-mcp --no-default-features
 	fi
 
+	# Feature matrix: verify opt-in features compile cleanly
+	if [[ "$MODE" == "ci" ]]; then
+		echo "[gate] running feature matrix build verification"
+		cargo check -p codelens-mcp --features otel
+		cargo check -p codelens-mcp --features scip-backend
+		cargo check -p codelens-mcp --features "http,otel"
+		cargo check -p codelens-mcp --features "http,scip-backend"
+	fi
+
 	if [[ "$RUN_RELEASE_GATE" -eq 1 ]]; then
 		echo "[gate] running release builds"
 		if [[ "$MODE" == "build" ]]; then
