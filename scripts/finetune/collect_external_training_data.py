@@ -26,19 +26,47 @@ DEFAULT_BINARY = os.environ.get(
 )
 
 
+# Well-known external repos for multi-language training data collection.
+# Used with --auto-clone to automatically clone and extract from these repos.
+REPO_REGISTRY = {
+    "flask": {"url": "https://github.com/pallets/flask.git", "language": "Python"},
+    "requests": {"url": "https://github.com/psf/requests.git", "language": "Python"},
+    "django": {"url": "https://github.com/django/django.git", "language": "Python"},
+    "curl": {"url": "https://github.com/curl/curl.git", "language": "C"},
+    "gin": {"url": "https://github.com/gin-gonic/gin.git", "language": "Go"},
+    "echo": {"url": "https://github.com/labstack/echo.git", "language": "Go"},
+    "gson": {"url": "https://github.com/google/gson.git", "language": "Java"},
+    "guava": {"url": "https://github.com/google/guava.git", "language": "Java"},
+    "ripgrep": {"url": "https://github.com/BurntSushi/ripgrep.git", "language": "Rust"},
+    "axum": {"url": "https://github.com/tokio-rs/axum.git", "language": "Rust"},
+    "express": {
+        "url": "https://github.com/expressjs/express.git",
+        "language": "JavaScript",
+    },
+    "jest": {"url": "https://github.com/jestjs/jest.git", "language": "TypeScript"},
+}
+
+
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument(
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument(
         "--repos",
         nargs="+",
-        required=True,
         help="Paths to external project repos",
+    )
+    group.add_argument(
+        "--auto-clone",
+        nargs="+",
+        metavar="NAME",
+        help=f"Auto-clone from registry: {', '.join(REPO_REGISTRY.keys())}",
     )
     parser.add_argument("--binary", default=DEFAULT_BINARY)
     parser.add_argument(
         "--output",
         default=str(SCRIPT_DIR / "external_training_pairs.jsonl"),
     )
+    parser.add_argument("--clone-dir", default="/tmp/codelens-ext-repos")
     parser.add_argument("--negatives-per-positive", type=int, default=3)
     parser.add_argument("--max-symbols-per-repo", type=int, default=500)
     return parser.parse_args()
@@ -258,11 +286,43 @@ def generate_hard_negatives(symbols, negatives_per_positive):
     return pairs
 
 
+def auto_clone_repos(names, clone_dir):
+    """Clone repos from the registry into clone_dir. Returns list of paths."""
+    os.makedirs(clone_dir, exist_ok=True)
+    paths = []
+    for name in names:
+        entry = REPO_REGISTRY.get(name)
+        if not entry:
+            print(
+                f"SKIP: unknown repo '{name}'. Known: {', '.join(REPO_REGISTRY.keys())}",
+                file=sys.stderr,
+            )
+            continue
+        dest = os.path.join(clone_dir, name)
+        if os.path.isdir(dest):
+            print(f"  Using cached clone: {dest}", file=sys.stderr)
+        else:
+            print(f"  Cloning {entry['url']} → {dest}...", file=sys.stderr)
+            subprocess.run(
+                ["git", "clone", "--depth=1", entry["url"], dest],
+                check=True,
+                capture_output=True,
+            )
+        paths.append(dest)
+    return paths
+
+
 def main():
     args = parse_args()
     all_symbols = []
 
-    for repo in args.repos:
+    # Resolve repo paths: either explicit --repos or --auto-clone from registry
+    if args.auto_clone:
+        repo_paths = auto_clone_repos(args.auto_clone, args.clone_dir)
+    else:
+        repo_paths = args.repos
+
+    for repo in repo_paths:
         repo = os.path.abspath(repo)
         if not os.path.isdir(repo):
             print(f"SKIP: {repo} not found", file=sys.stderr)

@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
 ```
 
-Latest release notes: [v1.9.21](docs/release-notes/v1.9.21.md)
+Latest release notes: [v1.9.22](docs/release-notes/v1.9.22.md)
 
 ## Setup
 
@@ -183,7 +183,7 @@ Optional embedding-based code search (feature-gated: `semantic`):
 - 2-tier NL→code bridging: generic core (15 entries) + auto-generated project bridges (`.codelens/bridges.json`)
 - Multi-language test symbol filtering: Python, JS/TS, Go, Java, Kotlin, Ruby
 
-### Retrieval Quality (v1.9.21)
+### Retrieval Quality (v1.9.22)
 
 | Project            | Language | Hybrid MRR | Semantic MRR | Queries |
 | ------------------ | -------- | ---------- | ------------ | ------- |
@@ -216,6 +216,7 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 | SBOM                       | CycloneDX per release                                                      |
 | Dataset lint               | CI-integrated benchmark hygiene (5 rules)                                  |
 | Multi-language test filter | Python, JS/TS, Go, Java, Kotlin, Ruby test symbols excluded from index     |
+| SCIP precise backend       | `--features scip-backend` for type-aware definitions/references            |
 | Docker                     | Multi-stage `Dockerfile.release` with healthcheck                          |
 
 ## vs Serena
