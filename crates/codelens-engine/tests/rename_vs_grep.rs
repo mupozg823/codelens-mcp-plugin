@@ -29,6 +29,10 @@ fn is_in_double_quoted_string(line: &str, byte_offset: usize) -> bool {
     in_string
 }
 
+fn normalize_rel_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 /// Collect ALL code-only `\bword\b` occurrences via file scan.
 fn grep_all_occurrences(root: &std::path::Path, word: &str) -> Vec<(String, usize, usize)> {
     let re = Regex::new(&format!(r"\b{}\b", regex::escape(word))).unwrap();
@@ -66,6 +70,7 @@ fn grep_all_occurrences(root: &std::path::Path, word: &str) -> Vec<(String, usiz
             .unwrap()
             .to_string_lossy()
             .to_string();
+        let rel = normalize_rel_path(&rel);
         for (line_idx, line) in content.lines().enumerate() {
             if line.trim_start().starts_with("//") {
                 continue;
@@ -82,7 +87,10 @@ fn grep_all_occurrences(root: &std::path::Path, word: &str) -> Vec<(String, usiz
 }
 
 fn to_set(items: &[(String, usize, usize)]) -> HashSet<(String, usize, usize)> {
-    items.iter().cloned().collect()
+    items
+        .iter()
+        .map(|(file_path, line, column)| (normalize_rel_path(file_path), *line, *column))
+        .collect()
 }
 
 fn compare(label: &str, grep: &[(String, usize, usize)], rename_edits: &[(String, usize, usize)]) {

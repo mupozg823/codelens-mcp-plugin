@@ -241,14 +241,16 @@ fn find_word_matches_in_files(
             .or_insert_with(|| build_non_code_ranges(&abs, content.as_bytes()));
 
         let mut byte_offset = 0usize;
-        for (line_idx, line) in content.lines().enumerate() {
+        for (line_idx, raw_line) in content.split_inclusive('\n').enumerate() {
+            let line = raw_line.strip_suffix('\n').unwrap_or(raw_line);
+            let line = line.strip_suffix('\r').unwrap_or(line);
             for mat in word_re.find_iter(line) {
                 let abs_start = byte_offset + mat.start();
                 if !is_in_ranges(non_code, abs_start) {
                     results.push((rel.clone(), line_idx + 1, mat.start() + 1));
                 }
             }
-            byte_offset += line.len() + 1; // +1 for newline
+            byte_offset += raw_line.len();
         }
     }
     Ok(results)
@@ -652,5 +654,27 @@ mod tests {
         let content = fs::read_to_string(project.resolve("test.py").unwrap()).unwrap();
         assert_eq!(content.trim(), "x = bar + bar");
         assert_eq!(result.total_replacements, 2);
+    }
+
+    #[test]
+    fn find_all_word_matches_skips_crlf_string_literals() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-rename-crlf-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(dir.join("src")).unwrap();
+        fs::write(
+            dir.join("src/main.py"),
+            "label = \"PatternMatch\"\r\nPatternMatch()\r\n",
+        )
+        .unwrap();
+
+        let project = ProjectRoot::new(&dir).unwrap();
+        let matches = find_all_word_matches(&project, "PatternMatch").unwrap();
+
+        assert_eq!(matches, vec![("src/main.py".to_string(), 2, 1)]);
     }
 }

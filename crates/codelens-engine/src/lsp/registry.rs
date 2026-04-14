@@ -1,5 +1,5 @@
 use serde::Serialize;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize)]
 pub struct LspRecipe {
@@ -215,43 +215,117 @@ pub const LSP_RECIPES: &[LspRecipe] = &[
     // Perl deferred until tree-sitter 0.26 upgrade
 ];
 
+fn command_candidates(command: &str) -> Vec<String> {
+    #[cfg(windows)]
+    let mut candidates = vec![command.to_owned()];
+    #[cfg(not(windows))]
+    let candidates = vec![command.to_owned()];
+    #[cfg(windows)]
+    if Path::new(command).extension().is_none() {
+        let pathext = std::env::var_os("PATHEXT")
+            .and_then(|value| value.into_string().ok())
+            .unwrap_or_else(|| ".COM;.EXE;.BAT;.CMD".to_owned());
+        for ext in pathext.split(';').filter(|ext| !ext.is_empty()) {
+            let normalized = if ext.starts_with('.') {
+                ext.to_owned()
+            } else {
+                format!(".{ext}")
+            };
+            let candidate = format!("{command}{normalized}");
+            if !candidates
+                .iter()
+                .any(|existing| existing.eq_ignore_ascii_case(&candidate))
+            {
+                candidates.push(candidate);
+            }
+        }
+    }
+    candidates
+}
+
+fn resolve_in_dir(dir: &Path, command: &str) -> Option<PathBuf> {
+    command_candidates(command)
+        .into_iter()
+        .map(|candidate| dir.join(candidate))
+        .find(|candidate| candidate.is_file())
+}
+
+fn fallback_search_dirs() -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        for dir in [
+            "/opt/homebrew/bin".to_owned(),
+            "/usr/local/bin".to_owned(),
+            format!("{home}/.cargo/bin"),
+            format!("{home}/.fnm/aliases/default/bin"),
+            format!("{home}/.nvm/versions/node/current/bin"),
+        ] {
+            if !dir.is_empty() {
+                dirs.push(PathBuf::from(dir));
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
+        let app_data = std::env::var("APPDATA").unwrap_or_default();
+        for dir in [
+            format!("{user_profile}\\.cargo\\bin"),
+            format!("{app_data}\\npm"),
+        ] {
+            if !dir.is_empty() {
+                dirs.push(PathBuf::from(dir));
+            }
+        }
+    }
+    dirs
+}
+
+pub(crate) fn resolve_lsp_binary(command: &str) -> Option<PathBuf> {
+    let command_path = Path::new(command);
+    if command_path.components().count() > 1 {
+        return if command_path.is_file() {
+            Some(command_path.to_path_buf())
+        } else if let Some(parent) = command_path.parent() {
+            resolve_in_dir(parent, command_path.file_name()?.to_str()?)
+        } else {
+            None
+        };
+    }
+
+    if let Some(path_dirs) = std::env::var_os("PATH") {
+        for dir in std::env::split_paths(&path_dirs) {
+            if let Some(path) = resolve_in_dir(&dir, command) {
+                return Some(path);
+            }
+        }
+    }
+
+    for dir in fallback_search_dirs() {
+        if let Some(path) = resolve_in_dir(&dir, command) {
+            return Some(path);
+        }
+    }
+
+    if let Some(extra) = std::env::var_os("CODELENS_LSP_PATH_EXTRA") {
+        for dir in std::env::split_paths(&extra) {
+            if let Some(path) = resolve_in_dir(&dir, command) {
+                return Some(path);
+            }
+        }
+    }
+
+    None
+}
+
 /// Return `true` when the given LSP binary is resolvable either via the
 /// current `PATH` or via a conservative allow-list of common install
 /// locations. This keeps runtime capability reporting and `check_lsp_status`
 /// aligned even when the daemon inherits a minimal launchd/systemd PATH.
 pub fn lsp_binary_exists(command: &str) -> bool {
-    if std::process::Command::new("which")
-        .arg(command)
-        .output()
-        .map(|output| output.status.success())
-        .unwrap_or(false)
-    {
-        return true;
-    }
-
-    let home = std::env::var("HOME").unwrap_or_default();
-    let fallback_dirs = [
-        "/opt/homebrew/bin".to_owned(),
-        "/usr/local/bin".to_owned(),
-        format!("{home}/.cargo/bin"),
-        format!("{home}/.fnm/aliases/default/bin"),
-        format!("{home}/.nvm/versions/node/current/bin"),
-    ];
-    for dir in fallback_dirs.iter().filter(|dir| !dir.is_empty()) {
-        if Path::new(dir).join(command).exists() {
-            return true;
-        }
-    }
-
-    if let Ok(extra) = std::env::var("CODELENS_LSP_PATH_EXTRA") {
-        for dir in extra.split(':').filter(|dir| !dir.is_empty()) {
-            if Path::new(dir).join(command).exists() {
-                return true;
-            }
-        }
-    }
-
-    false
+    resolve_lsp_binary(command).is_some()
 }
 
 /// Check which LSP servers are installed and which are missing.

@@ -4,7 +4,7 @@
 
 **Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
 
-Pure Rust MCP server for multi-agent harnesses. 25 languages, hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, 5-stage token compression, and enterprise-ready observability — all in a single binary with zero runtime dependencies.
+Pure Rust MCP server for multi-agent harnesses. 25 languages, hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, 5-stage token compression, and enterprise-ready observability — all in a single self-contained binary, no external daemons or service installs required (the binary statically links its dependencies and ships its own SQLite, vector store, and ONNX runtime).
 
 [![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/mupozg823/codelens-mcp-plugin/actions)
 [![crates.io](https://img.shields.io/crates/v/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
@@ -150,14 +150,14 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 ## Why CodeLens?
 
-|                       | CodeLens                             | Read/Grep baseline           |
-| --------------------- | ------------------------------------ | ---------------------------- |
-| **Token cost**        | 50-87% less                          | Full file content every time |
-| **Context quality**   | Ranked, bounded, structured          | Raw text, no prioritization  |
-| **Multi-file impact** | 1 tool call                          | 5-10 grep + read cycles      |
-| **Runtime**           | Single Rust binary, <12ms cold start | N/A                          |
-| **Language support**  | 25 languages, zero runtime deps      | N/A                          |
-| **Agent awareness**   | Doom-loop detection, mutation gates  | None                         |
+|                       | CodeLens                                   | Read/Grep baseline           |
+| --------------------- | ------------------------------------------ | ---------------------------- |
+| **Token cost**        | 50-87% less                                | Full file content every time |
+| **Context quality**   | Ranked, bounded, structured                | Raw text, no prioritization  |
+| **Multi-file impact** | 1 tool call                                | 5-10 grep + read cycles      |
+| **Runtime**           | Single Rust binary, <12ms cold start       | N/A                          |
+| **Language support**  | 25 languages, single self-contained binary | N/A                          |
+| **Agent awareness**   | Doom-loop detection, mutation gates        | None                         |
 
 ## Key Features
 
@@ -214,7 +214,7 @@ verify_change_readiness → "ready" → rename_symbol
 
 Python, JavaScript, TypeScript, TSX, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, C#, Dart, Lua, Zig, Elixir, Haskell, OCaml, Erlang, R, Bash, Julia
 
-All via statically-linked tree-sitter grammars. Zero runtime dependencies.
+All via statically-linked tree-sitter grammars. Ships its own SQLite, vector store, and ONNX runtime — no external services required.
 
 ## Performance
 
@@ -235,19 +235,21 @@ Optional embedding-based code search (feature-gated: `semantic`):
 - 2-tier NL→code bridging: generic core (15 entries) + auto-generated project bridges (`.codelens/bridges.json`)
 - Multi-language test symbol filtering: Python, JS/TS, Go, Java, Kotlin, Ruby
 
-### Retrieval Quality (v1.9.23)
+### Retrieval Quality
 
-| Project            | Language | Hybrid MRR | Semantic MRR | Queries |
-| ------------------ | -------- | ---------- | ------------ | ------- |
-| Self (CodeLens)    | Rust     | **0.841**  | 0.798        | 104     |
-| Role (adversarial) | Rust     | **0.962**  | 0.900        | 70      |
-| Flask              | Python   | 0.563      | **0.577**    | 20      |
-| curl               | C        | **0.623**  | 0.555        | 18      |
+Self-benchmark re-measured on commit `84c825d` (2026-04-15), model `MiniLM-L12-CodeSearchNet-INT8` (SHA256 prefix `ef1d1e9c`), dataset `benchmarks/embedding-quality-dataset-self.json` (104 queries). Two independent runs produced identical numbers (0% variance).
 
-6-language benchmark matrix: Rust (self/axum/ripgrep), Python (django/requests), TS/JS (jest/next-js/react-core/typescript), Go (gin), Java (gson), C (curl).
+| Method                            | MRR@10    | Acc@1   | Acc@3   | Avg ms  |
+| --------------------------------- | --------- | ------- | ------- | ------- |
+| Lexical only (no semantic)        | 0.601     | 54%     | 68%     | 41      |
+| Semantic only                     | 0.732     | 68%     | 80%     | 450     |
+| **Hybrid** (`get_ranked_context`) | **0.758** | **71%** | **82%** | **123** |
 
-> Generic bridge only — no project-specific tuning. Hybrid > lexical in all languages.
-> With project bridges (`.codelens/bridges.json`): self MRR rises to 0.841.
+Hybrid uplift over lexical: **+0.157 MRR, +17% Acc@1**. Semantic alone beats lexical but hybrid beats semantic by blending both signals.
+
+Cross-project matrix (6 languages, last run v1.9.23 line — not re-measured this cycle): Rust (self / axum / ripgrep), Python (django / requests), TS/JS (jest / next-js / react-core / typescript), Go (gin), Java (gson), C (curl). Historical hybrid numbers for those projects are tracked in `benchmarks/embedding-quality-phase3-matrix.json`.
+
+> 2-tier NL→code bridges: generic core (15 entries) + auto-generated project bridges (`.codelens/bridges.json`). The self-benchmark above runs with both tiers active.
 
 ```bash
 # Measure on your project

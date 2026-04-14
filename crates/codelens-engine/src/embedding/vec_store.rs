@@ -1,11 +1,13 @@
-//! SQLite + sqlite-vec backed implementation of `EmbeddingStore`.
+//! SQLite + sqlite-vec backed concrete storage for embedding chunks.
 //!
 //! Split out from `embedding/mod.rs` so the vector-storage concern stays
 //! isolated from the `EmbeddingEngine` facade, the model-loading helpers,
-//! and the analysis / similarity methods. All behaviour is identical to the
-//! pre-split `SqliteVecStore`; only the module boundary changed.
+//! and the analysis / similarity methods. Prior to v1.12 this type
+//! implemented an `EmbeddingStore` trait; the trait had a single impl and
+//! was not publicly re-exported, so it was removed in favor of calling the
+//! concrete struct directly.
 
-use crate::embedding_store::{EmbeddingChunk, EmbeddingStore, ScoredChunk};
+use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
 use anyhow::Result;
 use rusqlite::Connection;
 use std::sync::Mutex;
@@ -137,8 +139,8 @@ impl SqliteVecStore {
     }
 }
 
-impl EmbeddingStore for SqliteVecStore {
-    fn upsert(&self, chunks: &[EmbeddingChunk]) -> Result<usize> {
+impl SqliteVecStore {
+    pub(super) fn upsert(&self, chunks: &[EmbeddingChunk]) -> Result<usize> {
         let mut db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
         let tx = db.transaction()?;
         let start_id: i64 =
@@ -150,11 +152,11 @@ impl EmbeddingStore for SqliteVecStore {
         Ok(inserted)
     }
 
-    fn insert(&self, chunks: &[EmbeddingChunk]) -> Result<usize> {
+    pub(super) fn insert(&self, chunks: &[EmbeddingChunk]) -> Result<usize> {
         self.upsert(chunks)
     }
 
-    fn search(&self, query_vec: &[f32], top_k: usize) -> Result<Vec<ScoredChunk>> {
+    pub(super) fn search(&self, query_vec: &[f32], top_k: usize) -> Result<Vec<ScoredChunk>> {
         let query_bytes = embedding_to_bytes(query_vec);
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
 
@@ -183,7 +185,7 @@ impl EmbeddingStore for SqliteVecStore {
         Ok(results)
     }
 
-    fn delete_by_file(&self, file_paths: &[&str]) -> Result<usize> {
+    pub(super) fn delete_by_file(&self, file_paths: &[&str]) -> Result<usize> {
         if file_paths.is_empty() {
             return Ok(0);
         }
@@ -214,20 +216,17 @@ impl EmbeddingStore for SqliteVecStore {
         Ok(total.max(0) as usize)
     }
 
-    fn clear(&self) -> Result<()> {
-        let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
-        db.execute("DELETE FROM symbols", [])?;
-        db.execute("DELETE FROM vec_symbols", [])?;
-        Ok(())
-    }
-
-    fn count(&self) -> Result<usize> {
+    pub(super) fn count(&self) -> Result<usize> {
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
         let count: i64 = db.query_row("SELECT COUNT(*) FROM symbols", [], |row| row.get(0))?;
         Ok(count as usize)
     }
 
-    fn get_embedding(&self, file_path: &str, symbol_name: &str) -> Result<Option<EmbeddingChunk>> {
+    pub(super) fn get_embedding(
+        &self,
+        file_path: &str,
+        symbol_name: &str,
+    ) -> Result<Option<EmbeddingChunk>> {
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
         let row = db.query_row(
             "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
@@ -270,7 +269,10 @@ impl EmbeddingStore for SqliteVecStore {
         }
     }
 
-    fn embeddings_for_scored_chunks(&self, chunks: &[ScoredChunk]) -> Result<Vec<EmbeddingChunk>> {
+    pub(super) fn embeddings_for_scored_chunks(
+        &self,
+        chunks: &[ScoredChunk],
+    ) -> Result<Vec<EmbeddingChunk>> {
         if chunks.is_empty() {
             return Ok(Vec::new());
         }
@@ -307,7 +309,7 @@ impl EmbeddingStore for SqliteVecStore {
         Ok(resolved)
     }
 
-    fn all_with_embeddings(&self) -> Result<Vec<EmbeddingChunk>> {
+    pub(super) fn all_with_embeddings(&self) -> Result<Vec<EmbeddingChunk>> {
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
         let mut stmt = db.prepare(
             "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
@@ -323,7 +325,7 @@ impl EmbeddingStore for SqliteVecStore {
         Ok(chunks)
     }
 
-    fn embeddings_for_files(&self, file_paths: &[&str]) -> Result<Vec<EmbeddingChunk>> {
+    pub(super) fn embeddings_for_files(&self, file_paths: &[&str]) -> Result<Vec<EmbeddingChunk>> {
         if file_paths.is_empty() {
             return Ok(Vec::new());
         }
@@ -346,7 +348,7 @@ impl EmbeddingStore for SqliteVecStore {
         Ok(chunks)
     }
 
-    fn for_each_file_embeddings(
+    pub(super) fn for_each_file_embeddings(
         &self,
         visitor: &mut dyn FnMut(String, Vec<EmbeddingChunk>) -> Result<()>,
     ) -> Result<()> {
@@ -397,7 +399,7 @@ impl EmbeddingStore for SqliteVecStore {
         Ok(())
     }
 
-    fn for_each_embedding_batch(
+    pub(super) fn for_each_embedding_batch(
         &self,
         batch_size: usize,
         visitor: &mut dyn FnMut(Vec<EmbeddingChunk>) -> Result<()>,

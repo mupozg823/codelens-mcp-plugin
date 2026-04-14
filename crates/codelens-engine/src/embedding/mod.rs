@@ -2,13 +2,12 @@
 //! Gated behind the `semantic` feature flag.
 
 use crate::db::IndexDb;
-use crate::embedding_store::{EmbeddingChunk, EmbeddingStore, ScoredChunk};
+use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
-use fastembed::{
-    ExecutionProviderDispatch, InitOptionsUserDefined, TextEmbedding, TokenizerFiles,
-    UserDefinedEmbeddingModel,
-};
+#[cfg(target_os = "macos")]
+use fastembed::ExecutionProviderDispatch;
+use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -148,7 +147,7 @@ const CODESEARCH_MODEL_NAME: &str = "MiniLM-L12-CodeSearchNet-INT8";
 
 pub struct EmbeddingEngine {
     model: Mutex<TextEmbedding>,
-    store: Box<dyn EmbeddingStore>,
+    store: SqliteVecStore,
     model_name: String,
     runtime_info: EmbeddingRuntimeInfo,
     text_embed_cache: Mutex<TextEmbeddingCache>,
@@ -898,7 +897,7 @@ impl EmbeddingEngine {
 
         Ok(Self {
             model: Mutex::new(model),
-            store: Box::new(store),
+            store,
             model_name,
             runtime_info,
             text_embed_cache: Mutex::new(TextEmbeddingCache::new(
@@ -1200,7 +1199,7 @@ impl EmbeddingEngine {
     /// Embed one batch of texts and upsert immediately, then the caller drops the batch.
     fn flush_batch(
         model: &mut TextEmbedding,
-        store: &dyn EmbeddingStore,
+        store: &SqliteVecStore,
         texts: &[String],
         meta: &[crate::db::SymbolWithFile],
     ) -> Result<usize> {
@@ -1359,7 +1358,7 @@ impl EmbeddingEngine {
                     }
                     total_indexed += Self::flush_batch(
                         model.as_mut().expect("model lock initialized"),
-                        &*self.store,
+                        &self.store,
                         &batch_texts,
                         &batch_meta,
                     )?;
@@ -1383,7 +1382,7 @@ impl EmbeddingEngine {
             }
             total_indexed += Self::flush_batch(
                 model.as_mut().expect("model lock initialized"),
-                &*self.store,
+                &self.store,
                 &batch_texts,
                 &batch_meta,
             )?;
