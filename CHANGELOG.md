@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Deprecated
+
+- Five tools are marked deprecated and scheduled for removal in **v2.0**. Their descriptions now begin with `[DEPRECATED v1.12 → removal v2.0]`, and the three pure-delegate wrapper functions also carry `#[deprecated(since = "1.12.0", ...)]` to surface compiler warnings in downstream crates. Behavior is unchanged in v1.12 — only the documentation/warning surface shifts.
+  - `get_impact_analysis` → use `impact_report` directly
+  - `find_dead_code` → use `dead_code_report` directly
+  - `audit_security_context` → use `semantic_code_review` directly
+  - `analyze_change_impact` → use `impact_report` directly
+  - `assess_change_readiness` → use `verify_change_readiness` directly
+
+### Docs
+
+- README: replaced two stale "zero runtime dependencies" claims with the accurate "single self-contained binary, ships its own SQLite, vector store, and ONNX runtime" wording that the opening paragraph already uses (PR #64 fixed the opener; this closes the two remaining occurrences in the comparison table and the 25-languages section).
+
 ## [1.7.0] — 2026-04-12
 
 ### Release summary

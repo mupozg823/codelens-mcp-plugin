@@ -39,6 +39,7 @@ macro_rules! tool_registry {
 }
 
 /// Build the dispatch table. Add new tools here — one line per tool.
+#[allow(deprecated)]
 pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
     tool_registry! {
         // ── File I/O ──
@@ -126,6 +127,10 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "propagate_deletions"          => composite::propagate_deletions,
         "onboard_project"              => composite::onboard_project,
         // ── Workflow aliases (problem-first) ──
+        // Dispatch of deprecated workflow wrappers (audit_security_context,
+        // analyze_change_impact, assess_change_readiness) stays here until v2.0
+        // removal so existing callers keep working. The `#[allow(deprecated)]`
+        // on the enclosing fn suppresses the dispatch-site warnings.
         "explore_codebase"             => workflows::explore_codebase,
         "trace_request_path"           => workflows::trace_request_path,
         "review_architecture"          => workflows::review_architecture,
