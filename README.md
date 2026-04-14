@@ -156,7 +156,7 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 | **Context quality**   | Ranked, bounded, structured          | Raw text, no prioritization  |
 | **Multi-file impact** | 1 tool call                          | 5-10 grep + read cycles      |
 | **Runtime**           | Single Rust binary, <12ms cold start | N/A                          |
-| **Language support**  | 25 languages, zero runtime deps      | N/A                          |
+| **Language support**  | 25 languages, single self-contained binary | N/A                    |
 | **Agent awareness**   | Doom-loop detection, mutation gates  | None                         |
 
 ## Key Features
