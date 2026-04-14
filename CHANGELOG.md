@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Docs
 
 - README: replaced two stale "zero runtime dependencies" claims with the accurate "single self-contained binary, ships its own SQLite, vector store, and ONNX runtime" wording that the opening paragraph already uses (PR #64 fixed the opener; this closes the two remaining occurrences in the comparison table and the 25-languages section).
+- README retrieval-quality table re-anchored on commit `84c825d` (2026-04-15). Self-benchmark now reports Hybrid MRR **0.758** (was 0.841 on v1.9.23), Semantic 0.732 (was 0.798), Lexical 0.601 — two independent runs produced identical numbers. The table now documents the three ranking methods side by side (lexical / semantic / hybrid) instead of only the hybrid-vs-semantic delta, and makes explicit that cross-project numbers were not re-measured this cycle. The older anecdote "self MRR rises to 0.841 with bridges" is removed because bridges are the default path on the benchmark dataset already.
+
+### Refactor
+
+- Removed the single-impl `EmbeddingStore` trait (-113 net LOC). `SqliteVecStore` is now used directly as the concrete store field on `EmbeddingEngine`. The trait was never surfaced via `pub use` in `lib.rs`, so no public API breaks. The unused `clear()` method was also dropped because it existed only to satisfy the former trait contract.
 
 ## [1.7.0] — 2026-04-12
 
