@@ -240,6 +240,42 @@ pub(super) fn diagnostics_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn lsp_status_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "servers": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "language": {"type": "string"},
+                        "server_name": {"type": "string"},
+                        "installed": {"type": "boolean"},
+                        "install_command": {"type": "string"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn lsp_recipe_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "language": {"type": "string"},
+            "extensions": {"type": "array", "items": {"type": "string"}},
+            "server_name": {"type": "string"},
+            "install_command": {"type": "string"},
+            "binary_name": {"type": "string"},
+            "args": {"type": "array", "items": {"type": "string"}},
+            "package_manager": {"type": "string"}
+        }
+    })
+}
+
 pub(super) fn rename_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -387,6 +423,40 @@ pub(super) fn memory_list_output_schema() -> serde_json::Value {
         "type": "object",
         "properties": {
             "memories": {"type": "array", "items": {"type": "string"}},
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn prepare_for_new_conversation_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "project_name": {"type": "string"},
+            "project_base_path": {"type": "string"},
+            "backend_id": {"type": "string"},
+            "memory_count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn queryable_projects_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "projects": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "path": {"type": "string"},
+                        "is_active": {"type": "boolean"},
+                        "has_memories": {"type": "boolean"}
+                    }
+                }
+            },
             "count": {"type": "integer"}
         }
     })
@@ -1191,6 +1261,29 @@ pub(super) fn circular_dependencies_output_schema() -> serde_json::Value {
                     "properties": {
                         "cycle": {"type": "array", "items": {"type": "string"}},
                         "length": {"type": "integer"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn change_coupling_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "coupling": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file_a": {"type": "string"},
+                        "file_b": {"type": "string"},
+                        "co_changes": {"type": "integer"},
+                        "total_changes_a": {"type": "integer"},
+                        "total_changes_b": {"type": "integer"},
+                        "strength": {"type": "number"}
                     }
                 }
             },

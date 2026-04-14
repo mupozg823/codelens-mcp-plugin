@@ -2206,10 +2206,10 @@ fn primitive_analysis_schemas_match_payload_shape() {
     assert!(project_structure_properties.contains_key("total_files"));
     assert!(project_structure_properties.contains_key("total_symbols"));
     assert!(project_structure_properties.contains_key("dir_count"));
-    let directory_properties = project_structure_schema["properties"]["directories"]["items"]
-        ["properties"]
-        .as_object()
-        .expect("directory properties");
+    let directory_properties =
+        project_structure_schema["properties"]["directories"]["items"]["properties"]
+            .as_object()
+            .expect("directory properties");
     assert!(directory_properties.contains_key("directory"));
     assert!(directory_properties.contains_key("files"));
     assert!(directory_properties.contains_key("symbols"));
@@ -2273,6 +2273,56 @@ fn graph_analysis_schemas_match_payload_shape() {
         .expect("cycles properties");
     assert!(cycles_properties.contains_key("cycles"));
     assert!(cycles_properties.contains_key("count"));
+
+    let coupling_schema = crate::tool_defs::tool_definition("get_change_coupling")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_change_coupling schema");
+    let coupling_properties = coupling_schema["properties"]
+        .as_object()
+        .expect("coupling properties");
+    assert!(coupling_properties.contains_key("coupling"));
+    assert!(coupling_properties.contains_key("count"));
+}
+
+#[test]
+fn session_and_lsp_auxiliary_schemas_match_payload_shape() {
+    let lsp_status_schema = crate::tool_defs::tool_definition("check_lsp_status")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("check_lsp_status schema");
+    let lsp_status_properties = lsp_status_schema["properties"]
+        .as_object()
+        .expect("lsp status properties");
+    assert!(lsp_status_properties.contains_key("servers"));
+    assert!(lsp_status_properties.contains_key("count"));
+
+    let lsp_recipe_schema = crate::tool_defs::tool_definition("get_lsp_recipe")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_lsp_recipe schema");
+    let lsp_recipe_properties = lsp_recipe_schema["properties"]
+        .as_object()
+        .expect("lsp recipe properties");
+    assert!(lsp_recipe_properties.contains_key("language"));
+    assert!(lsp_recipe_properties.contains_key("binary_name"));
+    assert!(lsp_recipe_properties.contains_key("args"));
+
+    let conversation_schema = crate::tool_defs::tool_definition("prepare_for_new_conversation")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("prepare_for_new_conversation schema");
+    let conversation_properties = conversation_schema["properties"]
+        .as_object()
+        .expect("prepare_for_new_conversation properties");
+    assert!(conversation_properties.contains_key("status"));
+    assert!(conversation_properties.contains_key("project_name"));
+    assert!(conversation_properties.contains_key("memory_count"));
+
+    let projects_schema = crate::tool_defs::tool_definition("list_queryable_projects")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("list_queryable_projects schema");
+    let projects_properties = projects_schema["properties"]
+        .as_object()
+        .expect("list_queryable_projects properties");
+    assert!(projects_properties.contains_key("projects"));
+    assert!(projects_properties.contains_key("count"));
 }
 
 #[test]
@@ -2361,7 +2411,11 @@ fn get_tool_metrics_text_and_structured_content_keep_session_kpis() {
     .unwrap();
     let state = make_state(&project);
 
-    let _ = call_tool(&state, "get_capabilities", json!({"file_path": "metrics_parity.py"}));
+    let _ = call_tool(
+        &state,
+        "get_capabilities",
+        json!({"file_path": "metrics_parity.py"}),
+    );
     let start = call_tool(
         &state,
         "start_analysis_job",
@@ -2577,6 +2631,145 @@ fn activate_project_text_and_structured_content_keep_auto_surface_fields() {
     assert_eq!(
         structured["result"]["structuredContent"]["embedding_ready"],
         text["data"]["embedding_ready"]
+    );
+}
+
+#[test]
+fn lsp_auxiliary_text_and_structured_content_keep_fields() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let status_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(43165)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "check_lsp_status",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let status_structured = serde_json::to_value(&status_response).unwrap();
+    let status_text = parse_tool_payload(&extract_tool_text(&status_response));
+
+    assert_eq!(
+        status_structured["result"]["structuredContent"]["count"],
+        status_text["data"]["count"]
+    );
+    assert_eq!(
+        status_structured["result"]["structuredContent"]["servers"][0]["language"],
+        status_text["data"]["servers"][0]["language"]
+    );
+    assert_eq!(
+        status_structured["result"]["structuredContent"]["servers"][0]["server_name"],
+        status_text["data"]["servers"][0]["server_name"]
+    );
+
+    let recipe_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(43166)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_lsp_recipe",
+                "arguments": { "extension": "py" }
+            })),
+        },
+    )
+    .unwrap();
+    let recipe_structured = serde_json::to_value(&recipe_response).unwrap();
+    let recipe_text = parse_tool_payload(&extract_tool_text(&recipe_response));
+
+    assert_eq!(
+        recipe_structured["result"]["structuredContent"]["language"],
+        recipe_text["data"]["language"]
+    );
+    assert_eq!(
+        recipe_structured["result"]["structuredContent"]["binary_name"],
+        recipe_text["data"]["binary_name"]
+    );
+    assert_eq!(
+        recipe_structured["result"]["structuredContent"]["package_manager"],
+        recipe_text["data"]["package_manager"]
+    );
+}
+
+#[test]
+fn session_auxiliary_text_and_structured_content_keep_fields() {
+    let project = project_root();
+    fs::write(project.as_path().join("session_aux.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let secondary = project_root();
+    fs::write(secondary.as_path().join("secondary.py"), "y = 2\n").unwrap();
+    let secondary_path = secondary.as_path().to_string_lossy().to_string();
+    let add_payload = call_tool(
+        &state,
+        "add_queryable_project",
+        json!({"path": secondary_path}),
+    );
+    assert_eq!(add_payload["success"], json!(true));
+
+    let prepare_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(43167)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "prepare_for_new_conversation",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let prepare_structured = serde_json::to_value(&prepare_response).unwrap();
+    let prepare_text = parse_tool_payload(&extract_tool_text(&prepare_response));
+
+    assert_eq!(
+        prepare_structured["result"]["structuredContent"]["status"],
+        prepare_text["data"]["status"]
+    );
+    assert_eq!(
+        prepare_structured["result"]["structuredContent"]["project_name"],
+        prepare_text["data"]["project_name"]
+    );
+    assert_eq!(
+        prepare_structured["result"]["structuredContent"]["memory_count"],
+        prepare_text["data"]["memory_count"]
+    );
+
+    let projects_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(43168)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_queryable_projects",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let projects_structured = serde_json::to_value(&projects_response).unwrap();
+    let projects_text = parse_tool_payload(&extract_tool_text(&projects_response));
+
+    assert_eq!(
+        projects_structured["result"]["structuredContent"]["count"],
+        projects_text["data"]["count"]
+    );
+    assert_eq!(
+        projects_structured["result"]["structuredContent"]["projects"][0]["name"],
+        projects_text["data"]["projects"][0]["name"]
+    );
+    assert_eq!(
+        projects_structured["result"]["structuredContent"]["projects"][0]["is_active"],
+        projects_text["data"]["projects"][0]["is_active"]
     );
 }
 
@@ -3112,6 +3305,122 @@ fn circular_dependencies_text_and_structured_content_keep_cycle_fields() {
     assert_eq!(
         structured["result"]["structuredContent"]["cycles"][0]["cycle"][0],
         text["data"]["cycles"][0]["cycle"][0]
+    );
+}
+
+#[test]
+fn change_coupling_text_and_structured_content_keep_entry_fields() {
+    let project = project_root();
+    run_git(&project, &["init"]);
+    run_git(&project, &["add", "hello.txt"]);
+    run_git(
+        &project,
+        &[
+            "-c",
+            "user.email=test@test.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-m",
+            "init",
+        ],
+    );
+
+    fs::write(project.as_path().join("alpha.py"), "ALPHA = 1\n").unwrap();
+    fs::write(project.as_path().join("beta.py"), "BETA = 1\n").unwrap();
+    run_git(&project, &["add", "alpha.py", "beta.py"]);
+    run_git(
+        &project,
+        &[
+            "-c",
+            "user.email=test@test.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-m",
+            "pair-1",
+        ],
+    );
+
+    fs::write(project.as_path().join("alpha.py"), "ALPHA = 2\n").unwrap();
+    fs::write(project.as_path().join("beta.py"), "BETA = 2\n").unwrap();
+    run_git(&project, &["add", "alpha.py", "beta.py"]);
+    run_git(
+        &project,
+        &[
+            "-c",
+            "user.email=test@test.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-m",
+            "pair-2",
+        ],
+    );
+
+    fs::write(project.as_path().join("alpha.py"), "ALPHA = 3\n").unwrap();
+    fs::write(project.as_path().join("beta.py"), "BETA = 3\n").unwrap();
+    run_git(&project, &["add", "alpha.py", "beta.py"]);
+    run_git(
+        &project,
+        &[
+            "-c",
+            "user.email=test@test.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-m",
+            "pair-3",
+        ],
+    );
+
+    let state = make_state(&project);
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4330)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_change_coupling",
+                "arguments": {
+                    "months": 12,
+                    "min_strength": 0.1,
+                    "min_commits": 2,
+                    "max_results": 10
+                }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert!(
+        structured["result"]["structuredContent"]["count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["coupling"][0]["file_a"],
+        text["data"]["coupling"][0]["file_a"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["coupling"][0]["file_b"],
+        text["data"]["coupling"][0]["file_b"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["coupling"][0]["co_changes"],
+        text["data"]["coupling"][0]["co_changes"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["coupling"][0]["strength"],
+        text["data"]["coupling"][0]["strength"]
     );
 }
 
