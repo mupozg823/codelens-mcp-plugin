@@ -5,10 +5,9 @@ use crate::db::IndexDb;
 use crate::embedding_store::{EmbeddingChunk, EmbeddingStore, ScoredChunk};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
-use fastembed::{
-    ExecutionProviderDispatch, InitOptionsUserDefined, TextEmbedding, TokenizerFiles,
-    UserDefinedEmbeddingModel,
-};
+use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
+#[cfg(target_os = "macos")]
+use fastembed::ExecutionProviderDispatch;
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
