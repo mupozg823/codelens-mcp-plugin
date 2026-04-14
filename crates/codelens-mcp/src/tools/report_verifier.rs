@@ -400,6 +400,25 @@ pub(crate) fn build_verifier_contract(
         tests_section,
     );
 
+    let overlapping_claims = sections
+        .get("coordination_overlaps")
+        .and_then(|value| value.get("claims"))
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if !overlapping_claims.is_empty() {
+        push_verifier_check(
+            &mut contract.verifier_checks,
+            "coordination_overlap_verifier",
+            VERIFIER_CAUTION,
+            format!(
+                "{} overlapping claim(s) detected from other sessions; coordinate worktree or file ownership before mutating.",
+                overlapping_claims.len()
+            ),
+            Some("coordination_overlaps"),
+        );
+    }
+
     contract.blockers.truncate(5);
     let mutation_status = if !contract.blockers.is_empty() {
         VERIFIER_BLOCKED
@@ -408,12 +427,20 @@ pub(crate) fn build_verifier_contract(
             contract.readiness.diagnostics_ready.as_str(),
             contract.readiness.reference_safety.as_str(),
             contract.readiness.test_readiness.as_str(),
+            if overlapping_claims.is_empty() {
+                VERIFIER_READY
+            } else {
+                VERIFIER_CAUTION
+            },
         ])
     };
     contract.readiness.mutation_ready = mutation_status.to_owned();
     let mutation_summary = match mutation_status {
         VERIFIER_BLOCKED => {
             "Blockers remain; keep the workflow in preflight until they are resolved."
+        }
+        VERIFIER_CAUTION if !overlapping_claims.is_empty() => {
+            "Overlapping advisory claims detected; coordinate branch, worktree, or file ownership before mutating."
         }
         VERIFIER_CAUTION => "Proceed only with targeted edits and explicit verification steps.",
         _ => "No blocker-level signals found; mutation path is ready for a narrow change.",

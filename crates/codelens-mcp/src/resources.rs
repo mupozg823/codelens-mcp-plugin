@@ -8,7 +8,9 @@ use crate::resource_analysis::{
 use crate::resource_catalog::{
     static_resource_entries, visible_tool_details, visible_tool_summary,
 };
-use crate::resource_context::{ResourceRequestContext, build_http_session_payload};
+use crate::resource_context::{
+    ResourceRequestContext, build_agent_activity_payload, build_http_session_payload,
+};
 use crate::resource_profiles::{profile_guide, profile_guide_summary, profile_resource_entries};
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{ToolProfile, visible_tools};
@@ -113,6 +115,9 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
         }
         "codelens://session/http" => {
             json_resource(uri, build_http_session_payload(state, &request))
+        }
+        "codelens://activity/current" => {
+            json_resource(uri, build_agent_activity_payload(state, &request))
         }
         "codelens://analysis/recent" => json_resource(uri, recent_analysis_payload(state)),
         "codelens://analysis/jobs" => json_resource(uri, recent_analysis_jobs_payload(state)),

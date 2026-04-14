@@ -12,6 +12,8 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
     let handle_reads = session.analysis_summary_reads + session.analysis_section_reads;
     let watcher_stats = state.watcher_stats();
     let watcher_failure_health = state.watcher_failure_health();
+    let coordination = state
+        .coordination_counts_for_session(&crate::session_context::SessionRequestContext::default());
 
     let mut session_json = Map::new();
     session_json.insert("total_calls".to_owned(), json!(session.total_calls));
@@ -42,6 +44,14 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
     session_json.insert(
         "session_timeout_seconds".to_owned(),
         json!(state.session_timeout_seconds()),
+    );
+    session_json.insert(
+        "active_coordination_agents".to_owned(),
+        json!(coordination.active_agents),
+    );
+    session_json.insert(
+        "active_coordination_claims".to_owned(),
+        json!(coordination.active_claims),
     );
     session_json.insert("retry_count".to_owned(), json!(session.retry_count));
     session_json.insert(
@@ -111,6 +121,26 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
     session_json.insert(
         "verifier_followthrough_count".to_owned(),
         json!(session.verifier_followthrough_count),
+    );
+    session_json.insert(
+        "coordination_registration_count".to_owned(),
+        json!(session.coordination_registration_count),
+    );
+    session_json.insert(
+        "coordination_claim_count".to_owned(),
+        json!(session.coordination_claim_count),
+    );
+    session_json.insert(
+        "coordination_release_count".to_owned(),
+        json!(session.coordination_release_count),
+    );
+    session_json.insert(
+        "coordination_overlap_emit_count".to_owned(),
+        json!(session.coordination_overlap_emit_count),
+    );
+    session_json.insert(
+        "coordination_caution_emit_count".to_owned(),
+        json!(session.coordination_caution_emit_count),
     );
     session_json.insert(
         "mutation_preflight_checked_count".to_owned(),
@@ -336,6 +366,15 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
         } else { 0.0 },
         "verifier_followthrough_rate": if session.verifier_contract_emitted_count > 0 {
             session.verifier_followthrough_count as f64 / session.verifier_contract_emitted_count as f64
+        } else { 0.0 },
+        "coordination_overlap_rate": if session.verifier_contract_emitted_count > 0 {
+            session.coordination_overlap_emit_count as f64 / session.verifier_contract_emitted_count as f64
+        } else { 0.0 },
+        "coordination_caution_rate": if session.verifier_contract_emitted_count > 0 {
+            session.coordination_caution_emit_count as f64 / session.verifier_contract_emitted_count as f64
+        } else { 0.0 },
+        "coordination_release_ratio": if session.coordination_claim_count > 0 {
+            session.coordination_release_count as f64 / session.coordination_claim_count as f64
         } else { 0.0 },
         "mutation_preflight_gate_deny_rate": if session.mutation_preflight_checked_count > 0 {
             session.mutation_preflight_gate_denied_count as f64

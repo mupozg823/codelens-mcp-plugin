@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 
+mod agent_coordination;
 mod analysis_handles;
 mod analysis_queue;
 mod artifact_store;

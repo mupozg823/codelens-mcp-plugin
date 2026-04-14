@@ -2,8 +2,34 @@ use crate::AppState;
 use crate::tool_runtime::{ToolResult, required_string};
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
+
+fn verify_change_readiness_cache_key(
+    arguments: &Value,
+    task: &str,
+    overlapping_claims: &[crate::state::FileClaimEntry],
+) -> String {
+    let mut fields = Map::new();
+    fields.insert("task".to_owned(), json!(task));
+    if let Some(profile_hint) = arguments.get("profile_hint").cloned() {
+        fields.insert("profile_hint".to_owned(), profile_hint);
+    }
+    if let Some(changed_files) = arguments.get("changed_files").cloned() {
+        fields.insert("changed_files".to_owned(), changed_files);
+    }
+    if !overlapping_claims.is_empty() {
+        fields.insert(
+            "coordination_overlaps".to_owned(),
+            serde_json::to_value(overlapping_claims).unwrap_or_else(|_| json!([])),
+        );
+    }
+    json!({
+        "tool": "verify_change_readiness",
+        "fields": fields,
+    })
+    .to_string()
+}
 
 pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResult {
     let task = required_string(arguments, "task")?;
@@ -81,14 +107,28 @@ pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResul
         "path",
         6,
     );
-    make_handle_response(
+    let overlapping_claims = if touched_files.is_empty() {
+        Vec::new()
+    } else {
+        state.overlapping_claims_for_arguments(arguments, &touched_files)
+    };
+    if !overlapping_claims.is_empty() {
+        sections.insert(
+            "coordination_overlaps".to_owned(),
+            json!({
+                "count": overlapping_claims.len(),
+                "claims": overlapping_claims,
+            }),
+        );
+    }
+    let mut result = make_handle_response(
         state,
         "verify_change_readiness",
-        stable_cache_key(
-            "verify_change_readiness",
+        Some(verify_change_readiness_cache_key(
             arguments,
-            &["task", "profile_hint", "changed_files"],
-        ),
+            task,
+            &overlapping_claims,
+        )),
         format!("Verifier-first readiness report for `{task}` with blockers and preflight cues."),
         top_findings,
         0.91,
@@ -99,7 +139,41 @@ pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResul
         sections,
         touched_files,
         None,
-    )
+    );
+    if !overlapping_claims.is_empty()
+        && let Ok((payload, _meta)) = &mut result
+        && let Some(obj) = payload.as_object_mut()
+    {
+        // ADR-0004 MVP: evidence-only downgrade. Surface the overlap list at
+        // top-level so hosts and the mutation gate can see it without diving
+        // into sections, and flip `ready` → `caution`. Claims never escalate
+        // an existing `blocked` verdict, and never block outright.
+        obj.insert(
+            "overlapping_claims".to_owned(),
+            serde_json::to_value(&overlapping_claims).unwrap_or_else(|_| json!([])),
+        );
+        let caution_applied = match obj
+            .get("readiness")
+            .and_then(|value| value.get("mutation_ready"))
+            .and_then(|value| value.as_str())
+        {
+            Some("ready") => {
+                if let Some(readiness) = obj
+                    .get_mut("readiness")
+                    .and_then(|value| value.as_object_mut())
+                {
+                    readiness.insert("mutation_ready".to_owned(), json!("caution"));
+                }
+                true
+            }
+            Some("caution") => true,
+            _ => false,
+        };
+        state
+            .metrics()
+            .record_coordination_overlap_emitted(caution_applied);
+    }
+    result
 }
 
 pub fn safe_rename_report(state: &AppState, arguments: &Value) -> ToolResult {

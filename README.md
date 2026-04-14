@@ -101,6 +101,14 @@ Every MCP client then attaches by URL instead of spawning a subprocess:
 | CI / one-shot script                                 | stdio                     | `--oneshot` matches short-lived commands                               |
 | Mutation-heavy workflow needing isolation            | **HTTP with two daemons** | Read-only port for planners, mutation-enabled port for refactor agents |
 
+For shared HTTP deployments, treat CodeLens coordination as advisory evidence rather than a central lock manager. The practical pattern is: bootstrap with `prepare_harness_session`, register intent with `register_agent_work`, claim mutation targets with `claim_files`, and let `verify_change_readiness` surface `overlapping_claims` as a `caution` signal before edits.
+
+Recommended operating policy:
+
+- one mutation-enabled agent per worktree
+- additional agents stay planner/reviewer/read-only on the same daemon
+- use `codelens://activity/current` to inspect active sessions, recent intent, and advisory file claims
+
 #### Troubleshooting
 
 - **`Failed to reconnect` on the client** — the daemon likely exited or the port is wrong. Verify with `curl http://127.0.0.1:7837/mcp` (should return an MCP server response, not a TCP refused).

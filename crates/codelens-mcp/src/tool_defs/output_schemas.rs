@@ -276,6 +276,48 @@ pub(super) fn lsp_recipe_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn workspace_symbols_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "symbols": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": ["integer", "null"]},
+                        "kind_label": {"type": ["string", "null"]},
+                        "container_name": {"type": ["string", "null"]},
+                        "file_path": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "column": {"type": "integer"},
+                        "end_line": {"type": "integer"},
+                        "end_column": {"type": "integer"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn rename_plan_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "file_path": {"type": "string"},
+            "line": {"type": "integer"},
+            "column": {"type": "integer"},
+            "end_line": {"type": "integer"},
+            "end_column": {"type": "integer"},
+            "current_name": {"type": "string"},
+            "placeholder": {"type": ["string", "null"]},
+            "new_name": {"type": ["string", "null"]}
+        }
+    })
+}
+
 pub(super) fn rename_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -422,8 +464,49 @@ pub(super) fn memory_list_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
-            "memories": {"type": "array", "items": {"type": "string"}},
+            "topic": {"type": ["string", "null"]},
+            "memories": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "path": {"type": "string"}
+                    }
+                }
+            },
             "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn read_memory_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "memory_name": {"type": "string"},
+            "content": {"type": "string"}
+        }
+    })
+}
+
+pub(super) fn memory_status_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "memory_name": {"type": "string"}
+        }
+    })
+}
+
+pub(super) fn memory_rename_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "old_name": {"type": "string"},
+            "new_name": {"type": "string"}
         }
     })
 }
@@ -462,6 +545,222 @@ pub(super) fn queryable_projects_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn add_queryable_project_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "added": {"type": "boolean"},
+            "name": {"type": "string"},
+            "path": {"type": "string"}
+        }
+    })
+}
+
+pub(super) fn remove_queryable_project_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "removed": {"type": "boolean"},
+            "name": {"type": "string"}
+        }
+    })
+}
+
+pub(super) fn summarize_changes_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "instructions": {"type": "string"},
+            "project_name": {"type": "string"}
+        }
+    })
+}
+
+pub(super) fn query_project_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "project": {"type": "string"},
+            "symbols": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "file_path": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "column": {"type": "integer"},
+                        "signature": {"type": "string"},
+                        "name_path": {"type": "string"},
+                        "id": {"type": "string"},
+                        "body": {"type": ["string", "null"]}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn summarize_file_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "file_path": {"type": "string"},
+            "lines": {"type": "integer"},
+            "classes": {"type": "integer"},
+            "functions": {"type": "integer"},
+            "symbols": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "signature": {"type": "string"},
+                        "id": {"type": "string"}
+                    }
+                }
+            },
+            "importers": {"type": "array", "items": {"type": "string"}},
+            "importer_count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn export_session_markdown_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "markdown": {"type": "string"},
+            "session_name": {"type": "string"},
+            "tool_count": {"type": "integer"},
+            "total_calls": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn set_preset_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "previous_surface": {"type": "string"},
+            "current_preset": {"type": "string"},
+            "active_surface": {"type": "string"},
+            "token_budget": {"type": "integer"},
+            "effort_level": {"type": "string"},
+            "note": {"type": "string"}
+        }
+    })
+}
+
+pub(super) fn set_profile_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "previous_surface": {"type": "string"},
+            "current_profile": {"type": "string"},
+            "active_surface": {"type": "string"},
+            "token_budget": {"type": "integer"},
+            "note": {"type": "string"}
+        }
+    })
+}
+
+fn coordination_claim_item_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string"},
+            "agent_name": {"type": "string"},
+            "branch": {"type": "string"},
+            "worktree": {"type": "string"},
+            "paths": {"type": "array", "items": {"type": "string"}},
+            "reason": {"type": "string"},
+            "expires_at": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn register_agent_work_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "agent": {
+                "type": "object",
+                "properties": {
+                    "session_id": {"type": "string"},
+                    "agent_name": {"type": "string"},
+                    "branch": {"type": "string"},
+                    "worktree": {"type": "string"},
+                    "intent": {"type": "string"},
+                    "expires_at": {"type": "integer"}
+                }
+            }
+        }
+    })
+}
+
+pub(super) fn list_active_agents_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "agents": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string"},
+                        "agent_name": {"type": "string"},
+                        "branch": {"type": "string"},
+                        "worktree": {"type": "string"},
+                        "intent": {"type": "string"},
+                        "expires_at": {"type": "integer"},
+                        "claim_count": {"type": "integer"},
+                        "claimed_paths": {"type": "array", "items": {"type": "string"}}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn claim_files_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "session_id": {"type": "string"},
+            "claimed_paths": {"type": "array", "items": {"type": "string"}},
+            "claim": coordination_claim_item_schema()
+        }
+    })
+}
+
+pub(super) fn release_files_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": {"type": "string"},
+            "session_id": {"type": "string"},
+            "released_paths": {"type": "array", "items": {"type": "string"}},
+            "remaining_claim": {
+                "anyOf": [
+                    coordination_claim_item_schema(),
+                    {"type": "null"}
+                ]
+            },
+            "remaining_claim_count": {"type": "integer"}
+        }
+    })
+}
+
 pub(super) fn analysis_handle_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -474,6 +773,10 @@ pub(super) fn analysis_handle_output_schema() -> serde_json::Value {
             "next_actions": {"type": "array", "items": {"type": "string"}},
             "blockers": {"type": "array", "items": {"type": "string"}},
             "blocker_count": {"type": "integer"},
+            "overlapping_claims": {
+                "type": "array",
+                "items": coordination_claim_item_schema()
+            },
             "readiness": {
                 "type": "object",
                 "properties": {
@@ -888,6 +1191,8 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                 "properties": {
                     "enabled": {"type": "boolean"},
                     "active_sessions": {"type": "integer"},
+                    "active_coordination_agents": {"type": "integer"},
+                    "active_coordination_claims": {"type": "integer"},
                     "timeout_seconds": {"type": "integer"},
                     "resume_supported": {"type": "boolean"},
                     "daemon_mode": {"type": "string"},

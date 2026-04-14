@@ -4,6 +4,7 @@
 #![allow(dead_code)] // fields/methods used by transport_http handlers
 
 use crate::tool_defs::{ToolPreset, ToolSurface};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::{
     Arc, Mutex, RwLock,
@@ -13,6 +14,15 @@ use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
 pub type SessionId = String;
+
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct SessionActivitySnapshot {
+    pub id: String,
+    pub client_name: Option<String>,
+    pub requested_profile: Option<String>,
+    pub recent_tools: Vec<String>,
+    pub recent_files: Vec<String>,
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct SessionClientMetadata {
@@ -208,6 +218,17 @@ impl SessionState {
             .map(|last| last.elapsed() > timeout)
             .unwrap_or(true)
     }
+
+    pub fn activity_snapshot(&self) -> SessionActivitySnapshot {
+        let metadata = self.client_metadata();
+        SessionActivitySnapshot {
+            id: self.id.clone(),
+            client_name: metadata.client_name,
+            requested_profile: metadata.requested_profile,
+            recent_tools: self.recent_tools(),
+            recent_files: self.recent_file_paths(),
+        }
+    }
 }
 
 /// Thread-safe session store for HTTP mode.
@@ -298,6 +319,18 @@ impl SessionStore {
 
     pub fn timeout_secs(&self) -> u64 {
         self.timeout.as_secs()
+    }
+
+    pub fn activity_snapshots(&self) -> Vec<SessionActivitySnapshot> {
+        self.sessions
+            .read()
+            .map(|sessions| {
+                sessions
+                    .values()
+                    .map(|session| session.activity_snapshot())
+                    .collect()
+            })
+            .unwrap_or_default()
     }
 }
 
