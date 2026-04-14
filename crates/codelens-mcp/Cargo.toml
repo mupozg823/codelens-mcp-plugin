@@ -3,12 +3,17 @@ name = "codelens-mcp"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description.workspace = true
+description = "Agent-native Rust MCP server for code intelligence — workflow-first, 101 tools (+6 semantic), 25 languages, tree-sitter + LSP + SCIP"
 repository.workspace = true
+documentation = "https://github.com/mupozg823/codelens-mcp-plugin/tree/main/docs"
 readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
 homepage.workspace = true
+exclude = [
+    ".fastembed_cache/**",
+    "codelens-mcp_bin_*.cdx.json",
+]
 
 [[bin]]
 name = "codelens-mcp"

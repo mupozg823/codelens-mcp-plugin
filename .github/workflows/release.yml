@@ -154,23 +154,11 @@ jobs:
             --models-dir crates/codelens-engine/models \
             --output codelens-mcp-airgap-linux-x86_64.tar.gz
 
-      - name: Generate payload checksums
-        run: |
-          find . -maxdepth 1 -type f \
-            \( -name 'codelens-mcp-*.tar.gz' -o -name 'codelens-mcp-*.zip' -o -name 'codelens-mcp-*.cdx.json' \) \
-            -print \
-            | sed 's#^\./##' \
-            | LC_ALL=C sort \
-            | while IFS= read -r asset; do
-                sha256sum "$asset"
-              done > release-payload-checksums-sha256.txt
-
       - name: Generate release manifest
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           python3 scripts/generate-release-manifest.py \
             --bundle-dir . \
-            --checksums release-payload-checksums-sha256.txt \
             --repo "${GITHUB_REPOSITORY}" \
             --tag "${GITHUB_REF_NAME}" \
             --version "${VERSION}" \
@@ -192,26 +180,21 @@ jobs:
             | while IFS= read -r asset; do
                 cosign sign-blob \
                   --yes \
+                  --bundle "${asset}.sigstore.json" \
                   --output-signature "${asset}.sig" \
                   --output-certificate "${asset}.pem" \
                   "$asset"
               done
 
-      - name: Generate final checksums
+      - name: Export Sigstore trusted root
         run: |
-          find . -maxdepth 1 -type f \
-            \( -name 'codelens-mcp-airgap-*.tar.gz' -o -name 'codelens-mcp-*.tar.gz' -o -name 'codelens-mcp-*.zip' -o -name 'codelens-mcp-*.cdx.json' -o -name 'release-manifest.json' -o -name 'codelens-mcp-airgap-*.tar.gz.sig' -o -name 'codelens-mcp-airgap-*.tar.gz.pem' -o -name 'codelens-mcp-*.tar.gz.sig' -o -name 'codelens-mcp-*.tar.gz.pem' -o -name 'codelens-mcp-*.zip.sig' -o -name 'codelens-mcp-*.zip.pem' -o -name 'codelens-mcp-*.cdx.json.sig' -o -name 'codelens-mcp-*.cdx.json.pem' -o -name 'release-manifest.json.sig' -o -name 'release-manifest.json.pem' \) \
-            -print \
-            | sed 's#^\./##' \
-            | LC_ALL=C sort \
-            | while IFS= read -r asset; do
-                sha256sum "$asset"
-              done > checksums-sha256.txt
-          rm -f release-payload-checksums-sha256.txt
+          gh attestation trusted-root > sigstore-trusted-root.jsonl
 
       - name: Verify release artifacts before publish
         run: |
           bash scripts/verify-release-artifacts.sh . \
+            --require-bundles \
+            --verify-bundles-with-cosign \
             --require-targets darwin-arm64,linux-x86_64,windows-x86_64
 
       - name: Create Release
@@ -225,15 +208,20 @@ jobs:
             release-manifest.json
             codelens-mcp-airgap-*.tar.gz.sig
             codelens-mcp-airgap-*.tar.gz.pem
+            codelens-mcp-airgap-*.tar.gz.sigstore.json
             codelens-mcp-*.tar.gz.sig
             codelens-mcp-*.tar.gz.pem
+            codelens-mcp-*.tar.gz.sigstore.json
             codelens-mcp-*.zip.sig
             codelens-mcp-*.zip.pem
+            codelens-mcp-*.zip.sigstore.json
             codelens-mcp-*.cdx.json.sig
             codelens-mcp-*.cdx.json.pem
+            codelens-mcp-*.cdx.json.sigstore.json
             release-manifest.json.sig
             release-manifest.json.pem
-            checksums-sha256.txt
+            release-manifest.json.sigstore.json
+            sigstore-trusted-root.jsonl
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -245,7 +233,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Extract version and checksums
+      - name: Extract version and checksums from manifest
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -254,12 +242,34 @@ jobs:
           # Wait for CDN propagation after release asset upload
           sleep 15
           curl -fsSL --retry 5 --retry-delay 10 \
-            "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/${TAG}/checksums-sha256.txt" \
-            -o checksums.txt
+            "https://github.com/mupozg823/codelens-mcp-plugin/releases/download/${TAG}/release-manifest.json" \
+            -o release-manifest.json
 
           echo "VERSION=${VERSION}" >> $GITHUB_ENV
-          echo "SHA_DARWIN_ARM64=$(awk '/ codelens-mcp-darwin-arm64.tar.gz$/ {print $1}' checksums.txt)" >> $GITHUB_ENV
-          echo "SHA_LINUX_X86_64=$(awk '/ codelens-mcp-linux-x86_64.tar.gz$/ {print $1}' checksums.txt)" >> $GITHUB_ENV
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          manifest = json.loads(Path("release-manifest.json").read_text())
+          assets = manifest.get("assets", [])
+          sha_darwin = next(
+              (a["sha256"] for a in assets if a.get("name") == "codelens-mcp-darwin-arm64.tar.gz"),
+              None,
+          )
+          sha_linux = next(
+              (a["sha256"] for a in assets if a.get("name") == "codelens-mcp-linux-x86_64.tar.gz"),
+              None,
+          )
+          if not sha_darwin or not sha_linux:
+              raise SystemExit("missing darwin or linux archive sha256 in release manifest")
+          env_path = Path(os.environ["GITHUB_ENV"])
+          env_path.write_text(
+              env_path.read_text()
+              + f"SHA_DARWIN_ARM64={sha_darwin}\n"
+              + f"SHA_LINUX_X86_64={sha_linux}\n"
+          )
+          PY
 
       - name: Generate formula with real checksums
         run: |

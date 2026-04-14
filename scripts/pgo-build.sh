@@ -43,7 +43,10 @@ echo "=== Step 2: Profile workload ==="
 
 # Run the benchmark suite to generate profile data
 echo "  Running embedding-quality benchmark..."
-python3 benchmarks/embedding-quality.py . --binary "$BIN" --output /dev/null 2>&1 | tail -1
+python3 benchmarks/embedding-quality.py . \
+	--binary "$BIN" \
+	--dataset benchmarks/embedding-quality-dataset-self.json \
+	--output /dev/null 2>&1 | tail -1
 
 echo "  Running embedding-runtime benchmark..."
 python3 benchmarks/embedding-runtime.py . --binary "$BIN" --output /dev/null 2>&1 | tail -1

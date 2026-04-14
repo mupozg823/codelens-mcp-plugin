@@ -93,6 +93,7 @@ RUN_RELEASE_GATE=0
 RUN_NO_SEMANTIC_GATE=0
 RUN_PHASE3_MATRIX_GATE=0
 RUN_DATASET_LINT_GATE=0
+RUN_MCP_DOCTOR_GATE=0
 PHASE3_REQUIRED_DATASETS="ripgrep,requests,jest,typescript,next-js,react-core,django,axum"
 
 if [[ "$MODE" == "ci" ]]; then
@@ -124,6 +125,8 @@ else
 	fi
 
 	if matches_any "benchmarks/lint-datasets.py" \
+		"benchmarks/dataset-manifest.json" \
+		"benchmarks/*dataset*.json" \
 		"benchmarks/embedding-quality-dataset-self.json" \
 		"benchmarks/role-retrieval-dataset.json"; then
 		RUN_DATASET_LINT_GATE=1
@@ -131,6 +134,15 @@ else
 
 	if matches_any "crates/codelens-mcp/src/server/*" "crates/codelens-mcp/src/transport*" "crates/codelens-mcp/src/resources*" "crates/codelens-mcp/src/dispatch*" "crates/codelens-mcp/src/session*" "crates/codelens-mcp/src/*http*" "crates/codelens-mcp/src/*resource*" "crates/codelens-mcp/src/state.rs"; then
 		RUN_HTTP_GATE=1
+	fi
+
+	if matches_any "scripts/mcp-*.sh" \
+		"README.md" \
+		"crates/codelens-mcp/src/main.rs" \
+		"crates/codelens-mcp/src/server/*" \
+		"crates/codelens-mcp/src/*http*" \
+		"crates/codelens-mcp/src/state.rs"; then
+		RUN_MCP_DOCTOR_GATE=1
 	fi
 
 	if [[ "$RUN_RUST_GATE" -eq 1 ]] && cargo clippy -V >/dev/null 2>&1; then
@@ -157,7 +169,7 @@ else
 	fi
 fi
 
-if [[ "$RUN_RUST_GATE" -eq 0 && "$RUN_PY_GATE" -eq 0 && "$RUN_PHASE3_MATRIX_GATE" -eq 0 && "$RUN_NO_SEMANTIC_GATE" -eq 0 && "$RUN_DATASET_LINT_GATE" -eq 0 ]]; then
+if [[ "$RUN_RUST_GATE" -eq 0 && "$RUN_PY_GATE" -eq 0 && "$RUN_PHASE3_MATRIX_GATE" -eq 0 && "$RUN_NO_SEMANTIC_GATE" -eq 0 && "$RUN_DATASET_LINT_GATE" -eq 0 && "$RUN_MCP_DOCTOR_GATE" -eq 0 ]]; then
 	echo "[gate] no relevant Rust, harness-Python, matrix, no-semantic, or dataset files changed; skipping repo-local gate."
 	exit 0
 fi
@@ -190,6 +202,15 @@ if [[ "$RUN_PHASE3_MATRIX_GATE" -eq 1 ]]; then
 			--require-datasets "$PHASE3_REQUIRED_DATASETS" >/dev/null
 	else
 		echo "[gate] python3 not installed; skipping phase3 matrix gate."
+	fi
+fi
+
+if [[ "$RUN_MCP_DOCTOR_GATE" -eq 1 ]]; then
+	echo "[gate] running MCP doctor"
+	if [[ "$MODE" == "ci" ]]; then
+		bash scripts/mcp-doctor.sh . --allow-missing-config --expect-transport stdio
+	else
+		bash scripts/mcp-doctor.sh .
 	fi
 fi
 
@@ -247,5 +268,10 @@ if [[ "$RUN_RUST_GATE" -eq 1 ]]; then
 			cargo build --release --no-default-features
 			cargo build --release
 		fi
+		echo "[gate] running release stdio MCP smoke"
+		tmp_config="$(mktemp)"
+		rm -f "$tmp_config"
+		CODELENS_BIN="$ROOT/target/release/codelens-mcp" \
+			bash scripts/mcp-smoke.sh . --transport stdio --config "$tmp_config"
 	fi
 fi

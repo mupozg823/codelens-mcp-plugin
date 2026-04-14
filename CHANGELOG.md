@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Release note index
+
+- [v1.9.26 release notes](docs/release-notes/v1.9.26.md) — SCIP capability reporting and precise-path improvements
+- [v1.9.23 release notes](docs/release-notes/v1.9.23.md) — feature matrix verification and clean feature-flag builds
+- [v1.9.21 release notes](docs/release-notes/v1.9.21.md) — OpenTelemetry OTLP exporter and enterprise observability baseline
+
 ## [1.7.0] — 2026-04-12
 
 ### Release summary

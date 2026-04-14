@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -32,13 +33,13 @@ SCHEMA_VERSION = "codelens-release-manifest-v1"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate release-manifest.json from checksums-sha256.txt"
+        description="Generate release-manifest.json from release artifacts"
     )
     parser.add_argument("--bundle-dir", default=".", help="Directory containing release assets")
     parser.add_argument(
         "--checksums",
         default=None,
-        help="Path to checksums-sha256.txt (default: <bundle-dir>/checksums-sha256.txt)",
+        help="Optional path to checksums-sha256.txt (default: <bundle-dir>/checksums-sha256.txt)",
     )
     parser.add_argument("--repo", required=True, help="GitHub repository owner/name")
     parser.add_argument("--tag", required=True, help="Git tag, e.g. v1.9.18")
@@ -74,6 +75,14 @@ def parse_checksums(path: Path) -> dict[str, str]:
     return entries
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def classify_asset(name: str) -> tuple[str, str] | None:
     for pattern, kind in ASSET_PATTERNS:
         match = pattern.match(name)
@@ -103,9 +112,25 @@ def main() -> None:
         else (bundle_dir / "release-manifest.json")
     )
 
-    checksum_entries = parse_checksums(checksums_path)
+    checksum_entries: dict[str, str] | None = None
+    if checksums_path.exists():
+        checksum_entries = parse_checksums(checksums_path)
+
     assets = []
-    for name, checksum in sorted(checksum_entries.items()):
+    if checksum_entries is not None:
+        candidates = sorted(checksum_entries.items())
+    else:
+        candidates = []
+        for path in sorted(bundle_dir.iterdir()):
+            if not path.is_file():
+                continue
+            if path.name == output_path.name:
+                continue
+            if classify_asset(path.name) is None:
+                continue
+            candidates.append((path.name, sha256_file(path)))
+
+    for name, checksum in candidates:
         if name == output_path.name:
             continue
         classified = classify_asset(name)
@@ -129,12 +154,16 @@ def main() -> None:
 
     manifest: dict[str, object] = {
         "schema_version": SCHEMA_VERSION,
+        "inventory_role": "authoritative",
+        "inventory_scope": "release_payloads",
+        "checksums_role": "supplemental",
         "repository": args.repo,
         "tag": args.tag,
         "version": args.version,
-        "checksums_file": checksums_path.name,
         "assets": assets,
     }
+    if checksum_entries is not None:
+        manifest["checksums_file"] = checksums_path.name
 
     if args.image:
         tags = [args.version]

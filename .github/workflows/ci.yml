@@ -88,6 +88,7 @@ jobs:
         run: |
           python3 benchmarks/embedding-quality.py . \
             --binary target/release/codelens-mcp \
+            --dataset benchmarks/embedding-quality-dataset-self.json \
             --output benchmarks/embedding-quality-results.json \
             --markdown-output benchmarks/embedding-quality-summary.md | tee benchmarks/embedding-quality-ci.txt
           cat benchmarks/embedding-quality-summary.md >> "$GITHUB_STEP_SUMMARY"
