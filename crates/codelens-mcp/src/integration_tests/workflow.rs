@@ -2940,12 +2940,24 @@ fn diagnose_issues_returns_structured_content() {
             .as_nanos()
     ));
     fs::create_dir_all(&bin_dir).unwrap();
-    let mock_bin = bin_dir.join("pyright-langserver");
-    fs::write(&mock_bin, mock_lsp).unwrap();
+    #[cfg(windows)]
+    let mock_script = bin_dir.join("pyright-langserver.py");
+    #[cfg(not(windows))]
+    let mock_script = bin_dir.join("pyright-langserver");
+    fs::write(&mock_script, mock_lsp).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&mock_bin, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(&mock_script, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    #[cfg(windows)]
+    {
+        let wrapper = bin_dir.join("pyright-langserver.cmd");
+        fs::write(
+            &wrapper,
+            format!("@echo off\r\npython \"{}\" %*\r\n", mock_script.display()),
+        )
+        .unwrap();
     }
 
     let project = project_root();
