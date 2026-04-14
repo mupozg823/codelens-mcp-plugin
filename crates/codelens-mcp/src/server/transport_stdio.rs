@@ -525,6 +525,18 @@ mod tests {
         serde_json::from_str(body).unwrap()
     }
 
+    fn first_resource_text(text: &str) -> String {
+        response_value(text)
+            .get("result")
+            .and_then(|result| result.get("contents"))
+            .and_then(|contents| contents.as_array())
+            .and_then(|contents| contents.first())
+            .and_then(|content| content.get("text"))
+            .and_then(|text| text.as_str())
+            .map(ToOwned::to_owned)
+            .unwrap_or_default()
+    }
+
     fn first_tool_payload(text: &str) -> serde_json::Value {
         let value = response_value(text);
         let mut payload = value
@@ -983,5 +995,92 @@ mod tests {
             json!(["primitive"])
         );
         assert!(summary.contains("\"get_file_diagnostics\""));
+    }
+
+    #[test]
+    fn stdio_full_tools_list_persists_full_tool_exposure_for_followup_requests() {
+        let state = test_state();
+
+        let init = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":40,"method":"initialize","params":{"_session_id":"stdio-full-codex","clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}
+"#,
+        );
+        let init_value = response_value(&init);
+        assert_eq!(init_value["result"]["serverInfo"]["name"], json!("codelens-mcp"));
+
+        let initial = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":41,"method":"tools/list","params":{"_session_id":"stdio-full-codex"}}
+"#,
+        );
+        let initial_value = response_value(&initial);
+        assert_eq!(initial_value["result"]["client_profile"], json!("codex"));
+        assert_eq!(initial_value["result"]["default_contract_mode"], json!("lean"));
+        assert_eq!(initial_value["result"]["deferred_loading_active"], json!(true));
+        assert!(initial_value["result"].get("full_tool_exposure").is_none());
+
+        let full = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":42,"method":"tools/list","params":{"_session_id":"stdio-full-codex","full":true}}
+"#,
+        );
+        let full_value = response_value(&full);
+        assert_eq!(full_value["result"]["client_profile"], json!("codex"));
+        assert_eq!(full_value["result"]["default_contract_mode"], json!("lean"));
+        assert_eq!(full_value["result"]["deferred_loading_active"], json!(false));
+        assert_eq!(full_value["result"]["full_tool_exposure"], json!(true));
+        assert!(full.contains("\"description\""));
+
+        let summary = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":43,"method":"tools/list","params":{"_session_id":"stdio-full-codex"}}
+"#,
+        );
+        let summary_value = response_value(&summary);
+        assert_eq!(summary_value["result"]["client_profile"], json!("codex"));
+        assert_eq!(summary_value["result"]["default_contract_mode"], json!("lean"));
+        assert_eq!(summary_value["result"]["deferred_loading_active"], json!(false));
+        assert_eq!(summary_value["result"]["full_tool_exposure"], json!(true));
+        assert!(summary.contains("\"include_output_schema\":true"));
+        assert!(summary.contains("\"include_annotations\":true"));
+        assert!(summary.contains("\"outputSchema\""));
+        assert!(summary.contains("\"annotations\""));
+    }
+
+    #[test]
+    fn stdio_full_tools_list_resource_updates_session_resource_state() {
+        let state = test_state();
+
+        let init = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":44,"method":"initialize","params":{"_session_id":"stdio-full-resource","clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}
+"#,
+        );
+        let init_value = response_value(&init);
+        assert_eq!(init_value["result"]["serverInfo"]["name"], json!("codelens-mcp"));
+
+        let full_resource = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":45,"method":"resources/read","params":{"uri":"codelens://tools/list/full","_session_id":"stdio-full-resource"}}
+"#,
+        );
+        let full_text = first_resource_text(&full_resource);
+        assert!(full_text.contains("\"client_profile\": \"codex\""));
+        assert!(full_text.contains("\"default_contract_mode\": \"lean\""));
+        assert!(full_text.contains("\"full_tool_exposure\": true"));
+        assert!(full_text.contains("\"deferred_loading_active\": false"));
+        assert!(full_text.contains("\"description\""));
+
+        let session_resource = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":46,"method":"resources/read","params":{"uri":"codelens://session/http","_session_id":"stdio-full-resource"}}
+"#,
+        );
+        let session_text = first_resource_text(&session_resource);
+        assert!(session_text.contains("\"client_profile\": \"codex\""));
+        assert!(session_text.contains("\"default_tools_list_contract_mode\": \"lean\""));
+        assert!(session_text.contains("\"full_tool_exposure\": true"));
+        assert!(session_text.contains("\"health_summary\":"));
     }
 }
