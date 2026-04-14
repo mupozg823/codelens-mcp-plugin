@@ -42,6 +42,10 @@ scripts/finetune/output/
 *.onnx
 *.onnx.bak
 checkpoints/
+
+# Backup copies of bundled embedding models — kept locally for A/B comparison
+# but never shipped in releases. Only the active model (e.g. codesearch/) is tracked.
+crates/codelens-engine/models/codesearch-v*-backup/
 scripts/finetune/*.jsonl
 scripts/finetune/gate-results/
 scripts/finetune/external/
