@@ -701,18 +701,20 @@ fn expand_retrieval_query(query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_embedding_search,
-        semantic_query_for_retrieval,
-    };
-    use std::{
-        fs,
-        time::{SystemTime, UNIX_EPOCH},
+        analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_retrieval,
     };
 
+    #[cfg(feature = "semantic")]
+    use super::semantic_query_for_embedding_search;
     #[cfg(feature = "semantic")]
     use super::{rerank_semantic_matches, semantic_adjusted_score_parts};
     #[cfg(feature = "semantic")]
     use codelens_engine::SemanticMatch;
+    #[cfg(feature = "semantic")]
+    use std::{
+        fs,
+        time::{SystemTime, UNIX_EPOCH},
+    };
 
     #[test]
     fn identifier_queries_prefer_lexical_only() {
@@ -767,6 +769,7 @@ mod tests {
         assert!(semantic.contains("dispatch tool request"));
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_frames_natural_language_with_code_prefix() {
         let analysis =
@@ -776,6 +779,7 @@ mod tests {
         assert!(framed.contains("route an incoming tool request to the right handler"));
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_leaves_identifier_queries_unframed() {
         let analysis = analyze_retrieval_query("change_signature");
@@ -783,6 +787,7 @@ mod tests {
         assert_eq!(framed, "change_signature change signature");
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_bridges_nl_terms_to_code_vocabulary() {
         let analysis = analyze_retrieval_query("categorize a function by its purpose");
@@ -792,6 +797,7 @@ mod tests {
         assert!(framed.contains("classify"));
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_bridge_dedup_is_case_insensitive() {
         let analysis = analyze_retrieval_query(
@@ -807,6 +813,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_does_not_apply_project_specific_bridge_without_project_root() {
         let analysis = analyze_retrieval_query("record which files were recently accessed");
@@ -814,6 +821,7 @@ mod tests {
         assert!(!framed.contains("record_file_access"));
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_applies_project_specific_bridge_from_project_file() {
         let dir = std::env::temp_dir().join(format!(
