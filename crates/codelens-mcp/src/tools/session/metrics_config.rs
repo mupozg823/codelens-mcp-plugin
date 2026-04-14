@@ -1100,14 +1100,13 @@ mod capability_reporting_tests {
         let fake_binary = tempdir.join("phase4a-fake-lsp-server");
         std::fs::write(&fake_binary, "").expect("touch fake binary");
 
-        let previous = std::env::var("CODELENS_LSP_PATH_EXTRA").ok();
+        let previous = std::env::var_os("CODELENS_LSP_PATH_EXTRA");
+        let extra_path =
+            std::env::join_paths([tempdir.as_path()]).expect("join extra LSP search path");
         // SAFETY: this test is synchronous and does not spawn worker
         // threads that race against env mutation.
         unsafe {
-            std::env::set_var(
-                "CODELENS_LSP_PATH_EXTRA",
-                tempdir.to_string_lossy().as_ref(),
-            );
+            std::env::set_var("CODELENS_LSP_PATH_EXTRA", &extra_path);
         }
 
         // Fast path (`which`) will fail for this fabricated binary

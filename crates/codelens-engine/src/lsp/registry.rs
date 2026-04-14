@@ -244,8 +244,8 @@ pub fn lsp_binary_exists(command: &str) -> bool {
     }
 
     if let Ok(extra) = std::env::var("CODELENS_LSP_PATH_EXTRA") {
-        for dir in extra.split(':').filter(|dir| !dir.is_empty()) {
-            if Path::new(dir).join(command).exists() {
+        for dir in std::env::split_paths(&extra) {
+            if dir.join(command).exists() {
                 return true;
             }
         }

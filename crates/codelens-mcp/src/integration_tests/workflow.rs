@@ -2345,8 +2345,9 @@ fn mutation_tools_write_audit_log() {
         .join("audit")
         .join("mutation-audit.jsonl");
     let audit = fs::read_to_string(audit_path).unwrap();
-    assert!(audit.contains("create_text_file"));
-    assert!(audit.contains(&state.current_project_scope()));
+    let event: serde_json::Value = serde_json::from_str(audit.lines().last().unwrap()).unwrap();
+    assert_eq!(event["tool"], json!("create_text_file"));
+    assert_eq!(event["project_scope"], json!(state.current_project_scope()));
 }
 
 #[test]
@@ -2883,6 +2884,12 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
 /// stomp each other when the test runner uses multiple threads.
 static PATH_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+fn prepend_path(dir: &std::path::Path, original_path: &str) -> std::ffi::OsString {
+    let mut paths = vec![dir.to_path_buf()];
+    paths.extend(std::env::split_paths(original_path));
+    std::env::join_paths(paths).expect("join PATH entries")
+}
+
 #[test]
 fn diagnose_issues_returns_structured_content() {
     // diagnose_issues with a path delegates to get_file_diagnostics, which
@@ -2951,9 +2958,10 @@ fn diagnose_issues_returns_structured_content() {
 
     let _guard = PATH_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
     let original_path = std::env::var("PATH").unwrap_or_default();
+    let patched_path = prepend_path(&bin_dir, &original_path);
     // SAFETY: protected by PATH_MUTEX; no other thread modifies PATH concurrently.
     unsafe {
-        std::env::set_var("PATH", format!("{}:{original_path}", bin_dir.display()));
+        std::env::set_var("PATH", &patched_path);
     }
 
     let payload = call_tool(&state, "diagnose_issues", json!({"path": "diag_test.py"}));
