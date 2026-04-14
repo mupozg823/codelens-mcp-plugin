@@ -232,8 +232,19 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
 
     // Data: summarized mirror of the structured payload for text-only clients.
     // The full machine-readable body remains in `structuredContent`.
+    // Opt-in: CODELENS_VERBOSE_TEXT=1 copies the full data (no summarization),
+    // so human UIs that only render `content[0].text` see the same payload
+    // the agent sees in `structuredContent`.
     if let Some(ref data) = resp.data {
-        out.insert("data".to_owned(), summarize_text_data_for_response(data));
+        let data_value = if std::env::var("CODELENS_VERBOSE_TEXT")
+            .map(|v| matches!(v.as_str(), "1" | "true" | "on" | "yes"))
+            .unwrap_or(false)
+        {
+            data.clone()
+        } else {
+            summarize_text_data_for_response(data)
+        };
+        out.insert("data".to_owned(), data_value);
     }
 
     // Suggested next tools (preserve original key for compatibility)
