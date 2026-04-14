@@ -197,13 +197,34 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
             "build",
             "watch",
             "extract",
-            "route",
             "change",
             "move",
             "apply",
             "categorize",
             "get",
             "skip",
+        ],
+    );
+    let is_concept_query = mentions_any(
+        query_lower,
+        &[
+            "type",
+            "struct",
+            "class",
+            "interface",
+            "node",
+            "data structure",
+            "carrying",
+            "representing",
+            "that handles",
+            "that carries",
+            "that contains",
+            "engine",
+            "context",
+            "middleware",
+            "framework",
+            "parameters",
+            "binding",
         ],
     );
     let wants_fileish = mentions_any(
@@ -226,9 +247,22 @@ fn symbol_kind_prior(query_lower: &str, symbol: &SymbolInfo) -> f64 {
             SymbolKind::Class
             | SymbolKind::Interface
             | SymbolKind::Enum
-            | SymbolKind::TypeAlias => -6.0,
+            | SymbolKind::TypeAlias => {
+                if is_concept_query {
+                    -2.0
+                } else {
+                    -6.0
+                }
+            }
             SymbolKind::Variable | SymbolKind::Property => -2.0,
             SymbolKind::Unknown => 0.0,
+        };
+    }
+    if is_concept_query && !is_action_query {
+        prior += match symbol.kind {
+            SymbolKind::Class | SymbolKind::Interface | SymbolKind::Enum => 6.0,
+            SymbolKind::TypeAlias => 4.0,
+            _ => 0.0,
         };
     }
     if entrypoint_query {
@@ -817,6 +851,43 @@ mod tests {
 
         let query = "which helper implements find word matches in files";
         assert!(symbol_kind_prior(query, &exact) > symbol_kind_prior(query, &broader));
+    }
+
+    #[test]
+    fn concept_query_prefers_framework_type_over_helper_function() {
+        let type_symbol = SymbolInfo {
+            name: "Engine".into(),
+            kind: SymbolKind::Class,
+            file_path: "gin/engine.go".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "Engine".into(),
+            id: "engine".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+            provenance: SymbolProvenance::default(),
+        };
+        let helper_symbol = SymbolInfo {
+            name: "serveHTTP".into(),
+            kind: SymbolKind::Function,
+            file_path: "gin/router.go".into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: "serveHTTP".into(),
+            id: "serveHTTP".into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+            provenance: SymbolProvenance::default(),
+        };
+
+        let query = "http web framework engine that handles routing and middleware";
+        assert!(symbol_kind_prior(query, &type_symbol) > symbol_kind_prior(query, &helper_symbol));
     }
 }
 

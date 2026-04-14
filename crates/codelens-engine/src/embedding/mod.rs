@@ -1028,7 +1028,10 @@ impl EmbeddingEngine {
     /// Extract NL→code bridge candidates from indexed symbols.
     /// For each symbol with a docstring, produces a (docstring_first_line, symbol_name) pair.
     /// The caller writes these to `.codelens/bridges.json` for project-specific NL bridging.
-    pub fn generate_bridge_candidates(&self, project: &ProjectRoot) -> Result<Vec<(String, String)>> {
+    pub fn generate_bridge_candidates(
+        &self,
+        project: &ProjectRoot,
+    ) -> Result<Vec<(String, String)>> {
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
         let mut bridges: Vec<(String, String)> = Vec::new();
@@ -1997,13 +2000,27 @@ fn build_embedding_text(sym: &crate::db::SymbolWithFile, source: Option<&str>) -
         .and_then(|src| extract_leading_doc(src, sym.start_byte as usize, sym.end_byte as usize))
         .unwrap_or_default();
 
+    let is_type_def = matches!(
+        sym.kind.as_str(),
+        "class" | "interface" | "enum" | "type_alias"
+    );
+    let use_type_hint = is_type_def
+        && (sym.file_path.ends_with(".go")
+            || sym.file_path.ends_with(".java")
+            || sym.file_path.ends_with(".kt")
+            || sym.file_path.ends_with(".scala"));
+
     let mut text = if docstring.is_empty() {
-        // Fallback: extract the first few meaningful lines from the function
-        // body. This captures key API calls (e.g. "tree_sitter::Parser",
-        // "stdin()") that help the embedding model match NL queries to
-        // symbols without docs.
+        // Type definitions in JVM/Go code often carry the real domain terms
+        // in their fields, so they need a wider hint window than functions.
         let body_hint = source
-            .and_then(|src| extract_body_hint(src, sym.start_byte as usize, sym.end_byte as usize))
+            .and_then(|src| {
+                if use_type_hint {
+                    extract_body_hint_for_type(src, sym.start_byte as usize, sym.end_byte as usize)
+                } else {
+                    extract_body_hint(src, sym.start_byte as usize, sym.end_byte as usize)
+                }
+            })
             .unwrap_or_default();
         if body_hint.is_empty() {
             base
@@ -2076,6 +2093,8 @@ const DEFAULT_HINT_TOTAL_CHAR_BUDGET: usize = 60;
 /// Maximum number of meaningful lines to collect from a function body.
 /// Overridable via `CODELENS_EMBED_HINT_LINES` (clamped to 1..=10).
 const DEFAULT_HINT_LINES: usize = 1;
+const TYPE_DEF_HINT_LINES: usize = 4;
+const TYPE_DEF_HINT_CHAR_BUDGET: usize = 200;
 
 fn hint_char_budget() -> usize {
     std::env::var("CODELENS_EMBED_HINT_CHARS")
@@ -2100,6 +2119,10 @@ fn hint_line_budget() -> usize {
 /// structural boundary between logically distinct body snippets. The final
 /// result is truncated with a trailing "..." on char-boundaries only.
 fn join_hint_lines(lines: &[String]) -> String {
+    join_hint_lines_with_budget(lines, hint_char_budget())
+}
+
+fn join_hint_lines_with_budget(lines: &[String], budget: usize) -> String {
     if lines.is_empty() {
         return String::new();
     }
@@ -2108,7 +2131,6 @@ fn join_hint_lines(lines: &[String]) -> String {
         .map(String::as_str)
         .collect::<Vec<_>>()
         .join(" · ");
-    let budget = hint_char_budget();
     if joined.chars().count() > budget {
         let truncated: String = joined.chars().take(budget).collect();
         format!("{truncated}...")
@@ -2127,6 +2149,26 @@ fn join_hint_lines(lines: &[String]) -> String {
 /// close the NL-query gap (MRR 0.528) on cases where the discriminating
 /// keyword lives in line 2 or 3 of the body.
 fn extract_body_hint(source: &str, start: usize, end: usize) -> Option<String> {
+    extract_body_hint_budgeted(source, start, end, hint_line_budget(), hint_char_budget())
+}
+
+fn extract_body_hint_for_type(source: &str, start: usize, end: usize) -> Option<String> {
+    extract_body_hint_budgeted(
+        source,
+        start,
+        end,
+        TYPE_DEF_HINT_LINES,
+        TYPE_DEF_HINT_CHAR_BUDGET,
+    )
+}
+
+fn extract_body_hint_budgeted(
+    source: &str,
+    start: usize,
+    end: usize,
+    max_lines: usize,
+    char_budget: usize,
+) -> Option<String> {
     if start >= source.len() || end > source.len() || start >= end {
         return None;
     }
@@ -2143,7 +2185,6 @@ fn extract_body_hint(source: &str, start: usize, end: usize) -> Option<String> {
     };
     let body = &source[safe_start..safe_end];
 
-    let max_lines = hint_line_budget();
     let mut collected: Vec<String> = Vec::with_capacity(max_lines);
 
     // Skip past the signature: everything until we see a line ending with '{' or ':'
@@ -2177,7 +2218,7 @@ fn extract_body_hint(source: &str, start: usize, end: usize) -> Option<String> {
     if collected.is_empty() {
         None
     } else {
-        Some(join_hint_lines(&collected))
+        Some(join_hint_lines_with_budget(&collected, char_budget))
     }
 }
 
@@ -3280,6 +3321,29 @@ fn route_request() {
 
         assert!(all_three, "missing one of three body lines: {hint}");
         assert!(has_separator, "missing · separator: {hint}");
+    }
+
+    #[test]
+    fn extract_body_hint_for_type_keeps_multiple_go_fields() {
+        let source = "\
+type Engine struct {
+    RouterGroup RouterGroup
+    trees methodTrees
+    maxParams uint16
+    trustedProxies []string
+}
+";
+
+        let hint = extract_body_hint_for_type(source, 0, source.len()).expect("hint present");
+
+        assert!(hint.contains("RouterGroup"), "missing first field: {hint}");
+        assert!(hint.contains("trees"), "missing second field: {hint}");
+        assert!(hint.contains("maxParams"), "missing third field: {hint}");
+        assert!(
+            hint.contains("trustedProxies"),
+            "missing fourth field: {hint}"
+        );
+        assert!(hint.contains(" · "), "missing separators: {hint}");
     }
 
     // Note: we intentionally do NOT have a test that verifies the "default"
