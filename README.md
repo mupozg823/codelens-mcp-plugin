@@ -150,14 +150,14 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 ## Why CodeLens?
 
-|                       | CodeLens                             | Read/Grep baseline           |
-| --------------------- | ------------------------------------ | ---------------------------- |
-| **Token cost**        | 50-87% less                          | Full file content every time |
-| **Context quality**   | Ranked, bounded, structured          | Raw text, no prioritization  |
-| **Multi-file impact** | 1 tool call                          | 5-10 grep + read cycles      |
-| **Runtime**           | Single Rust binary, <12ms cold start | N/A                          |
-| **Language support**  | 25 languages, zero runtime deps      | N/A                          |
-| **Agent awareness**   | Doom-loop detection, mutation gates  | None                         |
+|                       | CodeLens                                   | Read/Grep baseline           |
+| --------------------- | ------------------------------------------ | ---------------------------- |
+| **Token cost**        | 50-87% less                                | Full file content every time |
+| **Context quality**   | Ranked, bounded, structured                | Raw text, no prioritization  |
+| **Multi-file impact** | 1 tool call                                | 5-10 grep + read cycles      |
+| **Runtime**           | Single Rust binary, <12ms cold start       | N/A                          |
+| **Language support**  | 25 languages, single self-contained binary | N/A                          |
+| **Agent awareness**   | Doom-loop detection, mutation gates        | None                         |
 
 ## Key Features
 
@@ -213,7 +213,7 @@ verify_change_readiness → "ready" → rename_symbol
 
 Python, JavaScript, TypeScript, TSX, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, C#, Dart, Lua, Zig, Elixir, Haskell, OCaml, Erlang, R, Bash, Julia
 
-All via statically-linked tree-sitter grammars. Zero runtime dependencies.
+All via statically-linked tree-sitter grammars. Ships its own SQLite, vector store, and ONNX runtime — no external services required.
 
 ## Performance
 
