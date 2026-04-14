@@ -701,14 +701,15 @@ fn expand_retrieval_query(query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_embedding_search,
-        semantic_query_for_retrieval,
+        analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_retrieval,
     };
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
     };
 
+    #[cfg(feature = "semantic")]
+    use super::semantic_query_for_embedding_search;
     #[cfg(feature = "semantic")]
     use super::{rerank_semantic_matches, semantic_adjusted_score_parts};
     #[cfg(feature = "semantic")]
