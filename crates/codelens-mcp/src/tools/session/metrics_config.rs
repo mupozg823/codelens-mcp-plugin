@@ -1097,6 +1097,9 @@ mod capability_reporting_tests {
                 .unwrap_or(0)
         ));
         std::fs::create_dir_all(&tempdir).expect("mkdir tempdir");
+        #[cfg(windows)]
+        let fake_binary = tempdir.join("phase4a-fake-lsp-server.cmd");
+        #[cfg(not(windows))]
         let fake_binary = tempdir.join("phase4a-fake-lsp-server");
         std::fs::write(&fake_binary, "").expect("touch fake binary");
 
