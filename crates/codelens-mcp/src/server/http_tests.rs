@@ -1152,6 +1152,89 @@ async fn codex_surface_blocked_tool_call_returns_bootstrap_recovery_contract() {
 }
 
 #[tokio::test]
+async fn claude_surface_blocked_tool_call_returns_bootstrap_recovery_contract() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":12,"method":"initialize","params":{"clientInfo":{"name":"Claude Code","version":"1.0.0"},"profile":"reviewer-graph"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let blocked = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"read_memory","arguments":{"memory_name":"missing-memory"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(blocked.status(), StatusCode::OK);
+    let blocked_body = body_string(blocked).await;
+    let blocked_payload = first_tool_payload(&blocked_body);
+    assert_eq!(blocked_payload["success"], serde_json::json!(false));
+    assert!(blocked_body.contains("not available in active surface"));
+    assert_eq!(
+        blocked_payload["orchestration_contract"]["host_id"],
+        serde_json::json!("claude-code")
+    );
+    assert_eq!(
+        blocked_payload["orchestration_contract"]["active_surface"],
+        serde_json::json!("reviewer-graph")
+    );
+    assert!(
+        blocked_payload["recovery_actions"]
+            .as_array()
+            .map(|items| items.iter().any(|item| {
+                item["kind"] == serde_json::json!("tool_call")
+                    && item["target"] == serde_json::json!("prepare_harness_session")
+            }))
+            .unwrap_or(false)
+    );
+    assert!(
+        blocked_payload["recovery_actions"]
+            .as_array()
+            .map(|items| items.iter().any(|item| {
+                item["kind"] == serde_json::json!("rpc_call")
+                    && item["target"] == serde_json::json!("tools/list")
+                    && item["arguments"]["full"] == serde_json::json!(true)
+            }))
+            .unwrap_or(false)
+    );
+    assert!(
+        blocked_payload["recommended_next_steps"]
+            .as_array()
+            .map(|items| items
+                .iter()
+                .any(|item| item["target"] == serde_json::json!("host_orchestrator")))
+            .unwrap_or(false)
+    );
+}
+
+#[tokio::test]
 async fn codex_missing_param_error_exposes_protocol_diagnostics() {
     let state = test_state();
     state.set_surface(crate::tool_defs::ToolSurface::Profile(

@@ -948,6 +948,63 @@ mod tests {
     }
 
     #[test]
+    fn stdio_claude_surface_blocked_tool_call_returns_bootstrap_recovery_contract() {
+        let state = test_state();
+
+        let init = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":32,"method":"initialize","params":{"_session_id":"stdio-claude-blocked","clientInfo":{"name":"Claude Code","version":"1.0.0"},"profile":"reviewer-graph"}}
+"#,
+        );
+        let init_value = response_value(&init);
+        assert_eq!(init_value["result"]["serverInfo"]["name"], json!("codelens-mcp"));
+
+        let blocked = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":33,"method":"tools/call","params":{"name":"read_memory","arguments":{"memory_name":"missing-memory","_session_id":"stdio-claude-blocked"}}}
+"#,
+        );
+        let blocked_payload = first_tool_payload(&blocked);
+        assert_eq!(blocked_payload["success"], json!(false));
+        assert!(blocked.contains("not available in active surface"));
+        assert_eq!(
+            blocked_payload["orchestration_contract"]["host_id"],
+            json!("claude-code")
+        );
+        assert_eq!(
+            blocked_payload["orchestration_contract"]["active_surface"],
+            json!("reviewer-graph")
+        );
+        assert!(
+            blocked_payload["recovery_actions"]
+                .as_array()
+                .map(|items| items.iter().any(|item| {
+                    item["kind"] == json!("tool_call")
+                        && item["target"] == json!("prepare_harness_session")
+                }))
+                .unwrap_or(false)
+        );
+        assert!(
+            blocked_payload["recovery_actions"]
+                .as_array()
+                .map(|items| items.iter().any(|item| {
+                    item["kind"] == json!("rpc_call")
+                        && item["target"] == json!("tools/list")
+                        && item["arguments"]["full"] == json!(true)
+                }))
+                .unwrap_or(false)
+        );
+        assert!(
+            blocked_payload["recommended_next_steps"]
+                .as_array()
+                .map(|items| items
+                    .iter()
+                    .any(|item| item["target"] == json!("host_orchestrator")))
+                .unwrap_or(false)
+        );
+    }
+
+    #[test]
     fn stdio_logical_session_persists_namespace_expansion_and_allows_hidden_tool_calls() {
         let state = test_state();
         state.set_surface(crate::tool_defs::ToolSurface::Profile(
