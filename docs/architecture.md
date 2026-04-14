@@ -3,14 +3,14 @@
 > Pure Rust MCP server and harness optimization tool for code intelligence
 > 3 crates in the workspace | 2 primary runtime boundaries | 25 languages | tree-sitter-first
 
-## Current Snapshot (2026-04-13)
+## Current Snapshot (2026-04-15)
 
-- Workspace version: `1.9.14`
-- Registered tool definitions in source: `101` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
-- Tool output schemas in source: `65 / 101`
+- Workspace version: `1.9.26`
+- Registered tool definitions in source: `103` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
+- Tool output schemas in source: `81 / 103`
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
-- Current release notes: [docs/release-notes/v1.9.14.md](release-notes/v1.9.14.md)
+- Current release notes: [docs/release-notes/v1.9.26.md](release-notes/v1.9.26.md)
 - Current release verification guide: [docs/release-verification.md](release-verification.md)
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
@@ -55,13 +55,13 @@ Rules:
 
 CodeLens is currently packaged and deployed through four user-facing channels and one source path:
 
-| Channel | Current shape | Notes |
-| ------- | ------------- | ----- |
-| crates.io | `cargo install codelens-mcp` | Fastest path for Rust users |
-| GitHub Releases | prebuilt tar/zip artifacts | `darwin-arm64`, `linux-x86_64`, `windows-x86_64` |
-| Homebrew tap | `brew install mupozg823/tap/codelens-mcp` | Generated from release checksums in CI |
-| Installer script | `install.sh` | Convenience wrapper over published binaries |
-| Source build | `cargo build --release` | Required for custom feature combinations |
+| Channel          | Current shape                             | Notes                                            |
+| ---------------- | ----------------------------------------- | ------------------------------------------------ |
+| crates.io        | `cargo install codelens-mcp`              | Fastest path for Rust users                      |
+| GitHub Releases  | prebuilt tar/zip artifacts                | `darwin-arm64`, `linux-x86_64`, `windows-x86_64` |
+| Homebrew tap     | `brew install mupozg823/tap/codelens-mcp` | Generated from release checksums in CI           |
+| Installer script | `install.sh`                              | Convenience wrapper over published binaries      |
+| Source build     | `cargo build --release`                   | Required for custom feature combinations         |
 
 Operational deployment modes:
 
@@ -140,7 +140,7 @@ Use repo-local contracts alongside this document:
 
 ```
 codelens-mcp-plugin/
-├── Cargo.toml                            # Workspace: 2 crates, 25 tree-sitter deps
+├── Cargo.toml                            # Workspace: 3 crates, shared dependency graph
 ├── CLAUDE.md                             # AI agent instructions (harness routing)
 ├── AGENTS.md                             # Agent role contracts
 ├── EVAL_CONTRACT.md                      # Verification command contracts
@@ -244,7 +244,7 @@ codelens-mcp-plugin/
 │           ├── tool_defs/                # Tool registration
 │           │   ├── mod.rs
 │           │   ├── build.rs              # registered tool definitions (central registry)
-│           │   ├── output_schemas.rs     # 45 output schemas
+│           │   ├── output_schemas.rs     # output schema builders
 │           │   └── presets.rs            # FULL/BALANCED/MINIMAL + profiles
 │           │
 │           ├── server/                   # Transport layer
@@ -258,7 +258,7 @@ codelens-mcp-plugin/
 │           └── tools/                    # Tool handler implementations
 │               ├── mod.rs                # Dispatch table + suggest_next_tools
 │               ├── symbols.rs            # Symbol lookup handlers
-│               ├── workflows.rs          # Workflow-first alias layer for agent entrypoints
+│               ├── workflows.rs          # Canonical workflow entrypoints + compatibility aliases
 │               ├── lsp.rs                # LSP-backed handlers
 │               ├── graph.rs              # Analysis graph handlers
 │               ├── filesystem.rs         # File I/O handlers
@@ -448,7 +448,7 @@ MINIMAL  (20)   ██████████████                      
 
 ### Output Schemas
 
-- **65 of 101 tools** declare a JSON output schema in the current source tree
+- **81 of 103 tools** declare a JSON output schema in the current source tree
 - All read handles (`analysis_handle`), mutation results, and primary symbol/reference payloads are schema-typed
 - Response annotations include `_meta["anthropic/maxResultSizeChars"]` per MCP v2.1.91+
 
@@ -544,7 +544,7 @@ All mutation tools are gated:
 │  │                                                   │  │
 │  │  ✅ Streamable HTTP + SSE                         │  │
 │  │  ✅ Tool Annotations (readOnly/destructive)       │  │
-│  │  ✅ Tool Output Schemas (65/101 tools)            │  │
+│  │  ✅ Tool Output Schemas (81/103 tools)            │  │
 │  │  ✅ Preset + Role Profile subsetting              │  │
 │  │  ✅ Token budget control (_profile)               │  │
 │  │  ✅ Adaptive compression (OpenDev 5-stage)        │  │
@@ -579,7 +579,7 @@ Use the **Current Snapshot** above and `docs/benchmarks.md` for current measurem
 | Tools (FULL / BALANCED / MINIMAL) | 89 / 55 / 20                                                                           |
 | Tool categories (base)            | File 7 · Symbol 7 · LSP 7 · Analysis 7 · Edit 17 · Workflow 17 · Memory 5 · Session 16 |
 | Semantic tools (cfg-gated)        | 6                                                                                      |
-| Output schemas                    | historical snapshot, superseded by current `65 / 101` snapshot above                   |
+| Output schemas                    | historical snapshot, superseded by current `81 / 103` snapshot above                   |
 | Languages                         | 25 (+ Perl deferred)                                                                   |
 | Tests                             | historical snapshot, superseded by current gate totals                                 |
 | Clippy                            | 0 warnings (default + http feature)                                                    |
@@ -595,24 +595,24 @@ Use the **Current Snapshot** above and `docs/benchmarks.md` for current measurem
 
 ### Performance Snapshot
 
-| Operation            | Latency                            | Source                       |
-| -------------------- | ---------------------------------- | ---------------------------- |
-| find_symbol          | <1ms                              | SQLite FTS5               |
-| get_symbols_overview | <1ms                              | Cached                    |
-| get_ranked_context   | ~135ms (hybrid) / ~39ms (lexical) | self regression benchmark |
-| get_impact_analysis  | ~1ms                              | Graph cache               |
-| semantic_search      | ~507ms                            | self regression benchmark |
+| Operation            | Latency                           | Source                      |
+| -------------------- | --------------------------------- | --------------------------- |
+| find_symbol          | <1ms                              | SQLite FTS5                 |
+| get_symbols_overview | <1ms                              | Cached                      |
+| get_ranked_context   | ~135ms (hybrid) / ~39ms (lexical) | self regression benchmark   |
+| get_impact_analysis  | ~1ms                              | Graph cache                 |
+| semantic_search      | ~507ms                            | self regression benchmark   |
 | Project onboard      | ~21ms                             | benchmarks/token-efficiency |
-| Cold start           | ~12ms                             | No LSP boot               |
+| Cold start           | ~12ms                             | No LSP boot                 |
 
 ### Quality Snapshot (Current Regression Tiers)
 
-| Dataset | Semantic MRR | Lexical MRR | Hybrid MRR | Notes |
-| ------- | ------------: | ----------: | ---------: | ----- |
-| Self regression (`104` queries) | 0.798 | 0.614 | **0.841** | Mixed identifier, short-phrase, and natural-language queries on this repo |
-| Role regression (`70` queries) | 0.900 | 0.832 | **0.962** | Workflow-style phrasing and implementation ownership queries |
-| External smoke: Flask (`20` queries) | **0.577** | 0.363 | 0.563 | Python app repo; semantic still slightly ahead hybrid |
-| External smoke: curl (`18` queries) | 0.555 | 0.512 | **0.623** | C systems repo; hybrid leads both standalone paths |
+| Dataset                              | Semantic MRR | Lexical MRR | Hybrid MRR | Notes                                                                     |
+| ------------------------------------ | -----------: | ----------: | ---------: | ------------------------------------------------------------------------- |
+| Self regression (`104` queries)      |        0.798 |       0.614 |  **0.841** | Mixed identifier, short-phrase, and natural-language queries on this repo |
+| Role regression (`70` queries)       |        0.900 |       0.832 |  **0.962** | Workflow-style phrasing and implementation ownership queries              |
+| External smoke: Flask (`20` queries) |    **0.577** |       0.363 |      0.563 | Python app repo; semantic still slightly ahead hybrid                     |
+| External smoke: curl (`18` queries)  |        0.555 |       0.512 |  **0.623** | C systems repo; hybrid leads both standalone paths                        |
 
 - Hybrid remains the default product path because it is strongest on both promoted internal regression sets and on the curl external smoke set.
 - Flask is a visible calibration gap rather than hidden drift; external smoke evidence is published, but it is not yet a promotion-grade multi-language matrix.

@@ -1353,8 +1353,8 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     assert!(body.contains("\"loaded_namespaces\":[]"));
     assert!(body.contains("\"loaded_tiers\":[]"));
     assert!(body.contains("\"review_architecture\""));
-    assert!(body.contains("\"analyze_change_impact\""));
-    assert!(body.contains("\"audit_security_context\""));
+    assert!(body.contains("\"review_changes\""));
+    assert!(body.contains("\"cleanup_duplicate_logic\""));
     assert!(!body.contains("\"find_symbol\""));
     assert!(!body.contains("\"read_file\""));
     let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
@@ -1373,8 +1373,8 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
         tool_names.iter().take(3).cloned().collect::<Vec<_>>(),
         vec![
             "review_architecture".to_owned(),
-            "analyze_change_impact".to_owned(),
-            "audit_security_context".to_owned(),
+            "review_changes".to_owned(),
+            "cleanup_duplicate_logic".to_owned(),
         ]
     );
 }
@@ -1429,7 +1429,7 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
     assert!(body.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
     assert!(body.contains("\"tool_count\":"));
     assert!(body.contains("\"plan_safe_refactor\""));
-    assert!(body.contains("\"analyze_change_impact\""));
+    assert!(body.contains("\"review_changes\""));
     assert!(body.contains("\"trace_request_path\""));
     assert!(body.contains("\"activate_project\""));
     assert!(body.contains("\"set_profile\""));
@@ -1455,7 +1455,7 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
         tool_names.iter().take(3).cloned().collect::<Vec<_>>(),
         vec![
             "plan_safe_refactor".to_owned(),
-            "analyze_change_impact".to_owned(),
+            "review_changes".to_owned(),
             "trace_request_path".to_owned(),
         ]
     );

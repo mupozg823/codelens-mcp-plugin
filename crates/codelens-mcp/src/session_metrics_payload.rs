@@ -1,4 +1,5 @@
 use crate::AppState;
+use crate::tool_defs::canonical_tool_name;
 use serde_json::{Map, Value, json};
 
 pub(crate) struct SessionMetricsPayload {
@@ -390,7 +391,7 @@ fn infer_session_type(timeline: &[crate::telemetry::ToolInvocation]) -> &'static
     let mut refactor_count = 0u32;
 
     for entry in timeline {
-        match entry.tool.as_str() {
+        match canonical_tool_name(&entry.tool) {
             "rename_symbol"
             | "replace_symbol_body"
             | "replace_content"
@@ -409,8 +410,8 @@ fn infer_session_type(timeline: &[crate::telemetry::ToolInvocation]) -> &'static
             | "get_impact_analysis"
             | "diff_aware_references"
             | "review_architecture"
-            | "analyze_change_impact"
-            | "audit_security_context"
+            | "review_changes"
+            | "semantic_code_review"
             | "cleanup_duplicate_logic"
             | "impact_report"
             | "verify_change_readiness" => review_count += 1,

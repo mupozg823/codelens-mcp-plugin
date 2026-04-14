@@ -346,6 +346,11 @@ fn slim_text_payload_for_async_job(
     );
 
     let mut text_data = Map::new();
+    copy_summarized_field(&mut text_data, data, "workflow");
+    copy_summarized_field(&mut text_data, data, "delegated_tool");
+    copy_summarized_field(&mut text_data, data, "deprecated");
+    copy_summarized_field(&mut text_data, data, "replacement_tool");
+    copy_summarized_field(&mut text_data, data, "removal_target");
     copy_summarized_field(&mut text_data, data, "job_id");
     copy_summarized_field(&mut text_data, data, "kind");
     copy_summarized_field(&mut text_data, data, "status");
@@ -369,6 +374,9 @@ fn slim_text_payload_for_async_handle(
     structured_content: Option<&Value>,
 ) -> Option<Value> {
     let data = structured_content?.as_object()?;
+    if data.contains_key("section") || data.contains_key("content") {
+        return None;
+    }
     data.get("analysis_id")?.as_str()?;
 
     let mut payload = Map::new();
@@ -438,6 +446,11 @@ fn slim_text_payload_for_async_handle(
     );
 
     let mut text_data = Map::new();
+    copy_summarized_field(&mut text_data, data, "workflow");
+    copy_summarized_field(&mut text_data, data, "delegated_tool");
+    copy_summarized_field(&mut text_data, data, "deprecated");
+    copy_summarized_field(&mut text_data, data, "replacement_tool");
+    copy_summarized_field(&mut text_data, data, "removal_target");
     copy_summarized_field(&mut text_data, data, "analysis_id");
     copy_summarized_field(&mut text_data, data, "summary");
     copy_summarized_field(&mut text_data, data, "readiness");
@@ -479,7 +492,151 @@ fn summarize_text_data_for_response(value: &Value) -> Value {
         return summarize_bootstrap_text_data(object);
     }
 
+    if object.contains_key("runtime")
+        && object.contains_key("project_root")
+        && object.contains_key("available_backends")
+        && object.contains_key("symbol_index")
+    {
+        return summarize_current_config_text_data(object);
+    }
+
+    if object.contains_key("activated")
+        && object.contains_key("project_name")
+        && object.contains_key("auto_surface")
+    {
+        return summarize_activate_project_text_data(object);
+    }
+
+    if object.contains_key("per_tool")
+        && object.contains_key("per_surface")
+        && object.contains_key("session")
+        && object.contains_key("derived_kpis")
+    {
+        return summarize_tool_metrics_text_data(object);
+    }
+
+    if object.contains_key("diagnostics_guidance")
+        && object.contains_key("semantic_search_status")
+        && object.contains_key("daemon_binary_drift")
+    {
+        return summarize_capabilities_text_data(object);
+    }
+
+    if object.contains_key("workflow") && object.contains_key("delegated_tool") {
+        return summarize_workflow_text_data(object);
+    }
+
+    if object.contains_key("running") && object.contains_key("lock_contention_batches") {
+        return summarize_watch_status_text_data(object);
+    }
+
     summarize_text_object(object, 0)
+}
+
+fn summarize_current_config_text_data(source: &Map<String, Value>) -> Value {
+    let mut out = Map::new();
+    copy_summarized_field(&mut out, source, "runtime");
+    copy_summarized_field(&mut out, source, "project_root");
+    copy_summarized_field(&mut out, source, "editor_integration");
+    copy_summarized_field(&mut out, source, "available_backends");
+    copy_summarized_field(&mut out, source, "symbol_index");
+    copy_summarized_field(&mut out, source, "surface");
+    copy_summarized_field(&mut out, source, "token_budget");
+    copy_summarized_field(&mut out, source, "tool_count");
+    copy_summarized_field(&mut out, source, "client_profile");
+    copy_summarized_field(&mut out, source, "frameworks");
+    copy_summarized_field(&mut out, source, "workspace_packages");
+    copy_summarized_field(&mut out, source, "config_policy");
+    Value::Object(out)
+}
+
+fn summarize_activate_project_text_data(source: &Map<String, Value>) -> Value {
+    let mut out = Map::new();
+    copy_summarized_field(&mut out, source, "activated");
+    copy_summarized_field(&mut out, source, "switched");
+    copy_summarized_field(&mut out, source, "project_name");
+    copy_summarized_field(&mut out, source, "project_base_path");
+    copy_summarized_field(&mut out, source, "backend_id");
+    copy_summarized_field(&mut out, source, "memory_count");
+    copy_summarized_field(&mut out, source, "serena_memories_dir");
+    copy_summarized_field(&mut out, source, "file_watcher");
+    copy_summarized_field(&mut out, source, "frameworks");
+    copy_summarized_field(&mut out, source, "auto_surface");
+    copy_summarized_field(&mut out, source, "auto_budget");
+    copy_summarized_field(&mut out, source, "indexed_files");
+    copy_summarized_field(&mut out, source, "embedding_ready");
+    Value::Object(out)
+}
+
+fn summarize_tool_metrics_text_data(source: &Map<String, Value>) -> Value {
+    let mut out = Map::new();
+    copy_summarized_field(&mut out, source, "tools");
+    copy_summarized_field(&mut out, source, "per_tool");
+    copy_summarized_field(&mut out, source, "count");
+    copy_summarized_field(&mut out, source, "surfaces");
+    copy_summarized_field(&mut out, source, "per_surface");
+    copy_summarized_field(&mut out, source, "session");
+    copy_summarized_field(&mut out, source, "derived_kpis");
+    Value::Object(out)
+}
+
+fn summarize_capabilities_text_data(source: &Map<String, Value>) -> Value {
+    let mut out = Map::new();
+    copy_summarized_field(&mut out, source, "language");
+    copy_summarized_field(&mut out, source, "lsp_attached");
+    copy_summarized_field(&mut out, source, "intelligence_sources");
+    copy_summarized_field(&mut out, source, "diagnostics_guidance");
+    copy_summarized_field(&mut out, source, "semantic_search_status");
+    copy_summarized_field(&mut out, source, "semantic_search_guidance");
+    copy_summarized_field(&mut out, source, "embedding_model");
+    copy_summarized_field(&mut out, source, "embedding_indexed");
+    copy_summarized_field(&mut out, source, "embedding_indexed_symbols");
+    copy_summarized_field(&mut out, source, "index_fresh");
+    copy_summarized_field(&mut out, source, "indexed_files");
+    copy_summarized_field(&mut out, source, "supported_files");
+    copy_summarized_field(&mut out, source, "stale_files");
+    copy_summarized_field(&mut out, source, "health_summary");
+    copy_summarized_field(&mut out, source, "available");
+    copy_summarized_field(&mut out, source, "unavailable");
+    copy_summarized_field(&mut out, source, "daemon_binary_drift");
+    copy_summarized_field(&mut out, source, "scip_available");
+    copy_summarized_field(&mut out, source, "scip_file_count");
+    copy_summarized_field(&mut out, source, "scip_symbol_count");
+    Value::Object(out)
+}
+
+fn summarize_workflow_text_data(source: &Map<String, Value>) -> Value {
+    let mut out = Map::new();
+    copy_summarized_field(&mut out, source, "workflow");
+    copy_summarized_field(&mut out, source, "delegated_tool");
+    copy_summarized_field(&mut out, source, "deprecated");
+    copy_summarized_field(&mut out, source, "replacement_tool");
+    copy_summarized_field(&mut out, source, "removal_target");
+
+    for key in source.keys() {
+        if out.contains_key(key) {
+            continue;
+        }
+        copy_summarized_field(&mut out, source, key);
+    }
+
+    Value::Object(out)
+}
+
+fn summarize_watch_status_text_data(source: &Map<String, Value>) -> Value {
+    let mut out = Map::new();
+    copy_summarized_field(&mut out, source, "running");
+    copy_summarized_field(&mut out, source, "events_processed");
+    copy_summarized_field(&mut out, source, "files_reindexed");
+    copy_summarized_field(&mut out, source, "lock_contention_batches");
+    copy_summarized_field(&mut out, source, "index_failures");
+    copy_summarized_field(&mut out, source, "index_failures_total");
+    copy_summarized_field(&mut out, source, "stale_index_failures");
+    copy_summarized_field(&mut out, source, "persistent_index_failures");
+    copy_summarized_field(&mut out, source, "pruned_missing_failures");
+    copy_summarized_field(&mut out, source, "recent_failure_window_seconds");
+    copy_summarized_field(&mut out, source, "note");
+    Value::Object(out)
 }
 
 fn summarize_bootstrap_text_data(source: &Map<String, Value>) -> Value {
@@ -558,8 +715,13 @@ fn summarize_text_object(source: &Map<String, Value>, depth: usize) -> Value {
         }
         summarized.insert(key.clone(), summarize_text_value(value, depth + 1));
     }
-    if source.contains_key("truncated") {
-        summarized.insert("truncated".to_owned(), Value::Bool(true));
+    if !summarized.contains_key("truncated")
+        && let Some(value) = source.get("truncated")
+    {
+        summarized.insert(
+            "truncated".to_owned(),
+            summarize_structured_content(value, depth + 1),
+        );
     }
     Value::Object(summarized)
 }

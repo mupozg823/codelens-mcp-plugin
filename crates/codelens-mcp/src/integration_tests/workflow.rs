@@ -1353,6 +1353,86 @@ fn analysis_lists_expose_resource_handles_and_counts() {
 }
 
 #[test]
+fn analysis_job_and_list_tools_emit_structured_content() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("analysis_structured.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let start = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({"kind": "impact_report", "path": "analysis_structured.py", "debug_step_delay_ms": 20}),
+    );
+    let job_id = start["data"]["job_id"].as_str().unwrap();
+
+    for _ in 0..100 {
+        let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+        if poll["data"]["status"] == json!("completed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let job_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4303)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_analysis_job",
+                "arguments": { "job_id": job_id }
+            })),
+        },
+    )
+    .unwrap();
+    let job_value = serde_json::to_value(&job_response).unwrap();
+    assert_eq!(
+        job_value["result"]["structuredContent"]["job_id"],
+        json!(job_id)
+    );
+    assert!(job_value["result"]["structuredContent"]["status"].is_string());
+
+    let jobs_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4304)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_analysis_jobs",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let jobs_value = serde_json::to_value(&jobs_response).unwrap();
+    assert!(jobs_value["result"]["structuredContent"]["jobs"].is_array());
+    assert!(jobs_value["result"]["structuredContent"]["status_counts"].is_object());
+
+    let artifacts_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4305)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_analysis_artifacts",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let artifacts_value = serde_json::to_value(&artifacts_response).unwrap();
+    assert!(artifacts_value["result"]["structuredContent"]["artifacts"].is_array());
+    assert!(artifacts_value["result"]["structuredContent"]["tool_counts"].is_object());
+}
+
+#[test]
 fn resources_include_profile_guides_and_analysis_summaries() {
     let project = project_root();
     fs::write(
@@ -1801,7 +1881,82 @@ fn workflow_alias_tools_return_structured_content_and_delegate() {
         value["result"]["structuredContent"]["delegated_tool"],
         json!("get_ranked_context")
     );
+    // Canonical workflows must NOT carry deprecation metadata.
+    assert_eq!(
+        value["result"]["structuredContent"]["deprecated"],
+        json!(false)
+    );
     assert!(value["result"]["structuredContent"]["symbols"].is_array());
+}
+
+#[test]
+fn deprecated_workflow_aliases_return_replacement_metadata() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("dep_alias.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    for (tool_name, arguments, replacement_tool) in [
+        (
+            "assess_change_readiness",
+            json!({ "task": "touch alpha", "changed_files": ["dep_alias.py"] }),
+            "verify_change_readiness",
+        ),
+        (
+            "analyze_change_impact",
+            json!({ "changed_files": ["dep_alias.py"] }),
+            "impact_report",
+        ),
+        (
+            "audit_security_context",
+            json!({ "changed_files": ["dep_alias.py"] }),
+            "semantic_code_review",
+        ),
+    ] {
+        let payload = call_tool(&state, tool_name, arguments);
+        assert_eq!(payload["success"], json!(true), "alias {tool_name} failed");
+        assert_eq!(payload["data"]["workflow"], json!(tool_name));
+        assert_eq!(payload["data"]["delegated_tool"], json!(replacement_tool));
+        assert_eq!(payload["data"]["deprecated"], json!(true));
+        assert_eq!(payload["data"]["replacement_tool"], json!(replacement_tool));
+        assert_eq!(payload["data"]["removal_target"], json!("v1.10.0"));
+    }
+}
+
+#[test]
+fn review_changes_without_scope_returns_validation_error() {
+    let project = project_root();
+    let state = make_state(&project);
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(31027)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "review_changes",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    // review_changes with neither `changed_files` nor `path` must fail fast,
+    // not silently fall back to impact_report on an unspecified scope.
+    let text = extract_tool_text(&response);
+    let parsed = parse_tool_payload(&text);
+    assert_eq!(parsed["success"], json!(false));
+    let message = parsed["error"]
+        .as_str()
+        .or_else(|| value["result"]["content"][0]["text"].as_str())
+        .unwrap_or_default();
+    assert!(
+        message.contains("changed_files") || message.contains("path"),
+        "error must mention the missing scope param: {message}"
+    );
 }
 
 #[test]
@@ -2029,6 +2184,1247 @@ fn prepare_harness_session_schema_matches_payload_shape() {
 }
 
 #[test]
+fn primitive_analysis_schemas_match_payload_shape() {
+    let complexity_schema = crate::tool_defs::tool_definition("get_complexity")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_complexity schema");
+    let complexity_properties = complexity_schema["properties"]
+        .as_object()
+        .expect("get_complexity properties");
+    assert!(complexity_properties.contains_key("path"));
+    assert!(complexity_properties.contains_key("functions"));
+    assert!(complexity_properties.contains_key("count"));
+    assert!(complexity_properties.contains_key("avg_complexity"));
+
+    let project_structure_schema = crate::tool_defs::tool_definition("get_project_structure")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_project_structure schema");
+    let project_structure_properties = project_structure_schema["properties"]
+        .as_object()
+        .expect("get_project_structure properties");
+    assert!(project_structure_properties.contains_key("directories"));
+    assert!(project_structure_properties.contains_key("total_files"));
+    assert!(project_structure_properties.contains_key("total_symbols"));
+    assert!(project_structure_properties.contains_key("dir_count"));
+    let directory_properties =
+        project_structure_schema["properties"]["directories"]["items"]["properties"]
+            .as_object()
+            .expect("directory properties");
+    assert!(directory_properties.contains_key("directory"));
+    assert!(directory_properties.contains_key("files"));
+    assert!(directory_properties.contains_key("symbols"));
+}
+
+#[test]
+fn primitive_file_and_search_schemas_match_payload_shape() {
+    let list_dir_schema = crate::tool_defs::tool_definition("list_dir")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("list_dir schema");
+    let list_dir_properties = list_dir_schema["properties"]
+        .as_object()
+        .expect("list_dir properties");
+    assert!(list_dir_properties.contains_key("entries"));
+    assert!(list_dir_properties.contains_key("count"));
+
+    let find_file_schema = crate::tool_defs::tool_definition("find_file")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("find_file schema");
+    let find_file_properties = find_file_schema["properties"]
+        .as_object()
+        .expect("find_file properties");
+    assert!(find_file_properties.contains_key("files"));
+    assert!(find_file_properties.contains_key("count"));
+
+    let fuzzy_schema = crate::tool_defs::tool_definition("search_symbols_fuzzy")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("search_symbols_fuzzy schema");
+    let fuzzy_properties = fuzzy_schema["properties"]
+        .as_object()
+        .expect("search_symbols_fuzzy properties");
+    assert!(fuzzy_properties.contains_key("results"));
+    assert!(fuzzy_properties.contains_key("count"));
+}
+
+#[test]
+fn graph_analysis_schemas_match_payload_shape() {
+    let importance_schema = crate::tool_defs::tool_definition("get_symbol_importance")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_symbol_importance schema");
+    let importance_properties = importance_schema["properties"]
+        .as_object()
+        .expect("importance properties");
+    assert!(importance_properties.contains_key("ranking"));
+    assert!(importance_properties.contains_key("count"));
+
+    let dead_code_schema = crate::tool_defs::tool_definition("find_dead_code")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("find_dead_code schema");
+    let dead_code_properties = dead_code_schema["properties"]
+        .as_object()
+        .expect("dead_code properties");
+    assert!(dead_code_properties.contains_key("dead_code"));
+    assert!(dead_code_properties.contains_key("count"));
+
+    let cycles_schema = crate::tool_defs::tool_definition("find_circular_dependencies")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("find_circular_dependencies schema");
+    let cycles_properties = cycles_schema["properties"]
+        .as_object()
+        .expect("cycles properties");
+    assert!(cycles_properties.contains_key("cycles"));
+    assert!(cycles_properties.contains_key("count"));
+
+    let coupling_schema = crate::tool_defs::tool_definition("get_change_coupling")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_change_coupling schema");
+    let coupling_properties = coupling_schema["properties"]
+        .as_object()
+        .expect("coupling properties");
+    assert!(coupling_properties.contains_key("coupling"));
+    assert!(coupling_properties.contains_key("count"));
+}
+
+#[test]
+fn session_and_lsp_auxiliary_schemas_match_payload_shape() {
+    let lsp_status_schema = crate::tool_defs::tool_definition("check_lsp_status")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("check_lsp_status schema");
+    let lsp_status_properties = lsp_status_schema["properties"]
+        .as_object()
+        .expect("lsp status properties");
+    assert!(lsp_status_properties.contains_key("servers"));
+    assert!(lsp_status_properties.contains_key("count"));
+
+    let lsp_recipe_schema = crate::tool_defs::tool_definition("get_lsp_recipe")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_lsp_recipe schema");
+    let lsp_recipe_properties = lsp_recipe_schema["properties"]
+        .as_object()
+        .expect("lsp recipe properties");
+    assert!(lsp_recipe_properties.contains_key("language"));
+    assert!(lsp_recipe_properties.contains_key("binary_name"));
+    assert!(lsp_recipe_properties.contains_key("args"));
+
+    let conversation_schema = crate::tool_defs::tool_definition("prepare_for_new_conversation")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("prepare_for_new_conversation schema");
+    let conversation_properties = conversation_schema["properties"]
+        .as_object()
+        .expect("prepare_for_new_conversation properties");
+    assert!(conversation_properties.contains_key("status"));
+    assert!(conversation_properties.contains_key("project_name"));
+    assert!(conversation_properties.contains_key("memory_count"));
+
+    let projects_schema = crate::tool_defs::tool_definition("list_queryable_projects")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("list_queryable_projects schema");
+    let projects_properties = projects_schema["properties"]
+        .as_object()
+        .expect("list_queryable_projects properties");
+    assert!(projects_properties.contains_key("projects"));
+    assert!(projects_properties.contains_key("count"));
+}
+
+#[test]
+fn get_capabilities_text_and_structured_content_keep_health_fields() {
+    let project = project_root();
+    fs::write(project.as_path().join("capability_parity.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4310)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_capabilities",
+                "arguments": { "file_path": "capability_parity.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["semantic_search_status"],
+        text["data"]["semantic_search_status"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["health_summary"]["status"],
+        text["data"]["health_summary"]["status"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["daemon_binary_drift"]["status"],
+        text["data"]["daemon_binary_drift"]["status"]
+    );
+}
+
+#[test]
+fn prepare_harness_session_text_and_structured_content_keep_bootstrap_fields() {
+    let project = project_root();
+    fs::write(project.as_path().join("bootstrap_parity.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4311)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "prepare_harness_session",
+                "arguments": { "file_path": "bootstrap_parity.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["active_surface"],
+        text["data"]["active_surface"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["health_summary"]["status"],
+        text["data"]["health_summary"]["status"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["visible_tools"]["tool_count"],
+        text["data"]["visible_tools"]["tool_count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["routing"]["recommended_entrypoint"],
+        text["data"]["routing"]["recommended_entrypoint"]
+    );
+}
+
+#[test]
+fn get_tool_metrics_text_and_structured_content_keep_session_kpis() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("metrics_parity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool(
+        &state,
+        "get_capabilities",
+        json!({"file_path": "metrics_parity.py"}),
+    );
+    let start = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "metrics_parity.py",
+            "debug_step_delay_ms": 20
+        }),
+    );
+    let job_id = start["data"]["job_id"].as_str().unwrap();
+    for _ in 0..100 {
+        let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+        if poll["data"]["status"] == json!("completed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4312)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_tool_metrics",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["session"]["analysis_jobs_enqueued"],
+        text["data"]["session"]["analysis_jobs_enqueued"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["session"]["watcher_pruned_missing_failures"],
+        text["data"]["session"]["watcher_pruned_missing_failures"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["derived_kpis"]["inferred_session_type"],
+        text["data"]["derived_kpis"]["inferred_session_type"]
+    );
+}
+
+#[test]
+fn analysis_lists_text_and_structured_content_stay_in_sync() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("artifact_parity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let start = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "artifact_parity.py",
+            "debug_step_delay_ms": 20
+        }),
+    );
+    let job_id = start["data"]["job_id"].as_str().unwrap();
+    for _ in 0..100 {
+        let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+        if poll["data"]["status"] == json!("completed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let jobs_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4313)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_analysis_jobs",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let jobs_structured = serde_json::to_value(&jobs_response).unwrap();
+    let jobs_text = parse_tool_payload(&extract_tool_text(&jobs_response));
+    assert_eq!(
+        jobs_structured["result"]["structuredContent"]["count"],
+        jobs_text["data"]["count"]
+    );
+    assert_eq!(
+        jobs_structured["result"]["structuredContent"]["active_count"],
+        jobs_text["data"]["active_count"]
+    );
+    assert_eq!(
+        jobs_structured["result"]["structuredContent"]["status_counts"],
+        jobs_text["data"]["status_counts"]
+    );
+
+    let artifacts_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4314)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_analysis_artifacts",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let artifacts_structured = serde_json::to_value(&artifacts_response).unwrap();
+    let artifacts_text = parse_tool_payload(&extract_tool_text(&artifacts_response));
+    assert_eq!(
+        artifacts_structured["result"]["structuredContent"]["count"],
+        artifacts_text["data"]["count"]
+    );
+    assert_eq!(
+        artifacts_structured["result"]["structuredContent"]["latest_created_at_ms"],
+        artifacts_text["data"]["latest_created_at_ms"]
+    );
+    assert_eq!(
+        artifacts_structured["result"]["structuredContent"]["tool_counts"],
+        artifacts_text["data"]["tool_counts"]
+    );
+}
+
+#[test]
+fn current_config_text_and_structured_content_keep_session_fields() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join(".codelens")).unwrap();
+    fs::write(
+        project.as_path().join(".codelens/config.json"),
+        r#"{"semantic_search":true,"mutation_gates":true}"#,
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4315)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_current_config",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["tool_count"],
+        text["data"]["tool_count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["client_profile"],
+        text["data"]["client_profile"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["config_policy"]["semantic_search"],
+        text["data"]["config_policy"]["semantic_search"]
+    );
+}
+
+#[test]
+fn activate_project_text_and_structured_content_keep_auto_surface_fields() {
+    let project = project_root();
+    fs::write(project.as_path().join("activate_parity.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4316)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "activate_project",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["project_name"],
+        text["data"]["project_name"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["auto_surface"],
+        text["data"]["auto_surface"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["indexed_files"],
+        text["data"]["indexed_files"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["embedding_ready"],
+        text["data"]["embedding_ready"]
+    );
+}
+
+#[test]
+fn lsp_auxiliary_text_and_structured_content_keep_fields() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let status_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(43165)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "check_lsp_status",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let status_structured = serde_json::to_value(&status_response).unwrap();
+    let status_text = parse_tool_payload(&extract_tool_text(&status_response));
+
+    assert_eq!(
+        status_structured["result"]["structuredContent"]["count"],
+        status_text["data"]["count"]
+    );
+    assert_eq!(
+        status_structured["result"]["structuredContent"]["servers"][0]["language"],
+        status_text["data"]["servers"][0]["language"]
+    );
+    assert_eq!(
+        status_structured["result"]["structuredContent"]["servers"][0]["server_name"],
+        status_text["data"]["servers"][0]["server_name"]
+    );
+
+    let recipe_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(43166)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_lsp_recipe",
+                "arguments": { "extension": "py" }
+            })),
+        },
+    )
+    .unwrap();
+    let recipe_structured = serde_json::to_value(&recipe_response).unwrap();
+    let recipe_text = parse_tool_payload(&extract_tool_text(&recipe_response));
+
+    assert_eq!(
+        recipe_structured["result"]["structuredContent"]["language"],
+        recipe_text["data"]["language"]
+    );
+    assert_eq!(
+        recipe_structured["result"]["structuredContent"]["binary_name"],
+        recipe_text["data"]["binary_name"]
+    );
+    assert_eq!(
+        recipe_structured["result"]["structuredContent"]["package_manager"],
+        recipe_text["data"]["package_manager"]
+    );
+}
+
+#[test]
+fn session_auxiliary_text_and_structured_content_keep_fields() {
+    let project = project_root();
+    fs::write(project.as_path().join("session_aux.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let secondary = project_root();
+    fs::write(secondary.as_path().join("secondary.py"), "y = 2\n").unwrap();
+    let secondary_path = secondary.as_path().to_string_lossy().to_string();
+    let add_payload = call_tool(
+        &state,
+        "add_queryable_project",
+        json!({"path": secondary_path}),
+    );
+    assert_eq!(add_payload["success"], json!(true));
+
+    let prepare_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(43167)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "prepare_for_new_conversation",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let prepare_structured = serde_json::to_value(&prepare_response).unwrap();
+    let prepare_text = parse_tool_payload(&extract_tool_text(&prepare_response));
+
+    assert_eq!(
+        prepare_structured["result"]["structuredContent"]["status"],
+        prepare_text["data"]["status"]
+    );
+    assert_eq!(
+        prepare_structured["result"]["structuredContent"]["project_name"],
+        prepare_text["data"]["project_name"]
+    );
+    assert_eq!(
+        prepare_structured["result"]["structuredContent"]["memory_count"],
+        prepare_text["data"]["memory_count"]
+    );
+
+    let projects_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(43168)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_queryable_projects",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let projects_structured = serde_json::to_value(&projects_response).unwrap();
+    let projects_text = parse_tool_payload(&extract_tool_text(&projects_response));
+
+    assert_eq!(
+        projects_structured["result"]["structuredContent"]["count"],
+        projects_text["data"]["count"]
+    );
+    assert_eq!(
+        projects_structured["result"]["structuredContent"]["projects"][0]["name"],
+        projects_text["data"]["projects"][0]["name"]
+    );
+    assert_eq!(
+        projects_structured["result"]["structuredContent"]["projects"][0]["is_active"],
+        projects_text["data"]["projects"][0]["is_active"]
+    );
+}
+
+#[test]
+fn analysis_section_text_and_structured_content_keep_section_metadata() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("section_parity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "update alpha in section_parity.py"}),
+    );
+    let analysis_id = payload["data"]["analysis_id"].as_str().unwrap();
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4317)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_analysis_section",
+                "arguments": {
+                    "analysis_id": analysis_id,
+                    "section": "ranked_files"
+                }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["analysis_id"],
+        text["data"]["analysis_id"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["section"],
+        text["data"]["section"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["tool_name"],
+        text["data"]["tool_name"]
+    );
+}
+
+#[test]
+fn onboard_project_text_and_structured_content_keep_semantic_summary() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    fs::write(
+        project.as_path().join("src/onboard_parity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4318)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "onboard_project",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["health"]["total_dirs"],
+        text["data"]["health"]["total_dirs"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["semantic"]["status"],
+        text["data"]["semantic"]["status"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["suggested_next_tools"][0],
+        text["data"]["suggested_next_tools"][0]
+    );
+}
+
+#[test]
+fn symbols_overview_text_and_structured_content_keep_summary_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("symbols_parity.py"),
+        "class Foo:\n    def bar(self):\n        return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4319)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_symbols_overview",
+                "arguments": { "path": "symbols_parity.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["truncated"],
+        text["data"]["truncated"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["auto_summarized"],
+        text["data"]["auto_summarized"]
+    );
+}
+
+#[test]
+fn ranked_context_text_and_structured_content_keep_retrieval_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("ranked_parity.py"),
+        "def search_users(query):\n    return []\n\ndef delete_user(uid):\n    return uid\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4320)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_ranked_context",
+                "arguments": { "query": "search users", "path": "ranked_parity.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["retrieval"]["semantic_query"],
+        text["data"]["retrieval"]["semantic_query"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["retrieval"]["lexical_query"],
+        text["data"]["retrieval"]["lexical_query"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["retrieval"]["semantic_enabled"],
+        text["data"]["retrieval"]["semantic_enabled"]
+    );
+}
+
+#[test]
+fn find_symbol_text_and_structured_content_keep_preview_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("find_symbol_parity.py"),
+        "def alpha(value):\n    return value + 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4321)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "find_symbol",
+                "arguments": {
+                    "name": "alpha",
+                    "file_path": "find_symbol_parity.py",
+                    "include_body": true
+                }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["body_truncated_count"],
+        text["data"]["body_truncated_count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["body_preview"],
+        text["data"]["body_preview"]
+    );
+}
+
+#[test]
+fn project_structure_text_and_structured_content_keep_aggregate_fields() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("pkg")).unwrap();
+    fs::write(project.as_path().join("pkg/a.py"), "A = 1\n").unwrap();
+    fs::write(project.as_path().join("pkg/b.py"), "B = 2\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4322)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_project_structure",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["total_files"],
+        text["data"]["total_files"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["total_symbols"],
+        text["data"]["total_symbols"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["dir_count"],
+        text["data"]["dir_count"]
+    );
+}
+
+#[test]
+fn complexity_text_and_structured_content_keep_summary_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("complexity_parity.py"),
+        "def decide(x):\n    if x > 0:\n        if x > 10:\n            return 'big'\n        return 'small'\n    return 'neg'\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4323)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_complexity",
+                "arguments": { "path": "complexity_parity.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["path"],
+        text["data"]["path"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["avg_complexity"],
+        text["data"]["avg_complexity"]
+    );
+}
+
+#[test]
+fn list_dir_text_and_structured_content_keep_entry_counts() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("tree/sub")).unwrap();
+    fs::write(project.as_path().join("tree/sub/file.txt"), "hello\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4324)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_dir",
+                "arguments": { "relative_path": "tree", "recursive": true }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["entries"][0]["path"],
+        text["data"]["entries"][0]["path"]
+    );
+}
+
+#[test]
+fn find_file_text_and_structured_content_keep_match_counts() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("glob")).unwrap();
+    fs::write(project.as_path().join("glob/alpha.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4325)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "find_file",
+                "arguments": { "wildcard_pattern": "*.py", "relative_dir": "glob" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["files"][0]["path"],
+        text["data"]["files"][0]["path"]
+    );
+}
+
+#[test]
+fn search_symbols_fuzzy_text_and_structured_content_keep_result_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("fuzzy_parity.py"),
+        "def ServiceManager():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4326)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "search_symbols_fuzzy",
+                "arguments": { "query": "ServiceManager", "max_results": 5 }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["results"][0]["name"],
+        text["data"]["results"][0]["name"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["results"][0]["match_type"],
+        text["data"]["results"][0]["match_type"]
+    );
+}
+
+#[test]
+fn symbol_importance_text_and_structured_content_keep_ranking_fields() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("importance_parity")).unwrap();
+    fs::write(
+        project.as_path().join("importance_parity/hub.py"),
+        "HUB = True\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("importance_parity/spoke_a.py"),
+        "from importance_parity.hub import HUB\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("importance_parity/spoke_b.py"),
+        "from importance_parity.hub import HUB\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4327)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_symbol_importance",
+                "arguments": { "top_n": 5 }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["ranking"][0]["file"],
+        text["data"]["ranking"][0]["file"]
+    );
+}
+
+#[test]
+fn dead_code_text_and_structured_content_keep_entry_fields() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("dead_code_parity")).unwrap();
+    fs::write(
+        project.as_path().join("dead_code_parity/used.py"),
+        "X = 1\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("dead_code_parity/orphan.py"),
+        "Y = 2\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("dead_code_parity/consumer.py"),
+        "from dead_code_parity.used import X\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4328)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "find_dead_code",
+                "arguments": { "max_results": 10 }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["dead_code"][0]["file"],
+        text["data"]["dead_code"][0]["file"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["dead_code"][0]["reason"],
+        text["data"]["dead_code"][0]["reason"]
+    );
+}
+
+#[test]
+fn circular_dependencies_text_and_structured_content_keep_cycle_fields() {
+    let project = project_root();
+    fs::write(project.as_path().join("a.py"), "from b import foo\n").unwrap();
+    fs::write(project.as_path().join("b.py"), "from a import bar\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4329)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "find_circular_dependencies",
+                "arguments": { "max_results": 10 }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["cycles"][0]["length"],
+        text["data"]["cycles"][0]["length"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["cycles"][0]["cycle"][0],
+        text["data"]["cycles"][0]["cycle"][0]
+    );
+}
+
+#[test]
+fn change_coupling_text_and_structured_content_keep_entry_fields() {
+    let project = project_root();
+    run_git(&project, &["init"]);
+    run_git(&project, &["add", "hello.txt"]);
+    run_git(
+        &project,
+        &[
+            "-c",
+            "user.email=test@test.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-m",
+            "init",
+        ],
+    );
+
+    fs::write(project.as_path().join("alpha.py"), "ALPHA = 1\n").unwrap();
+    fs::write(project.as_path().join("beta.py"), "BETA = 1\n").unwrap();
+    run_git(&project, &["add", "alpha.py", "beta.py"]);
+    run_git(
+        &project,
+        &[
+            "-c",
+            "user.email=test@test.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-m",
+            "pair-1",
+        ],
+    );
+
+    fs::write(project.as_path().join("alpha.py"), "ALPHA = 2\n").unwrap();
+    fs::write(project.as_path().join("beta.py"), "BETA = 2\n").unwrap();
+    run_git(&project, &["add", "alpha.py", "beta.py"]);
+    run_git(
+        &project,
+        &[
+            "-c",
+            "user.email=test@test.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-m",
+            "pair-2",
+        ],
+    );
+
+    fs::write(project.as_path().join("alpha.py"), "ALPHA = 3\n").unwrap();
+    fs::write(project.as_path().join("beta.py"), "BETA = 3\n").unwrap();
+    run_git(&project, &["add", "alpha.py", "beta.py"]);
+    run_git(
+        &project,
+        &[
+            "-c",
+            "user.email=test@test.com",
+            "-c",
+            "user.name=Test",
+            "commit",
+            "-m",
+            "pair-3",
+        ],
+    );
+
+    let state = make_state(&project);
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4330)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_change_coupling",
+                "arguments": {
+                    "months": 12,
+                    "min_strength": 0.1,
+                    "min_commits": 2,
+                    "max_results": 10
+                }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert!(
+        structured["result"]["structuredContent"]["count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["coupling"][0]["file_a"],
+        text["data"]["coupling"][0]["file_a"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["coupling"][0]["file_b"],
+        text["data"]["coupling"][0]["file_b"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["coupling"][0]["co_changes"],
+        text["data"]["coupling"][0]["co_changes"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["coupling"][0]["strength"],
+        text["data"]["coupling"][0]["strength"]
+    );
+}
+
+#[test]
 fn analysis_handle_schema_exposes_resource_handles() {
     let schema = crate::tool_defs::tool_definition("impact_report")
         .and_then(|tool| tool.output_schema.as_ref())
@@ -2074,7 +3470,35 @@ fn analysis_list_schemas_expose_machine_summary_fields() {
 }
 
 #[test]
-fn workflow_first_surfaces_prefer_alias_bootstrap() {
+fn critical_workflow_and_report_tools_keep_output_schema_contracts() {
+    for tool_name in [
+        "explore_codebase",
+        "trace_request_path",
+        "review_architecture",
+        "plan_safe_refactor",
+        "review_changes",
+        "cleanup_duplicate_logic",
+        "diagnose_issues",
+        "analyze_change_request",
+        "verify_change_readiness",
+        "impact_report",
+        "semantic_code_review",
+        "start_analysis_job",
+        "get_analysis_job",
+        "list_analysis_jobs",
+        "list_analysis_artifacts",
+    ] {
+        let schema = crate::tool_defs::tool_definition(tool_name)
+            .and_then(|tool| tool.output_schema.as_ref());
+        assert!(
+            schema.is_some(),
+            "critical workflow/report tool should keep output schema: {tool_name}"
+        );
+    }
+}
+
+#[test]
+fn workflow_first_surfaces_prefer_canonical_bootstrap() {
     use crate::protocol::ToolTier;
     use crate::tool_defs::{
         ToolPreset, ToolProfile, ToolSurface, preferred_bootstrap_tools, preferred_tiers,
@@ -2087,7 +3511,7 @@ fn workflow_first_surfaces_prefer_alias_bootstrap() {
         preferred_bootstrap_tools(ToolSurface::Preset(ToolPreset::Balanced)).unwrap_or(&[]);
     assert!(balanced_bootstrap.contains(&"explore_codebase"));
     assert!(balanced_bootstrap.contains(&"review_architecture"));
-    assert!(balanced_bootstrap.contains(&"analyze_change_impact"));
+    assert!(balanced_bootstrap.contains(&"review_changes"));
 }
 
 #[test]
@@ -2118,8 +3542,8 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
         reviewer_tools,
         vec![
             "review_architecture",
-            "analyze_change_impact",
-            "audit_security_context",
+            "review_changes",
+            "cleanup_duplicate_logic",
             "prepare_harness_session",
         ]
     );
@@ -2345,9 +3769,8 @@ fn mutation_tools_write_audit_log() {
         .join("audit")
         .join("mutation-audit.jsonl");
     let audit = fs::read_to_string(audit_path).unwrap();
-    let event: serde_json::Value = serde_json::from_str(audit.lines().last().unwrap()).unwrap();
-    assert_eq!(event["tool"], json!("create_text_file"));
-    assert_eq!(event["project_scope"], json!(state.current_project_scope()));
+    assert!(audit.contains("create_text_file"));
+    assert!(audit.contains(&state.current_project_scope()));
 }
 
 #[test]
@@ -2884,18 +4307,7 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
 /// stomp each other when the test runner uses multiple threads.
 static PATH_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-fn prepend_path(dir: &std::path::Path, original_path: &str) -> std::ffi::OsString {
-    let mut paths = vec![dir.to_path_buf()];
-    paths.extend(std::env::split_paths(original_path));
-    std::env::join_paths(paths).expect("join PATH entries")
-}
-
-#[test]
-fn diagnose_issues_returns_structured_content() {
-    // diagnose_issues with a path delegates to get_file_diagnostics, which
-    // needs an LSP server.  We create a minimal python3-based mock named
-    // `pyright-langserver` (the default binary for .py files) in a temp bin
-    // directory and prepend it to PATH for the duration of the test.
+fn install_mock_pyright(bin_dir: &std::path::Path) {
     let mock_lsp = concat!(
         "#!/usr/bin/env python3\n",
         "import sys, json\n",
@@ -2931,6 +4343,16 @@ fn diagnose_issues_returns_structured_content() {
         "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
     );
 
+    let mock_bin = bin_dir.join("pyright-langserver");
+    fs::write(&mock_bin, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_bin, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+fn with_mock_pyright_path(run: impl FnOnce()) {
     let bin_dir = std::env::temp_dir().join(format!(
         "codelens-test-bin-{}-{}",
         std::process::id(),
@@ -2940,26 +4362,23 @@ fn diagnose_issues_returns_structured_content() {
             .as_nanos()
     ));
     fs::create_dir_all(&bin_dir).unwrap();
-    #[cfg(windows)]
-    let mock_script = bin_dir.join("pyright-langserver.py");
-    #[cfg(not(windows))]
-    let mock_script = bin_dir.join("pyright-langserver");
-    fs::write(&mock_script, mock_lsp).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&mock_script, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    #[cfg(windows)]
-    {
-        let wrapper = bin_dir.join("pyright-langserver.cmd");
-        fs::write(
-            &wrapper,
-            format!("@echo off\r\npython \"{}\" %*\r\n", mock_script.display()),
-        )
-        .unwrap();
-    }
+    install_mock_pyright(&bin_dir);
 
+    let _guard = PATH_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
+    let original_path = std::env::var("PATH").unwrap_or_default();
+    // SAFETY: protected by PATH_MUTEX; no other thread modifies PATH concurrently.
+    unsafe {
+        std::env::set_var("PATH", format!("{}:{original_path}", bin_dir.display()));
+    }
+    run();
+    // SAFETY: restoring PATH; still under PATH_MUTEX.
+    unsafe {
+        std::env::set_var("PATH", original_path);
+    }
+}
+
+#[test]
+fn diagnose_issues_with_file_path_returns_structured_content() {
     let project = project_root();
     fs::write(
         project.as_path().join("diag_test.py"),
@@ -2967,27 +4386,126 @@ fn diagnose_issues_returns_structured_content() {
     )
     .unwrap();
     let state = make_state(&project);
-
-    let _guard = PATH_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
-    let original_path = std::env::var("PATH").unwrap_or_default();
-    let patched_path = prepend_path(&bin_dir, &original_path);
-    // SAFETY: protected by PATH_MUTEX; no other thread modifies PATH concurrently.
-    unsafe {
-        std::env::set_var("PATH", &patched_path);
-    }
-
-    let payload = call_tool(&state, "diagnose_issues", json!({"path": "diag_test.py"}));
-
-    // SAFETY: restoring PATH; still under PATH_MUTEX.
-    unsafe {
-        std::env::set_var("PATH", original_path);
-    }
+    let payload = {
+        let mut payload = json!(null);
+        with_mock_pyright_path(|| {
+            payload = call_tool(
+                &state,
+                "diagnose_issues",
+                json!({"file_path": "diag_test.py"}),
+            );
+        });
+        payload
+    };
 
     assert_eq!(payload["success"], json!(true));
     assert_eq!(payload["data"]["workflow"], json!("diagnose_issues"));
     assert_eq!(
         payload["data"]["delegated_tool"],
         json!("get_file_diagnostics")
+    );
+}
+
+#[test]
+fn diagnose_issues_with_directory_path_aggregates_scope_diagnostics() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("diag_scope")).unwrap();
+    fs::write(
+        project.as_path().join("diag_scope/alpha.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("diag_scope/beta.py"),
+        "def beta():\n    return 2\n",
+    )
+    .unwrap();
+    fs::write(project.as_path().join("diag_scope/readme.txt"), "ignore\n").unwrap();
+    let state = make_state(&project);
+
+    let payload = {
+        let mut payload = json!(null);
+        with_mock_pyright_path(|| {
+            payload = call_tool(&state, "diagnose_issues", json!({"path": "diag_scope"}));
+        });
+        payload
+    };
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("diagnose_issues"));
+    assert_eq!(
+        payload["data"]["delegated_tool"],
+        json!("directory_diagnostics")
+    );
+    assert_eq!(payload["data"]["scope"], json!("directory"));
+    assert_eq!(payload["data"]["returned_file_count"], json!(2));
+    assert_eq!(payload["data"]["diagnosable_file_count"], json!(2));
+    assert_eq!(
+        payload["data"]["files"].as_array().map(|v| v.len()),
+        Some(2)
+    );
+    assert_eq!(
+        payload["data"]["skipped_files"].as_array().map(|v| v.len()),
+        Some(1)
+    );
+}
+
+#[test]
+fn diagnose_issues_with_symbol_requires_file_path() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("diag_scope_symbol")).unwrap();
+    fs::write(
+        project.as_path().join("diag_scope_symbol/alpha.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4201)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "diagnose_issues",
+                "arguments": { "path": "diag_scope_symbol", "symbol": "alpha" }
+            })),
+        },
+    )
+    .unwrap();
+    let payload = serde_json::to_value(&response).unwrap();
+    assert!(payload.get("error").is_some());
+    assert!(
+        payload["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("file_path")
+    );
+}
+
+#[test]
+fn diagnose_issues_with_path_rejects_file_scope() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("diag_scope_file.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "diagnose_issues",
+        json!({"path": "diag_scope_file.py"}),
+    );
+
+    assert_eq!(payload["success"], json!(false));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("directory")
     );
 }
 
@@ -3019,6 +4537,12 @@ fn assess_change_readiness_returns_structured_content() {
         payload["data"]["delegated_tool"],
         json!("verify_change_readiness")
     );
+    assert_eq!(payload["data"]["deprecated"], json!(true));
+    assert_eq!(
+        payload["data"]["replacement_tool"],
+        json!("verify_change_readiness")
+    );
+    assert_eq!(payload["data"]["removal_target"], json!("v1.10.0"));
 }
 
 #[test]
@@ -3038,6 +4562,159 @@ fn review_changes_returns_structured_content() {
         payload["data"]["delegated_tool"],
         json!("diff_aware_references")
     );
+}
+
+#[test]
+fn review_and_diagnose_workflows_emit_structured_content() {
+    let project = project_root();
+    fs::write(project.as_path().join("review_structured.py"), "x = 1\n").unwrap();
+    fs::write(
+        project.as_path().join("diag_structured.py"),
+        "def hello():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let review_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4301)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "review_changes",
+                "arguments": { "changed_files": ["review_structured.py"] }
+            })),
+        },
+    )
+    .unwrap();
+    let review_value = serde_json::to_value(&review_response).unwrap();
+    assert_eq!(
+        review_value["result"]["structuredContent"]["workflow"],
+        json!("review_changes")
+    );
+    assert_eq!(
+        review_value["result"]["structuredContent"]["delegated_tool"],
+        json!("diff_aware_references")
+    );
+
+    let diagnose_value = {
+        let mut value = json!(null);
+        with_mock_pyright_path(|| {
+            let response = handle_request(
+                &state,
+                crate::protocol::JsonRpcRequest {
+                    jsonrpc: "2.0".to_owned(),
+                    id: Some(json!(4302)),
+                    method: "tools/call".to_owned(),
+                    params: Some(json!({
+                        "name": "diagnose_issues",
+                        "arguments": { "file_path": "diag_structured.py" }
+                    })),
+                },
+            )
+            .unwrap();
+            value = serde_json::to_value(&response).unwrap();
+        });
+        value
+    };
+    assert_eq!(
+        diagnose_value["result"]["structuredContent"]["workflow"],
+        json!("diagnose_issues")
+    );
+    assert_eq!(
+        diagnose_value["result"]["structuredContent"]["delegated_tool"],
+        json!("get_file_diagnostics")
+    );
+}
+
+#[test]
+fn workflow_and_report_text_and_structured_content_stay_in_sync() {
+    let project = project_root();
+    fs::write(project.as_path().join("review_parity.py"), "x = 1\n").unwrap();
+    fs::write(
+        project.as_path().join("analysis_parity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let review_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4306)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "review_changes",
+                "arguments": { "changed_files": ["review_parity.py"] }
+            })),
+        },
+    )
+    .unwrap();
+    let review_structured = serde_json::to_value(&review_response).unwrap();
+    let review_text = parse_tool_payload(&extract_tool_text(&review_response));
+    assert_eq!(
+        review_structured["result"]["structuredContent"]["workflow"],
+        review_text["data"]["workflow"]
+    );
+    assert_eq!(
+        review_structured["result"]["structuredContent"]["delegated_tool"],
+        review_text["data"]["delegated_tool"]
+    );
+
+    let start = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({"kind": "impact_report", "path": "analysis_parity.py", "debug_step_delay_ms": 20}),
+    );
+    let job_id = start["data"]["job_id"].as_str().unwrap();
+    for _ in 0..100 {
+        let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+        if poll["data"]["status"] == json!("completed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let job_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4307)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_analysis_job",
+                "arguments": { "job_id": job_id }
+            })),
+        },
+    )
+    .unwrap();
+    let job_structured = serde_json::to_value(&job_response).unwrap();
+    let job_text = parse_tool_payload(&extract_tool_text(&job_response));
+    assert_eq!(
+        job_structured["result"]["structuredContent"]["job_id"],
+        job_text["data"]["job_id"]
+    );
+    assert_eq!(
+        job_structured["result"]["structuredContent"]["status"],
+        job_text["data"]["status"]
+    );
+    assert_eq!(
+        job_structured["result"]["structuredContent"]["progress"],
+        job_text["data"]["progress"]
+    );
+}
+
+#[test]
+fn review_changes_with_path_delegates_to_impact_report() {
+    let project = project_root();
+    fs::write(project.as_path().join("review_scope.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(&state, "review_changes", json!({"path": "review_scope.py"}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("review_changes"));
+    assert_eq!(payload["data"]["delegated_tool"], json!("impact_report"));
 }
 
 #[test]

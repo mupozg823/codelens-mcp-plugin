@@ -149,10 +149,8 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     // Workflow-first entrypoints
     "explore_codebase",
     "review_architecture",
-    "analyze_change_impact",
     "plan_safe_refactor",
     "review_changes",
-    "assess_change_readiness",
     "diagnose_issues",
     // Symbol exploration
     "find_symbol",
@@ -194,7 +192,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
     "plan_safe_refactor",
-    "analyze_change_impact",
+    "review_changes",
     "find_symbol",
     "get_symbols_overview",
     "get_ranked_context",
@@ -231,11 +229,8 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "set_preset",
     // Workflow-first entrypoints
     "review_architecture",
-    "analyze_change_impact",
-    "audit_security_context",
     "cleanup_duplicate_logic",
     "review_changes",
-    "assess_change_readiness",
     "diagnose_issues",
     // Symbol exploration
     "find_symbol",
@@ -276,9 +271,7 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "trace_request_path",
     "review_architecture",
     "plan_safe_refactor",
-    "analyze_change_impact",
     "review_changes",
-    "assess_change_readiness",
     "diagnose_issues",
     // Symbol exploration
     "find_symbol",
@@ -331,11 +324,9 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "export_session_markdown",
     "explore_codebase",
     "review_architecture",
-    "analyze_change_impact",
-    "audit_security_context",
+    "semantic_code_review",
     "cleanup_duplicate_logic",
     "review_changes",
-    "assess_change_readiness",
     "diagnose_issues",
     "read_file",
     "search_for_pattern",
@@ -371,17 +362,18 @@ pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
     "get_current_config",
     "set_preset",
     "set_profile",
-    // Workflow aliases (7 existing + 3 new)
+    // Canonical problem-first workflows (deprecated aliases removed from default surface)
     "explore_codebase",
     "trace_request_path",
     "review_architecture",
     "plan_safe_refactor",
-    "audit_security_context",
-    "analyze_change_impact",
     "cleanup_duplicate_logic",
     "review_changes",
-    "assess_change_readiness",
     "diagnose_issues",
+    // Canonical replacements for retired aliases
+    "semantic_code_review",
+    "impact_report",
+    "verify_change_readiness",
     // Essential workflow-level tools
     "analyze_change_request",
     "onboard_project",

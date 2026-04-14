@@ -1,6 +1,7 @@
 use crate::AppState;
 use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
 use crate::state::AnalysisArtifact;
+use crate::tool_defs::canonical_tool_name;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -39,10 +40,13 @@ pub(crate) fn analysis_resource_entries(state: &AppState) -> Vec<Value> {
 pub(crate) fn recent_analysis_payload(state: &AppState) -> Value {
     let mut summaries = state.list_analysis_summaries();
     summaries.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+    // Aggregate under the canonical replacement so deprecated workflow aliases
+    // (audit_security_context / analyze_change_impact / assess_change_readiness)
+    // roll up with their replacement tool in reports and dashboards.
     let mut tool_counts = BTreeMap::new();
     for summary in &summaries {
         *tool_counts
-            .entry(summary.tool_name.clone())
+            .entry(crate::tool_defs::canonical_tool_name(&summary.tool_name).to_owned())
             .or_insert(0usize) += 1;
     }
     let latest_created_at_ms = summaries
@@ -230,6 +234,7 @@ fn infer_summary_quality_focus(
     summary: &str,
     top_findings: &[String],
 ) -> Vec<String> {
+    let tool_name = canonical_tool_name(tool_name);
     let combined = format!("{} {}", summary, top_findings.join(" ")).to_ascii_lowercase();
     let mut focus = Vec::new();
     let mut push_unique = |value: &str| {
@@ -244,8 +249,7 @@ fn infer_summary_quality_focus(
             | "trace_request_path"
             | "review_architecture"
             | "plan_safe_refactor"
-            | "audit_security_context"
-            | "analyze_change_impact"
+            | "review_changes"
             | "cleanup_duplicate_logic"
             | "onboard_project"
             | "analyze_change_request"
@@ -254,6 +258,7 @@ fn infer_summary_quality_focus(
             | "refactor_safety_report"
             | "safe_rename_report"
             | "unresolved_reference_check"
+            | "semantic_code_review"
     ) {
         push_unique("regression_safety");
     }

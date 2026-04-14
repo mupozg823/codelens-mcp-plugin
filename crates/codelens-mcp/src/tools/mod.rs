@@ -39,7 +39,6 @@ macro_rules! tool_registry {
 }
 
 /// Build the dispatch table. Add new tools here — one line per tool.
-#[allow(deprecated)]
 pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
     tool_registry! {
         // ── File I/O ──
@@ -126,11 +125,7 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "refactor_change_signature"    => composite::refactor_change_signature,
         "propagate_deletions"          => composite::propagate_deletions,
         "onboard_project"              => composite::onboard_project,
-        // ── Workflow aliases (problem-first) ──
-        // Dispatch of deprecated workflow wrappers (audit_security_context,
-        // analyze_change_impact, assess_change_readiness) stays here until v2.0
-        // removal so existing callers keep working. The `#[allow(deprecated)]`
-        // on the enclosing fn suppresses the dispatch-site warnings.
+        // ── Workflow entrypoints + compatibility aliases ──
         "explore_codebase"             => workflows::explore_codebase,
         "trace_request_path"           => workflows::trace_request_path,
         "review_architecture"          => workflows::review_architecture,
@@ -202,7 +197,7 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
 pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
     "explore_codebase",
     "review_architecture",
-    "analyze_change_impact",
+    "review_changes",
     "analyze_change_request",
     "verify_change_readiness",
     "find_minimal_context_for_change",
@@ -224,6 +219,7 @@ pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
     "plan_safe_refactor",
+    "review_changes",
     "find_symbol",
     "get_symbols_overview",
     "get_ranked_context",
@@ -244,8 +240,7 @@ pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
 /// Tools relevant during harness REVIEW phase
 pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
     "review_architecture",
-    "analyze_change_impact",
-    "audit_security_context",
+    "review_changes",
     "cleanup_duplicate_logic",
     "verify_change_readiness",
     "get_file_diagnostics",
@@ -266,8 +261,8 @@ pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
 
 /// Tools relevant during harness EVAL phase
 pub(crate) const EVAL_PHASE_TOOLS: &[&str] = &[
-    "analyze_change_impact",
-    "audit_security_context",
+    "review_changes",
+    "semantic_code_review",
     "verify_change_readiness",
     "get_file_diagnostics",
     "get_changed_files",
@@ -276,6 +271,31 @@ pub(crate) const EVAL_PHASE_TOOLS: &[&str] = &[
     "find_symbol",
     "read_file",
     "get_analysis_section",
+];
+
+#[derive(Clone, Copy)]
+struct PhaseToolSpec {
+    phase: &'static str,
+    tools: &'static [&'static str],
+}
+
+const PHASE_TOOLSETS: &[PhaseToolSpec] = &[
+    PhaseToolSpec {
+        phase: "plan",
+        tools: PLAN_PHASE_TOOLS,
+    },
+    PhaseToolSpec {
+        phase: "build",
+        tools: BUILD_PHASE_TOOLS,
+    },
+    PhaseToolSpec {
+        phase: "review",
+        tools: REVIEW_PHASE_TOOLS,
+    },
+    PhaseToolSpec {
+        phase: "eval",
+        tools: EVAL_PHASE_TOOLS,
+    },
 ];
 
 const MUTATION_TOOLS: &[&str] = &[
@@ -299,8 +319,8 @@ const MUTATION_TOOLS: &[&str] = &[
 
 const REVIEW_TOOLS: &[&str] = &[
     "review_architecture",
-    "analyze_change_impact",
-    "audit_security_context",
+    "review_changes",
+    "semantic_code_review",
     "get_changed_files",
     "get_impact_analysis",
     "find_scoped_references",
@@ -314,6 +334,125 @@ const EXPLORATION_TOOLS: &[&str] = &[
     "onboard_project",
     "get_current_config",
 ];
+
+const WORKFLOW_CHAIN_TOOLS: &[&str] = &[
+    "explore_codebase",
+    "trace_request_path",
+    "review_architecture",
+    "plan_safe_refactor",
+    "audit_security_context",
+    "analyze_change_impact",
+    "cleanup_duplicate_logic",
+    "review_changes",
+    "assess_change_readiness",
+    "diagnose_issues",
+    "analyze_change_request",
+    "verify_change_readiness",
+    "find_minimal_context_for_change",
+    "summarize_symbol_impact",
+    "module_boundary_report",
+    "safe_rename_report",
+    "unresolved_reference_check",
+    "dead_code_report",
+    "impact_report",
+    "refactor_safety_report",
+    "diff_aware_references",
+    "start_analysis_job",
+    "get_analysis_job",
+    "cancel_analysis_job",
+    "get_analysis_section",
+];
+
+const DEFAULT_COMPOSITE_SUGGESTIONS: &[&str] = &[
+    "explore_codebase",
+    "trace_request_path",
+    "plan_safe_refactor",
+    "review_changes",
+];
+
+#[derive(Clone, Copy)]
+struct CompositeSurfaceSpec {
+    surface: ToolSurface,
+    suggestions: &'static [&'static str],
+}
+
+const COMPOSITE_SURFACE_SPECS: &[CompositeSurfaceSpec] = &[
+    CompositeSurfaceSpec {
+        surface: ToolSurface::Profile(ToolProfile::PlannerReadonly),
+        suggestions: &[
+            "explore_codebase",
+            "review_architecture",
+            "review_changes",
+            "plan_safe_refactor",
+        ],
+    },
+    CompositeSurfaceSpec {
+        surface: ToolSurface::Profile(ToolProfile::ReviewerGraph),
+        suggestions: &[
+            "review_architecture",
+            "review_changes",
+            "semantic_code_review",
+            "cleanup_duplicate_logic",
+        ],
+    },
+    CompositeSurfaceSpec {
+        surface: ToolSurface::Profile(ToolProfile::CiAudit),
+        suggestions: &[
+            "review_architecture",
+            "review_changes",
+            "semantic_code_review",
+            "cleanup_duplicate_logic",
+        ],
+    },
+    CompositeSurfaceSpec {
+        surface: ToolSurface::Profile(ToolProfile::RefactorFull),
+        suggestions: &[
+            "plan_safe_refactor",
+            "review_changes",
+            "trace_request_path",
+            "review_architecture",
+        ],
+    },
+    CompositeSurfaceSpec {
+        surface: ToolSurface::Profile(ToolProfile::EvaluatorCompact),
+        suggestions: &[
+            "verify_change_readiness",
+            "get_file_diagnostics",
+            "find_tests",
+        ],
+    },
+    CompositeSurfaceSpec {
+        surface: ToolSurface::Profile(ToolProfile::WorkflowFirst),
+        suggestions: &[
+            "explore_codebase",
+            "review_architecture",
+            "review_changes",
+            "plan_safe_refactor",
+            "cleanup_duplicate_logic",
+            "diagnose_issues",
+        ],
+    },
+];
+
+fn tool_in_set(tool_name: &str, tool_set: &[&str]) -> bool {
+    tool_set.contains(&tool_name)
+}
+
+fn harness_phase_tools(phase: &str) -> Option<&'static [&'static str]> {
+    PHASE_TOOLSETS
+        .iter()
+        .find(|spec| spec.phase == phase)
+        .map(|spec| spec.tools)
+}
+
+fn is_pre_mutation_context_tool(tool_name: &str) -> bool {
+    tool_in_set(tool_name, REVIEW_TOOLS)
+        || tool_in_set(tool_name, EXPLORATION_TOOLS)
+        || matches!(
+            tool_name,
+            "get_ranked_context" | "find_symbol" | "find_referencing_symbols"
+        )
+}
 
 /// Context-aware tool suggestions: overrides static suggestions based on recent workflow.
 pub fn suggest_next_contextual(
@@ -338,12 +477,7 @@ pub fn suggest_next_contextual(
     if !MUTATION_TOOLS.contains(&tool_name)
         && !suggestions.contains(&"verify_change_readiness".to_owned())
     {
-        let is_pre_mutation_context = REVIEW_TOOLS.contains(&tool_name)
-            || EXPLORATION_TOOLS.contains(&tool_name)
-            || tool_name == "get_ranked_context"
-            || tool_name == "find_symbol"
-            || tool_name == "find_referencing_symbols";
-        if is_pre_mutation_context {
+        if is_pre_mutation_context_tool(tool_name) {
             suggestions.push("verify_change_readiness".to_owned());
             suggestions.truncate(4);
         }
@@ -376,14 +510,10 @@ pub fn suggest_next_contextual(
 
     // Filter suggestions by harness phase if specified
     if let Some(phase) = harness_phase {
-        let phase_tools: &[&str] = match phase {
-            "plan" => PLAN_PHASE_TOOLS,
-            "build" => BUILD_PHASE_TOOLS,
-            "review" => REVIEW_PHASE_TOOLS,
-            "eval" => EVAL_PHASE_TOOLS,
-            _ => return Some(suggestions), // unknown phase, no filtering
+        let Some(phase_tools) = harness_phase_tools(phase) else {
+            return Some(suggestions);
         };
-        suggestions.retain(|s| phase_tools.contains(&s.as_str()));
+        suggestions.retain(|s| tool_in_set(s, phase_tools));
         // Ensure we always have at least 1 suggestion
         if suggestions.is_empty() {
             suggestions = suggest_next(tool_name).unwrap_or_default();
@@ -394,34 +524,7 @@ pub fn suggest_next_contextual(
 }
 
 fn is_workflow_tool_name(name: &str) -> bool {
-    matches!(
-        name,
-        "explore_codebase"
-            | "trace_request_path"
-            | "review_architecture"
-            | "plan_safe_refactor"
-            | "audit_security_context"
-            | "analyze_change_impact"
-            | "cleanup_duplicate_logic"
-            | "review_changes"
-            | "assess_change_readiness"
-            | "diagnose_issues"
-            | "analyze_change_request"
-            | "verify_change_readiness"
-            | "find_minimal_context_for_change"
-            | "summarize_symbol_impact"
-            | "module_boundary_report"
-            | "safe_rename_report"
-            | "unresolved_reference_check"
-            | "dead_code_report"
-            | "impact_report"
-            | "refactor_safety_report"
-            | "diff_aware_references"
-            | "start_analysis_job"
-            | "get_analysis_job"
-            | "cancel_analysis_job"
-            | "get_analysis_section"
-    )
+    tool_in_set(name, WORKFLOW_CHAIN_TOOLS)
 }
 
 fn has_recent_low_level_chain(recent_tools: &[String]) -> bool {
@@ -434,46 +537,11 @@ fn has_recent_low_level_chain(recent_tools: &[String]) -> bool {
 }
 
 fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static str] {
-    match surface {
-        ToolSurface::Profile(ToolProfile::PlannerReadonly) => &[
-            "explore_codebase",
-            "review_architecture",
-            "analyze_change_impact",
-            "plan_safe_refactor",
-        ],
-        ToolSurface::Profile(ToolProfile::ReviewerGraph)
-        | ToolSurface::Profile(ToolProfile::CiAudit) => &[
-            "review_architecture",
-            "analyze_change_impact",
-            "audit_security_context",
-            "cleanup_duplicate_logic",
-        ],
-        ToolSurface::Profile(ToolProfile::RefactorFull) => &[
-            "plan_safe_refactor",
-            "analyze_change_impact",
-            "trace_request_path",
-            "review_architecture",
-        ],
-        ToolSurface::Profile(ToolProfile::EvaluatorCompact) => &[
-            "verify_change_readiness",
-            "get_file_diagnostics",
-            "find_tests",
-        ],
-        ToolSurface::Profile(ToolProfile::WorkflowFirst) => &[
-            "explore_codebase",
-            "review_architecture",
-            "analyze_change_impact",
-            "plan_safe_refactor",
-            "review_changes",
-            "diagnose_issues",
-        ],
-        ToolSurface::Profile(ToolProfile::BuilderMinimal) | ToolSurface::Preset(_) => &[
-            "explore_codebase",
-            "trace_request_path",
-            "plan_safe_refactor",
-            "analyze_change_impact",
-        ],
-    }
+    COMPOSITE_SURFACE_SPECS
+        .iter()
+        .find(|spec| spec.surface == surface)
+        .map(|spec| spec.suggestions)
+        .unwrap_or(DEFAULT_COMPOSITE_SUGGESTIONS)
 }
 
 pub fn composite_guidance_for_chain(
@@ -581,34 +649,27 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "get_capabilities",
             "get_ranked_context",
         ],
-        "explore_codebase" => &[
-            "find_symbol",
-            "review_architecture",
-            "analyze_change_impact",
-        ],
-        "trace_request_path" => &["plan_safe_refactor", "find_symbol", "analyze_change_impact"],
-        "review_architecture" => &[
-            "analyze_change_impact",
-            "explore_codebase",
-            "plan_safe_refactor",
-        ],
+        "explore_codebase" => &["find_symbol", "review_architecture", "review_changes"],
+        "trace_request_path" => &["plan_safe_refactor", "find_symbol", "review_changes"],
+        "review_architecture" => &["review_changes", "explore_codebase", "plan_safe_refactor"],
         "plan_safe_refactor" => &[
             "trace_request_path",
-            "analyze_change_impact",
+            "review_changes",
             "get_file_diagnostics",
         ],
         "audit_security_context" => &[
-            "analyze_change_impact",
+            "semantic_code_review",
             "get_analysis_section",
             "review_architecture",
         ],
-        "analyze_change_impact" => &[
+        "analyze_change_impact" => &["impact_report", "review_changes", "get_analysis_section"],
+        "review_changes" => &[
             "review_architecture",
-            "audit_security_context",
+            "semantic_code_review",
             "get_analysis_section",
         ],
         "cleanup_duplicate_logic" => &[
-            "audit_security_context",
+            "semantic_code_review",
             "review_architecture",
             "get_analysis_section",
         ],
@@ -737,4 +798,47 @@ pub fn suggestion_reasons_for(
         reasons.insert(tool.clone(), reason.to_owned());
     }
     reasons
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn harness_phase_tool_lookup_is_table_driven() {
+        assert_eq!(harness_phase_tools("plan"), Some(PLAN_PHASE_TOOLS));
+        assert_eq!(harness_phase_tools("review"), Some(REVIEW_PHASE_TOOLS));
+        assert_eq!(harness_phase_tools("unknown"), None);
+    }
+
+    #[test]
+    fn workflow_chain_tool_list_covers_aliases_and_reports() {
+        assert!(is_workflow_tool_name("review_changes"));
+        assert!(is_workflow_tool_name("audit_security_context"));
+        assert!(is_workflow_tool_name("impact_report"));
+        assert!(!is_workflow_tool_name("find_symbol"));
+    }
+
+    #[test]
+    fn composite_surface_specs_preserve_review_and_default_paths() {
+        assert_eq!(
+            composite_suggestions_for_surface(ToolSurface::Profile(ToolProfile::ReviewerGraph)),
+            &[
+                "review_architecture",
+                "review_changes",
+                "semantic_code_review",
+                "cleanup_duplicate_logic",
+            ]
+        );
+        assert_eq!(
+            composite_suggestions_for_surface(ToolSurface::Profile(ToolProfile::BuilderMinimal)),
+            DEFAULT_COMPOSITE_SUGGESTIONS
+        );
+        assert_eq!(
+            composite_suggestions_for_surface(ToolSurface::Preset(
+                crate::tool_defs::ToolPreset::Balanced,
+            )),
+            DEFAULT_COMPOSITE_SUGGESTIONS
+        );
+    }
 }

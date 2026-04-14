@@ -16,35 +16,35 @@ pub(crate) fn profile_guide(profile: ToolProfile) -> Value {
         ToolProfile::PlannerReadonly => json!({
             "profile": profile.as_str(),
             "intent": "Use bounded, read-only analysis to plan changes and rank context before implementation.",
-            "preferred_tools": ["explore_codebase", "review_architecture", "analyze_change_impact", "plan_safe_refactor"],
+            "preferred_tools": ["explore_codebase", "review_architecture", "review_changes", "plan_safe_refactor"],
             "preferred_namespaces": ["reports", "symbols", "graph", "filesystem", "session"],
             "avoid": ["rename_symbol", "replace_content", "raw graph expansion unless necessary"]
         }),
         ToolProfile::BuilderMinimal => json!({
             "profile": profile.as_str(),
             "intent": "Keep the visible surface small while implementing changes with only the essential symbol and edit tools.",
-            "preferred_tools": ["explore_codebase", "trace_request_path", "plan_safe_refactor", "analyze_change_impact"],
+            "preferred_tools": ["explore_codebase", "trace_request_path", "plan_safe_refactor", "review_changes"],
             "preferred_namespaces": ["reports", "symbols", "filesystem", "session"],
             "avoid": ["dead-code audits", "full-graph exploration", "broad multi-project search"]
         }),
         ToolProfile::ReviewerGraph => json!({
             "profile": profile.as_str(),
             "intent": "Review risky changes with graph-aware, read-only evidence.",
-            "preferred_tools": ["review_architecture", "analyze_change_impact", "audit_security_context", "cleanup_duplicate_logic"],
+            "preferred_tools": ["review_architecture", "review_changes", "semantic_code_review", "cleanup_duplicate_logic"],
             "preferred_namespaces": ["reports", "graph", "symbols", "session"],
             "avoid": ["mutation tools"]
         }),
         ToolProfile::RefactorFull => json!({
             "profile": profile.as_str(),
             "intent": "Run high-safety refactors only after a fresh preflight has narrowed the target surface and cleared blockers.",
-            "preferred_tools": ["plan_safe_refactor", "analyze_change_impact", "trace_request_path", "review_architecture"],
+            "preferred_tools": ["plan_safe_refactor", "review_changes", "trace_request_path", "review_architecture"],
             "preferred_namespaces": ["reports", "session"],
             "avoid": ["mutation before preflight", "broad edits without diagnostics or preview"]
         }),
         ToolProfile::CiAudit => json!({
             "profile": profile.as_str(),
             "intent": "Produce machine-friendly review output around diffs, impact, dead code, and structural risk.",
-            "preferred_tools": ["analyze_change_impact", "audit_security_context", "review_architecture", "cleanup_duplicate_logic"],
+            "preferred_tools": ["review_changes", "semantic_code_review", "review_architecture", "cleanup_duplicate_logic"],
             "preferred_namespaces": ["reports", "graph", "session"],
             "avoid": ["interactive mutation flows"]
         }),
@@ -57,7 +57,7 @@ pub(crate) fn profile_guide(profile: ToolProfile) -> Value {
         }),
         ToolProfile::WorkflowFirst => json!({
             "profile": profile.as_str(),
-            "description": "Problem-first workflow surface. Agents see 12 high-level workflow tools; low-level tools are deferred.",
+            "description": "Problem-first workflow surface. Agents see canonical workflow entrypoints plus a small set of bounded report tools; low-level tools are deferred.",
             "surface_size": "workflow",
             "mutation": false,
             "preferred_tiers": preferred_tier_labels(ToolSurface::Profile(profile)),

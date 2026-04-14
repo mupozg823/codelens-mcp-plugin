@@ -87,7 +87,8 @@ fn grep_all_occurrences(root: &std::path::Path, word: &str) -> Vec<(String, usiz
 }
 
 fn to_set(items: &[(String, usize, usize)]) -> HashSet<(String, usize, usize)> {
-    items.iter()
+    items
+        .iter()
         .map(|(file_path, line, column)| (normalize_rel_path(file_path), *line, *column))
         .collect()
 }

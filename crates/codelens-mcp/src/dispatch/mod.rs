@@ -803,18 +803,16 @@ pub(crate) fn dispatch_tool(
             start,
             id,
         }),
-        Err(error) => {
-            build_error_response(
-                name,
-                error,
-                gate_failure,
-                &active_surface,
-                &session.session_id,
-                state,
-                start,
-                id,
-            )
-        }
+        Err(error) => build_error_response(
+            name,
+            error,
+            gate_failure,
+            &active_surface,
+            &session.session_id,
+            state,
+            start,
+            id,
+        ),
     }
 }
 
