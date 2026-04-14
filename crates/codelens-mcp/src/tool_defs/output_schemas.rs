@@ -267,6 +267,45 @@ pub(super) fn file_content_output_schema() -> serde_json::Value {
     json!({"type":"object","properties":{"content":{"type":"string"}}})
 }
 
+pub(super) fn list_dir_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "entries": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "entry_type": {"type": "string"},
+                        "path": {"type": "string"},
+                        "size": {"type": ["integer", "null"]}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn find_file_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "files": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "path": {"type": "string"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
 pub(super) fn changed_files_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -1052,6 +1091,31 @@ pub(super) fn find_tests_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn get_complexity_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "path": {"type": "string"},
+            "functions": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "file": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "branches": {"type": "integer"},
+                        "complexity": {"type": "integer"}
+                    }
+                }
+            },
+            "count": {"type": "integer"},
+            "avg_complexity": {"type": "number"}
+        }
+    })
+}
+
 pub(super) fn get_project_structure_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -1061,14 +1125,101 @@ pub(super) fn get_project_structure_output_schema() -> serde_json::Value {
                 "items": {
                     "type": "object",
                     "properties": {
-                        "path": {"type": "string"},
+                        "directory": {"type": "string"},
                         "files": {"type": "integer"},
-                        "languages": {"type": "array", "items": {"type": "string"}}
+                        "symbols": {"type": "integer"}
                     }
                 }
             },
             "total_files": {"type": "integer"},
-            "total_directories": {"type": "integer"}
+            "total_symbols": {"type": "integer"},
+            "dir_count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn symbol_importance_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "ranking": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file": {"type": "string"},
+                        "score": {"type": "string"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn dead_code_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "dead_code": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "file": {"type": "string"},
+                        "symbol": {"type": ["string", "null"]},
+                        "kind": {"type": ["string", "null"]},
+                        "line": {"type": ["integer", "null"]},
+                        "reason": {"type": "string"},
+                        "pass": {"type": "integer"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn circular_dependencies_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "cycles": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "cycle": {"type": "array", "items": {"type": "string"}},
+                        "length": {"type": "integer"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub(super) fn search_symbols_fuzzy_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "name": {"type": "string"},
+                        "kind": {"type": "string"},
+                        "file": {"type": "string"},
+                        "line": {"type": "integer"},
+                        "signature": {"type": "string"},
+                        "name_path": {"type": "string"},
+                        "score": {"type": "number"},
+                        "match_type": {"type": "string"}
+                    }
+                }
+            },
+            "count": {"type": "integer"}
         }
     })
 }

@@ -2184,6 +2184,98 @@ fn prepare_harness_session_schema_matches_payload_shape() {
 }
 
 #[test]
+fn primitive_analysis_schemas_match_payload_shape() {
+    let complexity_schema = crate::tool_defs::tool_definition("get_complexity")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_complexity schema");
+    let complexity_properties = complexity_schema["properties"]
+        .as_object()
+        .expect("get_complexity properties");
+    assert!(complexity_properties.contains_key("path"));
+    assert!(complexity_properties.contains_key("functions"));
+    assert!(complexity_properties.contains_key("count"));
+    assert!(complexity_properties.contains_key("avg_complexity"));
+
+    let project_structure_schema = crate::tool_defs::tool_definition("get_project_structure")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_project_structure schema");
+    let project_structure_properties = project_structure_schema["properties"]
+        .as_object()
+        .expect("get_project_structure properties");
+    assert!(project_structure_properties.contains_key("directories"));
+    assert!(project_structure_properties.contains_key("total_files"));
+    assert!(project_structure_properties.contains_key("total_symbols"));
+    assert!(project_structure_properties.contains_key("dir_count"));
+    let directory_properties = project_structure_schema["properties"]["directories"]["items"]
+        ["properties"]
+        .as_object()
+        .expect("directory properties");
+    assert!(directory_properties.contains_key("directory"));
+    assert!(directory_properties.contains_key("files"));
+    assert!(directory_properties.contains_key("symbols"));
+}
+
+#[test]
+fn primitive_file_and_search_schemas_match_payload_shape() {
+    let list_dir_schema = crate::tool_defs::tool_definition("list_dir")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("list_dir schema");
+    let list_dir_properties = list_dir_schema["properties"]
+        .as_object()
+        .expect("list_dir properties");
+    assert!(list_dir_properties.contains_key("entries"));
+    assert!(list_dir_properties.contains_key("count"));
+
+    let find_file_schema = crate::tool_defs::tool_definition("find_file")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("find_file schema");
+    let find_file_properties = find_file_schema["properties"]
+        .as_object()
+        .expect("find_file properties");
+    assert!(find_file_properties.contains_key("files"));
+    assert!(find_file_properties.contains_key("count"));
+
+    let fuzzy_schema = crate::tool_defs::tool_definition("search_symbols_fuzzy")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("search_symbols_fuzzy schema");
+    let fuzzy_properties = fuzzy_schema["properties"]
+        .as_object()
+        .expect("search_symbols_fuzzy properties");
+    assert!(fuzzy_properties.contains_key("results"));
+    assert!(fuzzy_properties.contains_key("count"));
+}
+
+#[test]
+fn graph_analysis_schemas_match_payload_shape() {
+    let importance_schema = crate::tool_defs::tool_definition("get_symbol_importance")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_symbol_importance schema");
+    let importance_properties = importance_schema["properties"]
+        .as_object()
+        .expect("importance properties");
+    assert!(importance_properties.contains_key("ranking"));
+    assert!(importance_properties.contains_key("count"));
+
+    let dead_code_schema = crate::tool_defs::tool_definition("find_dead_code")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("find_dead_code schema");
+    let dead_code_properties = dead_code_schema["properties"]
+        .as_object()
+        .expect("dead_code properties");
+    assert!(dead_code_properties.contains_key("dead_code"));
+    assert!(dead_code_properties.contains_key("count"));
+
+    let cycles_schema = crate::tool_defs::tool_definition("find_circular_dependencies")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("find_circular_dependencies schema");
+    let cycles_properties = cycles_schema["properties"]
+        .as_object()
+        .expect("cycles properties");
+    assert!(cycles_properties.contains_key("cycles"));
+    assert!(cycles_properties.contains_key("count"));
+}
+
+#[test]
 fn get_capabilities_text_and_structured_content_keep_health_fields() {
     let project = project_root();
     fs::write(project.as_path().join("capability_parity.py"), "x = 1\n").unwrap();
@@ -2535,6 +2627,491 @@ fn analysis_section_text_and_structured_content_keep_section_metadata() {
     assert_eq!(
         structured["result"]["structuredContent"]["tool_name"],
         text["data"]["tool_name"]
+    );
+}
+
+#[test]
+fn onboard_project_text_and_structured_content_keep_semantic_summary() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    fs::write(
+        project.as_path().join("src/onboard_parity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4318)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "onboard_project",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["health"]["total_dirs"],
+        text["data"]["health"]["total_dirs"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["semantic"]["status"],
+        text["data"]["semantic"]["status"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["suggested_next_tools"][0],
+        text["data"]["suggested_next_tools"][0]
+    );
+}
+
+#[test]
+fn symbols_overview_text_and_structured_content_keep_summary_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("symbols_parity.py"),
+        "class Foo:\n    def bar(self):\n        return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4319)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_symbols_overview",
+                "arguments": { "path": "symbols_parity.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["truncated"],
+        text["data"]["truncated"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["auto_summarized"],
+        text["data"]["auto_summarized"]
+    );
+}
+
+#[test]
+fn ranked_context_text_and_structured_content_keep_retrieval_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("ranked_parity.py"),
+        "def search_users(query):\n    return []\n\ndef delete_user(uid):\n    return uid\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4320)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_ranked_context",
+                "arguments": { "query": "search users", "path": "ranked_parity.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["retrieval"]["semantic_query"],
+        text["data"]["retrieval"]["semantic_query"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["retrieval"]["lexical_query"],
+        text["data"]["retrieval"]["lexical_query"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["retrieval"]["semantic_enabled"],
+        text["data"]["retrieval"]["semantic_enabled"]
+    );
+}
+
+#[test]
+fn find_symbol_text_and_structured_content_keep_preview_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("find_symbol_parity.py"),
+        "def alpha(value):\n    return value + 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4321)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "find_symbol",
+                "arguments": {
+                    "name": "alpha",
+                    "file_path": "find_symbol_parity.py",
+                    "include_body": true
+                }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["body_truncated_count"],
+        text["data"]["body_truncated_count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["body_preview"],
+        text["data"]["body_preview"]
+    );
+}
+
+#[test]
+fn project_structure_text_and_structured_content_keep_aggregate_fields() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("pkg")).unwrap();
+    fs::write(project.as_path().join("pkg/a.py"), "A = 1\n").unwrap();
+    fs::write(project.as_path().join("pkg/b.py"), "B = 2\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4322)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_project_structure",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["total_files"],
+        text["data"]["total_files"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["total_symbols"],
+        text["data"]["total_symbols"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["dir_count"],
+        text["data"]["dir_count"]
+    );
+}
+
+#[test]
+fn complexity_text_and_structured_content_keep_summary_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("complexity_parity.py"),
+        "def decide(x):\n    if x > 0:\n        if x > 10:\n            return 'big'\n        return 'small'\n    return 'neg'\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4323)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_complexity",
+                "arguments": { "path": "complexity_parity.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["path"],
+        text["data"]["path"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["avg_complexity"],
+        text["data"]["avg_complexity"]
+    );
+}
+
+#[test]
+fn list_dir_text_and_structured_content_keep_entry_counts() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("tree/sub")).unwrap();
+    fs::write(project.as_path().join("tree/sub/file.txt"), "hello\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4324)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_dir",
+                "arguments": { "relative_path": "tree", "recursive": true }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["entries"][0]["path"],
+        text["data"]["entries"][0]["path"]
+    );
+}
+
+#[test]
+fn find_file_text_and_structured_content_keep_match_counts() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("glob")).unwrap();
+    fs::write(project.as_path().join("glob/alpha.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4325)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "find_file",
+                "arguments": { "wildcard_pattern": "*.py", "relative_dir": "glob" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["files"][0]["path"],
+        text["data"]["files"][0]["path"]
+    );
+}
+
+#[test]
+fn search_symbols_fuzzy_text_and_structured_content_keep_result_fields() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("fuzzy_parity.py"),
+        "def ServiceManager():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4326)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "search_symbols_fuzzy",
+                "arguments": { "query": "ServiceManager", "max_results": 5 }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["results"][0]["name"],
+        text["data"]["results"][0]["name"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["results"][0]["match_type"],
+        text["data"]["results"][0]["match_type"]
+    );
+}
+
+#[test]
+fn symbol_importance_text_and_structured_content_keep_ranking_fields() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("importance_parity")).unwrap();
+    fs::write(
+        project.as_path().join("importance_parity/hub.py"),
+        "HUB = True\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("importance_parity/spoke_a.py"),
+        "from importance_parity.hub import HUB\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("importance_parity/spoke_b.py"),
+        "from importance_parity.hub import HUB\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4327)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_symbol_importance",
+                "arguments": { "top_n": 5 }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["ranking"][0]["file"],
+        text["data"]["ranking"][0]["file"]
+    );
+}
+
+#[test]
+fn dead_code_text_and_structured_content_keep_entry_fields() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("dead_code_parity")).unwrap();
+    fs::write(
+        project.as_path().join("dead_code_parity/used.py"),
+        "X = 1\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("dead_code_parity/orphan.py"),
+        "Y = 2\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("dead_code_parity/consumer.py"),
+        "from dead_code_parity.used import X\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4328)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "find_dead_code",
+                "arguments": { "max_results": 10 }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["dead_code"][0]["file"],
+        text["data"]["dead_code"][0]["file"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["dead_code"][0]["reason"],
+        text["data"]["dead_code"][0]["reason"]
+    );
+}
+
+#[test]
+fn circular_dependencies_text_and_structured_content_keep_cycle_fields() {
+    let project = project_root();
+    fs::write(project.as_path().join("a.py"), "from b import foo\n").unwrap();
+    fs::write(project.as_path().join("b.py"), "from a import bar\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4329)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "find_circular_dependencies",
+                "arguments": { "max_results": 10 }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["cycles"][0]["length"],
+        text["data"]["cycles"][0]["length"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["cycles"][0]["cycle"][0],
+        text["data"]["cycles"][0]["cycle"][0]
     );
 }
 

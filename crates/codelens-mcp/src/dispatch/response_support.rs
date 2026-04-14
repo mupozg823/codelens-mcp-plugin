@@ -715,8 +715,13 @@ fn summarize_text_object(source: &Map<String, Value>, depth: usize) -> Value {
         }
         summarized.insert(key.clone(), summarize_text_value(value, depth + 1));
     }
-    if source.contains_key("truncated") {
-        summarized.insert("truncated".to_owned(), Value::Bool(true));
+    if !summarized.contains_key("truncated")
+        && let Some(value) = source.get("truncated")
+    {
+        summarized.insert(
+            "truncated".to_owned(),
+            summarize_structured_content(value, depth + 1),
+        );
     }
     Value::Object(summarized)
 }
