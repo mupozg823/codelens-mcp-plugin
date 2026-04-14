@@ -1,9 +1,11 @@
-//! Abstraction layer for vector embedding storage.
-//! Default implementation uses sqlite-vec; trait allows future swap to Qdrant/LanceDB.
+//! Data types for vector embedding storage.
+//!
+//! The `EmbeddingStore` trait was removed in v1.12 — `SqliteVecStore` is the
+//! single implementation, used directly inside `embedding/mod.rs`. Only the
+//! plain data structs remain here so callers can still construct chunks and
+//! consume search results.
 
-use anyhow::Result;
 use serde::Serialize;
-use std::collections::BTreeMap;
 
 /// A single embedding chunk ready for storage.
 #[derive(Debug, Clone)]
