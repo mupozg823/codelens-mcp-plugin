@@ -1,5 +1,7 @@
 # CodeLens MCP
 
+> **First read**: [`SKILL.md`](SKILL.md) is the Level-1 Skill 2.0 profile (capability map and "when to use"). This file carries **Claude Code specific** tool routing and harness modes only.
+
 ## Tool Routing — PREFER CodeLens over Read/Grep for code tasks
 
 | Task                      | Use This                                         | Not This              |
