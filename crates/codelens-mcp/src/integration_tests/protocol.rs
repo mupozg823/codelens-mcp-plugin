@@ -2,6 +2,46 @@ use super::*;
 
 // ── Protocol-level tests ─────────────────────────────────────────────
 
+fn result_payload(response: &crate::protocol::JsonRpcResponse) -> serde_json::Value {
+    serde_json::to_value(response)
+        .expect("serialize")
+        .get("result")
+        .cloned()
+        .unwrap_or_else(|| json!({}))
+}
+
+fn resource_payload(response: &crate::protocol::JsonRpcResponse) -> serde_json::Value {
+    let value = serde_json::to_value(response).expect("serialize");
+    let text = value["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("resource text");
+    serde_json::from_str(text).expect("valid resource JSON")
+}
+
+fn assert_fields_match(
+    left: &serde_json::Value,
+    right: &serde_json::Value,
+    fields: &[&str],
+) {
+    for field in fields {
+        assert_eq!(left[*field], right[*field], "field mismatch for `{field}`");
+    }
+}
+
+fn tool_names_from_field(payload: &serde_json::Value, field: &str) -> Vec<String> {
+    payload[field]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|item| {
+            item.get("name")
+                .and_then(|value| value.as_str())
+                .map(str::to_owned)
+        })
+        .collect()
+}
+
 #[test]
 fn lists_tools() {
     let project = project_root();
@@ -20,6 +60,23 @@ fn lists_tools() {
     let encoded = serde_json::to_string(&response).expect("serialize");
     assert!(encoded.contains("get_symbols_overview"));
     assert!(encoded.contains("active_surface"));
+    let value = serde_json::to_value(&response).expect("serialize");
+    let prepare = value["result"]["tools"]
+        .as_array()
+        .and_then(|tools| {
+            tools.iter().find(|tool| {
+                tool.get("name").and_then(|name| name.as_str()) == Some("prepare_harness_session")
+            })
+        })
+        .expect("prepare_harness_session should be listed");
+    assert_eq!(
+        prepare["orchestrationContract"]["orchestration_owner"],
+        json!("host")
+    );
+    assert_eq!(
+        prepare["orchestrationContract"]["server_role"],
+        json!("supporting_mcp")
+    );
 }
 
 #[test]
@@ -218,19 +275,209 @@ fn refactor_deferred_tools_list_starts_preview_first() {
     assert!(encoded.contains("\"deferred_loading_active\":true"));
     assert!(encoded.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
-    assert!(encoded.contains("\"tool_count\":"));
-    assert!(encoded.contains("\"plan_safe_refactor\""));
-    assert!(encoded.contains("\"analyze_change_impact\""));
-    assert!(encoded.contains("\"trace_request_path\""));
+    assert!(encoded.contains("\"tool_count\":6"));
     assert!(encoded.contains("\"activate_project\""));
+    assert!(encoded.contains("\"prepare_harness_session\""));
     assert!(encoded.contains("\"set_profile\""));
+    assert!(encoded.contains("\"verify_change_readiness\""));
+    assert!(encoded.contains("\"safe_rename_report\""));
+    assert!(encoded.contains("\"refactor_safety_report\""));
     assert!(!encoded.contains("\"name\":\"rename_symbol\""));
     assert!(!encoded.contains("\"name\":\"replace_symbol_body\""));
     assert!(!encoded.contains("\"name\":\"refactor_extract_function\""));
-    assert!(!encoded.contains("\"name\":\"verify_change_readiness\""));
-    assert!(!encoded.contains("\"name\":\"refactor_safety_report\""));
-    assert!(!encoded.contains("\"name\":\"safe_rename_report\""));
     assert!(!encoded.contains("\"name\":\"unresolved_reference_check\""));
+    assert!(!encoded.contains("\"name\":\"plan_safe_refactor\""));
+    assert!(!encoded.contains("\"name\":\"analyze_change_impact\""));
+    assert!(!encoded.contains("\"name\":\"trace_request_path\""));
+    assert!(!encoded.contains("\"name\":\"get_capabilities\""));
+    assert!(!encoded.contains("\"name\":\"get_current_config\""));
+    assert!(!encoded.contains("\"name\":\"set_preset\""));
+}
+
+#[test]
+fn workflow_first_deferred_tools_list_starts_bootstrap_first() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "workflow-first"}));
+
+    let list_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1013)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"_session_deferred_tool_loading": true})),
+        },
+    )
+    .unwrap();
+    let encoded = serde_json::to_string(&list_resp).unwrap();
+    assert!(encoded.contains("\"deferred_loading_active\":true"));
+    assert!(encoded.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
+    assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
+    assert!(encoded.contains("\"tool_count\":8"));
+    assert!(encoded.contains("\"activate_project\""));
+    assert!(encoded.contains("\"prepare_harness_session\""));
+    assert!(encoded.contains("\"set_profile\""));
+    assert!(encoded.contains("\"explore_codebase\""));
+    assert!(encoded.contains("\"trace_request_path\""));
+    assert!(encoded.contains("\"review_architecture\""));
+    assert!(encoded.contains("\"analyze_change_impact\""));
+    assert!(encoded.contains("\"plan_safe_refactor\""));
+    assert!(!encoded.contains("\"name\":\"verify_change_readiness\""));
+    assert!(!encoded.contains("\"name\":\"get_capabilities\""));
+    assert!(!encoded.contains("\"name\":\"get_current_config\""));
+    assert!(!encoded.contains("\"name\":\"set_preset\""));
+}
+
+#[test]
+fn deferred_tools_list_resource_summary_matches_router_contract_fields() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+
+    let session_params = json!({
+        "_session_id": "parity-summary",
+        "_session_client_name": "CodexHarness",
+        "_session_deferred_tool_loading": true,
+    });
+
+    let list_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1401)),
+            method: "tools/list".to_owned(),
+            params: Some(session_params.clone()),
+        },
+    )
+    .expect("tools/list response");
+    let list_payload = result_payload(&list_response);
+
+    let resource_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1402)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({
+                "uri": "codelens://tools/list",
+                "_session_id": "parity-summary",
+                "_session_client_name": "CodexHarness",
+                "_session_deferred_tool_loading": true,
+            })),
+        },
+    )
+    .expect("resource response");
+    let resource_payload = resource_payload(&resource_response);
+
+    assert_fields_match(
+        &list_payload,
+        &resource_payload,
+        &[
+            "client_profile",
+            "active_surface",
+            "default_contract_mode",
+            "tool_count",
+            "tool_count_total",
+            "preferred_namespaces",
+            "preferred_tiers",
+            "loaded_namespaces",
+            "loaded_tiers",
+            "effective_namespaces",
+            "effective_tiers",
+            "deferred_loading_active",
+            "bootstrap_entrypoint",
+            "list_role",
+        ],
+    );
+    assert_eq!(resource_payload["bootstrap_entrypoint"], json!("prepare_harness_session"));
+    assert_eq!(resource_payload["list_role"], json!("surface_expansion"));
+
+    let list_names = tool_names_from_field(&list_payload, "tools");
+    let recommended_names = tool_names_from_field(&resource_payload, "recommended_tools");
+    assert_eq!(
+        recommended_names,
+        list_names.into_iter().take(recommended_names.len()).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn full_tools_list_resource_details_match_router_contract_fields() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+
+    let list_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1411)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "_session_id": "parity-full",
+                "_session_client_name": "CodexHarness",
+                "_session_deferred_tool_loading": true,
+                "_session_loaded_namespaces": ["lsp"],
+                "_session_loaded_tiers": ["primitive"],
+                "_session_full_tool_exposure": true,
+                "full": true,
+            })),
+        },
+    )
+    .expect("tools/list response");
+    let list_payload = result_payload(&list_response);
+
+    let resource_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1412)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({
+                "uri": "codelens://tools/list/full",
+                "_session_id": "parity-full",
+                "_session_client_name": "CodexHarness",
+                "_session_deferred_tool_loading": true,
+                "_session_loaded_namespaces": ["lsp"],
+                "_session_loaded_tiers": ["primitive"],
+                "_session_full_tool_exposure": true,
+            })),
+        },
+    )
+    .expect("resource response");
+    let resource_payload = resource_payload(&resource_response);
+
+    assert_fields_match(
+        &list_payload,
+        &resource_payload,
+        &[
+            "client_profile",
+            "active_surface",
+            "default_contract_mode",
+            "tool_count",
+            "tool_count_total",
+            "all_namespaces",
+            "all_tiers",
+            "preferred_namespaces",
+            "preferred_tiers",
+            "loaded_namespaces",
+            "loaded_tiers",
+            "effective_namespaces",
+            "effective_tiers",
+            "deferred_loading_active",
+            "full_tool_exposure",
+            "bootstrap_entrypoint",
+            "list_role",
+        ],
+    );
+
+    let list_names = tool_names_from_field(&list_payload, "tools");
+    let resource_names = tool_names_from_field(&resource_payload, "tools");
+    assert_eq!(list_names, resource_names);
 }
 
 #[test]
@@ -259,9 +506,47 @@ fn codex_client_name_enables_lean_tools_list_contract() {
     assert!(encoded.contains("\"default_contract_mode\":\"lean\""));
     assert!(encoded.contains("\"include_output_schema\":false"));
     assert!(encoded.contains("\"include_annotations\":false"));
+    assert!(encoded.contains("\"orchestrationContract\""));
     assert!(!encoded.contains("\"outputSchema\""));
     assert!(!encoded.contains("\"annotations\""));
     assert!(!encoded.contains("\"visible_namespaces\""));
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    let prepare = value["result"]["tools"]
+        .as_array()
+        .and_then(|tools| {
+            tools.iter().find(|tool| {
+                tool.get("name").and_then(|name| name.as_str()) == Some("prepare_harness_session")
+            })
+        })
+        .expect("prepare_harness_session should be listed");
+    assert_eq!(
+        prepare["orchestrationContract"]["server_role"],
+        json!("supporting_mcp")
+    );
+    assert_eq!(
+        prepare["orchestrationContract"]["orchestration_owner"],
+        json!("host")
+    );
+    assert_eq!(
+        prepare["orchestrationContract"]["stage_hint"],
+        json!("session_bootstrap")
+    );
+    assert!(
+        prepare["orchestrationContract"]
+            .get("preferred_client_behavior")
+            .is_none()
+    );
+    assert!(
+        prepare["orchestrationContract"]
+            .get("retry_policy_owner")
+            .is_none()
+    );
+    assert!(
+        prepare["inputSchema"]["properties"]["profile"]
+            .get("enum")
+            .is_none()
+    );
 }
 
 #[test]
@@ -324,6 +609,82 @@ fn codex_client_can_restore_annotations_explicitly() {
 }
 
 #[test]
+fn missing_param_error_exposes_protocol_diagnostics_in_error_data() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(9)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "set_profile",
+                "arguments": {
+                    "_session_client_name": "Claude Code",
+                }
+            })),
+        },
+    )
+    .expect("tools/call should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    assert_eq!(value["error"]["code"], json!(-32602));
+    assert_eq!(value["error"]["data"]["error_class"], json!("validation"));
+    assert_eq!(value["error"]["data"]["tool_name"], json!("set_profile"));
+    assert_eq!(
+        value["error"]["data"]["request_stage"],
+        json!("tool_arguments")
+    );
+    assert!(value["error"]["data"].get("orchestration_contract").is_none());
+    assert!(value["error"]["data"].get("recommended_next_steps").is_none());
+    assert!(value["error"]["data"].get("recovery_actions").is_none());
+}
+
+#[test]
+fn invalid_jsonrpc_version_exposes_router_protocol_diagnostics() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "1.0".to_owned(),
+            id: Some(json!(10)),
+            method: "initialize".to_owned(),
+            params: Some(json!({
+                "clientInfo": {
+                    "name": "Claude Code",
+                    "version": "1.0.0"
+                },
+                "profile": "reviewer-graph"
+            })),
+        },
+    )
+    .expect("invalid jsonrpc version should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    assert_eq!(value["error"]["code"], json!(-32600));
+    assert_eq!(value["error"]["data"]["error_scope"], json!("router"));
+    assert_eq!(
+        value["error"]["data"]["request_stage"],
+        json!("jsonrpc_envelope")
+    );
+    assert_eq!(
+        value["error"]["data"]["orchestration_contract"]["host_id"],
+        json!("claude-code")
+    );
+    assert_eq!(
+        value["error"]["data"]["orchestration_contract"]["active_surface"],
+        json!("reviewer-graph")
+    );
+}
+
+#[test]
 fn deferred_tools_list_omits_output_schema_by_default() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -383,6 +744,44 @@ fn deferred_tools_list_can_restore_output_schema_explicitly() {
 }
 
 #[test]
+fn profile_input_schemas_include_workflow_first() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "includeOutputSchema": true,
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    for tool_name in ["set_profile", "prepare_harness_session"] {
+        let tool = value["result"]["tools"]
+            .as_array()
+            .and_then(|tools| {
+                tools
+                    .iter()
+                    .find(|tool| tool.get("name").and_then(|name| name.as_str()) == Some(tool_name))
+            })
+            .unwrap_or_else(|| panic!("{tool_name} should be listed"));
+        let variants = tool["inputSchema"]["properties"]["profile"]["enum"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{tool_name} profile enum should be present"));
+        assert!(
+            variants.iter().any(|item| item == "workflow-first"),
+            "{tool_name} should advertise workflow-first"
+        );
+    }
+}
+
+#[test]
 fn refactor_profile_limits_surface_to_approved_mutations() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -427,6 +826,17 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
             .as_str()
             .unwrap_or("")
             .contains("blocked by daemon mode")
+    );
+    assert!(
+        payload["recovery_actions"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|item| {
+                    item["kind"] == json!("tool_call")
+                        && item["target"] == json!("prepare_harness_session")
+                })
+            })
+            .unwrap_or(false)
     );
 }
 
@@ -480,6 +890,96 @@ fn watch_status_reports_lock_contention_field() {
         payload["data"]
             .get("recent_failure_window_seconds")
             .is_some()
+    );
+}
+
+#[test]
+fn routine_structured_responses_omit_low_signal_budget_hint() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let payload = call_tool(&state, "get_watch_status", json!({}));
+    assert!(payload.get("budget_hint").is_none());
+    assert!(payload.get("suggested_next_tools").is_none());
+    assert!(payload.get("suggestion_reasons").is_none());
+    assert!(payload.get("orchestration_contract").is_none());
+    assert!(payload.get("recommended_next_steps").is_none());
+}
+
+#[test]
+fn generic_validation_errors_omit_orchestration_contract() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let payload = call_tool(
+        &state,
+        "set_profile",
+        json!({"profile": "not-a-real-profile"}),
+    );
+    assert_eq!(payload["success"], json!(false));
+    assert_eq!(payload["routing_hint"], json!("sync"));
+    assert!(payload.get("budget_hint").is_none());
+    assert!(payload.get("suggested_next_tools").is_none());
+    assert!(payload.get("suggestion_reasons").is_none());
+    assert!(payload.get("orchestration_contract").is_none());
+    assert!(payload.get("recommended_next_steps").is_none());
+    assert!(payload.get("recovery_actions").is_none());
+}
+
+#[test]
+fn deferred_hidden_tool_errors_keep_recovery_contract() {
+    let project = project_root();
+    let state = crate::AppState::new(project.clone(), crate::tool_defs::ToolPreset::Full);
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+    let file_path = project.as_path().join("deferred_hidden.py");
+    std::fs::write(&file_path, "def beta():\n    return 2\n").unwrap();
+
+    let payload = call_tool(
+        &state,
+        "find_symbol",
+        json!({
+            "name": "beta",
+            "file_path": file_path.display().to_string(),
+            "include_body": false,
+            "_session_id": "deferred-hidden",
+            "_session_deferred_tool_loading": true,
+            "_session_client_name": "Claude Code",
+        }),
+    );
+    assert_eq!(payload["success"], json!(false));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("hidden by deferred loading")
+    );
+    assert_eq!(
+        payload["orchestration_contract"]["host_id"],
+        json!("claude-code")
+    );
+    assert_eq!(
+        payload["orchestration_contract"]["active_surface"],
+        json!("reviewer-graph")
+    );
+    assert!(
+        payload["recovery_actions"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|item| {
+                    item["kind"] == json!("rpc_call")
+                        && item["target"] == json!("tools/list")
+                        && item["arguments"]["tier"] == json!("primitive")
+                })
+            })
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["recommended_next_steps"]
+            .as_array()
+            .map(|items| items
+                .iter()
+                .any(|item| item["target"] == json!("host_orchestrator")))
+            .unwrap_or(false)
     );
 }
 

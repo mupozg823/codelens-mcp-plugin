@@ -5,7 +5,7 @@ use crate::session_context::SessionRequestContext;
 use crate::tool_defs::{
     ToolProfile, ToolSurface, default_budget_for_profile, is_content_mutation_tool,
     is_deferred_control_tool, is_read_only_surface, is_tool_in_surface, preferred_namespaces,
-    preferred_tier_labels, tool_namespace, tool_tier_label,
+    preferred_tier_labels, tool_definition, tool_namespace, tool_tier_label,
 };
 
 fn detected_client_profile(state: &AppState, session: &SessionRequestContext) -> ClientProfile {
@@ -104,6 +104,10 @@ pub(crate) fn validate_tool_access(
     surface: ToolSurface,
     state: &AppState,
 ) -> Result<ToolSurface, CodeLensError> {
+    if tool_definition(name).is_none() {
+        return Ok(surface);
+    }
+
     let mut effective_surface = surface;
     let mut active_surface = effective_surface.as_label();
 

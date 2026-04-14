@@ -370,6 +370,8 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             if !lean_contract {
                 payload.insert("visible_namespaces".to_owned(), json!(context.all_namespaces));
                 payload.insert("visible_tiers".to_owned(), json!(context.all_tiers));
+                payload.insert("all_namespaces".to_owned(), json!(context.all_namespaces));
+                payload.insert("all_tiers".to_owned(), json!(context.all_tiers));
                 payload.insert(
                     "full_listing".to_owned(),
                     Value::Bool(request_context.full_listing),

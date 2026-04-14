@@ -645,15 +645,39 @@ mod tests {
         assert!(output.ends_with('\n'));
         let value: serde_json::Value = serde_json::from_str(output.trim_end()).unwrap();
         assert_eq!(value["error"]["code"], json!(-32602));
-        assert_eq!(value["error"]["data"]["error_class"], json!("protocol"));
+        assert_eq!(value["error"]["data"]["error_class"], json!("validation"));
         assert_eq!(
-            value["error"]["data"]["orchestration_contract"]["host_id"],
-            json!("codex")
+            value["error"]["data"]["tool_name"],
+            json!("set_profile")
         );
+        assert_eq!(value["error"]["data"]["request_stage"], json!("tool_arguments"));
+        assert!(value["error"]["data"].get("orchestration_contract").is_none());
+        assert!(value["error"]["data"].get("recommended_next_steps").is_none());
+        assert!(value["error"]["data"].get("recovery_actions").is_none());
+    }
+
+    #[test]
+    fn line_delimited_unknown_tool_error_stays_lean() {
+        let state = test_state();
+
+        let output = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"definitely_missing_tool","arguments":{"_session_client_name":"CodexHarness"}}}
+"#,
+        );
+
+        assert!(output.ends_with('\n'));
+        let value: serde_json::Value = serde_json::from_str(output.trim_end()).unwrap();
+        assert_eq!(value["error"]["code"], json!(-32601));
+        assert_eq!(value["error"]["data"]["error_class"], json!("validation"));
         assert_eq!(
-            value["error"]["data"]["orchestration_contract"]["active_surface"],
-            json!("reviewer-graph")
+            value["error"]["data"]["tool_name"],
+            json!("definitely_missing_tool")
         );
+        assert_eq!(value["error"]["data"]["request_stage"], json!("tool_selection"));
+        assert!(value["error"]["data"].get("orchestration_contract").is_none());
+        assert!(value["error"]["data"].get("recommended_next_steps").is_none());
+        assert!(value["error"]["data"].get("recovery_actions").is_none());
     }
 
     #[test]
@@ -717,6 +741,37 @@ mod tests {
     }
 
     #[test]
+    fn stdio_codex_prepare_harness_session_bootstraps_without_tools_list() {
+        let state = test_state();
+
+        let bootstrap = round_trip_stdio(
+            &state,
+            format!(
+                r#"{{"jsonrpc":"2.0","id":30,"method":"tools/call","params":{{"name":"prepare_harness_session","arguments":{{"project":"{}","_session_client_name":"CodexHarness","preferred_entrypoints":["explore_codebase","plan_safe_refactor"]}}}}}}"#,
+                state.project().as_path().display()
+            )
+            .as_bytes(),
+        );
+
+        let payload = first_tool_payload(&bootstrap);
+        assert_eq!(payload["success"], json!(true));
+        assert_eq!(payload["data"]["project"]["auto_surface"], json!("workflow-first"));
+        assert_eq!(payload["data"]["active_surface"], json!("workflow-first"));
+        assert_eq!(payload["data"]["token_budget"], json!(6000));
+        assert_eq!(
+            payload["data"]["routing"]["recommended_entrypoint"],
+            json!("explore_codebase")
+        );
+        assert_eq!(payload["orchestration_contract"]["host_id"], json!("codex"));
+        assert!(
+            payload["suggested_next_tools"]
+                .as_array()
+                .map(|items| items.iter().any(|item| item == "explore_codebase"))
+                .unwrap_or(false)
+        );
+    }
+
+    #[test]
     fn stdio_logical_session_persists_namespace_expansion_and_allows_hidden_tool_calls() {
         let state = test_state();
         state.set_surface(crate::tool_defs::ToolSurface::Profile(
@@ -759,6 +814,18 @@ mod tests {
         assert_eq!(
             blocked_payload["orchestration_contract"]["host_id"],
             json!("claude-code")
+        );
+        assert!(
+            blocked_payload["recovery_actions"]
+                .as_array()
+                .map(|items| {
+                    items.iter().any(|item| {
+                        item["kind"] == json!("rpc_call")
+                            && item["target"] == json!("tools/list")
+                            && item["arguments"]["namespace"] == json!("lsp")
+                    })
+                })
+                .unwrap_or(false)
         );
 
         let tier_expanded = round_trip_stdio(

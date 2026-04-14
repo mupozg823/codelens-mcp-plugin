@@ -94,6 +94,22 @@ fn protocol_error_data(
     })
 }
 
+fn invalid_params_error_data(tool_name: &str) -> serde_json::Value {
+    json!({
+        "error_class": "validation",
+        "tool_name": tool_name,
+        "request_stage": "tool_arguments",
+    })
+}
+
+fn unknown_tool_error_data(tool_name: &str) -> serde_json::Value {
+    json!({
+        "error_class": "validation",
+        "tool_name": tool_name,
+        "request_stage": "tool_selection",
+    })
+}
+
 fn append_budget_hint(hint: &mut Option<String>, extra: impl Into<String>) {
     let extra = extra.into();
     match hint {
@@ -480,6 +496,24 @@ pub(crate) fn build_error_response(
         Some(logical_session_id),
     );
 
+    if matches!(error, CodeLensError::MissingParam(_)) {
+        return JsonRpcResponse::error_with_data(
+            id,
+            error.jsonrpc_code(),
+            error.to_string(),
+            invalid_params_error_data(name),
+        );
+    }
+
+    if matches!(error, CodeLensError::ToolNotFound(_)) {
+        return JsonRpcResponse::error_with_data(
+            id,
+            error.jsonrpc_code(),
+            error.to_string(),
+            unknown_tool_error_data(name),
+        );
+    }
+
     if error.is_protocol_error() {
         return JsonRpcResponse::error_with_data(
             id,
@@ -599,6 +633,48 @@ mod tests {
     }
 
     #[test]
+    fn missing_param_error_stays_lean_without_orchestration_metadata() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-missing-param-error-contract-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("hello.txt"), "world\n").unwrap();
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        let state = AppState::new(project, ToolPreset::Full);
+
+        let response = build_error_response(
+            "set_profile",
+            CodeLensError::MissingParam("profile".to_owned()),
+            None,
+            ToolSurface::Profile(ToolProfile::ReviewerGraph),
+            "reviewer-graph",
+            &json!({
+                "_session_client_name": "CodexHarness",
+            }),
+            "local",
+            &state,
+            std::time::Instant::now(),
+            Some(json!(3)),
+        );
+
+        let value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["error"]["code"], json!(-32602));
+        assert_eq!(value["error"]["data"]["error_class"], json!("validation"));
+        assert_eq!(value["error"]["data"]["tool_name"], json!("set_profile"));
+        assert_eq!(
+            value["error"]["data"]["request_stage"],
+            json!("tool_arguments")
+        );
+        assert!(value["error"]["data"].get("orchestration_contract").is_none());
+        assert!(value["error"]["data"].get("recommended_next_steps").is_none());
+        assert!(value["error"]["data"].get("recovery_actions").is_none());
+    }
+
+    #[test]
     fn access_recovery_error_uses_request_client_profile_and_surface_contract() {
         let dir = std::env::temp_dir().join(format!(
             "codelens-access-error-response-contract-{}",
@@ -664,9 +740,9 @@ mod tests {
     }
 
     #[test]
-    fn protocol_error_response_includes_host_readable_error_data() {
+    fn unknown_tool_error_stays_lean_without_orchestration_metadata() {
         let dir = std::env::temp_dir().join(format!(
-            "codelens-protocol-error-contract-{}",
+            "codelens-unknown-tool-error-contract-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
@@ -694,22 +770,17 @@ mod tests {
 
         let value = serde_json::to_value(&response).unwrap();
         assert_eq!(value["error"]["code"], json!(-32601));
-        assert_eq!(value["error"]["data"]["error_class"], json!("protocol"));
+        assert_eq!(value["error"]["data"]["error_class"], json!("validation"));
         assert_eq!(
-            value["error"]["data"]["orchestration_contract"]["host_id"],
-            json!("claude-code")
+            value["error"]["data"]["tool_name"],
+            json!("missing_tool")
         );
         assert_eq!(
-            value["error"]["data"]["orchestration_contract"]["active_surface"],
-            json!("reviewer-graph")
+            value["error"]["data"]["request_stage"],
+            json!("tool_selection")
         );
-        assert!(
-            value["error"]["data"]["recommended_next_steps"]
-                .as_array()
-                .map(|items| items
-                    .iter()
-                    .any(|item| item["target"] == json!("host_orchestrator")))
-                .unwrap_or(false)
-        );
+        assert!(value["error"]["data"].get("orchestration_contract").is_none());
+        assert!(value["error"]["data"].get("recommended_next_steps").is_none());
+        assert!(value["error"]["data"].get("recovery_actions").is_none());
     }
 }

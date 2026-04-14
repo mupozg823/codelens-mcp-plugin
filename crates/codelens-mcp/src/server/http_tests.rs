@@ -235,6 +235,10 @@ async fn initialize_claude_defaults_to_full_contract() {
         .and_then(|value| value.to_str().ok())
         .unwrap()
         .to_owned();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("QueryEngine/query remains the orchestrator"));
+    assert!(body.contains("not an execution engine"));
     let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
     let metadata = session.client_metadata();
     assert_eq!(metadata.deferred_tool_loading, Some(false));
@@ -303,9 +307,106 @@ async fn codex_session_client_name_affects_activate_project_budget() {
     assert_eq!(payload["success"], serde_json::json!(true));
     assert_eq!(
         payload["data"]["auto_surface"],
-        serde_json::json!("builder-minimal")
+        serde_json::json!("workflow-first")
     );
     assert_eq!(payload["data"]["auto_budget"], serde_json::json!(6000));
+}
+
+#[tokio::test]
+async fn initialize_requested_profile_sets_session_surface_immediately() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA","version":"2.1.0"},"profile":"reviewer-graph"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let list = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(list.status(), StatusCode::OK);
+    let body = body_string(list).await;
+    assert!(body.contains("\"active_surface\":\"reviewer-graph\""));
+    assert!(body.contains("\"review_architecture\""));
+    assert!(body.contains("\"analyze_change_impact\""));
+}
+
+#[tokio::test]
+async fn initialize_codex_auto_sets_workflow_surface_before_bootstrap() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let list = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(list.status(), StatusCode::OK);
+    let body = body_string(list).await;
+    assert!(body.contains("\"active_surface\":\"workflow-first\""));
+    assert!(body.contains("\"explore_codebase\""));
+    assert!(body.contains("\"trace_request_path\""));
+    assert!(body.contains("\"plan_safe_refactor\""));
 }
 
 #[tokio::test]
@@ -889,29 +990,284 @@ async fn codex_session_prepare_harness_session_bootstraps_without_tools_list() {
     assert_eq!(payload["success"], serde_json::json!(true));
     assert_eq!(
         payload["data"]["project"]["auto_surface"],
-        serde_json::json!("builder-minimal")
+        serde_json::json!("workflow-first")
     );
     assert_eq!(
         payload["data"]["active_surface"],
-        serde_json::json!("builder-minimal")
+        serde_json::json!("workflow-first")
     );
     assert_eq!(payload["data"]["token_budget"], serde_json::json!(6000));
     assert_eq!(
         payload["data"]["http_session"]["default_tools_list_contract_mode"],
         serde_json::json!("lean")
     );
+    assert!(payload["data"]["http_session"]["indexed_files"].is_null());
+    assert!(payload["data"]["http_session"]["supported_files"].is_null());
+    assert!(payload["data"]["http_session"]["stale_files"].is_null());
     assert_eq!(
         payload["data"]["routing"]["recommended_entrypoint"],
         serde_json::json!("explore_codebase")
+    );
+    assert!(payload["data"]["routing"]["preferred_entrypoints"].is_null());
+    let visible_entrypoints = payload["data"]["routing"]["preferred_entrypoints_visible"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        visible_entrypoints
+            .iter()
+            .any(|value| value == "explore_codebase")
+    );
+    assert!(
+        visible_entrypoints
+            .iter()
+            .any(|value| value == "plan_safe_refactor")
+    );
+    assert!(payload["data"]["visible_tools"]["all_namespaces"].is_null());
+    assert!(payload["data"]["visible_tools"]["preferred_namespaces"].is_null());
+    assert!(payload["data"]["capabilities"]["available"].is_null());
+    assert!(payload["data"]["capabilities"]["unavailable"].is_null());
+    assert!(payload["data"]["host_runtime"]["bootstrap_sequence"].is_null());
+    assert!(payload["data"]["host_runtime"]["guardrails"].is_null());
+    let host_stages = payload["data"]["host_runtime"]["task_stages"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        host_stages
+            .iter()
+            .all(|stage| stage["request_templates"].is_null())
+    );
+    assert!(
+        host_stages
+            .iter()
+            .all(|stage| stage["entrypoints"].is_array())
     );
     let tool_names = payload["data"]["visible_tools"]["tool_names"]
         .as_array()
         .cloned()
         .unwrap_or_default();
+    assert!(tool_names.iter().any(|value| value == "explore_codebase"));
+    assert!(tool_names.iter().any(|value| value == "plan_safe_refactor"));
+    let suggested = payload["suggested_next_tools"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(suggested.iter().any(|value| value == "explore_codebase"));
+    assert!(suggested.iter().any(|value| value == "trace_request_path"));
     assert!(
-        tool_names
-            .iter()
-            .any(|value| value == "prepare_harness_session")
+        payload["recommended_next_steps"]
+            .as_array()
+            .map(|items| {
+                items.first().is_some_and(|item| {
+                    item["kind"] == serde_json::json!("tool")
+                        && item["target"] == serde_json::json!("explore_codebase")
+                })
+            })
+            .unwrap_or(false)
+    );
+}
+
+#[tokio::test]
+async fn codex_missing_param_error_exposes_protocol_diagnostics() {
+    let state = test_state();
+    state.set_surface(crate::tool_defs::ToolSurface::Profile(
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    ));
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"},"profile":"reviewer-graph"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let missing = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"set_profile","arguments":{}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(missing.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&body_string(missing).await).unwrap();
+    assert_eq!(body["error"]["code"], serde_json::json!(-32602));
+    assert_eq!(
+        body["error"]["data"]["error_class"],
+        serde_json::json!("validation")
+    );
+    assert_eq!(
+        body["error"]["data"]["tool_name"],
+        serde_json::json!("set_profile")
+    );
+    assert_eq!(
+        body["error"]["data"]["request_stage"],
+        serde_json::json!("tool_arguments")
+    );
+    assert!(body["error"]["data"].get("orchestration_contract").is_none());
+    assert!(body["error"]["data"].get("recommended_next_steps").is_none());
+    assert!(body["error"]["data"].get("recovery_actions").is_none());
+}
+
+#[tokio::test]
+async fn unknown_tool_error_over_http_stays_lean() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"},"profile":"reviewer-graph"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let missing = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"definitely_missing_tool","arguments":{}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(missing.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&body_string(missing).await).unwrap();
+    assert_eq!(body["error"]["code"], serde_json::json!(-32601));
+    assert_eq!(
+        body["error"]["data"]["error_class"],
+        serde_json::json!("validation")
+    );
+    assert_eq!(
+        body["error"]["data"]["tool_name"],
+        serde_json::json!("definitely_missing_tool")
+    );
+    assert_eq!(
+        body["error"]["data"]["request_stage"],
+        serde_json::json!("tool_selection")
+    );
+    assert!(body["error"]["data"].get("orchestration_contract").is_none());
+    assert!(body["error"]["data"].get("recommended_next_steps").is_none());
+    assert!(body["error"]["data"].get("recovery_actions").is_none());
+}
+
+#[tokio::test]
+async fn invalid_jsonrpc_version_over_http_exposes_router_protocol_diagnostics() {
+    let state = test_state();
+    let app = build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"1.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"Claude Code","version":"1.0.0"},"profile":"reviewer-graph"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&body_string(resp).await).unwrap();
+    assert_eq!(body["error"]["code"], serde_json::json!(-32600));
+    assert_eq!(
+        body["error"]["data"]["error_scope"],
+        serde_json::json!("router")
+    );
+    assert_eq!(
+        body["error"]["data"]["orchestration_contract"]["host_id"],
+        serde_json::json!("claude-code")
+    );
+    assert_eq!(
+        body["error"]["data"]["orchestration_contract"]["active_surface"],
+        serde_json::json!("reviewer-graph")
+    );
+}
+
+#[tokio::test]
+async fn parse_error_over_http_exposes_transport_protocol_diagnostics() {
+    let state = test_state();
+    let app = build_router(state);
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from("{invalid json"))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: serde_json::Value = serde_json::from_str(&body_string(resp).await).unwrap();
+    assert_eq!(body["error"]["code"], serde_json::json!(-32700));
+    assert_eq!(
+        body["error"]["data"]["error_scope"],
+        serde_json::json!("transport_http")
+    );
+    assert_eq!(
+        body["error"]["data"]["request_stage"],
+        serde_json::json!("parse")
+    );
+    assert_eq!(
+        body["error"]["data"]["orchestration_contract"]["host_id"],
+        serde_json::json!("generic-mcp")
+    );
+    assert!(
+        body["error"]["data"]["recommended_next_steps"]
+            .as_array()
+            .map(|items| items
+                .iter()
+                .any(|item| item["target"] == serde_json::json!("host_orchestrator")))
+            .unwrap_or(false)
     );
 }
 
@@ -1007,6 +1363,43 @@ async fn codex_session_uses_lean_tools_list_contract_by_default() {
     assert!(!body.contains("\"outputSchema\""));
     assert!(!body.contains("\"annotations\""));
     assert!(!body.contains("\"visible_namespaces\""));
+
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let prepare = value["result"]["tools"]
+        .as_array()
+        .and_then(|tools| {
+            tools.iter().find(|tool| {
+                tool.get("name").and_then(|name| name.as_str()) == Some("prepare_harness_session")
+            })
+        })
+        .expect("prepare_harness_session should be listed");
+    assert_eq!(
+        prepare["orchestrationContract"]["server_role"],
+        serde_json::json!("supporting_mcp")
+    );
+    assert_eq!(
+        prepare["orchestrationContract"]["orchestration_owner"],
+        serde_json::json!("host")
+    );
+    assert_eq!(
+        prepare["orchestrationContract"]["stage_hint"],
+        serde_json::json!("session_bootstrap")
+    );
+    assert!(
+        prepare["orchestrationContract"]
+            .get("preferred_client_behavior")
+            .is_none()
+    );
+    assert!(
+        prepare["orchestrationContract"]
+            .get("retry_policy_owner")
+            .is_none()
+    );
+    assert!(
+        prepare["inputSchema"]["properties"]["profile"]
+            .get("enum")
+            .is_none()
+    );
 }
 
 #[tokio::test]
@@ -1300,6 +1693,92 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
 }
 
 #[tokio::test]
+async fn refactor_safety_report_structured_content_uses_section_template_over_http() {
+    let project_dir = temp_project_dir("http-refactor-preview");
+    std::fs::write(
+        project_dir.join("refactor_preview.py"),
+        "def alpha(value):\n    return value + 1\n",
+    )
+    .unwrap();
+    let project = ProjectRoot::new(project_dir.to_str().unwrap()).unwrap();
+    let state = Arc::new(
+        AppState::new(project, crate::tool_defs::ToolPreset::Balanced).with_session_store(),
+    );
+    let app = build_router(state.clone());
+
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA","version":"1.0"},"profile":"refactor-full"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(init.status(), StatusCode::OK);
+    let session_id = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .expect("session id")
+        .to_owned();
+
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &session_id)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"refactor_safety_report","arguments":{"task":"refactor alpha safely","symbol":"alpha","path":"refactor_preview.py","file_path":"refactor_preview.py"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let text_payload: serde_json::Value = serde_json::from_str(
+        envelope["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or("{}"),
+    )
+    .unwrap();
+    assert_eq!(text_payload["success"], serde_json::json!(true));
+    if let Some(data) = text_payload.get("data").and_then(|value| value.as_object()) {
+        assert!(!data.contains_key("section_handles"));
+    }
+    assert!(envelope["result"]["structuredContent"]["analysis_id"].is_string());
+    assert!(
+        envelope["result"]["structuredContent"]["summary_resource"]["uri"]
+            .as_str()
+            .map(|uri| uri.ends_with("/summary"))
+            .unwrap_or(false)
+    );
+    assert!(envelope["result"]["structuredContent"]["available_sections"].is_array());
+    assert!(
+        envelope["result"]["structuredContent"]["section_handle_template"]
+            .as_str()
+            .map(|template| template.ends_with("/{section}"))
+            .unwrap_or(false)
+    );
+    assert!(
+        envelope["result"]["structuredContent"]
+            .get("section_handles")
+            .is_none()
+    );
+}
+
+#[tokio::test]
 async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     let state = test_state();
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
@@ -1346,6 +1825,8 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(body.contains("\"deferred_loading_active\":true"));
+    assert!(body.contains("\"bootstrap_entrypoint\":\"prepare_harness_session\""));
+    assert!(body.contains("\"list_role\":\"surface_expansion\""));
     assert!(
         body.contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]")
     );
@@ -1426,19 +1907,25 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_string(resp).await;
     assert!(body.contains("\"deferred_loading_active\":true"));
+    assert!(body.contains("\"bootstrap_entrypoint\":\"prepare_harness_session\""));
+    assert!(body.contains("\"list_role\":\"surface_expansion\""));
     assert!(body.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
-    assert!(body.contains("\"tool_count\":"));
-    assert!(body.contains("\"plan_safe_refactor\""));
-    assert!(body.contains("\"analyze_change_impact\""));
-    assert!(body.contains("\"trace_request_path\""));
+    assert!(body.contains("\"tool_count\":6"));
     assert!(body.contains("\"activate_project\""));
+    assert!(body.contains("\"prepare_harness_session\""));
     assert!(body.contains("\"set_profile\""));
+    assert!(body.contains("\"verify_change_readiness\""));
+    assert!(body.contains("\"safe_rename_report\""));
+    assert!(body.contains("\"refactor_safety_report\""));
     assert!(!body.contains("\"name\":\"rename_symbol\""));
     assert!(!body.contains("\"name\":\"replace_symbol_body\""));
     assert!(!body.contains("\"name\":\"refactor_extract_function\""));
-    assert!(!body.contains("\"name\":\"verify_change_readiness\""));
-    assert!(!body.contains("\"name\":\"refactor_safety_report\""));
-    assert!(!body.contains("\"name\":\"safe_rename_report\""));
+    assert!(!body.contains("\"name\":\"plan_safe_refactor\""));
+    assert!(!body.contains("\"name\":\"analyze_change_impact\""));
+    assert!(!body.contains("\"name\":\"trace_request_path\""));
+    assert!(!body.contains("\"name\":\"get_capabilities\""));
+    assert!(!body.contains("\"name\":\"get_current_config\""));
+    assert!(!body.contains("\"name\":\"set_preset\""));
     let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
     let tool_names = envelope["result"]["tools"]
         .as_array()
@@ -1454,11 +1941,72 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
     assert_eq!(
         tool_names.iter().take(3).cloned().collect::<Vec<_>>(),
         vec![
-            "plan_safe_refactor".to_owned(),
-            "analyze_change_impact".to_owned(),
-            "trace_request_path".to_owned(),
+            "verify_change_readiness".to_owned(),
+            "safe_rename_report".to_owned(),
+            "refactor_safety_report".to_owned(),
         ]
     );
+}
+
+#[tokio::test]
+async fn workflow_first_deferred_tools_list_starts_bootstrap_first_for_session() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("\"deferred_loading_active\":true"));
+    assert!(body.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
+    assert!(body.contains("\"preferred_tiers\":[\"workflow\"]"));
+    assert!(body.contains("\"tool_count\":8"));
+    assert!(body.contains("\"activate_project\""));
+    assert!(body.contains("\"prepare_harness_session\""));
+    assert!(body.contains("\"set_profile\""));
+    assert!(body.contains("\"explore_codebase\""));
+    assert!(body.contains("\"trace_request_path\""));
+    assert!(body.contains("\"review_architecture\""));
+    assert!(body.contains("\"analyze_change_impact\""));
+    assert!(body.contains("\"plan_safe_refactor\""));
+    assert!(!body.contains("\"name\":\"verify_change_readiness\""));
+    assert!(!body.contains("\"name\":\"get_capabilities\""));
+    assert!(!body.contains("\"name\":\"get_current_config\""));
+    assert!(!body.contains("\"name\":\"set_preset\""));
 }
 
 #[tokio::test]
@@ -1510,6 +2058,8 @@ async fn deferred_resources_read_tracks_loaded_namespaces_for_session() {
     assert_eq!(summary.status(), StatusCode::OK);
     let summary_body = body_string(summary).await;
     let summary_text = first_resource_text(&summary_body);
+    assert!(summary_text.contains("\"bootstrap_entrypoint\": \"prepare_harness_session\""));
+    assert!(summary_text.contains("\"list_role\": \"surface_expansion\""));
     assert!(summary_text.contains("\"loaded_namespaces\": []"));
     assert!(summary_text.contains("\"loaded_tiers\": []"));
     assert!(!summary_text.contains("\"filesystem\":"));
@@ -1579,6 +2129,8 @@ async fn deferred_resources_read_tracks_loaded_namespaces_for_session() {
     assert_eq!(summary_after.status(), StatusCode::OK);
     let summary_after_body = body_string(summary_after).await;
     let summary_after_text = first_resource_text(&summary_after_body);
+    assert!(summary_after_text.contains("\"bootstrap_entrypoint\": \"prepare_harness_session\""));
+    assert!(summary_after_text.contains("\"list_role\": \"surface_expansion\""));
     assert!(summary_after_text.contains("\"loaded_namespaces\": ["));
     assert!(summary_after_text.contains("\"lsp\""));
     assert!(summary_after_text.contains("\"loaded_tiers\": ["));
@@ -1642,7 +2194,7 @@ async fn deferred_session_blocks_hidden_tool_calls_until_namespace_is_loaded() {
                 .uri("/mcp")
                 .header("content-type", "application/json")
                 .body(axum::body::Body::from(
-                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA"},"profile":"reviewer-graph","deferredToolLoading":true}}"#,
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"Claude Code"},"profile":"reviewer-graph","deferredToolLoading":true}}"#,
                 ))
                 .unwrap(),
         )
@@ -1678,6 +2230,259 @@ async fn deferred_session_blocks_hidden_tool_calls_until_namespace_is_loaded() {
     assert_eq!(blocked.status(), StatusCode::OK);
     let blocked_body = body_string(blocked).await;
     assert!(blocked_body.contains("hidden by deferred loading"));
+    let blocked_payload = first_tool_payload(&blocked_body);
+    assert_eq!(
+        blocked_payload["orchestration_contract"]["host_id"],
+        serde_json::json!("claude-code")
+    );
+    assert_eq!(
+        blocked_payload["orchestration_contract"]["active_surface"],
+        serde_json::json!("reviewer-graph")
+    );
+    assert!(
+        blocked_payload["recovery_actions"]
+            .as_array()
+            .map(|items| items.iter().any(|item| {
+                item["kind"] == serde_json::json!("rpc_call")
+                    && item["target"] == serde_json::json!("tools/list")
+                    && item["arguments"]["namespace"] == serde_json::json!("lsp")
+            }))
+            .unwrap_or(false)
+    );
+    assert!(
+        blocked_payload["recommended_next_steps"]
+            .as_array()
+            .map(|items| items
+                .iter()
+                .any(|item| item["target"] == serde_json::json!("host_orchestrator")))
+            .unwrap_or(false)
+    );
+}
+
+#[tokio::test]
+async fn codex_hidden_namespace_tool_call_auto_expands_session_access() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let mock_lsp = concat!(
+        "#!/usr/bin/env python3\n",
+        "import sys, json\n",
+        "def read_msg():\n",
+        "    h = ''\n",
+        "    while True:\n",
+        "        c = sys.stdin.buffer.read(1)\n",
+        "        if not c: return None\n",
+        "        h += c.decode('ascii')\n",
+        "        if h.endswith('\\r\\n\\r\\n'): break\n",
+        "    length = int([l for l in h.split('\\r\\n') if l.startswith('Content-Length:')][0].split(': ')[1])\n",
+        "    return json.loads(sys.stdin.buffer.read(length).decode('utf-8'))\n",
+        "def send(r):\n",
+        "    out = json.dumps(r)\n",
+        "    b = out.encode('utf-8')\n",
+        "    sys.stdout.buffer.write(f'Content-Length: {len(b)}\\r\\n\\r\\n'.encode('ascii'))\n",
+        "    sys.stdout.buffer.write(b)\n",
+        "    sys.stdout.buffer.flush()\n",
+        "while True:\n",
+        "    msg = read_msg()\n",
+        "    if msg is None: break\n",
+        "    rid = msg.get('id')\n",
+        "    m = msg.get('method', '')\n",
+        "    if m == 'initialized': continue\n",
+        "    if rid is None: continue\n",
+        "    if m == 'initialize':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'capabilities':{'textDocumentSync':1,'diagnosticProvider':{}}}})\n",
+        "    elif m == 'textDocument/diagnostic':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':{'kind':'full','items':[]}})\n",
+        "    elif m == 'shutdown':\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+        "    else:\n",
+        "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
+    );
+    let file_path = state.project().as_path().join("codex-auto-open.py");
+    let mock_path = state.project().as_path().join("codex-auto-mock-lsp.py");
+    std::fs::write(&mock_path, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&mock_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    std::fs::write(&file_path, "def beta():\n    return 2\n").unwrap();
+
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let allowed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"get_file_diagnostics","arguments":{{"file_path":"{}","command":"python3","args":["{}"]}}}}}}"#,
+                    file_path.display(),
+                    mock_path.display()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(allowed.status(), StatusCode::OK);
+    let allowed_body = body_string(allowed).await;
+    assert!(
+        allowed_body.contains("\\\"success\\\": true")
+            || allowed_body.contains("\\\"success\\\":true"),
+        "codex deferred namespace body: {allowed_body}"
+    );
+
+    let default_list = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(default_list.status(), StatusCode::OK);
+    let default_body = body_string(default_list).await;
+    assert!(default_body.contains("\"active_surface\":\"builder-minimal\""));
+    assert!(default_body.contains("\"bootstrap_entrypoint\":\"prepare_harness_session\""));
+    assert!(default_body.contains("\"loaded_namespaces\":[\"lsp\"]"));
+    assert!(default_body.contains("\"get_file_diagnostics\""));
+}
+
+#[tokio::test]
+async fn codex_hidden_tier_tool_call_auto_expands_session_access() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let file_path = state.project().as_path().join("codex-auto-tier.py");
+    std::fs::write(&file_path, "def beta():\n    return 2\n").unwrap();
+
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"CodexHarness"},"profile":"reviewer-graph"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let allowed = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(format!(
+                    r#"{{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{{"name":"find_symbol","arguments":{{"name":"beta","file_path":"{}","include_body":false}}}}}}"#,
+                    file_path.display()
+                )))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(allowed.status(), StatusCode::OK);
+    let allowed_body = body_string(allowed).await;
+    assert!(
+        allowed_body.contains("\\\"success\\\": true")
+            || allowed_body.contains("\\\"success\\\":true"),
+        "codex deferred tier body: {allowed_body}"
+    );
+
+    let default_list = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":3,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(default_list.status(), StatusCode::OK);
+    let default_body = body_string(default_list).await;
+    assert!(default_body.contains("\"active_surface\":\"reviewer-graph\""));
+    assert!(default_body.contains("\"bootstrap_entrypoint\":\"prepare_harness_session\""));
+    assert!(default_body.contains("\"loaded_tiers\":[\"primitive\"]"));
+    assert!(default_body.contains("\"find_symbol\""));
+}
+
+#[tokio::test]
+async fn harness_host_resource_supports_explicit_host_selection_over_http() {
+    let state = test_state();
+    let app = build_router(state);
+
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"codelens://harness/host","host":"claude-code"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = body_string(response).await;
+    let text = first_resource_text(&body);
+    assert!(text.contains("\"selection_source\": \"param\""));
+    assert!(text.contains("\"requested_host\": \"claude-code\""));
+    assert!(text.contains("\"host_id\": \"claude-code\""));
+    assert!(text.contains("\"supported_hosts\""));
+    assert!(text.contains("\"request_templates\""));
+    assert!(text.contains("\"request_shape\""));
 }
 
 #[tokio::test]
