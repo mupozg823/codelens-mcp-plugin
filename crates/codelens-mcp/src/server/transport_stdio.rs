@@ -162,46 +162,50 @@ fn explicit_stdio_metadata(request: &JsonRpcRequest) -> crate::state::LogicalSes
     } else {
         params
     };
-    metadata.client_name = explicit_string_field(source, "_session_client_name").or_else(|| {
-        if request.method == "initialize" {
-            params
-                .get("clientInfo")
-                .and_then(|value| value.get("name"))
-                .and_then(|value| value.as_str())
-                .map(ToOwned::to_owned)
-        } else {
-            None
-        }
-    });
+    let initialize_client_name = if request.method == "initialize" {
+        params
+            .get("clientInfo")
+            .and_then(|value| value.get("name"))
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned)
+    } else {
+        None
+    };
+    let initialize_client_version = if request.method == "initialize" {
+        params
+            .get("clientInfo")
+            .and_then(|value| value.get("version"))
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned)
+    } else {
+        None
+    };
+    let initialize_requested_profile = if request.method == "initialize" {
+        params
+            .get("profile")
+            .and_then(|value| value.as_str())
+            .map(ToOwned::to_owned)
+    } else {
+        None
+    };
+    metadata.client_name =
+        explicit_string_field(source, "_session_client_name").or_else(|| initialize_client_name.clone());
     metadata.client_version =
-        explicit_string_field(source, "_session_client_version").or_else(|| {
-            if request.method == "initialize" {
-                params
-                    .get("clientInfo")
-                    .and_then(|value| value.get("version"))
-                    .and_then(|value| value.as_str())
-                    .map(ToOwned::to_owned)
-            } else {
-                None
-            }
-        });
+        explicit_string_field(source, "_session_client_version").or_else(|| initialize_client_version);
     metadata.requested_profile = explicit_string_field(source, "_session_requested_profile")
-        .or_else(|| {
-            if request.method == "initialize" {
-                params
-                    .get("profile")
-                    .and_then(|value| value.as_str())
-                    .map(ToOwned::to_owned)
-            } else {
-                None
-            }
-        });
+        .or_else(|| initialize_requested_profile);
     metadata.deferred_tool_loading = explicit_bool_field(source, "_session_deferred_tool_loading")
         .or_else(|| {
             if request.method == "initialize" {
                 params
                     .get("deferredToolLoading")
                     .and_then(|value| value.as_bool())
+                    .or_else(|| {
+                        initialize_client_name
+                            .as_deref()
+                            .map(|name| crate::client_profile::ClientProfile::detect(Some(name)))
+                            .and_then(|profile| profile.default_deferred_tool_loading())
+                    })
             } else {
                 None
             }
@@ -211,6 +215,57 @@ fn explicit_stdio_metadata(request: &JsonRpcRequest) -> crate::state::LogicalSes
     metadata.loaded_tiers = explicit_string_array_field(source, "_session_loaded_tiers");
     metadata.full_tool_exposure = explicit_bool_field(source, "_session_full_tool_exposure");
     metadata
+}
+
+fn initialize_stdio_session_defaults(state: &Arc<AppState>, session_id: &str) {
+    let Some(runtime) = state.logical_session_snapshot(session_id) else {
+        return;
+    };
+    if runtime.surface.is_some() || runtime.token_budget.is_some() {
+        return;
+    }
+
+    let client = runtime
+        .client_name
+        .as_deref()
+        .map(|name| crate::client_profile::ClientProfile::detect(Some(name)))
+        .unwrap_or_else(|| state.client_profile());
+    let (surface, budget) = if let Some(profile) = runtime
+        .requested_profile
+        .as_deref()
+        .and_then(crate::tool_defs::ToolProfile::from_str)
+    {
+        (
+            crate::tool_defs::ToolSurface::Profile(profile),
+            crate::tool_defs::default_budget_for_profile(profile).max(client.default_budget()),
+        )
+    } else if matches!(client, crate::client_profile::ClientProfile::Codex) {
+        let indexed_files = state
+            .symbol_index()
+            .stats()
+            .map(|stats| stats.indexed_files)
+            .unwrap_or(0);
+        let (surface, budget, _label) = client.recommended_surface_and_budget(indexed_files);
+        (surface, budget)
+    } else {
+        (*state.surface(), state.token_budget())
+    };
+
+    let session = crate::session_context::SessionRequestContext {
+        session_id: session_id.to_owned(),
+        ..Default::default()
+    };
+    state.set_execution_surface_and_budget(&session, surface, budget);
+
+    if runtime.project_path.is_none() {
+        state.upsert_logical_session_metadata(
+            session_id,
+            crate::state::LogicalSessionMetadataUpdate {
+                project_path: Some(state.current_project_scope()),
+                ..Default::default()
+            },
+        );
+    }
 }
 
 fn stdio_session_fields(
@@ -347,6 +402,9 @@ fn prepare_stdio_request(state: &Arc<AppState>, request: &mut JsonRpcRequest) {
     };
     let metadata = explicit_stdio_metadata(request);
     state.upsert_logical_session_metadata(&session_id, metadata);
+    if request.method == "initialize" {
+        initialize_stdio_session_defaults(state, &session_id);
+    }
     update_stdio_deferred_state(state, request, &session_id);
     if let Some(snapshot) = state.logical_session_snapshot(&session_id) {
         inject_missing_stdio_session_fields(request, &session_id, &snapshot);
@@ -738,6 +796,55 @@ mod tests {
         );
         let value = response_value(&listed);
         assert_eq!(value["result"]["active_surface"], json!("reviewer-graph"));
+    }
+
+    #[test]
+    fn stdio_initialize_persists_requested_profile_and_deferred_loading() {
+        let state = test_state();
+
+        let init = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":24,"method":"initialize","params":{"_session_id":"stdio-init-profile","clientInfo":{"name":"Claude Code","version":"1.0.0"},"profile":"reviewer-graph","deferredToolLoading":true}}
+"#,
+        );
+        let init_value = response_value(&init);
+        assert_eq!(init_value["result"]["serverInfo"]["name"], json!("codelens-mcp"));
+
+        let listed = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":25,"method":"tools/list","params":{"_session_id":"stdio-init-profile"}}
+"#,
+        );
+        let value = response_value(&listed);
+        assert_eq!(value["result"]["client_profile"], json!("claude"));
+        assert_eq!(value["result"]["active_surface"], json!("reviewer-graph"));
+        assert_eq!(value["result"]["deferred_loading_active"], json!(true));
+        assert_eq!(value["result"]["loaded_namespaces"], json!([]));
+        assert_eq!(value["result"]["loaded_tiers"], json!([]));
+    }
+
+    #[test]
+    fn stdio_initialize_applies_codex_defaults_for_followup_tools_list() {
+        let state = test_state();
+
+        let init = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":26,"method":"initialize","params":{"_session_id":"stdio-init-codex","clientInfo":{"name":"CodexHarness","version":"1.0.0"}}}
+"#,
+        );
+        let init_value = response_value(&init);
+        assert_eq!(init_value["result"]["serverInfo"]["name"], json!("codelens-mcp"));
+
+        let listed = round_trip_stdio(
+            &state,
+            br#"{"jsonrpc":"2.0","id":27,"method":"tools/list","params":{"_session_id":"stdio-init-codex"}}
+"#,
+        );
+        let value = response_value(&listed);
+        assert_eq!(value["result"]["client_profile"], json!("codex"));
+        assert_eq!(value["result"]["active_surface"], json!("workflow-first"));
+        assert_eq!(value["result"]["deferred_loading_active"], json!(true));
+        assert_eq!(value["result"]["default_contract_mode"], json!("lean"));
     }
 
     #[test]
