@@ -1353,6 +1353,86 @@ fn analysis_lists_expose_resource_handles_and_counts() {
 }
 
 #[test]
+fn analysis_job_and_list_tools_emit_structured_content() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("analysis_structured.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let start = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({"kind": "impact_report", "path": "analysis_structured.py", "debug_step_delay_ms": 20}),
+    );
+    let job_id = start["data"]["job_id"].as_str().unwrap();
+
+    for _ in 0..100 {
+        let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+        if poll["data"]["status"] == json!("completed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let job_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4303)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_analysis_job",
+                "arguments": { "job_id": job_id }
+            })),
+        },
+    )
+    .unwrap();
+    let job_value = serde_json::to_value(&job_response).unwrap();
+    assert_eq!(
+        job_value["result"]["structuredContent"]["job_id"],
+        json!(job_id)
+    );
+    assert!(job_value["result"]["structuredContent"]["status"].is_string());
+
+    let jobs_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4304)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_analysis_jobs",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let jobs_value = serde_json::to_value(&jobs_response).unwrap();
+    assert!(jobs_value["result"]["structuredContent"]["jobs"].is_array());
+    assert!(jobs_value["result"]["structuredContent"]["status_counts"].is_object());
+
+    let artifacts_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4305)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_analysis_artifacts",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let artifacts_value = serde_json::to_value(&artifacts_response).unwrap();
+    assert!(artifacts_value["result"]["structuredContent"]["artifacts"].is_array());
+    assert!(artifacts_value["result"]["structuredContent"]["tool_counts"].is_object());
+}
+
+#[test]
 fn resources_include_profile_guides_and_analysis_summaries() {
     let project = project_root();
     fs::write(
@@ -2104,6 +2184,361 @@ fn prepare_harness_session_schema_matches_payload_shape() {
 }
 
 #[test]
+fn get_capabilities_text_and_structured_content_keep_health_fields() {
+    let project = project_root();
+    fs::write(project.as_path().join("capability_parity.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4310)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_capabilities",
+                "arguments": { "file_path": "capability_parity.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["semantic_search_status"],
+        text["data"]["semantic_search_status"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["health_summary"]["status"],
+        text["data"]["health_summary"]["status"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["daemon_binary_drift"]["status"],
+        text["data"]["daemon_binary_drift"]["status"]
+    );
+}
+
+#[test]
+fn prepare_harness_session_text_and_structured_content_keep_bootstrap_fields() {
+    let project = project_root();
+    fs::write(project.as_path().join("bootstrap_parity.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4311)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "prepare_harness_session",
+                "arguments": { "file_path": "bootstrap_parity.py" }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["active_surface"],
+        text["data"]["active_surface"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["health_summary"]["status"],
+        text["data"]["health_summary"]["status"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["visible_tools"]["tool_count"],
+        text["data"]["visible_tools"]["tool_count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["routing"]["recommended_entrypoint"],
+        text["data"]["routing"]["recommended_entrypoint"]
+    );
+}
+
+#[test]
+fn get_tool_metrics_text_and_structured_content_keep_session_kpis() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("metrics_parity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool(&state, "get_capabilities", json!({"file_path": "metrics_parity.py"}));
+    let start = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "metrics_parity.py",
+            "debug_step_delay_ms": 20
+        }),
+    );
+    let job_id = start["data"]["job_id"].as_str().unwrap();
+    for _ in 0..100 {
+        let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+        if poll["data"]["status"] == json!("completed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4312)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_tool_metrics",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["count"],
+        text["data"]["count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["session"]["analysis_jobs_enqueued"],
+        text["data"]["session"]["analysis_jobs_enqueued"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["session"]["watcher_pruned_missing_failures"],
+        text["data"]["session"]["watcher_pruned_missing_failures"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["derived_kpis"]["inferred_session_type"],
+        text["data"]["derived_kpis"]["inferred_session_type"]
+    );
+}
+
+#[test]
+fn analysis_lists_text_and_structured_content_stay_in_sync() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("artifact_parity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let start = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({
+            "kind": "impact_report",
+            "path": "artifact_parity.py",
+            "debug_step_delay_ms": 20
+        }),
+    );
+    let job_id = start["data"]["job_id"].as_str().unwrap();
+    for _ in 0..100 {
+        let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+        if poll["data"]["status"] == json!("completed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let jobs_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4313)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_analysis_jobs",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let jobs_structured = serde_json::to_value(&jobs_response).unwrap();
+    let jobs_text = parse_tool_payload(&extract_tool_text(&jobs_response));
+    assert_eq!(
+        jobs_structured["result"]["structuredContent"]["count"],
+        jobs_text["data"]["count"]
+    );
+    assert_eq!(
+        jobs_structured["result"]["structuredContent"]["active_count"],
+        jobs_text["data"]["active_count"]
+    );
+    assert_eq!(
+        jobs_structured["result"]["structuredContent"]["status_counts"],
+        jobs_text["data"]["status_counts"]
+    );
+
+    let artifacts_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4314)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "list_analysis_artifacts",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let artifacts_structured = serde_json::to_value(&artifacts_response).unwrap();
+    let artifacts_text = parse_tool_payload(&extract_tool_text(&artifacts_response));
+    assert_eq!(
+        artifacts_structured["result"]["structuredContent"]["count"],
+        artifacts_text["data"]["count"]
+    );
+    assert_eq!(
+        artifacts_structured["result"]["structuredContent"]["latest_created_at_ms"],
+        artifacts_text["data"]["latest_created_at_ms"]
+    );
+    assert_eq!(
+        artifacts_structured["result"]["structuredContent"]["tool_counts"],
+        artifacts_text["data"]["tool_counts"]
+    );
+}
+
+#[test]
+fn current_config_text_and_structured_content_keep_session_fields() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join(".codelens")).unwrap();
+    fs::write(
+        project.as_path().join(".codelens/config.json"),
+        r#"{"semantic_search":true,"mutation_gates":true}"#,
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4315)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_current_config",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["tool_count"],
+        text["data"]["tool_count"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["client_profile"],
+        text["data"]["client_profile"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["config_policy"]["semantic_search"],
+        text["data"]["config_policy"]["semantic_search"]
+    );
+}
+
+#[test]
+fn activate_project_text_and_structured_content_keep_auto_surface_fields() {
+    let project = project_root();
+    fs::write(project.as_path().join("activate_parity.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4316)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "activate_project",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["project_name"],
+        text["data"]["project_name"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["auto_surface"],
+        text["data"]["auto_surface"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["indexed_files"],
+        text["data"]["indexed_files"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["embedding_ready"],
+        text["data"]["embedding_ready"]
+    );
+}
+
+#[test]
+fn analysis_section_text_and_structured_content_keep_section_metadata() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("section_parity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "update alpha in section_parity.py"}),
+    );
+    let analysis_id = payload["data"]["analysis_id"].as_str().unwrap();
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4317)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_analysis_section",
+                "arguments": {
+                    "analysis_id": analysis_id,
+                    "section": "ranked_files"
+                }
+            })),
+        },
+    )
+    .unwrap();
+    let structured = serde_json::to_value(&response).unwrap();
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["analysis_id"],
+        text["data"]["analysis_id"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["section"],
+        text["data"]["section"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["tool_name"],
+        text["data"]["tool_name"]
+    );
+}
+
+#[test]
 fn analysis_handle_schema_exposes_resource_handles() {
     let schema = crate::tool_defs::tool_definition("impact_report")
         .and_then(|tool| tool.output_schema.as_ref())
@@ -2146,6 +2581,34 @@ fn analysis_list_schemas_expose_machine_summary_fields() {
     assert!(artifact_properties.contains_key("artifacts"));
     assert!(artifact_properties.contains_key("tool_counts"));
     assert!(artifact_properties.contains_key("latest_created_at_ms"));
+}
+
+#[test]
+fn critical_workflow_and_report_tools_keep_output_schema_contracts() {
+    for tool_name in [
+        "explore_codebase",
+        "trace_request_path",
+        "review_architecture",
+        "plan_safe_refactor",
+        "review_changes",
+        "cleanup_duplicate_logic",
+        "diagnose_issues",
+        "analyze_change_request",
+        "verify_change_readiness",
+        "impact_report",
+        "semantic_code_review",
+        "start_analysis_job",
+        "get_analysis_job",
+        "list_analysis_jobs",
+        "list_analysis_artifacts",
+    ] {
+        let schema = crate::tool_defs::tool_definition(tool_name)
+            .and_then(|tool| tool.output_schema.as_ref());
+        assert!(
+            schema.is_some(),
+            "critical workflow/report tool should keep output schema: {tool_name}"
+        );
+    }
 }
 
 #[test]
@@ -3212,6 +3675,148 @@ fn review_changes_returns_structured_content() {
     assert_eq!(
         payload["data"]["delegated_tool"],
         json!("diff_aware_references")
+    );
+}
+
+#[test]
+fn review_and_diagnose_workflows_emit_structured_content() {
+    let project = project_root();
+    fs::write(project.as_path().join("review_structured.py"), "x = 1\n").unwrap();
+    fs::write(
+        project.as_path().join("diag_structured.py"),
+        "def hello():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let review_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4301)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "review_changes",
+                "arguments": { "changed_files": ["review_structured.py"] }
+            })),
+        },
+    )
+    .unwrap();
+    let review_value = serde_json::to_value(&review_response).unwrap();
+    assert_eq!(
+        review_value["result"]["structuredContent"]["workflow"],
+        json!("review_changes")
+    );
+    assert_eq!(
+        review_value["result"]["structuredContent"]["delegated_tool"],
+        json!("diff_aware_references")
+    );
+
+    let diagnose_value = {
+        let mut value = json!(null);
+        with_mock_pyright_path(|| {
+            let response = handle_request(
+                &state,
+                crate::protocol::JsonRpcRequest {
+                    jsonrpc: "2.0".to_owned(),
+                    id: Some(json!(4302)),
+                    method: "tools/call".to_owned(),
+                    params: Some(json!({
+                        "name": "diagnose_issues",
+                        "arguments": { "file_path": "diag_structured.py" }
+                    })),
+                },
+            )
+            .unwrap();
+            value = serde_json::to_value(&response).unwrap();
+        });
+        value
+    };
+    assert_eq!(
+        diagnose_value["result"]["structuredContent"]["workflow"],
+        json!("diagnose_issues")
+    );
+    assert_eq!(
+        diagnose_value["result"]["structuredContent"]["delegated_tool"],
+        json!("get_file_diagnostics")
+    );
+}
+
+#[test]
+fn workflow_and_report_text_and_structured_content_stay_in_sync() {
+    let project = project_root();
+    fs::write(project.as_path().join("review_parity.py"), "x = 1\n").unwrap();
+    fs::write(
+        project.as_path().join("analysis_parity.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let review_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4306)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "review_changes",
+                "arguments": { "changed_files": ["review_parity.py"] }
+            })),
+        },
+    )
+    .unwrap();
+    let review_structured = serde_json::to_value(&review_response).unwrap();
+    let review_text = parse_tool_payload(&extract_tool_text(&review_response));
+    assert_eq!(
+        review_structured["result"]["structuredContent"]["workflow"],
+        review_text["data"]["workflow"]
+    );
+    assert_eq!(
+        review_structured["result"]["structuredContent"]["delegated_tool"],
+        review_text["data"]["delegated_tool"]
+    );
+
+    let start = call_tool(
+        &state,
+        "start_analysis_job",
+        json!({"kind": "impact_report", "path": "analysis_parity.py", "debug_step_delay_ms": 20}),
+    );
+    let job_id = start["data"]["job_id"].as_str().unwrap();
+    for _ in 0..100 {
+        let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+        if poll["data"]["status"] == json!("completed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+
+    let job_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4307)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_analysis_job",
+                "arguments": { "job_id": job_id }
+            })),
+        },
+    )
+    .unwrap();
+    let job_structured = serde_json::to_value(&job_response).unwrap();
+    let job_text = parse_tool_payload(&extract_tool_text(&job_response));
+    assert_eq!(
+        job_structured["result"]["structuredContent"]["job_id"],
+        job_text["data"]["job_id"]
+    );
+    assert_eq!(
+        job_structured["result"]["structuredContent"]["status"],
+        job_text["data"]["status"]
+    );
+    assert_eq!(
+        job_structured["result"]["structuredContent"]["progress"],
+        job_text["data"]["progress"]
     );
 }
 

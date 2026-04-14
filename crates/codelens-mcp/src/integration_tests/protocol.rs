@@ -484,6 +484,87 @@ fn watch_status_reports_lock_contention_field() {
 }
 
 #[test]
+fn watch_status_exposes_output_schema_and_structured_content() {
+    let schema = crate::tool_defs::tool_definition("get_watch_status")
+        .and_then(|tool| tool.output_schema.as_ref())
+        .expect("get_watch_status schema");
+    let properties = schema["properties"]
+        .as_object()
+        .expect("watch status schema properties");
+    assert!(properties.contains_key("running"));
+    assert!(properties.contains_key("lock_contention_batches"));
+    assert!(properties.contains_key("pruned_missing_failures"));
+
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4101)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({ "name": "get_watch_status", "arguments": {} })),
+        },
+    )
+    .expect("tools/call should return a response");
+    let value = serde_json::to_value(&response).expect("serialize response");
+    assert!(value["result"]["structuredContent"].is_object());
+    assert!(value["result"]["structuredContent"]["running"].is_boolean());
+    assert!(value["result"]["structuredContent"]["lock_contention_batches"].is_number());
+}
+
+#[test]
+fn watch_status_text_and_structured_content_stay_in_sync() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4102)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({ "name": "get_watch_status", "arguments": {} })),
+        },
+    )
+    .expect("tools/call should return a response");
+    let structured = serde_json::to_value(&response).expect("serialize response");
+    let text = parse_tool_payload(&extract_tool_text(&response));
+
+    assert_eq!(
+        structured["result"]["structuredContent"]["running"],
+        text["data"]["running"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["lock_contention_batches"],
+        text["data"]["lock_contention_batches"]
+    );
+    assert_eq!(
+        structured["result"]["structuredContent"]["pruned_missing_failures"],
+        text["data"]["pruned_missing_failures"]
+    );
+}
+
+#[test]
+fn critical_session_tools_keep_output_schema_contracts() {
+    for tool_name in [
+        "get_current_config",
+        "activate_project",
+        "prepare_harness_session",
+        "get_capabilities",
+        "get_tool_metrics",
+        "get_watch_status",
+        "prune_index_failures",
+    ] {
+        let schema = crate::tool_defs::tool_definition(tool_name)
+            .and_then(|tool| tool.output_schema.as_ref());
+        assert!(
+            schema.is_some(),
+            "critical session tool should keep output schema: {tool_name}"
+        );
+    }
+}
+
+#[test]
 fn watch_status_is_read_only_for_failure_health() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
