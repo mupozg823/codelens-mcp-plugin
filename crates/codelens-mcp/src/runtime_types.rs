@@ -189,7 +189,9 @@ pub(crate) struct RecentPreflight {
     pub tool_name: String,
     pub analysis_id: Option<String>,
     pub surface: String,
-    pub timestamp_ms: u64,
+    /// Monotonic timestamp. TTL checks use `created_at.elapsed()` so
+    /// wall-clock adjustments (NTP, manual set) cannot advance or rewind the gate.
+    pub created_at: std::time::Instant,
     pub readiness: AnalysisReadiness,
     pub blocker_count: usize,
     pub target_paths: Vec<String>,

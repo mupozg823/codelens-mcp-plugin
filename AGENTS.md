@@ -1,5 +1,7 @@
 # CodeLens MCP — Codex Repo Notes
 
+> **First read**: [`SKILL.md`](SKILL.md) is the Level-1 Skill 2.0 profile (capability map and "when to use"). This file carries **Codex-specific** verify commands, routing, and mutation-gate fallback only.
+
 ## Verify
 
 ```bash
