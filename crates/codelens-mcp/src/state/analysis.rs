@@ -30,7 +30,7 @@ impl AppState {
                 arguments,
                 profile_hint,
             })?;
-        self.metrics
+        self.metrics()
             .record_analysis_job_enqueued(depth, weighted_depth, priority_promoted);
         Ok(())
     }
@@ -122,7 +122,7 @@ impl AppState {
     ) -> Result<AnalysisJob, CodeLensError> {
         let job = self.job_store.cancel(job_id, Some(scope))?;
         if job.status == JobLifecycle::Cancelled {
-            self.metrics.record_analysis_job_cancelled(0, 0);
+            self.metrics().record_analysis_job_cancelled(0, 0);
         }
         Ok(job)
     }
@@ -287,7 +287,7 @@ impl AppState {
         analysis_id: &str,
         section: &str,
     ) -> Result<serde_json::Value, CodeLensError> {
-        self.metrics.record_analysis_read(true);
+        self.metrics().record_analysis_read(true);
         self.artifact_store.get_section(analysis_id, section)
     }
 

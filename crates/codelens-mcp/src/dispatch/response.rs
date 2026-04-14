@@ -4,12 +4,258 @@ use super::response_support::{
     success_jsonrpc_response, text_payload_for_response,
 };
 use crate::AppState;
-use crate::error::CodeLensError;
+use crate::client_profile::ClientProfile;
+use crate::error::{CodeLensError, ToolAccessFailure};
 use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
-use crate::protocol::{JsonRpcResponse, ToolCallResponse, ToolResponseMeta};
-use crate::tool_defs::{ToolSurface, tool_definition};
+use crate::protocol::{
+    JsonRpcResponse, RecoveryAction, RecoveryActionKind, ToolCallResponse, ToolResponseMeta,
+};
+use crate::session_context::SessionRequestContext;
+use crate::tool_defs::{
+    ToolPreset, ToolProfile, ToolSurface, preferred_bootstrap_tools, tool_definition,
+};
 use crate::tools;
 use serde_json::json;
+use std::collections::HashMap;
+
+fn bootstrap_follow_up_tools(surface: ToolSurface) -> Vec<String> {
+    preferred_bootstrap_tools(surface)
+        .unwrap_or(&[])
+        .iter()
+        .copied()
+        .filter(|tool| {
+            !matches!(
+                *tool,
+                "activate_project" | "prepare_harness_session" | "set_profile"
+            )
+        })
+        .take(3)
+        .map(str::to_owned)
+        .collect()
+}
+
+fn response_client_profile(state: &AppState, arguments: &serde_json::Value) -> ClientProfile {
+    SessionRequestContext::from_json(arguments)
+        .client_name
+        .as_deref()
+        .map(|name| ClientProfile::detect(Some(name)))
+        .unwrap_or_else(|| state.client_profile())
+}
+
+fn surface_from_label(label: &str, fallback: ToolSurface) -> ToolSurface {
+    if let Some(profile) = ToolProfile::from_str(label) {
+        return ToolSurface::Profile(profile);
+    }
+    if let Some(preset_label) = label.strip_prefix("preset:") {
+        return ToolSurface::Preset(ToolPreset::from_str(preset_label));
+    }
+    fallback
+}
+
+fn effective_follow_up_surface(payload: &serde_json::Value, fallback: ToolSurface) -> ToolSurface {
+    let Some(label) = payload
+        .get("active_surface")
+        .and_then(|value| value.as_str())
+    else {
+        return fallback;
+    };
+    surface_from_label(label, fallback)
+}
+
+fn protocol_error_data(
+    state: &AppState,
+    surface: ToolSurface,
+    active_surface: &str,
+    arguments: &serde_json::Value,
+    tool_name: &str,
+) -> serde_json::Value {
+    let response_client = response_client_profile(state, arguments);
+    let error_surface = surface_from_label(active_surface, surface);
+    let routing_hint = crate::protocol::RoutingHint::Sync;
+    let orchestration_contract = crate::harness_host::response_orchestration_contract(
+        response_client,
+        error_surface,
+        tool_name,
+        routing_hint,
+    );
+    let recommended_next_steps = crate::harness_host::response_next_steps(
+        response_client,
+        tool_name,
+        routing_hint,
+        &[],
+        None,
+    );
+    json!({
+        "error_class": "protocol",
+        "tool_name": tool_name,
+        "routing_hint": routing_hint,
+        "orchestration_contract": orchestration_contract,
+        "recommended_next_steps": recommended_next_steps,
+    })
+}
+
+fn append_budget_hint(hint: &mut Option<String>, extra: impl Into<String>) {
+    let extra = extra.into();
+    match hint {
+        Some(existing) => {
+            if !existing.is_empty() {
+                existing.push(' ');
+            }
+            existing.push_str(&extra);
+        }
+        None => *hint = Some(extra),
+    }
+}
+
+fn should_emit_followup_guidance(
+    name: &str,
+    routing_hint: crate::protocol::RoutingHint,
+    emitted_composite_guidance: bool,
+) -> bool {
+    if emitted_composite_guidance || !matches!(routing_hint, crate::protocol::RoutingHint::Sync) {
+        return true;
+    }
+
+    matches!(
+        name,
+        "activate_project"
+            | "prepare_harness_session"
+            | "onboard_project"
+            | "explore_codebase"
+            | "trace_request_path"
+            | "review_architecture"
+            | "plan_safe_refactor"
+            | "audit_security_context"
+            | "analyze_change_impact"
+            | "cleanup_duplicate_logic"
+            | "review_changes"
+            | "assess_change_readiness"
+            | "diagnose_issues"
+            | "analyze_change_request"
+            | "verify_change_readiness"
+            | "find_minimal_context_for_change"
+            | "summarize_symbol_impact"
+            | "module_boundary_report"
+            | "safe_rename_report"
+            | "unresolved_reference_check"
+            | "dead_code_report"
+            | "impact_report"
+            | "refactor_safety_report"
+            | "diff_aware_references"
+            | "semantic_code_review"
+    )
+}
+
+fn tool_recovery_action(
+    target: impl Into<String>,
+    arguments: Option<serde_json::Value>,
+    reason: impl Into<String>,
+) -> RecoveryAction {
+    RecoveryAction {
+        kind: RecoveryActionKind::ToolCall,
+        target: target.into(),
+        arguments,
+        reason: reason.into(),
+    }
+}
+
+fn rpc_recovery_action(
+    target: impl Into<String>,
+    arguments: Option<serde_json::Value>,
+    reason: impl Into<String>,
+) -> RecoveryAction {
+    RecoveryAction {
+        kind: RecoveryActionKind::RpcCall,
+        target: target.into(),
+        arguments,
+        reason: reason.into(),
+    }
+}
+
+fn access_recovery_actions(failure: &ToolAccessFailure) -> Vec<RecoveryAction> {
+    match failure {
+        ToolAccessFailure::NotAvailableInActiveSurface { .. } => vec![
+            tool_recovery_action(
+                "prepare_harness_session",
+                None,
+                "Re-bootstrap the active surface before retrying the blocked tool.",
+            ),
+            rpc_recovery_action(
+                "tools/list",
+                Some(json!({"full": true})),
+                "Inspect the full visible surface and choose an allowed alternative.",
+            ),
+        ],
+        ToolAccessFailure::HiddenByDeferredNamespace { namespace, .. } => vec![
+            rpc_recovery_action(
+                "tools/list",
+                Some(json!({"namespace": namespace})),
+                "Load the deferred namespace into the current session before retrying.",
+            ),
+            rpc_recovery_action(
+                "tools/list",
+                Some(json!({"full": true})),
+                "Expand the full tool surface if you need more than one hidden namespace.",
+            ),
+        ],
+        ToolAccessFailure::HiddenByDeferredTier { tier, .. } => vec![
+            rpc_recovery_action(
+                "tools/list",
+                Some(json!({"tier": tier})),
+                "Load the deferred tier into the current session before retrying.",
+            ),
+            rpc_recovery_action(
+                "tools/list",
+                Some(json!({"full": true})),
+                "Expand the full tool surface if you need multiple deferred tiers.",
+            ),
+        ],
+        ToolAccessFailure::TrustedHttpRequired { .. }
+        | ToolAccessFailure::DaemonModeBlocked { .. }
+        | ToolAccessFailure::ReadOnlySurfaceBlocked { .. } => vec![
+            tool_recovery_action(
+                "prepare_harness_session",
+                None,
+                "Re-bootstrap an allowed runtime or surface before retrying the blocked mutation.",
+            ),
+            rpc_recovery_action(
+                "tools/list",
+                Some(json!({"full": true})),
+                "Inspect which mutation tools are currently exposed for this session.",
+            ),
+        ],
+    }
+}
+
+fn follow_up_tool_recovery_actions(
+    tools: &[String],
+    reasons: Option<&HashMap<String, String>>,
+) -> Vec<RecoveryAction> {
+    tools
+        .iter()
+        .take(3)
+        .map(|tool| {
+            let reason = reasons
+                .and_then(|map| map.get(tool))
+                .cloned()
+                .unwrap_or_else(|| {
+                    "Recommended recovery call for the current failure state.".to_owned()
+                });
+            tool_recovery_action(tool.clone(), None, reason)
+        })
+        .collect()
+}
+
+fn is_access_recovery_error(error: &CodeLensError) -> bool {
+    matches!(error, CodeLensError::AccessDenied(_))
+}
+
+fn should_emit_error_guidance(
+    error: &CodeLensError,
+    gate_failure: Option<&MutationGateFailure>,
+) -> bool {
+    gate_failure.is_some() || is_access_recovery_error(error)
+}
 
 pub(crate) struct SuccessResponseInput<'a> {
     pub name: &'a str,
@@ -89,23 +335,30 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         .unwrap_or(0);
     let mut hint = budget_hint(name, payload_estimate, effective_budget);
     if missing_preflight {
-        hint = format!("{hint} Tip: run verify_change_readiness before mutations for safer edits.");
+        append_budget_hint(
+            &mut hint,
+            "Tip: run verify_change_readiness before mutations for safer edits.",
+        );
     }
     if doom_loop_count >= 3 {
         if doom_loop_rapid {
-            hint = format!(
-                "{hint} Rapid retry burst detected ({doom_loop_count}x in <10s). \
-                 Use start_analysis_job for heavy analysis, or narrow scope with path/max_tokens."
+            append_budget_hint(
+                &mut hint,
+                format!(
+                    "Rapid retry burst detected ({doom_loop_count}x in <10s). \
+                     Use start_analysis_job for heavy analysis, or narrow scope with path/max_tokens."
+                ),
             );
         } else {
-            hint = format!(
-                "{hint} Repeated low-level chain detected. Prefer verify_change_readiness, \
-                 find_minimal_context_for_change, analyze_change_request for compressed context."
+            append_budget_hint(
+                &mut hint,
+                "Repeated low-level chain detected. Prefer verify_change_readiness, \
+                 find_minimal_context_for_change, analyze_change_request for compressed context.",
             );
         }
     }
     resp.token_estimate = Some(payload_estimate);
-    resp.budget_hint = Some(hint);
+    resp.budget_hint = hint;
     resp.elapsed_ms = Some(elapsed_ms as u64);
     resp.routing_hint = Some(routing_hint_for_payload(&resp));
 
@@ -130,8 +383,44 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         }
     }
 
+    let response_client = response_client_profile(state, arguments);
+    let follow_up_surface = effective_follow_up_surface(
+        resp.data.as_ref().unwrap_or(&serde_json::Value::Null),
+        surface,
+    );
+    if name == "prepare_harness_session" {
+        let follow_up_tools = bootstrap_follow_up_tools(follow_up_surface);
+        if !follow_up_tools.is_empty() {
+            resp.suggested_next_tools = Some(follow_up_tools);
+        }
+    }
+
     if let Some(ref next_tools) = resp.suggested_next_tools {
         resp.suggestion_reasons = Some(tools::suggestion_reasons_for(next_tools, name));
+    }
+    let routing_hint = resp
+        .routing_hint
+        .expect("routing_hint should be set before orchestration contract");
+    let emit_followup_guidance =
+        should_emit_followup_guidance(name, routing_hint, emitted_composite_guidance);
+    if emit_followup_guidance {
+        resp.orchestration_contract = Some(crate::harness_host::response_orchestration_contract(
+            response_client,
+            follow_up_surface,
+            name,
+            routing_hint,
+        ));
+        resp.recommended_next_steps = Some(crate::harness_host::response_next_steps(
+            response_client,
+            name,
+            routing_hint,
+            resp.suggested_next_tools.as_deref().unwrap_or(&[]),
+            resp.suggestion_reasons.as_ref(),
+        ));
+    } else {
+        resp.suggested_next_tools = None;
+        resp.suggestion_reasons = None;
+        resp.orchestration_contract = None;
     }
 
     if compact {
@@ -170,7 +459,9 @@ pub(crate) fn build_error_response(
     name: &str,
     error: CodeLensError,
     gate_failure: Option<MutationGateFailure>,
+    surface: ToolSurface,
     active_surface: &str,
+    arguments: &serde_json::Value,
     logical_session_id: &str,
     state: &AppState,
     start: std::time::Instant,
@@ -190,11 +481,17 @@ pub(crate) fn build_error_response(
     );
 
     if error.is_protocol_error() {
-        return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());
+        return JsonRpcResponse::error_with_data(
+            id,
+            error.jsonrpc_code(),
+            error.to_string(),
+            protocol_error_data(state, surface, active_surface, arguments, name),
+        );
     }
 
     let mut resp = ToolCallResponse::error(error.to_string());
-    if let Some(failure) = gate_failure {
+    let emit_error_guidance = should_emit_error_guidance(&error, gate_failure.as_ref());
+    if let Some(failure) = gate_failure.as_ref() {
         let analysis_hint = failure
             .analysis_id
             .as_ref()
@@ -204,8 +501,47 @@ pub(crate) fn build_error_response(
             "[{:?}] {}{}",
             failure.kind, failure.message, analysis_hint
         ));
-        resp.suggested_next_tools = Some(failure.suggested_next_tools);
-        resp.budget_hint = Some(failure.budget_hint);
+        resp.suggested_next_tools = Some(failure.suggested_next_tools.clone());
+        resp.budget_hint = Some(failure.budget_hint.clone());
+    }
+    let routing_hint = crate::protocol::RoutingHint::Sync;
+    resp.routing_hint = Some(routing_hint);
+    if let Some(ref next_tools) = resp.suggested_next_tools {
+        resp.suggestion_reasons = Some(tools::suggestion_reasons_for(next_tools, name));
+    }
+    if let Some(access_failure) = match &error {
+        CodeLensError::AccessDenied(failure) => Some(failure),
+        _ => None,
+    } {
+        let recovery_actions = access_recovery_actions(access_failure);
+        if !recovery_actions.is_empty() {
+            resp.recovery_actions = Some(recovery_actions);
+        }
+    } else if gate_failure.is_some() {
+        let recovery_actions = follow_up_tool_recovery_actions(
+            resp.suggested_next_tools.as_deref().unwrap_or(&[]),
+            resp.suggestion_reasons.as_ref(),
+        );
+        if !recovery_actions.is_empty() {
+            resp.recovery_actions = Some(recovery_actions);
+        }
+    }
+    if emit_error_guidance {
+        let response_client = response_client_profile(state, arguments);
+        let error_surface = surface_from_label(active_surface, surface);
+        resp.orchestration_contract = Some(crate::harness_host::response_orchestration_contract(
+            response_client,
+            error_surface,
+            name,
+            routing_hint,
+        ));
+        resp.recommended_next_steps = Some(crate::harness_host::response_next_steps(
+            response_client,
+            name,
+            routing_hint,
+            resp.suggested_next_tools.as_deref().unwrap_or(&[]),
+            resp.suggestion_reasons.as_ref(),
+        ));
     }
     let text = text_payload_for_response(&resp, None);
     JsonRpcResponse::result(
@@ -215,4 +551,165 @@ pub(crate) fn build_error_response(
             "isError": true
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codelens_engine::ProjectRoot;
+
+    #[test]
+    fn generic_error_response_omits_orchestration_contract() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-error-response-contract-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("hello.txt"), "world\n").unwrap();
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        let state = AppState::new(project, ToolPreset::Full);
+
+        let response = build_error_response(
+            "read_memory",
+            CodeLensError::Validation("boom".to_owned()),
+            None,
+            ToolSurface::Profile(ToolProfile::ReviewerGraph),
+            "reviewer-graph",
+            &json!({
+                "_session_client_name": "Claude Code",
+            }),
+            "local",
+            &state,
+            std::time::Instant::now(),
+            Some(json!(1)),
+        );
+
+        let value = serde_json::to_value(&response).unwrap();
+        let text = value["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or("{}");
+        let payload: serde_json::Value = serde_json::from_str(text).unwrap_or_default();
+        assert_eq!(payload["routing_hint"], json!("sync"));
+        assert!(payload.get("orchestration_contract").is_none());
+        assert!(payload.get("recommended_next_steps").is_none());
+        assert!(payload.get("recovery_actions").is_none());
+    }
+
+    #[test]
+    fn access_recovery_error_uses_request_client_profile_and_surface_contract() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-access-error-response-contract-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("hello.txt"), "world\n").unwrap();
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        let state = AppState::new(project, ToolPreset::Full);
+
+        let response = build_error_response(
+            "read_memory",
+            CodeLensError::AccessDenied(ToolAccessFailure::NotAvailableInActiveSurface {
+                tool_name: "read_memory".to_owned(),
+                active_surface: "reviewer-graph".to_owned(),
+            }),
+            None,
+            ToolSurface::Profile(ToolProfile::ReviewerGraph),
+            "reviewer-graph",
+            &json!({
+                "_session_client_name": "Claude Code",
+            }),
+            "local",
+            &state,
+            std::time::Instant::now(),
+            Some(json!(11)),
+        );
+
+        let value = serde_json::to_value(&response).unwrap();
+        let text = value["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap_or("{}");
+        let payload: serde_json::Value = serde_json::from_str(text).unwrap_or_default();
+        assert_eq!(
+            payload["orchestration_contract"]["host_id"],
+            json!("claude-code")
+        );
+        assert_eq!(
+            payload["orchestration_contract"]["active_surface"],
+            json!("reviewer-graph")
+        );
+        assert!(
+            payload["recovery_actions"]
+                .as_array()
+                .map(|items| items.iter().any(|item| {
+                    item["kind"] == json!("rpc_call")
+                        && item["target"] == json!("tools/list")
+                        && item["arguments"]["full"] == json!(true)
+                }))
+                .unwrap_or(false)
+        );
+        assert!(
+            payload["recommended_next_steps"]
+                .as_array()
+                .map(|items| items
+                    .iter()
+                    .any(|item| item["target"] == json!("host_orchestrator")))
+                .unwrap_or(false)
+        );
+    }
+
+    #[test]
+    fn protocol_error_response_includes_host_readable_error_data() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-protocol-error-contract-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("hello.txt"), "world\n").unwrap();
+        let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
+        let state = AppState::new(project, ToolPreset::Full);
+
+        let response = build_error_response(
+            "missing_tool",
+            CodeLensError::ToolNotFound("missing_tool".to_owned()),
+            None,
+            ToolSurface::Profile(ToolProfile::ReviewerGraph),
+            "reviewer-graph",
+            &json!({
+                "_session_client_name": "Claude Code",
+            }),
+            "local",
+            &state,
+            std::time::Instant::now(),
+            Some(json!(2)),
+        );
+
+        let value = serde_json::to_value(&response).unwrap();
+        assert_eq!(value["error"]["code"], json!(-32601));
+        assert_eq!(value["error"]["data"]["error_class"], json!("protocol"));
+        assert_eq!(
+            value["error"]["data"]["orchestration_contract"]["host_id"],
+            json!("claude-code")
+        );
+        assert_eq!(
+            value["error"]["data"]["orchestration_contract"]["active_surface"],
+            json!("reviewer-graph")
+        );
+        assert!(
+            value["error"]["data"]["recommended_next_steps"]
+                .as_array()
+                .map(|items| items
+                    .iter()
+                    .any(|item| item["target"] == json!("host_orchestrator")))
+                .unwrap_or(false)
+        );
+    }
 }

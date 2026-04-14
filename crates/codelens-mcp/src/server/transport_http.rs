@@ -7,13 +7,14 @@
 
 #![cfg(feature = "http")]
 
-use super::router::handle_request;
+use super::router::{handle_request, protocol_error_response};
 use super::session::SseEvent;
 use super::transport_http_support::{
     create_initialize_session, extract_initialize_metadata, into_mcp_response,
 };
 use crate::AppState;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
+use crate::tool_defs::{ToolProfile, ToolSurface, default_budget_for_profile};
 use anyhow::Result;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -43,6 +44,14 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
 /// MCP Server Card — static metadata for agent discovery without a live session.
 async fn server_card_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let surface = *state.surface();
+    let indexed_files = state
+        .symbol_index()
+        .stats()
+        .ok()
+        .map(|stats| stats.indexed_files);
+    let recommended_surface = state
+        .client_profile()
+        .advertised_default_surface(indexed_files);
     let tool_count = crate::tool_defs::visible_tools(surface).len();
     let daemon_mode = state.daemon_mode().as_str();
 
@@ -61,6 +70,9 @@ async fn server_card_handler(State(state): State<Arc<AppState>>) -> impl IntoRes
         },
         "tool_count": tool_count,
         "active_surface": surface.as_label(),
+        "client_profile": state.client_profile().as_str(),
+        "recommended_initial_surface": recommended_surface.as_label(),
+        "recommended_initial_tool_count": crate::tool_defs::visible_tools(recommended_surface).len(),
         "daemon_mode": daemon_mode,
         "languages": 25,
         "features": [
@@ -234,7 +246,16 @@ async fn mcp_post_handler(
     let request = match serde_json::from_str::<JsonRpcRequest>(&body) {
         Ok(req) => req,
         Err(error) => {
-            let resp = JsonRpcResponse::error(None, -32700, format!("Parse error: {error}"));
+            let resp = protocol_error_response(
+                &state,
+                None,
+                -32700,
+                format!("Parse error: {error}"),
+                None,
+                None,
+                "transport_http",
+                "parse",
+            );
             return into_mcp_response(resp, accept, None, state.daemon_mode().as_str());
         }
     };
@@ -299,13 +320,44 @@ async fn mcp_post_handler(
 
     // Create session on initialize
     let initialize_session = if is_initialize {
+        let (initial_surface, initial_budget) = if let Some(metadata) = initialize_metadata.as_ref()
+        {
+            let client = metadata
+                .client_name
+                .as_deref()
+                .map(|name| crate::client_profile::ClientProfile::detect(Some(name)))
+                .unwrap_or_else(|| state.client_profile());
+            if let Some(profile) = metadata
+                .requested_profile
+                .as_deref()
+                .and_then(ToolProfile::from_str)
+            {
+                (
+                    ToolSurface::Profile(profile),
+                    default_budget_for_profile(profile).max(client.default_budget()),
+                )
+            } else if matches!(client, crate::client_profile::ClientProfile::Codex) {
+                let indexed_files = state
+                    .symbol_index()
+                    .stats()
+                    .map(|stats| stats.indexed_files)
+                    .unwrap_or(0);
+                let (surface, budget, _label) =
+                    client.recommended_surface_and_budget(indexed_files);
+                (surface, budget)
+            } else {
+                (*state.surface(), state.token_budget())
+            }
+        } else {
+            (*state.surface(), state.token_budget())
+        };
         create_initialize_session(
             state.session_store.as_ref(),
             session_id.as_deref(),
             initialize_metadata,
             &state.current_project_scope(),
-            *state.surface(),
-            state.token_budget(),
+            initial_surface,
+            initial_budget,
         )
     } else {
         None

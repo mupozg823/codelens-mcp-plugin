@@ -1,10 +1,10 @@
+use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
+    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
 };
-use crate::tool_runtime::{success_meta, ToolResult};
-use crate::AppState;
+use crate::tool_runtime::{ToolResult, success_meta};
 use serde_json::json;
 use std::collections::VecDeque;
 
@@ -999,22 +999,7 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
         .unwrap_or(default_budget_for_preset(new_preset));
-    #[cfg(feature = "http")]
-    if !session.is_local() {
-        state.set_session_surface_and_budget(
-            &session.session_id,
-            ToolSurface::Preset(new_preset),
-            budget,
-        );
-    } else {
-        state.set_surface(ToolSurface::Preset(new_preset));
-        state.set_token_budget(budget);
-    }
-    #[cfg(not(feature = "http"))]
-    {
-        state.set_surface(ToolSurface::Preset(new_preset));
-        state.set_token_budget(budget);
-    }
+    state.set_execution_surface_and_budget(&session, ToolSurface::Preset(new_preset), budget);
 
     Ok((
         json!({
@@ -1045,22 +1030,7 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
         .unwrap_or(default_budget_for_profile(profile));
-    #[cfg(feature = "http")]
-    if !session.is_local() {
-        state.set_session_surface_and_budget(
-            &session.session_id,
-            ToolSurface::Profile(profile),
-            budget,
-        );
-    } else {
-        state.set_surface(ToolSurface::Profile(profile));
-        state.set_token_budget(budget);
-    }
-    #[cfg(not(feature = "http"))]
-    {
-        state.set_surface(ToolSurface::Profile(profile));
-        state.set_token_budget(budget);
-    }
+    state.set_execution_surface_and_budget(&session, ToolSurface::Profile(profile), budget);
 
     Ok((
         json!({
@@ -1198,7 +1168,7 @@ mod capability_reporting_tests {
     #[cfg(feature = "semantic")]
     #[test]
     fn planner_readonly_and_builder_minimal_expose_semantic_search() {
-        use crate::tool_defs::{is_tool_in_surface, ToolProfile, ToolSurface};
+        use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
 
         for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
             let surface = ToolSurface::Profile(profile);

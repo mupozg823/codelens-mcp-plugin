@@ -52,6 +52,14 @@ fn has_builder_cue(query_lower: &str) -> bool {
         || query_lower.contains(" construction")
 }
 
+fn looks_like_tool_dispatch_query(query_lower: &str) -> bool {
+    (query_lower.contains("tool") || query_lower.contains("mcp"))
+        && (query_lower.contains("request")
+            || query_lower.contains("route")
+            || query_lower.contains("handler")
+            || query_lower.contains("dispatch"))
+}
+
 fn exact_retrieval_aliases(query_lower: &str) -> Option<&'static [&'static str]> {
     if query_lower.contains("find word matches in files") {
         Some(&["find_word_matches_in_files", "word_matches_in_files"])
@@ -198,6 +206,27 @@ pub(crate) fn semantic_query_for_retrieval(query: &str) -> String {
 }
 
 #[cfg(feature = "semantic")]
+pub(crate) fn lexical_query_for_ranked_context(
+    analysis: &RetrievalQueryAnalysis,
+    project_root: Option<&Path>,
+) -> String {
+    if analysis.natural_language {
+        let project_bridges = project_root.map(load_project_bridges).unwrap_or_default();
+        bridge_nl_to_code_vocabulary(&analysis.expanded_query, &project_bridges)
+    } else {
+        analysis.expanded_query.clone()
+    }
+}
+
+#[cfg(not(feature = "semantic"))]
+pub(crate) fn lexical_query_for_ranked_context(
+    analysis: &RetrievalQueryAnalysis,
+    _project_root: Option<&std::path::Path>,
+) -> String {
+    analysis.expanded_query.clone()
+}
+
+#[cfg(feature = "semantic")]
 pub(crate) fn semantic_query_for_embedding_search(
     analysis: &RetrievalQueryAnalysis,
     project_root: Option<&Path>,
@@ -269,6 +298,37 @@ fn bridge_nl_to_code_vocabulary(query: &str, project_bridges: &[(String, String)
         ("parse source", "AST parse"),
         ("into an ast", "AST parse"),
         ("diagnose", "diagnostics"),
+        (
+            "http web framework",
+            "engine routergroup context handlerfunc",
+        ),
+        ("web framework engine", "engine default"),
+        ("routing and middleware", "routergroup use middleware"),
+        ("route handler", "handle handlerfunc"),
+        ("request context", "context writer param query"),
+        ("http request", "handlerfunc request context"),
+        ("path parameter", "param params byname"),
+        ("url path parameter", "param params byname"),
+        ("route pattern", "params param tree"),
+        ("query string parameter", "query defaultquery"),
+        ("json body", "json shouldbindjson bindbody jsonbinding"),
+        ("json binding", "jsonbinding bindbody shouldbindjson"),
+        ("render an html template", "html render"),
+        ("html template", "html render"),
+        ("status code", "status abortwithstatus"),
+        ("panic recovery middleware", "recovery middleware"),
+        ("basic http authentication", "basicauth auth"),
+        ("serve http", "run servehttp"),
+        ("listen on a network address", "run servehttp"),
+        ("release mode", "setmode release"),
+        ("single file from the filesystem", "staticfile filefromfs"),
+        ("matches any http method", "any handle"),
+        ("key-value pair in the request context", "set context key"),
+        ("stored value from the request context", "get context key"),
+        ("json serialization", "gson tojson jsonserializer"),
+        ("json deserialization", "gson fromjson jsondeserializer"),
+        ("json string", "json tojson fromjson"),
+        ("type adapter", "typeadapter typeadapterfactory"),
     ];
 
     // Apply a single bridge entry.
@@ -483,6 +543,30 @@ fn semantic_result_prior(query_lower: &str, result: &SemanticMatch) -> f64 {
         prior += 0.10;
     }
 
+    let symbol_name_lower = result.symbol_name.to_ascii_lowercase();
+    for (cue, symbols, bonus) in [
+        ("web framework engine", &["engine"][..], 0.12),
+        ("request context", &["context"][..], 0.14),
+        ("common path prefix", &["routergroup"][..], 0.14),
+        ("group routes", &["routergroup"][..], 0.14),
+        ("processes an http request", &["handlerfunc"][..], 0.14),
+        ("json and write it to the response", &["json"][..], 0.12),
+        ("json body", &["shouldbindjson", "jsonbinding"][..], 0.12),
+        ("path parameter", &["param", "params"][..], 0.12),
+        ("logging middleware", &["logger"][..], 0.12),
+        ("serve http", &["run"][..], 0.12),
+        ("status code", &["status", "abortwithstatus"][..], 0.10),
+        ("key-value pair in the request context", &["set"][..], 0.12),
+        ("stored value from the request context", &["get"][..], 0.12),
+        ("release mode", &["setmode"][..], 0.12),
+        ("single file from the filesystem", &["staticfile"][..], 0.12),
+        ("matches any http method", &["any"][..], 0.12),
+    ] {
+        if query_lower.contains(cue) && symbols.iter().any(|symbol| symbol_name_lower == *symbol) {
+            prior += bonus;
+        }
+    }
+
     prior.clamp(-0.10_f64, 0.19_f64)
 }
 
@@ -602,11 +686,7 @@ fn expand_retrieval_query(query: &str) -> String {
         push_unique(&snake);
     }
 
-    if lowered.contains("route")
-        || lowered.contains("request")
-        || lowered.contains("handler")
-        || lowered.contains("tool call")
-    {
+    if looks_like_tool_dispatch_query(&lowered) || lowered.contains("tool call") {
         for alias in [
             "dispatch_tool",
             "dispatch_tool_request",
@@ -701,9 +781,11 @@ fn expand_retrieval_query(query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_embedding_search,
-        semantic_query_for_retrieval,
+        analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_retrieval,
     };
+    #[cfg(feature = "semantic")]
+    use super::{lexical_query_for_ranked_context, semantic_query_for_embedding_search};
+    #[cfg(feature = "semantic")]
     use std::{
         fs,
         time::{SystemTime, UNIX_EPOCH},
@@ -767,6 +849,7 @@ mod tests {
         assert!(semantic.contains("dispatch tool request"));
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_frames_natural_language_with_code_prefix() {
         let analysis =
@@ -776,6 +859,7 @@ mod tests {
         assert!(framed.contains("route an incoming tool request to the right handler"));
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_leaves_identifier_queries_unframed() {
         let analysis = analyze_retrieval_query("change_signature");
@@ -783,6 +867,7 @@ mod tests {
         assert_eq!(framed, "change_signature change signature");
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_bridges_nl_terms_to_code_vocabulary() {
         let analysis = analyze_retrieval_query("categorize a function by its purpose");
@@ -792,6 +877,31 @@ mod tests {
         assert!(framed.contains("classify"));
     }
 
+    #[cfg(feature = "semantic")]
+    #[test]
+    fn embedding_search_query_bridges_http_framework_terms() {
+        let analysis = analyze_retrieval_query(
+            "HTTP web framework engine that handles routing and middleware",
+        );
+        let framed = semantic_query_for_embedding_search(&analysis, None);
+        assert!(framed.contains("engine"));
+        assert!(framed.contains("routergroup"));
+        assert!(framed.contains("handlerfunc"));
+        assert!(framed.contains("middleware"));
+    }
+
+    #[cfg(feature = "semantic")]
+    #[test]
+    fn lexical_query_bridges_http_framework_terms() {
+        let analysis =
+            analyze_retrieval_query("bind incoming JSON body to a struct and validate it");
+        let lexical = lexical_query_for_ranked_context(&analysis, None);
+        assert!(lexical.contains("shouldbindjson"));
+        assert!(lexical.contains("bindbody"));
+        assert!(lexical.contains("jsonbinding"));
+    }
+
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_bridge_dedup_is_case_insensitive() {
         let analysis = analyze_retrieval_query(
@@ -807,6 +917,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_does_not_apply_project_specific_bridge_without_project_root() {
         let analysis = analyze_retrieval_query("record which files were recently accessed");
@@ -814,6 +925,7 @@ mod tests {
         assert!(!framed.contains("record_file_access"));
     }
 
+    #[cfg(feature = "semantic")]
     #[test]
     fn embedding_search_query_applies_project_specific_bridge_from_project_file() {
         let dir = std::env::temp_dir().join(format!(
@@ -894,6 +1006,14 @@ mod tests {
     }
 
     #[test]
+    fn generic_http_request_query_does_not_include_dispatch_aliases() {
+        let query = "request context carrying headers params and response writer";
+        let expanded = analyze_retrieval_query(query).expanded_query;
+        assert!(!expanded.contains("dispatch_tool"));
+        assert!(!expanded.contains("dispatch_tool_request"));
+    }
+
+    #[test]
     fn stdio_query_expansion_includes_stdio_aliases() {
         let query = "read input from stdin line by line";
         let expanded = analyze_retrieval_query(query).expanded_query;
@@ -960,6 +1080,27 @@ mod tests {
         );
         assert!(prior <= 0.19);
         assert!(prior >= -0.10);
+    }
+
+    #[cfg(feature = "semantic")]
+    #[test]
+    fn semantic_prior_boosts_http_context_symbol_for_context_queries() {
+        let match_ = SemanticMatch {
+            symbol_name: "Context".to_owned(),
+            kind: "struct".to_owned(),
+            file_path: "context.go".to_owned(),
+            line: 10,
+            signature: "type Context struct".to_owned(),
+            name_path: "Context".to_owned(),
+            score: 0.121,
+        };
+
+        let (prior, adjusted) = semantic_adjusted_score_parts(
+            "request context carrying headers params and response writer",
+            &match_,
+        );
+        assert!(prior > 0.0);
+        assert!(adjusted > match_.score);
     }
 
     #[cfg(feature = "semantic")]

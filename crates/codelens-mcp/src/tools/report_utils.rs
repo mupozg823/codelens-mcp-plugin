@@ -65,6 +65,57 @@ pub(super) fn extract_handle_fields(payload: &Value) -> (Option<String>, Vec<Str
                 .filter_map(|item| item.as_str().map(ToOwned::to_owned))
                 .collect::<Vec<_>>()
         })
+        .or_else(|| {
+            payload
+                .get("section_handles")
+                .and_then(|value| value.as_array())
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| {
+                            item.get("section")
+                                .and_then(|value| value.as_str())
+                                .map(ToOwned::to_owned)
+                        })
+                        .collect::<Vec<_>>()
+                })
+        })
         .unwrap_or_default();
     (analysis_id, estimated_sections)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_handle_fields;
+    use serde_json::json;
+
+    #[test]
+    fn extract_handle_fields_prefers_available_sections() {
+        let payload = json!({
+            "analysis_id": "analysis-1",
+            "available_sections": ["summary", "impact_rows"],
+            "section_handles": [
+                {"section": "stale", "uri": "codelens://analysis/analysis-1/stale"}
+            ],
+        });
+
+        let (analysis_id, sections) = extract_handle_fields(&payload);
+        assert_eq!(analysis_id.as_deref(), Some("analysis-1"));
+        assert_eq!(sections, vec!["summary", "impact_rows"]);
+    }
+
+    #[test]
+    fn extract_handle_fields_falls_back_to_section_handles() {
+        let payload = json!({
+            "analysis_id": "analysis-2",
+            "section_handles": [
+                {"section": "boundary", "uri": "codelens://analysis/analysis-2/boundary"},
+                {"section": "tests", "uri": "codelens://analysis/analysis-2/tests"}
+            ],
+        });
+
+        let (analysis_id, sections) = extract_handle_fields(&payload);
+        assert_eq!(analysis_id.as_deref(), Some("analysis-2"));
+        assert_eq!(sections, vec!["boundary", "tests"]);
+    }
 }

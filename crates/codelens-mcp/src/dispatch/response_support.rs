@@ -1,6 +1,7 @@
 use crate::protocol::{JsonRpcResponse, RoutingHint, ToolCallResponse};
 use crate::tool_defs::{ToolSurface, tool_definition};
 use crate::tools;
+use serde::Serialize;
 use serde_json::{Map, Value, json};
 
 pub(crate) fn effective_budget_for_tool(name: &str, request_budget: usize) -> usize {
@@ -10,12 +11,12 @@ pub(crate) fn effective_budget_for_tool(name: &str, request_budget: usize) -> us
         .unwrap_or(request_budget)
 }
 
-pub(crate) fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> String {
+pub(crate) fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> Option<String> {
     if matches!(
         tool_name,
         "get_project_structure" | "get_symbols_overview" | "get_current_config" | "onboard_project"
     ) {
-        return "overview complete — drill into specific files or symbols".to_owned();
+        return Some("overview complete — drill into specific files or symbols".to_owned());
     }
     let pct = if budget > 0 {
         tokens * 100 / budget
@@ -25,13 +26,15 @@ pub(crate) fn budget_hint(tool_name: &str, tokens: usize, budget: usize) -> Stri
     let base = format!("{tokens} tokens ({pct}% of {budget} budget)");
 
     if pct > 95 {
-        format!(
+        Some(format!(
             "{base}. Response near limit — use get_analysis_section to expand specific parts instead of full reports."
-        )
+        ))
     } else if pct > 75 {
-        format!("{base}. Consider narrowing scope with path or max_tokens parameter.")
+        Some(format!(
+            "{base}. Consider narrowing scope with path or max_tokens parameter."
+        ))
     } else {
-        base
+        None
     }
 }
 
@@ -115,6 +118,10 @@ pub(crate) fn strip_empty_fields(value: &mut serde_json::Value) {
     }
 }
 
+fn serialize_optional<T: Serialize>(value: Option<&T>) -> Option<Value> {
+    value.and_then(|value| serde_json::to_value(value).ok())
+}
+
 fn is_empty_value(v: &serde_json::Value) -> bool {
     match v {
         serde_json::Value::Null => true,
@@ -132,10 +139,13 @@ pub(crate) fn compact_response_payload(resp: &mut ToolCallResponse) {
     if let Some(ref mut data) = resp.data
         && let Some(obj) = data.as_object_mut()
     {
+        let keep_available_sections = obj.contains_key("section_handle_template");
         obj.remove("quality_focus");
         obj.remove("recommended_checks");
         obj.remove("performance_watchpoints");
-        obj.remove("available_sections");
+        if !keep_available_sections {
+            obj.remove("available_sections");
+        }
         obj.remove("evidence_handles");
         obj.remove("schema_version");
         obj.remove("report_kind");
@@ -170,10 +180,93 @@ pub(crate) fn text_payload_for_response(
             "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
         });
     }
-    // Pretty-print the full response as structured JSON with readable formatting.
-    // Agents get valid JSON (parseability preserved) but with indentation and
-    // newlines instead of a single flat line.
+    if let Some(compact) = compact_text_payload_for_structured_response(resp, structured_content) {
+        return serde_json::to_string(&compact).unwrap_or_else(|_| {
+            "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
+        });
+    }
+
+    // Legacy fallback for tools without structuredContent.
     format_structured_response(resp)
+}
+
+fn compact_text_payload_for_structured_response(
+    resp: &ToolCallResponse,
+    structured_content: Option<&Value>,
+) -> Option<Value> {
+    let data = structured_content?;
+
+    let mut payload = Map::new();
+    payload.insert("success".to_owned(), Value::Bool(resp.success));
+
+    insert_if_present(
+        &mut payload,
+        "backend_used",
+        resp.backend_used.clone().map(Value::String),
+    );
+    insert_if_present(&mut payload, "confidence", resp.confidence.map(Value::from));
+    insert_if_present(
+        &mut payload,
+        "degraded_reason",
+        resp.degraded_reason.clone().map(Value::String),
+    );
+    insert_if_present(&mut payload, "partial", resp.partial.map(Value::Bool));
+    insert_if_present(
+        &mut payload,
+        "budget_hint",
+        resp.budget_hint.clone().map(Value::String),
+    );
+    insert_if_present(
+        &mut payload,
+        "routing_hint",
+        resp.routing_hint
+            .as_ref()
+            .and_then(|hint| serde_json::to_value(hint).ok()),
+    );
+    insert_if_present(
+        &mut payload,
+        "suggested_next_tools",
+        resp.suggested_next_tools
+            .as_ref()
+            .and_then(|tools| serde_json::to_value(tools).ok()),
+    );
+    insert_if_present(
+        &mut payload,
+        "suggestion_reasons",
+        resp.suggestion_reasons
+            .as_ref()
+            .and_then(|reasons| serde_json::to_value(reasons).ok()),
+    );
+    insert_if_present(
+        &mut payload,
+        "orchestration_contract",
+        serialize_optional(resp.orchestration_contract.as_ref()),
+    );
+    insert_if_present(
+        &mut payload,
+        "recommended_next_steps",
+        serialize_optional(resp.recommended_next_steps.as_ref()),
+    );
+    insert_if_present(
+        &mut payload,
+        "recovery_actions",
+        serialize_optional(resp.recovery_actions.as_ref()),
+    );
+    insert_if_present(&mut payload, "error", resp.error.clone().map(Value::String));
+
+    let truncated = data
+        .get("truncated")
+        .and_then(|value| value.as_bool())
+        .or_else(|| {
+            resp.data
+                .as_ref()
+                .and_then(|value| value.get("truncated"))
+                .and_then(|value| value.as_bool())
+        });
+    insert_if_present(&mut payload, "truncated", truncated.map(Value::Bool));
+
+    payload.insert("data".to_owned(), summarize_text_data_for_response(data));
+    Some(Value::Object(payload))
 }
 
 /// Format a ToolCallResponse as pretty-printed JSON.
@@ -208,6 +301,11 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
         && let Ok(value) = serde_json::to_value(hint)
     {
         out.insert("routing_hint".to_owned(), value);
+    }
+    if let Some(ref contract) = resp.orchestration_contract {
+        if let Ok(value) = serde_json::to_value(contract) {
+            out.insert("orchestration_contract".to_owned(), value);
+        }
     }
     if let Some(token_estimate) = resp.token_estimate {
         out.insert("token_estimate".to_owned(), Value::from(token_estimate));
@@ -248,6 +346,16 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
         {
             out.insert("suggestion_reasons".to_owned(), v);
         }
+    }
+    if let Some(ref steps) = resp.recommended_next_steps
+        && let Ok(v) = serde_json::to_value(steps)
+    {
+        out.insert("recommended_next_steps".to_owned(), v);
+    }
+    if let Some(ref actions) = resp.recovery_actions
+        && let Ok(v) = serde_json::to_value(actions)
+    {
+        out.insert("recovery_actions".to_owned(), v);
     }
 
     // CI/batch mode: check if routing hint is Async (analysis handles)
@@ -332,6 +440,21 @@ fn slim_text_payload_for_async_job(
         resp.suggestion_reasons
             .as_ref()
             .and_then(|reasons| serde_json::to_value(reasons).ok()),
+    );
+    insert_if_present(
+        &mut payload,
+        "orchestration_contract",
+        serialize_optional(resp.orchestration_contract.as_ref()),
+    );
+    insert_if_present(
+        &mut payload,
+        "recommended_next_steps",
+        serialize_optional(resp.recommended_next_steps.as_ref()),
+    );
+    insert_if_present(
+        &mut payload,
+        "recovery_actions",
+        serialize_optional(resp.recovery_actions.as_ref()),
     );
 
     let mut text_data = Map::new();
@@ -425,6 +548,21 @@ fn slim_text_payload_for_async_handle(
             .as_ref()
             .and_then(|reasons| serde_json::to_value(reasons).ok()),
     );
+    insert_if_present(
+        &mut payload,
+        "orchestration_contract",
+        serialize_optional(resp.orchestration_contract.as_ref()),
+    );
+    insert_if_present(
+        &mut payload,
+        "recommended_next_steps",
+        serialize_optional(resp.recommended_next_steps.as_ref()),
+    );
+    insert_if_present(
+        &mut payload,
+        "recovery_actions",
+        serialize_optional(resp.recovery_actions.as_ref()),
+    );
 
     let mut text_data = Map::new();
     copy_summarized_field(&mut text_data, data, "analysis_id");
@@ -435,7 +573,12 @@ fn slim_text_payload_for_async_handle(
     copy_summarized_field(&mut text_data, data, "blocker_count");
     copy_summarized_field(&mut text_data, data, "reused");
     copy_summarized_field(&mut text_data, data, "summary_resource");
-    copy_summarized_field(&mut text_data, data, "section_handles");
+    if data.contains_key("section_handle_template") {
+        copy_summarized_field(&mut text_data, data, "available_sections");
+        copy_summarized_field(&mut text_data, data, "section_handle_template");
+    } else {
+        copy_summarized_field(&mut text_data, data, "section_handles");
+    }
     copy_summarized_field(&mut text_data, data, "next_actions");
     if !text_data.is_empty() {
         payload.insert("data".to_owned(), Value::Object(text_data));
@@ -530,6 +673,37 @@ fn summarize_bootstrap_text_data(source: &Map<String, Value>) -> Value {
         copy_summarized_field(&mut routing_summary, routing, "preferred_entrypoints");
         if !routing_summary.is_empty() {
             out.insert("routing".to_owned(), Value::Object(routing_summary));
+        }
+    }
+
+    if let Some(host_runtime) = source
+        .get("host_runtime")
+        .and_then(|value| value.as_object())
+    {
+        let mut host_runtime_summary = Map::new();
+        copy_summarized_field(&mut host_runtime_summary, host_runtime, "host_id");
+        copy_summarized_field(
+            &mut host_runtime_summary,
+            host_runtime,
+            "orchestration_owner",
+        );
+        copy_summarized_field(&mut host_runtime_summary, host_runtime, "integration_style");
+        copy_summarized_field(
+            &mut host_runtime_summary,
+            host_runtime,
+            "orchestrator_entrypoint",
+        );
+        copy_summarized_field(
+            &mut host_runtime_summary,
+            host_runtime,
+            "integration_boundary",
+        );
+        copy_summarized_field(&mut host_runtime_summary, host_runtime, "task_stages");
+        if !host_runtime_summary.is_empty() {
+            out.insert(
+                "host_runtime".to_owned(),
+                Value::Object(host_runtime_summary),
+            );
         }
     }
 

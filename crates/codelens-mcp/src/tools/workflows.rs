@@ -8,41 +8,51 @@ use crate::protocol::BackendKind;
 #[cfg(feature = "semantic")]
 use crate::tool_runtime::success_meta;
 
-fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
+fn workflow_stage(entrypoint: &str) -> &'static str {
+    match entrypoint {
+        "assess_change_readiness" | "plan_safe_refactor" => "mutation_preflight",
+        _ => "multi_file_reasoning",
+    }
+}
+
+fn attach_entrypoint_metadata(entrypoint: &str, payload: Value) -> Value {
+    let entrypoint_contract = json!({
+        "contract_version": "entrypoint-resolution/v1",
+        "entrypoint_role": "problem_first_alias",
+        "stage": workflow_stage(entrypoint),
+        "host_action": "continue_in_host",
+        "selection_policy": "server-side bounded resolution",
+    });
+
     match payload {
         Value::Object(mut map) => {
-            map.insert("workflow".to_owned(), json!(workflow));
-            map.insert("delegated_tool".to_owned(), json!(delegated_tool));
+            map.insert("entrypoint".to_owned(), json!(entrypoint));
+            map.insert("entrypoint_contract".to_owned(), entrypoint_contract);
             Value::Object(map)
         }
         other => json!({
-            "workflow": workflow,
-            "delegated_tool": delegated_tool,
+            "entrypoint": entrypoint,
+            "entrypoint_contract": entrypoint_contract,
             "result": other,
         }),
     }
 }
 
-fn delegate_workflow(
+fn delegate_entrypoint(
     state: &AppState,
-    workflow: &str,
-    delegated_tool: &str,
+    entrypoint: &str,
     delegated_args: Value,
     handler: ToolHandler,
 ) -> ToolResult {
     let (payload, meta) = handler(state, &delegated_args)?;
-    Ok((
-        attach_workflow_metadata(workflow, delegated_tool, payload),
-        meta,
-    ))
+    Ok((attach_entrypoint_metadata(entrypoint, payload), meta))
 }
 
 pub fn explore_codebase(state: &AppState, arguments: &Value) -> ToolResult {
     if let Some(query) = arguments.get("query").and_then(|value| value.as_str()) {
-        return delegate_workflow(
+        return delegate_entrypoint(
             state,
             "explore_codebase",
-            "get_ranked_context",
             json!({
                 "query": query,
                 "path": arguments.get("path").and_then(|value| value.as_str()),
@@ -55,10 +65,9 @@ pub fn explore_codebase(state: &AppState, arguments: &Value) -> ToolResult {
         );
     }
 
-    delegate_workflow(
+    delegate_entrypoint(
         state,
         "explore_codebase",
-        "onboard_project",
         json!({}),
         crate::tools::composite::onboard_project,
     )
@@ -72,10 +81,9 @@ pub fn trace_request_path(state: &AppState, arguments: &Value) -> ToolResult {
         .and_then(|value| value.as_str())
         .ok_or_else(|| CodeLensError::MissingParam("function_name".to_owned()))?;
 
-    delegate_workflow(
+    delegate_entrypoint(
         state,
         "trace_request_path",
-        "explain_code_flow",
         json!({
             "function_name": function_name,
             "max_depth": arguments.get("max_depth").and_then(|value| value.as_u64()),
@@ -93,10 +101,9 @@ pub fn review_architecture(state: &AppState, arguments: &Value) -> ToolResult {
 
     if let Some(path) = arguments.get("path").and_then(|value| value.as_str()) {
         if include_diagram {
-            return delegate_workflow(
+            return delegate_entrypoint(
                 state,
                 "review_architecture",
-                "mermaid_module_graph",
                 json!({
                     "path": path,
                     "max_nodes": arguments.get("max_nodes").and_then(|value| value.as_u64()),
@@ -105,19 +112,17 @@ pub fn review_architecture(state: &AppState, arguments: &Value) -> ToolResult {
             );
         }
 
-        return delegate_workflow(
+        return delegate_entrypoint(
             state,
             "review_architecture",
-            "module_boundary_report",
             json!({ "path": path }),
             crate::tools::reports::module_boundary_report,
         );
     }
 
-    delegate_workflow(
+    delegate_entrypoint(
         state,
         "review_architecture",
-        "onboard_project",
         json!({}),
         crate::tools::composite::onboard_project,
     )
@@ -128,10 +133,9 @@ pub fn plan_safe_refactor(state: &AppState, arguments: &Value) -> ToolResult {
         arguments.get("file_path").and_then(|value| value.as_str()),
         arguments.get("symbol").and_then(|value| value.as_str()),
     ) {
-        return delegate_workflow(
+        return delegate_entrypoint(
             state,
             "plan_safe_refactor",
-            "safe_rename_report",
             json!({
                 "file_path": file_path,
                 "symbol": symbol,
@@ -141,10 +145,9 @@ pub fn plan_safe_refactor(state: &AppState, arguments: &Value) -> ToolResult {
         );
     }
 
-    delegate_workflow(
+    delegate_entrypoint(
         state,
         "plan_safe_refactor",
-        "refactor_safety_report",
         json!({
             "task": arguments.get("task").and_then(|value| value.as_str()),
             "symbol": arguments.get("symbol").and_then(|value| value.as_str()),
@@ -156,20 +159,18 @@ pub fn plan_safe_refactor(state: &AppState, arguments: &Value) -> ToolResult {
 }
 
 pub fn audit_security_context(state: &AppState, arguments: &Value) -> ToolResult {
-    delegate_workflow(
+    delegate_entrypoint(
         state,
         "audit_security_context",
-        "semantic_code_review",
         arguments.clone(),
         crate::tools::reports::semantic_code_review,
     )
 }
 
 pub fn analyze_change_impact(state: &AppState, arguments: &Value) -> ToolResult {
-    delegate_workflow(
+    delegate_entrypoint(
         state,
         "analyze_change_impact",
-        "impact_report",
         arguments.clone(),
         crate::tools::reports::impact_report,
     )
@@ -181,29 +182,26 @@ pub fn review_changes(state: &AppState, arguments: &Value) -> ToolResult {
         .and_then(|v| v.as_array())
         .is_some()
     {
-        return delegate_workflow(
+        return delegate_entrypoint(
             state,
             "review_changes",
-            "diff_aware_references",
             arguments.clone(),
             crate::tools::reports::diff_aware_references,
         );
     }
 
-    delegate_workflow(
+    delegate_entrypoint(
         state,
         "review_changes",
-        "impact_report",
         arguments.clone(),
         crate::tools::reports::impact_report,
     )
 }
 
 pub fn assess_change_readiness(state: &AppState, arguments: &Value) -> ToolResult {
-    delegate_workflow(
+    delegate_entrypoint(
         state,
         "assess_change_readiness",
-        "verify_change_readiness",
         arguments.clone(),
         crate::tools::reports::verify_change_readiness,
     )
@@ -216,10 +214,9 @@ pub fn diagnose_issues(state: &AppState, arguments: &Value) -> ToolResult {
         .and_then(|v| v.as_str())
         .is_some()
     {
-        return delegate_workflow(
+        return delegate_entrypoint(
             state,
             "diagnose_issues",
-            "get_file_diagnostics",
             json!({
                 "file_path": arguments.get("file_path")
                     .or_else(|| arguments.get("path"))
@@ -229,10 +226,9 @@ pub fn diagnose_issues(state: &AppState, arguments: &Value) -> ToolResult {
         );
     }
 
-    delegate_workflow(
+    delegate_entrypoint(
         state,
         "diagnose_issues",
-        "unresolved_reference_check",
         json!({
             "file_path": arguments.get("file_path").and_then(|v| v.as_str()),
             "symbol": arguments.get("symbol").and_then(|v| v.as_str()),
@@ -262,20 +258,15 @@ pub fn cleanup_duplicate_logic(state: &AppState, arguments: &Value) -> ToolResul
                 "count": pairs.len(),
             });
             return Ok((
-                attach_workflow_metadata(
-                    "cleanup_duplicate_logic",
-                    "find_code_duplicates",
-                    payload,
-                ),
+                attach_entrypoint_metadata("cleanup_duplicate_logic", payload),
                 success_meta(BackendKind::Semantic, 0.80),
             ));
         }
     }
 
-    delegate_workflow(
+    delegate_entrypoint(
         state,
         "cleanup_duplicate_logic",
-        "dead_code_report",
         json!({
             "scope": arguments.get("scope").and_then(|value| value.as_str()),
             "max_results": arguments.get("max_results").and_then(|value| value.as_u64()),

@@ -2,11 +2,15 @@ use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::dispatch::dispatch_tool;
 use crate::prompts::{get_prompt, prompts};
-use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
+use crate::protocol::{
+    JsonRpcRequest, JsonRpcResponse, RecommendedNextStep, RecommendedNextStepKind, RoutingHint,
+};
 use crate::resources::{read_resource, resources};
+use crate::session_context::SessionRequestContext;
 use crate::tool_defs::{
-    is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
-    preferred_tier_labels, tool_namespace, tool_tier_label, visible_tools,
+    ToolProfile, ToolSurface, bootstrap_visible_tools, is_deferred_control_tool,
+    preferred_bootstrap_tools, preferred_namespaces, preferred_tier_labels, tool_namespace,
+    tool_tier_label, visible_tools,
 };
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
@@ -53,12 +57,178 @@ fn list_param_str<'a>(request: &'a JsonRpcRequest, key: &str) -> Option<&'a str>
         .and_then(|value| value.as_str())
 }
 
+fn compact_schema_node(node: &Value) -> Value {
+    let Some(obj) = node.as_object() else {
+        return node.clone();
+    };
+    let mut compact = Map::new();
+    if let Some(value) = obj.get("type") {
+        compact.insert("type".to_owned(), value.clone());
+    } else if obj.contains_key("properties") {
+        compact.insert("type".to_owned(), Value::String("object".to_owned()));
+    } else if obj.contains_key("items") {
+        compact.insert("type".to_owned(), Value::String("array".to_owned()));
+    }
+    if let Some(value) = obj.get("required") {
+        compact.insert("required".to_owned(), value.clone());
+    }
+    if let Some(properties) = obj.get("properties").and_then(|value| value.as_object()) {
+        let compact_properties = properties
+            .iter()
+            .map(|(name, schema)| (name.clone(), compact_schema_node(schema)))
+            .collect::<Map<_, _>>();
+        compact.insert("properties".to_owned(), Value::Object(compact_properties));
+    }
+    if let Some(items) = obj.get("items") {
+        compact.insert("items".to_owned(), compact_schema_node(items));
+    }
+    if compact.is_empty() {
+        node.clone()
+    } else {
+        Value::Object(compact)
+    }
+}
+
+fn compact_input_schema(schema: &Value) -> Value {
+    compact_schema_node(schema)
+}
+
+fn compact_orchestration_contract(
+    contract: &crate::protocol::OrchestrationContract,
+) -> crate::protocol::OrchestrationContract {
+    let mut compact = crate::harness_host::base_orchestration_contract();
+    compact.server_role = contract.server_role.clone();
+    compact.orchestration_owner = contract.orchestration_owner.clone();
+    compact.retry_policy_owner.clear();
+    compact.execution_loop_owner.clear();
+    compact.tool_role = contract.tool_role.clone();
+    compact.stage_hint = contract.stage_hint.clone();
+    compact.interaction_mode = contract.interaction_mode.clone();
+    compact
+}
+
+fn request_client_profile(
+    state: &AppState,
+    method: Option<&str>,
+    params: Option<&Value>,
+) -> ClientProfile {
+    if matches!(method, Some("initialize")) {
+        return params
+            .and_then(|value| value.get("clientInfo"))
+            .and_then(|value| value.get("name"))
+            .and_then(|value| value.as_str())
+            .map(|name| ClientProfile::detect(Some(name)))
+            .unwrap_or_else(|| state.client_profile());
+    }
+
+    let session = params
+        .map(SessionRequestContext::from_json)
+        .unwrap_or_default();
+    session
+        .client_name
+        .as_deref()
+        .map(|name| ClientProfile::detect(Some(name)))
+        .unwrap_or_else(|| state.client_profile())
+}
+
+fn request_surface(
+    state: &AppState,
+    method: Option<&str>,
+    params: Option<&Value>,
+    client: ClientProfile,
+) -> ToolSurface {
+    if matches!(method, Some("initialize")) {
+        if let Some(profile) = params
+            .and_then(|value| value.get("profile"))
+            .and_then(|value| value.as_str())
+            .and_then(ToolProfile::from_str)
+        {
+            return ToolSurface::Profile(profile);
+        }
+        let indexed_files = state
+            .symbol_index()
+            .stats()
+            .ok()
+            .map(|stats| stats.indexed_files);
+        return client.advertised_default_surface(indexed_files);
+    }
+
+    let session = params
+        .map(SessionRequestContext::from_json)
+        .unwrap_or_default();
+    state.execution_surface(&session)
+}
+
+fn protocol_error_next_steps(method: Option<&str>) -> Vec<RecommendedNextStep> {
+    let mut steps = Vec::new();
+    if matches!(method, Some("tools/call") | Some("tools/list")) {
+        steps.push(RecommendedNextStep {
+            kind: RecommendedNextStepKind::Resource,
+            target: "codelens://tools/list".to_owned(),
+            reason: "Read the advertised tool surface and request shape before retrying."
+                .to_owned(),
+        });
+    }
+    steps.push(RecommendedNextStep {
+        kind: RecommendedNextStepKind::Handoff,
+        target: "host_orchestrator".to_owned(),
+        reason: "Repair the JSON-RPC request in the host and retry without widening execution."
+            .to_owned(),
+    });
+    steps
+}
+
+pub(crate) fn protocol_error_response(
+    state: &AppState,
+    id: Option<Value>,
+    code: i64,
+    message: impl Into<String>,
+    method: Option<&str>,
+    params: Option<&Value>,
+    error_scope: &str,
+    request_stage: &str,
+) -> JsonRpcResponse {
+    let client = request_client_profile(state, method, params);
+    let surface = request_surface(state, method, params, client);
+    let mut orchestration_contract = crate::harness_host::response_orchestration_contract(
+        client,
+        surface,
+        method.unwrap_or("protocol_error"),
+        RoutingHint::Sync,
+    );
+    orchestration_contract.tool_role = "protocol_error".to_owned();
+    orchestration_contract.stage_hint = request_stage.to_owned();
+    orchestration_contract.interaction_mode = "inline_error".to_owned();
+    orchestration_contract.preferred_client_behavior =
+        Some("repair the request in host and retry with a valid JSON-RPC envelope".to_owned());
+
+    JsonRpcResponse::error_with_data(
+        id,
+        code,
+        message,
+        json!({
+            "error_class": "protocol",
+            "error_scope": error_scope,
+            "request_stage": request_stage,
+            "method": method,
+            "routing_hint": RoutingHint::Sync,
+            "orchestration_contract": orchestration_contract,
+            "recommended_next_steps": protocol_error_next_steps(method),
+        }),
+    )
+}
+
 pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Option<JsonRpcResponse> {
     if request.jsonrpc != "2.0" {
-        return Some(JsonRpcResponse::error(
+        return Some(protocol_error_response(
+            state,
             request.id,
             -32600,
             "Unsupported jsonrpc version",
+            Some(request.method.as_str()),
+            request.params.as_ref(),
+            "router",
+            "jsonrpc_envelope",
         ));
     }
 
@@ -85,7 +255,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     "name": "codelens-mcp",
                     "version": env!("CARGO_PKG_VERSION")
                 },
-                "instructions": "CodeLens is a compressed context provider for agent harnesses. Prefer problem-first workflow entrypoints such as explore_codebase, review_architecture, analyze_change_impact, plan_safe_refactor, audit_security_context, trace_request_path, and cleanup_duplicate_logic before expanding raw symbols or graph data. Legacy report tools remain available, but the workflow-first surface is the default path. Keep the visible context bounded, and use get_analysis_section or analysis resources only when you need one section in more detail. For longer reports, start_analysis_job and poll with get_analysis_job."
+                "instructions": "CodeLens is a bounded contract provider for agent harnesses, not an execution engine. The host keeps orchestration ownership: in Claude Code, QueryEngine/query remains the orchestrator. Prefer problem-first entrypoints such as explore_codebase, review_architecture, analyze_change_impact, plan_safe_refactor, audit_security_context, trace_request_path, and cleanup_duplicate_logic before expanding raw symbols or graph data. Keep the visible context bounded, and use get_analysis_section or analysis resources only when you need one section in more detail. For longer reports, start_analysis_job and poll with get_analysis_job."
             }),
         )),
         "resources/list" => Some(JsonRpcResponse::result(
@@ -210,41 +380,67 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             let include_annotations =
                 list_param_bool(&request, "includeAnnotations", "include_annotations")
                     .unwrap_or(!lean_contract);
-            let filtered = all_tools
-                .iter()
-                .copied()
-                .filter(|tool| match requested_namespace {
-                    _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
-                    Some(namespace) => tool_namespace(tool.name) == namespace,
-                    None if deferred_loading_active => {
-                        let namespace = tool_namespace(tool.name);
-                        let tier = tool_tier_label(tool.name);
-                        preferred_namespaces.contains(&namespace)
-                            || loaded_tiers.contains(&tier)
-                            || loaded_namespaces.contains(&namespace)
-                    }
-                    None => true,
-                })
-                .filter(|tool| match requested_tier {
-                    _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
-                    Some(tier) => tool_tier_label(tool.name) == tier,
-                    None if deferred_loading_active => {
-                        let namespace = tool_namespace(tool.name);
-                        let tier = tool_tier_label(tool.name);
-                        preferred_tiers.contains(&tier)
-                            || loaded_namespaces.contains(&namespace)
-                            || loaded_tiers.contains(&tier)
-                    }
-                    None => true,
-                })
-                .filter(|tool| match preferred_bootstrap {
-                    _ if deferred_loading_active && is_deferred_control_tool(tool.name) => true,
-                    Some(tool_names) if deferred_loading_active && !has_loaded_expansions => {
-                        tool_names.contains(&tool.name)
-                    }
-                    _ => true,
-                })
-                .collect::<Vec<_>>();
+            let filtered = if deferred_loading_active && !has_loaded_expansions {
+                bootstrap_visible_tools(surface)
+            } else {
+                all_tools
+                    .iter()
+                    .copied()
+                    .filter(|tool| match requested_namespace {
+                        _ if deferred_loading_active
+                            && has_loaded_expansions
+                            && is_deferred_control_tool(tool.name) =>
+                        {
+                            true
+                        }
+                        Some(namespace) => tool_namespace(tool.name) == namespace,
+                        None if deferred_loading_active => {
+                            if has_loaded_expansions && is_deferred_control_tool(tool.name) {
+                                return true;
+                            }
+                            let namespace = tool_namespace(tool.name);
+                            let tier = tool_tier_label(tool.name);
+                            preferred_namespaces.contains(&namespace)
+                                || loaded_tiers.contains(&tier)
+                                || loaded_namespaces.contains(&namespace)
+                        }
+                        None => true,
+                    })
+                    .filter(|tool| match requested_tier {
+                        _ if deferred_loading_active
+                            && has_loaded_expansions
+                            && is_deferred_control_tool(tool.name) =>
+                        {
+                            true
+                        }
+                        Some(tier) => tool_tier_label(tool.name) == tier,
+                        None if deferred_loading_active => {
+                            if has_loaded_expansions && is_deferred_control_tool(tool.name) {
+                                return true;
+                            }
+                            let namespace = tool_namespace(tool.name);
+                            let tier = tool_tier_label(tool.name);
+                            preferred_tiers.contains(&tier)
+                                || loaded_namespaces.contains(&namespace)
+                                || loaded_tiers.contains(&tier)
+                        }
+                        None => true,
+                    })
+                    .filter(|tool| match preferred_bootstrap {
+                        _ if deferred_loading_active
+                            && has_loaded_expansions
+                            && is_deferred_control_tool(tool.name) =>
+                        {
+                            true
+                        }
+                        _ if deferred_loading_active && has_loaded_expansions => true,
+                        Some(tool_names) if deferred_loading_active => {
+                            tool_names.contains(&tool.name)
+                        }
+                        _ => true,
+                    })
+                    .collect::<Vec<_>>()
+            };
             let response_tools = filtered
                 .iter()
                 .map(|tool| {
@@ -254,6 +450,13 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     }
                     if !include_annotations {
                         tool.annotations = None;
+                    }
+                    if lean_contract {
+                        tool.input_schema = compact_input_schema(&tool.input_schema);
+                        if let Some(contract) = tool.orchestration_contract.take() {
+                            tool.orchestration_contract =
+                                Some(compact_orchestration_contract(&contract));
+                        }
                     }
                     tool
                 })
@@ -346,14 +549,28 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
         }
         "tools/call" => match request.params {
             Some(params) => Some(dispatch_tool(state, request.id, params)),
-            None => Some(JsonRpcResponse::error(request.id, -32602, "Missing params")),
+            None => Some(protocol_error_response(
+                state,
+                request.id,
+                -32602,
+                "Missing params",
+                Some("tools/call"),
+                None,
+                "router",
+                "method_params",
+            )),
         },
         // Unknown notification — silently ignore per JSON-RPC 2.0
         _ if is_notification => None,
-        method => Some(JsonRpcResponse::error(
+        method => Some(protocol_error_response(
+            state,
             request.id,
             -32601,
             format!("Method not found: {method}"),
+            Some(method),
+            request.params.as_ref(),
+            "router",
+            "method_dispatch",
         )),
     }
 }

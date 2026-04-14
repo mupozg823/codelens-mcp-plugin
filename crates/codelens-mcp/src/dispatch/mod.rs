@@ -572,11 +572,15 @@ pub(crate) fn dispatch_tool(
     // Rate limit: per-session sliding window (default 300 calls/minute).
     // Override via CODELENS_RATE_LIMIT env var or .codelens/config.json.
     if let Some(err) = check_rate_limit(state, session) {
+        let rate_limited_surface = state.execution_surface(session);
+        let rate_limited_surface_label = rate_limited_surface.as_label().to_owned();
         return build_error_response(
             name,
             err,
             None,
-            "rate_limited",
+            rate_limited_surface,
+            &rate_limited_surface_label,
+            arguments,
             &session.session_id,
             state,
             start,
@@ -602,8 +606,8 @@ pub(crate) fn dispatch_tool(
     {
         state.record_file_access_for_session(session, fp);
     }
-    let surface = state.execution_surface(session);
-    let active_surface = surface.as_label().to_owned();
+    let mut surface = state.execution_surface(session);
+    let mut active_surface = surface.as_label().to_owned();
     let recent_tools = state.recent_tools_for_session(session);
     let _session_project_guard = match state.ensure_session_project(session) {
         Ok(guard) => guard,
@@ -612,7 +616,9 @@ pub(crate) fn dispatch_tool(
                 name,
                 project_err,
                 None,
+                surface,
                 &active_surface,
+                arguments,
                 &session.session_id,
                 state,
                 start,
@@ -622,18 +628,26 @@ pub(crate) fn dispatch_tool(
     };
 
     // 2. Validate tool access (surface, namespace, tier, daemon mode)
-    if let Err(access_err) = validate_tool_access(name, session, surface, state) {
-        return build_error_response(
-            name,
-            access_err,
-            None,
-            &active_surface,
-            &session.session_id,
-            state,
-            start,
-            id,
-        );
-    }
+    surface = match validate_tool_access(name, session, surface, state) {
+        Ok(effective_surface) => effective_surface,
+        Err(access_err) => {
+            let denied_surface = state.execution_surface(session);
+            let denied_surface_label = denied_surface.as_label().to_owned();
+            return build_error_response(
+                name,
+                access_err,
+                None,
+                denied_surface,
+                &denied_surface_label,
+                arguments,
+                &session.session_id,
+                state,
+                start,
+                id,
+            );
+        }
+    };
+    active_surface = surface.as_label().to_owned();
 
     // 2b. Schema pre-validation: check required fields before handler runs
     if let Err(validation_err) = validate_required_params(name, arguments) {
@@ -641,7 +655,9 @@ pub(crate) fn dispatch_tool(
             name,
             validation_err,
             None,
+            surface,
             &active_surface,
+            arguments,
             &session.session_id,
             state,
             start,
@@ -803,18 +819,18 @@ pub(crate) fn dispatch_tool(
             start,
             id,
         }),
-        Err(error) => {
-            build_error_response(
-                name,
-                error,
-                gate_failure,
-                &active_surface,
-                &session.session_id,
-                state,
-                start,
-                id,
-            )
-        }
+        Err(error) => build_error_response(
+            name,
+            error,
+            gate_failure,
+            surface,
+            &active_surface,
+            arguments,
+            &session.session_id,
+            state,
+            start,
+            id,
+        ),
     }
 }
 

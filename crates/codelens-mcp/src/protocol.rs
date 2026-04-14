@@ -1,6 +1,10 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+fn string_is_empty(value: &String) -> bool {
+    value.is_empty()
+}
+
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
@@ -38,6 +42,12 @@ pub struct Tool {
     /// Enables downstream agents to understand return shapes without calling the tool.
     #[serde(rename = "outputSchema", skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<Value>,
+    /// CodeLens-specific host/orchestrator contract for pre-call routing.
+    #[serde(
+        rename = "orchestrationContract",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub orchestration_contract: Option<OrchestrationContract>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<ToolAnnotations>,
     /// Per-tool hard cap on response tokens. Enforced in dispatch_response.
@@ -47,6 +57,61 @@ pub struct Tool {
     /// Rough serialized token estimate for `tools/list` metrics.
     #[serde(skip)]
     pub estimated_tokens: usize,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct OrchestrationContract {
+    pub contract_version: String,
+    pub server_role: String,
+    pub orchestration_owner: String,
+    #[serde(skip_serializing_if = "string_is_empty")]
+    pub retry_policy_owner: String,
+    #[serde(skip_serializing_if = "string_is_empty")]
+    pub execution_loop_owner: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub host_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub integration_style: Option<String>,
+    pub tool_role: String,
+    pub stage_hint: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_surface: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub continue_in_host: Option<bool>,
+    pub interaction_mode: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preferred_client_behavior: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RecommendedNextStepKind {
+    Tool,
+    Resource,
+    Handoff,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq, Eq)]
+pub struct RecommendedNextStep {
+    pub kind: RecommendedNextStepKind,
+    pub target: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RecoveryActionKind {
+    ToolCall,
+    RpcCall,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+pub struct RecoveryAction {
+    pub kind: RecoveryActionKind,
+    pub target: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<Value>,
+    pub reason: String,
 }
 
 /// Tool complexity tier — guides agent tool selection strategy.
@@ -123,6 +188,16 @@ pub struct ToolCallResponse {
     /// Routing hint for external callers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub routing_hint: Option<RoutingHint>,
+    /// Machine-readable contract describing how the host orchestrator should
+    /// treat this result.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub orchestration_contract: Option<OrchestrationContract>,
+    /// Typed follow-up steps for orchestrators that want more than flat tool names.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recommended_next_steps: Option<Vec<RecommendedNextStep>>,
+    /// Structured recovery calls for recoverable failures.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery_actions: Option<Vec<RecoveryAction>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
 }
@@ -236,6 +311,24 @@ impl JsonRpcResponse {
             }),
         }
     }
+
+    pub fn error_with_data(
+        id: Option<Value>,
+        code: i64,
+        message: impl Into<String>,
+        data: Value,
+    ) -> Self {
+        Self {
+            jsonrpc: "2.0",
+            id,
+            result: None,
+            error: Some(JsonRpcError {
+                code,
+                message: message.into(),
+                data: Some(data),
+            }),
+        }
+    }
 }
 
 impl Tool {
@@ -245,6 +338,7 @@ impl Tool {
             description,
             input_schema,
             output_schema: None,
+            orchestration_contract: None,
             annotations: None,
             max_response_tokens: None,
             estimated_tokens: 0,
@@ -348,6 +442,9 @@ impl ToolCallResponse {
             suggestion_reasons: None,
             budget_hint: None,
             routing_hint: None,
+            orchestration_contract: None,
+            recommended_next_steps: None,
+            recovery_actions: None,
             elapsed_ms: None,
         }
     }
@@ -369,6 +466,9 @@ impl ToolCallResponse {
             suggestion_reasons: None,
             budget_hint: None,
             routing_hint: None,
+            orchestration_contract: None,
+            recommended_next_steps: None,
+            recovery_actions: None,
             elapsed_ms: None,
         }
     }
@@ -430,5 +530,58 @@ mod tests {
         resp.elapsed_ms = Some(42);
         let serialized = serde_json::to_string(&resp).unwrap();
         assert!(serialized.contains("\"elapsed_ms\":42"));
+    }
+
+    #[test]
+    fn orchestration_contract_serializes_with_optional_fields_omitted() {
+        let contract = OrchestrationContract {
+            contract_version: "orchestrator-support/v1".to_owned(),
+            server_role: "supporting_mcp".to_owned(),
+            orchestration_owner: "host".to_owned(),
+            retry_policy_owner: "host".to_owned(),
+            execution_loop_owner: "host".to_owned(),
+            host_id: None,
+            integration_style: None,
+            tool_role: "bounded_evidence".to_owned(),
+            stage_hint: "bounded_lookup".to_owned(),
+            active_surface: None,
+            continue_in_host: None,
+            interaction_mode: "inline_bounded_call".to_owned(),
+            preferred_client_behavior: None,
+        };
+
+        let value = serde_json::to_value(contract).unwrap();
+        assert_eq!(value["contract_version"], json!("orchestrator-support/v1"));
+        assert_eq!(value["server_role"], json!("supporting_mcp"));
+        assert_eq!(value["tool_role"], json!("bounded_evidence"));
+        assert!(value.get("host_id").is_none());
+        assert!(value.get("active_surface").is_none());
+    }
+
+    #[test]
+    fn recommended_next_step_serializes_kind_in_snake_case() {
+        let step = RecommendedNextStep {
+            kind: RecommendedNextStepKind::Handoff,
+            target: "host_orchestrator".to_owned(),
+            reason: "Host keeps orchestration ownership.".to_owned(),
+        };
+
+        let value = serde_json::to_value(step).unwrap();
+        assert_eq!(value["kind"], json!("handoff"));
+        assert_eq!(value["target"], json!("host_orchestrator"));
+    }
+
+    #[test]
+    fn recovery_action_serializes_kind_in_snake_case() {
+        let action = RecoveryAction {
+            kind: RecoveryActionKind::RpcCall,
+            target: "tools/list".to_owned(),
+            arguments: Some(json!({"tier": "primitive"})),
+            reason: "Load the deferred tier before retrying the blocked tool.".to_owned(),
+        };
+
+        let value = serde_json::to_value(action).unwrap();
+        assert_eq!(value["kind"], json!("rpc_call"));
+        assert_eq!(value["target"], json!("tools/list"));
     }
 }

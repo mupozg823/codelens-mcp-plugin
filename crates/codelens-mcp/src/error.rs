@@ -1,6 +1,46 @@
 //! Structured error types for CodeLens MCP tools.
 //! Maps to JSON-RPC error codes for protocol-level error reporting.
 
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ToolAccessFailure {
+    #[error("Tool `{tool_name}` is not available in active surface `{active_surface}`")]
+    NotAvailableInActiveSurface {
+        tool_name: String,
+        active_surface: String,
+    },
+
+    #[error(
+        "Tool `{tool_name}` is hidden by deferred loading in namespace `{namespace}`. Call `tools/list` with `{{\"namespace\":\"{namespace}\"}}` or `{{\"full\":true}}` first."
+    )]
+    HiddenByDeferredNamespace {
+        tool_name: String,
+        namespace: String,
+    },
+
+    #[error(
+        "Tool `{tool_name}` is hidden by deferred loading in tier `{tier}`. Call `tools/list` with `{{\"tier\":\"{tier}\"}}` or `{{\"full\":true}}` first."
+    )]
+    HiddenByDeferredTier { tool_name: String, tier: String },
+
+    #[error("Tool `{tool_name}` requires a trusted HTTP client in daemon mode `{daemon_mode}`")]
+    TrustedHttpRequired {
+        tool_name: String,
+        daemon_mode: String,
+    },
+
+    #[error("Tool `{tool_name}` is blocked by daemon mode `{daemon_mode}`")]
+    DaemonModeBlocked {
+        tool_name: String,
+        daemon_mode: String,
+    },
+
+    #[error("Tool `{tool_name}` is blocked in read-only surface `{active_surface}`")]
+    ReadOnlySurfaceBlocked {
+        tool_name: String,
+        active_surface: String,
+    },
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum CodeLensError {
     // ── Protocol errors (JSON-RPC level) ──────────────────────────────
@@ -20,6 +60,10 @@ pub enum CodeLensError {
     /// Validation error — invalid range, path traversal, etc.
     #[error("Validation error: {0}")]
     Validation(String),
+
+    /// Structured tool-access denial with machine-readable recovery context.
+    #[error("Validation error: {0}")]
+    AccessDenied(#[from] ToolAccessFailure),
 
     // ── Capability errors ─────────────────────────────────────────────
     /// Feature not available (e.g., semantic search without embeddings).
@@ -79,6 +123,7 @@ impl CodeLensError {
             // User errors
             Self::NotFound(_) => -32000,
             Self::Validation(_) => -32003,
+            Self::AccessDenied(_) => -32003,
             // Capability errors
             #[cfg(feature = "semantic")]
             Self::FeatureUnavailable(_) => -32002,

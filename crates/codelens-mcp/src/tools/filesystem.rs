@@ -1,6 +1,6 @@
 use super::{
-    optional_bool, optional_string, optional_usize, required_string, success_meta, AppState,
-    ToolResult,
+    AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
+    success_meta,
 };
 use crate::client_profile::ClientProfile;
 use crate::error::CodeLensError;
@@ -9,7 +9,7 @@ use codelens_engine::{
     detect_frameworks, detect_workspace_packages, find_files, list_dir, read_file,
     search_for_pattern, search_for_pattern_smart,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Load `.codelens/config.json` as project-level config policy.
 /// Returns null if file doesn't exist or is malformed.

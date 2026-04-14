@@ -21,6 +21,8 @@ mod project_runtime;
 mod session_runtime;
 mod watcher_health;
 
+pub(crate) use session_runtime::{LogicalSessionMetadataUpdate, LogicalSessionRuntime};
+
 const WATCHER_RECENT_FAILURE_WINDOW_SECS: i64 = 15 * 60;
 /// Default preflight TTL: 10 minutes. Override via CODELENS_PREFLIGHT_TTL_SECS.
 /// NLAH (arxiv:2603.25723): overly strict verifiers hurt performance by -0.8~-8.4%.
@@ -65,6 +67,62 @@ const PROJECT_CONTEXT_CACHE_LIMIT: usize = 4;
 
 use self::project_runtime::{ProjectContextCache, ProjectRuntimeContext};
 
+type DoomLoopCounterState = (String, u64, usize, u64);
+
+struct RuntimePolicyState {
+    transport_mode: Mutex<RuntimeTransportMode>,
+    daemon_mode: Mutex<RuntimeDaemonMode>,
+    client_profile: ClientProfile,
+    effort_level: std::sync::atomic::AtomicU8,
+    surface: Mutex<ToolSurface>,
+    token_budget: std::sync::atomic::AtomicUsize,
+}
+
+impl RuntimePolicyState {
+    fn from_runtime(
+        transport_mode: RuntimeTransportMode,
+        daemon_mode: RuntimeDaemonMode,
+        client_profile: ClientProfile,
+        effort_level: EffortLevel,
+        surface: ToolSurface,
+        token_budget: usize,
+    ) -> Self {
+        let encoded_effort = match effort_level {
+            EffortLevel::Low => 0,
+            EffortLevel::Medium => 1,
+            EffortLevel::High => 2,
+        };
+        Self {
+            transport_mode: Mutex::new(transport_mode),
+            daemon_mode: Mutex::new(daemon_mode),
+            client_profile,
+            effort_level: std::sync::atomic::AtomicU8::new(encoded_effort),
+            surface: Mutex::new(surface),
+            token_budget: std::sync::atomic::AtomicUsize::new(token_budget),
+        }
+    }
+}
+
+struct RuntimeActivityState {
+    metrics: Arc<ToolMetricsRegistry>,
+    recent_tools: crate::recent_buffer::RecentRingBuffer,
+    recent_files: crate::recent_buffer::RecentRingBuffer,
+    recent_analysis_ids: crate::recent_buffer::RecentRingBuffer,
+    doom_loop_counter: Mutex<DoomLoopCounterState>,
+}
+
+impl RuntimeActivityState {
+    fn new(metrics: Arc<ToolMetricsRegistry>) -> Self {
+        Self {
+            metrics,
+            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
+            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
+            recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
+            doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
+        }
+    }
+}
+
 pub(crate) struct AppState {
     // Default project (set at startup, immutable)
     default_project: ProjectRoot,
@@ -78,25 +136,10 @@ pub(crate) struct AppState {
     // Runtime project override (set by activate_project)
     project_override: std::sync::RwLock<Option<Arc<ProjectRuntimeContext>>>,
     project_context_cache: Mutex<ProjectContextCache>,
-    transport_mode: Mutex<RuntimeTransportMode>,
-    daemon_mode: Mutex<RuntimeDaemonMode>,
-    client_profile: ClientProfile,
-    effort_level: std::sync::atomic::AtomicU8,
-    surface: Mutex<ToolSurface>,
-    /// Global token budget for response size control.
-    /// Tools that produce variable-length output respect this limit.
-    pub(crate) token_budget: std::sync::atomic::AtomicUsize,
+    policy: RuntimePolicyState,
     artifact_store: AnalysisArtifactStore,
     job_store: crate::job_store::AnalysisJobStore,
-    pub(crate) metrics: Arc<ToolMetricsRegistry>,
-    /// Recent tool call names for context-aware suggestions (max 5).
-    recent_tools: crate::recent_buffer::RecentRingBuffer,
-    /// Recent file paths accessed in this session (max 20) for ranking boost.
-    recent_files: crate::recent_buffer::RecentRingBuffer,
-    /// Recent analysis IDs for cross-phase context (max 5).
-    recent_analysis_ids: crate::recent_buffer::RecentRingBuffer,
-    /// Doom-loop detection: (tool_name, args_hash, consecutive_count, first_occurrence_ms)
-    doom_loop_counter: Mutex<(String, u64, usize, u64)>,
+    activity: RuntimeActivityState,
     preflight_store: RecentPreflightStore,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,
@@ -104,11 +147,14 @@ pub(crate) struct AppState {
     project_execution_lock: Mutex<()>,
     #[cfg(feature = "semantic")]
     pub(crate) embedding: std::sync::RwLock<Option<EmbeddingEngine>>,
-    /// Lazy-loaded SCIP precise backend, cached after first access.
+    /// Lazy-loaded SCIP precise backend cache.
+    /// `None` means "not loaded yet", `Some(None)` means "checked, no index found",
+    /// and `Some(Some(...))` means "loaded and cached".
     #[cfg(feature = "scip-backend")]
-    scip_backend: OnceLock<Option<Arc<codelens_engine::ScipBackend>>>,
+    scip_backend: Mutex<Option<Option<Arc<codelens_engine::ScipBackend>>>>,
     /// Secondary (read-only) project indexes for cross-project queries.
     pub(crate) secondary_projects: Mutex<HashMap<String, SecondaryProject>>,
+    logical_sessions: Mutex<HashMap<String, LogicalSessionRuntime>>,
     #[cfg(feature = "http")]
     pub(crate) session_store: Option<crate::server::session::SessionStore>,
     /// Phase 4b (§capability-reporting follow-up): wall-clock time
@@ -192,23 +238,11 @@ impl AppState {
         self.project_scope_for_session(&session)
     }
 
-    fn default_project_scope(&self) -> String {
-        self.default_project.as_path().to_string_lossy().to_string()
-    }
-
-    fn active_project_context(&self) -> Option<Arc<ProjectRuntimeContext>> {
-        project_runtime::active_project_context(self)
-    }
-
     fn build_project_runtime_context(
         project: ProjectRoot,
         start_watcher: bool,
     ) -> anyhow::Result<ProjectRuntimeContext> {
         project_runtime::build_project_runtime_context(project, start_watcher)
-    }
-
-    fn activate_project_context(&self, context: Option<Arc<ProjectRuntimeContext>>) {
-        project_runtime::activate_project_context(self, context)
     }
 
     pub(crate) fn execution_surface(
@@ -233,6 +267,46 @@ impl AppState {
         budget: usize,
     ) {
         session_runtime::set_session_surface_and_budget(self, session_id, surface, budget)
+    }
+
+    pub(crate) fn set_execution_surface_and_budget(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+        surface: ToolSurface,
+        budget: usize,
+    ) {
+        session_runtime::set_execution_surface_and_budget(self, session, surface, budget)
+    }
+
+    pub(crate) fn record_deferred_axes_for_session(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+        namespace: Option<&str>,
+        tier: Option<&str>,
+    ) -> bool {
+        session_runtime::record_deferred_axes_for_session(self, session, namespace, tier)
+    }
+
+    pub(crate) fn logical_session_snapshot(
+        &self,
+        session_id: &str,
+    ) -> Option<LogicalSessionRuntime> {
+        session_runtime::logical_session_snapshot(self, session_id)
+    }
+
+    pub(crate) fn upsert_logical_session_metadata(
+        &self,
+        session_id: &str,
+        metadata: LogicalSessionMetadataUpdate,
+    ) {
+        session_runtime::upsert_logical_session_metadata(self, session_id, metadata);
+    }
+
+    pub(crate) fn enable_full_tool_exposure_for_session(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+    ) -> bool {
+        session_runtime::enable_full_tool_exposure_for_session(self, session)
     }
 
     pub(crate) fn push_recent_tool_for_session(
@@ -342,39 +416,44 @@ impl AppState {
     /// Lazy-loaded SCIP backend. Loads the SCIP index on first access
     /// and caches it for subsequent calls. Returns None if no index found.
     #[cfg(feature = "scip-backend")]
-    pub(crate) fn scip(&self) -> Option<&codelens_engine::ScipBackend> {
-        self.scip_backend
-            .get_or_init(|| {
-                let project = self.project();
-                codelens_engine::ScipBackend::detect(project.as_path())
-                    .and_then(|path| {
-                        tracing::info!(path = %path.display(), "loading SCIP index");
-                        codelens_engine::ScipBackend::load(&path)
-                            .inspect_err(|e| {
-                                tracing::warn!(error = %e, "failed to load SCIP index");
-                            })
-                            .ok()
+    pub(crate) fn scip(&self) -> Option<Arc<codelens_engine::ScipBackend>> {
+        let mut guard = self.scip_backend.lock().unwrap_or_else(|p| p.into_inner());
+        if let Some(cached) = guard.as_ref() {
+            return cached.clone();
+        }
+
+        let project = self.project();
+        let loaded = codelens_engine::ScipBackend::detect(project.as_path())
+            .and_then(|path| {
+                tracing::info!(path = %path.display(), "loading SCIP index");
+                codelens_engine::ScipBackend::load(&path)
+                    .inspect_err(|e| {
+                        tracing::warn!(error = %e, "failed to load SCIP index");
                     })
-                    .map(Arc::new)
+                    .ok()
             })
-            .as_ref()
-            .map(|arc| arc.as_ref())
+            .map(Arc::new);
+        *guard = Some(loaded.clone());
+        loaded
+    }
+
+    /// Drop the current SCIP backend cache (called on project switch).
+    #[cfg(feature = "scip-backend")]
+    pub(crate) fn reset_scip(&self) {
+        let mut guard = self.scip_backend.lock().unwrap_or_else(|p| p.into_inner());
+        *guard = None;
     }
 
     // ── Active project accessors (check override, fallback to default) ──
 
     /// Get the active project root. Clones the ProjectRoot (just a PathBuf).
     pub(crate) fn project(&self) -> ProjectRoot {
-        self.active_project_context()
-            .map(|context| context.project.clone())
-            .unwrap_or_else(|| self.default_project.clone())
+        project_runtime::project(self)
     }
 
     /// Get the active symbol index.
     pub(crate) fn symbol_index(&self) -> Arc<SymbolIndex> {
-        self.active_project_context()
-            .map(|context| Arc::clone(&context.symbol_index))
-            .unwrap_or_else(|| Arc::clone(&self.default_symbol_index))
+        project_runtime::symbol_index(self)
     }
 
     pub(crate) fn watcher_failure_health(&self) -> WatcherFailureHealth {
@@ -387,23 +466,17 @@ impl AppState {
 
     /// Get the active graph cache.
     pub(crate) fn graph_cache(&self) -> Arc<GraphCache> {
-        self.active_project_context()
-            .map(|context| Arc::clone(&context.graph_cache))
-            .unwrap_or_else(|| Arc::clone(&self.default_graph_cache))
+        project_runtime::graph_cache(self)
     }
 
     /// Get the active memories directory.
     pub(crate) fn memories_dir(&self) -> PathBuf {
-        self.active_project_context()
-            .map(|context| context.memories_dir.clone())
-            .unwrap_or_else(|| self.default_memories_dir.clone())
+        project_runtime::memories_dir(self)
     }
 
     /// Get the active analysis cache directory.
     pub(crate) fn analysis_dir(&self) -> PathBuf {
-        self.active_project_context()
-            .map(|context| context.analysis_dir.clone())
-            .unwrap_or_else(|| self.default_analysis_dir.clone())
+        project_runtime::analysis_dir(self)
     }
 
     #[allow(dead_code)]
@@ -412,95 +485,50 @@ impl AppState {
     }
 
     pub(crate) fn audit_dir(&self) -> PathBuf {
-        self.active_project_context()
-            .map(|context| context.audit_dir.clone())
-            .unwrap_or_else(|| self.default_audit_dir.clone())
+        project_runtime::audit_dir(self)
     }
 
     pub(crate) fn watcher_stats(&self) -> Option<codelens_engine::WatcherStats> {
-        self.active_project_context()
-            .as_ref()
-            .and_then(|context| context.watcher.as_ref().map(FileWatcher::stats))
-            .or_else(|| self.default_watcher.as_ref().map(FileWatcher::stats))
+        project_runtime::watcher_stats(self)
     }
 
     pub(crate) fn watcher_running(&self) -> bool {
-        self.watcher_stats()
-            .map(|stats| stats.running)
-            .unwrap_or(false)
+        project_runtime::watcher_running(self)
     }
 
     /// Switch the active project at runtime. Creates a new index and graph cache.
     pub(crate) fn switch_project(&self, path: &str) -> anyhow::Result<String> {
-        let project = ProjectRoot::new(path)?;
-        let scope = project.as_path().to_string_lossy().to_string();
-        let name = project
-            .as_path()
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| path.to_string());
-
-        if scope == self.default_project_scope() {
-            self.activate_project_context(None);
-            return Ok(name);
-        }
-
-        if let Some(current) = self.active_project_context()
-            && current.project.as_path() == project.as_path()
-        {
-            return Ok(name);
-        }
-
-        let context = {
-            let mut cache = self
-                .project_context_cache
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            if let Some(cached) = cache.get(&scope) {
-                cached
-            } else {
-                let built = Arc::new(Self::build_project_runtime_context(project, true)?);
-                cache.insert(scope.clone(), Arc::clone(&built));
-                let active_scope = self.current_project_scope();
-                let protected = [self.default_project_scope(), active_scope, scope.clone()];
-                let protected_refs = protected.iter().map(String::as_str).collect::<Vec<_>>();
-                let _evicted =
-                    cache.evict_until_within_limit(PROJECT_CONTEXT_CACHE_LIMIT, &protected_refs);
-                built
-            }
-        };
-        self.activate_project_context(Some(context));
-        Ok(name)
+        project_runtime::switch_project(self, path)
     }
 
     /// Reset to the default project.
     #[allow(dead_code)]
     pub(crate) fn reset_project(&self) {
-        self.activate_project_context(None);
+        project_runtime::reset_project(self);
     }
 
     /// Check if running on the default project.
     #[allow(dead_code)]
     pub(crate) fn is_default_project(&self) -> bool {
-        self.active_project_context().is_none()
+        project_runtime::is_default_project(self)
     }
 
     /// Access the LSP session pool. Pool uses internal per-session locking.
     pub(crate) fn lsp_pool(&self) -> Arc<LspSessionPool> {
-        self.active_project_context()
-            .map(|context| Arc::clone(&context.lsp_pool))
-            .unwrap_or_else(|| Arc::clone(&self.default_lsp_pool))
+        project_runtime::lsp_pool(self)
     }
 
     /// Acquire active tool surface with poison recovery.
     pub(crate) fn surface(&self) -> std::sync::MutexGuard<'_, ToolSurface> {
-        self.surface
+        self.policy
+            .surface
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub(crate) fn set_surface(&self, surface: ToolSurface) {
         *self
+            .policy
             .surface
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = surface;
@@ -508,6 +536,7 @@ impl AppState {
 
     pub(crate) fn configure_daemon_mode(&self, daemon_mode: RuntimeDaemonMode) {
         *self
+            .policy
             .daemon_mode
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = daemon_mode;
@@ -516,10 +545,11 @@ impl AppState {
     pub(crate) fn configure_transport_mode(&self, transport: &str) {
         let mode = RuntimeTransportMode::from_str(transport);
         *self
+            .policy
             .transport_mode
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = mode;
-        self.metrics.record_analysis_worker_pool(
+        self.metrics().record_analysis_worker_pool(
             self.analysis_worker_limit(),
             self.analysis_cost_budget(),
             mode.as_str(),
@@ -528,6 +558,7 @@ impl AppState {
 
     pub(crate) fn transport_mode(&self) -> RuntimeTransportMode {
         *self
+            .policy
             .transport_mode
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -535,17 +566,22 @@ impl AppState {
 
     pub(crate) fn daemon_mode(&self) -> RuntimeDaemonMode {
         *self
+            .policy
             .daemon_mode
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     pub(crate) fn client_profile(&self) -> ClientProfile {
-        self.client_profile
+        self.policy.client_profile
     }
 
     pub(crate) fn effort_level(&self) -> EffortLevel {
-        match self.effort_level.load(std::sync::atomic::Ordering::Relaxed) {
+        match self
+            .policy
+            .effort_level
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
             0 => EffortLevel::Low,
             1 => EffortLevel::Medium,
             _ => EffortLevel::High,
@@ -559,7 +595,8 @@ impl AppState {
             EffortLevel::Medium => 1,
             EffortLevel::High => 2,
         };
-        self.effort_level
+        self.policy
+            .effort_level
             .store(val, std::sync::atomic::Ordering::Relaxed);
     }
 
@@ -604,12 +641,12 @@ impl AppState {
 
     /// Access the tool metrics registry.
     pub(crate) fn metrics(&self) -> &ToolMetricsRegistry {
-        self.metrics.as_ref()
+        self.activity.metrics.as_ref()
     }
 
     /// Record a tool call in the recent tools ring buffer.
     pub(crate) fn push_recent_tool(&self, name: &str) {
-        self.recent_tools.push(name.to_owned());
+        self.activity.recent_tools.push(name.to_owned());
     }
 
     /// Doom-loop detection: returns (repeat_count, is_rapid_burst).
@@ -617,6 +654,7 @@ impl AppState {
     /// 3+ identical calls occur within 10 seconds (agent retry loop).
     pub(crate) fn doom_loop_count(&self, name: &str, args_hash: u64) -> (usize, bool) {
         let mut counter = self
+            .activity
             .doom_loop_counter
             .lock()
             .unwrap_or_else(|p| p.into_inner());
@@ -632,37 +670,40 @@ impl AppState {
 
     /// Get the recent tool call names (up to 5).
     pub(crate) fn recent_tools(&self) -> Vec<String> {
-        self.recent_tools.snapshot()
+        self.activity.recent_tools.snapshot()
     }
 
     /// Record a file path as recently accessed (for ranking boost).
     pub(crate) fn record_file_access(&self, path: &str) {
-        self.recent_files.push_dedup(path);
+        self.activity.recent_files.push_dedup(path);
     }
 
     /// Get recently accessed file paths (most recent last).
     pub(crate) fn recent_file_paths(&self) -> Vec<String> {
-        self.recent_files.snapshot()
+        self.activity.recent_files.snapshot()
     }
 
     /// Record an analysis_id for cross-phase context.
     pub(crate) fn push_recent_analysis_id(&self, id: String) {
-        self.recent_analysis_ids.push(id);
+        self.activity.recent_analysis_ids.push(id);
     }
 
     /// Get recent analysis IDs (most recent last).
     pub(crate) fn recent_analysis_ids(&self) -> Vec<String> {
-        self.recent_analysis_ids.snapshot()
+        self.activity.recent_analysis_ids.snapshot()
     }
 
     /// Current global token budget.
     pub(crate) fn token_budget(&self) -> usize {
-        self.token_budget.load(std::sync::atomic::Ordering::Relaxed)
+        self.policy
+            .token_budget
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Set global token budget.
     pub(crate) fn set_token_budget(&self, budget: usize) {
-        self.token_budget
+        self.policy
+            .token_budget
             .store(budget, std::sync::atomic::Ordering::Relaxed);
     }
 
@@ -685,30 +726,27 @@ impl AppState {
             default_watcher: None,
             project_override: std::sync::RwLock::new(None),
             project_context_cache: Mutex::new(ProjectContextCache::default()),
-            transport_mode: Mutex::new(self.transport_mode()),
-            daemon_mode: Mutex::new(self.daemon_mode()),
-            client_profile: self.client_profile,
-            effort_level: std::sync::atomic::AtomicU8::new(
-                self.effort_level.load(std::sync::atomic::Ordering::Relaxed),
+            policy: RuntimePolicyState::from_runtime(
+                self.transport_mode(),
+                self.daemon_mode(),
+                self.client_profile(),
+                self.effort_level(),
+                *self.surface(),
+                self.token_budget(),
             ),
-            surface: Mutex::new(*self.surface()),
-            token_budget: std::sync::atomic::AtomicUsize::new(self.token_budget()),
             artifact_store: AnalysisArtifactStore::new(analysis_dir.clone()),
             job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
-            metrics: Arc::clone(&self.metrics),
-            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
-            recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
-            doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
-            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
+            activity: RuntimeActivityState::new(Arc::clone(&self.activity.metrics)),
             preflight_store: RecentPreflightStore::new(),
             analysis_queue: OnceLock::new(),
             watcher_maintenance: Mutex::new(HashMap::new()),
             project_execution_lock: Mutex::new(()),
             secondary_projects: Mutex::new(HashMap::new()),
+            logical_sessions: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
             #[cfg(feature = "scip-backend")]
-            scip_backend: OnceLock::new(),
+            scip_backend: Mutex::new(None),
             #[cfg(feature = "http")]
             session_store: None,
             // Phase 4b: workers inherit the parent daemon's start
@@ -764,34 +802,27 @@ impl AppState {
             default_watcher,
             project_override: std::sync::RwLock::new(None),
             project_context_cache: Mutex::new(ProjectContextCache::default()),
-            transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
-            daemon_mode: Mutex::new(RuntimeDaemonMode::Standard),
-            client_profile: ClientProfile::detect(None),
-            effort_level: std::sync::atomic::AtomicU8::new(match EffortLevel::detect() {
-                EffortLevel::Low => 0,
-                EffortLevel::Medium => 1,
-                EffortLevel::High => 2,
-            }),
-            surface: Mutex::new(ToolSurface::Preset(preset)),
-            token_budget: std::sync::atomic::AtomicUsize::new(
+            policy: RuntimePolicyState::from_runtime(
+                RuntimeTransportMode::Stdio,
+                RuntimeDaemonMode::Standard,
+                ClientProfile::detect(None),
+                EffortLevel::detect(),
+                ToolSurface::Preset(preset),
                 crate::tool_defs::default_budget_for_preset(preset),
             ),
             artifact_store: AnalysisArtifactStore::new(default_analysis_dir.clone()),
             job_store: crate::job_store::AnalysisJobStore::new(default_analysis_dir.join("jobs")),
-            metrics: Arc::new(ToolMetricsRegistry::new()),
-            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
-            recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
-            doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
-            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
+            activity: RuntimeActivityState::new(Arc::new(ToolMetricsRegistry::new())),
             preflight_store: RecentPreflightStore::new(),
             analysis_queue: OnceLock::new(),
             watcher_maintenance: Mutex::new(HashMap::new()),
             project_execution_lock: Mutex::new(()),
             secondary_projects: Mutex::new(HashMap::new()),
+            logical_sessions: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
             embedding: std::sync::RwLock::new(None),
             #[cfg(feature = "scip-backend")]
-            scip_backend: OnceLock::new(),
+            scip_backend: Mutex::new(None),
             #[cfg(feature = "http")]
             session_store: None,
             daemon_started_at: now_rfc3339_utc(),
@@ -963,5 +994,25 @@ mod tests {
 
         assert!(Arc::ptr_eq(&first_index, &reused_index));
         assert!(Arc::ptr_eq(&first_lsp_pool, &reused_lsp_pool));
+    }
+
+    #[cfg(feature = "scip-backend")]
+    #[test]
+    fn switch_project_resets_scip_cache() {
+        let default_project = temp_project_root("default");
+        let project_a = temp_project_root("a");
+        let state = AppState::new_minimal(default_project, ToolPreset::Balanced);
+
+        {
+            let mut guard = state.scip_backend.lock().unwrap_or_else(|p| p.into_inner());
+            *guard = Some(None);
+        }
+
+        state
+            .switch_project(project_a.as_path().to_str().unwrap())
+            .unwrap();
+
+        let guard = state.scip_backend.lock().unwrap_or_else(|p| p.into_inner());
+        assert!(guard.is_none());
     }
 }

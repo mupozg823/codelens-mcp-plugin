@@ -10,6 +10,7 @@ use codelens_engine::{
 };
 use serde_json::{Value, json};
 
+use super::query_analysis::lexical_query_for_ranked_context;
 #[cfg(feature = "semantic")]
 use super::query_analysis::semantic_query_for_embedding_search;
 
@@ -491,6 +492,8 @@ pub fn find_symbol(state: &AppState, arguments: &serde_json::Value) -> ToolResul
 pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = required_string(arguments, "query")?;
     let query_analysis = analyze_retrieval_query(query);
+    let lexical_query =
+        lexical_query_for_ranked_context(&query_analysis, Some(state.project().as_path()));
     let path = optional_string(arguments, "path");
     let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let max_tokens = arguments
@@ -501,9 +504,8 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     let include_body = optional_bool(arguments, "include_body", false);
     let depth = optional_usize(arguments, "depth", 2);
     let disable_semantic = optional_bool(arguments, "disable_semantic", false);
-    let exact_identifier_projection = query_analysis.original_query
-        != query_analysis.expanded_query
-        && !query_analysis.expanded_query.contains(char::is_whitespace);
+    let exact_identifier_projection = query_analysis.original_query != lexical_query
+        && !lexical_query.contains(char::is_whitespace);
     let effective_disable_semantic =
         disable_semantic || query_analysis.prefer_lexical_only || exact_identifier_projection;
     let use_semantic_in_core = !effective_disable_semantic;
@@ -536,7 +538,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
     // but current dataset shows default weights are near-optimal (0.680 MRR).
     // Kept as None until per-type weight tuning yields measurable improvement.
     let mut result = state.symbol_index().get_ranked_context_cached(
-        &query_analysis.expanded_query,
+        &lexical_query,
         path,
         max_tokens,
         include_body,
@@ -604,7 +606,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &serde_json::Value) -> To
                 "query_type": if query_analysis.prefer_lexical_only { "identifier" }
                     else if query_analysis.natural_language { "natural_language" }
                     else { "short_phrase" },
-                "lexical_query": query_analysis.expanded_query,
+                "lexical_query": lexical_query,
                 "semantic_query": query_analysis.semantic_query,
             }),
         );

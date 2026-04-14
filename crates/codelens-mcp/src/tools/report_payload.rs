@@ -1,4 +1,6 @@
-use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
+use crate::analysis_handles::{
+    analysis_section_handle_template, analysis_section_handles, analysis_summary_resource,
+};
 use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
 use serde_json::{Value, json};
 
@@ -139,6 +141,13 @@ fn trim_preview_first_handle_payload(tool_name: &str, ci_audit: bool, payload: &
     obj.remove("quality_focus");
     obj.remove("recommended_checks");
     obj.remove("performance_watchpoints");
+    if let Some(analysis_id) = obj.get("analysis_id").and_then(|value| value.as_str()) {
+        obj.insert(
+            "section_handle_template".to_owned(),
+            json!(analysis_section_handle_template(analysis_id)),
+        );
+    }
+    obj.remove("section_handles");
 }
 
 pub(crate) fn infer_risk_level(

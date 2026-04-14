@@ -725,6 +725,12 @@ pub fn suggestion_reasons_for(
             "find_minimal_context_for_change" => "Get smallest context needed for this task",
             "analyze_change_request" => "Compress the change request into ranked files and risks",
             "explore_codebase" => "Get a high-level overview or targeted search",
+            "trace_request_path" => {
+                "Trace the execution or request path before drilling into primitives"
+            }
+            "review_architecture" => "Review boundaries and module structure before deeper lookup",
+            "plan_safe_refactor" => "Preview safe refactor steps before broad edits",
+            "analyze_change_impact" => "Measure blast radius before choosing lower-level follow-up",
             "review_changes" => "Review impact of changed files before merge",
             "diagnose_issues" => "Check for diagnostics or unresolved references",
             _ => "Suggested as next step in the workflow chain",

@@ -309,6 +309,40 @@ pub(super) fn prune_index_failures_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn watch_status_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "running": {"type": "boolean"},
+            "events_processed": {"type": "integer"},
+            "files_reindexed": {"type": "integer"},
+            "lock_contention_batches": {"type": "integer"},
+            "index_failures": {"type": "integer"},
+            "index_failures_total": {"type": "integer"},
+            "stale_index_failures": {"type": "integer"},
+            "persistent_index_failures": {"type": "integer"},
+            "pruned_missing_failures": {"type": "integer"},
+            "recent_failure_window_seconds": {"type": "integer"},
+            "note": {"type": "string"}
+        }
+    })
+}
+
+pub(super) fn tool_metrics_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "tools": {"type": "array"},
+            "per_tool": {"type": "array"},
+            "count": {"type": "integer"},
+            "surfaces": {"type": "array"},
+            "per_surface": {"type": "array"},
+            "session": {"type": "object"},
+            "derived_kpis": {"type": "object"}
+        }
+    })
+}
+
 pub(super) fn memory_list_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
@@ -363,6 +397,7 @@ pub(super) fn analysis_handle_output_schema() -> serde_json::Value {
                     "uri": {"type": "string"}
                 }
             },
+            "section_handle_template": {"type": "string"},
             "section_handles": {
                 "type": "array",
                 "items": {
@@ -410,8 +445,17 @@ pub(super) fn workflow_alias_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
-            "workflow": {"type": "string"},
-            "delegated_tool": {"type": "string"},
+            "entrypoint": {"type": "string"},
+            "entrypoint_contract": {
+                "type": "object",
+                "properties": {
+                    "contract_version": {"type": "string"},
+                    "entrypoint_role": {"type": "string"},
+                    "stage": {"type": "string"},
+                    "host_action": {"type": "string"},
+                    "selection_policy": {"type": "string"}
+                }
+            },
             "result": {}
         }
     })
@@ -797,6 +841,58 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                     "preferred_entrypoints_source": {"type": "string"},
                     "preferred_entrypoints_visible": {"type": "array", "items": {"type": "string"}},
                     "recommended_entrypoint": {"type": ["string", "null"]}
+                }
+            },
+            "host_runtime": {
+                "type": "object",
+                "properties": {
+                    "host_id": {"type": "string"},
+                    "runtime_role": {"type": "string"},
+                    "integration_style": {"type": "string"},
+                    "orchestrator_entrypoint": {"type": "string"},
+                    "orchestration_owner": {"type": "string"},
+                    "integration_boundary": {"type": "string"},
+                    "client_default_surface": {"type": "string"},
+                    "active_surface": {"type": "string"},
+                    "default_contract_mode": {"type": "string"},
+                    "bootstrap_sequence": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "kind": {"type": "string"},
+                                "name": {"type": "string"},
+                                "required_runtime_inputs": {"type": "array", "items": {"type": "string"}},
+                                "request_shape": {"type": "object"}
+                            }
+                        }
+                    },
+                    "task_stages": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "host_stage": {"type": "string"},
+                                "entrypoints": {"type": "array", "items": {"type": "string"}},
+                                "follow_up": {"type": "array", "items": {"type": "string"}},
+                                "reason": {"type": "string"},
+                                "request_templates": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "properties": {
+                                            "tool": {"type": "string"},
+                                            "routing": {"type": "string"},
+                                            "when": {"type": "string"},
+                                            "input_placeholders": {"type": "array", "items": {"type": "string"}},
+                                            "request_shape": {"type": "object"}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "guardrails": {"type": "array", "items": {"type": "string"}}
                 }
             },
             "harness": {

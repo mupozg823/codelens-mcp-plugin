@@ -62,6 +62,29 @@ pub(crate) fn visible_tools(surface: ToolSurface) -> Vec<&'static crate::protoco
     visible.into_iter().map(|(_, tool)| tool).collect()
 }
 
+/// Default deferred bootstrap surface for lean clients with no namespace/tier
+/// expansions yet. This is the practical "first tools/list" shape a Codex-like
+/// client sees for a given profile.
+pub(crate) fn bootstrap_visible_tools(surface: ToolSurface) -> Vec<&'static crate::protocol::Tool> {
+    let preferred_bootstrap = preferred_bootstrap_tools(surface);
+    let preferred_tiers = preferred_tier_labels(surface);
+    let preferred_namespaces = preferred_namespaces(surface);
+    visible_tools(surface)
+        .into_iter()
+        .filter(|tool| {
+            if is_deferred_control_tool(tool.name) {
+                return is_bootstrap_control_tool(surface, tool.name);
+            }
+            if let Some(tool_names) = preferred_bootstrap {
+                return tool_names.contains(&tool.name);
+            }
+            let namespace = tool_namespace(tool.name);
+            let tier = tool_tier_label(tool.name);
+            preferred_namespaces.contains(&namespace) && preferred_tiers.contains(&tier)
+        })
+        .collect()
+}
+
 pub(crate) fn visible_namespaces(surface: ToolSurface) -> Vec<&'static str> {
     raw_visible_namespaces(surface)
 }
@@ -76,6 +99,32 @@ pub(crate) fn is_deferred_control_tool(name: &str) -> bool {
             | "set_profile"
             | "set_preset"
     )
+}
+
+pub(crate) fn is_bootstrap_control_tool(surface: ToolSurface, name: &str) -> bool {
+    if !is_deferred_control_tool(name) {
+        return false;
+    }
+    match surface {
+        // Workflow-first should keep the first Codex listing narrowly focused on
+        // activation, one-shot bootstrap, and an explicit profile override.
+        ToolSurface::Profile(ToolProfile::WorkflowFirst) => {
+            matches!(
+                name,
+                "activate_project" | "prepare_harness_session" | "set_profile"
+            )
+        }
+        // Refactor bootstrap is intentionally narrower: project switch, one-shot
+        // bootstrap, and profile switch remain visible; broader diagnostics/config
+        // controls are deferred until expansion.
+        ToolSurface::Profile(ToolProfile::RefactorFull) => {
+            matches!(
+                name,
+                "activate_project" | "prepare_harness_session" | "set_profile"
+            )
+        }
+        _ => true,
+    }
 }
 
 pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
@@ -98,7 +147,7 @@ pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
         ToolSurface::Profile(ToolProfile::EvaluatorCompact) => {
             vec!["reports", "symbols", "lsp", "session"]
         }
-        ToolSurface::Profile(ToolProfile::WorkflowFirst) => vec!["workflow", "session"],
+        ToolSurface::Profile(ToolProfile::WorkflowFirst) => vec!["reports", "session"],
         ToolSurface::Preset(ToolPreset::Minimal) => vec!["symbols", "filesystem", "mutation"],
         ToolSurface::Preset(ToolPreset::Balanced) => {
             vec!["reports", "symbols", "graph", "filesystem", "session"]
@@ -130,15 +179,22 @@ pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static
         // Keep refactor bootstrap preview-first. Mutation and broader report tools
         // are still reachable after an explicit expansion or follow-up step.
         ToolSurface::Profile(ToolProfile::RefactorFull) => Some(&[
-            "plan_safe_refactor",
-            "analyze_change_impact",
-            "trace_request_path",
-            "prepare_harness_session",
+            "verify_change_readiness",
+            "safe_rename_report",
+            "refactor_safety_report",
         ]),
         ToolSurface::Profile(ToolProfile::CiAudit) => Some(&[
             "analyze_change_impact",
             "audit_security_context",
             "review_architecture",
+            "prepare_harness_session",
+        ]),
+        ToolSurface::Profile(ToolProfile::WorkflowFirst) => Some(&[
+            "explore_codebase",
+            "trace_request_path",
+            "review_architecture",
+            "analyze_change_impact",
+            "plan_safe_refactor",
             "prepare_harness_session",
         ]),
         ToolSurface::Preset(ToolPreset::Balanced) => Some(&[
@@ -212,6 +268,63 @@ pub(crate) fn tool_tier_label(name: &str) -> &'static str {
         ToolTier::Analysis => "analysis",
         ToolTier::Workflow => "workflow",
     }
+}
+
+pub(crate) fn tool_orchestration_contract(
+    name: &str,
+    tier: ToolTier,
+) -> crate::protocol::OrchestrationContract {
+    let stage = if matches!(
+        name,
+        "activate_project"
+            | "prepare_harness_session"
+            | "get_current_config"
+            | "get_capabilities"
+            | "set_profile"
+            | "set_preset"
+    ) {
+        "session_bootstrap"
+    } else if matches!(
+        name,
+        "verify_change_readiness"
+            | "safe_rename_report"
+            | "unresolved_reference_check"
+            | "assess_change_readiness"
+            | "plan_safe_refactor"
+    ) {
+        "mutation_preflight"
+    } else if matches!(
+        name,
+        "start_analysis_job" | "get_analysis_job" | "get_analysis_section" | "cancel_analysis_job"
+    ) {
+        "async_analysis"
+    } else if tier == ToolTier::Workflow {
+        "multi_file_reasoning"
+    } else {
+        "bounded_lookup"
+    };
+
+    let tool_role = match stage {
+        "session_bootstrap" => "bootstrap_contract",
+        "mutation_preflight" => "preflight_guard",
+        "async_analysis" => "async_entrypoint",
+        "multi_file_reasoning" => "workflow_entrypoint",
+        _ => "bounded_evidence",
+    };
+
+    let interaction_mode = match stage {
+        "async_analysis" => "handle_then_poll",
+        "session_bootstrap" => "bootstrap_then_handoff",
+        _ => "inline_bounded_call",
+    };
+
+    let mut contract = crate::harness_host::base_orchestration_contract();
+    contract.tool_role = tool_role.to_owned();
+    contract.stage_hint = stage.to_owned();
+    contract.interaction_mode = interaction_mode.to_owned();
+    contract.preferred_client_behavior =
+        Some(crate::harness_host::preferred_client_behavior_for_stage(stage).to_owned());
+    contract
 }
 
 #[cfg(feature = "http")]

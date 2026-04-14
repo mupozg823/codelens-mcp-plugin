@@ -9,25 +9,31 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
         json!({
             "uri": "codelens://project/overview",
             "name": format!("Project: {project_name}"),
-            "description": "Compressed project overview with active surface and index status",
+            "description": "Bounded project overview with active surface, index status, and host-facing context",
             "mimeType": "application/json"
         }),
         json!({
             "uri": "codelens://project/architecture",
             "name": "Project Architecture",
-            "description": "High-level architecture summary for harness planning",
+            "description": "High-level architecture summary with host compatibility and bounded planning context",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://harness/host",
+            "name": "Harness Host Contract",
+            "description": "Machine-readable host-owned orchestration contract for bootstrap and staged follow-up",
             "mimeType": "application/json"
         }),
         json!({
             "uri": "codelens://tools/list",
             "name": "Visible Tool Surface",
-            "description": "Compressed role-aware tool surface summary",
+            "description": "Role-aware tool surface summary with orchestration contracts",
             "mimeType": "application/json"
         }),
         json!({
             "uri": "codelens://tools/list/full",
             "name": "Visible Tool Surface (Full)",
-            "description": "Expanded role-aware tool surface with descriptions",
+            "description": "Expanded role-aware tool surface with descriptions and orchestration contracts",
             "mimeType": "application/json"
         }),
         json!({
@@ -68,7 +74,8 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
             json!({
                 "name": tool.name,
                 "namespace": tool_namespace(tool.name),
-                "tier": tool_tier_label(tool.name)
+                "tier": tool_tier_label(tool.name),
+                "orchestration_contract": tool.orchestration_contract
             })
         })
         .collect::<Vec<_>>();
@@ -142,7 +149,8 @@ pub(crate) fn visible_tool_details(state: &AppState, uri: &str, params: Option<&
                 "name": tool.name,
                 "namespace": tool_namespace(tool.name),
                 "description": tool.description,
-                "tier": tool_tier_label(tool.name)
+                "tier": tool_tier_label(tool.name),
+                "orchestration_contract": tool.orchestration_contract
             })
         })
         .collect::<Vec<_>>();

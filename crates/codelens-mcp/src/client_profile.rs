@@ -116,6 +116,65 @@ impl ClientProfile {
         }
     }
 
+    pub(crate) fn recommended_surface_and_budget(
+        &self,
+        indexed_files: usize,
+    ) -> (crate::tool_defs::ToolSurface, usize, &'static str) {
+        use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile};
+
+        match self {
+            Self::Claude => (
+                ToolSurface::Preset(ToolPreset::Balanced),
+                self.default_budget(),
+                "balanced",
+            ),
+            Self::Codex if indexed_files < 50 => (
+                ToolSurface::Profile(ToolProfile::WorkflowFirst),
+                default_budget_for_profile(ToolProfile::WorkflowFirst).max(self.default_budget()),
+                "workflow-first",
+            ),
+            Self::Codex if indexed_files > 500 => (
+                ToolSurface::Profile(ToolProfile::ReviewerGraph),
+                default_budget_for_profile(ToolProfile::ReviewerGraph).max(self.default_budget()),
+                "reviewer-graph",
+            ),
+            Self::Codex => (
+                ToolSurface::Profile(ToolProfile::PlannerReadonly),
+                default_budget_for_profile(ToolProfile::PlannerReadonly).max(self.default_budget()),
+                "planner-readonly",
+            ),
+            Self::Generic if indexed_files < 50 => (
+                ToolSurface::Profile(ToolProfile::BuilderMinimal),
+                default_budget_for_profile(ToolProfile::BuilderMinimal).max(self.default_budget()),
+                "builder-minimal",
+            ),
+            Self::Generic if indexed_files > 500 => (
+                ToolSurface::Profile(ToolProfile::ReviewerGraph),
+                default_budget_for_profile(ToolProfile::ReviewerGraph).max(self.default_budget()),
+                "reviewer-graph",
+            ),
+            Self::Generic => (
+                ToolSurface::Profile(ToolProfile::PlannerReadonly),
+                default_budget_for_profile(ToolProfile::PlannerReadonly).max(self.default_budget()),
+                "planner-readonly",
+            ),
+        }
+    }
+
+    pub(crate) fn advertised_default_surface(
+        &self,
+        indexed_files: Option<usize>,
+    ) -> crate::tool_defs::ToolSurface {
+        match self {
+            Self::Codex => indexed_files
+                .map(|count| self.recommended_surface_and_budget(count).0)
+                .unwrap_or(crate::tool_defs::ToolSurface::Preset(self.default_preset())),
+            Self::Claude | Self::Generic => {
+                crate::tool_defs::ToolSurface::Preset(self.default_preset())
+            }
+        }
+    }
+
     pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Claude => "claude",

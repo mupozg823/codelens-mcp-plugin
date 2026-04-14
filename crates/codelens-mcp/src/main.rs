@@ -8,6 +8,7 @@ mod build_info;
 mod client_profile;
 mod dispatch;
 mod error;
+mod harness_host;
 mod job_store;
 mod mutation_audit;
 mod mutation_gate;
@@ -281,7 +282,7 @@ fn main() -> Result<()> {
     init_tracing();
 
     let args: Vec<String> = std::env::args().collect();
-    let preset = args
+    let preset_override = args
         .iter()
         .position(|a| a == "--preset")
         .and_then(|i| args.get(i + 1))
@@ -290,8 +291,9 @@ fn main() -> Result<()> {
             std::env::var("CODELENS_PRESET")
                 .ok()
                 .map(|s| ToolPreset::from_str(&s))
-        })
-        .unwrap_or_else(|| state::ClientProfile::detect(None).default_preset());
+        });
+    let preset =
+        preset_override.unwrap_or_else(|| state::ClientProfile::detect(None).default_preset());
     let profile = cli_option_value(&args, "--profile")
         .as_deref()
         .and_then(ToolProfile::from_str)
@@ -357,6 +359,19 @@ fn main() -> Result<()> {
     if let Some(profile) = profile {
         app_state.set_surface(ToolSurface::Profile(profile));
         app_state.set_token_budget(default_budget_for_profile(profile));
+    } else if preset_override.is_none()
+        && matches!(app_state.client_profile(), state::ClientProfile::Codex)
+    {
+        let indexed_files = app_state
+            .symbol_index()
+            .stats()
+            .map(|stats| stats.indexed_files)
+            .unwrap_or(0);
+        let (surface, budget, _label) = app_state
+            .client_profile()
+            .recommended_surface_and_budget(indexed_files);
+        app_state.set_surface(surface);
+        app_state.set_token_budget(budget);
     } else {
         app_state.set_surface(ToolSurface::Preset(preset));
         app_state.set_token_budget(default_budget_for_preset(preset));

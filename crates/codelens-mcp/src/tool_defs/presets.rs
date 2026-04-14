@@ -368,6 +368,7 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
 pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
     // Session
     "activate_project",
+    "prepare_harness_session",
     "get_current_config",
     "set_preset",
     "set_profile",
@@ -384,7 +385,12 @@ pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
     "diagnose_issues",
     // Essential workflow-level tools
     "analyze_change_request",
+    "verify_change_readiness",
     "onboard_project",
+    // Async analysis
+    "start_analysis_job",
+    "get_analysis_job",
+    "get_analysis_section",
 ];
 
 pub(crate) const EVALUATOR_COMPACT_TOOLS: &[&str] = &[

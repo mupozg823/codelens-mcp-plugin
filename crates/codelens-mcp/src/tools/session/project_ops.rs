@@ -3,13 +3,11 @@ use crate::protocol::BackendKind;
 use crate::resource_context::{
     ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
 };
-use crate::tool_defs::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile, preferred_bootstrap_tools,
-};
+use crate::tool_defs::preferred_bootstrap_tools;
 use crate::tool_runtime::{ToolResult, required_string, success_meta};
 use codelens_engine::memory::list_memory_names;
 use codelens_engine::{compute_dominant_language, detect_frameworks};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 
 const DEFAULT_AUTO_REFRESH_STALE_THRESHOLD: usize = 32;
@@ -163,6 +161,116 @@ fn index_stats_payload(stats: &codelens_engine::IndexStats) -> Value {
     })
 }
 
+fn copy_prepare_harness_field(out: &mut Map<String, Value>, source: &Value, key: &str) {
+    if let Some(value) = source.get(key) {
+        out.insert(key.to_owned(), value.clone());
+    }
+}
+
+fn compact_prepare_harness_capabilities_payload(source: &Value) -> Value {
+    let mut out = Map::new();
+    for key in [
+        "language",
+        "lsp_attached",
+        "diagnostics_guidance",
+        "semantic_search_status",
+        "semantic_search_guidance",
+        "indexed_files",
+        "supported_files",
+        "stale_files",
+        "health_summary",
+        "daemon_binary_drift",
+    ] {
+        copy_prepare_harness_field(&mut out, source, key);
+    }
+    Value::Object(out)
+}
+
+fn compact_prepare_harness_http_session_payload(source: &Value) -> Value {
+    let mut out = Map::new();
+    for key in [
+        "enabled",
+        "resume_supported",
+        "daemon_mode",
+        "client_profile",
+        "client_name",
+        "active_surface",
+        "deferred_loading_supported",
+        "default_deferred_tool_loading",
+        "default_tools_list_contract_mode",
+        "loaded_namespaces",
+        "loaded_tiers",
+        "full_tool_exposure",
+        "preferred_namespaces",
+        "preferred_tiers",
+        "requires_namespace_listing_before_tool_call",
+        "requires_tier_listing_before_tool_call",
+    ] {
+        copy_prepare_harness_field(&mut out, source, key);
+    }
+    Value::Object(out)
+}
+
+fn compact_prepare_harness_visible_tools_payload(source: &Value) -> Value {
+    let mut out = Map::new();
+    for key in [
+        "tool_count",
+        "tool_count_total",
+        "tool_names",
+        "effective_namespaces",
+        "effective_tiers",
+        "deferred_loading_active",
+    ] {
+        copy_prepare_harness_field(&mut out, source, key);
+    }
+    Value::Object(out)
+}
+
+fn compact_prepare_harness_host_runtime_payload(source: &Value) -> Value {
+    let mut out = Map::new();
+    for key in [
+        "host_id",
+        "integration_style",
+        "orchestrator_entrypoint",
+        "orchestration_owner",
+        "integration_boundary",
+        "client_default_surface",
+        "active_surface",
+        "default_contract_mode",
+    ] {
+        copy_prepare_harness_field(&mut out, source, key);
+    }
+    if let Some(stages) = source.get("task_stages").and_then(|value| value.as_array()) {
+        let summarized = stages
+            .iter()
+            .filter_map(|stage| {
+                let object = stage.as_object()?;
+                let mut summary = Map::new();
+                for key in ["host_stage", "entrypoints", "reason"] {
+                    if let Some(value) = object.get(key) {
+                        summary.insert(key.to_owned(), value.clone());
+                    }
+                }
+                Some(Value::Object(summary))
+            })
+            .collect::<Vec<_>>();
+        out.insert("task_stages".to_owned(), Value::Array(summarized));
+    }
+    Value::Object(out)
+}
+
+fn compact_prepare_harness_routing_payload(source: &Value) -> Value {
+    let mut out = Map::new();
+    for key in [
+        "preferred_entrypoints_source",
+        "preferred_entrypoints_visible",
+        "recommended_entrypoint",
+    ] {
+        copy_prepare_harness_field(&mut out, source, key);
+    }
+    Value::Object(out)
+}
+
 fn prepare_harness_index_recovery(state: &AppState, arguments: &Value) -> Value {
     let enabled = arguments
         .get("auto_refresh_stale")
@@ -286,46 +394,11 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         .unwrap_or(0);
     // For Claude Code clients, keep Balanced preset (all tools accessible).
     // Profile auto-selection only applies to Codex/generic clients.
-    let (auto_surface, auto_budget, auto_label) =
-        if matches!(client, crate::client_profile::ClientProfile::Claude) {
-            (
-                ToolSurface::Preset(ToolPreset::Balanced),
-                client.default_budget(),
-                "balanced",
-            )
-        } else if file_count < 50 {
-            (
-                ToolSurface::Profile(ToolProfile::BuilderMinimal),
-                default_budget_for_profile(ToolProfile::BuilderMinimal)
-                    .max(client.default_budget()),
-                "builder-minimal",
-            )
-        } else if file_count > 500 {
-            (
-                ToolSurface::Profile(ToolProfile::ReviewerGraph),
-                default_budget_for_profile(ToolProfile::ReviewerGraph).max(client.default_budget()),
-                "reviewer-graph",
-            )
-        } else {
-            (
-                ToolSurface::Profile(ToolProfile::PlannerReadonly),
-                default_budget_for_profile(ToolProfile::PlannerReadonly)
-                    .max(client.default_budget()),
-                "planner-readonly",
-            )
-        };
+    let (auto_surface, auto_budget, auto_label) = client.recommended_surface_and_budget(file_count);
+    state.set_execution_surface_and_budget(&session, auto_surface, auto_budget);
     #[cfg(feature = "http")]
     if !session.is_local() {
-        state.set_session_surface_and_budget(&session.session_id, auto_surface, auto_budget);
         state.bind_project_to_session(&session.session_id, &project_base_path);
-    } else {
-        state.set_surface(auto_surface);
-        state.set_token_budget(auto_budget);
-    }
-    #[cfg(not(feature = "http"))]
-    {
-        state.set_surface(auto_surface);
-        state.set_token_budget(auto_budget);
     }
 
     #[cfg(feature = "semantic")]
@@ -412,6 +485,10 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     let session = request.session.clone();
     let active_surface = state.execution_surface(&session);
     let token_budget = state.execution_token_budget(&session);
+    let indexed_files = activate_payload
+        .get("indexed_files")
+        .and_then(|value| value.as_u64())
+        .map(|value| value as usize);
 
     let config_payload = if detail == "full" {
         let (payload, _) = crate::tools::filesystem::get_current_config(state, arguments)?;
@@ -491,6 +568,8 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         .iter()
         .map(|tool| tool.name.to_owned())
         .collect::<Vec<_>>();
+    let lean_bootstrap_summary =
+        detail == "compact" && request.lean_tool_contract() && !request.session.is_local();
     let requested_entrypoints = arguments
         .get("preferred_entrypoints")
         .and_then(|value| value.as_array())
@@ -522,6 +601,60 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         .cloned()
         .collect::<Vec<_>>();
     let recommended_entrypoint = preferred_entrypoints_visible.first().cloned();
+    let full_http_session_payload = build_http_session_payload(state, &request);
+    let full_visible_tools_payload = json!({
+        "tool_count": visible.tools.len(),
+        "tool_count_total": visible.total_tool_count,
+        "tool_names": visible_tool_names,
+        "all_namespaces": visible.all_namespaces,
+        "all_tiers": visible.all_tiers,
+        "preferred_namespaces": visible.preferred_namespaces,
+        "preferred_tiers": visible.preferred_tiers,
+        "loaded_namespaces": visible.loaded_namespaces,
+        "loaded_tiers": visible.loaded_tiers,
+        "effective_namespaces": visible.effective_namespaces,
+        "effective_tiers": visible.effective_tiers,
+        "selected_namespace": visible.selected_namespace,
+        "selected_tier": visible.selected_tier,
+        "deferred_loading_active": visible.deferred_loading_active,
+        "full_tool_exposure": visible.full_tool_exposure,
+    });
+    let full_host_runtime_payload = crate::harness_host::host_runtime_contract(
+        request.client_profile,
+        active_surface,
+        indexed_files,
+    );
+    let capabilities_payload = if lean_bootstrap_summary {
+        compact_prepare_harness_capabilities_payload(&capabilities_payload)
+    } else {
+        capabilities_payload
+    };
+    let http_session_payload = if lean_bootstrap_summary {
+        compact_prepare_harness_http_session_payload(&full_http_session_payload)
+    } else {
+        full_http_session_payload
+    };
+    let visible_tools_payload = if lean_bootstrap_summary {
+        compact_prepare_harness_visible_tools_payload(&full_visible_tools_payload)
+    } else {
+        full_visible_tools_payload
+    };
+    let host_runtime_payload = if lean_bootstrap_summary {
+        compact_prepare_harness_host_runtime_payload(&full_host_runtime_payload)
+    } else {
+        full_host_runtime_payload
+    };
+    let full_routing_payload = json!({
+        "preferred_entrypoints": preferred_entrypoints,
+        "preferred_entrypoints_source": preferred_entrypoints_source,
+        "preferred_entrypoints_visible": preferred_entrypoints_visible,
+        "recommended_entrypoint": recommended_entrypoint,
+    });
+    let routing_payload = if lean_bootstrap_summary {
+        compact_prepare_harness_routing_payload(&full_routing_payload)
+    } else {
+        full_routing_payload
+    };
 
     Ok((
         json!({
@@ -534,30 +667,10 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "capabilities": capabilities_payload,
             "health_summary": health_summary,
             "warnings": warnings,
-            "http_session": build_http_session_payload(state, &request),
-            "visible_tools": {
-                "tool_count": visible.tools.len(),
-                "tool_count_total": visible.total_tool_count,
-                "tool_names": visible_tool_names,
-                "all_namespaces": visible.all_namespaces,
-                "all_tiers": visible.all_tiers,
-                "preferred_namespaces": visible.preferred_namespaces,
-                "preferred_tiers": visible.preferred_tiers,
-                "loaded_namespaces": visible.loaded_namespaces,
-                "loaded_tiers": visible.loaded_tiers,
-                "effective_namespaces": visible.effective_namespaces,
-                "effective_tiers": visible.effective_tiers,
-                "selected_namespace": visible.selected_namespace,
-                "selected_tier": visible.selected_tier,
-                "deferred_loading_active": visible.deferred_loading_active,
-                "full_tool_exposure": visible.full_tool_exposure,
-            },
-            "routing": {
-                "preferred_entrypoints": preferred_entrypoints,
-                "preferred_entrypoints_source": preferred_entrypoints_source,
-                "preferred_entrypoints_visible": preferred_entrypoints_visible,
-                "recommended_entrypoint": recommended_entrypoint,
-            },
+            "http_session": http_session_payload,
+            "visible_tools": visible_tools_payload,
+            "routing": routing_payload,
+            "host_runtime": host_runtime_payload,
             "harness": {
                 "effort_level": state.effort_level().as_str(),
                 "compression_offset": state.effort_level().compression_threshold_offset(),

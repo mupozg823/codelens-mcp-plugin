@@ -2,9 +2,9 @@ use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::protocol::Tool;
 use crate::tool_defs::{
-    ToolProfile, ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools,
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
-    visible_namespaces, visible_tiers, visible_tools,
+    ToolProfile, ToolSurface, bootstrap_visible_tools, is_deferred_control_tool,
+    preferred_bootstrap_tools, preferred_namespaces, preferred_tier_labels, tool_namespace,
+    tool_tier_label, visible_namespaces, visible_tiers, visible_tools,
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
 use serde_json::{Value, json};
@@ -118,53 +118,73 @@ pub(crate) fn build_visible_tool_context(
     let preferred_tiers = preferred_tier_labels(surface);
     let has_loaded_expansions =
         !request.loaded_namespaces.is_empty() || !request.loaded_tiers.is_empty();
-    let mut tools = all_tools
-        .iter()
-        .copied()
-        .filter(|tool| match request.requested_namespace.as_deref() {
-            _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
-            Some(namespace) => tool_namespace(tool.name) == namespace,
-            None if request.deferred_loading_active() => {
-                if is_deferred_control_tool(tool.name) {
-                    return true;
+    let mut tools = if request.deferred_loading_active() && !has_loaded_expansions {
+        bootstrap_visible_tools(surface)
+    } else {
+        all_tools
+            .iter()
+            .copied()
+            .filter(|tool| match request.requested_namespace.as_deref() {
+                _ if request.deferred_loading_active()
+                    && has_loaded_expansions
+                    && is_deferred_control_tool(tool.name) =>
+                {
+                    true
                 }
-                let namespace = tool_namespace(tool.name);
-                let tier = tool_tier_label(tool.name);
-                preferred.contains(&namespace)
-                    || request.loaded_tiers.iter().any(|value| value == tier)
-                    || request
-                        .loaded_namespaces
-                        .iter()
-                        .any(|value| value == namespace)
-            }
-            None => true,
-        })
-        .filter(|tool| match request.requested_tier.as_deref() {
-            _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
-            Some(tier) => tool_tier_label(tool.name) == tier,
-            None if request.deferred_loading_active() => {
-                if is_deferred_control_tool(tool.name) {
-                    return true;
+                Some(namespace) => tool_namespace(tool.name) == namespace,
+                None if request.deferred_loading_active() => {
+                    if has_loaded_expansions && is_deferred_control_tool(tool.name) {
+                        return true;
+                    }
+                    let namespace = tool_namespace(tool.name);
+                    let tier = tool_tier_label(tool.name);
+                    preferred.contains(&namespace)
+                        || request.loaded_tiers.iter().any(|value| value == tier)
+                        || request
+                            .loaded_namespaces
+                            .iter()
+                            .any(|value| value == namespace)
                 }
-                let namespace = tool_namespace(tool.name);
-                let tier = tool_tier_label(tool.name);
-                preferred_tiers.contains(&tier)
-                    || request
-                        .loaded_namespaces
-                        .iter()
-                        .any(|value| value == namespace)
-                    || request.loaded_tiers.iter().any(|value| value == tier)
-            }
-            None => true,
-        })
-        .filter(|tool| match preferred_bootstrap {
-            _ if request.deferred_loading_active() && is_deferred_control_tool(tool.name) => true,
-            Some(tool_names) if request.deferred_loading_active() && !has_loaded_expansions => {
-                tool_names.contains(&tool.name)
-            }
-            _ => true,
-        })
-        .collect::<Vec<_>>();
+                None => true,
+            })
+            .filter(|tool| match request.requested_tier.as_deref() {
+                _ if request.deferred_loading_active()
+                    && has_loaded_expansions
+                    && is_deferred_control_tool(tool.name) =>
+                {
+                    true
+                }
+                Some(tier) => tool_tier_label(tool.name) == tier,
+                None if request.deferred_loading_active() => {
+                    if has_loaded_expansions && is_deferred_control_tool(tool.name) {
+                        return true;
+                    }
+                    let namespace = tool_namespace(tool.name);
+                    let tier = tool_tier_label(tool.name);
+                    preferred_tiers.contains(&tier)
+                        || request
+                            .loaded_namespaces
+                            .iter()
+                            .any(|value| value == namespace)
+                        || request.loaded_tiers.iter().any(|value| value == tier)
+                }
+                None => true,
+            })
+            .filter(|tool| match preferred_bootstrap {
+                _ if request.deferred_loading_active()
+                    && has_loaded_expansions
+                    && is_deferred_control_tool(tool.name) =>
+                {
+                    true
+                }
+                _ if request.deferred_loading_active() && has_loaded_expansions => true,
+                Some(tool_names) if request.deferred_loading_active() => {
+                    tool_names.contains(&tool.name)
+                }
+                _ => true,
+            })
+            .collect::<Vec<_>>()
+    };
     if request.deferred_loading_active() && has_loaded_expansions {
         tools.sort_by_key(|tool| {
             let namespace = tool_namespace(tool.name);

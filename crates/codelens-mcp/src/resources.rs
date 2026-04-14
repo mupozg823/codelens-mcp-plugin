@@ -75,6 +75,7 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
         }
         "codelens://project/architecture" => {
             let stats = state.symbol_index().stats().ok();
+            let indexed_files = stats.as_ref().map(|s| s.indexed_files);
             let frameworks = detect_frameworks(state.project().as_path());
             let workspace_packages = detect_workspace_packages(state.project().as_path());
             let surface = state.execution_surface(&request.session);
@@ -85,12 +86,46 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                     "daemon_mode": state.daemon_mode().as_str(),
                     "frameworks": frameworks,
                     "workspace_packages": workspace_packages,
-                    "indexed_files": stats.as_ref().map(|s| s.indexed_files).unwrap_or(0),
+                    "indexed_files": indexed_files.unwrap_or(0),
                     "stale_files": stats.as_ref().map(|s| s.stale_files).unwrap_or(0),
+                    "harness_compatibility": {
+                        "detected_host": crate::harness_host::host_runtime_contract(
+                            request.client_profile,
+                            surface,
+                            indexed_files,
+                        ),
+                        "supported_hosts": crate::harness_host::supported_host_summaries(indexed_files),
+                    },
                     "notes": [
-                        "Use workflow-first entrypoints such as explore_codebase, review_architecture, and analyze_change_impact before low-level expansion.",
-                        "Prefer HTTP + role profiles for multi-agent harnesses."
+                        "Use problem-first entrypoints such as explore_codebase, review_architecture, and analyze_change_impact before low-level expansion.",
+                        "Prefer HTTP + role profiles for multi-agent harnesses.",
+                        "Host runtimes should keep orchestration ownership. In Claude Code, QueryEngine/query remains the orchestrator while CodeLens returns bounded evidence, preflight, and async analysis contracts."
                     ]
+                }),
+            )
+        }
+        "codelens://harness/host" => {
+            let surface = state.execution_surface(&request.session);
+            let indexed_files = state
+                .symbol_index()
+                .stats()
+                .ok()
+                .map(|stats| stats.indexed_files);
+            let (host_profile, selection_source) =
+                crate::harness_host::requested_host_profile(params, request.client_profile);
+            json_resource(
+                uri,
+                json!({
+                    "selection_source": selection_source,
+                    "requested_host": params
+                        .and_then(|value| value.get("host"))
+                        .and_then(|value| value.as_str()),
+                    "detected_host": crate::harness_host::host_runtime_contract(
+                        host_profile,
+                        surface,
+                        indexed_files,
+                    ),
+                    "supported_hosts": crate::harness_host::supported_host_summaries(indexed_files),
                 }),
             )
         }
