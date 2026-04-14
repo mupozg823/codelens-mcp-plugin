@@ -140,8 +140,14 @@ Interpretation:
 
 ```bash
 cargo build --release
-python3 benchmarks/embedding-quality.py . --isolated-copy
+python3 benchmarks/embedding-quality.py . --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
 ```
+
+Default benchmark input is the repo-local 104-query self dataset. If you pass
+`datasets/training/embedding-quality-dataset.json`, the loader now treats it as a
+mixed historical corpus and rejects it for single-project runs unless it is
+first split into repo-scoped datasets.
 
 Use `--isolated-copy` to avoid index pollution when the script mutates the working directory (it runs `refresh_symbol_index` between runs).
 
@@ -542,7 +548,7 @@ Measurement artefacts live in `benchmarks/embedding-quality-v1.5-phase2e-v2-{bas
 
 ### 8.5 v1.5 Phase 2f experiment — cross-dataset validation on the augmented 436-query set
 
-**Hypothesis**: The Phase 2b/2c/2e wins in §8.2–§8.4 were all measured on the 89-query `embedding-quality-dataset-self.json`. Before flipping any of the three env gates to default ON, replay the full four-arm A/B on a larger, more diverse query distribution so that a single-dataset overfit is ruled out. The natural first step is the existing 436-query `embedding-quality-dataset.json` (same repository, but ~5× the query count with a much wider spread of NL phrasings). A true external-repo validation still remains, but it requires a hand-built `expected_symbol` mapping — running the augmented self-dataset first is the cheapest check that costs nothing but runtime.
+**Hypothesis**: The Phase 2b/2c/2e wins in §8.2–§8.4 were all measured on the 89-query `embedding-quality-dataset-self.json`. Before flipping any of the three env gates to default ON, replay the full four-arm A/B on a larger, more diverse query distribution so that a single-dataset overfit is ruled out. The natural first step is the existing 436-query historical mixed corpus at `datasets/training/embedding-quality-dataset.json` (same repository, but ~5× the query count with a much wider spread of NL phrasings). A true external-repo validation still remains, but it requires a hand-built `expected_symbol` mapping — running the augmented self-dataset first is the cheapest check that costs nothing but runtime.
 
 **Setup**: Same release binary built from `9f93ef9` (post-Phase 2e merge), same bundled CodeSearchNet-INT8 model, same `--isolated-copy` workflow as §8.2–§8.4, and the same Phase 2e parameters as the §8.4 pilot (`CODELENS_RANK_SPARSE_THRESHOLD=40`, `CODELENS_RANK_SPARSE_MAX=40`). Four arms:
 
@@ -617,7 +623,7 @@ On a **relative** scale the stack is _more_ effective on the harder dataset. Thi
 # Arm A — baseline
 CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
 python3 benchmarks/embedding-quality.py . --isolated-copy \
-  --dataset benchmarks/embedding-quality-dataset.json
+  --dataset datasets/training/embedding-quality-dataset.json
 
 # Arm D — full v1.5 stack
 CODELENS_EMBED_HINT_INCLUDE_COMMENTS=1 \
@@ -627,7 +633,7 @@ CODELENS_RANK_SPARSE_THRESHOLD=40 \
 CODELENS_RANK_SPARSE_MAX=40 \
 CODELENS_MODEL_DIR=$(pwd)/crates/codelens-engine/models \
 python3 benchmarks/embedding-quality.py . --isolated-copy \
-  --dataset benchmarks/embedding-quality-dataset.json
+  --dataset datasets/training/embedding-quality-dataset.json
 ```
 
 Measurement artefacts live in `benchmarks/embedding-quality-v1.5-phase2f-aug436-{baseline,2e-only,2b2c-only,stacked}.{json,md}` for audit.

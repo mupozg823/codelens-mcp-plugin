@@ -2,7 +2,7 @@
 
 # CodeLens MCP
 
-**Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
+**Host-orchestrated code intelligence server for bounded evidence, preflight, and async analysis.**
 
 Pure Rust MCP server for multi-agent harnesses. 25 languages, hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, 5-stage token compression, and enterprise-ready observability — all in a single binary with zero runtime dependencies.
 
@@ -22,7 +22,7 @@ Multi-agent coding harnesses fail when every agent sees too many tools, too much
 
 ## The Solution
 
-CodeLens maintains a **live, indexed understanding** of your codebase and exposes it as a harness optimization layer. The model asks a precise question and gets a bounded answer with a handle for deeper expansion only when needed.
+CodeLens maintains a **live, indexed understanding** of your codebase and exposes it as a harness optimization layer. The host keeps orchestration ownership, and CodeLens returns bounded evidence, safety contracts, and async handles when deeper expansion is needed.
 
 ```
 Without CodeLens                                    With CodeLens
@@ -50,7 +50,13 @@ curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
 ```
 
-Latest release notes: [v1.9.23](docs/release-notes/v1.9.23.md)
+Latest release notes: [v1.9.26](docs/release-notes/v1.9.26.md)
+
+Support policy: [docs/support-policy.md](docs/support-policy.md)
+
+Release docs check: `python3 scripts/check-release-docs.py`
+
+Workspace crates publish dry-run: `scripts/publish-crates-workspace.sh --allow-dirty`
 
 ## Setup
 
@@ -110,11 +116,11 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 ## Key Features
 
-### Problem-First Workflows
+### Problem-First Entrypoints
 
-Instead of starting from the full raw tool registry, begin with the workflow-first entrypoints:
+Instead of starting from the full raw tool registry, start with bounded entrypoints and let the host keep orchestration ownership:
 
-| Workflow           | Tool                     | When                                  |
+| Entrypoint         | Tool                     | When                                  |
 | ------------------ | ------------------------ | ------------------------------------- |
 | Explore codebase   | `explore_codebase`       | First look or targeted context search |
 | Trace execution    | `trace_request_path`     | Follow request or symbol flow         |
@@ -199,7 +205,9 @@ Optional embedding-based code search (feature-gated: `semantic`):
 
 ```bash
 # Measure on your project
-python3 benchmarks/embedding-quality.py . --isolated-copy
+python3 benchmarks/embedding-quality.py . \
+  --isolated-copy \
+  --dataset benchmarks/embedding-quality-dataset-self.json
 ```
 
 ## Enterprise Features
@@ -213,6 +221,7 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 | Mutation audit log         | `.codelens/audit/mutation-audit.jsonl`                                     |
 | OTel exporter              | OTLP gRPC via `--features otel` + `CODELENS_OTEL_ENDPOINT` env var         |
 | OTel-ready spans           | `tool.success`, `tool.backend`, `tool.elapsed_ms`, `otel.status_code`      |
+| OTel local verification    | `docker-compose.otel.yml` + `scripts/verify-otel-local.sh`                 |
 | SBOM                       | CycloneDX per release                                                      |
 | Dataset lint               | CI-integrated benchmark hygiene (5 rules)                                  |
 | Multi-language test filter | Python, JS/TS, Go, Java, Kotlin, Ruby test symbols excluded from index     |
@@ -244,11 +253,46 @@ cargo build --release --features otel              # add OpenTelemetry OTLP expo
 cargo build --release --features scip-backend      # add SCIP precise navigation
 cargo build --release --features http,otel         # HTTP + OTel
 
+# MCP smoke test (real MCP handshake)
+./scripts/mcp-smoke.sh . --transport stdio
+./scripts/mcp-smoke.sh . --transport http
+
+# MCP config/runtime diagnosis
+./scripts/mcp-doctor.sh .
+./scripts/mcp-doctor.sh . --strict
+
+# Local dev install sync (~/.local/bin -> this repo's release build)
+bash ./scripts/sync-local-bin.sh .
+
 # Core verification
 cargo test -p codelens-engine
 cargo test -p codelens-mcp
 cargo test -p codelens-mcp --features http
 cargo test -p codelens-mcp --no-default-features   # semantic=off path
+
+# Local OTel validation
+docker compose -f docker-compose.otel.yml up -d
+./scripts/verify-otel-local.sh
+```
+
+### MCP Transport
+
+Use stdio by default (Codex/Claude spawns the server per session). For a local HTTP daemon:
+
+```bash
+./scripts/mcp-http-run.sh .
+```
+
+Use the doctor to confirm runtime/config alignment with an actual MCP attach:
+
+```bash
+./scripts/mcp-doctor.sh . --strict
+```
+
+If the configured stdio command is stale, relink `~/.local/bin/codelens-mcp` to the current workspace build:
+
+```bash
+bash ./scripts/sync-local-bin.sh .
 ```
 
 ### Feature Flags

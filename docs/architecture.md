@@ -1,21 +1,24 @@
 # CodeLens MCP — Architecture & Project Overview
 
-> Pure Rust MCP server and harness optimization tool for code intelligence
+> Pure Rust MCP server and host-facing code intelligence contract layer
 > 3 crates in the workspace | 2 primary runtime boundaries | 25 languages | tree-sitter-first
 
 ## Current Snapshot (2026-04-13)
 
-- Workspace version: `1.9.14`
+- Workspace version: `1.9.26`
 - Registered tool definitions in source: `101` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
 - Tool output schemas in source: `65 / 101`
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
-- Current release notes: [docs/release-notes/v1.9.14.md](release-notes/v1.9.14.md)
+- Current release notes: [docs/release-notes/v1.9.26.md](release-notes/v1.9.26.md)
 - Current release verification guide: [docs/release-verification.md](release-verification.md)
-- Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
+- Current external comparison status: CodeLens is stronger as a host-oriented MCP contract layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
 - Current simplification decision record: [docs/adr/ADR-0001-runtime-boundaries-and-single-source-registries.md](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
 - Current enterprise productization decision record: [docs/adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md](adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md)
+- Host contract details: [docs/architecture/host-orchestrated-mcp.md](architecture/host-orchestrated-mcp.md)
+- Public tool surface model: [docs/architecture/public-surface.md](architecture/public-surface.md)
+- Runtime service decomposition map: [docs/architecture/runtime-services.md](architecture/runtime-services.md)
 
 This document describes the product shape and the stable architectural layers.
 The audit document above captures the current overdesign, duplication, and drift findings against the latest code.
@@ -76,15 +79,15 @@ Operational deployment modes:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
-│                 Agent Runtime / Harness Layer                        │
-│  Claude Code / OpenAI Agents / LangGraph / Custom Agent SDK         │
+│               Agent Runtime / Host Orchestrator Layer               │
+│ Claude Code / OpenAI Agents / LangGraph / Custom Agent SDK         │
 ├───────────────────────┬─────────────────────────────────────────────┤
 │    A2A (future)       │              MCP Protocol                   │
 │  Agent ↔ Agent        │  JSON-RPC 2.0 over stdio / Streamable HTTP  │
 ├───────────────────────┴─────────────────────────────────────────────┤
 │                                                                     │
 │  ┌───────────────────────────────────────────────────────────────┐  │
-│  │          codelens-mcp (Harness Optimization Server)           │  │
+│  │   codelens-mcp (Bounded Contract and Evidence Server)         │  │
 │  │                                                               │  │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐  │  │
 │  │  │ Dispatch │→ │  Tools   │→ │  State   │→ │  Telemetry   │  │  │

@@ -85,7 +85,7 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 **Profiles (preferred):**
 
 - `planner-readonly` — bounded planning/report surface
-- `builder-minimal` — workflow-first implementation surface for builder agents
+- `builder-minimal` — bounded implementation-entrypoint surface for builder agents
 - `reviewer-graph` — graph-aware review and risk analysis
 - `refactor-full` — preview-first refactoring surface
 - `ci-audit` — diff-aware review/report surface
@@ -97,7 +97,7 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 3. `trace_request_path` or `analyze_change_impact`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current `1.9.14` runtime shape, `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
+The host should keep orchestration ownership during this sequence. On the current `1.9.26` runtime shape, `builder-minimal` remains intentionally bounded in this repository, with problem-first entrypoints shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
 
 For `refactor-full`, use a preflight-first path:
 
@@ -111,7 +111,7 @@ Recent matching preflight is required before `refactor-full` content mutations e
 **Legacy presets:**
 
 - `minimal` — smallest point-tool surface
-- `balanced` — default workflow-first surface
+- `balanced` — default bounded-entrypoint surface
 - `full` — full visible registry for the current build
 
 ---
@@ -164,7 +164,7 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 **Profiles (preferred):**
 
 - `planner-readonly` — bounded planning/report surface
-- `builder-minimal` — workflow-first implementation surface for Codex and builder agents
+- `builder-minimal` — bounded implementation-entrypoint surface for Codex and builder agents
 - `reviewer-graph` — graph-aware review and risk analysis
 - `refactor-full` — preview-first refactoring surface
 
@@ -175,7 +175,7 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 3. `trace_request_path` or `analyze_change_impact`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current `1.9.14` runtime shape in this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
+Codex should keep shell/edit orchestration ownership during this sequence. On the current `1.9.26` runtime shape in this repository, `builder-minimal` remains bounded after bootstrap, with problem-first entrypoints shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
 
 For `refactor-full`, use a preflight-first path:
 

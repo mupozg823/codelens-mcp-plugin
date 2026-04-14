@@ -6,7 +6,7 @@ This document answers a narrower question than marketing:
 
 Current answer: **no**.
 
-CodeLens is already stronger as a harness-native MCP layer. Serena is still stronger as an IDE/LSP-centric semantic backend. A real superset requires merging those two shapes instead of pretending one replaces the other.
+CodeLens is already stronger as a host-oriented MCP contract layer. Serena is still stronger as an IDE/LSP-centric semantic backend. A real superset requires merging those two shapes instead of pretending one replaces the other.
 
 ## 1. Current Verdict
 
@@ -61,7 +61,7 @@ That gate distinguishes:
 
 This is a stronger "fail-closed" harness contract than a plain symbolic edit surface.
 
-### 2.3 CodeLens has a genuine workflow layer above primitive tools
+### 2.3 CodeLens has a genuine entrypoint-contract layer above primitive tools
 
 CodeLens is not just a toolbox. It has:
 
@@ -76,7 +76,7 @@ See:
 - `crates/codelens-mcp/src/tools/reports/impact_reports.rs`
 - `crates/codelens-mcp/src/state.rs`
 
-Serena has strong tools. CodeLens has stronger harness-oriented orchestration around those tools.
+Serena has strong tools. CodeLens has stronger bounded entrypoint contracts, async handles, and preflight policy around those tools.
 
 ### 2.4 Retrieval is hybrid and quantitatively tracked
 
@@ -296,7 +296,7 @@ If the question is:
 
 The answer is:
 
-- **for harness-native bounded workflows**: mostly yes
+- **for host-oriented bounded entrypoints**: mostly yes
 - **for deep semantic IDE behavior**: no
 - **as a strict overall superset**: no
 
@@ -308,7 +308,7 @@ The answer is yes, but only if it stops treating tree-sitter, LSP, embeddings, m
 
 - a fast retrieval layer
 - a pluggable semantic backend layer
-- a transactional workflow/policy layer
+- a transactional preflight/policy layer
 - a persistent project knowledge layer
 
 That is the architecture that can actually surpass Serena instead of only beating it on one axis.
