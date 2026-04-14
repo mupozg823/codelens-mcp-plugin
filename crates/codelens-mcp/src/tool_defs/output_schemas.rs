@@ -309,6 +309,40 @@ pub(super) fn prune_index_failures_output_schema() -> serde_json::Value {
     })
 }
 
+pub(super) fn watch_status_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "running": {"type": "boolean"},
+            "events_processed": {"type": "integer"},
+            "files_reindexed": {"type": "integer"},
+            "lock_contention_batches": {"type": "integer"},
+            "index_failures": {"type": ["integer", "null"]},
+            "index_failures_total": {"type": "integer"},
+            "stale_index_failures": {"type": "integer"},
+            "persistent_index_failures": {"type": "integer"},
+            "pruned_missing_failures": {"type": "integer"},
+            "recent_failure_window_seconds": {"type": "integer"},
+            "note": {"type": "string"}
+        }
+    })
+}
+
+pub(super) fn tool_metrics_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "tools": {"type": "array", "items": {"type": "object"}},
+            "per_tool": {"type": "array", "items": {"type": "object"}},
+            "count": {"type": "integer"},
+            "surfaces": {"type": "array", "items": {"type": "object"}},
+            "per_surface": {"type": "array", "items": {"type": "object"}},
+            "session": {"type": "object"},
+            "derived_kpis": {"type": "object"}
+        }
+    })
+}
+
 pub(super) fn memory_list_output_schema() -> serde_json::Value {
     json!({
         "type": "object",

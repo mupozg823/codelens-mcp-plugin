@@ -166,6 +166,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     success_jsonrpc_response(id, text, structured_content, Some(max_result_size))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn build_error_response(
     name: &str,
     error: CodeLensError,
