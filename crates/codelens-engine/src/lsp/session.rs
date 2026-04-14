@@ -15,6 +15,7 @@ use super::parsers::{
     workspace_symbols_from_response,
 };
 use super::protocol::{language_id_for_path, poll_readable, read_message, send_message};
+use super::registry::resolve_lsp_binary;
 use super::types::{
     LspDiagnostic, LspDiagnosticRequest, LspReference, LspRenamePlan, LspRenamePlanRequest,
     LspRequest, LspTypeHierarchyNode, LspTypeHierarchyRequest, LspWorkspaceSymbol,
@@ -213,13 +214,14 @@ impl LspSessionPool {
 
 impl LspSession {
     fn start(project: &ProjectRoot, command: &str, args: &[String]) -> Result<Self> {
-        let mut child = Command::new(command)
+        let command_path = resolve_lsp_binary(command).unwrap_or_else(|| command.into());
+        let mut child = Command::new(&command_path)
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .with_context(|| format!("failed to spawn LSP server {}", command))?;
+            .with_context(|| format!("failed to spawn LSP server {}", command_path.display()))?;
 
         let stdin = child.stdin.take().context("failed to open LSP stdin")?;
         let stdout = child.stdout.take().context("failed to open LSP stdout")?;
