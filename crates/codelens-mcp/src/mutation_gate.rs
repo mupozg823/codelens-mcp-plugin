@@ -39,12 +39,9 @@ pub(crate) struct MutationGateFailure {
     pub(crate) missing_preflight: bool,
 }
 
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
+// `now_ms()` helper removed — preflight TTL now uses `Instant::elapsed()` directly
+// (see `RecentPreflight::created_at`). Monotonic clock is robust against NTP
+// corrections, DST transitions, and manual wall-clock changes.
 
 pub(crate) fn is_verifier_source_tool(name: &str) -> bool {
     matches!(
@@ -151,7 +148,9 @@ pub(crate) fn evaluate_mutation_gate(
         ));
     };
 
-    if now_ms().saturating_sub(preflight.timestamp_ms) > crate::state::preflight_ttl_ms() {
+    if preflight.created_at.elapsed()
+        > std::time::Duration::from_millis(crate::state::preflight_ttl_ms())
+    {
         return Err(mutation_gate_failure(
             name,
             format!(

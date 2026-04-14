@@ -22,13 +22,15 @@ impl RecentPreflightStore {
     }
 
     /// Record a preflight result extracted from a tool response payload.
+    ///
+    /// Uses a monotonic `Instant` so that TTL checks are robust against
+    /// wall-clock changes (NTP correction, DST, manual `date` changes).
     #[allow(clippy::too_many_arguments)]
     pub fn record_from_payload(
         &self,
         key: String,
         tool_name: &str,
         surface: &str,
-        now_ms: u64,
         target_paths: Vec<String>,
         symbol: Option<String>,
         payload: &Value,
@@ -56,7 +58,7 @@ impl RecentPreflightStore {
                 .and_then(|value| value.as_str())
                 .map(ToOwned::to_owned),
             surface: surface.to_owned(),
-            timestamp_ms: now_ms,
+            created_at: std::time::Instant::now(),
             readiness,
             blocker_count,
             target_paths,
@@ -85,16 +87,19 @@ impl RecentPreflightStore {
             .clear();
     }
 
-    /// Test helper: override the timestamp of a stored preflight.
+    /// Test helper: backdate a stored preflight's `created_at` by the given duration,
+    /// so callers can simulate stale preflights without manipulating the wall clock.
     #[cfg(test)]
-    pub fn set_timestamp_for_test(&self, key: &str, timestamp_ms: u64) {
+    pub fn set_age_for_test(&self, key: &str, age: std::time::Duration) {
         if let Some(preflight) = self
             .entries
             .lock()
             .unwrap_or_else(|p| p.into_inner())
             .get_mut(key)
         {
-            preflight.timestamp_ms = timestamp_ms;
+            preflight.created_at = std::time::Instant::now()
+                .checked_sub(age)
+                .unwrap_or_else(std::time::Instant::now);
         }
     }
 }

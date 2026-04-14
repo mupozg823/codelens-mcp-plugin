@@ -71,7 +71,6 @@ impl AppState {
             key,
             tool_name,
             surface,
-            Self::now_ms(),
             self.extract_target_paths(arguments),
             super::extract_symbol_hint(arguments),
             payload,
@@ -88,14 +87,30 @@ impl AppState {
     }
 
     #[cfg(test)]
+    pub(crate) fn set_recent_preflight_age_for_test(
+        &self,
+        logical_session: &str,
+        age: std::time::Duration,
+    ) {
+        self.preflight_store.set_age_for_test(
+            &self.preflight_key_for_scope(&self.current_project_scope(), logical_session),
+            age,
+        );
+    }
+
+    /// Backward-compatible shim for tests written against the old wall-clock API.
+    /// Any `_timestamp_ms` value is interpreted as "simulate fully expired" because
+    /// the only historical caller passed `0` to express that intent. Prefer
+    /// `set_recent_preflight_age_for_test` in new code.
+    #[cfg(test)]
     pub(crate) fn set_recent_preflight_timestamp_for_test(
         &self,
         logical_session: &str,
-        timestamp_ms: u64,
+        _timestamp_ms: u64,
     ) {
-        self.preflight_store.set_timestamp_for_test(
-            &self.preflight_key_for_scope(&self.current_project_scope(), logical_session),
-            timestamp_ms,
+        self.set_recent_preflight_age_for_test(
+            logical_session,
+            std::time::Duration::from_secs(86_400),
         );
     }
 }
