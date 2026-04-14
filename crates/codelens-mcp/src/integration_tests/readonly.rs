@@ -28,6 +28,39 @@ fn returns_symbols_via_tool_call() {
     assert_eq!(payload["success"], json!(true));
 }
 
+#[cfg(feature = "scip-backend")]
+#[test]
+fn find_symbol_prefers_scip_backend_when_index_is_present() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    fs::write(
+        project.as_path().join("src/main.rs"),
+        "pub struct MyStruct;\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("src/lib.rs"),
+        "use crate::MyStruct;\n",
+    )
+    .unwrap();
+    write_test_scip_index(&project);
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_symbol",
+        json!({ "name": "MyStruct", "file_path": "src/main.rs", "max_matches": 5 }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["backend"], json!("scip"));
+    assert_eq!(payload["data"]["count"], json!(1));
+    assert_eq!(payload["data"]["symbols"][0]["name"], json!("MyStruct"));
+    assert_eq!(
+        payload["data"]["symbols"][0]["documentation"],
+        json!("A test struct for MCP integration.")
+    );
+}
+
 #[test]
 fn reports_symbol_index_stats() {
     let project = project_root();

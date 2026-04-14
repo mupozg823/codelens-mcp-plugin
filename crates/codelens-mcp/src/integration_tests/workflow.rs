@@ -750,13 +750,19 @@ fn refactor_safety_report_keeps_preview_payload_lean() {
             .map(|uri| uri.ends_with("/summary"))
             .unwrap_or(false)
     );
-    assert!(payload["data"]["section_handles"].is_array());
+    assert!(
+        payload["data"]["section_handle_template"]
+            .as_str()
+            .map(|template| template.ends_with("/{section}"))
+            .unwrap_or(false)
+    );
     assert!(payload["data"]["next_actions"].is_array());
     assert!(payload["data"].get("top_findings").is_none());
     assert!(payload["data"].get("verifier_checks").is_none());
     assert!(payload["data"].get("quality_focus").is_none());
     assert!(payload["data"].get("recommended_checks").is_none());
     assert!(payload["data"].get("performance_watchpoints").is_none());
+    assert!(payload["data"].get("section_handles").is_none());
 
     let summary = handle_request(
         &state,
@@ -1307,13 +1313,19 @@ fn analysis_lists_expose_resource_handles_and_counts() {
     );
     let job_id = start["data"]["job_id"].as_str().unwrap();
 
-    for _ in 0..100 {
+    let mut completed = false;
+    for _ in 0..250 {
         let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
         if poll["data"]["status"] == json!("completed") {
+            completed = true;
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
+    assert!(
+        completed,
+        "analysis job should complete before list aggregation"
+    );
 
     let jobs = call_tool(&state, "list_analysis_jobs", json!({}));
     assert!(jobs["data"]["count"].as_u64().unwrap_or_default() >= 1);
@@ -1381,6 +1393,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     let encoded = serde_json::to_string(&list_response).unwrap();
     assert!(encoded.contains("codelens://profile/planner-readonly/guide"));
     assert!(encoded.contains("codelens://profile/planner-readonly/guide/full"));
+    assert!(encoded.contains("codelens://harness/host"));
     assert!(encoded.contains("codelens://tools/list/full"));
     assert!(encoded.contains("codelens://session/http"));
     assert!(encoded.contains("codelens://analysis/recent"));
@@ -1448,6 +1461,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(tools_summary_body.contains("loaded_tiers"));
     assert!(tools_summary_body.contains("effective_namespaces"));
     assert!(tools_summary_body.contains("effective_tiers"));
+    assert!(tools_summary_body.contains("orchestration_contract"));
     assert!(!tools_summary_body.contains("\"description\""));
     assert!(tools_summary_body.contains("reports"));
 
@@ -1465,6 +1479,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(tools_full_body.contains("description"));
     assert!(tools_full_body.contains("namespace"));
     assert!(tools_full_body.contains("tier"));
+    assert!(tools_full_body.contains("orchestration_contract"));
     assert!(tools_full_body.contains("loaded_namespaces"));
     assert!(tools_full_body.contains("loaded_tiers"));
     assert!(tools_full_body.contains("full_tool_exposure"));
@@ -1497,6 +1512,22 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(session_resource_body.contains("requires_tier_listing_before_tool_call"));
     assert!(session_resource_body.contains("client_profile"));
     assert!(session_resource_body.contains("default_tools_list_contract_mode"));
+
+    let harness_resource = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(2411)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://harness/host", "host": "claude-code"})),
+        },
+    )
+    .unwrap();
+    let harness_resource_body = serde_json::to_string(&harness_resource).unwrap();
+    assert!(harness_resource_body.contains("selection_source"));
+    assert!(harness_resource_body.contains("detected_host"));
+    assert!(harness_resource_body.contains("claude-code"));
+    assert!(harness_resource_body.contains("supported_hosts"));
 
     let profile_summary = handle_request(
         &state,
@@ -1688,8 +1719,10 @@ fn schema_tools_return_structured_content_payload() {
     assert!(value["result"]["structuredContent"]["symbols"].is_array());
 
     let text_payload = extract_tool_text(&response);
+    assert!(!text_payload.contains('\n'));
     let wrapped = parse_tool_payload(&text_payload);
     assert!(wrapped["data"]["symbols"].is_array());
+    assert!(wrapped.get("schema_version").is_none());
 }
 
 #[test]
@@ -1757,6 +1790,7 @@ fn output_schema_workflow_tools_return_structured_content() {
         bootstrap_text["data"]["active_surface"],
         json!("builder-minimal")
     );
+    assert!(bootstrap_text.get("schema_version").is_none());
     assert!(bootstrap_text["data"]["capabilities"]["indexed_files"].is_u64());
     assert!(bootstrap_text["data"]["capabilities"]["stale_files"].is_u64());
     assert!(
@@ -1767,6 +1801,34 @@ fn output_schema_workflow_tools_return_structured_content() {
             <= 3
     );
     assert!(bootstrap_text["data"]["routing"]["recommended_entrypoint"].is_string());
+    let suggested = bootstrap_text["suggested_next_tools"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        suggested.iter().any(|item| item == "explore_codebase"),
+        "expected bootstrap follow-up to include explore_codebase, got {suggested:?}"
+    );
+    assert_eq!(
+        bootstrap_text["orchestration_contract"]["orchestration_owner"],
+        json!("host")
+    );
+    assert!(
+        bootstrap_text["recommended_next_steps"]
+            .as_array()
+            .map(|items| {
+                items.first().is_some_and(|item| {
+                    item["kind"] == json!("tool") && item["target"] == json!("explore_codebase")
+                })
+            })
+            .unwrap_or(false)
+    );
+    assert!(
+        bootstrap_text["recommended_next_steps"]
+            .as_array()
+            .map(|items| items.iter().any(|item| item["kind"] == json!("handoff")))
+            .unwrap_or(false)
+    );
 }
 
 #[test]
@@ -1794,14 +1856,31 @@ fn workflow_alias_tools_return_structured_content_and_delegate() {
     .unwrap();
     let value = serde_json::to_value(&response).unwrap();
     assert_eq!(
-        value["result"]["structuredContent"]["workflow"],
+        value["result"]["structuredContent"]["entrypoint"],
         json!("explore_codebase")
     );
     assert_eq!(
-        value["result"]["structuredContent"]["delegated_tool"],
-        json!("get_ranked_context")
+        value["result"]["structuredContent"]["entrypoint_contract"]["stage"],
+        json!("multi_file_reasoning")
     );
     assert!(value["result"]["structuredContent"]["symbols"].is_array());
+    let text_payload = parse_tool_payload(&extract_tool_text(&response));
+    assert_eq!(
+        text_payload["orchestration_contract"]["server_role"],
+        json!("supporting_mcp")
+    );
+    assert_eq!(
+        text_payload["orchestration_contract"]["orchestration_owner"],
+        json!("host")
+    );
+    assert!(
+        text_payload["recommended_next_steps"]
+            .as_array()
+            .map(|items| items
+                .iter()
+                .any(|item| item["target"] == json!("host_orchestrator")))
+            .unwrap_or(false)
+    );
 }
 
 #[test]
@@ -2018,7 +2097,14 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     assert!(properties.contains_key("index_recovery"));
     assert!(properties.contains_key("visible_tools"));
     assert!(properties.contains_key("routing"));
+    assert!(properties.contains_key("host_runtime"));
     assert!(properties.contains_key("harness"));
+    let host_runtime = schema["properties"]["host_runtime"]["properties"]
+        .as_object()
+        .expect("host_runtime properties");
+    assert!(host_runtime.contains_key("orchestrator_entrypoint"));
+    assert!(host_runtime.contains_key("bootstrap_sequence"));
+    assert!(host_runtime.contains_key("task_stages"));
     let http_session = schema["properties"]["http_session"]["properties"]
         .as_object()
         .expect("http_session properties");
@@ -2092,7 +2178,7 @@ fn workflow_first_surfaces_prefer_alias_bootstrap() {
 
 #[test]
 fn visible_tools_order_workflow_surfaces_bootstrap_first() {
-    use crate::tool_defs::{ToolProfile, ToolSurface, visible_tools};
+    use crate::tool_defs::{ToolProfile, ToolSurface, bootstrap_visible_tools, visible_tools};
 
     let builder_tools = visible_tools(ToolSurface::Profile(ToolProfile::BuilderMinimal))
         .into_iter()
@@ -2121,6 +2207,57 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
             "analyze_change_impact",
             "audit_security_context",
             "prepare_harness_session",
+        ]
+    );
+
+    let refactor_tools = visible_tools(ToolSurface::Profile(ToolProfile::RefactorFull))
+        .into_iter()
+        .map(|tool| tool.name)
+        .take(4)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        refactor_tools,
+        vec![
+            "verify_change_readiness",
+            "safe_rename_report",
+            "refactor_safety_report",
+            "explore_codebase",
+        ]
+    );
+
+    let workflow_tools = visible_tools(ToolSurface::Profile(ToolProfile::WorkflowFirst))
+        .into_iter()
+        .map(|tool| tool.name)
+        .take(6)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        workflow_tools,
+        vec![
+            "explore_codebase",
+            "trace_request_path",
+            "review_architecture",
+            "analyze_change_impact",
+            "plan_safe_refactor",
+            "prepare_harness_session",
+        ]
+    );
+
+    let workflow_bootstrap =
+        bootstrap_visible_tools(ToolSurface::Profile(ToolProfile::WorkflowFirst))
+            .into_iter()
+            .map(|tool| tool.name)
+            .collect::<Vec<_>>();
+    assert_eq!(
+        workflow_bootstrap,
+        vec![
+            "explore_codebase",
+            "trace_request_path",
+            "review_architecture",
+            "analyze_change_impact",
+            "plan_safe_refactor",
+            "prepare_harness_session",
+            "activate_project",
+            "set_profile",
         ]
     );
 }
@@ -2155,6 +2292,254 @@ fn prepare_harness_session_defaults_to_surface_bootstrap_entrypoints() {
             .map(|items| items.iter().any(|value| value == "trace_request_path"))
             .unwrap_or(false)
     );
+
+    let refactor_payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "refactor-full"}),
+    );
+    assert_eq!(refactor_payload["success"], json!(true));
+    assert_eq!(
+        refactor_payload["data"]["routing"]["preferred_entrypoints_source"],
+        json!("surface_default")
+    );
+    assert_eq!(
+        refactor_payload["data"]["routing"]["recommended_entrypoint"],
+        json!("verify_change_readiness")
+    );
+    assert!(
+        refactor_payload["data"]["routing"]["preferred_entrypoints"]
+            .as_array()
+            .map(|items| items.iter().any(|value| value == "safe_rename_report"))
+            .unwrap_or(false)
+    );
+    assert!(
+        refactor_payload["data"]["routing"]["preferred_entrypoints"]
+            .as_array()
+            .map(|items| items.iter().any(|value| value == "refactor_safety_report"))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn prepare_harness_session_exposes_claude_host_runtime_contract() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("host_runtime.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "_session_client_name": "Claude Code",
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(
+        payload["data"]["host_runtime"]["host_id"],
+        json!("claude-code")
+    );
+    assert_eq!(
+        payload["data"]["host_runtime"]["orchestration_owner"],
+        json!("host")
+    );
+    assert_eq!(
+        payload["data"]["host_runtime"]["integration_style"],
+        json!("interactive-query-orchestrator")
+    );
+    assert_eq!(
+        payload["data"]["host_runtime"]["orchestrator_entrypoint"],
+        json!("QueryEngine/query")
+    );
+    assert_eq!(
+        payload["data"]["host_runtime"]["default_contract_mode"],
+        json!("full")
+    );
+    assert!(
+        payload["data"]["host_runtime"]["bootstrap_sequence"]
+            .as_array()
+            .map(|items| items.iter().any(|item| {
+                item["name"] == json!("codelens://harness/host")
+                    && item["request_shape"]["method"] == json!("resources/read")
+            }))
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["data"]["host_runtime"]["task_stages"]
+            .as_array()
+            .map(|items| items
+                .iter()
+                .any(|item| item["host_stage"] == json!("async_analysis")))
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["data"]["host_runtime"]["task_stages"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|item| {
+                    item["host_stage"] == json!("async_analysis")
+                        && item["request_templates"]
+                            .as_array()
+                            .map(|templates| {
+                                templates.iter().any(|template| {
+                                    template["tool"] == json!("get_analysis_job")
+                                        && template["request_shape"]["params"]["name"]
+                                            == json!("get_analysis_job")
+                                })
+                            })
+                            .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    );
+    assert_eq!(
+        payload["orchestration_contract"]["orchestration_owner"],
+        json!("host")
+    );
+}
+
+#[test]
+fn prepare_harness_session_exposes_codex_repo_scaled_host_runtime_contract() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("host_runtime_codex.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "_session_client_name": "CodexHarness",
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["host_runtime"]["host_id"], json!("codex"));
+    assert_eq!(
+        payload["data"]["host_runtime"]["integration_style"],
+        json!("tool-first-harness")
+    );
+    assert_eq!(
+        payload["data"]["host_runtime"]["client_default_surface"],
+        json!("workflow-first")
+    );
+    assert!(
+        payload["suggested_next_tools"]
+            .as_array()
+            .map(|items| {
+                items.first().is_some_and(|item| item == "explore_codebase")
+                    && items.iter().any(|item| item == "trace_request_path")
+            })
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["recommended_next_steps"]
+            .as_array()
+            .map(|items| {
+                items.first().is_some_and(|item| {
+                    item["kind"] == json!("tool") && item["target"] == json!("explore_codebase")
+                })
+            })
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["data"]["host_runtime"]["task_stages"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|item| {
+                    item["host_stage"] == json!("session_bootstrap")
+                        && item["reason"]
+                            == json!(
+                                "Bootstrap the recommended Codex workflow surface first, then expand only when the task broadens."
+                            )
+                })
+            })
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["data"]["host_runtime"]["guardrails"]
+            .as_array()
+            .map(|items| items.iter().any(|item| {
+                item == "Keep the default Codex surface workflow-oriented and expand on demand."
+            }))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn project_architecture_resource_includes_harness_compatibility_contracts() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("architecture_host.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(242)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({
+                "uri": "codelens://project/architecture",
+                "_session_client_name": "Claude Code",
+            })),
+        },
+    )
+    .unwrap();
+    let body = response.result.expect("resource result");
+    let resource_text = body["contents"][0]["text"]
+        .as_str()
+        .expect("resource text should be present");
+    assert!(resource_text.contains("\"harness_compatibility\""));
+    assert!(resource_text.contains("\"host_id\": \"claude-code\""));
+    assert!(resource_text.contains("\"supported_hosts\""));
+    assert!(resource_text.contains("\"host_id\": \"codex\""));
+    assert!(resource_text.contains("QueryEngine/query remains the orchestrator"));
+}
+
+#[test]
+fn harness_host_resource_supports_explicit_host_selection() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("host_contract.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(243)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({
+                "uri": "codelens://harness/host",
+                "host": "claude-code",
+            })),
+        },
+    )
+    .unwrap();
+    let body = response.result.expect("resource result");
+    let resource_text = body["contents"][0]["text"]
+        .as_str()
+        .expect("resource text should be present");
+    assert!(resource_text.contains("\"selection_source\": \"param\""));
+    assert!(resource_text.contains("\"requested_host\": \"claude-code\""));
+    assert!(resource_text.contains("\"host_id\": \"claude-code\""));
+    assert!(resource_text.contains("\"codelens://harness/host\""));
+    assert!(resource_text.contains("\"request_templates\""));
+    assert!(resource_text.contains("\"request_shape\""));
+    assert!(resource_text.contains("\"get_analysis_job\""));
 }
 
 #[test]
@@ -2567,6 +2952,17 @@ fn refactor_surface_requires_preflight_before_create_text_file() {
             .unwrap_or("")
             .contains("requires a fresh preflight")
     );
+    assert!(
+        payload["recovery_actions"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|item| {
+                    item["kind"] == json!("tool_call")
+                        && item["target"] == json!("verify_change_readiness")
+                })
+            })
+            .unwrap_or(false)
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -2964,10 +3360,10 @@ fn diagnose_issues_returns_structured_content() {
     }
 
     assert_eq!(payload["success"], json!(true));
-    assert_eq!(payload["data"]["workflow"], json!("diagnose_issues"));
+    assert_eq!(payload["data"]["entrypoint"], json!("diagnose_issues"));
     assert_eq!(
-        payload["data"]["delegated_tool"],
-        json!("get_file_diagnostics")
+        payload["data"]["entrypoint_contract"]["stage"],
+        json!("multi_file_reasoning")
     );
 }
 
@@ -2992,12 +3388,12 @@ fn assess_change_readiness_returns_structured_content() {
     );
     assert_eq!(payload["success"], json!(true));
     assert_eq!(
-        payload["data"]["workflow"],
+        payload["data"]["entrypoint"],
         json!("assess_change_readiness")
     );
     assert_eq!(
-        payload["data"]["delegated_tool"],
-        json!("verify_change_readiness")
+        payload["data"]["entrypoint_contract"]["stage"],
+        json!("mutation_preflight")
     );
 }
 
@@ -3013,10 +3409,10 @@ fn review_changes_returns_structured_content() {
         json!({"changed_files": ["review_test.py"]}),
     );
     assert_eq!(payload["success"], json!(true));
-    assert_eq!(payload["data"]["workflow"], json!("review_changes"));
+    assert_eq!(payload["data"]["entrypoint"], json!("review_changes"));
     assert_eq!(
-        payload["data"]["delegated_tool"],
-        json!("diff_aware_references")
+        payload["data"]["entrypoint_contract"]["stage"],
+        json!("multi_file_reasoning")
     );
 }
 
@@ -3034,7 +3430,11 @@ fn cleanup_duplicate_logic_returns_structured_content() {
     let payload = call_tool(&state, "cleanup_duplicate_logic", json!({}));
     assert_eq!(payload["success"], json!(true));
     assert_eq!(
-        payload["data"]["workflow"],
+        payload["data"]["entrypoint"],
         json!("cleanup_duplicate_logic")
+    );
+    assert_eq!(
+        payload["data"]["entrypoint_contract"]["stage"],
+        json!("multi_file_reasoning")
     );
 }

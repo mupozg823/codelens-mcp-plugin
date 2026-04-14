@@ -6,6 +6,10 @@
 use crate::server::router::handle_request;
 use crate::tool_defs::tools;
 use codelens_engine::ProjectRoot;
+#[cfg(feature = "scip-backend")]
+use protobuf::Message;
+#[cfg(feature = "scip-backend")]
+use scip::types::{self as scip_types, Index};
 use serde_json::json;
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -25,6 +29,8 @@ mod memory;
 mod mutation;
 mod protocol;
 mod readonly;
+#[cfg(feature = "scip-backend")]
+mod scip_perf;
 mod workflow;
 
 // ── Test helpers ─────────────────────────────────────────────────────
@@ -144,6 +150,50 @@ pub(super) fn project_root() -> ProjectRoot {
     fs::create_dir_all(&dir).unwrap();
     fs::write(dir.join("hello.txt"), "hello world\n").unwrap();
     ProjectRoot::new(dir.to_str().unwrap()).unwrap()
+}
+
+#[cfg(feature = "scip-backend")]
+pub(super) fn write_test_scip_index(project: &ProjectRoot) {
+    let mut idx = Index::new();
+
+    let mut main_doc = scip_types::Document::new();
+    main_doc.relative_path = "src/main.rs".to_owned();
+
+    let symbol = "scip-rust cargo test 0.1.0 src/main.rs/MyStruct#".to_owned();
+
+    let mut def_occ = scip_types::Occurrence::new();
+    def_occ.range = vec![10, 0, 8];
+    def_occ.symbol = symbol.clone();
+    def_occ.symbol_roles = 1;
+
+    let mut diag = scip_types::Diagnostic::new();
+    diag.severity = protobuf::EnumOrUnknown::new(scip_types::Severity::Warning);
+    diag.code = "SCIP001".to_owned();
+    diag.message = "test scip warning".to_owned();
+    diag.source = "scip-test".to_owned();
+    def_occ.diagnostics.push(diag);
+    main_doc.occurrences.push(def_occ);
+
+    let mut info = scip_types::SymbolInformation::new();
+    info.symbol = symbol.clone();
+    info.documentation = vec!["A test struct for MCP integration.".to_owned()];
+    main_doc.symbols.push(info);
+
+    let mut lib_doc = scip_types::Document::new();
+    lib_doc.relative_path = "src/lib.rs".to_owned();
+
+    let mut ref_occ = scip_types::Occurrence::new();
+    ref_occ.range = vec![5, 0, 8];
+    ref_occ.symbol = symbol;
+    ref_occ.symbol_roles = 0;
+    lib_doc.occurrences.push(ref_occ);
+
+    idx.documents.push(main_doc);
+    idx.documents.push(lib_doc);
+
+    let bytes = idx.write_to_bytes().expect("serialize scip index");
+    fs::create_dir_all(project.as_path().join("src")).expect("create src");
+    fs::write(project.as_path().join("index.scip"), bytes).expect("write index.scip");
 }
 
 /// Verify every tool in tool_defs has a corresponding dispatch handler.

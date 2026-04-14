@@ -19,6 +19,42 @@ fn returns_lsp_references_via_tool_call() {
     assert_eq!(payload["success"], json!(true));
 }
 
+#[cfg(feature = "scip-backend")]
+#[test]
+fn returns_scip_references_via_tool_call_when_index_is_present() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    fs::write(
+        project.as_path().join("src/main.rs"),
+        "pub struct MyStruct;\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("src/lib.rs"),
+        "use crate::MyStruct;\n",
+    )
+    .unwrap();
+    write_test_scip_index(&project);
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({ "file_path": "src/main.rs", "symbol_name": "MyStruct", "max_results": 10 }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["backend"], json!("scip"));
+    assert_eq!(payload["data"]["count"], json!(2));
+    let files = payload["data"]["references"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|entry| entry["file_path"].as_str())
+        .collect::<Vec<_>>();
+    assert!(files.contains(&"src/main.rs"));
+    assert!(files.contains(&"src/lib.rs"));
+}
+
 #[test]
 fn returns_lsp_diagnostics_via_tool_call() {
     let project = project_root();
@@ -71,6 +107,39 @@ fn returns_lsp_diagnostics_via_tool_call() {
         json!({ "file_path": "diag_target.py", "command": "python3", "args": [mock_path.to_string_lossy()] }),
     );
     assert_eq!(payload["success"], json!(true));
+}
+
+#[cfg(feature = "scip-backend")]
+#[test]
+fn returns_scip_diagnostics_via_tool_call_when_index_is_present() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    fs::write(
+        project.as_path().join("src/main.rs"),
+        "pub struct MyStruct;\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("src/lib.rs"),
+        "use crate::MyStruct;\n",
+    )
+    .unwrap();
+    write_test_scip_index(&project);
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "get_file_diagnostics",
+        json!({ "file_path": "src/main.rs", "max_results": 10 }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["backend"], json!("scip"));
+    assert_eq!(payload["data"]["count"], json!(1));
+    assert_eq!(
+        payload["data"]["diagnostics"][0]["message"],
+        json!("test scip warning")
+    );
+    assert_eq!(payload["data"]["diagnostics"][0]["code"], json!("SCIP001"));
 }
 
 #[test]

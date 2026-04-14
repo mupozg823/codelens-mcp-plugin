@@ -655,7 +655,7 @@ async fn analysis_jobs_follow_session_bound_project_scope() {
 
     let mut analysis_id = None;
     let mut last_poll_payload = None;
-    for _ in 0..2000 {
+    for _ in 0..150 {
         let poll = app
             .clone()
             .oneshot(
@@ -696,7 +696,7 @@ async fn analysis_jobs_follow_session_bound_project_scope() {
         ) {
             panic!("analysis job did not complete successfully: {poll_payload}");
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     }
 
     let analysis_id = analysis_id.unwrap_or_else(|| {
