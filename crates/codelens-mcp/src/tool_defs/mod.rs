@@ -17,6 +17,136 @@ use crate::protocol::ToolTier;
 
 pub(crate) const DEPRECATED_WORKFLOW_ALIAS_REMOVAL_TARGET: &str = "v1.10.0";
 
+const WORKFLOW_ONLY_TIERS: &[ToolTier] = &[ToolTier::Workflow];
+const WORKFLOW_THEN_ANALYSIS_TIERS: &[ToolTier] = &[ToolTier::Workflow, ToolTier::Analysis];
+const WORKFLOW_ANALYSIS_PRIMITIVE_TIERS: &[ToolTier] =
+    &[ToolTier::Workflow, ToolTier::Analysis, ToolTier::Primitive];
+const PRIMITIVE_ANALYSIS_TIERS: &[ToolTier] = &[ToolTier::Primitive, ToolTier::Analysis];
+
+const PLANNER_NAMESPACES: &[&str] = &["reports", "symbols", "graph", "session"];
+const BUILDER_NAMESPACES: &[&str] = &["reports", "symbols", "filesystem", "session"];
+const REVIEWER_NAMESPACES: &[&str] = &["reports", "graph", "symbols", "session"];
+const REFACTOR_NAMESPACES: &[&str] = &["reports", "session"];
+const CI_AUDIT_NAMESPACES: &[&str] = &["reports", "graph", "session"];
+const EVALUATOR_NAMESPACES: &[&str] = &["reports", "symbols", "lsp", "session"];
+const WORKFLOW_FIRST_NAMESPACES: &[&str] = &["workflow", "session"];
+const MINIMAL_NAMESPACES: &[&str] = &["symbols", "filesystem", "mutation"];
+const BALANCED_NAMESPACES: &[&str] = &["reports", "symbols", "graph", "filesystem", "session"];
+
+const PLANNER_BOOTSTRAP: &[&str] = &[
+    "explore_codebase",
+    "review_architecture",
+    "review_changes",
+    "prepare_harness_session",
+];
+const BUILDER_BOOTSTRAP: &[&str] = &[
+    "explore_codebase",
+    "trace_request_path",
+    "plan_safe_refactor",
+    "prepare_harness_session",
+];
+const REVIEWER_BOOTSTRAP: &[&str] = &[
+    "review_architecture",
+    "review_changes",
+    "cleanup_duplicate_logic",
+    "prepare_harness_session",
+];
+const REFACTOR_BOOTSTRAP: &[&str] = &[
+    "plan_safe_refactor",
+    "review_changes",
+    "trace_request_path",
+    "prepare_harness_session",
+];
+const CI_AUDIT_BOOTSTRAP: &[&str] = &[
+    "review_changes",
+    "semantic_code_review",
+    "review_architecture",
+    "prepare_harness_session",
+];
+const BALANCED_BOOTSTRAP: &[&str] = &[
+    "explore_codebase",
+    "review_architecture",
+    "review_changes",
+    "prepare_harness_session",
+];
+const FULL_BOOTSTRAP: &[&str] = &[
+    "explore_codebase",
+    "review_architecture",
+    "plan_safe_refactor",
+    "prepare_harness_session",
+];
+
+#[derive(Clone, Copy)]
+struct SurfacePreferenceSpec {
+    surface: ToolSurface,
+    preferred_namespaces: Option<&'static [&'static str]>,
+    preferred_bootstrap: Option<&'static [&'static str]>,
+    preferred_tiers: &'static [ToolTier],
+}
+
+const SURFACE_PREFERENCE_SPECS: &[SurfacePreferenceSpec] = &[
+    SurfacePreferenceSpec {
+        surface: ToolSurface::Profile(ToolProfile::PlannerReadonly),
+        preferred_namespaces: Some(PLANNER_NAMESPACES),
+        preferred_bootstrap: Some(PLANNER_BOOTSTRAP),
+        preferred_tiers: WORKFLOW_ONLY_TIERS,
+    },
+    SurfacePreferenceSpec {
+        surface: ToolSurface::Profile(ToolProfile::BuilderMinimal),
+        preferred_namespaces: Some(BUILDER_NAMESPACES),
+        preferred_bootstrap: Some(BUILDER_BOOTSTRAP),
+        preferred_tiers: WORKFLOW_ANALYSIS_PRIMITIVE_TIERS,
+    },
+    SurfacePreferenceSpec {
+        surface: ToolSurface::Profile(ToolProfile::ReviewerGraph),
+        preferred_namespaces: Some(REVIEWER_NAMESPACES),
+        preferred_bootstrap: Some(REVIEWER_BOOTSTRAP),
+        preferred_tiers: WORKFLOW_ONLY_TIERS,
+    },
+    SurfacePreferenceSpec {
+        surface: ToolSurface::Profile(ToolProfile::RefactorFull),
+        preferred_namespaces: Some(REFACTOR_NAMESPACES),
+        preferred_bootstrap: Some(REFACTOR_BOOTSTRAP),
+        preferred_tiers: WORKFLOW_ONLY_TIERS,
+    },
+    SurfacePreferenceSpec {
+        surface: ToolSurface::Profile(ToolProfile::CiAudit),
+        preferred_namespaces: Some(CI_AUDIT_NAMESPACES),
+        preferred_bootstrap: Some(CI_AUDIT_BOOTSTRAP),
+        preferred_tiers: WORKFLOW_ONLY_TIERS,
+    },
+    SurfacePreferenceSpec {
+        surface: ToolSurface::Profile(ToolProfile::EvaluatorCompact),
+        preferred_namespaces: Some(EVALUATOR_NAMESPACES),
+        preferred_bootstrap: None,
+        preferred_tiers: PRIMITIVE_ANALYSIS_TIERS,
+    },
+    SurfacePreferenceSpec {
+        surface: ToolSurface::Profile(ToolProfile::WorkflowFirst),
+        preferred_namespaces: Some(WORKFLOW_FIRST_NAMESPACES),
+        preferred_bootstrap: None,
+        preferred_tiers: WORKFLOW_ONLY_TIERS,
+    },
+    SurfacePreferenceSpec {
+        surface: ToolSurface::Preset(ToolPreset::Minimal),
+        preferred_namespaces: Some(MINIMAL_NAMESPACES),
+        preferred_bootstrap: None,
+        preferred_tiers: PRIMITIVE_ANALYSIS_TIERS,
+    },
+    SurfacePreferenceSpec {
+        surface: ToolSurface::Preset(ToolPreset::Balanced),
+        preferred_namespaces: Some(BALANCED_NAMESPACES),
+        preferred_bootstrap: Some(BALANCED_BOOTSTRAP),
+        preferred_tiers: WORKFLOW_THEN_ANALYSIS_TIERS,
+    },
+    SurfacePreferenceSpec {
+        surface: ToolSurface::Preset(ToolPreset::Full),
+        preferred_namespaces: None,
+        preferred_bootstrap: Some(FULL_BOOTSTRAP),
+        preferred_tiers: WORKFLOW_ANALYSIS_PRIMITIVE_TIERS,
+    },
+];
+
 pub(crate) fn deprecated_workflow_replacement(name: &str) -> Option<&'static str> {
     match name {
         "audit_security_context" => Some("semantic_code_review"),
@@ -93,104 +223,27 @@ pub(crate) fn is_deferred_control_tool(name: &str) -> bool {
     )
 }
 
+fn surface_preferences(surface: ToolSurface) -> Option<&'static SurfacePreferenceSpec> {
+    SURFACE_PREFERENCE_SPECS
+        .iter()
+        .find(|spec| spec.surface == surface)
+}
+
 pub(crate) fn preferred_namespaces(surface: ToolSurface) -> Vec<&'static str> {
-    match surface {
-        ToolSurface::Profile(ToolProfile::PlannerReadonly) => {
-            vec!["reports", "symbols", "graph", "session"]
-        }
-        ToolSurface::Profile(ToolProfile::BuilderMinimal) => {
-            vec!["reports", "symbols", "filesystem", "session"]
-        }
-        ToolSurface::Profile(ToolProfile::ReviewerGraph) => {
-            vec!["reports", "graph", "symbols", "session"]
-        }
-        ToolSurface::Profile(ToolProfile::RefactorFull) => {
-            vec!["reports", "session"]
-        }
-        ToolSurface::Profile(ToolProfile::CiAudit) => {
-            vec!["reports", "graph", "session"]
-        }
-        ToolSurface::Profile(ToolProfile::EvaluatorCompact) => {
-            vec!["reports", "symbols", "lsp", "session"]
-        }
-        ToolSurface::Profile(ToolProfile::WorkflowFirst) => vec!["workflow", "session"],
-        ToolSurface::Preset(ToolPreset::Minimal) => vec!["symbols", "filesystem", "mutation"],
-        ToolSurface::Preset(ToolPreset::Balanced) => {
-            vec!["reports", "symbols", "graph", "filesystem", "session"]
-        }
-        ToolSurface::Preset(ToolPreset::Full) => raw_visible_namespaces(surface),
-    }
+    surface_preferences(surface)
+        .and_then(|spec| spec.preferred_namespaces)
+        .map(|namespaces| namespaces.to_vec())
+        .unwrap_or_else(|| raw_visible_namespaces(surface))
 }
 
 pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static [&'static str]> {
-    match surface {
-        ToolSurface::Profile(ToolProfile::PlannerReadonly) => Some(&[
-            "explore_codebase",
-            "review_architecture",
-            "review_changes",
-            "prepare_harness_session",
-        ]),
-        ToolSurface::Profile(ToolProfile::BuilderMinimal) => Some(&[
-            "explore_codebase",
-            "trace_request_path",
-            "plan_safe_refactor",
-            "prepare_harness_session",
-        ]),
-        ToolSurface::Profile(ToolProfile::ReviewerGraph) => Some(&[
-            "review_architecture",
-            "review_changes",
-            "cleanup_duplicate_logic",
-            "prepare_harness_session",
-        ]),
-        // Keep refactor bootstrap preview-first. Mutation and broader report tools
-        // are still reachable after an explicit expansion or follow-up step.
-        ToolSurface::Profile(ToolProfile::RefactorFull) => Some(&[
-            "plan_safe_refactor",
-            "review_changes",
-            "trace_request_path",
-            "prepare_harness_session",
-        ]),
-        ToolSurface::Profile(ToolProfile::CiAudit) => Some(&[
-            "review_changes",
-            "semantic_code_review",
-            "review_architecture",
-            "prepare_harness_session",
-        ]),
-        ToolSurface::Preset(ToolPreset::Balanced) => Some(&[
-            "explore_codebase",
-            "review_architecture",
-            "review_changes",
-            "prepare_harness_session",
-        ]),
-        ToolSurface::Preset(ToolPreset::Full) => Some(&[
-            "explore_codebase",
-            "review_architecture",
-            "plan_safe_refactor",
-            "prepare_harness_session",
-        ]),
-        _ => None,
-    }
+    surface_preferences(surface).and_then(|spec| spec.preferred_bootstrap)
 }
 
 pub(crate) fn preferred_tiers(surface: ToolSurface) -> Vec<ToolTier> {
-    match surface {
-        ToolSurface::Profile(ToolProfile::PlannerReadonly)
-        | ToolSurface::Profile(ToolProfile::ReviewerGraph)
-        | ToolSurface::Profile(ToolProfile::RefactorFull)
-        | ToolSurface::Profile(ToolProfile::CiAudit)
-        | ToolSurface::Profile(ToolProfile::WorkflowFirst) => vec![ToolTier::Workflow],
-        ToolSurface::Profile(ToolProfile::EvaluatorCompact) => {
-            vec![ToolTier::Primitive, ToolTier::Analysis]
-        }
-        ToolSurface::Profile(ToolProfile::BuilderMinimal) => {
-            vec![ToolTier::Workflow, ToolTier::Analysis, ToolTier::Primitive]
-        }
-        ToolSurface::Preset(ToolPreset::Minimal) => vec![ToolTier::Primitive, ToolTier::Analysis],
-        ToolSurface::Preset(ToolPreset::Balanced) => vec![ToolTier::Workflow, ToolTier::Analysis],
-        ToolSurface::Preset(ToolPreset::Full) => {
-            vec![ToolTier::Workflow, ToolTier::Analysis, ToolTier::Primitive]
-        }
-    }
+    surface_preferences(surface)
+        .map(|spec| spec.preferred_tiers.to_vec())
+        .unwrap_or_default()
 }
 
 pub(crate) fn preferred_tier_labels(surface: ToolSurface) -> Vec<&'static str> {
@@ -274,4 +327,45 @@ pub(crate) fn is_content_mutation_tool(name: &str) -> bool {
             | "refactor_move_to_file"
             | "refactor_change_signature"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn surface_preference_specs_preserve_bootstrap_priority() {
+        assert_eq!(
+            preferred_bootstrap_tools(ToolSurface::Profile(ToolProfile::BuilderMinimal)),
+            Some(BUILDER_BOOTSTRAP)
+        );
+        assert_eq!(
+            preferred_bootstrap_tools(ToolSurface::Profile(ToolProfile::ReviewerGraph)),
+            Some(REVIEWER_BOOTSTRAP)
+        );
+        assert_eq!(
+            preferred_bootstrap_tools(ToolSurface::Profile(ToolProfile::WorkflowFirst)),
+            None
+        );
+    }
+
+    #[test]
+    fn surface_preference_specs_preserve_namespace_preferences() {
+        assert_eq!(
+            preferred_namespaces(ToolSurface::Profile(ToolProfile::CiAudit)),
+            CI_AUDIT_NAMESPACES
+        );
+        assert_eq!(
+            preferred_namespaces(ToolSurface::Preset(ToolPreset::Balanced)),
+            BALANCED_NAMESPACES
+        );
+    }
+
+    #[test]
+    fn full_surface_keeps_dynamic_namespace_fallback() {
+        let full_namespaces = preferred_namespaces(ToolSurface::Preset(ToolPreset::Full));
+        assert!(full_namespaces.contains(&"reports"));
+        assert!(full_namespaces.contains(&"session"));
+        assert!(full_namespaces.contains(&"symbols"));
+    }
 }

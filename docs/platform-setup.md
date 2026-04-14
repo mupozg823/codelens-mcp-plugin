@@ -97,7 +97,7 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current `1.9.14` runtime shape, `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
+On the current runtime shape, `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
 
 For `refactor-full`, use a preflight-first path:
 
@@ -175,7 +175,7 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current `1.9.14` runtime shape in this repository, `builder-minimal` remains bounded after bootstrap, with canonical workflow entrypoints shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
+On the current runtime shape in this repository, `builder-minimal` remains bounded after bootstrap, with canonical workflow entrypoints shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
 
 For `refactor-full`, use a preflight-first path:
 

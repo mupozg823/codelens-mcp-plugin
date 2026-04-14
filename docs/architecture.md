@@ -7,7 +7,7 @@
 
 - Workspace version: `1.9.26`
 - Registered tool definitions in source: `103` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
-- Tool output schemas in source: `67 / 103`
+- Tool output schemas in source: `68 / 103`
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
 - Current release notes: [docs/release-notes/v1.9.26.md](release-notes/v1.9.26.md)
@@ -244,7 +244,7 @@ codelens-mcp-plugin/
 │           ├── tool_defs/                # Tool registration
 │           │   ├── mod.rs
 │           │   ├── build.rs              # registered tool definitions (central registry)
-│           │   ├── output_schemas.rs     # 45 output schemas
+│           │   ├── output_schemas.rs     # output schema builders
 │           │   └── presets.rs            # FULL/BALANCED/MINIMAL + profiles
 │           │
 │           ├── server/                   # Transport layer
@@ -258,7 +258,7 @@ codelens-mcp-plugin/
 │           └── tools/                    # Tool handler implementations
 │               ├── mod.rs                # Dispatch table + suggest_next_tools
 │               ├── symbols.rs            # Symbol lookup handlers
-│               ├── workflows.rs          # Workflow-first alias layer for agent entrypoints
+│               ├── workflows.rs          # Canonical workflow entrypoints + compatibility aliases
 │               ├── lsp.rs                # LSP-backed handlers
 │               ├── graph.rs              # Analysis graph handlers
 │               ├── filesystem.rs         # File I/O handlers
@@ -448,7 +448,7 @@ MINIMAL  (20)   ██████████████                      
 
 ### Output Schemas
 
-- **67 of 103 tools** declare a JSON output schema in the current source tree
+- **68 of 103 tools** declare a JSON output schema in the current source tree
 - All read handles (`analysis_handle`), mutation results, and primary symbol/reference payloads are schema-typed
 - Response annotations include `_meta["anthropic/maxResultSizeChars"]` per MCP v2.1.91+
 
@@ -544,7 +544,7 @@ All mutation tools are gated:
 │  │                                                   │  │
 │  │  ✅ Streamable HTTP + SSE                         │  │
 │  │  ✅ Tool Annotations (readOnly/destructive)       │  │
-│  │  ✅ Tool Output Schemas (67/103 tools)            │  │
+│  │  ✅ Tool Output Schemas (68/103 tools)            │  │
 │  │  ✅ Preset + Role Profile subsetting              │  │
 │  │  ✅ Token budget control (_profile)               │  │
 │  │  ✅ Adaptive compression (OpenDev 5-stage)        │  │
@@ -579,7 +579,7 @@ Use the **Current Snapshot** above and `docs/benchmarks.md` for current measurem
 | Tools (FULL / BALANCED / MINIMAL) | 89 / 55 / 20                                                                           |
 | Tool categories (base)            | File 7 · Symbol 7 · LSP 7 · Analysis 7 · Edit 17 · Workflow 17 · Memory 5 · Session 16 |
 | Semantic tools (cfg-gated)        | 6                                                                                      |
-| Output schemas                    | historical snapshot, superseded by current `67 / 103` snapshot above                   |
+| Output schemas                    | historical snapshot, superseded by current `68 / 103` snapshot above                   |
 | Languages                         | 25 (+ Perl deferred)                                                                   |
 | Tests                             | historical snapshot, superseded by current gate totals                                 |
 | Clippy                            | 0 warnings (default + http feature)                                                    |
