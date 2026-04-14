@@ -93,6 +93,43 @@ fn coordination_activity_resource_exposes_registered_agents_and_claims() {
 }
 
 #[test]
+fn claim_files_without_registration_uses_project_fallback_metadata() {
+    let project = temp_project_root("coordination-fallback");
+    fs::write(
+        project.as_path().join("coord.py"),
+        "def sample():\n    return 1\n",
+    )
+    .unwrap();
+    fs::create_dir_all(project.as_path().join(".git")).unwrap();
+    fs::write(
+        project.as_path().join(".git/HEAD"),
+        "ref: refs/heads/coord-main\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let claimed = call_tool_with_session(
+        &state,
+        "claim_files",
+        json!({
+            "paths": ["coord.py"],
+            "reason": "unregistered fallback"
+        }),
+        "session-fallback",
+    );
+    assert_eq!(claimed["success"], json!(true));
+    assert_eq!(
+        claimed["data"]["claim"]["agent_name"],
+        json!("session-fallback")
+    );
+    assert_eq!(claimed["data"]["claim"]["branch"], json!("coord-main"));
+    assert_eq!(
+        claimed["data"]["claim"]["worktree"],
+        json!(project.as_path().to_string_lossy().to_string())
+    );
+}
+
+#[test]
 fn verify_change_readiness_reports_overlapping_claims_without_blocking_mutation() {
     let project = temp_project_root("coordination-overlap");
     fs::write(
@@ -176,6 +213,50 @@ fn verify_change_readiness_reports_overlapping_claims_without_blocking_mutation(
             .as_u64()
             .unwrap_or_default()
             >= 1
+    );
+}
+
+#[test]
+fn prepare_harness_session_surfaces_coordination_counts() {
+    let project = temp_project_root("coordination-bootstrap");
+    fs::write(
+        project.as_path().join("coord.py"),
+        "def sample():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "register_agent_work",
+        json!({
+            "agent_name": "codex",
+            "branch": "codex/bootstrap-a",
+            "worktree": "/tmp/codex-bootstrap-a",
+            "intent": "edit coord.py"
+        }),
+        "session-a",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "claim_files",
+        json!({
+            "paths": ["coord.py"],
+            "reason": "bootstrap visibility"
+        }),
+        "session-a",
+    );
+
+    let bootstrap =
+        call_tool_with_session(&state, "prepare_harness_session", json!({}), "session-a");
+    assert_eq!(bootstrap["success"], json!(true));
+    assert_eq!(
+        bootstrap["data"]["http_session"]["active_coordination_agents"],
+        json!(1)
+    );
+    assert_eq!(
+        bootstrap["data"]["http_session"]["active_coordination_claims"],
+        json!(1)
     );
 }
 

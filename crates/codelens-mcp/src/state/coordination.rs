@@ -1,4 +1,6 @@
 use serde_json::Value;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
@@ -65,6 +67,51 @@ fn normalized_claim_paths(
     Ok(paths)
 }
 
+fn resolve_git_dir(project_root: &Path) -> Option<PathBuf> {
+    let dot_git = project_root.join(".git");
+    if dot_git.is_dir() {
+        return Some(dot_git);
+    }
+    if !dot_git.is_file() {
+        return None;
+    }
+    let contents = fs::read_to_string(dot_git).ok()?;
+    let gitdir = contents
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("gitdir:"))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let gitdir_path = PathBuf::from(gitdir);
+    Some(if gitdir_path.is_absolute() {
+        gitdir_path
+    } else {
+        project_root.join(gitdir_path)
+    })
+}
+
+fn infer_git_branch(project_root: &Path) -> String {
+    let Some(git_dir) = resolve_git_dir(project_root) else {
+        return String::new();
+    };
+    let Ok(head) = fs::read_to_string(git_dir.join("HEAD")) else {
+        return String::new();
+    };
+    let head = head.trim();
+    if let Some(reference) = head.strip_prefix("ref:") {
+        return reference
+            .trim()
+            .rsplit('/')
+            .next()
+            .unwrap_or_default()
+            .to_owned();
+    }
+    if head.is_empty() {
+        String::new()
+    } else {
+        "detached".to_owned()
+    }
+}
+
 impl AppState {
     pub(crate) fn register_agent_work_for_arguments(
         &self,
@@ -110,12 +157,14 @@ impl AppState {
             .client_name
             .clone()
             .unwrap_or_else(|| session_id.clone());
+        let fallback_worktree = self.project().as_path().to_string_lossy().to_string();
+        let fallback_branch = infer_git_branch(self.project().as_path());
         Ok(self.coord_store.claim_files(
             &scope,
             &session_id,
             &fallback_agent_name,
-            "",
-            "",
+            &fallback_branch,
+            &fallback_worktree,
             paths,
             reason,
             coordination_ttl_seconds(arguments),
