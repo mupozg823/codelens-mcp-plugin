@@ -69,13 +69,19 @@ Latest release notes: [v1.9.23](docs/release-notes/v1.9.23.md)
 
 ### Shared HTTP Daemon (Multi-Agent)
 
+Running every editor or agent as its own stdio subprocess spawns **one `codelens-mcp` instance per session**, each with its own index and embedding state. Measured on a typical developer laptop with Claude Code + Codex Desktop + Cursor attached to the same project, this adds up to **200–300 MB** of duplicated resident memory for effectively the same data. The HTTP daemon collapses that into a single shared process.
+
+Minimal setup:
+
 ```bash
-# Read-only for planners/reviewers
+# Start once, keep running in the background
 codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon-mode read-only --port 7837
 
-# Mutation-enabled for refactor agents
+# Optional: a second daemon scoped for refactor-capable agents
 codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
 ```
+
+Every MCP client then attaches by URL instead of spawning a subprocess:
 
 ```json
 {
@@ -83,6 +89,51 @@ codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-
     "codelens": { "type": "http", "url": "http://127.0.0.1:7837/mcp" }
   }
 }
+```
+
+#### When to prefer HTTP vs stdio
+
+| Situation                                            | Transport                 | Why                                                                    |
+| ---------------------------------------------------- | ------------------------- | ---------------------------------------------------------------------- |
+| Single-agent, ephemeral sessions                     | stdio                     | Zero setup, auto-lifecycle, no port management                         |
+| 2+ agents (Claude + Codex + Cursor) on the same repo | **HTTP**                  | One shared index, 100–200 MB saved per extra agent                     |
+| Long-running agent or automation loop                | **HTTP**                  | Avoids cold-start on every session                                     |
+| CI / one-shot script                                 | stdio                     | `--oneshot` matches short-lived commands                               |
+| Mutation-heavy workflow needing isolation            | **HTTP with two daemons** | Read-only port for planners, mutation-enabled port for refactor agents |
+
+#### Troubleshooting
+
+- **`Failed to reconnect` on the client** — the daemon likely exited or the port is wrong. Verify with `curl http://127.0.0.1:7837/mcp` (should return an MCP server response, not a TCP refused).
+- **Stale index warning on first attach** — expected when the watcher hasn't caught up after a daemon restart. Call `refresh_symbol_index` via MCP once, or restart the daemon with the project root as its CWD.
+- **Broken `~/.local/bin/codelens-mcp` symlink** — if `cargo clean` removed the `target/release/codelens-mcp` this symlink points at, the daemon cannot start. Run `bash scripts/sync-local-bin.sh .` to re-link, or `cargo install --path crates/codelens-mcp --force` to install a real binary under `~/.cargo/bin/`.
+- **Multiple daemons listening on the same port** — only one will actually bind; the rest exit immediately. Check with `lsof -iTCP:7837 -sTCP:LISTEN`.
+- **Health check** — `scripts/mcp-doctor.sh . --strict` verifies that the configured transport matches an actual attach.
+
+#### Auto-start on macOS (launchd)
+
+```xml
+<!-- ~/Library/LaunchAgents/dev.codelens.mcp.plist -->
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+  <key>Label</key>            <string>dev.codelens.mcp</string>
+  <key>ProgramArguments</key> <array>
+    <string>/Users/you/.local/bin/codelens-mcp</string>
+    <string>/Users/you/your-project</string>
+    <string>--transport</string><string>http</string>
+    <string>--profile</string><string>reviewer-graph</string>
+    <string>--daemon-mode</string><string>read-only</string>
+    <string>--port</string><string>7837</string>
+  </array>
+  <key>RunAtLoad</key>        <true/>
+  <key>KeepAlive</key>        <true/>
+  <key>StandardOutPath</key>  <string>/tmp/codelens-mcp.out.log</string>
+  <key>StandardErrorPath</key><string>/tmp/codelens-mcp.err.log</string>
+</dict></plist>
+```
+
+```bash
+launchctl load ~/Library/LaunchAgents/dev.codelens.mcp.plist
+launchctl list | grep codelens   # confirm it's running
 ```
 
 See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.
