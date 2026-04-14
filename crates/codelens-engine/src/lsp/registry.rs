@@ -283,6 +283,16 @@ pub fn get_lsp_recipe(extension: &str) -> Option<&'static LspRecipe> {
         .find(|r| r.extensions.contains(&ext.as_str()))
 }
 
+pub fn get_lsp_recipe_for_command(command: &str) -> Option<&'static LspRecipe> {
+    let binary = Path::new(command)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(command);
+    LSP_RECIPES
+        .iter()
+        .find(|recipe| recipe.binary_name == binary)
+}
+
 pub fn default_lsp_command_for_extension(extension: &str) -> Option<&'static str> {
     get_lsp_recipe(extension).map(|recipe| recipe.binary_name)
 }
@@ -295,8 +305,5 @@ pub fn default_lsp_command_for_path(file_path: &str) -> Option<&'static str> {
 }
 
 pub fn default_lsp_args_for_command(command: &str) -> Option<&'static [&'static str]> {
-    LSP_RECIPES
-        .iter()
-        .find(|recipe| recipe.binary_name == command)
-        .map(|recipe| recipe.args)
+    get_lsp_recipe_for_command(command).map(|recipe| recipe.args)
 }

@@ -406,13 +406,45 @@ pub(super) fn analysis_handle_output_schema() -> serde_json::Value {
     })
 }
 
-pub(super) fn workflow_alias_output_schema() -> serde_json::Value {
+pub(super) fn workflow_entrypoint_output_schema() -> serde_json::Value {
     json!({
         "type": "object",
         "properties": {
             "workflow": {"type": "string"},
             "delegated_tool": {"type": "string"},
+            "deprecated": {"type": "boolean"},
+            "replacement_tool": {"type": ["string", "null"]},
+            "removal_target": {"type": ["string", "null"]},
             "result": {}
+        }
+    })
+}
+
+pub(super) fn deprecated_workflow_alias_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "workflow": {"type": "string"},
+            "delegated_tool": {"type": "string"},
+            "deprecated": {"type": "boolean", "enum": [true]},
+            "replacement_tool": {"type": "string"},
+            "removal_target": {"type": "string"},
+            "result": {}
+        }
+    })
+}
+
+pub(super) fn tool_metrics_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "tools": {"type": "array", "items": {"type": "object"}},
+            "per_tool": {"type": "array", "items": {"type": "object"}},
+            "count": {"type": "integer"},
+            "surfaces": {"type": "array", "items": {"type": "object"}},
+            "per_surface": {"type": "array", "items": {"type": "object"}},
+            "session": {"type": "object"},
+            "derived_kpis": {"type": "object"}
         }
     })
 }

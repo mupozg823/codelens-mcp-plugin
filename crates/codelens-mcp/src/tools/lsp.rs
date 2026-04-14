@@ -9,7 +9,7 @@ use codelens_engine::{
     LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspTypeHierarchyRequest,
     LspWorkspaceSymbolRequest, check_lsp_status as core_check_lsp_status, extract_word_at_position,
     find_referencing_symbols_via_text, get_lsp_recipe as core_get_lsp_recipe,
-    get_type_hierarchy_native,
+    get_lsp_recipe_for_command as core_get_lsp_recipe_for_command, get_type_hierarchy_native,
 };
 use serde_json::json;
 
@@ -49,30 +49,9 @@ fn compact_text_references(
 }
 
 fn lsp_install_hint(command: &str) -> &'static str {
-    match command {
-        "pyright" => "  pip install pyright",
-        "typescript-language-server" => "  npm i -g typescript-language-server typescript",
-        "rust-analyzer" => "  rustup component add rust-analyzer",
-        "gopls" => "  go install golang.org/x/tools/gopls@latest",
-        "clangd" => "  brew install llvm  (or apt install clangd)",
-        "jdtls" => "  See https://github.com/eclipse-jdtls/eclipse.jdt.ls",
-        "solargraph" => "  gem install solargraph",
-        "intelephense" => "  npm i -g intelephense",
-        "kotlin-language-server" => "  See https://github.com/fwcd/kotlin-language-server",
-        "metals" => "  cs install metals  (via Coursier)",
-        "sourcekit-lsp" => "  Included with Xcode / Swift toolchain",
-        "csharp-ls" => "  dotnet tool install -g csharp-ls",
-        "dart" => "  dart pub global activate dart_language_server",
-        // Phase 6a languages
-        "lua-language-server" => "  brew install lua-language-server",
-        "zls" => "  brew install zls",
-        "nextls" => "  mix escript.install hex next_ls",
-        "haskell-language-server-wrapper" => "  ghcup install hls",
-        "ocamllsp" => "  opam install ocaml-lsp-server",
-        "erlang_ls" => "  brew install erlang_ls",
-        "bash-language-server" => "  npm i -g bash-language-server",
-        _ => "  Check your package manager for the LSP server binary",
-    }
+    core_get_lsp_recipe_for_command(command)
+        .map(|recipe| recipe.install_command)
+        .unwrap_or("Check your package manager for the LSP server binary")
 }
 
 fn enhance_lsp_error(err: anyhow::Error, command: &str) -> CodeLensError {

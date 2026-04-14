@@ -15,6 +15,21 @@ pub(crate) use build::{tool_definition, tools};
 
 use crate::protocol::ToolTier;
 
+pub(crate) const DEPRECATED_WORKFLOW_ALIAS_REMOVAL_TARGET: &str = "v1.10.0";
+
+pub(crate) fn deprecated_workflow_replacement(name: &str) -> Option<&'static str> {
+    match name {
+        "audit_security_context" => Some("semantic_code_review"),
+        "analyze_change_impact" => Some("impact_report"),
+        "assess_change_readiness" => Some("verify_change_readiness"),
+        _ => None,
+    }
+}
+
+pub(crate) fn canonical_tool_name(name: &str) -> &str {
+    deprecated_workflow_replacement(name).unwrap_or(name)
+}
+
 fn raw_visible_tool_entries(surface: ToolSurface) -> Vec<(usize, &'static crate::protocol::Tool)> {
     tools()
         .iter()
@@ -112,7 +127,7 @@ pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => Some(&[
             "explore_codebase",
             "review_architecture",
-            "analyze_change_impact",
+            "review_changes",
             "prepare_harness_session",
         ]),
         ToolSurface::Profile(ToolProfile::BuilderMinimal) => Some(&[
@@ -123,28 +138,28 @@ pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static
         ]),
         ToolSurface::Profile(ToolProfile::ReviewerGraph) => Some(&[
             "review_architecture",
-            "analyze_change_impact",
-            "audit_security_context",
+            "review_changes",
+            "cleanup_duplicate_logic",
             "prepare_harness_session",
         ]),
         // Keep refactor bootstrap preview-first. Mutation and broader report tools
         // are still reachable after an explicit expansion or follow-up step.
         ToolSurface::Profile(ToolProfile::RefactorFull) => Some(&[
             "plan_safe_refactor",
-            "analyze_change_impact",
+            "review_changes",
             "trace_request_path",
             "prepare_harness_session",
         ]),
         ToolSurface::Profile(ToolProfile::CiAudit) => Some(&[
-            "analyze_change_impact",
-            "audit_security_context",
+            "review_changes",
+            "semantic_code_review",
             "review_architecture",
             "prepare_harness_session",
         ]),
         ToolSurface::Preset(ToolPreset::Balanced) => Some(&[
             "explore_codebase",
             "review_architecture",
-            "analyze_change_impact",
+            "review_changes",
             "prepare_harness_session",
         ]),
         ToolSurface::Preset(ToolPreset::Full) => Some(&[

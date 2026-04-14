@@ -3,14 +3,14 @@
 > Pure Rust MCP server and harness optimization tool for code intelligence
 > 3 crates in the workspace | 2 primary runtime boundaries | 25 languages | tree-sitter-first
 
-## Current Snapshot (2026-04-13)
+## Current Snapshot (2026-04-15)
 
-- Workspace version: `1.9.14`
-- Registered tool definitions in source: `101` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
-- Tool output schemas in source: `65 / 101`
+- Workspace version: `1.9.26`
+- Registered tool definitions in source: `103` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
+- Tool output schemas in source: `67 / 103`
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
-- Current release notes: [docs/release-notes/v1.9.14.md](release-notes/v1.9.14.md)
+- Current release notes: [docs/release-notes/v1.9.26.md](release-notes/v1.9.26.md)
 - Current release verification guide: [docs/release-verification.md](release-verification.md)
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)
@@ -140,7 +140,7 @@ Use repo-local contracts alongside this document:
 
 ```
 codelens-mcp-plugin/
-├── Cargo.toml                            # Workspace: 2 crates, 25 tree-sitter deps
+├── Cargo.toml                            # Workspace: 3 crates, shared dependency graph
 ├── CLAUDE.md                             # AI agent instructions (harness routing)
 ├── AGENTS.md                             # Agent role contracts
 ├── EVAL_CONTRACT.md                      # Verification command contracts
@@ -448,7 +448,7 @@ MINIMAL  (20)   ██████████████                      
 
 ### Output Schemas
 
-- **65 of 101 tools** declare a JSON output schema in the current source tree
+- **67 of 103 tools** declare a JSON output schema in the current source tree
 - All read handles (`analysis_handle`), mutation results, and primary symbol/reference payloads are schema-typed
 - Response annotations include `_meta["anthropic/maxResultSizeChars"]` per MCP v2.1.91+
 
@@ -544,7 +544,7 @@ All mutation tools are gated:
 │  │                                                   │  │
 │  │  ✅ Streamable HTTP + SSE                         │  │
 │  │  ✅ Tool Annotations (readOnly/destructive)       │  │
-│  │  ✅ Tool Output Schemas (65/101 tools)            │  │
+│  │  ✅ Tool Output Schemas (67/103 tools)            │  │
 │  │  ✅ Preset + Role Profile subsetting              │  │
 │  │  ✅ Token budget control (_profile)               │  │
 │  │  ✅ Adaptive compression (OpenDev 5-stage)        │  │
@@ -579,7 +579,7 @@ Use the **Current Snapshot** above and `docs/benchmarks.md` for current measurem
 | Tools (FULL / BALANCED / MINIMAL) | 89 / 55 / 20                                                                           |
 | Tool categories (base)            | File 7 · Symbol 7 · LSP 7 · Analysis 7 · Edit 17 · Workflow 17 · Memory 5 · Session 16 |
 | Semantic tools (cfg-gated)        | 6                                                                                      |
-| Output schemas                    | historical snapshot, superseded by current `65 / 101` snapshot above                   |
+| Output schemas                    | historical snapshot, superseded by current `67 / 103` snapshot above                   |
 | Languages                         | 25 (+ Perl deferred)                                                                   |
 | Tests                             | historical snapshot, superseded by current gate totals                                 |
 | Clippy                            | 0 warnings (default + http feature)                                                    |

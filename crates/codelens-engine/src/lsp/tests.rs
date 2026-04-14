@@ -2,7 +2,8 @@ use super::{
     LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
     LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, default_lsp_args_for_command,
     default_lsp_command_for_path, find_referencing_symbols_via_lsp, get_diagnostics_via_lsp,
-    get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
+    get_lsp_recipe_for_command, get_rename_plan_via_lsp, get_type_hierarchy_via_lsp,
+    search_workspace_symbols_via_lsp,
 };
 use crate::ProjectRoot;
 use serde_json::Value;
@@ -233,6 +234,14 @@ fn default_lsp_args_are_derived_from_registry_by_command() {
         Some(&["--stdio"][..])
     );
     assert_eq!(default_lsp_args_for_command("metals"), Some(&[][..]));
+}
+
+#[test]
+fn lsp_recipe_lookup_accepts_absolute_command_paths() {
+    let recipe = get_lsp_recipe_for_command("/opt/homebrew/bin/pyright-langserver")
+        .expect("recipe for pyright absolute path");
+    assert_eq!(recipe.server_name, "pyright");
+    assert_eq!(recipe.install_command, "npm install -g pyright");
 }
 
 fn chmod_exec(path: &std::path::Path) {

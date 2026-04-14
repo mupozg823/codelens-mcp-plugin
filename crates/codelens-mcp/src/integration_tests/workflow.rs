@@ -1801,7 +1801,82 @@ fn workflow_alias_tools_return_structured_content_and_delegate() {
         value["result"]["structuredContent"]["delegated_tool"],
         json!("get_ranked_context")
     );
+    // Canonical workflows must NOT carry deprecation metadata.
+    assert_eq!(
+        value["result"]["structuredContent"]["deprecated"],
+        json!(false)
+    );
     assert!(value["result"]["structuredContent"]["symbols"].is_array());
+}
+
+#[test]
+fn deprecated_workflow_aliases_return_replacement_metadata() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("dep_alias.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    for (tool_name, arguments, replacement_tool) in [
+        (
+            "assess_change_readiness",
+            json!({ "task": "touch alpha", "changed_files": ["dep_alias.py"] }),
+            "verify_change_readiness",
+        ),
+        (
+            "analyze_change_impact",
+            json!({ "changed_files": ["dep_alias.py"] }),
+            "impact_report",
+        ),
+        (
+            "audit_security_context",
+            json!({ "changed_files": ["dep_alias.py"] }),
+            "semantic_code_review",
+        ),
+    ] {
+        let payload = call_tool(&state, tool_name, arguments);
+        assert_eq!(payload["success"], json!(true), "alias {tool_name} failed");
+        assert_eq!(payload["data"]["workflow"], json!(tool_name));
+        assert_eq!(payload["data"]["delegated_tool"], json!(replacement_tool));
+        assert_eq!(payload["data"]["deprecated"], json!(true));
+        assert_eq!(payload["data"]["replacement_tool"], json!(replacement_tool));
+        assert_eq!(payload["data"]["removal_target"], json!("v1.10.0"));
+    }
+}
+
+#[test]
+fn review_changes_without_scope_returns_validation_error() {
+    let project = project_root();
+    let state = make_state(&project);
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(31027)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "review_changes",
+                "arguments": {}
+            })),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    // review_changes with neither `changed_files` nor `path` must fail fast,
+    // not silently fall back to impact_report on an unspecified scope.
+    let text = extract_tool_text(&response);
+    let parsed = parse_tool_payload(&text);
+    assert_eq!(parsed["success"], json!(false));
+    let message = parsed["error"]
+        .as_str()
+        .or_else(|| value["result"]["content"][0]["text"].as_str())
+        .unwrap_or_default();
+    assert!(
+        message.contains("changed_files") || message.contains("path"),
+        "error must mention the missing scope param: {message}"
+    );
 }
 
 #[test]
@@ -2074,7 +2149,7 @@ fn analysis_list_schemas_expose_machine_summary_fields() {
 }
 
 #[test]
-fn workflow_first_surfaces_prefer_alias_bootstrap() {
+fn workflow_first_surfaces_prefer_canonical_bootstrap() {
     use crate::protocol::ToolTier;
     use crate::tool_defs::{
         ToolPreset, ToolProfile, ToolSurface, preferred_bootstrap_tools, preferred_tiers,
@@ -2087,7 +2162,7 @@ fn workflow_first_surfaces_prefer_alias_bootstrap() {
         preferred_bootstrap_tools(ToolSurface::Preset(ToolPreset::Balanced)).unwrap_or(&[]);
     assert!(balanced_bootstrap.contains(&"explore_codebase"));
     assert!(balanced_bootstrap.contains(&"review_architecture"));
-    assert!(balanced_bootstrap.contains(&"analyze_change_impact"));
+    assert!(balanced_bootstrap.contains(&"review_changes"));
 }
 
 #[test]
@@ -2118,8 +2193,8 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
         reviewer_tools,
         vec![
             "review_architecture",
-            "analyze_change_impact",
-            "audit_security_context",
+            "review_changes",
+            "cleanup_duplicate_logic",
             "prepare_harness_session",
         ]
     );
@@ -2883,12 +2958,7 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
 /// stomp each other when the test runner uses multiple threads.
 static PATH_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-#[test]
-fn diagnose_issues_returns_structured_content() {
-    // diagnose_issues with a path delegates to get_file_diagnostics, which
-    // needs an LSP server.  We create a minimal python3-based mock named
-    // `pyright-langserver` (the default binary for .py files) in a temp bin
-    // directory and prepend it to PATH for the duration of the test.
+fn install_mock_pyright(bin_dir: &std::path::Path) {
     let mock_lsp = concat!(
         "#!/usr/bin/env python3\n",
         "import sys, json\n",
@@ -2924,6 +2994,16 @@ fn diagnose_issues_returns_structured_content() {
         "        send({'jsonrpc':'2.0','id':rid,'result':None})\n",
     );
 
+    let mock_bin = bin_dir.join("pyright-langserver");
+    fs::write(&mock_bin, mock_lsp).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&mock_bin, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+fn with_mock_pyright_path(run: impl FnOnce()) {
     let bin_dir = std::env::temp_dir().join(format!(
         "codelens-test-bin-{}-{}",
         std::process::id(),
@@ -2933,21 +3013,7 @@ fn diagnose_issues_returns_structured_content() {
             .as_nanos()
     ));
     fs::create_dir_all(&bin_dir).unwrap();
-    let mock_bin = bin_dir.join("pyright-langserver");
-    fs::write(&mock_bin, mock_lsp).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&mock_bin, fs::Permissions::from_mode(0o755)).unwrap();
-    }
-
-    let project = project_root();
-    fs::write(
-        project.as_path().join("diag_test.py"),
-        "def hello():\n    return 1\n",
-    )
-    .unwrap();
-    let state = make_state(&project);
+    install_mock_pyright(&bin_dir);
 
     let _guard = PATH_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
     let original_path = std::env::var("PATH").unwrap_or_default();
@@ -2955,19 +3021,142 @@ fn diagnose_issues_returns_structured_content() {
     unsafe {
         std::env::set_var("PATH", format!("{}:{original_path}", bin_dir.display()));
     }
-
-    let payload = call_tool(&state, "diagnose_issues", json!({"path": "diag_test.py"}));
-
+    run();
     // SAFETY: restoring PATH; still under PATH_MUTEX.
     unsafe {
         std::env::set_var("PATH", original_path);
     }
+}
+
+#[test]
+fn diagnose_issues_with_file_path_returns_structured_content() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("diag_test.py"),
+        "def hello():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = {
+        let mut payload = json!(null);
+        with_mock_pyright_path(|| {
+            payload = call_tool(
+                &state,
+                "diagnose_issues",
+                json!({"file_path": "diag_test.py"}),
+            );
+        });
+        payload
+    };
 
     assert_eq!(payload["success"], json!(true));
     assert_eq!(payload["data"]["workflow"], json!("diagnose_issues"));
     assert_eq!(
         payload["data"]["delegated_tool"],
         json!("get_file_diagnostics")
+    );
+}
+
+#[test]
+fn diagnose_issues_with_directory_path_aggregates_scope_diagnostics() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("diag_scope")).unwrap();
+    fs::write(
+        project.as_path().join("diag_scope/alpha.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("diag_scope/beta.py"),
+        "def beta():\n    return 2\n",
+    )
+    .unwrap();
+    fs::write(project.as_path().join("diag_scope/readme.txt"), "ignore\n").unwrap();
+    let state = make_state(&project);
+
+    let payload = {
+        let mut payload = json!(null);
+        with_mock_pyright_path(|| {
+            payload = call_tool(&state, "diagnose_issues", json!({"path": "diag_scope"}));
+        });
+        payload
+    };
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("diagnose_issues"));
+    assert_eq!(
+        payload["data"]["delegated_tool"],
+        json!("directory_diagnostics")
+    );
+    assert_eq!(payload["data"]["scope"], json!("directory"));
+    assert_eq!(payload["data"]["returned_file_count"], json!(2));
+    assert_eq!(payload["data"]["diagnosable_file_count"], json!(2));
+    assert_eq!(
+        payload["data"]["files"].as_array().map(|v| v.len()),
+        Some(2)
+    );
+    assert_eq!(
+        payload["data"]["skipped_files"].as_array().map(|v| v.len()),
+        Some(1)
+    );
+}
+
+#[test]
+fn diagnose_issues_with_symbol_requires_file_path() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("diag_scope_symbol")).unwrap();
+    fs::write(
+        project.as_path().join("diag_scope_symbol/alpha.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4201)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "diagnose_issues",
+                "arguments": { "path": "diag_scope_symbol", "symbol": "alpha" }
+            })),
+        },
+    )
+    .unwrap();
+    let payload = serde_json::to_value(&response).unwrap();
+    assert!(payload.get("error").is_some());
+    assert!(
+        payload["error"]["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("file_path")
+    );
+}
+
+#[test]
+fn diagnose_issues_with_path_rejects_file_scope() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("diag_scope_file.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "diagnose_issues",
+        json!({"path": "diag_scope_file.py"}),
+    );
+
+    assert_eq!(payload["success"], json!(false));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("directory")
     );
 }
 
@@ -2999,6 +3188,12 @@ fn assess_change_readiness_returns_structured_content() {
         payload["data"]["delegated_tool"],
         json!("verify_change_readiness")
     );
+    assert_eq!(payload["data"]["deprecated"], json!(true));
+    assert_eq!(
+        payload["data"]["replacement_tool"],
+        json!("verify_change_readiness")
+    );
+    assert_eq!(payload["data"]["removal_target"], json!("v1.10.0"));
 }
 
 #[test]
@@ -3018,6 +3213,17 @@ fn review_changes_returns_structured_content() {
         payload["data"]["delegated_tool"],
         json!("diff_aware_references")
     );
+}
+
+#[test]
+fn review_changes_with_path_delegates_to_impact_report() {
+    let project = project_root();
+    fs::write(project.as_path().join("review_scope.py"), "x = 1\n").unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(&state, "review_changes", json!({"path": "review_scope.py"}));
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("review_changes"));
+    assert_eq!(payload["data"]["delegated_tool"], json!("impact_report"));
 }
 
 #[test]

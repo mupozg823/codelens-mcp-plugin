@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
 ```
 
-Latest release notes: [v1.9.23](docs/release-notes/v1.9.23.md)
+Latest release notes: [v1.9.26](docs/release-notes/v1.9.26.md)
 
 ## Setup
 
@@ -170,9 +170,10 @@ Instead of starting from the full raw tool registry, begin with the workflow-fir
 | Explore codebase   | `explore_codebase`       | First look or targeted context search |
 | Trace execution    | `trace_request_path`     | Follow request or symbol flow         |
 | Plan safe refactor | `plan_safe_refactor`     | Preview rename/refactor risk first    |
-| Review changes     | `analyze_change_impact`  | Pre-merge impact and blast radius     |
+| Review changes     | `review_changes`         | Pre-merge diff-aware review or impact |
 | Audit architecture | `review_architecture`    | Boundaries, coupling, module shape    |
-| Audit security     | `audit_security_context` | Risk-oriented changed-file review     |
+| Diagnose issues    | `diagnose_issues`        | File diagnostics or unresolved refs   |
+| Cleanup duplicate logic | `cleanup_duplicate_logic` | Duplicate or removable logic review |
 
 ### Role-Based Surfaces
 

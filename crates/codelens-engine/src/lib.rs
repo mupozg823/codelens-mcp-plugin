@@ -51,8 +51,8 @@ pub use lsp::{
     LspWorkspaceSymbol, LspWorkspaceSymbolRequest, check_lsp_status, default_lsp_args_for_command,
     default_lsp_command_for_extension, default_lsp_command_for_path,
     find_referencing_symbols_via_lsp, get_diagnostics_via_lsp, get_lsp_recipe,
-    get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, lsp_binary_exists,
-    search_workspace_symbols_via_lsp,
+    get_lsp_recipe_for_command, get_rename_plan_via_lsp, get_type_hierarchy_via_lsp,
+    lsp_binary_exists, search_workspace_symbols_via_lsp,
 };
 pub use project::{
     ProjectRoot, WorkspacePackage, compute_dominant_language, detect_frameworks,
@@ -75,6 +75,8 @@ pub use embedding::{
     configured_embedding_runtime_preference, configured_embedding_threads,
     embedding_model_assets_available,
 };
+#[cfg(feature = "scip-backend")]
+pub use scip_backend::ScipBackend;
 pub use scope_analysis::{
     ReferenceKind, ScopedReference, find_scoped_references, find_scoped_references_in_file,
 };
@@ -87,8 +89,6 @@ pub use symbols::{
 };
 pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};
 pub use watcher::{FileWatcher, WatcherStats};
-#[cfg(feature = "scip-backend")]
-pub use scip_backend::ScipBackend;
 // Semantic IR — new types only; existing types are already re-exported above.
 pub use ir::{
     CodeDiagnostic, DiagnosticSeverity, EditAction, EditActionKind, EditPlan, ImpactKind,
