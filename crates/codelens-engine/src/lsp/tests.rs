@@ -1,13 +1,12 @@
 use super::{
-    LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
-    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, default_lsp_args_for_command,
-    default_lsp_command_for_path, find_referencing_symbols_via_lsp, get_diagnostics_via_lsp,
-    get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
+    default_lsp_args_for_command, default_lsp_command_for_path, find_referencing_symbols_via_lsp,
+    get_diagnostics_via_lsp, get_rename_plan_via_lsp, get_type_hierarchy_via_lsp,
+    search_workspace_symbols_via_lsp, LspDiagnosticRequest, LspRenamePlanRequest, LspRequest,
+    LspSessionPool, LspTypeHierarchyRequest, LspWorkspaceSymbolRequest,
 };
 use crate::ProjectRoot;
 use serde_json::Value;
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 
 #[test]
 fn reads_references_from_mock_lsp() {
@@ -167,18 +166,14 @@ fn reads_type_hierarchy_from_mock_lsp() {
         hierarchy.get("fully_qualified_name"),
         Some(&Value::String("sample.Service".to_owned()))
     );
-    assert!(
-        hierarchy
-            .get("supertypes")
-            .and_then(Value::as_array)
-            .is_some_and(|items: &Vec<Value>| !items.is_empty())
-    );
-    assert!(
-        hierarchy
-            .get("subtypes")
-            .and_then(Value::as_array)
-            .is_some_and(|items: &Vec<Value>| !items.is_empty())
-    );
+    assert!(hierarchy
+        .get("supertypes")
+        .and_then(Value::as_array)
+        .is_some_and(|items: &Vec<Value>| !items.is_empty()));
+    assert!(hierarchy
+        .get("subtypes")
+        .and_then(Value::as_array)
+        .is_some_and(|items: &Vec<Value>| !items.is_empty()));
 }
 
 #[test]
@@ -235,10 +230,18 @@ fn default_lsp_args_are_derived_from_registry_by_command() {
     assert_eq!(default_lsp_args_for_command("metals"), Some(&[][..]));
 }
 
-fn chmod_exec(path: &std::path::Path) {
-    let mut perms = fs::metadata(path).expect("metadata").permissions();
-    perms.set_mode(0o755);
-    fs::set_permissions(path, perms).expect("chmod");
+fn chmod_exec(_path: &std::path::Path) {
+    // Mock LSP scripts only need an explicit executable bit on Unix-like
+    // systems. On Windows the test harness invokes the script through its
+    // interpreter (e.g. `python3 mock_lsp.py`), so the file mode is irrelevant
+    // and `std::os::unix::fs::PermissionsExt` is not available there.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = fs::metadata(_path).expect("metadata").permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(_path, perms).expect("chmod");
+    }
 }
 
 fn temp_dir(prefix: &str) -> std::path::PathBuf {
