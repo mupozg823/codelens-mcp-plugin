@@ -75,6 +75,10 @@ impl ToolSurface {
 pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     "activate_project",
     "prepare_harness_session",
+    "register_agent_work",
+    "list_active_agents",
+    "claim_files",
+    "release_files",
     "get_current_config",
     "set_preset",
     "set_profile",
@@ -141,6 +145,10 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     // Session
     "activate_project",
     "prepare_harness_session",
+    "register_agent_work",
+    "list_active_agents",
+    "claim_files",
+    "release_files",
     "get_current_config",
     "get_capabilities",
     "set_profile",
@@ -186,6 +194,10 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
 pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "activate_project",
     "prepare_harness_session",
+    "register_agent_work",
+    "list_active_agents",
+    "claim_files",
+    "release_files",
     "get_current_config",
     "get_capabilities",
     "set_profile",
@@ -226,6 +238,10 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     // Session
     "activate_project",
     "prepare_harness_session",
+    "register_agent_work",
+    "list_active_agents",
+    "claim_files",
+    "release_files",
     "get_current_config",
     "set_profile",
     "set_preset",
@@ -267,6 +283,10 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     // Session
     "activate_project",
     "prepare_harness_session",
+    "register_agent_work",
+    "list_active_agents",
+    "claim_files",
+    "release_files",
     "get_current_config",
     "set_profile",
     "set_preset",
@@ -323,6 +343,10 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
 pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "activate_project",
     "prepare_harness_session",
+    "register_agent_work",
+    "list_active_agents",
+    "claim_files",
+    "release_files",
     "get_current_config",
     "get_capabilities",
     "set_profile",
@@ -368,6 +392,10 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
 pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
     // Session
     "activate_project",
+    "register_agent_work",
+    "list_active_agents",
+    "claim_files",
+    "release_files",
     "get_current_config",
     "set_preset",
     "set_profile",

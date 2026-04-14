@@ -222,7 +222,11 @@ impl SqliteVecStore {
         Ok(count as usize)
     }
 
-    pub(super) fn get_embedding(&self, file_path: &str, symbol_name: &str) -> Result<Option<EmbeddingChunk>> {
+    pub(super) fn get_embedding(
+        &self,
+        file_path: &str,
+        symbol_name: &str,
+    ) -> Result<Option<EmbeddingChunk>> {
         let db = self.db.lock().map_err(|_| anyhow::anyhow!("db lock"))?;
         let row = db.query_row(
             "SELECT s.file_path, s.symbol_name, s.kind, s.line, s.signature, s.name_path, s.text, v.embedding
@@ -265,7 +269,10 @@ impl SqliteVecStore {
         }
     }
 
-    pub(super) fn embeddings_for_scored_chunks(&self, chunks: &[ScoredChunk]) -> Result<Vec<EmbeddingChunk>> {
+    pub(super) fn embeddings_for_scored_chunks(
+        &self,
+        chunks: &[ScoredChunk],
+    ) -> Result<Vec<EmbeddingChunk>> {
         if chunks.is_empty() {
             return Ok(Vec::new());
         }

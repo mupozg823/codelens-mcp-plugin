@@ -103,6 +103,10 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         // ── Session ──
         "activate_project"             => session::activate_project,
         "prepare_harness_session"      => session::prepare_harness_session,
+        "register_agent_work"          => session::register_agent_work,
+        "list_active_agents"           => session::list_active_agents,
+        "claim_files"                  => session::claim_files,
+        "release_files"                => session::release_files,
         "onboarding"                   => session::onboarding,
         "prepare_for_new_conversation" => session::prepare_for_new_conversation,
         "summarize_changes"            => session::summarize_changes,

@@ -20,6 +20,7 @@ fn embedding_model_available_for_test() -> bool {
     true
 }
 
+mod coordination;
 mod lsp;
 mod memory;
 mod mutation;

@@ -442,6 +442,7 @@ fn slim_text_payload_for_async_handle(
     copy_summarized_field(&mut text_data, data, "summary");
     copy_summarized_field(&mut text_data, data, "readiness");
     copy_summarized_field(&mut text_data, data, "readiness_score");
+    copy_summarized_field(&mut text_data, data, "overlapping_claims");
     copy_summarized_field(&mut text_data, data, "risk_level");
     copy_summarized_field(&mut text_data, data, "blocker_count");
     copy_summarized_field(&mut text_data, data, "reused");

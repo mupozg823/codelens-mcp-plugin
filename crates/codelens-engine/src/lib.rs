@@ -75,6 +75,8 @@ pub use embedding::{
     configured_embedding_runtime_preference, configured_embedding_threads,
     embedding_model_assets_available,
 };
+#[cfg(feature = "scip-backend")]
+pub use scip_backend::ScipBackend;
 pub use scope_analysis::{
     ReferenceKind, ScopedReference, find_scoped_references, find_scoped_references_in_file,
 };
@@ -87,8 +89,6 @@ pub use symbols::{
 };
 pub use type_hierarchy::{TypeHierarchyResult, TypeNode, get_type_hierarchy_native};
 pub use watcher::{FileWatcher, WatcherStats};
-#[cfg(feature = "scip-backend")]
-pub use scip_backend::ScipBackend;
 // Semantic IR — new types only; existing types are already re-exported above.
 pub use ir::{
     CodeDiagnostic, DiagnosticSeverity, EditAction, EditActionKind, EditPlan, ImpactKind,

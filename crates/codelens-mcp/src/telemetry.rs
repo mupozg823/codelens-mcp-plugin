@@ -78,6 +78,11 @@ pub struct SessionMetrics {
     pub verifier_contract_emitted_count: u64,
     pub blocker_emit_count: u64,
     pub verifier_followthrough_count: u64,
+    pub coordination_registration_count: u64,
+    pub coordination_claim_count: u64,
+    pub coordination_release_count: u64,
+    pub coordination_overlap_emit_count: u64,
+    pub coordination_caution_emit_count: u64,
     pub mutation_preflight_checked_count: u64,
     pub mutation_without_preflight_count: u64,
     pub mutation_preflight_gate_denied_count: u64,
@@ -630,6 +635,41 @@ impl ToolMetricsRegistry {
             session.blocker_emit_count += 1;
         }
         session.pending_verifier_contract = verifier_check_count > 0;
+    }
+
+    pub fn record_coordination_overlap_emitted(&self, caution_only: bool) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.coordination_overlap_emit_count += 1;
+        if caution_only {
+            session.coordination_caution_emit_count += 1;
+        }
+    }
+
+    pub fn record_coordination_registration(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.coordination_registration_count += 1;
+    }
+
+    pub fn record_coordination_claim(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.coordination_claim_count += 1;
+    }
+
+    pub fn record_coordination_release(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.coordination_release_count += 1;
     }
 
     pub fn record_mutation_without_preflight(&self) {
