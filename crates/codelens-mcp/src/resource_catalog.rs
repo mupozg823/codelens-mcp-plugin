@@ -1,5 +1,8 @@
 use crate::AppState;
-use crate::resource_context::{ResourceRequestContext, build_visible_tool_context};
+use crate::resource_context::{
+    BOOTSTRAP_ENTRYPOINT, ResourceRequestContext, TOOLS_LIST_ROLE, build_visible_tool_context,
+    tools_list_contract_note,
+};
 use crate::tool_defs::{tool_namespace, tool_tier_label};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -52,7 +55,7 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
 }
 
 pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&Value>) -> Value {
-    let request = ResourceRequestContext::from_request(uri, params);
+    let request = ResourceRequestContext::from_request(uri, params, state.client_profile());
     let surface = state.execution_surface(&request.session);
     let context = build_visible_tool_context(state, &request);
     let lean_contract = request.lean_tool_contract();
@@ -113,10 +116,12 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
         "deferred_loading_active".to_owned(),
         json!(context.deferred_loading_active),
     );
+    payload.insert("bootstrap_entrypoint".to_owned(), json!(BOOTSTRAP_ENTRYPOINT));
+    payload.insert("list_role".to_owned(), json!(TOOLS_LIST_ROLE));
     payload.insert("recommended_tools".to_owned(), json!(prioritized));
     payload.insert(
         "note".to_owned(),
-        json!("Read `codelens://tools/list/full` only when summary is insufficient."),
+        json!(tools_list_contract_note()),
     );
     if !lean_contract {
         payload.insert("visible_namespaces".to_owned(), json!(namespace_counts));
@@ -138,7 +143,7 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
 }
 
 pub(crate) fn visible_tool_details(state: &AppState, uri: &str, params: Option<&Value>) -> Value {
-    let request = ResourceRequestContext::from_request(uri, params);
+    let request = ResourceRequestContext::from_request(uri, params, state.client_profile());
     let surface = state.execution_surface(&request.session);
     let context = build_visible_tool_context(state, &request);
     let tools = context
@@ -172,6 +177,9 @@ pub(crate) fn visible_tool_details(state: &AppState, uri: &str, params: Option<&
         "selected_tier": context.selected_tier,
         "deferred_loading_active": context.deferred_loading_active,
         "full_tool_exposure": context.full_tool_exposure,
+        "bootstrap_entrypoint": BOOTSTRAP_ENTRYPOINT,
+        "list_role": TOOLS_LIST_ROLE,
+        "note": tools_list_contract_note(),
         "tools": tools
     })
 }

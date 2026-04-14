@@ -481,7 +481,11 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         .get("detail")
         .and_then(|v| v.as_str())
         .unwrap_or("compact");
-    let request = ResourceRequestContext::from_request("codelens://tools/list", Some(arguments));
+    let request = ResourceRequestContext::from_request(
+        "codelens://tools/list",
+        Some(arguments),
+        state.client_profile(),
+    );
     let session = request.session.clone();
     let active_surface = state.execution_surface(&session);
     let token_budget = state.execution_token_budget(&session);

@@ -50,7 +50,7 @@ fn text_resource(uri: &str, text: String) -> Value {
 }
 
 pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>) -> Value {
-    let request = ResourceRequestContext::from_request(uri, params);
+    let request = ResourceRequestContext::from_request(uri, params, state.client_profile());
     let _session_project_guard = state
         .ensure_session_project(&request.session)
         .ok()

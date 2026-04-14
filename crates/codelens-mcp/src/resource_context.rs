@@ -9,6 +9,13 @@ use crate::tool_defs::{
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
 use serde_json::{Value, json};
 
+pub(crate) const BOOTSTRAP_ENTRYPOINT: &str = "prepare_harness_session";
+pub(crate) const TOOLS_LIST_ROLE: &str = "surface_expansion";
+
+pub(crate) fn tools_list_contract_note() -> &'static str {
+    "Use `prepare_harness_session` to bootstrap. Use `tools/list` only to inspect or expand the current surface."
+}
+
 #[derive(Clone, Debug)]
 pub(crate) struct ResourceRequestContext {
     pub(crate) session: crate::session_context::SessionRequestContext,
@@ -41,7 +48,11 @@ impl Default for ResourceRequestContext {
 }
 
 impl ResourceRequestContext {
-    pub(crate) fn from_request(uri: &str, params: Option<&Value>) -> Self {
+    pub(crate) fn from_request(
+        uri: &str,
+        params: Option<&Value>,
+        fallback_client_profile: ClientProfile,
+    ) -> Self {
         let session = params
             .map(crate::session_context::SessionRequestContext::from_json)
             .unwrap_or_default();
@@ -53,7 +64,7 @@ impl ResourceRequestContext {
             .client_name
             .as_deref()
             .map(|name| ClientProfile::detect(Some(name)))
-            .unwrap_or(ClientProfile::Generic);
+            .unwrap_or(fallback_client_profile);
         let deferred_loading_requested = params
             .and_then(|value| value.get("_session_deferred_tool_loading"))
             .and_then(|value| value.as_bool())
