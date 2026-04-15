@@ -1212,6 +1212,18 @@ async fn verify_change_readiness_http_response_uses_slim_text_wrapper() {
             .unwrap_or(false)
     );
     assert!(text_payload["data"]["section_handles"].is_array());
+    assert!(text_payload["suggested_next_calls"].is_array());
+    assert!(
+        text_payload["suggested_next_calls"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|entry| {
+                    entry["tool"].as_str() == Some("get_analysis_section")
+                        && entry["arguments"]["analysis_id"].is_string()
+                })
+            })
+            .unwrap_or(false)
+    );
     assert_eq!(text_payload["routing_hint"], serde_json::json!("async"));
     assert!(text_payload["data"].get("verifier_checks").is_none());
     assert!(text_payload["data"].get("blockers").is_none());

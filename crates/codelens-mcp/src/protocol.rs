@@ -82,6 +82,17 @@ pub struct ToolAnnotations {
     pub tier: Option<ToolTier>,
 }
 
+/// Concrete follow-up call paired with a `suggested_next_tools` entry.
+/// `arguments` is pre-filled with context that the client already has in hand
+/// (file paths, symbol names, task description, current `analysis_id`) so
+/// clients can forward-invoke without reconstructing the argument object.
+#[derive(Debug, Clone, Serialize)]
+pub struct SuggestedNextCall {
+    pub tool: String,
+    pub arguments: Value,
+    pub reason: String,
+}
+
 #[allow(dead_code)] // used by SSE transport for server→client push
 #[derive(Debug, Serialize)]
 pub struct JsonRpcNotification {
@@ -116,6 +127,13 @@ pub struct ToolCallResponse {
     pub token_estimate: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggested_next_tools: Option<Vec<String>>,
+    /// Additive companion to `suggested_next_tools`. Each entry carries the tool
+    /// name plus a concrete `arguments` object derived from the current call's
+    /// context (file/symbol/task/analysis_id), so clients can forward without
+    /// reconstructing args. Coexists with `suggested_next_tools` — neither
+    /// replaces the other.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suggested_next_calls: Option<Vec<SuggestedNextCall>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion_reasons: Option<std::collections::HashMap<String, String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -345,6 +363,7 @@ impl ToolCallResponse {
             error: None,
             token_estimate: None,
             suggested_next_tools: None,
+            suggested_next_calls: None,
             suggestion_reasons: None,
             budget_hint: None,
             routing_hint: None,
@@ -366,6 +385,7 @@ impl ToolCallResponse {
             error: Some(message.into()),
             token_estimate: None,
             suggested_next_tools: None,
+            suggested_next_calls: None,
             suggestion_reasons: None,
             budget_hint: None,
             routing_hint: None,
