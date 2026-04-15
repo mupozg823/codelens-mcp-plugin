@@ -1,5 +1,5 @@
 use crate::AppState;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 
 pub(crate) struct SessionMetricsPayload {
     pub(crate) session: Map<String, Value>,
@@ -13,6 +13,7 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
     let watcher_failure_health = state.watcher_failure_health();
     let coordination = state
         .coordination_counts_for_session(&crate::session_context::SessionRequestContext::default());
+    let coordination_lock = state.coordination_lock_stats();
 
     let mut session_json = Map::new();
     session_json.insert("total_calls".to_owned(), json!(session.total_calls));
@@ -51,6 +52,22 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
     session_json.insert(
         "active_coordination_claims".to_owned(),
         json!(coordination.active_claims),
+    );
+    session_json.insert(
+        "coordination_lock_acquire_count".to_owned(),
+        json!(coordination_lock.acquire_count),
+    );
+    session_json.insert(
+        "coordination_lock_wait_total_micros".to_owned(),
+        json!(coordination_lock.wait_total_micros),
+    );
+    session_json.insert(
+        "coordination_lock_wait_max_micros".to_owned(),
+        json!(coordination_lock.wait_max_micros),
+    );
+    session_json.insert(
+        "coordination_lock_avg_wait_micros".to_owned(),
+        json!(coordination_lock.avg_wait_micros()),
     );
     session_json.insert("retry_count".to_owned(), json!(session.retry_count));
     session_json.insert(
@@ -249,39 +266,31 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
     );
     session_json.insert(
         "watcher_running".to_owned(),
-        json!(
-            watcher_stats
-                .as_ref()
-                .map(|stats| stats.running)
-                .unwrap_or(false)
-        ),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.running)
+            .unwrap_or(false)),
     );
     session_json.insert(
         "watcher_events_processed".to_owned(),
-        json!(
-            watcher_stats
-                .as_ref()
-                .map(|stats| stats.events_processed)
-                .unwrap_or(0)
-        ),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.events_processed)
+            .unwrap_or(0)),
     );
     session_json.insert(
         "watcher_files_reindexed".to_owned(),
-        json!(
-            watcher_stats
-                .as_ref()
-                .map(|stats| stats.files_reindexed)
-                .unwrap_or(0)
-        ),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.files_reindexed)
+            .unwrap_or(0)),
     );
     session_json.insert(
         "watcher_lock_contention_batches".to_owned(),
-        json!(
-            watcher_stats
-                .as_ref()
-                .map(|stats| stats.lock_contention_batches)
-                .unwrap_or(0)
-        ),
+        json!(watcher_stats
+            .as_ref()
+            .map(|stats| stats.lock_contention_batches)
+            .unwrap_or(0)),
     );
     session_json.insert(
         "watcher_index_failures".to_owned(),
