@@ -1,7 +1,7 @@
 class CodelensMcp < Formula
   desc "Agent-native Rust MCP server for code intelligence — 90+ tools, 25 languages"
   homepage "https://github.com/mupozg823/codelens-mcp-plugin"
-  version "1.9.29"
+  version "1.9.30"
   license "Apache-2.0"
 
   on_macos do

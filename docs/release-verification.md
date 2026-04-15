@@ -89,7 +89,7 @@ It verifies:
 5. each `*.cdx.json` file is valid JSON and declares a CycloneDX SBOM for `codelens-mcp`
 6. each emitted `codelens-mcp-airgap-*.tar.gz` bundle contains the binary, bundled model assets, examples, manifest, and internally valid checksums
 7. `release-manifest.json` matches the checksum manifest and enumerates the published assets
-8. each signable release payload has a non-empty `.sig` sidecar and a PEM-formatted `.pem` certificate sidecar
+8. each signable release payload has a non-empty `.sig` sidecar and a non-empty `.pem` certificate sidecar
 
 ### 3. Verify only a subset of targets when needed
 

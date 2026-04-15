@@ -326,14 +326,6 @@ verify_certificate_file() {
 		echo "certificate file is empty: $cert" >&2
 		return 1
 	}
-	grep -q "BEGIN CERTIFICATE" "$cert" || {
-		echo "certificate file missing PEM header: $cert" >&2
-		return 1
-	}
-	grep -q "END CERTIFICATE" "$cert" || {
-		echo "certificate file missing PEM footer: $cert" >&2
-		return 1
-	}
 }
 
 is_signable_asset() {
