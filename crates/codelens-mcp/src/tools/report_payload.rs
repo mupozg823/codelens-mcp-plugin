@@ -1,6 +1,6 @@
 use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
 use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::report_verifier::{VERIFIER_BLOCKED, VERIFIER_READY};
 
@@ -124,21 +124,55 @@ pub(crate) fn build_handle_payload(
     payload
 }
 
+/// Threshold for the size-gated preview-first trim on high-payload handle
+/// reports. Below this, the verbose arrays are cheap enough to leave inline
+/// (avoids forcing an extra `get_analysis_section` round-trip for small
+/// responses).
+const PREVIEW_FIRST_TRIM_MIN_CHARS: usize = 4000; // ≈ 1000 tokens
+
 fn trim_preview_first_handle_payload(tool_name: &str, ci_audit: bool, payload: &mut Value) {
-    if ci_audit || tool_name != "refactor_safety_report" {
+    if ci_audit {
         return;
     }
+
+    let always_trim = matches!(tool_name, "refactor_safety_report");
+    let size_gated = matches!(
+        tool_name,
+        "impact_report"
+            | "module_boundary_report"
+            | "semantic_code_review"
+            | "analyze_change_request"
+    );
+    if !always_trim && !size_gated {
+        return;
+    }
+
+    if size_gated && !always_trim {
+        let approx_chars = payload.to_string().len();
+        if approx_chars < PREVIEW_FIRST_TRIM_MIN_CHARS {
+            return;
+        }
+    }
+
     let Some(obj) = payload.as_object_mut() else {
         return;
     };
 
-    // `refactor_safety_report` is preview-first: keep readiness, blockers, and section handles
-    // inline, but leave verbose reasoning arrays in the stored artifact/resource summary.
-    obj.remove("top_findings");
+    // Verbose reasoning arrays — already mirrored inside the stored artifact
+    // and reachable through `section_handles`. Drop them from the inline
+    // payload so the response stays preview-first.
     obj.remove("verifier_checks");
     obj.remove("quality_focus");
     obj.remove("recommended_checks");
     obj.remove("performance_watchpoints");
+
+    // `refactor_safety_report` historically also drops `top_findings` (its
+    // signal lives entirely in readiness + section handles). The new
+    // size-gated origins keep `top_findings` because the 1-3 line preview
+    // is the cheapest first-call signal for callers.
+    if always_trim {
+        obj.remove("top_findings");
+    }
 }
 
 pub(crate) fn infer_risk_level(
@@ -319,4 +353,105 @@ fn infer_performance_watchpoints(
         push_unique("watch rendering smoothness, layout stability, and unnecessary re-renders");
     }
     watchpoints
+}
+
+#[cfg(test)]
+mod preview_first_trim_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn make_payload(extra_filler_chars: usize) -> Value {
+        json!({
+            "analysis_id": "analysis-test",
+            "summary": "x".repeat(extra_filler_chars),
+            "top_findings": ["finding-A", "finding-B"],
+            "verifier_checks": [{"check": "diagnostic_verifier", "status": "ready"}],
+            "quality_focus": ["correctness"],
+            "recommended_checks": ["run targeted tests"],
+            "performance_watchpoints": ["watch latency"],
+            "readiness": {"mutation_ready": "ready"},
+        })
+    }
+
+    #[test]
+    fn refactor_safety_report_always_trims_top_findings() {
+        let mut payload = make_payload(0);
+        trim_preview_first_handle_payload("refactor_safety_report", false, &mut payload);
+        let obj = payload.as_object().unwrap();
+        assert!(!obj.contains_key("top_findings"));
+        assert!(!obj.contains_key("verifier_checks"));
+        assert!(!obj.contains_key("recommended_checks"));
+        assert!(obj.contains_key("readiness"));
+    }
+
+    #[test]
+    fn impact_report_below_threshold_keeps_verbose_arrays() {
+        let mut payload = make_payload(0);
+        trim_preview_first_handle_payload("impact_report", false, &mut payload);
+        let obj = payload.as_object().unwrap();
+        assert!(obj.contains_key("verifier_checks"));
+        assert!(obj.contains_key("recommended_checks"));
+        assert!(obj.contains_key("top_findings"));
+    }
+
+    #[test]
+    fn impact_report_above_threshold_trims_verbose_but_keeps_top_findings() {
+        let mut payload = make_payload(PREVIEW_FIRST_TRIM_MIN_CHARS + 100);
+        trim_preview_first_handle_payload("impact_report", false, &mut payload);
+        let obj = payload.as_object().unwrap();
+        assert!(!obj.contains_key("verifier_checks"));
+        assert!(!obj.contains_key("quality_focus"));
+        assert!(!obj.contains_key("recommended_checks"));
+        assert!(!obj.contains_key("performance_watchpoints"));
+        assert!(
+            obj.contains_key("top_findings"),
+            "size-gated trim must keep top_findings"
+        );
+        assert!(obj.contains_key("readiness"));
+    }
+
+    #[test]
+    fn unknown_tool_is_never_trimmed() {
+        let mut payload = make_payload(PREVIEW_FIRST_TRIM_MIN_CHARS + 100);
+        trim_preview_first_handle_payload("explore_codebase", false, &mut payload);
+        let obj = payload.as_object().unwrap();
+        assert!(obj.contains_key("verifier_checks"));
+        assert!(obj.contains_key("top_findings"));
+    }
+
+    #[test]
+    fn ci_audit_disables_trim() {
+        let mut payload = make_payload(PREVIEW_FIRST_TRIM_MIN_CHARS + 100);
+        trim_preview_first_handle_payload("refactor_safety_report", true, &mut payload);
+        let obj = payload.as_object().unwrap();
+        assert!(obj.contains_key("verifier_checks"));
+        assert!(obj.contains_key("top_findings"));
+    }
+
+    #[test]
+    fn module_boundary_and_semantic_review_and_change_request_are_size_gated() {
+        for tool in [
+            "module_boundary_report",
+            "semantic_code_review",
+            "analyze_change_request",
+        ] {
+            let mut small = make_payload(0);
+            trim_preview_first_handle_payload(tool, false, &mut small);
+            assert!(
+                small.as_object().unwrap().contains_key("verifier_checks"),
+                "{tool} below threshold must keep verifier_checks"
+            );
+
+            let mut large = make_payload(PREVIEW_FIRST_TRIM_MIN_CHARS + 100);
+            trim_preview_first_handle_payload(tool, false, &mut large);
+            assert!(
+                !large.as_object().unwrap().contains_key("verifier_checks"),
+                "{tool} above threshold must drop verifier_checks"
+            );
+            assert!(
+                large.as_object().unwrap().contains_key("top_findings"),
+                "{tool} above threshold must keep top_findings"
+            );
+        }
+    }
 }
