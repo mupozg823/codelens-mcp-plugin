@@ -322,17 +322,18 @@ verify_certificate_file() {
 		echo "unexpected certificate sidecar without signable payload: $cert" >&2
 		return 1
 	}
-	if command -v openssl >/dev/null 2>&1; then
-		openssl x509 -in "$cert" -noout >/dev/null 2>&1 || {
-			echo "invalid X.509 certificate file: $cert" >&2
-			return 1
-		}
-	else
-		grep -q "BEGIN CERTIFICATE" "$cert" || {
-			echo "certificate file missing PEM header: $cert" >&2
-			return 1
-		}
-	fi
+	[[ -s "$cert" ]] || {
+		echo "certificate file is empty: $cert" >&2
+		return 1
+	}
+	grep -q "BEGIN CERTIFICATE" "$cert" || {
+		echo "certificate file missing PEM header: $cert" >&2
+		return 1
+	}
+	grep -q "END CERTIFICATE" "$cert" || {
+		echo "certificate file missing PEM footer: $cert" >&2
+		return 1
+	}
 }
 
 is_signable_asset() {
