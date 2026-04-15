@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::agent_coordination::AgentCoordinationStore;
 use crate::analysis_queue::{
     AnalysisWorkerQueue, HTTP_ANALYSIS_WORKER_COUNT, STDIO_ANALYSIS_WORKER_COUNT,
 };
@@ -16,6 +17,7 @@ use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface};
 use serde_json::Value;
 
 mod analysis;
+mod coordination;
 mod preflight;
 mod project_runtime;
 mod session_runtime;
@@ -33,6 +35,9 @@ pub(crate) fn preflight_ttl_ms() -> u64 {
         .unwrap_or(10 * 60 * 1000) // default 10 min
 }
 
+pub(crate) use crate::agent_coordination::{
+    ActiveAgentEntry, AgentWorkEntry, CoordinationCounts, CoordinationSnapshot, FileClaimEntry,
+};
 pub(crate) use crate::client_profile::{ClientProfile, EffortLevel};
 pub(crate) use crate::runtime_types::{
     AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisVerifierCheck, RuntimeDaemonMode,
@@ -98,6 +103,7 @@ pub(crate) struct AppState {
     /// Doom-loop detection: (tool_name, args_hash, consecutive_count, first_occurrence_ms)
     doom_loop_counter: Mutex<(String, u64, usize, u64)>,
     preflight_store: RecentPreflightStore,
+    coord_store: Arc<AgentCoordinationStore>,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,
     #[cfg_attr(not(feature = "http"), allow(dead_code))]
@@ -701,6 +707,10 @@ impl AppState {
             doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
             recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
             preflight_store: RecentPreflightStore::new(),
+            // Coordination registry is shared across worker clones so async
+            // analysis jobs observe the same active-agent set as the request
+            // that spawned them.
+            coord_store: Arc::clone(&self.coord_store),
             analysis_queue: OnceLock::new(),
             watcher_maintenance: Mutex::new(HashMap::new()),
             project_execution_lock: Mutex::new(()),
@@ -784,6 +794,7 @@ impl AppState {
             doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
             recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
             preflight_store: RecentPreflightStore::new(),
+            coord_store: Arc::new(AgentCoordinationStore::new()),
             analysis_queue: OnceLock::new(),
             watcher_maintenance: Mutex::new(HashMap::new()),
             project_execution_lock: Mutex::new(()),

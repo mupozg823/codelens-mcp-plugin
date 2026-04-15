@@ -6,6 +6,29 @@ use crate::tool_defs::{ToolProfile, ToolSurface};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+fn overlapping_claims_from_section(value: &Value) -> Vec<Value> {
+    value
+        .get("claims")
+        .and_then(|claims| claims.as_array())
+        .cloned()
+        .unwrap_or_default()
+}
+
+fn overlapping_claims_from_sections(sections: &BTreeMap<String, Value>) -> Vec<Value> {
+    sections
+        .get("coordination_overlaps")
+        .map(overlapping_claims_from_section)
+        .unwrap_or_default()
+}
+
+fn overlapping_claims_from_artifact(state: &AppState, analysis_id: &str) -> Vec<Value> {
+    state
+        .peek_analysis_section(analysis_id, "coordination_overlaps")
+        .ok()
+        .map(|value| overlapping_claims_from_section(&value))
+        .unwrap_or_default()
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn make_handle_response(
     state: &AppState,
@@ -21,6 +44,7 @@ pub(super) fn make_handle_response(
 ) -> ToolResult {
     let risk_level = infer_risk_level(&summary, &top_findings, &next_actions);
     let ci_audit = matches!(*state.surface(), ToolSurface::Profile(ToolProfile::CiAudit));
+    let inline_overlapping_claims = overlapping_claims_from_sections(&sections);
     let verifier = build_verifier_contract(
         state,
         tool_name,
@@ -35,7 +59,7 @@ pub(super) fn make_handle_response(
         && let Some(artifact) = state.find_reusable_analysis_for_current_scope(tool_name, cache_key)
     {
         state.metrics().record_analysis_cache_hit();
-        let data = build_handle_payload(
+        let mut data = build_handle_payload(
             tool_name,
             &artifact.id,
             &artifact.summary,
@@ -50,6 +74,10 @@ pub(super) fn make_handle_response(
             true,
             ci_audit,
         );
+        let overlapping_claims = overlapping_claims_from_artifact(state, &artifact.id);
+        if !overlapping_claims.is_empty() {
+            data["overlapping_claims"] = serde_json::json!(overlapping_claims);
+        }
         state.metrics().record_quality_contract_emitted(
             data["quality_focus"]
                 .as_array()
@@ -101,6 +129,9 @@ pub(super) fn make_handle_response(
         false,
         ci_audit,
     );
+    if !inline_overlapping_claims.is_empty() {
+        data["overlapping_claims"] = serde_json::json!(inline_overlapping_claims);
+    }
     state.metrics().record_quality_contract_emitted(
         data["quality_focus"]
             .as_array()

@@ -291,6 +291,14 @@ impl AppState {
         self.artifact_store.get_section(analysis_id, section)
     }
 
+    pub(crate) fn peek_analysis_section(
+        &self,
+        analysis_id: &str,
+        section: &str,
+    ) -> Result<serde_json::Value, CodeLensError> {
+        self.artifact_store.get_section(analysis_id, section)
+    }
+
     #[cfg(test)]
     pub(crate) fn set_analysis_created_at_for_test(
         &self,

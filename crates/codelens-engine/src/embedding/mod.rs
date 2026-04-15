@@ -5,9 +5,9 @@ use crate::db::IndexDb;
 use crate::embedding_store::{EmbeddingChunk, ScoredChunk};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
-use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
 #[cfg(target_os = "macos")]
 use fastembed::ExecutionProviderDispatch;
+use fastembed::{InitOptionsUserDefined, TextEmbedding, TokenizerFiles, UserDefinedEmbeddingModel};
 use rusqlite::Connection;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -1027,7 +1027,10 @@ impl EmbeddingEngine {
     /// Extract NL→code bridge candidates from indexed symbols.
     /// For each symbol with a docstring, produces a (docstring_first_line, symbol_name) pair.
     /// The caller writes these to `.codelens/bridges.json` for project-specific NL bridging.
-    pub fn generate_bridge_candidates(&self, project: &ProjectRoot) -> Result<Vec<(String, String)>> {
+    pub fn generate_bridge_candidates(
+        &self,
+        project: &ProjectRoot,
+    ) -> Result<Vec<(String, String)>> {
         let db_path = crate::db::index_db_path(project.as_path());
         let symbol_db = IndexDb::open(&db_path)?;
         let mut bridges: Vec<(String, String)> = Vec::new();

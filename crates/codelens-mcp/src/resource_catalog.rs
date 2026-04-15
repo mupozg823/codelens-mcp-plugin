@@ -42,6 +42,12 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "description": "Shared daemon session counts, timeout, and resume support",
             "mimeType": "application/json"
         }),
+        json!({
+            "uri": "codelens://activity/current",
+            "name": "Current Agent Activity",
+            "description": "Active agent registrations, advisory claims, and recent per-session activity",
+            "mimeType": "application/json"
+        }),
     ]
 }
 

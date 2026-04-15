@@ -757,11 +757,25 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                     }
                 }
             },
+            "coordination": {
+                "type": "object",
+                "properties": {
+                    "mode": {"type": "string"},
+                    "risk_status": {"type": "string", "enum": ["idle", "observe", "caution"]},
+                    "active_agents": {"type": "integer"},
+                    "active_claims": {"type": "integer"},
+                    "recommended_sequence": {"type": "array", "items": {"type": "string"}},
+                    "host_actions_on_overlap": {"type": "array", "items": {"type": "string"}},
+                    "recommended_topology": {"type": "string"}
+                }
+            },
             "http_session": {
                 "type": "object",
                 "properties": {
                     "enabled": {"type": "boolean"},
                     "active_sessions": {"type": "integer"},
+                    "active_coordination_agents": {"type": "integer"},
+                    "active_coordination_claims": {"type": "integer"},
                     "timeout_seconds": {"type": "integer"},
                     "resume_supported": {"type": "boolean"},
                     "daemon_mode": {"type": "string"},
@@ -1071,6 +1085,50 @@ pub(super) fn get_type_hierarchy_output_schema() -> serde_json::Value {
                 }
             },
             "depth": {"type": "integer"}
+        }
+    })
+}
+
+pub fn register_agent_work_output_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "entry": {"type": "object"},
+            "note": {"type": "string"}
+        }
+    })
+}
+
+pub fn list_active_agents_output_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "agents": {"type": "array"},
+            "count": {"type": "integer"}
+        }
+    })
+}
+
+pub fn claim_files_output_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "claim": {"type": "object"},
+            "overlapping_claims": {"type": "array"},
+            "note": {"type": "string"}
+        }
+    })
+}
+
+pub fn release_files_output_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "properties": {
+            "session_id": {"type": "string"},
+            "released_paths": {"type": "array"},
+            "released_count": {"type": "integer"},
+            "remaining_claim": {"type": ["object", "null"]},
+            "remaining_claim_count": {"type": "integer"}
         }
     })
 }

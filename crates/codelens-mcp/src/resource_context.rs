@@ -8,6 +8,7 @@ use crate::tool_defs::{
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug)]
 pub(crate) struct ResourceRequestContext {
@@ -238,9 +239,12 @@ pub(crate) fn build_http_session_payload(
 ) -> Value {
     let surface = state.execution_surface(&request.session);
     let runtime_health = collect_runtime_health_snapshot(state, surface);
+    let coordination = state.coordination_counts_for_session(&request.session);
     json!({
         "enabled": state.session_resume_supported(),
         "active_sessions": state.active_session_count(),
+        "active_coordination_agents": coordination.active_agents,
+        "active_coordination_claims": coordination.active_claims,
         "timeout_seconds": state.session_timeout_seconds(),
         "resume_supported": state.session_resume_supported(),
         "daemon_mode": state.daemon_mode().as_str(),
@@ -276,6 +280,111 @@ pub(crate) fn build_http_session_payload(
         "rename_requires_symbol_preflight": true,
         "requires_namespace_listing_before_tool_call": true,
         "requires_tier_listing_before_tool_call": true
+    })
+}
+
+pub(crate) fn build_agent_activity_payload(
+    state: &AppState,
+    request: &ResourceRequestContext,
+) -> Value {
+    let snapshot = state.coordination_snapshot_for_session(&request.session);
+    let mut session_ids = BTreeSet::new();
+    for agent in &snapshot.agents {
+        session_ids.insert(agent.session_id.clone());
+    }
+    for claim in &snapshot.claims {
+        session_ids.insert(claim.session_id.clone());
+    }
+
+    #[cfg(feature = "http")]
+    let http_activity = state
+        .session_store
+        .as_ref()
+        .map(|store| {
+            store
+                .activity_snapshots()
+                .into_iter()
+                .map(|snapshot| (snapshot.id.clone(), snapshot))
+                .collect::<BTreeMap<_, _>>()
+        })
+        .unwrap_or_default();
+
+    let agents_by_session = snapshot
+        .agents
+        .iter()
+        .map(|entry| (entry.session_id.clone(), entry))
+        .collect::<BTreeMap<_, _>>();
+    let claims_by_session = snapshot
+        .claims
+        .iter()
+        .map(|entry| (entry.session_id.clone(), entry))
+        .collect::<BTreeMap<_, _>>();
+
+    let sessions = session_ids
+        .into_iter()
+        .map(|session_id| {
+            let agent = agents_by_session.get(&session_id).copied();
+            let claim = claims_by_session.get(&session_id).copied();
+            #[cfg(feature = "http")]
+            let (recent_tools, recent_file_paths, client_name, requested_profile) = http_activity
+                .get(&session_id)
+                .map(|entry| {
+                    (
+                        entry.recent_tools.clone(),
+                        entry.recent_files.clone(),
+                        entry.client_name.clone(),
+                        entry.requested_profile.clone(),
+                    )
+                })
+                .unwrap_or_default();
+            #[cfg(not(feature = "http"))]
+            let (recent_tools, recent_file_paths, client_name, requested_profile): (
+                Vec<String>,
+                Vec<String>,
+                Option<String>,
+                Option<String>,
+            ) = Default::default();
+            json!({
+                "session_id": session_id,
+                "agent_name": agent
+                    .map(|entry| entry.agent_name.clone())
+                    .or_else(|| claim.map(|entry| entry.agent_name.clone()))
+                    .unwrap_or_else(|| "unregistered".to_owned()),
+                "branch": agent
+                    .map(|entry| entry.branch.clone())
+                    .or_else(|| claim.map(|entry| entry.branch.clone()))
+                    .unwrap_or_default(),
+                "worktree": agent
+                    .map(|entry| entry.worktree.clone())
+                    .or_else(|| claim.map(|entry| entry.worktree.clone()))
+                    .unwrap_or_default(),
+                "intent": agent
+                    .map(|entry| entry.intent.clone())
+                    .unwrap_or_else(|| "unregistered".to_owned()),
+                "registered": agent.is_some(),
+                "expires_at": agent
+                    .map(|entry| entry.expires_at)
+                    .or_else(|| claim.map(|entry| entry.expires_at))
+                    .unwrap_or_default(),
+                "recent_tools": recent_tools,
+                "recent_file_paths": recent_file_paths,
+                "client_name": client_name,
+                "requested_profile": requested_profile,
+                "claims": claim
+                    .map(|entry| vec![json!(entry)])
+                    .unwrap_or_default(),
+                "claim_count": usize::from(claim.is_some()),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    json!({
+        "project_scope": state.project_scope_for_session(&request.session),
+        "active_agents": snapshot.counts.active_agents,
+        "active_claims": snapshot.counts.active_claims,
+        "http_attached_sessions": state.active_session_count(),
+        "sessions": sessions,
+        "claims": snapshot.claims,
     })
 }
 

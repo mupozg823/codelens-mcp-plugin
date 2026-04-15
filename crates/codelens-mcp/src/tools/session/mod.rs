@@ -1,6 +1,8 @@
+mod coordination;
 pub(crate) mod metrics_config;
 mod project_ops;
 
+pub use coordination::{claim_files, list_active_agents, register_agent_work, release_files};
 pub use metrics_config::{
     export_session_markdown, get_capabilities, get_tool_metrics, get_watch_status,
     prune_index_failures, set_preset, set_profile,
