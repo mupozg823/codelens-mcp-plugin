@@ -50,7 +50,7 @@ curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
 ```
 
-Latest release notes: [v1.9.23](docs/release-notes/v1.9.23.md)
+Latest release: [v1.9.30](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.30)
 
 ## Setup
 
@@ -173,14 +173,15 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 Instead of starting from the full raw tool registry, begin with the workflow-first entrypoints:
 
-| Workflow           | Tool                     | When                                  |
-| ------------------ | ------------------------ | ------------------------------------- |
-| Explore codebase   | `explore_codebase`       | First look or targeted context search |
-| Trace execution    | `trace_request_path`     | Follow request or symbol flow         |
-| Plan safe refactor | `plan_safe_refactor`     | Preview rename/refactor risk first    |
-| Review changes     | `analyze_change_impact`  | Pre-merge impact and blast radius     |
-| Audit architecture | `review_architecture`    | Boundaries, coupling, module shape    |
-| Audit security     | `audit_security_context` | Risk-oriented changed-file review     |
+| Workflow              | Tool                    | When                                  |
+| --------------------- | ----------------------- | ------------------------------------- |
+| Explore codebase      | `explore_codebase`      | First look or targeted context search |
+| Trace execution       | `trace_request_path`    | Follow request or symbol flow         |
+| Audit architecture    | `review_architecture`   | Boundaries, coupling, module shape    |
+| Plan safe refactor    | `plan_safe_refactor`    | Preview rename/refactor risk first    |
+| Review changes        | `review_changes`        | Diff-aware pre-merge review           |
+| Diagnose issues       | `diagnose_issues`       | File, symbol, or directory diagnosis  |
+| Cleanup duplicate logic | `cleanup_duplicate_logic` | Duplicate or removable logic cleanup |
 
 ### Role-Based Surfaces
 

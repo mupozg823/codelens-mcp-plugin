@@ -1,0 +1,38 @@
+# CodeLens MCP Docs
+
+CodeLens MCP is a pure Rust MCP server for multi-agent coding harnesses. This site packages the repository's operational docs into a lighter public surface so architecture, setup, release verification, and ADRs are easier to browse than the raw repository tree.
+
+## Start Here
+
+- [Platform setup](platform-setup.md)
+- [Architecture overview](architecture.md)
+- [Release verification](release-verification.md)
+- [Benchmarks](benchmarks.md)
+
+## Current Release
+
+- [GitHub Release v1.9.30](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.30)
+- [Repository README](https://github.com/mupozg823/codelens-mcp-plugin/blob/main/README.md)
+- [Current source tree](https://github.com/mupozg823/codelens-mcp-plugin)
+
+## Core Workflows
+
+- `explore_codebase` for initial codebase orientation and targeted context retrieval
+- `trace_request_path` for execution and request-flow tracing
+- `review_architecture` for module boundaries and coupling
+- `plan_safe_refactor` for gated refactor planning
+- `review_changes` for diff-aware pre-merge review
+- `diagnose_issues` for file, symbol, and directory diagnostics
+- `cleanup_duplicate_logic` for duplicate logic and cleanup opportunities
+
+## Decision Records
+
+- [ADR-0001: Runtime boundaries and single-source registries](adr/ADR-0001-runtime-boundaries-and-single-source-registries.md)
+- [ADR-0002: Enterprise productization and release gates](adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md)
+- [ADR-0004: Multi-agent concurrency primitives](adr/ADR-0004-multi-agent-concurrency-primitives.md)
+
+## Additional References
+
+- [SCIP precise navigation guide](scip-guide.md)
+- [Serena comparison](serena-comparison.md)
+- [Architecture audit snapshot](architecture-audit-2026-04-12.md)

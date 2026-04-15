@@ -3,14 +3,14 @@
 > Pure Rust MCP server and harness optimization tool for code intelligence
 > 3 crates in the workspace | 2 primary runtime boundaries | 25 languages | tree-sitter-first
 
-## Current Snapshot (2026-04-13)
+## Current Snapshot (2026-04-16)
 
-- Workspace version: `1.9.14`
+- Workspace version: `1.9.30`
 - Registered tool definitions in source: `107` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
 - Tool output schemas in source: `73 / 107`
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
-- Current release notes: [docs/release-notes/v1.9.14.md](release-notes/v1.9.14.md)
+- Current release notes: [GitHub Release v1.9.30](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.30)
 - Current release verification guide: [docs/release-verification.md](release-verification.md)
 - Current external comparison status: CodeLens is stronger as a harness-native MCP layer, but not yet a strict Serena superset. See [docs/serena-comparison.md](serena-comparison.md).
 - Current audit and simplification report: [docs/architecture-audit-2026-04-12.md](architecture-audit-2026-04-12.md)

@@ -141,7 +141,7 @@ ghcr.io/mupozg823/codelens-mcp-plugin:<tag>
 Example:
 
 ```bash
-docker pull ghcr.io/mupozg823/codelens-mcp-plugin:1.9.14
+docker pull ghcr.io/mupozg823/codelens-mcp-plugin:1.9.30
 ```
 
 ### 7. Use the air-gapped bundle when present
@@ -238,4 +238,4 @@ This is the point where CodeLens becomes materially easier to operate in locked-
 - [Architecture overview](architecture.md)
 - [Platform setup](platform-setup.md)
 - [ADR-0002 enterprise productization](adr/ADR-0002-enterprise-productization-evaluation-and-release-gates.md)
-- [v1.9.14 release notes](release-notes/v1.9.14.md)
+- [GitHub Release v1.9.30](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.30)
