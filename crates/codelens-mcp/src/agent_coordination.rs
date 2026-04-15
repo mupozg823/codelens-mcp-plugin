@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::time::Instant;
 
 const DEFAULT_COORDINATION_TTL_SECS: u64 = 5 * 60;
 const MAX_COORDINATION_TTL_SECS: u64 = 60 * 60;
@@ -55,6 +57,30 @@ pub(crate) struct CoordinationCounts {
     pub active_claims: usize,
 }
 
+/// Read-only snapshot of `Mutex<HashMap>` contention metrics on the
+/// coordination store. Captured to validate (or refute) the hypothesis
+/// that the single-mutex design becomes a hot path before adding
+/// per-project sharding. All values are cumulative since process start.
+#[derive(Debug, Clone, Default, Serialize)]
+pub(crate) struct CoordinationLockStats {
+    pub acquire_count: u64,
+    pub wait_total_micros: u64,
+    pub wait_max_micros: u64,
+}
+
+impl CoordinationLockStats {
+    /// Cheap derived metric — average wait per acquire in microseconds.
+    /// Returns 0 when no acquisitions have happened yet, which keeps the
+    /// payload predictable for empty sessions.
+    pub fn avg_wait_micros(&self) -> u64 {
+        if self.acquire_count == 0 {
+            0
+        } else {
+            self.wait_total_micros / self.acquire_count
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize)]
 pub(crate) struct CoordinationSnapshot {
     pub agents: Vec<AgentWorkEntry>,
@@ -70,18 +96,51 @@ struct ProjectCoordinationState {
 
 pub(crate) struct AgentCoordinationStore {
     entries: Mutex<HashMap<String, ProjectCoordinationState>>,
+    lock_acquire_count: AtomicU64,
+    lock_wait_total_micros: AtomicU64,
+    lock_wait_max_micros: AtomicU64,
 }
 
 impl AgentCoordinationStore {
     pub(crate) fn new() -> Self {
         Self {
             entries: Mutex::new(HashMap::new()),
+            lock_acquire_count: AtomicU64::new(0),
+            lock_wait_total_micros: AtomicU64::new(0),
+            lock_wait_max_micros: AtomicU64::new(0),
         }
     }
 
     fn prune_project(project: &mut ProjectCoordinationState, now_ms: u64) {
         project.agents.retain(|_, entry| entry.expires_at > now_ms);
         project.claims.retain(|_, entry| entry.expires_at > now_ms);
+    }
+
+    /// Acquire the inner mutex while measuring how long the caller waited.
+    /// Centralizes the contention instrumentation so every call site goes
+    /// through the same path (and the only one that touches the atomics).
+    fn lock_entries(&self) -> std::sync::MutexGuard<'_, HashMap<String, ProjectCoordinationState>> {
+        let started = Instant::now();
+        let guard = self
+            .entries
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let waited_us = started.elapsed().as_micros() as u64;
+        self.lock_acquire_count.fetch_add(1, Ordering::Relaxed);
+        self.lock_wait_total_micros
+            .fetch_add(waited_us, Ordering::Relaxed);
+        self.lock_wait_max_micros
+            .fetch_max(waited_us, Ordering::Relaxed);
+        guard
+    }
+
+    /// Read-only snapshot of contention counters. Cheap — three atomic loads.
+    pub(crate) fn lock_stats(&self) -> CoordinationLockStats {
+        CoordinationLockStats {
+            acquire_count: self.lock_acquire_count.load(Ordering::Relaxed),
+            wait_total_micros: self.lock_wait_total_micros.load(Ordering::Relaxed),
+            wait_max_micros: self.lock_wait_max_micros.load(Ordering::Relaxed),
+        }
     }
 
     pub(crate) fn register_agent_work(
@@ -104,10 +163,7 @@ impl AgentCoordinationStore {
             intent: intent.to_owned(),
             expires_at,
         };
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut entries = self.lock_entries();
         let project = entries.entry(scope.to_owned()).or_default();
         Self::prune_project(project, now_ms());
         project.agents.insert(session_id.to_owned(), entry.clone());
@@ -127,10 +183,7 @@ impl AgentCoordinationStore {
     ) -> FileClaimEntry {
         let ttl_secs = normalize_ttl_secs(ttl_secs.unwrap_or(DEFAULT_COORDINATION_TTL_SECS));
         let expires_at = now_ms().saturating_add(ttl_secs * 1000);
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut entries = self.lock_entries();
         let project = entries.entry(scope.to_owned()).or_default();
         Self::prune_project(project, now_ms());
         let registered_agent = project.agents.get(session_id).cloned();
@@ -177,10 +230,7 @@ impl AgentCoordinationStore {
         session_id: &str,
         paths: &[String],
     ) -> (Vec<String>, Option<FileClaimEntry>) {
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut entries = self.lock_entries();
         let Some(project) = entries.get_mut(scope) else {
             return (Vec::new(), None);
         };
@@ -211,10 +261,7 @@ impl AgentCoordinationStore {
         session_id: &str,
         target_paths: &[String],
     ) -> Vec<FileClaimEntry> {
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut entries = self.lock_entries();
         let Some(project) = entries.get_mut(scope) else {
             return Vec::new();
         };
@@ -269,10 +316,7 @@ impl AgentCoordinationStore {
     }
 
     pub(crate) fn snapshot(&self, scope: &str) -> CoordinationSnapshot {
-        let mut entries = self
-            .entries
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut entries = self.lock_entries();
         let Some(project) = entries.get_mut(scope) else {
             return CoordinationSnapshot::default();
         };
@@ -289,5 +333,39 @@ impl AgentCoordinationStore {
             agents,
             claims,
         }
+    }
+}
+
+#[cfg(test)]
+mod lock_stats_tests {
+    use super::*;
+
+    #[test]
+    fn lock_stats_increment_on_each_acquire() {
+        let store = AgentCoordinationStore::new();
+        let stats0 = store.lock_stats();
+        assert_eq!(stats0.acquire_count, 0);
+        assert_eq!(stats0.wait_total_micros, 0);
+        assert_eq!(stats0.wait_max_micros, 0);
+        assert_eq!(stats0.avg_wait_micros(), 0);
+
+        store.register_agent_work("/p", "s1", "a", "b", "w", "intent", Some(60));
+        store.claim_files("/p", "s1", "a", "b", "w", vec!["f.rs".into()], "r", Some(60));
+        let after_two = store.lock_stats();
+        assert_eq!(
+            after_two.acquire_count, 2,
+            "register + claim should each acquire once"
+        );
+
+        let _ = store.snapshot("/p");
+        let after_three = store.lock_stats();
+        assert_eq!(after_three.acquire_count, 3);
+        assert!(after_three.wait_max_micros >= after_three.avg_wait_micros());
+    }
+
+    #[test]
+    fn avg_wait_micros_is_zero_when_never_acquired() {
+        let store = AgentCoordinationStore::new();
+        assert_eq!(store.lock_stats().avg_wait_micros(), 0);
     }
 }

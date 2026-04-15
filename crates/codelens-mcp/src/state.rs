@@ -36,7 +36,8 @@ pub(crate) fn preflight_ttl_ms() -> u64 {
 }
 
 pub(crate) use crate::agent_coordination::{
-    ActiveAgentEntry, AgentWorkEntry, CoordinationCounts, CoordinationSnapshot, FileClaimEntry,
+    ActiveAgentEntry, AgentWorkEntry, CoordinationCounts, CoordinationLockStats,
+    CoordinationSnapshot, FileClaimEntry,
 };
 pub(crate) use crate::client_profile::{ClientProfile, EffortLevel};
 pub(crate) use crate::runtime_types::{

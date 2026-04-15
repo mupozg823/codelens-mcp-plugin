@@ -6,8 +6,8 @@ use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 
 use super::{
-    ActiveAgentEntry, AgentWorkEntry, AppState, CoordinationCounts, CoordinationSnapshot,
-    FileClaimEntry,
+    ActiveAgentEntry, AgentWorkEntry, AppState, CoordinationCounts, CoordinationLockStats,
+    CoordinationSnapshot, FileClaimEntry,
 };
 
 const DEFAULT_COORDINATION_TTL_SECS: u64 = 5 * 60;
@@ -212,5 +212,14 @@ impl AppState {
         session: &SessionRequestContext,
     ) -> CoordinationCounts {
         self.coordination_snapshot_for_session(session).counts
+    }
+
+    /// Cumulative `Mutex<HashMap>` contention counters on the coordination
+    /// store. Process-global (not per-session) — the counters track the
+    /// shared mutex itself, not any one caller. Surfaced through session
+    /// metrics so an operator can decide whether the single-mutex design
+    /// needs to be sharded before adding any new structure.
+    pub(crate) fn coordination_lock_stats(&self) -> CoordinationLockStats {
+        self.coord_store.lock_stats()
     }
 }
