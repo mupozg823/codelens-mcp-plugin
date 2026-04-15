@@ -1847,6 +1847,18 @@ fn verifier_tools_return_structured_content_payload() {
             .map(|items| !items.is_empty() && items.len() <= 3)
             .unwrap_or(false)
     );
+    assert!(readiness_text["suggested_next_calls"].is_array());
+    assert!(
+        readiness_text["suggested_next_calls"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|entry| {
+                    entry["tool"].as_str() == Some("get_analysis_section")
+                        && entry["arguments"]["analysis_id"].is_string()
+                })
+            })
+            .unwrap_or(false)
+    );
     assert_eq!(readiness_text["routing_hint"], json!("async"));
     assert!(readiness_text["data"].get("verifier_checks").is_none());
     assert!(readiness_text["data"].get("blockers").is_none());
@@ -2217,6 +2229,66 @@ fn low_level_chain_emits_composite_guidance_and_tracks_followthrough() {
             .unwrap_or_default()
             >= 1
     );
+}
+
+#[test]
+fn suggested_next_calls_forward_task_and_analysis_id() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("next_calls.py"),
+        "def widget():\n    return 7\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let analyze = call_tool(
+        &state,
+        "analyze_change_request",
+        json!({"task": "refactor widget safely", "changed_files": ["next_calls.py"]}),
+    );
+    let analyze_next_calls = analyze["suggested_next_calls"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !analyze_next_calls.is_empty(),
+        "analyze_change_request should populate suggested_next_calls: {analyze}"
+    );
+    let verify_entry = analyze_next_calls
+        .iter()
+        .find(|call| call.get("tool").and_then(|v| v.as_str()) == Some("verify_change_readiness"))
+        .expect("verify_change_readiness should be forwarded with args");
+    assert_eq!(
+        verify_entry["arguments"]["task"].as_str(),
+        Some("refactor widget safely")
+    );
+    assert!(
+        verify_entry["arguments"]["changed_files"].is_array(),
+        "changed_files should be forwarded as array: {verify_entry}"
+    );
+
+    let verify = call_tool(
+        &state,
+        "verify_change_readiness",
+        json!({"task": "refactor widget safely", "changed_files": ["next_calls.py"]}),
+    );
+    let analysis_id = verify["data"]["analysis_id"]
+        .as_str()
+        .expect("verify_change_readiness should return analysis_id");
+    let verify_next_calls = verify["suggested_next_calls"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    if let Some(expand) = verify_next_calls
+        .iter()
+        .find(|call| call.get("tool").and_then(|v| v.as_str()) == Some("get_analysis_section"))
+    {
+        assert_eq!(
+            expand["arguments"]["analysis_id"].as_str(),
+            Some(analysis_id),
+            "get_analysis_section should forward the fresh analysis_id: {expand}"
+        );
+    }
 }
 
 #[test]

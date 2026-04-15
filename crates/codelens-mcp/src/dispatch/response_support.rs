@@ -259,6 +259,13 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
         {
             out.insert("suggestion_reasons".to_owned(), v);
         }
+        // Additive concrete-args companion — skipped when empty.
+        if let Some(ref calls) = resp.suggested_next_calls
+            && !calls.is_empty()
+            && let Ok(v) = serde_json::to_value(calls)
+        {
+            out.insert("suggested_next_calls".to_owned(), v);
+        }
     }
 
     // CI/batch mode: check if routing hint is Async (analysis handles)
@@ -343,6 +350,14 @@ fn slim_text_payload_for_async_job(
         resp.suggestion_reasons
             .as_ref()
             .and_then(|reasons| serde_json::to_value(reasons).ok()),
+    );
+    insert_if_present(
+        &mut payload,
+        "suggested_next_calls",
+        resp.suggested_next_calls
+            .as_ref()
+            .filter(|calls| !calls.is_empty())
+            .and_then(|calls| serde_json::to_value(calls).ok()),
     );
 
     let mut text_data = Map::new();
@@ -435,6 +450,14 @@ fn slim_text_payload_for_async_handle(
         resp.suggestion_reasons
             .as_ref()
             .and_then(|reasons| serde_json::to_value(reasons).ok()),
+    );
+    insert_if_present(
+        &mut payload,
+        "suggested_next_calls",
+        resp.suggested_next_calls
+            .as_ref()
+            .filter(|calls| !calls.is_empty())
+            .and_then(|calls| serde_json::to_value(calls).ok()),
     );
 
     let mut text_data = Map::new();
