@@ -30,7 +30,7 @@ The workflow is also configured to publish:
 - `*.pem` Fulcio-issued signing certificates for release payloads
 - `codelens-mcp-<target>.cdx.json` per-target CycloneDX SBOM files
 - a Linux OCI image to GHCR from the released `linux-x86_64` archive payload
-- `codelens-mcp-airgap-linux-x86_64.tar.gz` self-contained offline bundle
+- `codelens-mcp-airgap-linux-x86_64.tar.gz` when bundled model assets are staged in CI
 
 The workflow is also configured to generate GitHub artifact attestations for each packaged archive:
 
@@ -43,11 +43,10 @@ and then uses those release checksums to update the Homebrew tap formula.
 
 - release archives are built in CI from tagged source
 - SHA-256 checksums are published alongside the assets
-- keyless blob signatures and signing certificates are published for each archive, SBOM, air-gapped bundle, and `release-manifest.json`
+- keyless blob signatures and signing certificates are published for each archive, SBOM, any emitted air-gapped bundle, and `release-manifest.json`
 - per-target CycloneDX SBOMs are generated in the release workflow
 - provenance and SBOM attestations are generated in the release workflow
 - an OCI image is built from the released Linux binary and pushed to GHCR
-- an air-gapped Linux bundle is assembled from the released Linux binary plus bundled model assets
 - a machine-readable `release-manifest.json` is generated from the checksum set before publication
 - the publish job verifies the assembled release bundle locally before creating the GitHub release
 - Homebrew is derived from the published release checksums rather than from a separate manual path
@@ -57,6 +56,7 @@ and then uses those release checksums to update the Homebrew tap formula.
 
 - no Sigstore bundle export is mirrored as a plain release asset
 - `checksums-sha256.txt` itself is not separately signed
+- the repository checkout used in CI does not currently stage `model.onnx`, so the air-gapped bundle is skipped by default
 
 The remaining items are roadmap gaps, not shipped capabilities.
 
@@ -87,7 +87,7 @@ It verifies:
 3. each tarball contains exactly one `codelens-mcp` binary
 4. each zip contains exactly one `codelens-mcp.exe`
 5. each `*.cdx.json` file is valid JSON and declares a CycloneDX SBOM for `codelens-mcp`
-6. each `codelens-mcp-airgap-*.tar.gz` bundle contains the binary, bundled model assets, examples, manifest, and internally valid checksums
+6. each emitted `codelens-mcp-airgap-*.tar.gz` bundle contains the binary, bundled model assets, examples, manifest, and internally valid checksums
 7. `release-manifest.json` matches the checksum manifest and enumerates the published assets
 8. each signable release payload has a non-empty `.sig` sidecar and a parseable `.pem` certificate sidecar
 
@@ -127,7 +127,7 @@ cosign verify-blob codelens-mcp-linux-x86_64.tar.gz \
 Use the same pattern for:
 
 - `codelens-mcp-<target>.cdx.json`
-- `codelens-mcp-airgap-linux-x86_64.tar.gz`
+- `codelens-mcp-airgap-linux-x86_64.tar.gz` when present
 - `release-manifest.json`
 
 ### 6. Pull the published OCI image
@@ -144,9 +144,9 @@ Example:
 docker pull ghcr.io/mupozg823/codelens-mcp-plugin:1.9.14
 ```
 
-### 7. Use the air-gapped bundle
+### 7. Use the air-gapped bundle when present
 
-The release workflow also publishes a Linux offline bundle:
+When the bundled model payload is staged for a release, the workflow also publishes a Linux offline bundle:
 
 ```text
 codelens-mcp-airgap-linux-x86_64.tar.gz
@@ -189,7 +189,7 @@ The OCI image is built from the released `linux-x86_64` binary artifact rather t
 | GitHub provenance attestation | `actions/attest@v4` in release workflow | Present |
 | GitHub SBOM attestation | `actions/attest@v4` in release workflow | Present |
 | OCI image publishing | GHCR via `docker/build-push-action` | Present |
-| Air-gapped bundle | Linux offline tarball via `build-airgap-bundle.sh` | Present |
+| Air-gapped bundle | Linux offline tarball via `build-airgap-bundle.sh` when `model.onnx` is staged | Conditional |
 | Local artifact verification path | `scripts/verify-release-artifacts.sh` | Present |
 | Homebrew derivation from published assets | Implemented in release workflow | Present |
 | Signature verification path | Cosign keyless blob verification for release payloads | Present |
@@ -223,7 +223,7 @@ This is the minimum bar to move from "developer-grade release assets" to "enterp
 
 ### P2: add enterprise delivery formats
 
-1. Publish an air-gapped bundle containing:
+1. Restore a first-class air-gapped bundle path containing:
    - additional target variants beyond Linux x86_64
    - explicit provenance export for fully offline verification
 

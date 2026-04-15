@@ -60,6 +60,7 @@ fi
 
 BIN_PATH="${INSTALL_DIR}/${BIN_NAME}"
 echo "    Installed: ${BIN_PATH}"
+echo "    Semantic search needs a sidecar model at \$CODELENS_MODEL_DIR/codesearch or next to the binary."
 echo ""
 
 # ── MCP config writer ───────────────────────────────────────────────

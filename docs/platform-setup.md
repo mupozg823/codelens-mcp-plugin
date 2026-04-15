@@ -31,6 +31,8 @@ cp target/release/codelens-mcp ~/.local/bin/
 
 Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 
+Semantic search is supported by the default binary, but it needs a sidecar model directory containing `codesearch/model.onnx`. Set `CODELENS_MODEL_DIR` to that parent directory or place `models/codesearch/` next to the executable.
+
 ---
 
 ## Platform Configurations

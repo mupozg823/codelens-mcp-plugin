@@ -237,7 +237,7 @@ All via statically-linked tree-sitter grammars. Ships its own SQLite, vector sto
 
 Optional embedding-based code search (feature-gated: `semantic`):
 
-- **Bundled MiniLM-L12 CodeSearchNet** model (ONNX INT8) — works offline
+- **Sidecar MiniLM-L12 CodeSearchNet** model (ONNX INT8) — load from `CODELENS_MODEL_DIR` or next to the binary
 - Hybrid ranking: semantic supplements structural in `get_ranked_context`
 - 2-tier NL→code bridging: generic core (15 entries) + auto-generated project bridges (`.codelens/bridges.json`)
 - Multi-language test symbol filtering: Python, JS/TS, Go, Java, Kotlin, Ruby
@@ -288,17 +288,17 @@ python3 benchmarks/embedding-quality.py . --isolated-copy
 | Intelligence     | tree-sitter + SQLite + optional LSP/SCIP    | LSP by default            |
 | Token efficiency | Bounded workflows, 50-87% savings           | Standard tool responses   |
 | Workflow layer   | Composite reports + analysis handles        | Symbolic tools            |
-| Semantic search  | Bundled ONNX + hybrid ranking + NL bridging | No bundled model          |
+| Semantic search  | Sidecar ONNX + hybrid ranking + NL bridging | No bundled model          |
 | Refactoring      | Preview-first gated mutations               | Stronger IDE-backed edits |
 | Enterprise       | Config policy, rate limit, OTel, SBOM       | None                      |
-| Offline          | Full support (bundled model + air-gap)      | Depends on backend        |
+| Offline          | Works offline with a staged sidecar model   | Depends on backend        |
 
 See [docs/serena-comparison.md](docs/serena-comparison.md) for detailed gap analysis.
 
 ## Building
 
 ```bash
-cargo build --release                              # includes semantic (76MB)
+cargo build --release                              # semantic pipeline enabled (76MB)
 cargo build --release --no-default-features        # without ML model (23MB)
 cargo build --release --features http              # add HTTP transport
 cargo build --release --features otel              # add OpenTelemetry OTLP exporter
@@ -316,7 +316,7 @@ cargo test -p codelens-mcp --no-default-features   # semantic=off path
 
 | Feature        | Description                            | Binary Size Impact |
 | -------------- | -------------------------------------- | ------------------ |
-| `semantic`     | Bundled ONNX embedding model (default) | +53MB              |
+| `semantic`     | Semantic pipeline with sidecar ONNX model | +53MB            |
 | `http`         | Streamable HTTP + SSE transport        | +2MB               |
 | `otel`         | OpenTelemetry OTLP gRPC exporter       | +4MB               |
 | `scip-backend` | SCIP index precise navigation          | +1MB               |

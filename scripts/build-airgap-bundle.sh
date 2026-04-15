@@ -86,10 +86,17 @@ if [[ ! -f "$sbom_path" ]]; then
 	exit 1
 fi
 
-if [[ ! -d "$models_dir/codesearch" ]]; then
-	echo "models directory missing codesearch payload: $models_dir/codesearch" >&2
-	exit 1
-fi
+for required in \
+	"$models_dir/codesearch/model.onnx" \
+	"$models_dir/codesearch/tokenizer.json" \
+	"$models_dir/codesearch/config.json" \
+	"$models_dir/codesearch/special_tokens_map.json" \
+	"$models_dir/codesearch/tokenizer_config.json"; do
+	if [[ ! -f "$required" ]]; then
+		echo "models directory missing required payload file: $required" >&2
+		exit 1
+	fi
+done
 
 if [[ -z "$platform" ]]; then
 	base="$(basename "$archive_path")"

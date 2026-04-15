@@ -110,7 +110,9 @@ jobs:
         run: |
           mkdir -p oci-image/models
           tar -xzf codelens-mcp-linux-x86_64.tar.gz -C oci-image
-          cp -R crates/codelens-engine/models/codesearch oci-image/models/
+          if [[ -f crates/codelens-engine/models/codesearch/model.onnx ]]; then
+            cp -R crates/codelens-engine/models/codesearch oci-image/models/
+          fi
           cp Dockerfile.release oci-image/Dockerfile
 
       - name: Set up Docker Buildx
@@ -144,7 +146,18 @@ jobs:
           provenance: true
           sbom: true
 
+      - name: Detect bundled model payload
+        id: bundled_model
+        run: |
+          if [[ -f crates/codelens-engine/models/codesearch/model.onnx ]]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Skipping air-gapped bundle: model.onnx is not staged in this checkout."
+          fi
+
       - name: Build air-gapped bundle
+        if: steps.bundled_model.outputs.available == 'true'
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           bash scripts/build-airgap-bundle.sh \
