@@ -108,8 +108,9 @@ jobs:
 
       - name: Prepare OCI image context
         run: |
-          mkdir -p oci-image
+          mkdir -p oci-image/models
           tar -xzf codelens-mcp-linux-x86_64.tar.gz -C oci-image
+          cp -R crates/codelens-engine/models/codesearch oci-image/models/
           cp Dockerfile.release oci-image/Dockerfile
 
       - name: Set up Docker Buildx

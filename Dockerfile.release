@@ -1,20 +1,10 @@
-# Multi-stage build for CodeLens MCP
+# Runtime image for a prepared release-artifact context.
+# Expected build context:
+#   ./codelens-mcp
+#   ./models/codesearch/*
 # Usage:
-#   docker build -f Dockerfile.release -t codelens-mcp .
-#   docker build -f Dockerfile.release --build-arg FEATURES="" -t codelens-mcp-lean .
+#   docker build -f oci-image/Dockerfile -t codelens-mcp oci-image
 #   docker run -v /path/to/project:/workspace codelens-mcp
-
-# ── Stage 1: Build ──────────────────────────────────────────────
-FROM rust:1.87-bookworm AS builder
-
-WORKDIR /build
-COPY . .
-
-ARG FEATURES="default"
-RUN cargo build --release --features "${FEATURES}" \
-    && strip target/release/codelens-mcp
-
-# ── Stage 2: Runtime ────────────────────────────────────────────
 FROM debian:bookworm-slim
 
 RUN apt-get update \
@@ -26,9 +16,10 @@ RUN apt-get update \
 
 WORKDIR /workspace
 
-COPY --from=builder /build/target/release/codelens-mcp /usr/local/bin/codelens-mcp
-# Bundle ONNX model for offline semantic search
-COPY --from=builder /build/crates/codelens-engine/models/ /usr/local/share/codelens/models/
+COPY codelens-mcp /usr/local/bin/codelens-mcp
+# Bundle ONNX model for offline semantic search.
+COPY models/ /usr/local/share/codelens/models/
+RUN chmod 0755 /usr/local/bin/codelens-mcp
 
 ENV CODELENS_MODEL_DIR=/usr/local/share/codelens/models
 
