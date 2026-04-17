@@ -56,16 +56,16 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features http
 ```
 
-Latest release: [v1.9.32](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.32)
+Latest release: [v1.9.35](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.35)
 
 ### Install Channel Matrix
 
-| Channel | What you get | Good for | Extra install needed? |
-| ------- | ------------ | -------- | --------------------- |
-| `cargo install codelens-mcp` | crates.io package version, stdio-first default build | Single-agent local MCP sessions | Add `--features http` if you want shared HTTP daemons |
-| `cargo install codelens-mcp --features http` | crates.io package version with HTTP transport | Shared daemon mode from crates.io | No extra CodeLens package, but you still need the host client config |
-| GitHub Releases / installer / Homebrew | latest tagged release binary, built in CI with `--features http` | Tagged release users who want HTTP without compiling | No extra CodeLens build; semantic still needs a model sidecar or airgap bundle |
-| `cargo install --git ...` or source build | current repository HEAD | Unreleased features on `main` / branch testing | No extra package, but you compile locally |
+| Channel                                      | What you get                                                     | Good for                                             | Extra install needed?                                                          |
+| -------------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `cargo install codelens-mcp`                 | crates.io package version, stdio-first default build             | Single-agent local MCP sessions                      | Add `--features http` if you want shared HTTP daemons                          |
+| `cargo install codelens-mcp --features http` | crates.io package version with HTTP transport                    | Shared daemon mode from crates.io                    | No extra CodeLens package, but you still need the host client config           |
+| GitHub Releases / installer / Homebrew       | latest tagged release binary, built in CI with `--features http` | Tagged release users who want HTTP without compiling | No extra CodeLens build; semantic still needs a model sidecar or airgap bundle |
+| `cargo install --git ...` or source build    | current repository HEAD                                          | Unreleased features on `main` / branch testing       | No extra package, but you compile locally                                      |
 
 Important:
 
