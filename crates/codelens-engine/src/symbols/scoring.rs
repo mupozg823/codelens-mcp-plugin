@@ -240,7 +240,18 @@ pub fn sparse_weighting_enabled() -> bool {
         let lowered = raw.trim().to_ascii_lowercase();
         return matches!(lowered.as_str(), "1" | "true" | "yes" | "on");
     }
-    crate::embedding::auto_sparse_should_enable()
+    // The auto-on heuristic lives under the semantic feature because it keys off
+    // the embedding runtime config. When semantic is disabled the ranker falls
+    // back to pure lexical scoring, which has no sparse weighting path, so the
+    // default is `false`.
+    #[cfg(feature = "semantic")]
+    {
+        crate::embedding::auto_sparse_should_enable()
+    }
+    #[cfg(not(feature = "semantic"))]
+    {
+        false
+    }
 }
 
 /// Maximum sparse coverage bonus added to the blended score when a query
