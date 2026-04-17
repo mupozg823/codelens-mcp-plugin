@@ -83,6 +83,8 @@ Recommended daemon split:
 - `7837` read-only daemon for planning, review, CI, and remote bootstrap
 - `7838` mutation-enabled daemon only for explicit gated refactor sessions
 
+If you need a public planner -> builder delegation pattern, including fixed preflight order, coordination TTL discipline, and explicit `release_files`, see [Multi-agent integration](multi-agent-integration.md).
+
 For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces and tiers first, and omits `outputSchema` during bootstrap to keep session overhead bounded. Clients can expand one namespace at a time with `{"namespace":"reports"}`, open primitive tools with `{"tier":"primitive"}`, request the full surface explicitly with `{"full": true}`, or opt back into schemas with `{"includeOutputSchema": true}`. In deferred sessions, hidden namespaces and primitive tiers can gate `tools/call` until the client explicitly loads them, and `codelens://tools/list` / `codelens://session/http` resources reflect the same session state.
 
 ### 1. Claude Code (CLI / Desktop / Web)
@@ -128,7 +130,7 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current `1.9.30` runtime shape, `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
+On the current released runtime shape (`v1.9.32`), `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
 
 For `refactor-full`, use a preflight-first path:
 
@@ -206,7 +208,7 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current `1.9.30` runtime shape in this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
+On the current released runtime shape (`v1.9.32`) in this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
 
 For `refactor-full`, use a preflight-first path:
 

@@ -5,13 +5,14 @@ CodeLens MCP is a pure Rust MCP server for multi-agent coding harnesses. This si
 ## Start Here
 
 - [Platform setup](platform-setup.md)
+- [Multi-agent integration](multi-agent-integration.md)
 - [Architecture overview](architecture.md)
 - [Release verification](release-verification.md)
 - [Benchmarks](benchmarks.md)
 
 ## Current Release
 
-- [GitHub Release v1.9.30](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.30)
+- [GitHub Release v1.9.32](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.32)
 - [Repository README](https://github.com/mupozg823/codelens-mcp-plugin/blob/main/README.md)
 - [Current source tree](https://github.com/mupozg823/codelens-mcp-plugin)
 
