@@ -18,8 +18,11 @@ use serde_json::Value;
 
 mod analysis;
 mod coordination;
+mod embedding_host;
+mod metrics_host;
 mod preflight;
 mod project_runtime;
+mod session_host;
 mod session_runtime;
 mod watcher_health;
 
@@ -180,29 +183,6 @@ impl AppState {
             .as_millis() as u64
     }
 
-    pub(crate) fn current_project_scope(&self) -> String {
-        self.project().as_path().to_string_lossy().to_string()
-    }
-
-    pub(crate) fn project_scope_for_session(
-        &self,
-        session: &crate::session_context::SessionRequestContext,
-    ) -> String {
-        session
-            .project_path
-            .clone()
-            .unwrap_or_else(|| self.current_project_scope())
-    }
-
-    pub(crate) fn project_scope_for_arguments(&self, arguments: &Value) -> String {
-        let session = crate::session_context::SessionRequestContext::from_json(arguments);
-        self.project_scope_for_session(&session)
-    }
-
-    fn default_project_scope(&self) -> String {
-        self.default_project.as_path().to_string_lossy().to_string()
-    }
-
     fn active_project_context(&self) -> Option<Arc<ProjectRuntimeContext>> {
         project_runtime::active_project_context(self)
     }
@@ -216,156 +196,6 @@ impl AppState {
 
     fn activate_project_context(&self, context: Option<Arc<ProjectRuntimeContext>>) {
         project_runtime::activate_project_context(self, context)
-    }
-
-    pub(crate) fn execution_surface(
-        &self,
-        _session: &crate::session_context::SessionRequestContext,
-    ) -> ToolSurface {
-        session_runtime::execution_surface(self, _session)
-    }
-
-    pub(crate) fn execution_token_budget(
-        &self,
-        _session: &crate::session_context::SessionRequestContext,
-    ) -> usize {
-        session_runtime::execution_token_budget(self, _session)
-    }
-
-    #[cfg(feature = "http")]
-    pub(crate) fn set_session_surface_and_budget(
-        &self,
-        session_id: &str,
-        surface: ToolSurface,
-        budget: usize,
-    ) {
-        session_runtime::set_session_surface_and_budget(self, session_id, surface, budget)
-    }
-
-    pub(crate) fn push_recent_tool_for_session(
-        &self,
-        _session: &crate::session_context::SessionRequestContext,
-        name: &str,
-    ) {
-        session_runtime::push_recent_tool_for_session(self, _session, name);
-    }
-
-    pub(crate) fn recent_tools_for_session(
-        &self,
-        _session: &crate::session_context::SessionRequestContext,
-    ) -> Vec<String> {
-        session_runtime::recent_tools_for_session(self, _session)
-    }
-
-    pub(crate) fn record_file_access_for_session(
-        &self,
-        _session: &crate::session_context::SessionRequestContext,
-        path: &str,
-    ) {
-        session_runtime::record_file_access_for_session(self, _session, path);
-    }
-
-    pub(crate) fn recent_file_paths_for_session(
-        &self,
-        _session: &crate::session_context::SessionRequestContext,
-    ) -> Vec<String> {
-        session_runtime::recent_file_paths_for_session(self, _session)
-    }
-
-    /// Returns (consecutive_count, is_rapid_burst).
-    /// `is_rapid_burst` is true when 3+ identical calls happen within 10 seconds,
-    /// indicating an agent retry loop rather than deliberate repeated usage.
-    pub(crate) fn doom_loop_count_for_session(
-        &self,
-        _session: &crate::session_context::SessionRequestContext,
-        name: &str,
-        args_hash: u64,
-    ) -> (usize, bool) {
-        session_runtime::doom_loop_count_for_session(self, _session, name, args_hash)
-    }
-
-    #[cfg(feature = "http")]
-    pub(crate) fn bind_project_to_session(&self, session_id: &str, project_path: &str) {
-        session_runtime::bind_project_to_session(self, session_id, project_path);
-    }
-
-    #[cfg(feature = "http")]
-    pub(crate) fn ensure_session_project<'a>(
-        &'a self,
-        session: &crate::session_context::SessionRequestContext,
-    ) -> Result<Option<std::sync::MutexGuard<'a, ()>>, CodeLensError> {
-        session_runtime::ensure_session_project(self, session)
-    }
-
-    #[cfg(not(feature = "http"))]
-    pub(crate) fn ensure_session_project<'a>(
-        &'a self,
-        _session: &crate::session_context::SessionRequestContext,
-    ) -> Result<Option<std::sync::MutexGuard<'a, ()>>, CodeLensError> {
-        session_runtime::ensure_session_project(self, _session)
-    }
-
-    // ── Embedding engine accessors ──────────────────────────────────────
-
-    /// Get or initialize embedding engine for the current project.
-    /// Fast path (read lock) if already initialized; slow path (write lock) for first init.
-    #[cfg(feature = "semantic")]
-    pub(crate) fn embedding_engine(
-        &self,
-    ) -> std::sync::RwLockReadGuard<'_, Option<EmbeddingEngine>> {
-        // Fast path: already initialized
-        {
-            let guard = self.embedding.read().unwrap_or_else(|p| p.into_inner());
-            if guard.is_some() {
-                return guard;
-            }
-        }
-        // Slow path: initialize under write lock
-        {
-            let mut wguard = self.embedding.write().unwrap_or_else(|p| p.into_inner());
-            if wguard.is_none() {
-                let project = self.project();
-                *wguard = EmbeddingEngine::new(&project)
-                    .map_err(|e| tracing::error!("EmbeddingEngine init failed: {e}"))
-                    .ok();
-            }
-        }
-        self.embedding.read().unwrap_or_else(|p| p.into_inner())
-    }
-
-    /// Read-only access to embedding state without triggering initialization.
-    #[cfg(feature = "semantic")]
-    pub(crate) fn embedding_ref(&self) -> std::sync::RwLockReadGuard<'_, Option<EmbeddingEngine>> {
-        self.embedding.read().unwrap_or_else(|p| p.into_inner())
-    }
-
-    /// Drop the current embedding engine (called on project switch).
-    #[cfg(feature = "semantic")]
-    pub(crate) fn reset_embedding(&self) {
-        let mut guard = self.embedding.write().unwrap_or_else(|p| p.into_inner());
-        *guard = None;
-    }
-
-    /// Lazy-loaded SCIP backend. Loads the SCIP index on first access
-    /// and caches it for subsequent calls. Returns None if no index found.
-    #[cfg(feature = "scip-backend")]
-    pub(crate) fn scip(&self) -> Option<&codelens_engine::ScipBackend> {
-        self.scip_backend
-            .get_or_init(|| {
-                let project = self.project();
-                codelens_engine::ScipBackend::detect(project.as_path())
-                    .and_then(|path| {
-                        tracing::info!(path = %path.display(), "loading SCIP index");
-                        codelens_engine::ScipBackend::load(&path)
-                            .inspect_err(|e| {
-                                tracing::warn!(error = %e, "failed to load SCIP index");
-                            })
-                            .ok()
-                    })
-                    .map(Arc::new)
-            })
-            .as_ref()
-            .map(|arc| arc.as_ref())
     }
 
     // ── Active project accessors (check override, fallback to default) ──
@@ -609,81 +439,6 @@ impl AppState {
         }
     }
 
-    /// Access the tool metrics registry.
-    pub(crate) fn metrics(&self) -> &ToolMetricsRegistry {
-        self.metrics.as_ref()
-    }
-
-    /// Record a tool call in the recent tools ring buffer.
-    pub(crate) fn push_recent_tool(&self, name: &str) {
-        self.recent_tools.push(name.to_owned());
-    }
-
-    /// Doom-loop detection: returns (repeat_count, is_rapid_burst).
-    /// Threshold of 3 triggers a warning. `is_rapid_burst` is true when
-    /// 3+ identical calls occur within 10 seconds (agent retry loop).
-    ///
-    /// Keyed by `session_id` so concurrent HTTP sessions maintain independent
-    /// counters and do not corrupt each other's state.
-    pub(crate) fn doom_loop_count(
-        &self,
-        session_id: &str,
-        name: &str,
-        args_hash: u64,
-    ) -> (usize, bool) {
-        let mut counters = self
-            .doom_loop_counter
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        let now = Self::now_ms();
-        let entry = counters
-            .entry(session_id.to_owned())
-            .or_insert_with(|| (String::new(), 0, 0, now));
-        if entry.0 == name && entry.1 == args_hash {
-            entry.2 += 1;
-        } else {
-            *entry = (name.to_owned(), args_hash, 1, now);
-        }
-        let is_rapid = entry.2 >= 3 && (now.saturating_sub(entry.3) < 10_000);
-        (entry.2, is_rapid)
-    }
-
-    /// Get the recent tool call names (up to 5).
-    pub(crate) fn recent_tools(&self) -> Vec<String> {
-        self.recent_tools.snapshot()
-    }
-
-    /// Record a file path as recently accessed (for ranking boost).
-    pub(crate) fn record_file_access(&self, path: &str) {
-        self.recent_files.push_dedup(path);
-    }
-
-    /// Get recently accessed file paths (most recent last).
-    pub(crate) fn recent_file_paths(&self) -> Vec<String> {
-        self.recent_files.snapshot()
-    }
-
-    /// Record an analysis_id for cross-phase context.
-    pub(crate) fn push_recent_analysis_id(&self, id: String) {
-        self.recent_analysis_ids.push(id);
-    }
-
-    /// Get recent analysis IDs (most recent last).
-    pub(crate) fn recent_analysis_ids(&self) -> Vec<String> {
-        self.recent_analysis_ids.snapshot()
-    }
-
-    /// Current global token budget.
-    pub(crate) fn token_budget(&self) -> usize {
-        self.token_budget.load(std::sync::atomic::Ordering::Relaxed)
-    }
-
-    /// Set global token budget.
-    pub(crate) fn set_token_budget(&self, budget: usize) {
-        self.token_budget
-            .store(budget, std::sync::atomic::Ordering::Relaxed);
-    }
-
     pub(crate) fn clone_for_worker(&self) -> Self {
         let project = self.project();
         let symbol_index = self.symbol_index();
@@ -881,51 +636,6 @@ impl AppState {
             .ok_or_else(|| anyhow::anyhow!("project '{}' not registered", project_name))?;
         sp.index
             .find_symbol(symbol_name, None, false, false, max_results)
-    }
-
-    /// Initialize the session store for HTTP mode.
-    #[cfg(feature = "http")]
-    pub(crate) fn with_session_store(mut self) -> Self {
-        self.session_store = Some(crate::server::session::SessionStore::new(
-            std::time::Duration::from_secs(30 * 60), // 30 minutes
-        ));
-        self
-    }
-
-    #[cfg(feature = "http")]
-    pub(crate) fn active_session_count(&self) -> usize {
-        self.session_store
-            .as_ref()
-            .map(|store| store.len())
-            .unwrap_or(0)
-    }
-
-    #[cfg(feature = "http")]
-    pub(crate) fn session_timeout_seconds(&self) -> u64 {
-        self.session_store
-            .as_ref()
-            .map(|store| store.timeout_secs())
-            .unwrap_or(0)
-    }
-
-    #[cfg(feature = "http")]
-    pub(crate) fn session_resume_supported(&self) -> bool {
-        self.session_store.is_some()
-    }
-
-    #[cfg(not(feature = "http"))]
-    pub(crate) fn active_session_count(&self) -> usize {
-        0
-    }
-
-    #[cfg(not(feature = "http"))]
-    pub(crate) fn session_timeout_seconds(&self) -> u64 {
-        0
-    }
-
-    #[cfg(not(feature = "http"))]
-    pub(crate) fn session_resume_supported(&self) -> bool {
-        false
     }
 }
 
