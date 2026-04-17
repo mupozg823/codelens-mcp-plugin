@@ -21,6 +21,10 @@ CHANGELOG will resume per-release entries starting with the next minor bump. Tre
 
 ## [Unreleased]
 
+### Docs
+
+- README retrieval-quality table re-anchored on commit `26d513e` (v1.9.32, 2026-04-17). Self-benchmark now reports Hybrid MRR **0.712** (was 0.758 on `84c825d` / v1.9.23 re-measurement), Semantic 0.689 (was 0.732), Lexical 0.583 (was 0.601). Dataset (`benchmarks/embedding-quality-dataset-self.json`, 104 queries) and embedding model (`MiniLM-L12-CodeSearchNet-INT8` sha prefix `ef1d1e9c`) are unchanged. Two independent runs on v1.9.32 produced identical numbers (deterministic). The `v1.9.31`–`v1.9.32` dispatch / tools / main.rs refactors do not touch the retrieval path; the observed drift traces to unrelated retrieval-path tuning commits within `84c825d..26d513e`. Root-cause investigation is a follow-up in a dedicated bench session. Raw + summary under `benchmarks/results/v1.9.32-mrr.{json,md}` and `...-run2.{json,md}` for variance evidence.
+
 ## [1.9.32] — 2026-04-17
 
 ### Refactor

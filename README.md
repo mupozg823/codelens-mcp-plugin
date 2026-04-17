@@ -181,15 +181,15 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 Instead of starting from the full raw tool registry, begin with the workflow-first entrypoints:
 
-| Workflow              | Tool                    | When                                  |
-| --------------------- | ----------------------- | ------------------------------------- |
-| Explore codebase      | `explore_codebase`      | First look or targeted context search |
-| Trace execution       | `trace_request_path`    | Follow request or symbol flow         |
-| Audit architecture    | `review_architecture`   | Boundaries, coupling, module shape    |
-| Plan safe refactor    | `plan_safe_refactor`    | Preview rename/refactor risk first    |
-| Review changes        | `review_changes`        | Diff-aware pre-merge review           |
-| Diagnose issues       | `diagnose_issues`       | File, symbol, or directory diagnosis  |
-| Cleanup duplicate logic | `cleanup_duplicate_logic` | Duplicate or removable logic cleanup |
+| Workflow                | Tool                      | When                                  |
+| ----------------------- | ------------------------- | ------------------------------------- |
+| Explore codebase        | `explore_codebase`        | First look or targeted context search |
+| Trace execution         | `trace_request_path`      | Follow request or symbol flow         |
+| Audit architecture      | `review_architecture`     | Boundaries, coupling, module shape    |
+| Plan safe refactor      | `plan_safe_refactor`      | Preview rename/refactor risk first    |
+| Review changes          | `review_changes`          | Diff-aware pre-merge review           |
+| Diagnose issues         | `diagnose_issues`         | File, symbol, or directory diagnosis  |
+| Cleanup duplicate logic | `cleanup_duplicate_logic` | Duplicate or removable logic cleanup  |
 
 ### Role-Based Surfaces
 
@@ -253,15 +253,17 @@ Optional embedding-based code search (feature-gated: `semantic`):
 
 ### Retrieval Quality
 
-Self-benchmark re-measured on commit `84c825d` (2026-04-15), model `MiniLM-L12-CodeSearchNet-INT8` (SHA256 prefix `ef1d1e9c`), dataset `benchmarks/embedding-quality-dataset-self.json` (104 queries). Two independent runs produced identical numbers (0% variance).
+Self-benchmark re-measured on commit `26d513e` (v1.9.32, 2026-04-17), model `MiniLM-L12-CodeSearchNet-INT8` (SHA256 prefix `ef1d1e9c`), dataset `benchmarks/embedding-quality-dataset-self.json` (104 queries). Two independent runs produced identical numbers (0% variance — deterministic).
 
 | Method                            | MRR@10    | Acc@1   | Acc@3   | Avg ms  |
 | --------------------------------- | --------- | ------- | ------- | ------- |
-| Lexical only (no semantic)        | 0.601     | 54%     | 68%     | 41      |
-| Semantic only                     | 0.732     | 68%     | 80%     | 450     |
-| **Hybrid** (`get_ranked_context`) | **0.758** | **71%** | **82%** | **123** |
+| Lexical only (no semantic)        | 0.583     | 53%     | 65%     | 41      |
+| Semantic only                     | 0.689     | 65%     | 74%     | 498     |
+| **Hybrid** (`get_ranked_context`) | **0.712** | **68%** | **75%** | **115** |
 
-Hybrid uplift over lexical: **+0.157 MRR, +17% Acc@1**. Semantic alone beats lexical but hybrid beats semantic by blending both signals.
+Hybrid uplift over lexical: **+0.128 MRR, +15% Acc@1**. Semantic alone beats lexical but hybrid beats semantic by blending both signals. Identifier queries reach `MRR 0.935` with every method (structural matching is sufficient); the hybrid advantage concentrates on natural-language queries (+0.159 MRR) and short phrases (+0.318 MRR).
+
+> **v1.9.23 → v1.9.32 re-measurement**: Hybrid −0.046 (0.758 → 0.712), Semantic −0.043, Lexical −0.018. Dataset and model unchanged. Commit span `84c825d..26d513e` includes retrieval-path tuning that slightly dropped the aggregate score; the architecture refactors in v1.9.31–v1.9.32 (`dispatch/`, `tools/`, `main.rs` splits) do not touch retrieval code. Root-cause investigation is a follow-up in a dedicated bench session.
 
 Cross-project matrix (6 languages, last run v1.9.23 line — not re-measured this cycle): Rust (self / axum / ripgrep), Python (django / requests), TS/JS (jest / next-js / react-core / typescript), Go (gin), Java (gson), C (curl). Historical hybrid numbers for those projects are tracked in `benchmarks/embedding-quality-phase3-matrix.json`.
 
@@ -323,12 +325,12 @@ cargo test -p codelens-mcp --no-default-features   # semantic=off path
 
 ### Feature Flags
 
-| Feature        | Description                            | Binary Size Impact |
-| -------------- | -------------------------------------- | ------------------ |
-| `semantic`     | Semantic pipeline with sidecar ONNX model | +53MB            |
-| `http`         | Streamable HTTP + SSE transport        | +2MB               |
-| `otel`         | OpenTelemetry OTLP gRPC exporter       | +4MB               |
-| `scip-backend` | SCIP index precise navigation          | +1MB               |
+| Feature        | Description                               | Binary Size Impact |
+| -------------- | ----------------------------------------- | ------------------ |
+| `semantic`     | Semantic pipeline with sidecar ONNX model | +53MB              |
+| `http`         | Streamable HTTP + SSE transport           | +2MB               |
+| `otel`         | OpenTelemetry OTLP gRPC exporter          | +4MB               |
+| `scip-backend` | SCIP index precise navigation             | +1MB               |
 
 ## Harness Architecture
 
