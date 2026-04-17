@@ -1,12 +1,12 @@
 //! Session context collection, mutation gate execution, and post-mutation side effects.
 
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::mutation_gate::{
-    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
-    MutationGateFailure,
+    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
+    is_refactor_gated_mutation_tool,
 };
 use crate::tools;
-use crate::AppState;
 use tracing::warn;
 
 #[cfg(feature = "semantic")]

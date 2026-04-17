@@ -5,13 +5,13 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 #[cfg(feature = "semantic")]
+use crate::AppState;
+#[cfg(feature = "semantic")]
 use crate::error::CodeLensError;
 #[cfg(feature = "semantic")]
 use crate::protocol::BackendKind;
 #[cfg(feature = "semantic")]
 use crate::tools::ToolResult;
-#[cfg(feature = "semantic")]
-use crate::AppState;
 #[cfg(feature = "semantic")]
 use serde_json::json;
 

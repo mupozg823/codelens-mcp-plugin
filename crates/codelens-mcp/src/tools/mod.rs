@@ -26,12 +26,12 @@ pub use crate::tool_runtime::{
 // working after the split out of `tools/mod.rs`. `suggest_next` itself is only
 // called from integration tests that go through `#[cfg(test)]`; internal
 // callers use `suggest_next_contextual`, which wraps it.
+use std::collections::HashMap;
 #[allow(unused_imports)]
 pub(crate) use suggestions::{
     composite_guidance_for_chain, infer_harness_phase, suggest_next, suggest_next_contextual,
     suggestion_reasons_for,
 };
-use std::collections::HashMap;
 
 /// Declarative tool registry macro — reduces boilerplate and prevents drift.
 /// Each entry is `"tool_name" => module::handler_fn`.
@@ -211,4 +211,3 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
         .map(|arg| (*arg).to_owned())
         .collect()
 }
-

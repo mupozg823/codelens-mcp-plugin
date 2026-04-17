@@ -1,7 +1,7 @@
 //! Tool call envelope — normalized JSON-RPC params with profile/compact/harness routing.
 
-use crate::tool_defs::{default_budget_for_profile, ToolProfile};
 use crate::AppState;
+use crate::tool_defs::{ToolProfile, default_budget_for_profile};
 use serde_json::json;
 
 /// Normalized tool call request — extracted from raw JSON-RPC params.

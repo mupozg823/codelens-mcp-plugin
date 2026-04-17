@@ -1,7 +1,7 @@
 //! Per-session rate limit + doom-loop argument hashing.
 
-use crate::error::CodeLensError;
 use crate::AppState;
+use crate::error::CodeLensError;
 
 /// Routing metadata keys that must be excluded from the doom-loop hash
 /// so that identical semantic tool calls with different routing profiles

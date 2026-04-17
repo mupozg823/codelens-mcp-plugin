@@ -10,7 +10,7 @@
 //! Tools without an entry return `None`, and the field is omitted from the
 //! response payload so silent tools stay token-lean.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Return the structured reasoning scaffold for a workflow tool, if any.
 ///

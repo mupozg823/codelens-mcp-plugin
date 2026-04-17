@@ -36,9 +36,9 @@ mod tools;
 pub(crate) use state::AppState;
 
 use anyhow::Result;
-use cli::{cli_option_value, resolve_startup_project, select_startup_project_source};
 #[cfg(feature = "http")]
 use cli::format_http_startup_banner;
+use cli::{cli_option_value, resolve_startup_project, select_startup_project_source};
 use server::oneshot::run_oneshot;
 use server::transport_stdio::run_stdio;
 use state::RuntimeDaemonMode;
@@ -257,7 +257,6 @@ fn main() -> Result<()> {
         _ => run_stdio(Arc::new(app_state)),
     }
 }
-
 
 #[path = "integration_tests/mod.rs"]
 #[cfg(test)]
