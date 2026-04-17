@@ -5,6 +5,20 @@ All notable changes to **CodeLens MCP** are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0 — 1.9.30] (history bridge)
+
+CHANGELOG inlining was suspended during the rapid 1.8.x / 1.9.x cycle. Authoritative release-by-release detail lives in two places:
+
+- Per-release notes in [`docs/release-notes/`](docs/release-notes/) (selected highlights: `v1.9.14`, `v1.9.21`, `v1.9.22`, `v1.9.23`, `v1.9.26`).
+- [GitHub Releases](https://github.com/mupozg823/codelens-mcp-plugin/releases) for every tag from `v1.8.0` onward, including `v1.9.27`–`v1.9.30` (release-plumbing fixes: airgap bundle handling, PEM/cert sidecar validation, GHCR image packaging, CI runtime pin).
+
+Broad-strokes shape of the window:
+
+- **v1.8.0** — crates.io publish preparation, harness-native README refresh, deep MCP module decomposition (`~−5k` lines net) and workflow aliases.
+- **v1.9.x** — embedding retrieval tightening (FTS5-first, sparse boost, bridge-dilution fix), hybrid MRR baseline, SCIP precise backend landing with hover docs + capability stats, sidecar ONNX model staging for airgap, multi-agent coordination primitives (ADR-0004), release pipeline hardening (SBOM, signed sidecars, GHCR image).
+
+CHANGELOG will resume per-release entries starting with the next minor bump. Treat this gap as a known documentation hole, not an absence of work.
+
 ## [Unreleased]
 
 ### Deprecated

@@ -16,16 +16,16 @@ Pure Rust library providing tree-sitter-based symbol extraction, import graph an
 
 ## Language Support
 
-Rust, TypeScript, JavaScript, Python, Go, Java, Kotlin, C, C++, PHP, Swift, Scala, Ruby, C#, Dart, Lua, Zig, Elixir, Haskell, OCaml, Erlang, R, Bash, Julia, Clojure
+Python, JavaScript, TypeScript, TSX, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, C#, Dart, Lua, Zig, Elixir, Haskell, OCaml, Erlang, R, Bash, Julia — plus Clojure/ClojureScript and HTML/CSS/TOML/YAML config grammars.
 
 ## Usage
 
 ```toml
 [dependencies]
-codelens-engine = "1.7"
+codelens-engine = "1.9"
 
 # With semantic search:
-codelens-engine = { version = "1.7", features = ["semantic"] }
+codelens-engine = { version = "1.9", features = ["semantic"] }
 ```
 
 ```rust

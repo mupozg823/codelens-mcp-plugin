@@ -37,8 +37,11 @@ Read + grep × 3 files         → 3,200 tokens       get_ranked_context     →
 ## Quick Install
 
 ```bash
-# From crates.io (recommended)
+# From crates.io (recommended for stdio; add `--features http` for shared daemon mode)
 cargo install codelens-mcp
+
+# From crates.io with HTTP transport enabled
+cargo install codelens-mcp --features http
 
 # Homebrew (macOS / Linux)
 brew install mupozg823/tap/codelens-mcp
@@ -48,6 +51,9 @@ curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/
 
 # From source
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp
+
+# From source with HTTP transport enabled
+cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features http
 ```
 
 Latest release: [v1.9.30](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.30)
@@ -70,6 +76,8 @@ Latest release: [v1.9.30](https://github.com/mupozg823/codelens-mcp-plugin/relea
 ### Shared HTTP Daemon (Multi-Agent)
 
 Running every editor or agent as its own stdio subprocess spawns **one `codelens-mcp` instance per session**, each with its own index and embedding state. Measured on a typical developer laptop with Claude Code + Codex Desktop + Cursor attached to the same project, this adds up to **200–300 MB** of duplicated resident memory for effectively the same data. The HTTP daemon collapses that into a single shared process.
+
+If you installed from crates.io or built from source and need HTTP transport, make sure the binary was built with the `http` feature. The prebuilt release assets and the installer fallback should ship HTTP support.
 
 Minimal setup:
 
@@ -375,7 +383,7 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 | Streamable HTTP + SSE                   | Supported                              |
 | Role-based capability negotiation       | `--profile` flag                       |
 | Tool Annotations (readOnly/destructive) | Supported                              |
-| Tool Output Schemas                     | 32+ schemas covering core tools        |
+| Tool Output Schemas                     | 73/107 tools carry output schemas      |
 | `.well-known/mcp.json` Server Card      | HTTP transport                         |
 | Analysis handles + section expansion    | Supported                              |
 | Durable analysis jobs                   | Supported                              |
@@ -389,8 +397,8 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 | Suite                      | Tests   | Scope                                      |
 | -------------------------- | ------- | ------------------------------------------ |
 | codelens-engine            | 286     | Parsing, ranking, embedding, IR            |
-| codelens-mcp               | 210     | Dispatch, workflows, profiles, schemas     |
-| codelens-mcp (no semantic) | 190     | Feature-off path verification              |
+| codelens-mcp               | 238     | Dispatch, workflows, profiles, schemas     |
+| codelens-mcp (no semantic) | ~190    | Feature-off path verification              |
 | Dataset lint               | 5 rules | file_exists, negative≠positive, duplicates |
 
 ```bash
