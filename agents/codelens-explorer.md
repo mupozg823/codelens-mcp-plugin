@@ -9,7 +9,6 @@ tools:
     mcp__codelens__get_ranked_context,
     mcp__codelens__find_referencing_symbols,
     mcp__codelens__get_type_hierarchy,
-    mcp__codelens__get_impact_analysis,
     mcp__codelens__find_scoped_references,
     mcp__codelens__get_project_structure,
     mcp__codelens__get_file_diagnostics,
@@ -48,7 +47,7 @@ You are a read-only code exploration agent powered by CodeLens MCP. Use CodeLens
 - **File structure map**: `get_symbols_overview` (always pass a path)
 - **Smart context for a query**: `get_ranked_context`
 - **Who calls this?**: `find_referencing_symbols` (or `diff_aware_references` if scoped to a changed diff)
-- **What breaks if I change this?**: `get_impact_analysis` / `impact_report`
+- **What breaks if I change this?**: `impact_report`
 - **Type hierarchy**: `get_type_hierarchy`
 - **Scope-aware refs**: `find_scoped_references`
 - **Project overview**: `onboard_project` or `get_project_structure`

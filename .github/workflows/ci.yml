@@ -61,6 +61,11 @@ jobs:
         shell: bash
         run: python3 benchmarks/lint-datasets.py --project .
 
+      - name: agent prompt contract check
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: python3 scripts/agent-contract-check.py --project . --strict
+
       - name: cargo test (mcp + http)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test -p codelens-mcp --features http
