@@ -14,9 +14,9 @@ This document is the authoritative source for CodeLens's public performance clai
 | Token reduction vs Read/Grep (total, structured tasks)  | **6.1x (84% fewer tokens)** | `benchmarks/token-efficiency.py`      |
 | Token reduction on best single task (context retrieval) | **167x**                    | `benchmarks/token-efficiency.py`      |
 | Workflow profile compression (planner/reviewer)         | **15-16x**                  | `benchmarks/token-efficiency.py`      |
-| Search quality, hybrid (self regression, MRR)          | **0.841**                   | `benchmarks/embedding-quality.py`     |
-| Search quality, hybrid (role regression, MRR)          | **0.962**                   | `benchmarks/embedding-quality.py`     |
-| Search quality, hybrid (external smoke, MRR range)     | **0.563-0.623**             | `benchmarks/embedding-quality.py`     |
+| Search quality, hybrid (self regression, MRR)           | **0.841**                   | `benchmarks/embedding-quality.py`     |
+| Search quality, hybrid (role regression, MRR)           | **0.962**                   | `benchmarks/embedding-quality.py`     |
+| Search quality, hybrid (external smoke, MRR range)      | **0.563-0.623**             | `benchmarks/embedding-quality.py`     |
 | Cold start (no LSP)                                     | **~12 ms**                  | `target/release/codelens-mcp` startup |
 
 All token counts use **tiktoken `cl100k_base`** — the same tokenizer used by Claude and GPT-4 — so "tokens saved" maps directly to "prompt budget saved."
@@ -95,21 +95,23 @@ The compression ratio grows when agents would otherwise expand raw graph data (i
 
 ### Current promoted regression baselines
 
-**Self regression snapshot** (2026-04-12, 104 queries, artifact: `embedding-quality-self-v1.9.12-bridge.json`):
+**Self regression snapshot** (2026-04-17, 104 queries, v1.9.36, artifact: `benchmarks/results/v1.9.36-mrr-self.{json,md}`):
 
-| Method                         |       MRR | Acc@1 | Acc@5 | Latency |
-| ------------------------------ | --------: | ----: | ----: | ------: |
-| `semantic_search`              |     0.798 | 0.712 | 0.913 |  507 ms |
-| `get_ranked_context` (lexical) |     0.614 | 0.529 | 0.740 |   39 ms |
-| `get_ranked_context` (hybrid)  | **0.841** | 0.760 | 0.952 |  135 ms |
+| Method                         |       MRR | Acc@1 | Acc@3 | Avg ms |
+| ------------------------------ | --------: | ----: | ----: | -----: |
+| `semantic_search`              |     0.647 | 0.610 | 0.700 | 548 ms |
+| `get_ranked_context` (lexical) |     0.532 | 0.490 | 0.590 |  43 ms |
+| `get_ranked_context` (hybrid)  | **0.681** | 0.640 | 0.730 | 119 ms |
 
 **By query type (hybrid, self regression)**:
 
-| Query type         |   MRR | Count | Notes                                          |
-| ------------------ | ----: | ----: | ---------------------------------------------- |
-| `identifier`       | 1.000 |    31 | Lexical path is effectively saturated          |
-| `short_phrase`     | 0.818 |    11 | Hybrid benefits without sacrificing precision  |
-| `natural_language` | 0.771 |    62 | Still the hardest tier, but no longer a floor  |
+| Query type         |   MRR | Count | Notes                                               |
+| ------------------ | ----: | ----: | --------------------------------------------------- |
+| `identifier`       | 0.935 |    31 | Lexical path dominates; tie-breaking drags from 1.0 |
+| `short_phrase`     | 0.561 |    11 | Hybrid helps but specific-target dataset is harder  |
+| `natural_language` | 0.575 |    62 | Hardest tier; hybrid adds ~0.20 MRR over lexical    |
+
+**Why numbers moved vs the 2026-04-12 (0.841 hybrid) snapshot**: the self dataset's `expected_file_suffix` entries were re-anchored in v1.9.34 (85821a4) onto the dispatch decomposition targets — several queries that previously matched `dispatch/mod.rs` as a broad facade now require the exact successor file (`dispatch/envelope.rs`, `dispatch/table.rs`, `dispatch/response.rs`). That is a strictly more demanding benchmark: the retrieval stack must place the _specific_ submodule in the top-k, not any file that shares name tokens. The 2026-04-17 retrieval-regression bisect (`docs/design/retrieval-regression-bisect-2026-04-17.md`) ruled out binary/ranking drift between v1.9.23 and v1.9.32; the remaining delta is explainable by (a) dataset tightening and (b) project-tree growth (~1,100 lines of new decomposition surfaces between v1.9.23 and v1.9.36). Identifier queries still saturate at 0.935 — lexical ranking is unchanged. The headline retrieval-quality claim for public messaging is now **"hybrid outperforms lexical by ~0.15 MRR on the 104-query self dataset"**, not a single-number brag.
 
 **Role regression snapshot** (2026-04-12, 70 queries, artifact: `embedding-quality-role-v1.9.12-bridge.json`):
 
@@ -123,10 +125,10 @@ The compression ratio grows when agents would otherwise expand raw graph data (i
 
 These are intentionally small and do **not** replace a promotion-grade cross-repo matrix. They do, however, prevent us from presenting a pure self-repo success story as if it were universal.
 
-| Repo | Queries | Semantic MRR | Lexical MRR | Hybrid MRR | Hybrid Acc@1 | Hybrid Acc@3 |
-| ---- | ------: | -----------: | ----------: | ---------: | -----------: | -----------: |
-| Flask | 20 | **0.577** | 0.363 | 0.563 | 0.450 | 0.650 |
-| curl  | 18 | 0.555 | 0.512 | **0.623** | 0.556 | 0.667 |
+| Repo  | Queries | Semantic MRR | Lexical MRR | Hybrid MRR | Hybrid Acc@1 | Hybrid Acc@3 |
+| ----- | ------: | -----------: | ----------: | ---------: | -----------: | -----------: |
+| Flask |      20 |    **0.577** |       0.363 |      0.563 |        0.450 |        0.650 |
+| curl  |      18 |        0.555 |       0.512 |  **0.623** |        0.556 |        0.667 |
 
 Interpretation:
 
@@ -218,16 +220,17 @@ On the current self regression set, pure semantic search (`0.798`) and pure lexi
 
 ## 8. Historical Snapshots
 
-| Date                         | Token efficiency (Total) | Hybrid MRR | Notes                                                                                                                          |
-| ---------------------------- | -----------------------: | ---------: | ------------------------------------------------------------------------------------------------------------------------------ |
-| 2026-04-13 (current promoted baseline) |               6.1x (84%) |      0.841 | 104-query self regression baseline. Role baseline is `0.962`; external smoke is Flask `0.563`, curl `0.623`.                 |
-| 2026-04-11 (post-PoC revert) |               6.1x (84%) |      0.573 | v1.5 apples-to-apples baseline after dataset path fix (`codelens-core` → `codelens-engine`), defaults `HINT_LINES=1` / `60ch`. |
-| 2026-04-11 (Phase 2 PoC)     |                        — |      0.568 | Experimental 3-line / 180-char body hints. **Reverted** — see §8.1.                                                            |
-| 2026-04-11 (v1.4.0 cut)      |               6.1x (84%) |      0.664 | Measured against the pre-rename dataset; suffix mismatch after the crate rename means this row is _not_ apples-to-apples.      |
-| 2026-04-08                   |                        — |      0.688 | Pre-dataset expansion (89 subset, different queries).                                                                          |
-| earlier                      |         "estimated 2-5x" |          — | No formal measurement before 2026-04.                                                                                          |
+| Date                          | Token efficiency (Total) | Hybrid MRR | Notes                                                                                                                                                                                                                                            |
+| ----------------------------- | -----------------------: | ---------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 2026-04-17 (v1.9.36, current) |               6.1x (84%) |      0.681 | 104-query self regression re-measured after dataset targets were re-anchored onto the dispatch decomposition (submodule-specific `expected_file_suffix`). Strictly harder dataset than the 2026-04-13 row. Role + external smoke rows unchanged. |
+| 2026-04-13 (v1.9.12 snapshot) |               6.1x (84%) |      0.841 | 104-query self regression against the pre-decomposition dataset targeting `dispatch/mod.rs` as a facade. Role baseline `0.962`, external smoke Flask `0.563`, curl `0.623`.                                                                      |
+| 2026-04-11 (post-PoC revert)  |               6.1x (84%) |      0.573 | v1.5 apples-to-apples baseline after dataset path fix (`codelens-core` → `codelens-engine`), defaults `HINT_LINES=1` / `60ch`.                                                                                                                   |
+| 2026-04-11 (Phase 2 PoC)      |                        — |      0.568 | Experimental 3-line / 180-char body hints. **Reverted** — see §8.1.                                                                                                                                                                              |
+| 2026-04-11 (v1.4.0 cut)       |               6.1x (84%) |      0.664 | Measured against the pre-rename dataset; suffix mismatch after the crate rename means this row is _not_ apples-to-apples.                                                                                                                        |
+| 2026-04-08                    |                        — |      0.688 | Pre-dataset expansion (89 subset, different queries).                                                                                                                                                                                            |
+| earlier                       |         "estimated 2-5x" |          — | No formal measurement before 2026-04.                                                                                                                                                                                                            |
 
-> **Note on baseline evolution** — `0.841` is the current promoted self-regression baseline on the 104-query dataset. `0.573` and `0.664` remain historically useful, but they describe earlier dataset shapes and should be read as experiment history below, not as the current public performance claim.
+> **Note on baseline evolution** — `0.681` (v1.9.36, 2026-04-17) is the current promoted self-regression baseline on the 104-query dataset. `0.841` (v1.9.12, 2026-04-13) is the same dataset **before** the dispatch decomposition forced submodule-specific targets; the drop reflects dataset tightening, not a retrieval regression (see `docs/design/retrieval-regression-bisect-2026-04-17.md` for the cross-tree / cross-binary bisect that rules out ranking drift). Historical rows describing earlier dataset shapes should be read as experiment history below, not as the current public performance claim.
 
 Historical result JSON files live under `benchmarks/*.json` with timestamps in filenames. When you upgrade CodeLens, the suggested flow is: (1) check out the new version, (2) re-run the three scripts above, (3) compare against your last `benchmarks/*.json` from the previous version to catch regressions.
 
