@@ -259,6 +259,10 @@ jobs:
     name: Update Homebrew Tap
     needs: [publish]
     runs-on: ubuntu-latest
+    # Skip when the tap push token is not configured. The publish job has
+    # already uploaded binaries and the GitHub Release; homebrew tap sync
+    # is a best-effort secondary channel.
+    if: ${{ vars.TAP_ENABLED == 'true' || secrets.TAP_GITHUB_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
