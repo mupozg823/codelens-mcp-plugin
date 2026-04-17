@@ -161,6 +161,13 @@ else
 	echo "  See: https://github.com/${REPO}/blob/main/docs/platform-setup.md"
 fi
 
+echo "==> Transport note:"
+echo "    Auto-configured clients use stdio for zero-setup attach."
+echo "    If you want one shared CodeLens daemon across Claude/Codex/Cursor,"
+echo "    switch those clients to HTTP and start codelens-mcp with --transport http."
+echo "    Guide: https://github.com/${REPO}/blob/main/docs/platform-setup.md"
+echo ""
+
 # ── PATH check ───────────────────────────────────────────────────────
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
 	echo "==> Add to PATH:"

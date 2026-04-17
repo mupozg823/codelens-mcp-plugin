@@ -11,11 +11,32 @@
 | GitHub installer | `curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash` | Fast binary bootstrap |
 | Source build | `cargo build --release` | Custom feature combinations |
 
+### Capability Matrix By Install Channel
+
+| Channel | Tracks | HTTP transport | Best fit | Watch-outs |
+| ------- | ------ | -------------- | -------- | ---------- |
+| crates.io | crates.io package version | Only if you install with `--features http` | Single-agent stdio or conservative Rust installs | crates.io can lag the latest GitHub tag |
+| Homebrew / installer / GitHub release archive | latest tagged GitHub release | Yes — release CI builds with `--features http` | Tagged release users who want shared daemon mode without compiling | Tagged release only, not unreleased `main` commits |
+| `cargo install --git ...` / local source build | current repository HEAD | Yes if you pass `--features http` | Testing unreleased features from `main` or a branch | Local compile required |
+
+### What Needs Extra Installation
+
+| Goal | CodeLens binary only? | Extra requirement |
+| ---- | --------------------- | ----------------- |
+| stdio MCP in one client | Yes | Host MCP config only |
+| shared HTTP daemon | Yes | Binary must include `http`; clients attach by URL |
+| semantic retrieval | No | Model sidecar under `CODELENS_MODEL_DIR/codesearch` or airgap bundle |
+| SCIP precise navigation | No | Build with `--features scip-backend` and generate a SCIP index |
+| Claude -> Codex live delegation | No | Separate Claude Code config + Codex CLI / `codex mcp-server` |
+
 ### Commands
 
 ```bash
 # Option 1: crates.io
 cargo install codelens-mcp
+
+# Option 1b: crates.io with shared HTTP daemon support
+cargo install codelens-mcp --features http
 
 # Option 2: Homebrew
 brew install mupozg823/tap/codelens-mcp
@@ -25,13 +46,21 @@ curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/
 
 # Option 4: Build from source
 git clone https://github.com/mupozg823/codelens-mcp-plugin
-cd codelens-mcp-plugin && cargo build --release
+cd codelens-mcp-plugin && cargo build --release --features http
 cp target/release/codelens-mcp ~/.local/bin/
 ```
 
 Verify: `codelens-mcp . --cmd get_capabilities --args '{}'`
 
 Semantic search is supported by the default binary, but it needs a sidecar model directory containing `codesearch/model.onnx`. Set `CODELENS_MODEL_DIR` to that parent directory or place `models/codesearch/` next to the executable.
+
+If you need a feature that exists on `main` but not in your installed binary, compare these before debugging:
+
+1. `codelens-mcp --version`
+2. latest GitHub tag
+3. your install channel (`crates.io`, tagged release, or git/source build)
+
+Tagged release binaries and Homebrew installs do not include unreleased commits from `main`.
 
 ---
 

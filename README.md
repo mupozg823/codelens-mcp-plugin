@@ -56,7 +56,22 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features http
 ```
 
-Latest release: [v1.9.30](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.30)
+Latest release: [v1.9.32](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.32)
+
+### Install Channel Matrix
+
+| Channel | What you get | Good for | Extra install needed? |
+| ------- | ------------ | -------- | --------------------- |
+| `cargo install codelens-mcp` | crates.io package version, stdio-first default build | Single-agent local MCP sessions | Add `--features http` if you want shared HTTP daemons |
+| `cargo install codelens-mcp --features http` | crates.io package version with HTTP transport | Shared daemon mode from crates.io | No extra CodeLens package, but you still need the host client config |
+| GitHub Releases / installer / Homebrew | latest tagged release binary, built in CI with `--features http` | Tagged release users who want HTTP without compiling | No extra CodeLens build; semantic still needs a model sidecar or airgap bundle |
+| `cargo install --git ...` or source build | current repository HEAD | Unreleased features on `main` / branch testing | No extra package, but you compile locally |
+
+Important:
+
+- `CodeLens standalone` means the `codelens-mcp` binary itself. Basic stdio MCP use needs only that binary plus host MCP config.
+- `Shared HTTP + multi-agent coordination` still uses the same binary, but the binary must include the `http` feature and the clients must attach by URL.
+- If a feature is mentioned in this repository but not present in your installed binary, compare `codelens-mcp --version` with the latest GitHub release and your install channel before assuming a bug.
 
 ## Setup
 
@@ -110,6 +125,13 @@ Every MCP client then attaches by URL instead of spawning a subprocess:
 | Mutation-heavy workflow needing isolation            | **HTTP with two daemons** | Read-only port for planners, mutation-enabled port for refactor agents |
 
 For shared HTTP deployments, treat CodeLens coordination as advisory evidence rather than a central lock manager. The practical pattern is: bootstrap with `prepare_harness_session`, register intent with `register_agent_work`, claim mutation targets with `claim_files`, and let `verify_change_readiness` surface `overlapping_claims` as a `caution` signal before edits.
+
+What the standalone binary does and does not cover:
+
+- `CodeLens only` is enough for stdio use, HTTP daemon use, role-based surfaces, mutation gates, and coordination tools.
+- `Semantic retrieval` needs a model sidecar (`CODELENS_MODEL_DIR/codesearch/model.onnx`) or an air-gapped bundle.
+- `SCIP precise navigation` needs a binary built with `--features scip-backend` and an external SCIP index.
+- `Claude -> Codex` live delegation is not a CodeLens feature. It additionally needs Claude configured with a `codex` MCP server and a working Codex CLI install.
 
 Recommended operating policy:
 
