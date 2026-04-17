@@ -290,8 +290,17 @@ fn bridge_nl_to_code_vocabulary(query: &str, project_bridges: &[(String, String)
         lowered_result.push_str(&joined.to_ascii_lowercase());
     };
 
-    for (nl, code) in GENERIC_BRIDGES {
-        apply(nl, code);
+    // Generic bridges are hard-coded and always-on by default. They can be
+    // disabled at runtime via CODELENS_GENERIC_BRIDGES_OFF=1 to support
+    // bridge-off/generic-on/repo-on ablation runs in the external benchmark
+    // matrix (benchmarks/external-3arm.py).
+    if !std::env::var("CODELENS_GENERIC_BRIDGES_OFF")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+    {
+        for (nl, code) in GENERIC_BRIDGES {
+            apply(nl, code);
+        }
     }
     for (nl, code) in project_bridges {
         apply(nl, code);
