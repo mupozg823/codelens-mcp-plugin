@@ -29,6 +29,9 @@
 //! from commit X, source is at commit Y", not "daemon build is
 //! exactly N seconds old").
 
+use std::env;
+use std::fs;
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -37,6 +40,30 @@ fn main() {
     // triggers a rebuild that picks up the new SHA.
     println!("cargo:rerun-if-changed=../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../.git/refs/heads");
+
+    // Copy workspace-level files into OUT_DIR so include_str! works
+    // both in workspace builds (paths resolve upward) and in
+    // published-crate verification (paths do not exist — fallback).
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
+
+    let workspace_cargo_src = manifest_dir.join("../../Cargo.toml");
+    let workspace_cargo_dst = out_dir.join("workspace-cargo-toml");
+    copy_or_fallback(
+        &workspace_cargo_src,
+        &workspace_cargo_dst,
+        "[workspace.package]\nversion = \"unknown\"\n",
+    );
+    println!("cargo:rerun-if-changed={}", workspace_cargo_src.display());
+
+    let schema_src = manifest_dir.join("../../docs/schemas/handoff-artifact.v1.json");
+    let schema_dst = out_dir.join("handoff-artifact.v1.json");
+    copy_or_fallback(
+        &schema_src,
+        &schema_dst,
+        r#"{"schema_version":"codelens-handoff-artifact-v1","fallback":true}"#,
+    );
+    println!("cargo:rerun-if-changed={}", schema_src.display());
 
     // 1. Git SHA (short, 7-char)
     let git_sha = Command::new("git")
@@ -74,6 +101,16 @@ fn main() {
         .map(|out| !out.stdout.is_empty())
         .unwrap_or(false);
     println!("cargo:rustc-env=CODELENS_BUILD_GIT_DIRTY={}", dirty);
+}
+
+fn copy_or_fallback(src: &PathBuf, dst: &PathBuf, fallback: &str) {
+    if src.exists() {
+        fs::copy(src, dst)
+            .unwrap_or_else(|err| panic!("copy {} -> {}: {err}", src.display(), dst.display()));
+    } else {
+        fs::write(dst, fallback)
+            .unwrap_or_else(|err| panic!("write fallback {}: {err}", dst.display()));
+    }
 }
 
 /// Format a UNIX timestamp (seconds since epoch) as

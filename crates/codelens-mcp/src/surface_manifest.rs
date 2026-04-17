@@ -15,9 +15,9 @@ pub(crate) const HANDOFF_ARTIFACT_SCHEMA_DOC_PATH: &str = "docs/schemas/handoff-
 pub(crate) const HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI: &str =
     "codelens://schemas/handoff-artifact/v1";
 
-const WORKSPACE_CARGO_TOML: &str = include_str!("../../../Cargo.toml");
+const WORKSPACE_CARGO_TOML: &str = include_str!(concat!(env!("OUT_DIR"), "/workspace-cargo-toml"));
 const HANDOFF_ARTIFACT_SCHEMA_TEXT: &str =
-    include_str!("../../../docs/schemas/handoff-artifact.v1.json");
+    include_str!(concat!(env!("OUT_DIR"), "/handoff-artifact.v1.json"));
 
 pub(crate) fn build_surface_manifest_for_state(state: &AppState) -> Value {
     build_surface_manifest(*state.surface(), state.daemon_mode())
