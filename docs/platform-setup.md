@@ -4,30 +4,30 @@
 
 ## Quick Install
 
-| Channel | Command | Best for |
-| ------- | ------- | -------- |
-| crates.io | `cargo install codelens-mcp` | Standard Rust installs |
-| Homebrew | `brew install mupozg823/tap/codelens-mcp` | macOS/Linux workstation installs |
-| GitHub installer | `curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash` | Fast binary bootstrap |
-| Source build | `cargo build --release` | Custom feature combinations |
+| Channel          | Command                                                                                     | Best for                         |
+| ---------------- | ------------------------------------------------------------------------------------------- | -------------------------------- | --------------------- |
+| crates.io        | `cargo install codelens-mcp`                                                                | Standard Rust installs           |
+| Homebrew         | `brew install mupozg823/tap/codelens-mcp`                                                   | macOS/Linux workstation installs |
+| GitHub installer | `curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash`                            | Fast binary bootstrap |
+| Source build     | `cargo build --release`                                                                     | Custom feature combinations      |
 
 ### Capability Matrix By Install Channel
 
-| Channel | Tracks | HTTP transport | Best fit | Watch-outs |
-| ------- | ------ | -------------- | -------- | ---------- |
-| crates.io | crates.io package version | Only if you install with `--features http` | Single-agent stdio or conservative Rust installs | crates.io can lag the latest GitHub tag |
-| Homebrew / installer / GitHub release archive | latest tagged GitHub release | Yes — release CI builds with `--features http` | Tagged release users who want shared daemon mode without compiling | Tagged release only, not unreleased `main` commits |
-| `cargo install --git ...` / local source build | current repository HEAD | Yes if you pass `--features http` | Testing unreleased features from `main` or a branch | Local compile required |
+| Channel                                        | Tracks                       | HTTP transport                                 | Best fit                                                           | Watch-outs                                         |
+| ---------------------------------------------- | ---------------------------- | ---------------------------------------------- | ------------------------------------------------------------------ | -------------------------------------------------- |
+| crates.io                                      | crates.io package version    | Only if you install with `--features http`     | Single-agent stdio or conservative Rust installs                   | crates.io can lag the latest GitHub tag            |
+| Homebrew / installer / GitHub release archive  | latest tagged GitHub release | Yes — release CI builds with `--features http` | Tagged release users who want shared daemon mode without compiling | Tagged release only, not unreleased `main` commits |
+| `cargo install --git ...` / local source build | current repository HEAD      | Yes if you pass `--features http`              | Testing unreleased features from `main` or a branch                | Local compile required                             |
 
 ### What Needs Extra Installation
 
-| Goal | CodeLens binary only? | Extra requirement |
-| ---- | --------------------- | ----------------- |
-| stdio MCP in one client | Yes | Host MCP config only |
-| shared HTTP daemon | Yes | Binary must include `http`; clients attach by URL |
-| semantic retrieval | No | Model sidecar under `CODELENS_MODEL_DIR/codesearch` or airgap bundle |
-| SCIP precise navigation | No | Build with `--features scip-backend` and generate a SCIP index |
-| Claude -> Codex live delegation | No | Separate Claude Code config + Codex CLI / `codex mcp-server` |
+| Goal                            | CodeLens binary only? | Extra requirement                                                    |
+| ------------------------------- | --------------------- | -------------------------------------------------------------------- |
+| stdio MCP in one client         | Yes                   | Host MCP config only                                                 |
+| shared HTTP daemon              | Yes                   | Binary must include `http`; clients attach by URL                    |
+| semantic retrieval              | No                    | Model sidecar under `CODELENS_MODEL_DIR/codesearch` or airgap bundle |
+| SCIP precise navigation         | No                    | Build with `--features scip-backend` and generate a SCIP index       |
+| Claude -> Codex live delegation | No                    | Separate Claude Code config + Codex CLI / `codex mcp-server`         |
 
 ### Commands
 
@@ -130,7 +130,7 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current released runtime shape (`v1.9.32`), `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
+On the current released runtime shape (`v1.9.37`), `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
 
 For `refactor-full`, use a preflight-first path:
 
@@ -208,7 +208,7 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current released runtime shape (`v1.9.32`) in this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
+On the current released runtime shape (`v1.9.37`) in this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
 
 For `refactor-full`, use a preflight-first path:
 

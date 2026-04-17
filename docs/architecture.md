@@ -605,17 +605,16 @@ Use the **Current Snapshot** above and `docs/benchmarks.md` for current measurem
 | Project onboard      | ~21ms                             | benchmarks/token-efficiency |
 | Cold start           | ~12ms                             | No LSP boot                 |
 
-### Quality Snapshot (Current Regression Tiers)
+### Quality Snapshot (Current Regression Tiers, 2026-04-17 v1.9.36 re-measurement)
 
-| Dataset                              | Semantic MRR | Lexical MRR | Hybrid MRR | Notes                                                                     |
-| ------------------------------------ | -----------: | ----------: | ---------: | ------------------------------------------------------------------------- |
-| Self regression (`104` queries)      |        0.798 |       0.614 |  **0.841** | Mixed identifier, short-phrase, and natural-language queries on this repo |
-| Role regression (`70` queries)       |        0.900 |       0.832 |  **0.962** | Workflow-style phrasing and implementation ownership queries              |
-| External smoke: Flask (`20` queries) |    **0.577** |       0.363 |      0.563 | Python app repo; semantic still slightly ahead hybrid                     |
-| External smoke: curl (`18` queries)  |        0.555 |       0.512 |  **0.623** | C systems repo; hybrid leads both standalone paths                        |
+| Dataset                              | Semantic MRR | Lexical MRR | Hybrid MRR | Notes                                                                                               |
+| ------------------------------------ | -----------: | ----------: | ---------: | --------------------------------------------------------------------------------------------------- |
+| Self regression (`104` queries)      |        0.647 |       0.532 |  **0.681** | Ground truth re-anchored onto dispatch decomposition in v1.9.34 — strictly harder than v1.9.12 tier |
+| Role regression (`70` queries)       |        0.783 |       0.757 |  **0.814** | Workflow-style phrasing and implementation ownership queries                                        |
+| External smoke (2 repos, 24 queries) |        0.847 |       0.528 |  **0.896** | Mixed TS/Rust via `external-retrieval-dataset.json`; semantic + hybrid both clearly lead lexical    |
 
-- Hybrid remains the default product path because it is strongest on both promoted internal regression sets and on the curl external smoke set.
-- Flask is a visible calibration gap rather than hidden drift; external smoke evidence is published, but it is not yet a promotion-grade multi-language matrix.
+- Hybrid remains the default product path because it outperforms lexical by **+0.15 MRR** on self, **+0.06** on role, and **+0.37** on external — the spread widens as queries move toward natural language.
+- The earlier 2026-04-12 v1.9.12 snapshot (Self 0.841, Role 0.962, Flask 0.563, curl 0.623) remains in `docs/benchmarks.md §8 Historical Snapshots` as an experiment-log reference; the tighter ground truth introduced in v1.9.34 makes the current baseline a stricter test, not a regression (see `docs/design/retrieval-regression-bisect-2026-04-17.md`).
 
 ### Token Efficiency Snapshot (vs Read/Grep, tiktoken cl100k_base)
 

@@ -8,6 +8,13 @@ crates.io publishes. The optional channels guard on secrets being set
 so a repo with no secrets configured still produces a clean green
 release.
 
+**See also**: [`docs/release-verification.md`](release-verification.md)
+for the auditor-side playbook — how to verify a published release from
+the outside (Sigstore signatures, GitHub artifact attestations, SBOM
+comparison, GHCR image pull + digest check). This file covers what
+operators do to produce a release; that file covers what consumers do
+to validate it.
+
 ## Channel inventory
 
 | Channel        | Format                         | Enabled by                    | Registry/URL                                              |

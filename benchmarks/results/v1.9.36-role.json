@@ -1,0 +1,3933 @@
+{
+  "schema_version": "codelens-role-retrieval-v1",
+  "project": "/var/folders/z0/0tcbss795xsdp75jmr_t9_kh0000gn/T/codelens-role-retrieval-4hoycr3a/codelens-mcp-plugin",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "requested_embed_model": null,
+  "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+  "runtime_model": {
+    "embedding_model": "MiniLM-L12-CodeSearchNet-INT8",
+    "runtime_preference": null,
+    "backend": null,
+    "threads": null,
+    "max_length": null,
+    "fallback_reason": null,
+    "requested_embed_model": null,
+    "model_dir": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch",
+    "model_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/model.onnx",
+    "config_path": "/Users/bagjaeseog/codelens-mcp-plugin/crates/codelens-engine/models/codesearch/config.json",
+    "sha256": "ef1d1e9cfa72e4929f5b9faea17d8704b23a2530aadebf0d464a4cc7750920b3",
+    "size_bytes": 34000281,
+    "num_hidden_layers": 12,
+    "hidden_size": 384
+  },
+  "dataset_path": "/Users/bagjaeseog/codelens-mcp-plugin/benchmarks/role-retrieval-dataset.json",
+  "dataset_size": 70,
+  "ranking_cutoff": 10,
+  "metric_labels": {
+    "mrr": "MRR@10",
+    "acc1": "Acc@1",
+    "acc3": "Acc@3",
+    "acc5": "Acc@5"
+  },
+  "methods": [
+    {
+      "mrr": 0.7833333333333333,
+      "acc1": 0.7428571428571429,
+      "acc3": 0.8428571428571429,
+      "acc5": 0.8428571428571429,
+      "avg_elapsed_ms": 693.1814285714286,
+      "by_query_type": {
+        "natural_language": {
+          "count": 35,
+          "mrr": 0.7857142857142857,
+          "acc1": 0.7428571428571429,
+          "acc3": 0.8571428571428571,
+          "acc5": 0.8571428571428571,
+          "avg_elapsed_ms": 694.7765714285714
+        },
+        "short_phrase": {
+          "count": 35,
+          "mrr": 0.780952380952381,
+          "acc1": 0.7428571428571429,
+          "acc3": 0.8285714285714286,
+          "acc5": 0.8285714285714286,
+          "avg_elapsed_ms": 691.5862857142857
+        }
+      },
+      "by_role": {
+        "builder": {
+          "count": 6,
+          "mrr": 0.3333333333333333,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.3333333333333333,
+          "acc5": 0.3333333333333333,
+          "avg_elapsed_ms": 597.1416666666667
+        },
+        "entrypoint": {
+          "count": 10,
+          "mrr": 0.75,
+          "acc1": 0.7,
+          "acc3": 0.8,
+          "acc5": 0.8,
+          "avg_elapsed_ms": 813.126
+        },
+        "generic": {
+          "count": 28,
+          "mrr": 0.869047619047619,
+          "acc1": 0.8571428571428571,
+          "acc3": 0.8928571428571429,
+          "acc5": 0.8928571428571429,
+          "avg_elapsed_ms": 698.2582142857143
+        },
+        "helper": {
+          "count": 22,
+          "mrr": 0.7727272727272727,
+          "acc1": 0.6818181818181818,
+          "acc3": 0.9090909090909091,
+          "acc5": 0.9090909090909091,
+          "avg_elapsed_ms": 666.5486363636363
+        },
+        "predicate": {
+          "count": 4,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 648.3225
+        }
+      },
+      "by_adversarial_group": {
+        "080167332f7e": {
+          "count": 2,
+          "mrr": 0.16666666666666666,
+          "acc1": 0.0
+        },
+        "0c1187c1f78f": {
+          "count": 2,
+          "mrr": 0.41666666666666663,
+          "acc1": 0.0
+        },
+        "0e84454a16e0": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "327b0a3208f5": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "4adf3955648c": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "4bf72b51ca10": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "5b9255153f3e": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "6314dd463cef": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "6ab8eea6fcf7": {
+          "count": 2,
+          "mrr": 0.75,
+          "acc1": 0.5
+        },
+        "6f9f5c0febd1": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "710469774839": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "7554cd636eb7": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "7fcb4e0acb48": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "82dbc79022e1": {
+          "count": 2,
+          "mrr": 0.6666666666666666,
+          "acc1": 0.5
+        },
+        "911c129b0af8": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "92cf7fb5dadb": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "93ac61e4424f": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "9da0f9d20203": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "9f543c76643a": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "9f7e94717879": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "a37c6186a1c3": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "b9058f612267": {
+          "count": 2,
+          "mrr": 0.75,
+          "acc1": 0.5
+        },
+        "bba7c1a1e434": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "bce5c600343c": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "bd0150db5be3": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "c13f376149f6": {
+          "count": 2,
+          "mrr": 0.6666666666666666,
+          "acc1": 0.5
+        },
+        "c39b9f98598e": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "d25b66767dfb": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "d3420d7eb4f0": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "df4c695ed556": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "dfbc1f4db914": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "e19ee4b2f06e": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "e7968e2d41c9": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "f3bdbeae18fe": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "f826f5ae9546": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        }
+      },
+      "rows": [
+        {
+          "query": "primary rename handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "entrypoint",
+          "adversarial_group": "6ab8eea6fcf7",
+          "rank": 2,
+          "elapsed_ms": 967.79,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "rename_symbol",
+            "file": "crates/codelens-mcp/src/tools/mutation.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles rename",
+          "query_type": "natural_language",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "entrypoint",
+          "adversarial_group": "6ab8eea6fcf7",
+          "rank": 1,
+          "elapsed_ms": 718.87,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "rename_symbol",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "find range internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_symbol_range",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "b9058f612267",
+          "rank": 1,
+          "elapsed_ms": 722.71,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol_range",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which helper implements find range",
+          "query_type": "natural_language",
+          "expected_symbol": "find_symbol_range",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "b9058f612267",
+          "rank": 2,
+          "elapsed_ms": 910.46,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "apply edits primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "apply_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "f3bdbeae18fe",
+          "rank": 1,
+          "elapsed_ms": 645.59,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "apply_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for apply edits",
+          "query_type": "natural_language",
+          "expected_symbol": "apply_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "f3bdbeae18fe",
+          "rank": 1,
+          "elapsed_ms": 954.77,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "apply_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "search primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "search",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "4adf3955648c",
+          "rank": null,
+          "elapsed_ms": 494.15,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "search_symbols",
+            "file": "crates/codelens-tui/src/app.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for search",
+          "query_type": "natural_language",
+          "expected_symbol": "search",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "4adf3955648c",
+          "rank": null,
+          "elapsed_ms": 769.17,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "search_symbols",
+            "file": "crates/codelens-tui/src/app.rs"
+          }
+        },
+        {
+          "query": "primary inline handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "inline_function",
+          "expected_file_suffix": "crates/codelens-engine/src/inline.rs",
+          "role": "entrypoint",
+          "adversarial_group": "c39b9f98598e",
+          "rank": 1,
+          "elapsed_ms": 736.28,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "inline_function",
+            "file": "crates/codelens-engine/src/inline.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles inline",
+          "query_type": "natural_language",
+          "expected_symbol": "inline_function",
+          "expected_file_suffix": "crates/codelens-engine/src/inline.rs",
+          "role": "entrypoint",
+          "adversarial_group": "c39b9f98598e",
+          "rank": 1,
+          "elapsed_ms": 696.09,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "inline_function",
+            "file": "crates/codelens-engine/src/inline.rs"
+          }
+        },
+        {
+          "query": "primary move handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "move_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/move_symbol.rs",
+          "role": "entrypoint",
+          "adversarial_group": "dfbc1f4db914",
+          "rank": 1,
+          "elapsed_ms": 740.14,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "move_symbol",
+            "file": "crates/codelens-engine/src/move_symbol.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles move",
+          "query_type": "natural_language",
+          "expected_symbol": "move_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/move_symbol.rs",
+          "role": "entrypoint",
+          "adversarial_group": "dfbc1f4db914",
+          "rank": 1,
+          "elapsed_ms": 714.4,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "move_symbol",
+            "file": "crates/codelens-engine/src/move_symbol.rs"
+          }
+        },
+        {
+          "query": "primary change signature handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "change_signature",
+          "expected_file_suffix": "crates/codelens-engine/src/change_signature.rs",
+          "role": "entrypoint",
+          "adversarial_group": "4bf72b51ca10",
+          "rank": 1,
+          "elapsed_ms": 845.47,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "change_signature",
+            "file": "crates/codelens-engine/src/change_signature.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles change signature",
+          "query_type": "natural_language",
+          "expected_symbol": "change_signature",
+          "expected_file_suffix": "crates/codelens-engine/src/change_signature.rs",
+          "role": "entrypoint",
+          "adversarial_group": "4bf72b51ca10",
+          "rank": 1,
+          "elapsed_ms": 832.18,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "change_signature",
+            "file": "crates/codelens-engine/src/change_signature.rs"
+          }
+        },
+        {
+          "query": "find circular dependencies internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-engine/src/circular.rs",
+          "role": "helper",
+          "adversarial_group": "e19ee4b2f06e",
+          "rank": 1,
+          "elapsed_ms": 847.71,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_circular_dependencies",
+            "file": "crates/codelens-engine/src/circular.rs"
+          }
+        },
+        {
+          "query": "which helper implements find circular dependencies",
+          "query_type": "natural_language",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-engine/src/circular.rs",
+          "role": "helper",
+          "adversarial_group": "e19ee4b2f06e",
+          "rank": 1,
+          "elapsed_ms": 1030.11,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_circular_dependencies",
+            "file": "crates/codelens-engine/src/circular.rs"
+          }
+        },
+        {
+          "query": "parse symbols internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "parse_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/parser.rs",
+          "role": "helper",
+          "adversarial_group": "d3420d7eb4f0",
+          "rank": 1,
+          "elapsed_ms": 627.04,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "parse_symbols",
+            "file": "crates/codelens-engine/src/symbols/parser.rs"
+          }
+        },
+        {
+          "query": "which helper implements parse symbols",
+          "query_type": "natural_language",
+          "expected_symbol": "parse_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/parser.rs",
+          "role": "helper",
+          "adversarial_group": "d3420d7eb4f0",
+          "rank": 1,
+          "elapsed_ms": 769.39,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "parse_symbols",
+            "file": "crates/codelens-engine/src/symbols/parser.rs"
+          }
+        },
+        {
+          "query": "primary index from project handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "index_from_project",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "entrypoint",
+          "adversarial_group": "0e84454a16e0",
+          "rank": null,
+          "elapsed_ms": 942.76,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "index_from_project",
+            "file": "crates/codelens-engine/src/embedding/engine_impl.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles index from project",
+          "query_type": "natural_language",
+          "expected_symbol": "index_from_project",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "entrypoint",
+          "adversarial_group": "0e84454a16e0",
+          "rank": null,
+          "elapsed_ms": 937.28,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "index_from_project",
+            "file": "crates/codelens-engine/src/embedding/engine_impl.rs"
+          }
+        },
+        {
+          "query": "find duplicates internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_duplicates",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "helper",
+          "adversarial_group": "df4c695ed556",
+          "rank": null,
+          "elapsed_ms": 698.31,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_duplicates",
+            "file": "crates/codelens-engine/src/embedding/engine_impl.rs"
+          }
+        },
+        {
+          "query": "which helper implements find duplicates",
+          "query_type": "natural_language",
+          "expected_symbol": "find_duplicates",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "helper",
+          "adversarial_group": "df4c695ed556",
+          "rank": null,
+          "elapsed_ms": 855.06,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_duplicates",
+            "file": "crates/codelens-engine/src/embedding/engine_impl.rs"
+          }
+        },
+        {
+          "query": "file watcher primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "FileWatcher",
+          "expected_file_suffix": "crates/codelens-engine/src/watcher.rs",
+          "role": "generic",
+          "adversarial_group": "9f7e94717879",
+          "rank": 1,
+          "elapsed_ms": 624.75,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "FileWatcher",
+            "file": "crates/codelens-engine/src/watcher.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for file watcher",
+          "query_type": "natural_language",
+          "expected_symbol": "FileWatcher",
+          "expected_file_suffix": "crates/codelens-engine/src/watcher.rs",
+          "role": "generic",
+          "adversarial_group": "9f7e94717879",
+          "rank": 1,
+          "elapsed_ms": 920.26,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "FileWatcher",
+            "file": "crates/codelens-engine/src/watcher.rs"
+          }
+        },
+        {
+          "query": "build non ranges construction",
+          "query_type": "short_phrase",
+          "expected_symbol": "build_non_code_ranges",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "builder",
+          "adversarial_group": "6f9f5c0febd1",
+          "rank": 1,
+          "elapsed_ms": 626.72,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_non_code_ranges",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which builder creates build non ranges",
+          "query_type": "natural_language",
+          "expected_symbol": "build_non_code_ranges",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "builder",
+          "adversarial_group": "6f9f5c0febd1",
+          "rank": 1,
+          "elapsed_ms": 929.11,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_non_code_ranges",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "build embedding text construction",
+          "query_type": "short_phrase",
+          "expected_symbol": "build_embedding_text",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "bba7c1a1e434",
+          "rank": null,
+          "elapsed_ms": 250.56,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_embedding_text",
+            "file": "crates/codelens-engine/src/embedding/prompt.rs"
+          }
+        },
+        {
+          "query": "which builder creates build embedding text",
+          "query_type": "natural_language",
+          "expected_symbol": "build_embedding_text",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "bba7c1a1e434",
+          "rank": null,
+          "elapsed_ms": 254.72,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_embedding_text",
+            "file": "crates/codelens-engine/src/embedding/prompt.rs"
+          }
+        },
+        {
+          "query": "is excluded decision check",
+          "query_type": "short_phrase",
+          "expected_symbol": "is_excluded",
+          "expected_file_suffix": "crates/codelens-engine/src/project.rs",
+          "role": "predicate",
+          "adversarial_group": "7554cd636eb7",
+          "rank": 1,
+          "elapsed_ms": 481.54,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_excluded",
+            "file": "crates/codelens-engine/src/project.rs"
+          }
+        },
+        {
+          "query": "which predicate decides is excluded",
+          "query_type": "natural_language",
+          "expected_symbol": "is_excluded",
+          "expected_file_suffix": "crates/codelens-engine/src/project.rs",
+          "role": "predicate",
+          "adversarial_group": "7554cd636eb7",
+          "rank": 1,
+          "elapsed_ms": 669.76,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_excluded",
+            "file": "crates/codelens-engine/src/project.rs"
+          }
+        },
+        {
+          "query": "extract calls internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "extract_calls",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "82dbc79022e1",
+          "rank": 1,
+          "elapsed_ms": 644.66,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "extract_calls",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "which helper implements extract calls",
+          "query_type": "natural_language",
+          "expected_symbol": "extract_calls",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "82dbc79022e1",
+          "rank": 3,
+          "elapsed_ms": 841.99,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "extract_api_calls_inner",
+            "file": "crates/codelens-engine/src/embedding/prompt.rs"
+          }
+        },
+        {
+          "query": "is noise callee decision check",
+          "query_type": "short_phrase",
+          "expected_symbol": "is_noise_callee",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "predicate",
+          "adversarial_group": "5b9255153f3e",
+          "rank": 1,
+          "elapsed_ms": 656.52,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_noise_callee",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "which predicate decides is noise callee",
+          "query_type": "natural_language",
+          "expected_symbol": "is_noise_callee",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "predicate",
+          "adversarial_group": "5b9255153f3e",
+          "rank": 1,
+          "elapsed_ms": 785.47,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_noise_callee",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "collect candidate files internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "collect_candidate_files",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "0c1187c1f78f",
+          "rank": 2,
+          "elapsed_ms": 788.56,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_candidate_files",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which helper implements collect candidate files",
+          "query_type": "natural_language",
+          "expected_symbol": "collect_candidate_files",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "0c1187c1f78f",
+          "rank": 3,
+          "elapsed_ms": 934.4,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_candidate_files",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "detect communities primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "detect_communities",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "911c129b0af8",
+          "rank": 1,
+          "elapsed_ms": 613.25,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "detect_communities",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for detect communities",
+          "query_type": "natural_language",
+          "expected_symbol": "detect_communities",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "911c129b0af8",
+          "rank": 1,
+          "elapsed_ms": 910.48,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "detect_communities",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "calculate modularity primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "calculate_modularity",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "e7968e2d41c9",
+          "rank": 1,
+          "elapsed_ms": 629.67,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "calculate_modularity",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for calculate modularity",
+          "query_type": "natural_language",
+          "expected_symbol": "calculate_modularity",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "e7968e2d41c9",
+          "rank": 1,
+          "elapsed_ms": 934.49,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "calculate_modularity",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "common path prefix primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "common_path_prefix",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "bd0150db5be3",
+          "rank": 1,
+          "elapsed_ms": 782.34,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "common_path_prefix",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for common path prefix",
+          "query_type": "natural_language",
+          "expected_symbol": "common_path_prefix",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "bd0150db5be3",
+          "rank": 1,
+          "elapsed_ms": 362.47,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "common_path_prefix",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "community density primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "community_density",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "d25b66767dfb",
+          "rank": 1,
+          "elapsed_ms": 621.86,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "community_density",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for community density",
+          "query_type": "natural_language",
+          "expected_symbol": "community_density",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "d25b66767dfb",
+          "rank": 1,
+          "elapsed_ms": 944.66,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "community_density",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "register sqlite vec construction",
+          "query_type": "short_phrase",
+          "expected_symbol": "register_sqlite_vec",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "7fcb4e0acb48",
+          "rank": null,
+          "elapsed_ms": 617.49,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "register_sqlite_vec",
+            "file": "crates/codelens-engine/src/embedding/ffi.rs"
+          }
+        },
+        {
+          "query": "which builder creates register sqlite vec",
+          "query_type": "natural_language",
+          "expected_symbol": "register_sqlite_vec",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "7fcb4e0acb48",
+          "rank": null,
+          "elapsed_ms": 904.25,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "register_sqlite_vec",
+            "file": "crates/codelens-engine/src/embedding/ffi.rs"
+          }
+        },
+        {
+          "query": "insert batch primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "insert_batch",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "f826f5ae9546",
+          "rank": 1,
+          "elapsed_ms": 649.46,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "insert_batch",
+            "file": "crates/codelens-engine/src/embedding/vec_store.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for insert batch",
+          "query_type": "natural_language",
+          "expected_symbol": "insert_batch",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "f826f5ae9546",
+          "rank": 1,
+          "elapsed_ms": 926.12,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "insert_batch",
+            "file": "crates/codelens-engine/src/embedding/vec_store.rs"
+          }
+        },
+        {
+          "query": "validate identifier primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "validate_identifier",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "a37c6186a1c3",
+          "rank": 1,
+          "elapsed_ms": 628.42,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "validate_identifier",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for validate identifier",
+          "query_type": "natural_language",
+          "expected_symbol": "validate_identifier",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "a37c6186a1c3",
+          "rank": 1,
+          "elapsed_ms": 937.98,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "validate_identifier",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "find word matches in files internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_word_matches_in_files",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "6314dd463cef",
+          "rank": 1,
+          "elapsed_ms": 282.96,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_word_matches_in_files",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements find word matches in files",
+          "query_type": "natural_language",
+          "expected_symbol": "find_word_matches_in_files",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "6314dd463cef",
+          "rank": 1,
+          "elapsed_ms": 280.78,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_word_matches_in_files",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "collect file scope edits internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "collect_file_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "327b0a3208f5",
+          "rank": 1,
+          "elapsed_ms": 940.9,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_file_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements collect file scope edits",
+          "query_type": "natural_language",
+          "expected_symbol": "collect_file_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "327b0a3208f5",
+          "rank": 1,
+          "elapsed_ms": 353.88,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_file_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "get symbols overview primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "get_symbols_overview",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "710469774839",
+          "rank": 1,
+          "elapsed_ms": 781.4,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_symbols_overview",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for get symbols overview",
+          "query_type": "natural_language",
+          "expected_symbol": "get_symbols_overview",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "710469774839",
+          "rank": 1,
+          "elapsed_ms": 351.55,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_symbols_overview",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "find internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "c13f376149f6",
+          "rank": 3,
+          "elapsed_ms": 570.23,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "scripts/finetune/build_repo_adversarial_dataset.py"
+          }
+        },
+        {
+          "query": "which helper implements find",
+          "query_type": "natural_language",
+          "expected_symbol": "find_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "c13f376149f6",
+          "rank": 1,
+          "elapsed_ms": 715.33,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "get project structure primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "get_project_structure",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "9f543c76643a",
+          "rank": 1,
+          "elapsed_ms": 777.1,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_project_structure",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for get project structure",
+          "query_type": "natural_language",
+          "expected_symbol": "get_project_structure",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "9f543c76643a",
+          "rank": 1,
+          "elapsed_ms": 349.32,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_project_structure",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "EmbeddingEngine struct type definition and fields",
+          "query_type": "short_phrase",
+          "expected_symbol": "EmbeddingEngine",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "generic",
+          "adversarial_group": "080167332f7e",
+          "rank": null,
+          "elapsed_ms": 1060.45,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "embedding_engine",
+            "file": "crates/codelens-mcp/src/state/embedding_host.rs"
+          }
+        },
+        {
+          "query": "which Rust struct type is EmbeddingEngine and holds the ONNX model",
+          "query_type": "natural_language",
+          "expected_symbol": "EmbeddingEngine",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "generic",
+          "adversarial_group": "080167332f7e",
+          "rank": 3,
+          "elapsed_ms": 425.94,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_nl_shaped_rejects_code_and_paths",
+            "file": "crates/codelens-engine/src/embedding/tests.rs"
+          }
+        },
+        {
+          "query": "call language for path primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "call_language_for_path",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "generic",
+          "adversarial_group": "93ac61e4424f",
+          "rank": 1,
+          "elapsed_ms": 937.91,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "call_language_for_path",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for call language for path",
+          "query_type": "natural_language",
+          "expected_symbol": "call_language_for_path",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "generic",
+          "adversarial_group": "93ac61e4424f",
+          "rank": 1,
+          "elapsed_ms": 395.75,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "call_language_for_path",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "select solve symbols primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "select_solve_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "92cf7fb5dadb",
+          "rank": 1,
+          "elapsed_ms": 774.09,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "select_solve_symbols",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for select solve symbols",
+          "query_type": "natural_language",
+          "expected_symbol": "select_solve_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "92cf7fb5dadb",
+          "rank": 1,
+          "elapsed_ms": 347.83,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "select_solve_symbols",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "collect project scope edits internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "collect_project_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "9da0f9d20203",
+          "rank": 1,
+          "elapsed_ms": 925.36,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_project_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements collect project scope edits",
+          "query_type": "natural_language",
+          "expected_symbol": "collect_project_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "9da0f9d20203",
+          "rank": 1,
+          "elapsed_ms": 350.73,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_project_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "find all word matches internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_all_word_matches",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "bce5c600343c",
+          "rank": 1,
+          "elapsed_ms": 271.37,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_all_word_matches",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements find all word matches",
+          "query_type": "natural_language",
+          "expected_symbol": "find_all_word_matches",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "bce5c600343c",
+          "rank": 1,
+          "elapsed_ms": 302.13,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_all_word_matches",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        }
+      ],
+      "method": "semantic_search"
+    },
+    {
+      "mrr": 0.8142857142857143,
+      "acc1": 0.8,
+      "acc3": 0.8285714285714286,
+      "acc5": 0.8285714285714286,
+      "avg_elapsed_ms": 162.82642857142858,
+      "by_query_type": {
+        "natural_language": {
+          "count": 35,
+          "mrr": 0.8142857142857143,
+          "acc1": 0.8,
+          "acc3": 0.8285714285714286,
+          "acc5": 0.8285714285714286,
+          "avg_elapsed_ms": 160.08628571428574
+        },
+        "short_phrase": {
+          "count": 35,
+          "mrr": 0.8142857142857143,
+          "acc1": 0.8,
+          "acc3": 0.8285714285714286,
+          "acc5": 0.8285714285714286,
+          "avg_elapsed_ms": 165.56657142857142
+        }
+      },
+      "by_role": {
+        "builder": {
+          "count": 6,
+          "mrr": 0.3333333333333333,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.3333333333333333,
+          "acc5": 0.3333333333333333,
+          "avg_elapsed_ms": 156.75833333333333
+        },
+        "entrypoint": {
+          "count": 10,
+          "mrr": 0.8,
+          "acc1": 0.8,
+          "acc3": 0.8,
+          "acc5": 0.8,
+          "avg_elapsed_ms": 166.88799999999998
+        },
+        "generic": {
+          "count": 28,
+          "mrr": 0.8571428571428571,
+          "acc1": 0.8571428571428571,
+          "acc3": 0.8571428571428571,
+          "acc5": 0.8571428571428571,
+          "avg_elapsed_ms": 169.62071428571429
+        },
+        "helper": {
+          "count": 22,
+          "mrr": 0.8636363636363636,
+          "acc1": 0.8181818181818182,
+          "acc3": 0.9090909090909091,
+          "acc5": 0.9090909090909091,
+          "avg_elapsed_ms": 153.0681818181818
+        },
+        "predicate": {
+          "count": 4,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 167.885
+        }
+      },
+      "by_adversarial_group": {
+        "080167332f7e": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "0c1187c1f78f": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.0
+        },
+        "0e84454a16e0": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "327b0a3208f5": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "4adf3955648c": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "4bf72b51ca10": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "5b9255153f3e": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "6314dd463cef": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "6ab8eea6fcf7": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "6f9f5c0febd1": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "710469774839": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "7554cd636eb7": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "7fcb4e0acb48": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "82dbc79022e1": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "911c129b0af8": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "92cf7fb5dadb": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "93ac61e4424f": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "9da0f9d20203": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "9f543c76643a": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "9f7e94717879": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "a37c6186a1c3": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "b9058f612267": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "bba7c1a1e434": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "bce5c600343c": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "bd0150db5be3": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "c13f376149f6": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "c39b9f98598e": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "d25b66767dfb": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "d3420d7eb4f0": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "df4c695ed556": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "dfbc1f4db914": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "e19ee4b2f06e": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "e7968e2d41c9": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "f3bdbeae18fe": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "f826f5ae9546": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        }
+      },
+      "rows": [
+        {
+          "query": "primary rename handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "entrypoint",
+          "adversarial_group": "6ab8eea6fcf7",
+          "rank": 1,
+          "elapsed_ms": 165.05,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "rename_symbol",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles rename",
+          "query_type": "natural_language",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "entrypoint",
+          "adversarial_group": "6ab8eea6fcf7",
+          "rank": 1,
+          "elapsed_ms": 162.89,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "rename_symbol",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "find range internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_symbol_range",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "b9058f612267",
+          "rank": 1,
+          "elapsed_ms": 158.97,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol_range",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which helper implements find range",
+          "query_type": "natural_language",
+          "expected_symbol": "find_symbol_range",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "b9058f612267",
+          "rank": 1,
+          "elapsed_ms": 169.31,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol_range",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "apply edits primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "apply_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "f3bdbeae18fe",
+          "rank": 1,
+          "elapsed_ms": 160.4,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "apply_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for apply edits",
+          "query_type": "natural_language",
+          "expected_symbol": "apply_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "f3bdbeae18fe",
+          "rank": 1,
+          "elapsed_ms": 166.08,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "apply_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "search primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "search",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "4adf3955648c",
+          "rank": null,
+          "elapsed_ms": 151.82,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "search",
+            "file": "crates/codelens-engine/src/embedding/engine_impl.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for search",
+          "query_type": "natural_language",
+          "expected_symbol": "search",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "4adf3955648c",
+          "rank": null,
+          "elapsed_ms": 175.58,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "search_symbols",
+            "file": "crates/codelens-tui/src/app.rs"
+          }
+        },
+        {
+          "query": "primary inline handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "inline_function",
+          "expected_file_suffix": "crates/codelens-engine/src/inline.rs",
+          "role": "entrypoint",
+          "adversarial_group": "c39b9f98598e",
+          "rank": 1,
+          "elapsed_ms": 160.89,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "inline_function",
+            "file": "crates/codelens-engine/src/inline.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles inline",
+          "query_type": "natural_language",
+          "expected_symbol": "inline_function",
+          "expected_file_suffix": "crates/codelens-engine/src/inline.rs",
+          "role": "entrypoint",
+          "adversarial_group": "c39b9f98598e",
+          "rank": 1,
+          "elapsed_ms": 161.42,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "inline_function",
+            "file": "crates/codelens-engine/src/inline.rs"
+          }
+        },
+        {
+          "query": "primary move handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "move_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/move_symbol.rs",
+          "role": "entrypoint",
+          "adversarial_group": "dfbc1f4db914",
+          "rank": 1,
+          "elapsed_ms": 163.87,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "move_symbol",
+            "file": "crates/codelens-engine/src/move_symbol.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles move",
+          "query_type": "natural_language",
+          "expected_symbol": "move_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/move_symbol.rs",
+          "role": "entrypoint",
+          "adversarial_group": "dfbc1f4db914",
+          "rank": 1,
+          "elapsed_ms": 162.31,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "move_symbol",
+            "file": "crates/codelens-engine/src/move_symbol.rs"
+          }
+        },
+        {
+          "query": "primary change signature handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "change_signature",
+          "expected_file_suffix": "crates/codelens-engine/src/change_signature.rs",
+          "role": "entrypoint",
+          "adversarial_group": "4bf72b51ca10",
+          "rank": 1,
+          "elapsed_ms": 170.13,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "change_signature",
+            "file": "crates/codelens-engine/src/change_signature.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles change signature",
+          "query_type": "natural_language",
+          "expected_symbol": "change_signature",
+          "expected_file_suffix": "crates/codelens-engine/src/change_signature.rs",
+          "role": "entrypoint",
+          "adversarial_group": "4bf72b51ca10",
+          "rank": 1,
+          "elapsed_ms": 171.17,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "change_signature",
+            "file": "crates/codelens-engine/src/change_signature.rs"
+          }
+        },
+        {
+          "query": "find circular dependencies internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-engine/src/circular.rs",
+          "role": "helper",
+          "adversarial_group": "e19ee4b2f06e",
+          "rank": 1,
+          "elapsed_ms": 168.07,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_circular_dependencies",
+            "file": "crates/codelens-engine/src/circular.rs"
+          }
+        },
+        {
+          "query": "which helper implements find circular dependencies",
+          "query_type": "natural_language",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-engine/src/circular.rs",
+          "role": "helper",
+          "adversarial_group": "e19ee4b2f06e",
+          "rank": 1,
+          "elapsed_ms": 194.84,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_circular_dependencies",
+            "file": "crates/codelens-engine/src/circular.rs"
+          }
+        },
+        {
+          "query": "parse symbols internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "parse_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/parser.rs",
+          "role": "helper",
+          "adversarial_group": "d3420d7eb4f0",
+          "rank": 1,
+          "elapsed_ms": 167.52,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "parse_symbols",
+            "file": "crates/codelens-engine/src/symbols/parser.rs"
+          }
+        },
+        {
+          "query": "which helper implements parse symbols",
+          "query_type": "natural_language",
+          "expected_symbol": "parse_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/parser.rs",
+          "role": "helper",
+          "adversarial_group": "d3420d7eb4f0",
+          "rank": 1,
+          "elapsed_ms": 166.66,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "parse_symbols",
+            "file": "crates/codelens-engine/src/symbols/parser.rs"
+          }
+        },
+        {
+          "query": "primary index from project handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "index_from_project",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "entrypoint",
+          "adversarial_group": "0e84454a16e0",
+          "rank": null,
+          "elapsed_ms": 172.16,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "index_from_project",
+            "file": "crates/codelens-engine/src/embedding/engine_impl.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles index from project",
+          "query_type": "natural_language",
+          "expected_symbol": "index_from_project",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "entrypoint",
+          "adversarial_group": "0e84454a16e0",
+          "rank": null,
+          "elapsed_ms": 178.99,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "index_from_project",
+            "file": "crates/codelens-engine/src/embedding/engine_impl.rs"
+          }
+        },
+        {
+          "query": "find duplicates internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_duplicates",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "helper",
+          "adversarial_group": "df4c695ed556",
+          "rank": null,
+          "elapsed_ms": 184.65,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_duplicates",
+            "file": "crates/codelens-engine/src/embedding/engine_impl.rs"
+          }
+        },
+        {
+          "query": "which helper implements find duplicates",
+          "query_type": "natural_language",
+          "expected_symbol": "find_duplicates",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "helper",
+          "adversarial_group": "df4c695ed556",
+          "rank": null,
+          "elapsed_ms": 202.99,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_duplicates",
+            "file": "crates/codelens-engine/src/embedding/engine_impl.rs"
+          }
+        },
+        {
+          "query": "file watcher primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "FileWatcher",
+          "expected_file_suffix": "crates/codelens-engine/src/watcher.rs",
+          "role": "generic",
+          "adversarial_group": "9f7e94717879",
+          "rank": 1,
+          "elapsed_ms": 171.78,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "FileWatcher",
+            "file": "crates/codelens-engine/src/watcher.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for file watcher",
+          "query_type": "natural_language",
+          "expected_symbol": "FileWatcher",
+          "expected_file_suffix": "crates/codelens-engine/src/watcher.rs",
+          "role": "generic",
+          "adversarial_group": "9f7e94717879",
+          "rank": 1,
+          "elapsed_ms": 184.65,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "FileWatcher",
+            "file": "crates/codelens-engine/src/watcher.rs"
+          }
+        },
+        {
+          "query": "build non ranges construction",
+          "query_type": "short_phrase",
+          "expected_symbol": "build_non_code_ranges",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "builder",
+          "adversarial_group": "6f9f5c0febd1",
+          "rank": 1,
+          "elapsed_ms": 331.05,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_non_code_ranges",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which builder creates build non ranges",
+          "query_type": "natural_language",
+          "expected_symbol": "build_non_code_ranges",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "builder",
+          "adversarial_group": "6f9f5c0febd1",
+          "rank": 1,
+          "elapsed_ms": 185.34,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_non_code_ranges",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "build embedding text construction",
+          "query_type": "short_phrase",
+          "expected_symbol": "build_embedding_text",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "bba7c1a1e434",
+          "rank": null,
+          "elapsed_ms": 36.83,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_embedding_text",
+            "file": "crates/codelens-engine/src/embedding/prompt.rs"
+          }
+        },
+        {
+          "query": "which builder creates build embedding text",
+          "query_type": "natural_language",
+          "expected_symbol": "build_embedding_text",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "bba7c1a1e434",
+          "rank": null,
+          "elapsed_ms": 35.08,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_embedding_text",
+            "file": "crates/codelens-engine/src/embedding/prompt.rs"
+          }
+        },
+        {
+          "query": "is excluded decision check",
+          "query_type": "short_phrase",
+          "expected_symbol": "is_excluded",
+          "expected_file_suffix": "crates/codelens-engine/src/project.rs",
+          "role": "predicate",
+          "adversarial_group": "7554cd636eb7",
+          "rank": 1,
+          "elapsed_ms": 155.8,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_excluded",
+            "file": "crates/codelens-engine/src/project.rs"
+          }
+        },
+        {
+          "query": "which predicate decides is excluded",
+          "query_type": "natural_language",
+          "expected_symbol": "is_excluded",
+          "expected_file_suffix": "crates/codelens-engine/src/project.rs",
+          "role": "predicate",
+          "adversarial_group": "7554cd636eb7",
+          "rank": 1,
+          "elapsed_ms": 155.75,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_excluded",
+            "file": "crates/codelens-engine/src/project.rs"
+          }
+        },
+        {
+          "query": "extract calls internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "extract_calls",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "82dbc79022e1",
+          "rank": 1,
+          "elapsed_ms": 180.58,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "extract_calls",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "which helper implements extract calls",
+          "query_type": "natural_language",
+          "expected_symbol": "extract_calls",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "82dbc79022e1",
+          "rank": 1,
+          "elapsed_ms": 175.42,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "extract_calls",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "is noise callee decision check",
+          "query_type": "short_phrase",
+          "expected_symbol": "is_noise_callee",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "predicate",
+          "adversarial_group": "5b9255153f3e",
+          "rank": 1,
+          "elapsed_ms": 181.28,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_noise_callee",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "which predicate decides is noise callee",
+          "query_type": "natural_language",
+          "expected_symbol": "is_noise_callee",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "predicate",
+          "adversarial_group": "5b9255153f3e",
+          "rank": 1,
+          "elapsed_ms": 178.71,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_noise_callee",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "collect candidate files internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "collect_candidate_files",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "0c1187c1f78f",
+          "rank": 2,
+          "elapsed_ms": 226.0,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_candidate_files",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which helper implements collect candidate files",
+          "query_type": "natural_language",
+          "expected_symbol": "collect_candidate_files",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "0c1187c1f78f",
+          "rank": 2,
+          "elapsed_ms": 195.11,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_candidate_files",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "detect communities primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "detect_communities",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "911c129b0af8",
+          "rank": 1,
+          "elapsed_ms": 168.44,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "detect_communities",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for detect communities",
+          "query_type": "natural_language",
+          "expected_symbol": "detect_communities",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "911c129b0af8",
+          "rank": 1,
+          "elapsed_ms": 175.79,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "detect_communities",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "calculate modularity primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "calculate_modularity",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "e7968e2d41c9",
+          "rank": 1,
+          "elapsed_ms": 162.96,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "calculate_modularity",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for calculate modularity",
+          "query_type": "natural_language",
+          "expected_symbol": "calculate_modularity",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "e7968e2d41c9",
+          "rank": 1,
+          "elapsed_ms": 200.77,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "calculate_modularity",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "common path prefix primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "common_path_prefix",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "bd0150db5be3",
+          "rank": 1,
+          "elapsed_ms": 186.67,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "common_path_prefix",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for common path prefix",
+          "query_type": "natural_language",
+          "expected_symbol": "common_path_prefix",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "bd0150db5be3",
+          "rank": 1,
+          "elapsed_ms": 165.76,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "common_path_prefix",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "community density primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "community_density",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "d25b66767dfb",
+          "rank": 1,
+          "elapsed_ms": 170.91,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "community_density",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for community density",
+          "query_type": "natural_language",
+          "expected_symbol": "community_density",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "d25b66767dfb",
+          "rank": 1,
+          "elapsed_ms": 189.11,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "community_density",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "register sqlite vec construction",
+          "query_type": "short_phrase",
+          "expected_symbol": "register_sqlite_vec",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "7fcb4e0acb48",
+          "rank": null,
+          "elapsed_ms": 175.28,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "register_sqlite_vec",
+            "file": "crates/codelens-engine/src/embedding/ffi.rs"
+          }
+        },
+        {
+          "query": "which builder creates register sqlite vec",
+          "query_type": "natural_language",
+          "expected_symbol": "register_sqlite_vec",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "7fcb4e0acb48",
+          "rank": null,
+          "elapsed_ms": 176.97,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "register_sqlite_vec",
+            "file": "crates/codelens-engine/src/embedding/ffi.rs"
+          }
+        },
+        {
+          "query": "insert batch primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "insert_batch",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "f826f5ae9546",
+          "rank": 1,
+          "elapsed_ms": 162.86,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "insert_batch",
+            "file": "crates/codelens-engine/src/embedding/vec_store.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for insert batch",
+          "query_type": "natural_language",
+          "expected_symbol": "insert_batch",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "f826f5ae9546",
+          "rank": 1,
+          "elapsed_ms": 172.72,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "insert_batch",
+            "file": "crates/codelens-engine/src/embedding/vec_store.rs"
+          }
+        },
+        {
+          "query": "validate identifier primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "validate_identifier",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "a37c6186a1c3",
+          "rank": 1,
+          "elapsed_ms": 158.42,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "validate_identifier",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for validate identifier",
+          "query_type": "natural_language",
+          "expected_symbol": "validate_identifier",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "a37c6186a1c3",
+          "rank": 1,
+          "elapsed_ms": 177.91,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "validate_identifier",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "find word matches in files internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_word_matches_in_files",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "6314dd463cef",
+          "rank": 1,
+          "elapsed_ms": 34.82,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_word_matches_in_files",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements find word matches in files",
+          "query_type": "natural_language",
+          "expected_symbol": "find_word_matches_in_files",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "6314dd463cef",
+          "rank": 1,
+          "elapsed_ms": 34.75,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_word_matches_in_files",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "collect file scope edits internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "collect_file_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "327b0a3208f5",
+          "rank": 1,
+          "elapsed_ms": 180.67,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_file_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements collect file scope edits",
+          "query_type": "natural_language",
+          "expected_symbol": "collect_file_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "327b0a3208f5",
+          "rank": 1,
+          "elapsed_ms": 161.97,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_file_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "get symbols overview primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "get_symbols_overview",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "710469774839",
+          "rank": 1,
+          "elapsed_ms": 171.74,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_symbols_overview",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for get symbols overview",
+          "query_type": "natural_language",
+          "expected_symbol": "get_symbols_overview",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "710469774839",
+          "rank": 1,
+          "elapsed_ms": 156.16,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_symbols_overview",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "find internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "c13f376149f6",
+          "rank": 1,
+          "elapsed_ms": 166.42,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which helper implements find",
+          "query_type": "natural_language",
+          "expected_symbol": "find_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "c13f376149f6",
+          "rank": 1,
+          "elapsed_ms": 170.58,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "get project structure primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "get_project_structure",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "9f543c76643a",
+          "rank": 1,
+          "elapsed_ms": 166.93,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_project_structure",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for get project structure",
+          "query_type": "natural_language",
+          "expected_symbol": "get_project_structure",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "9f543c76643a",
+          "rank": 1,
+          "elapsed_ms": 151.86,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_project_structure",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "EmbeddingEngine struct type definition and fields",
+          "query_type": "short_phrase",
+          "expected_symbol": "EmbeddingEngine",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "generic",
+          "adversarial_group": "080167332f7e",
+          "rank": null,
+          "elapsed_ms": 186.19,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "embedding_engine",
+            "file": "crates/codelens-mcp/src/state/embedding_host.rs"
+          }
+        },
+        {
+          "query": "which Rust struct type is EmbeddingEngine and holds the ONNX model",
+          "query_type": "natural_language",
+          "expected_symbol": "EmbeddingEngine",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "generic",
+          "adversarial_group": "080167332f7e",
+          "rank": null,
+          "elapsed_ms": 153.45,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "RUST_QUERY",
+            "file": "crates/codelens-engine/src/lang_config.rs"
+          }
+        },
+        {
+          "query": "call language for path primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "call_language_for_path",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "generic",
+          "adversarial_group": "93ac61e4424f",
+          "rank": 1,
+          "elapsed_ms": 175.25,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "call_language_for_path",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for call language for path",
+          "query_type": "natural_language",
+          "expected_symbol": "call_language_for_path",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "generic",
+          "adversarial_group": "93ac61e4424f",
+          "rank": 1,
+          "elapsed_ms": 149.97,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "call_language_for_path",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "select solve symbols primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "select_solve_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "92cf7fb5dadb",
+          "rank": 1,
+          "elapsed_ms": 182.17,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "select_solve_symbols",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for select solve symbols",
+          "query_type": "natural_language",
+          "expected_symbol": "select_solve_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "92cf7fb5dadb",
+          "rank": 1,
+          "elapsed_ms": 153.03,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "select_solve_symbols",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "collect project scope edits internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "collect_project_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "9da0f9d20203",
+          "rank": 1,
+          "elapsed_ms": 203.81,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_project_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements collect project scope edits",
+          "query_type": "natural_language",
+          "expected_symbol": "collect_project_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "9da0f9d20203",
+          "rank": 1,
+          "elapsed_ms": 156.01,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_project_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "find all word matches internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_all_word_matches",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "bce5c600343c",
+          "rank": 1,
+          "elapsed_ms": 34.44,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_all_word_matches",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements find all word matches",
+          "query_type": "natural_language",
+          "expected_symbol": "find_all_word_matches",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "bce5c600343c",
+          "rank": 1,
+          "elapsed_ms": 33.91,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_all_word_matches",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        }
+      ],
+      "method": "get_ranked_context"
+    },
+    {
+      "mrr": 0.7571428571428571,
+      "acc1": 0.7285714285714285,
+      "acc3": 0.7857142857142857,
+      "acc5": 0.7857142857142857,
+      "avg_elapsed_ms": 47.87214285714286,
+      "by_query_type": {
+        "natural_language": {
+          "count": 35,
+          "mrr": 0.7714285714285715,
+          "acc1": 0.7428571428571429,
+          "acc3": 0.8,
+          "acc5": 0.8,
+          "avg_elapsed_ms": 47.94857142857143
+        },
+        "short_phrase": {
+          "count": 35,
+          "mrr": 0.7428571428571429,
+          "acc1": 0.7142857142857143,
+          "acc3": 0.7714285714285715,
+          "acc5": 0.7714285714285715,
+          "avg_elapsed_ms": 47.79571428571428
+        }
+      },
+      "by_role": {
+        "builder": {
+          "count": 6,
+          "mrr": 0.3333333333333333,
+          "acc1": 0.3333333333333333,
+          "acc3": 0.3333333333333333,
+          "acc5": 0.3333333333333333,
+          "avg_elapsed_ms": 45.75333333333333
+        },
+        "entrypoint": {
+          "count": 10,
+          "mrr": 0.8,
+          "acc1": 0.8,
+          "acc3": 0.8,
+          "acc5": 0.8,
+          "avg_elapsed_ms": 51.23
+        },
+        "generic": {
+          "count": 28,
+          "mrr": 0.8214285714285714,
+          "acc1": 0.8214285714285714,
+          "acc3": 0.8214285714285714,
+          "acc5": 0.8214285714285714,
+          "avg_elapsed_ms": 48.45178571428572
+        },
+        "helper": {
+          "count": 22,
+          "mrr": 0.7272727272727273,
+          "acc1": 0.6363636363636364,
+          "acc3": 0.8181818181818182,
+          "acc5": 0.8181818181818182,
+          "avg_elapsed_ms": 46.96636363636364
+        },
+        "predicate": {
+          "count": 4,
+          "mrr": 1.0,
+          "acc1": 1.0,
+          "acc3": 1.0,
+          "acc5": 1.0,
+          "avg_elapsed_ms": 43.58
+        }
+      },
+      "by_adversarial_group": {
+        "080167332f7e": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.5
+        },
+        "0c1187c1f78f": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "0e84454a16e0": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "327b0a3208f5": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "4adf3955648c": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "4bf72b51ca10": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "5b9255153f3e": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "6314dd463cef": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "6ab8eea6fcf7": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "6f9f5c0febd1": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "710469774839": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "7554cd636eb7": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "7fcb4e0acb48": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "82dbc79022e1": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "911c129b0af8": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "92cf7fb5dadb": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "93ac61e4424f": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "9da0f9d20203": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "9f543c76643a": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "9f7e94717879": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "a37c6186a1c3": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "b9058f612267": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.0
+        },
+        "bba7c1a1e434": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "bce5c600343c": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "bd0150db5be3": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "c13f376149f6": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "c39b9f98598e": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "d25b66767dfb": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "d3420d7eb4f0": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "df4c695ed556": {
+          "count": 2,
+          "mrr": 0.0,
+          "acc1": 0.0
+        },
+        "dfbc1f4db914": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "e19ee4b2f06e": {
+          "count": 2,
+          "mrr": 0.5,
+          "acc1": 0.0
+        },
+        "e7968e2d41c9": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "f3bdbeae18fe": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        },
+        "f826f5ae9546": {
+          "count": 2,
+          "mrr": 1.0,
+          "acc1": 1.0
+        }
+      },
+      "rows": [
+        {
+          "query": "primary rename handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "entrypoint",
+          "adversarial_group": "6ab8eea6fcf7",
+          "rank": 1,
+          "elapsed_ms": 48.37,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "rename_symbol",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles rename",
+          "query_type": "natural_language",
+          "expected_symbol": "rename_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "entrypoint",
+          "adversarial_group": "6ab8eea6fcf7",
+          "rank": 1,
+          "elapsed_ms": 48.02,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "rename_symbol",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "find range internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_symbol_range",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "b9058f612267",
+          "rank": 2,
+          "elapsed_ms": 48.28,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which helper implements find range",
+          "query_type": "natural_language",
+          "expected_symbol": "find_symbol_range",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "b9058f612267",
+          "rank": 2,
+          "elapsed_ms": 51.32,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "apply edits primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "apply_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "f3bdbeae18fe",
+          "rank": 1,
+          "elapsed_ms": 45.16,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "apply_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for apply edits",
+          "query_type": "natural_language",
+          "expected_symbol": "apply_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "f3bdbeae18fe",
+          "rank": 1,
+          "elapsed_ms": 55.62,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "apply_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "search primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "search",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "4adf3955648c",
+          "rank": null,
+          "elapsed_ms": 39.81,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "search_symbols_hybrid",
+            "file": "crates/codelens-engine/src/search.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for search",
+          "query_type": "natural_language",
+          "expected_symbol": "search",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "4adf3955648c",
+          "rank": null,
+          "elapsed_ms": 53.34,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_directory_symbols",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "primary inline handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "inline_function",
+          "expected_file_suffix": "crates/codelens-engine/src/inline.rs",
+          "role": "entrypoint",
+          "adversarial_group": "c39b9f98598e",
+          "rank": 1,
+          "elapsed_ms": 49.84,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "inline_function",
+            "file": "crates/codelens-engine/src/inline.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles inline",
+          "query_type": "natural_language",
+          "expected_symbol": "inline_function",
+          "expected_file_suffix": "crates/codelens-engine/src/inline.rs",
+          "role": "entrypoint",
+          "adversarial_group": "c39b9f98598e",
+          "rank": 1,
+          "elapsed_ms": 47.32,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "inline_function",
+            "file": "crates/codelens-engine/src/inline.rs"
+          }
+        },
+        {
+          "query": "primary move handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "move_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/move_symbol.rs",
+          "role": "entrypoint",
+          "adversarial_group": "dfbc1f4db914",
+          "rank": 1,
+          "elapsed_ms": 48.27,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "move_symbol",
+            "file": "crates/codelens-engine/src/move_symbol.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles move",
+          "query_type": "natural_language",
+          "expected_symbol": "move_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/move_symbol.rs",
+          "role": "entrypoint",
+          "adversarial_group": "dfbc1f4db914",
+          "rank": 1,
+          "elapsed_ms": 47.94,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "move_symbol",
+            "file": "crates/codelens-engine/src/move_symbol.rs"
+          }
+        },
+        {
+          "query": "primary change signature handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "change_signature",
+          "expected_file_suffix": "crates/codelens-engine/src/change_signature.rs",
+          "role": "entrypoint",
+          "adversarial_group": "4bf72b51ca10",
+          "rank": 1,
+          "elapsed_ms": 54.74,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "change_signature",
+            "file": "crates/codelens-engine/src/change_signature.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles change signature",
+          "query_type": "natural_language",
+          "expected_symbol": "change_signature",
+          "expected_file_suffix": "crates/codelens-engine/src/change_signature.rs",
+          "role": "entrypoint",
+          "adversarial_group": "4bf72b51ca10",
+          "rank": 1,
+          "elapsed_ms": 50.6,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "change_signature",
+            "file": "crates/codelens-engine/src/change_signature.rs"
+          }
+        },
+        {
+          "query": "find circular dependencies internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-engine/src/circular.rs",
+          "role": "helper",
+          "adversarial_group": "e19ee4b2f06e",
+          "rank": 2,
+          "elapsed_ms": 52.3,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which helper implements find circular dependencies",
+          "query_type": "natural_language",
+          "expected_symbol": "find_circular_dependencies",
+          "expected_file_suffix": "crates/codelens-engine/src/circular.rs",
+          "role": "helper",
+          "adversarial_group": "e19ee4b2f06e",
+          "rank": 2,
+          "elapsed_ms": 56.99,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "parse symbols internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "parse_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/parser.rs",
+          "role": "helper",
+          "adversarial_group": "d3420d7eb4f0",
+          "rank": 1,
+          "elapsed_ms": 45.98,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "parse_symbols",
+            "file": "crates/codelens-engine/src/symbols/parser.rs"
+          }
+        },
+        {
+          "query": "which helper implements parse symbols",
+          "query_type": "natural_language",
+          "expected_symbol": "parse_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/parser.rs",
+          "role": "helper",
+          "adversarial_group": "d3420d7eb4f0",
+          "rank": 1,
+          "elapsed_ms": 50.92,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "parse_symbols",
+            "file": "crates/codelens-engine/src/symbols/parser.rs"
+          }
+        },
+        {
+          "query": "primary index from project handler",
+          "query_type": "short_phrase",
+          "expected_symbol": "index_from_project",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "entrypoint",
+          "adversarial_group": "0e84454a16e0",
+          "rank": null,
+          "elapsed_ms": 59.6,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "dispatch_tool",
+            "file": "crates/codelens-mcp/src/dispatch/mod.rs"
+          }
+        },
+        {
+          "query": "which entrypoint handles index from project",
+          "query_type": "natural_language",
+          "expected_symbol": "index_from_project",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "entrypoint",
+          "adversarial_group": "0e84454a16e0",
+          "rank": null,
+          "elapsed_ms": 57.6,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "from_path",
+            "file": "crates/codelens-engine/src/symbols/types.rs"
+          }
+        },
+        {
+          "query": "find duplicates internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_duplicates",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "helper",
+          "adversarial_group": "df4c695ed556",
+          "rank": null,
+          "elapsed_ms": 50.46,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which helper implements find duplicates",
+          "query_type": "natural_language",
+          "expected_symbol": "find_duplicates",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "helper",
+          "adversarial_group": "df4c695ed556",
+          "rank": null,
+          "elapsed_ms": 51.62,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "file watcher primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "FileWatcher",
+          "expected_file_suffix": "crates/codelens-engine/src/watcher.rs",
+          "role": "generic",
+          "adversarial_group": "9f7e94717879",
+          "rank": null,
+          "elapsed_ms": 44.27,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "index_files_with_retry",
+            "file": "crates/codelens-engine/src/watcher.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for file watcher",
+          "query_type": "natural_language",
+          "expected_symbol": "FileWatcher",
+          "expected_file_suffix": "crates/codelens-engine/src/watcher.rs",
+          "role": "generic",
+          "adversarial_group": "9f7e94717879",
+          "rank": null,
+          "elapsed_ms": 55.78,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "for_file",
+            "file": "crates/codelens-mcp/src/tools/session/metrics_config.rs"
+          }
+        },
+        {
+          "query": "build non ranges construction",
+          "query_type": "short_phrase",
+          "expected_symbol": "build_non_code_ranges",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "builder",
+          "adversarial_group": "6f9f5c0febd1",
+          "rank": 1,
+          "elapsed_ms": 47.11,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_non_code_ranges",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which builder creates build non ranges",
+          "query_type": "natural_language",
+          "expected_symbol": "build_non_code_ranges",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "builder",
+          "adversarial_group": "6f9f5c0febd1",
+          "rank": 1,
+          "elapsed_ms": 59.67,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_non_code_ranges",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "build embedding text construction",
+          "query_type": "short_phrase",
+          "expected_symbol": "build_embedding_text",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "bba7c1a1e434",
+          "rank": null,
+          "elapsed_ms": 36.7,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_embedding_text",
+            "file": "crates/codelens-engine/src/embedding/prompt.rs"
+          }
+        },
+        {
+          "query": "which builder creates build embedding text",
+          "query_type": "natural_language",
+          "expected_symbol": "build_embedding_text",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "bba7c1a1e434",
+          "rank": null,
+          "elapsed_ms": 33.91,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "build_embedding_text",
+            "file": "crates/codelens-engine/src/embedding/prompt.rs"
+          }
+        },
+        {
+          "query": "is excluded decision check",
+          "query_type": "short_phrase",
+          "expected_symbol": "is_excluded",
+          "expected_file_suffix": "crates/codelens-engine/src/project.rs",
+          "role": "predicate",
+          "adversarial_group": "7554cd636eb7",
+          "rank": 1,
+          "elapsed_ms": 41.11,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_excluded",
+            "file": "crates/codelens-engine/src/project.rs"
+          }
+        },
+        {
+          "query": "which predicate decides is excluded",
+          "query_type": "natural_language",
+          "expected_symbol": "is_excluded",
+          "expected_file_suffix": "crates/codelens-engine/src/project.rs",
+          "role": "predicate",
+          "adversarial_group": "7554cd636eb7",
+          "rank": 1,
+          "elapsed_ms": 43.87,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_excluded",
+            "file": "crates/codelens-engine/src/project.rs"
+          }
+        },
+        {
+          "query": "extract calls internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "extract_calls",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "82dbc79022e1",
+          "rank": 1,
+          "elapsed_ms": 45.19,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "extract_calls",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "which helper implements extract calls",
+          "query_type": "natural_language",
+          "expected_symbol": "extract_calls",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "82dbc79022e1",
+          "rank": 1,
+          "elapsed_ms": 49.18,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "extract_calls",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "is noise callee decision check",
+          "query_type": "short_phrase",
+          "expected_symbol": "is_noise_callee",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "predicate",
+          "adversarial_group": "5b9255153f3e",
+          "rank": 1,
+          "elapsed_ms": 43.96,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_noise_callee",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "which predicate decides is noise callee",
+          "query_type": "natural_language",
+          "expected_symbol": "is_noise_callee",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "predicate",
+          "adversarial_group": "5b9255153f3e",
+          "rank": 1,
+          "elapsed_ms": 45.38,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "is_noise_callee",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "collect candidate files internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "collect_candidate_files",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "0c1187c1f78f",
+          "rank": null,
+          "elapsed_ms": 50.96,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_files",
+            "file": "crates/codelens-engine/src/project.rs"
+          }
+        },
+        {
+          "query": "which helper implements collect candidate files",
+          "query_type": "natural_language",
+          "expected_symbol": "collect_candidate_files",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "helper",
+          "adversarial_group": "0c1187c1f78f",
+          "rank": null,
+          "elapsed_ms": 56.75,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_files",
+            "file": "crates/codelens-engine/src/project.rs"
+          }
+        },
+        {
+          "query": "detect communities primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "detect_communities",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "911c129b0af8",
+          "rank": 1,
+          "elapsed_ms": 44.38,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "detect_communities",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for detect communities",
+          "query_type": "natural_language",
+          "expected_symbol": "detect_communities",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "911c129b0af8",
+          "rank": 1,
+          "elapsed_ms": 55.95,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "detect_communities",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "calculate modularity primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "calculate_modularity",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "e7968e2d41c9",
+          "rank": 1,
+          "elapsed_ms": 43.72,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "calculate_modularity",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for calculate modularity",
+          "query_type": "natural_language",
+          "expected_symbol": "calculate_modularity",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "e7968e2d41c9",
+          "rank": 1,
+          "elapsed_ms": 57.53,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "calculate_modularity",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "common path prefix primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "common_path_prefix",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "bd0150db5be3",
+          "rank": 1,
+          "elapsed_ms": 56.44,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "common_path_prefix",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for common path prefix",
+          "query_type": "natural_language",
+          "expected_symbol": "common_path_prefix",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "bd0150db5be3",
+          "rank": 1,
+          "elapsed_ms": 39.87,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "common_path_prefix",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "community density primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "community_density",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "d25b66767dfb",
+          "rank": 1,
+          "elapsed_ms": 43.89,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "community_density",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for community density",
+          "query_type": "natural_language",
+          "expected_symbol": "community_density",
+          "expected_file_suffix": "crates/codelens-engine/src/community.rs",
+          "role": "generic",
+          "adversarial_group": "d25b66767dfb",
+          "rank": 1,
+          "elapsed_ms": 56.15,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "community_density",
+            "file": "crates/codelens-engine/src/community.rs"
+          }
+        },
+        {
+          "query": "register sqlite vec construction",
+          "query_type": "short_phrase",
+          "expected_symbol": "register_sqlite_vec",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "7fcb4e0acb48",
+          "rank": null,
+          "elapsed_ms": 44.58,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "register_sqlite_vec",
+            "file": "crates/codelens-engine/src/embedding/ffi.rs"
+          }
+        },
+        {
+          "query": "which builder creates register sqlite vec",
+          "query_type": "natural_language",
+          "expected_symbol": "register_sqlite_vec",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "builder",
+          "adversarial_group": "7fcb4e0acb48",
+          "rank": null,
+          "elapsed_ms": 52.55,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "register_sqlite_vec",
+            "file": "crates/codelens-engine/src/embedding/ffi.rs"
+          }
+        },
+        {
+          "query": "insert batch primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "insert_batch",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "f826f5ae9546",
+          "rank": 1,
+          "elapsed_ms": 43.35,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "insert_batch",
+            "file": "crates/codelens-engine/src/embedding/vec_store.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for insert batch",
+          "query_type": "natural_language",
+          "expected_symbol": "insert_batch",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/vec_store.rs",
+          "role": "generic",
+          "adversarial_group": "f826f5ae9546",
+          "rank": 1,
+          "elapsed_ms": 56.56,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "insert_batch",
+            "file": "crates/codelens-engine/src/embedding/vec_store.rs"
+          }
+        },
+        {
+          "query": "validate identifier primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "validate_identifier",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "a37c6186a1c3",
+          "rank": 1,
+          "elapsed_ms": 43.87,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "validate_identifier",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for validate identifier",
+          "query_type": "natural_language",
+          "expected_symbol": "validate_identifier",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "generic",
+          "adversarial_group": "a37c6186a1c3",
+          "rank": 1,
+          "elapsed_ms": 55.21,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "validate_identifier",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "find word matches in files internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_word_matches_in_files",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "6314dd463cef",
+          "rank": 1,
+          "elapsed_ms": 34.26,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_word_matches_in_files",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements find word matches in files",
+          "query_type": "natural_language",
+          "expected_symbol": "find_word_matches_in_files",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "6314dd463cef",
+          "rank": 1,
+          "elapsed_ms": 36.43,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_word_matches_in_files",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "collect file scope edits internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "collect_file_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "327b0a3208f5",
+          "rank": 1,
+          "elapsed_ms": 57.9,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_file_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements collect file scope edits",
+          "query_type": "natural_language",
+          "expected_symbol": "collect_file_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "327b0a3208f5",
+          "rank": 1,
+          "elapsed_ms": 37.93,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_file_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "get symbols overview primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "get_symbols_overview",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "710469774839",
+          "rank": 1,
+          "elapsed_ms": 54.13,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_symbols_overview",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for get symbols overview",
+          "query_type": "natural_language",
+          "expected_symbol": "get_symbols_overview",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "710469774839",
+          "rank": 1,
+          "elapsed_ms": 38.23,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_symbols_overview",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "find internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "c13f376149f6",
+          "rank": 1,
+          "elapsed_ms": 43.84,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which helper implements find",
+          "query_type": "natural_language",
+          "expected_symbol": "find_symbol",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "helper",
+          "adversarial_group": "c13f376149f6",
+          "rank": 1,
+          "elapsed_ms": 46.61,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "get project structure primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "get_project_structure",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "9f543c76643a",
+          "rank": 1,
+          "elapsed_ms": 49.35,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_project_structure",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for get project structure",
+          "query_type": "natural_language",
+          "expected_symbol": "get_project_structure",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "9f543c76643a",
+          "rank": 1,
+          "elapsed_ms": 37.74,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "get_project_structure",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "EmbeddingEngine struct type definition and fields",
+          "query_type": "short_phrase",
+          "expected_symbol": "EmbeddingEngine",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "generic",
+          "adversarial_group": "080167332f7e",
+          "rank": null,
+          "elapsed_ms": 61.6,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_symbol",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which Rust struct type is EmbeddingEngine and holds the ONNX model",
+          "query_type": "natural_language",
+          "expected_symbol": "EmbeddingEngine",
+          "expected_file_suffix": "crates/codelens-engine/src/embedding/mod.rs",
+          "role": "generic",
+          "adversarial_group": "080167332f7e",
+          "rank": 1,
+          "elapsed_ms": 40.13,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "EmbeddingEngine",
+            "file": "crates/codelens-engine/src/embedding/mod.rs"
+          }
+        },
+        {
+          "query": "call language for path primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "call_language_for_path",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "generic",
+          "adversarial_group": "93ac61e4424f",
+          "rank": 1,
+          "elapsed_ms": 54.9,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "call_language_for_path",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for call language for path",
+          "query_type": "natural_language",
+          "expected_symbol": "call_language_for_path",
+          "expected_file_suffix": "crates/codelens-engine/src/call_graph.rs",
+          "role": "generic",
+          "adversarial_group": "93ac61e4424f",
+          "rank": 1,
+          "elapsed_ms": 39.03,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "call_language_for_path",
+            "file": "crates/codelens-engine/src/call_graph.rs"
+          }
+        },
+        {
+          "query": "select solve symbols primary implementation",
+          "query_type": "short_phrase",
+          "expected_symbol": "select_solve_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "92cf7fb5dadb",
+          "rank": 1,
+          "elapsed_ms": 52.25,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "select_solve_symbols",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "which symbol is responsible for select solve symbols",
+          "query_type": "natural_language",
+          "expected_symbol": "select_solve_symbols",
+          "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+          "role": "generic",
+          "adversarial_group": "92cf7fb5dadb",
+          "rank": 1,
+          "elapsed_ms": 38.39,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "select_solve_symbols",
+            "file": "crates/codelens-engine/src/symbols/mod.rs"
+          }
+        },
+        {
+          "query": "collect project scope edits internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "collect_project_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "9da0f9d20203",
+          "rank": 1,
+          "elapsed_ms": 58.07,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_project_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements collect project scope edits",
+          "query_type": "natural_language",
+          "expected_symbol": "collect_project_scope_edits",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "9da0f9d20203",
+          "rank": 1,
+          "elapsed_ms": 40.56,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "collect_project_scope_edits",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "find all word matches internal helper",
+          "query_type": "short_phrase",
+          "expected_symbol": "find_all_word_matches",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "bce5c600343c",
+          "rank": 1,
+          "elapsed_ms": 34.21,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_all_word_matches",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        },
+        {
+          "query": "which helper implements find all word matches",
+          "query_type": "natural_language",
+          "expected_symbol": "find_all_word_matches",
+          "expected_file_suffix": "crates/codelens-engine/src/rename.rs",
+          "role": "helper",
+          "adversarial_group": "bce5c600343c",
+          "rank": 1,
+          "elapsed_ms": 33.5,
+          "candidate_count": 3,
+          "top_candidate": {
+            "name": "find_all_word_matches",
+            "file": "crates/codelens-engine/src/rename.rs"
+          }
+        }
+      ],
+      "method": "get_ranked_context_no_semantic"
+    }
+  ],
+  "role_counts": {
+    "builder": 6,
+    "entrypoint": 10,
+    "generic": 28,
+    "helper": 22,
+    "predicate": 4
+  },
+  "adversarial_group_count": 35
+}

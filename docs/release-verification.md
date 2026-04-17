@@ -2,6 +2,12 @@
 
 This document is the operational reference for what the current release pipeline is configured to produce, how to verify a published release, and what still needs to land before CodeLens can claim supply-chain-grade packaging.
 
+**See also**: [`docs/release-distribution.md`](release-distribution.md)
+for the producer-side playbook — tag-push flow, manual fallback commands,
+post-release verification script, user install cheatsheet. That file covers
+what operators do to produce a release; this file covers what consumers do
+to validate it.
+
 It is intentionally split into:
 
 - **current verified state**
@@ -16,11 +22,11 @@ That keeps public packaging claims grounded in what the repository actually ship
 
 The tag-driven GitHub release workflow in [`.github/workflows/release.yml`](../.github/workflows/release.yml) currently builds and publishes three release artifacts:
 
-| Target | Archive | Payload |
-| ------ | ------- | ------- |
-| `darwin-arm64` | `codelens-mcp-darwin-arm64.tar.gz` | `codelens-mcp` |
-| `linux-x86_64` | `codelens-mcp-linux-x86_64.tar.gz` | `codelens-mcp` |
-| `windows-x86_64` | `codelens-mcp-windows-x86_64.zip` | `codelens-mcp.exe` |
+| Target           | Archive                            | Payload            |
+| ---------------- | ---------------------------------- | ------------------ |
+| `darwin-arm64`   | `codelens-mcp-darwin-arm64.tar.gz` | `codelens-mcp`     |
+| `linux-x86_64`   | `codelens-mcp-linux-x86_64.tar.gz` | `codelens-mcp`     |
+| `windows-x86_64` | `codelens-mcp-windows-x86_64.zip`  | `codelens-mcp.exe` |
 
 The workflow is also configured to publish:
 
@@ -179,20 +185,20 @@ The OCI image is built from the released `linux-x86_64` binary artifact rather t
 
 ## Release packaging status by enterprise gate
 
-| Gate | Current state | Status |
-| ---- | ------------- | ------ |
-| Reproducible tagged binary builds | GitHub Actions release workflow | Partial |
-| Published checksums | `checksums-sha256.txt` | Present |
-| Published release inventory | `release-manifest.json` | Present |
-| Published keyless signatures | `*.sig` + `*.pem` sidecars | Present |
-| Published per-target CycloneDX SBOMs | release workflow configured | Present |
-| GitHub provenance attestation | `actions/attest@v4` in release workflow | Present |
-| GitHub SBOM attestation | `actions/attest@v4` in release workflow | Present |
-| OCI image publishing | GHCR via `docker/build-push-action` | Present |
-| Air-gapped bundle | Linux offline tarball via `build-airgap-bundle.sh` when `model.onnx` is staged | Conditional |
-| Local artifact verification path | `scripts/verify-release-artifacts.sh` | Present |
-| Homebrew derivation from published assets | Implemented in release workflow | Present |
-| Signature verification path | Cosign keyless blob verification for release payloads | Present |
+| Gate                                      | Current state                                                                  | Status      |
+| ----------------------------------------- | ------------------------------------------------------------------------------ | ----------- |
+| Reproducible tagged binary builds         | GitHub Actions release workflow                                                | Partial     |
+| Published checksums                       | `checksums-sha256.txt`                                                         | Present     |
+| Published release inventory               | `release-manifest.json`                                                        | Present     |
+| Published keyless signatures              | `*.sig` + `*.pem` sidecars                                                     | Present     |
+| Published per-target CycloneDX SBOMs      | release workflow configured                                                    | Present     |
+| GitHub provenance attestation             | `actions/attest@v4` in release workflow                                        | Present     |
+| GitHub SBOM attestation                   | `actions/attest@v4` in release workflow                                        | Present     |
+| OCI image publishing                      | GHCR via `docker/build-push-action`                                            | Present     |
+| Air-gapped bundle                         | Linux offline tarball via `build-airgap-bundle.sh` when `model.onnx` is staged | Conditional |
+| Local artifact verification path          | `scripts/verify-release-artifacts.sh`                                          | Present     |
+| Homebrew derivation from published assets | Implemented in release workflow                                                | Present     |
+| Signature verification path               | Cosign keyless blob verification for release payloads                          | Present     |
 
 Interpretation:
 
