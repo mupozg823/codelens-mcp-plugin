@@ -62,6 +62,23 @@ Ordered by cost-to-evidence:
 - `benchmarks/results/v1.9.26-mrr.{json,md}` — baseline on `84c825d`, hybrid MRR 0.758 (re-measured 2026-04-17)
 - `benchmarks/results/v1.9.32-mrr.{json,md}` — v1.9.32 run 1, hybrid MRR 0.712
 - `benchmarks/results/v1.9.32-mrr-run2.{json,md}` — v1.9.32 run 2, hybrid MRR 0.712 (identical, deterministic)
+- `benchmarks/results/v1.9.32-mrr-cpuonly.{json,md}` — v1.9.32 with `CODELENS_EMBED_COREML_COMPUTE_UNITS=cpu_only`, hybrid MRR 0.712 (no change → **hypothesis 1 ruled out**, see below)
+
+## Follow-up results (2026-04-17, same day)
+
+**Hypothesis 1 (CoreML ANE scheduling) — RULED OUT.**
+
+Re-ran the same benchmark on the v1.9.32 binary with `CODELENS_EMBED_COREML_COMPUTE_UNITS=cpu_only` to force the Core ML backend to the deterministic CPU path (no Apple Neural Engine involvement):
+
+| Method                 | default (ANE) |  cpu_only |     Δ |
+| ---------------------- | ------------: | --------: | ----: |
+| semantic_search        |         0.689 |     0.689 |     0 |
+| get_ranked_context lex |         0.583 |     0.583 |     0 |
+| **hybrid**             |     **0.712** | **0.712** | **0** |
+
+The compute-unit selector does not move the retrieval score at all. CoreML/ANE non-determinism is therefore not the cause of the 0.758 → 0.712 drift.
+
+Hypotheses 2 (FP associativity under LTO), 3 (build-artifact codegen diff), and 4 (isolate-copy ordering) remain open. Cheapest next probe is now **hypothesis 4 via `--no-isolated-copy` re-run**, followed by hypothesis 3 via `sha256sum` of the two release binaries built back-to-back on the same machine.
 
 ## What this means for users
 
