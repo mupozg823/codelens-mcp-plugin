@@ -148,14 +148,45 @@ from the next:
 3. **Handoff artifact v1** — `docs/schemas/handoff-artifact.v1.json`.
    Shipped alongside this ADR. Hosts can start producing/consuming
    immediately; we do not gate tool execution on it yet.
-4. **Phase-aware surface reduction** — not a new registry; an alias
-   layer on top of `profile + deferredToolLoading + preferred
-namespace/tier`.
-5. **Offline eval lanes** — minimum four (tool selection accuracy,
-   argument correctness, retrieval quality, session-audit pass
-   rate). This is the next large investment.
+4. **Phase-aware surface reduction** — shipped in v1.9.39
+   post-release: `tools/list {"phase": "plan" | "build" | "review" |
+"eval"}` alias on top of the existing `profile + deferredToolLoading
+   - preferred namespace/tier` axes, not a new registry.
+5. **Offline eval lanes** — originally scoped as four (tool selection
+   accuracy, argument correctness, retrieval quality, session-audit
+   pass rate). Objective evaluation on 2026-04-18 shipped exactly one
+   of the four and rejected the other three — see "Horizon 1 eval
+   lane status" below.
 6. **Only then**: IndexLayer, SCIP import, crate split — each
    justified by eval numbers, not by architectural elegance.
+
+### Horizon 1 eval lane status (2026-04-18)
+
+| Lane                        | Status   | Reason                                                                                                                                                            |
+| --------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `eval_session_audit`        | shipped  | novel aggregation across `audit_builder_session` + `audit_planner_session` timelines                                                                              |
+| `eval_tool_selection`       | rejected | no ground-truth dataset yet; synthetic scoring would be self-grading. Scaffold kept at `benchmarks/tool-selection-dataset.json` for future real-sample collection |
+| `eval_argument_correctness` | rejected | already surfaced per-session by `audit_*` `checks[]`; aggregating adds no new signal                                                                              |
+| `eval_retrieval_quality`    | rejected | already gated in CI via `embedding-quality.py --check --min-hybrid-mrr 0.65`; a second artifact URI is double-infra                                               |
+
+The shipped lane is exposed only via
+`start_analysis_job({"kind":"eval_session_audit"})`, not as a
+standalone tool — preserves the 109-tool cap.
+
+Ground-truth capture for the rejected `eval_tool_selection` lane
+flows through the existing persistent telemetry pipeline:
+
+- Opt in per-agent with `CODELENS_TELEMETRY_ENABLED=1` (default path
+  `.codelens/telemetry/tool_usage.jsonl`) or
+  `CODELENS_TELEMETRY_PATH=<override>`. No new env var is added;
+  reuse the same substrate.
+- Each JSONL row captures tool, surface, phase, session_id,
+  target_paths, elapsed_ms, success, truncated, tokens. Arguments are
+  intentionally excluded so PII cannot leak through the pipeline.
+- Labelled samples are appended to
+  `benchmarks/tool-selection-dataset.json`. Until the sample count
+  reaches the threshold documented in the dataset file's
+  `collection_protocol`, `eval_tool_selection` stays rejected.
 
 ## References
 

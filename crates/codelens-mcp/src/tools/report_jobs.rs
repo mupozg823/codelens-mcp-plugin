@@ -56,7 +56,7 @@ fn estimated_sections_for_kind(kind: &str) -> Vec<String> {
         "semantic_code_review" => vec!["review_items".to_owned(), "semantic_status".to_owned()],
         "analyze_change_request" => vec!["change_request".to_owned()],
         "verify_change_readiness" => vec!["readiness".to_owned()],
-        "eval_session_audit" => vec!["audit_pass_rate".to_owned()],
+        "eval_session_audit" => vec!["audit_pass_rate".to_owned(), "session_rows".to_owned()],
         _ => Vec::new(),
     }
 }

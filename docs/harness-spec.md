@@ -184,3 +184,39 @@ This document is generated from the same canonical manifest that powers the runt
 - `codelens://schemas/handoff-artifact/v1` exposes the concrete JSON schema for persisted handoff artifacts.
 - The checked-in schema source is [`docs/schemas/handoff-artifact.v1.json`](schemas/handoff-artifact.v1.json).
 - The spec is still audit-first. It documents discipline and handoff shape without adding new runtime hard blocks beyond existing mutation gate behavior.
+
+## Eval traces (opt-in)
+
+Hosts that want to contribute to the ground-truth dataset for later
+eval lanes (`eval_tool_selection` etc.) can opt in by enabling the
+existing persistent telemetry writer. No new env var is introduced.
+
+```bash
+# default path: .codelens/telemetry/tool_usage.jsonl
+CODELENS_TELEMETRY_ENABLED=1 codelens-mcp /path/to/project --transport http ...
+
+# or override the location
+CODELENS_TELEMETRY_PATH=/var/log/codelens/traces.jsonl codelens-mcp ...
+```
+
+Each JSONL line records: `timestamp_ms`, `tool`, `surface`, `phase`,
+`session_id`, `target_paths`, `elapsed_ms`, `tokens`, `success`,
+`truncated`. **Tool arguments are intentionally excluded** so the
+trace cannot leak user query text or PII through the pipeline.
+
+Aggregation for the shipped eval lane:
+
+```json
+{
+  "method": "tools/call",
+  "params": {
+    "name": "start_analysis_job",
+    "arguments": { "kind": "eval_session_audit" }
+  }
+}
+```
+
+The resulting artifact carries `audit_pass_rate` and `session_rows`
+sections via `codelens://analysis/{id}/audit_pass_rate` and
+`codelens://analysis/{id}/session_rows`. See ADR-0005 §5 "Horizon 1
+eval lane status" for which lanes are shipped vs explicitly rejected.

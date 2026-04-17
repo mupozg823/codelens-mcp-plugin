@@ -99,6 +99,15 @@ Planner/reviewer sessions use the same session filter shape:
 
 `get_tool_metrics()` without `session_id` still returns the global snapshot. Add `session_id` only when you want one logical session instead of the daemon-wide aggregate.
 
+For daemon-wide aggregation across currently tracked runtime sessions, enqueue the single shipped eval lane:
+
+1. `start_analysis_job({"kind":"eval_session_audit","profile_hint":"ci-audit"})`
+2. `get_analysis_job({"job_id":"<job-id>"})`
+3. `get_analysis_section({"analysis_id":"<analysis-id>","section":"audit_pass_rate"})`
+4. `get_analysis_section({"analysis_id":"<analysis-id>","section":"session_rows"})`
+
+`eval_session_audit` is runtime-scoped. It summarizes the sessions the daemon is currently tracking and does not backfill prior daemon restarts or external telemetry logs.
+
 Use `resources/read` on `codelens://surface/manifest` when you need the canonical source for workspace version, tool counts, profile membership, or supported-language inventory. Repository docs are generated from the same manifest.
 
 Use `resources/read` on `codelens://harness/spec` when the host needs the portable contract for preflight order, coordination TTL discipline, audit hooks, or handoff artifact skeletons.

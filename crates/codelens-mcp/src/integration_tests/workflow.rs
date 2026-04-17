@@ -845,17 +845,86 @@ fn start_analysis_job_returns_completed_handle() {
     assert_eq!(section["success"], json!(true));
 }
 
+#[cfg(feature = "http")]
 #[test]
 fn eval_session_audit_aggregates_across_tracked_sessions() {
     let project = project_root();
-    let state = make_state(&project);
+    fs::write(
+        project.as_path().join("eval_builder_warn.py"),
+        "print('old')\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("eval_planner_pass.py"),
+        "print('ok')\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("eval_planner_warn.py"),
+        "print('ok')\n",
+    )
+    .unwrap();
+    let state = make_http_state(&project);
+    let builder_session = create_http_profile_session(
+        &state,
+        &project,
+        crate::tool_defs::ToolProfile::BuilderMinimal,
+    );
+    let planner_pass_session = create_http_profile_session(
+        &state,
+        &project,
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    );
+    let planner_warn_session = create_http_profile_session(
+        &state,
+        &project,
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    );
 
-    // Produce at least one tracked session so the aggregator has input.
     let _ = call_tool_with_session(
         &state,
-        "audit_builder_session",
-        json!({}),
-        "eval-seed-session",
+        "get_symbols_overview",
+        json!({"path": "eval_builder_warn.py"}),
+        &builder_session,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "verify_change_readiness",
+        json!({
+            "task": "update eval builder warn file",
+            "changed_files": ["eval_builder_warn.py"]
+        }),
+        &builder_session,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        &planner_pass_session,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "eval_planner_pass.py"}),
+        &planner_pass_session,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["eval_planner_pass.py"], "task": "review planner pass"}),
+        &planner_pass_session,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "eval_planner_warn.py"}),
+        &planner_warn_session,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["eval_planner_warn.py"], "task": "review planner warn"}),
+        &planner_warn_session,
     );
 
     let arguments = json!({"kind": "eval_session_audit"});
@@ -863,7 +932,7 @@ fn eval_session_audit_aggregates_across_tracked_sessions() {
         .store_analysis_job_for_current_scope(
             "eval_session_audit",
             None,
-            vec!["audit_pass_rate".to_owned()],
+            vec!["audit_pass_rate".to_owned(), "session_rows".to_owned()],
             crate::runtime_types::JobLifecycle::Queued,
             0,
             Some("queued".to_owned()),
@@ -890,19 +959,31 @@ fn eval_session_audit_aggregates_across_tracked_sessions() {
     );
     assert_eq!(section["success"], json!(true));
     let content = &section["data"]["content"];
-    assert!(
-        content.get("session_count").is_some(),
-        "audit_pass_rate section must carry session_count"
+    assert_eq!(content["tracked_session_count"], json!(3));
+    assert_eq!(content["session_count"], json!(3));
+    assert_eq!(content["builder_session_count"], json!(1));
+    assert_eq!(content["planner_session_count"], json!(2));
+    assert_eq!(content["builder_pass_rate"], json!(0.0));
+    assert_eq!(content["planner_pass_rate"], json!(0.5));
+    assert_eq!(
+        content["top_failed_checks"][0]["code"],
+        json!("bootstrap_order")
     );
-    assert!(content.get("builder").is_some());
-    assert!(content.get("planner").is_some());
-    assert!(content.get("top_failed_checks").is_some());
-    // At least the seed session should have been counted.
-    assert!(
-        content["session_count"].as_u64().unwrap_or(0) >= 1,
-        "expected at least 1 tracked session, got {}",
-        content["session_count"]
+    assert_eq!(content["top_failed_checks"][0]["count"], json!(2));
+
+    let rows = call_tool(
+        &state,
+        "get_analysis_section",
+        json!({"analysis_id": analysis_id, "section": "session_rows"}),
     );
+    assert_eq!(rows["success"], json!(true));
+    assert_eq!(rows["data"]["content"]["count"], json!(3));
+    assert!(rows["data"]["content"]["sessions"]
+        .as_array()
+        .map(|sessions| sessions.iter().any(|session| {
+            session["role"] == json!("builder") && session["status"] == json!("warn")
+        }))
+        .unwrap_or(false));
 }
 
 #[test]
