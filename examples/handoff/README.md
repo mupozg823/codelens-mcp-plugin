@@ -126,18 +126,46 @@ python3 examples/handoff/builder_result_producer.py \
 `parent_artifact.session_id` so the two legs chain together as the
 schema's `parent_artifact` field intends.
 
-## Extending to ReviewerVerdict
+## ReviewerVerdict producer
 
-`reviewer_verdict` follows the same pattern as `builder_result`:
+`reviewer_verdict_producer.py` closes the planner → builder → reviewer
+chain. It audits its own read-only session plus the reviewed builder
+session, then derives a decision (`approve` / `request_changes` /
+`block`) from the two audit statuses:
 
-- Use `audit_planner_session` (read-only surface) instead of
-  `audit_builder_session`.
-- Add `decision` (approve/request_changes/block) and `rationale`
-  fields.
-- Set `parent_artifact` to the `BuilderResult`'s session_id.
+- both `pass` → `approve`
+- reviewer `fail` → `block` (read-side contract break)
+- builder `fail` → `block` (mutation gate break)
+- any `warn` with findings → `request_changes`
 
-A consumer host would invert the flow: read a persisted artifact,
-dispatch the next leg, produce the next artifact.
+```bash
+python3 examples/handoff/reviewer_verdict_producer.py \
+    --binary target/release/codelens-mcp \
+    --project . \
+    --reviewed-session-id <builder-session-id> \
+    --builder-result builder-result.json \
+    --output reviewer-verdict.json
+```
+
+`--builder-result` is optional; when provided, its `session_id`
+becomes `parent_artifact.session_id` so the full chain links together.
+
+All three external producers ship as stdlib-only Python and together
+verify that schema v1 is end-to-end implementable from outside the
+codelens-mcp crate boundary.
+
+## Beyond v1
+
+A consumer host inverts the flow: read a persisted artifact, dispatch
+the next leg, produce the next artifact. Future host adapters would
+add:
+
+- A persistence layer (artifacts live today only as files the caller
+  wrote manually; a richer host would store + fetch by id).
+- JSON Schema validation before emit (this reference omits it for
+  stdlib-only simplicity).
+- Transport diversity: HTTP daemon client, Server-Sent Events, or
+  future MCP Streamable HTTP.
 
 ## Related
 
