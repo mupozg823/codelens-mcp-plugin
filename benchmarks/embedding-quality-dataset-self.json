@@ -345,13 +345,13 @@
     "query": "handle semantic search tool request",
     "query_type": "natural_language",
     "expected_symbol": "semantic_search_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/table.rs"
   },
   {
     "query": "build embedding index for all project symbols",
     "query_type": "natural_language",
     "expected_symbol": "index_embeddings_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/table.rs"
   },
   {
     "query": "rerank semantic search results by relevance",
@@ -363,7 +363,7 @@
     "query": "ToolCallEnvelope",
     "query_type": "identifier",
     "expected_symbol": "ToolCallEnvelope",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/envelope.rs"
   },
   {
     "query": "get preflight TTL timeout in milliseconds",
@@ -447,13 +447,13 @@
     "query": "find similar code snippets using embeddings",
     "query_type": "natural_language",
     "expected_symbol": "find_similar_code_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/table.rs"
   },
   {
     "query": "classify what kind of symbol this is",
     "query_type": "natural_language",
     "expected_symbol": "classify_symbol_handler",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/table.rs"
   },
   {
     "query": "check if a tool is a symbol-aware mutation",
@@ -489,7 +489,7 @@
     "query": "parse incoming MCP tool call JSON",
     "query_type": "natural_language",
     "expected_symbol": "parse",
-    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/mod.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/dispatch/envelope.rs"
   },
   {
     "query": "SecondaryProject",

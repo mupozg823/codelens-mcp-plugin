@@ -120,7 +120,11 @@ def snapshot_runtime_model(capabilities_payload=None):
         return runtime
     model_path = model_dir / "model.onnx"
     config_path = model_dir / "config.json"
-    config = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
+    config = (
+        json.loads(config_path.read_text(encoding="utf-8"))
+        if config_path.exists()
+        else {}
+    )
     runtime.update(
         {
             "model_dir": str(model_dir),
@@ -136,7 +140,16 @@ def snapshot_runtime_model(capabilities_payload=None):
 
 
 def run_tool(cmd, args, timeout=120):
-    argv = [BIN, PROJECT, "--preset", ARGS.preset, "--cmd", cmd, "--args", json.dumps(args)]
+    argv = [
+        BIN,
+        PROJECT,
+        "--preset",
+        ARGS.preset,
+        "--cmd",
+        cmd,
+        "--args",
+        json.dumps(args),
+    ]
     t0 = time.perf_counter()
     result = subprocess.run(
         argv,
@@ -178,28 +191,47 @@ def require_tool_success(name, result, context=""):
     raise SystemExit(" | ".join(message))
 
 
+_IGNORE_PATTERNS = shutil.ignore_patterns(
+    ".git",
+    ".codelens",
+    "target",
+    "node_modules",
+    ".next",
+    "dist",
+    "coverage",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".pytest_cache",
+)
+
+
 def copy_project_for_benchmark(source_project: str) -> str:
+    # Deterministic copy: walks directory entries in sorted order so that the
+    # indexer observes the same filesystem insertion order on every run.
+    # shutil.copytree backs onto os.scandir whose order is filesystem-defined;
+    # that ±0.003 MRR wobble is observable and we remove it here.
     source = Path(source_project).resolve()
     temp_root = Path(tempfile.mkdtemp(prefix="codelens-embed-quality-"))
     bench_project = temp_root / source.name
-    shutil.copytree(
-        source,
-        bench_project,
-        symlinks=True,
-        ignore=shutil.ignore_patterns(
-            ".git",
-            ".codelens",
-            "target",
-            "node_modules",
-            ".next",
-            "dist",
-            "coverage",
-            "__pycache__",
-            ".venv",
-            "venv",
-            ".pytest_cache",
-        ),
-    )
+
+    def _copy_dir(src: Path, dst: Path) -> None:
+        dst.mkdir(parents=True, exist_ok=True)
+        entries = sorted(src.iterdir(), key=lambda p: p.name)
+        ignored = _IGNORE_PATTERNS(str(src), [e.name for e in entries])
+        for entry in entries:
+            if entry.name in ignored:
+                continue
+            target = dst / entry.name
+            if entry.is_symlink():
+                link_target = os.readlink(entry)
+                os.symlink(link_target, target)
+            elif entry.is_dir():
+                _copy_dir(entry, target)
+            else:
+                shutil.copy2(entry, target, follow_symlinks=False)
+
+    _copy_dir(source, bench_project)
     return str(bench_project)
 
 
@@ -369,7 +401,9 @@ def render_markdown(result):
         a("")
         a("| Query type | MRR | Acc@1 | Acc@3 | Acc@5 |")
         a("|---|---:|---:|---:|---:|")
-        for query_type, metrics in sorted(result["hybrid_uplift_by_query_type"].items()):
+        for query_type, metrics in sorted(
+            result["hybrid_uplift_by_query_type"].items()
+        ):
             a(
                 f"| {query_type} | {metrics['mrr_delta']:+.3f} | {metrics['acc1_delta']:+.0%} | {metrics['acc3_delta']:+.0%} | {metrics['acc5_delta']:+.0%} |"
             )
@@ -395,12 +429,16 @@ def render_markdown(result):
 
 def main():
     dataset = load_dataset()
-    capabilities = require_tool_success("get_capabilities", run_tool("get_capabilities", {}))
+    capabilities = require_tool_success(
+        "get_capabilities", run_tool("get_capabilities", {})
+    )
     capability_data = payload_data(capabilities.get("payload") or {}) or {}
     embedding_model = capability_data.get("embedding_model")
     runtime_model = snapshot_runtime_model(capabilities.get("payload") or {})
 
-    require_tool_success("index_embeddings", run_tool("index_embeddings", {}, timeout=1800))
+    require_tool_success(
+        "index_embeddings", run_tool("index_embeddings", {}, timeout=1800)
+    )
 
     methods = []
     methods.append(
@@ -438,9 +476,13 @@ def main():
     )
 
     lexical = next(
-        method for method in methods if method["method"] == "get_ranked_context_no_semantic"
+        method
+        for method in methods
+        if method["method"] == "get_ranked_context_no_semantic"
     )
-    hybrid = next(method for method in methods if method["method"] == "get_ranked_context")
+    hybrid = next(
+        method for method in methods if method["method"] == "get_ranked_context"
+    )
     hybrid_uplift_by_query_type = {}
     for query_type, metrics in hybrid["by_query_type"].items():
         lexical_metrics = lexical["by_query_type"].get(query_type)
