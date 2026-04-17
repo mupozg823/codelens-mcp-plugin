@@ -21,6 +21,17 @@ CHANGELOG will resume per-release entries starting with the next minor bump. Tre
 
 ## [Unreleased]
 
+## [1.9.32] — 2026-04-17
+
+### Refactor
+
+- **`tools/mod.rs` split** (875 → 214 lines, −75%): extracted the recommendation-engine surface into a new sibling `tools/suggestions.rs` (673 lines). `tools/mod.rs` now owns only composition concerns — submodule declarations, the `tool_registry!` macro, `dispatch_table()`, `estimate_tokens`, and the LSP helpers. External API preserved via `pub(crate)` re-exports of `suggest_next`, `suggest_next_contextual`, `composite_guidance_for_chain`, `suggestion_reasons_for`, and `infer_harness_phase`. No consumer code changed; integration-test callers still resolve `crate::tools::suggest_next`.
+- **`main.rs` CLI parser extraction** (504 → 265 lines, −47%): moved `StartupProjectSource` enum, `parse_cli_project_arg`, `select_startup_project_source`, `resolve_startup_project`, `cli_option_value`, `flag_takes_value`, and `format_http_startup_banner` into a new `crate::cli` module. Tests co-locate in `cli.rs::startup_tests`. `main.rs` now carries only module declarations, tracing/OTel bootstrap, and `fn main`.
+
+### Tests
+
+- 248 `codelens-mcp` tests continue to pass with no additions in this bump (both splits are pure internal refactors).
+
 ## [1.9.31] — 2026-04-17
 
 ### Added

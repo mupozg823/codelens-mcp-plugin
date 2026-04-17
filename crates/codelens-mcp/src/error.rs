@@ -143,6 +143,7 @@ pub enum RecoveryHint {
     /// Call this tool instead; it satisfies the same intent by another route.
     FallbackTool { tool: String, reason: String },
     /// Feature must be enabled via build flag or data setup before the call succeeds.
+    #[cfg(feature = "semantic")]
     RequireFeature { feature: String, install: String },
     /// A required input field is missing — name it explicitly so the agent can supply it.
     RequireField { field: String },
