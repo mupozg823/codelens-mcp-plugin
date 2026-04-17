@@ -6,7 +6,7 @@
 ## Current Snapshot (2026-04-16)
 
 <!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
-- Workspace version: `1.9.39`
+- Workspace version: `1.9.40`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
 - Registered tool definitions in source: `109`
 - Tool output schemas in source: `76 / 109`
