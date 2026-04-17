@@ -56,8 +56,12 @@ pub(super) fn call_tool_with_session(
 pub(super) fn call_tool_with_augmented_args(
     state: &crate::AppState,
     name: &str,
-    arguments: serde_json::Value,
+    mut arguments: serde_json::Value,
 ) -> serde_json::Value {
+    if let Some(map) = arguments.as_object_mut() {
+        map.entry("_session_id".to_owned())
+            .or_insert_with(|| json!(default_session_id(state)));
+    }
     let response = handle_request(
         state,
         crate::protocol::JsonRpcRequest {
@@ -129,6 +133,10 @@ pub(super) fn parse_tool_response(
     }
 
     payload
+}
+
+pub(super) fn default_session_id(state: &crate::AppState) -> String {
+    format!("test-session-{:p}", state)
 }
 
 pub(super) fn project_root() -> ProjectRoot {

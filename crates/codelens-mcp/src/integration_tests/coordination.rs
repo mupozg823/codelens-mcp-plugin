@@ -93,6 +93,67 @@ fn coordination_activity_resource_exposes_registered_agents_and_claims() {
 }
 
 #[test]
+fn coordination_is_visible_across_independent_states_for_same_project() {
+    let project = temp_project_root("coordination-cross-state");
+    fs::write(
+        project.as_path().join("coord.py"),
+        "def sample():\n    return 1\n",
+    )
+    .unwrap();
+    let state_a = make_state(&project);
+    let state_b = make_state(&project);
+
+    let registered = call_tool_with_session(
+        &state_a,
+        "register_agent_work",
+        json!({
+            "agent_name": "codex",
+            "branch": "codex/cross-a",
+            "worktree": "/tmp/codex-cross-a",
+            "intent": "edit coord.py"
+        }),
+        "session-a",
+    );
+    assert_eq!(registered["success"], json!(true));
+
+    let claimed = call_tool_with_session(
+        &state_a,
+        "claim_files",
+        json!({
+            "paths": ["coord.py"],
+            "reason": "cross-state visibility"
+        }),
+        "session-a",
+    );
+    assert_eq!(claimed["success"], json!(true));
+
+    let active_agents =
+        call_tool_with_session(&state_b, "list_active_agents", json!({}), "session-b");
+    assert_eq!(active_agents["success"], json!(true));
+    assert_eq!(active_agents["data"]["count"], json!(1));
+    assert_eq!(
+        active_agents["data"]["agents"][0]["session_id"],
+        json!("session-a")
+    );
+    assert_eq!(active_agents["data"]["agents"][0]["claim_count"], json!(1));
+
+    let readiness = call_tool_with_session(
+        &state_b,
+        "verify_change_readiness",
+        json!({
+            "task": "update coord.py safely",
+            "changed_files": ["coord.py"]
+        }),
+        "session-b",
+    );
+    assert_eq!(readiness["success"], json!(true));
+    assert_eq!(
+        readiness["data"]["overlapping_claims"][0]["session_id"],
+        json!("session-a")
+    );
+}
+
+#[test]
 fn claim_files_without_registration_uses_project_fallback_metadata() {
     let project = temp_project_root("coordination-fallback");
     fs::write(

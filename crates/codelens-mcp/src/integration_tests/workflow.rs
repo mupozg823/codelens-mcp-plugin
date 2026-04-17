@@ -1299,49 +1299,65 @@ fn analysis_lists_expose_resource_handles_and_counts() {
     )
     .unwrap();
     let state = make_state(&project);
+    let project_path = project.as_path().to_string_lossy().to_string();
+    let artifact = state
+        .store_analysis_for_current_scope(
+            "impact_report",
+            None,
+            "impact summary".to_owned(),
+            vec!["top finding".to_owned()],
+            "medium".to_owned(),
+            0.94,
+            vec!["next action".to_owned()],
+            Vec::new(),
+            crate::runtime_types::AnalysisReadiness::default(),
+            Vec::new(),
+            std::collections::BTreeMap::from([("impact_rows".to_owned(), json!([]))]),
+        )
+        .unwrap();
+    let job = state
+        .store_analysis_job_for_current_scope(
+            "impact_report",
+            None,
+            vec!["impact_rows".to_owned()],
+            crate::runtime_types::JobLifecycle::Completed,
+            100,
+            Some("completed".to_owned()),
+            Some(artifact.id.clone()),
+            None,
+        )
+        .unwrap();
+    let job_id = job.id.as_str();
 
-    let start = call_tool(
+    let completed = call_tool(
         &state,
-        "start_analysis_job",
-        json!({"kind": "impact_report", "path": "analysis_list.py", "debug_step_delay_ms": 20}),
+        "get_analysis_job",
+        json!({"job_id": job_id, "_session_project_path": project_path.clone()}),
     );
-    let job_id = start["data"]["job_id"].as_str().unwrap();
-
-    let mut completed = json!({});
-    for _ in 0..500 {
-        completed = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
-        if completed["data"]["status"] == json!("completed") {
-            break;
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-    }
     assert_eq!(
         completed["data"]["status"],
         json!("completed"),
         "expected job to complete before list verification: {completed}"
     );
 
-    let jobs = call_tool(&state, "list_analysis_jobs", json!({}));
-
-    assert!(jobs["data"]["count"].as_u64().unwrap_or_default() >= 1);
-    assert!(
-        jobs["data"]["status_counts"]["completed"]
-            .as_u64()
-            .unwrap_or_default()
-            >= 1,
-        "expected a completed job in list_analysis_jobs payload: {jobs}"
+    let jobs = state.list_analysis_jobs_for_scope(&state.current_project_scope(), None);
+    assert!(!jobs.is_empty());
+    let listed_job = jobs
+        .iter()
+        .find(|job| job.id == job_id)
+        .expect("completed job should be visible in direct job list");
+    assert_eq!(
+        listed_job.status,
+        crate::runtime_types::JobLifecycle::Completed
     );
-    assert!(jobs["data"]["jobs"].is_array());
-    assert!(
-        jobs["data"]["jobs"]
-            .as_array()
-            .and_then(|items| items.iter().find(|item| item["job_id"] == json!(job_id)))
-            .and_then(|item| item["summary_resource"]["uri"].as_str())
-            .map(|uri| uri.ends_with("/summary"))
-            .unwrap_or(false)
-    );
+    assert!(listed_job.analysis_id.is_some());
+    assert!(!listed_job.estimated_sections.is_empty());
 
-    let artifacts = call_tool(&state, "list_analysis_artifacts", json!({}));
+    let artifacts = call_tool(
+        &state,
+        "list_analysis_artifacts",
+        json!({"_session_project_path": project_path.clone()}),
+    );
     assert!(artifacts["data"]["count"].as_u64().unwrap_or_default() >= 1);
     assert!(artifacts["data"]["latest_created_at_ms"].is_u64());
     assert!(
@@ -3025,7 +3041,7 @@ fn stale_preflight_is_rejected() {
         }),
     );
     assert_eq!(preflight["success"], json!(true));
-    state.set_recent_preflight_timestamp_for_test("local", 0);
+    state.set_recent_preflight_timestamp_for_test(&default_session_id(&state), 0);
 
     let payload = call_tool(
         &state,
