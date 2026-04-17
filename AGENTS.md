@@ -45,3 +45,14 @@ The server enforces this gate in `refactor-full`. Missing or stale preflight evi
 - Default embedding model: `MiniLM-L12-CodeSearchNet-INT8`.
 - Override only when benchmarking via `CODELENS_EMBED_MODEL`.
 - Cross-encoder reranking is opt-in via `CODELENS_RERANK=1`; keep it off unless you are explicitly measuring it.
+
+## HTTP Daemon Ports
+
+Two CodeLens HTTP daemons are the recommended local operational shape for this project:
+
+- `:7838` — `refactor-full` / `mutation-enabled`. Intended for Codex (builder) sessions.
+- `:7839` — `reviewer-graph` / `read-only`. Intended for Claude (planner/reviewer) sessions.
+
+Agents should attach by URL rather than spawning their own stdio subprocess. The daemons share this project's on-disk index; advisory `register_agent_work` + `claim_files` coordinates mutation collisions.
+
+See [docs/multi-agent-integration.md](docs/multi-agent-integration.md) for the full delegation pattern, coordination discipline (TTL/release), and brief templates.
