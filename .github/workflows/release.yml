@@ -259,10 +259,6 @@ jobs:
     name: Update Homebrew Tap
     needs: [publish]
     runs-on: ubuntu-latest
-    # Skip when the tap push token is not configured. The publish job has
-    # already uploaded binaries and the GitHub Release; homebrew tap sync
-    # is a best-effort secondary channel.
-    if: ${{ vars.TAP_ENABLED == 'true' || secrets.TAP_GITHUB_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -293,6 +289,14 @@ jobs:
         env:
           TAP_TOKEN: ${{ secrets.TAP_GITHUB_TOKEN }}
         run: |
+          # Tap sync is a best-effort secondary distribution channel. The
+          # preceding publish job already shipped binaries and the GitHub
+          # Release. When TAP_GITHUB_TOKEN is not configured for this repo,
+          # skip cleanly instead of failing the entire workflow.
+          if [[ -z "${TAP_TOKEN}" ]]; then
+            echo "TAP_GITHUB_TOKEN is not set; skipping Homebrew tap push."
+            exit 0
+          fi
           git clone "https://x-access-token:${TAP_TOKEN}@github.com/mupozg823/homebrew-tap.git" tap
           mkdir -p tap/Formula
           cp codelens-mcp.rb tap/Formula/codelens-mcp.rb
