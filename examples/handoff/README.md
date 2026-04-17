@@ -102,16 +102,39 @@ The script intentionally does not bundle a validator so it can run
 from stdlib only. A real production host should validate before
 emitting.
 
-## Extending to BuilderResult and ReviewerVerdict
+## BuilderResult producer
 
-This adapter only emits `planner_brief`. The same pattern applies to
-`builder_result` and `reviewer_verdict`:
+`builder_result_producer.py` is the second leg of the chain. It
+queries `audit_builder_session` for a completed builder session,
+pulls `get_file_diagnostics` for each touched file, and emits a
+`BuilderResult` conforming to the same schema.
 
-- Subclass `StdioClient` to call `audit_builder_session` or
-  `audit_planner_session` instead of `analyze_change_request`.
-- Map the audit output's `status`, `findings`, and `session_summary`
-  into the `BuilderResult.audit` or `ReviewerVerdict.audit` objects
-  defined in the schema.
+```bash
+python3 examples/handoff/builder_result_producer.py \
+    --binary target/release/codelens-mcp \
+    --project . \
+    --session-id <builder-session-id> \
+    --changed-file crates/codelens-mcp/src/tools/reports/eval_reports.rs \
+    --tests-command "cargo test -p codelens-mcp --features http" \
+    --tests-passed 316 \
+    --tests-failed 0 \
+    --planner-brief planner-brief.json \
+    --output builder-result.json
+```
+
+`--planner-brief` is optional; when provided, its `session_id` becomes
+`parent_artifact.session_id` so the two legs chain together as the
+schema's `parent_artifact` field intends.
+
+## Extending to ReviewerVerdict
+
+`reviewer_verdict` follows the same pattern as `builder_result`:
+
+- Use `audit_planner_session` (read-only surface) instead of
+  `audit_builder_session`.
+- Add `decision` (approve/request_changes/block) and `rationale`
+  fields.
+- Set `parent_artifact` to the `BuilderResult`'s session_id.
 
 A consumer host would invert the flow: read a persisted artifact,
 dispatch the next leg, produce the next artifact.
