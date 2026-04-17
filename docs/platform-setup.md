@@ -85,7 +85,30 @@ Recommended daemon split:
 
 If you need a public planner -> builder delegation pattern, including fixed preflight order, coordination TTL discipline, and explicit `release_files`, see [Multi-agent integration](multi-agent-integration.md).
 
+For builder-session audit operations after a run:
+
+1. `get_tool_metrics({"session_id":"<builder-session>"})`
+2. `audit_builder_session({"session_id":"<builder-session>"})`
+3. `export_session_markdown({"session_id":"<builder-session>","name":"builder-audit"})`
+
+Planner/reviewer sessions use the same session filter shape:
+
+1. `get_tool_metrics({"session_id":"<planner-session>"})`
+2. `audit_planner_session({"session_id":"<planner-session>"})`
+3. `export_session_markdown({"session_id":"<planner-session>","name":"planner-audit"})`
+
+`get_tool_metrics()` without `session_id` still returns the global snapshot. Add `session_id` only when you want one logical session instead of the daemon-wide aggregate.
+
+Use `resources/read` on `codelens://surface/manifest` when you need the canonical source for workspace version, tool counts, profile membership, or supported-language inventory. Repository docs are generated from the same manifest.
+
 For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces and tiers first, and omits `outputSchema` during bootstrap to keep session overhead bounded. Clients can expand one namespace at a time with `{"namespace":"reports"}`, open primitive tools with `{"tier":"primitive"}`, request the full surface explicitly with `{"full": true}`, or opt back into schemas with `{"includeOutputSchema": true}`. In deferred sessions, hidden namespaces and primitive tiers can gate `tools/call` until the client explicitly loads them, and `codelens://tools/list` / `codelens://session/http` resources reflect the same session state.
+
+## Recommended Harness Modes
+
+<!-- SURFACE_MANIFEST_PLATFORM_HARNESS:BEGIN -->
+<!-- SURFACE_MANIFEST_PLATFORM_HARNESS:END -->
+
+Live Claude/Codex bidirectional chat is not the default operating model. The recommended pattern is still asymmetric handoff over shared CodeLens state, with builder-to-planner escalation kept explicit and rare.
 
 ### 1. Claude Code (CLI / Desktop / Web)
 
@@ -130,7 +153,7 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current released runtime shape (`v1.9.37`), `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
+On the current released runtime shape (`v1.9.39`), `builder-minimal` remains intentionally bounded and workflow-first in this repository. Use `prepare_harness_session` and `tools/list` for the live visible-surface count in the active session.
 
 For `refactor-full`, use a preflight-first path:
 
@@ -140,6 +163,10 @@ For `refactor-full`, use a preflight-first path:
 4. mutation execution
 
 Recent matching preflight is required before `refactor-full` content mutations execute.
+
+After a builder/refactor pass completes, run `audit_builder_session` on that session id. Treat `warn` as missing process evidence, and `fail` as a contract violation that should block merge/review until explained or rerun.
+
+After a planner/reviewer pass completes, run `audit_planner_session` on that same session id. Treat `warn` as missing bootstrap / workflow-first / evidence discipline, and `fail` as a read-side contract break (for example a mutation attempt from a read-only surface).
 
 **Legacy presets:**
 
@@ -208,7 +235,7 @@ codex --mcp-server "http://127.0.0.1:7837/mcp"
 3. `trace_request_path` or `review_changes`
 4. `plan_safe_refactor` before any multi-file mutation
 
-On the current released runtime shape (`v1.9.37`) in this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
+On the current released runtime shape (`v1.9.39`) in this repository, `builder-minimal` remains bounded after bootstrap, with workflow aliases shown before lower-level primitives. Use `prepare_harness_session` and `tools/list` when you need the exact session-local count.
 
 For `refactor-full`, use a preflight-first path:
 
@@ -218,6 +245,10 @@ For `refactor-full`, use a preflight-first path:
 4. mutation execution
 
 Recent matching preflight is required before `refactor-full` content mutations execute.
+
+For Codex or other builder agents attached over HTTP, use the same session id with `get_tool_metrics`, `audit_builder_session`, and `export_session_markdown` to review one builder session in isolation instead of the daemon-wide aggregate.
+
+For planner/reviewer agents on `planner-readonly` or `reviewer-graph`, replace the audit call with `audit_planner_session`. `export_session_markdown(session_id=...)` chooses the builder or planner audit summary automatically from the session surface.
 
 ---
 
@@ -365,8 +396,15 @@ agent = client.agents.create(
 
 ## Preset Comparison
 
+<!-- SURFACE_MANIFEST_PLATFORM_SURFACES:BEGIN -->
+- Workspace version: `1.9.39`
+- Presets: `minimal` (27), `balanced` (76), `full` (109)
+- Profiles: `planner-readonly` (35), `builder-minimal` (36), `reviewer-graph` (35), `evaluator-compact` (14), `refactor-full` (49), `ci-audit` (43), `workflow-first` (19)
+- Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
+<!-- SURFACE_MANIFEST_PLATFORM_SURFACES:END -->
+
 ```
-Feature                    MINIMAL(22)  BALANCED(60)  FULL(88)
+Feature                    MINIMAL      BALANCED      FULL
 ─────────────────────────  ──────────   ──────────    ────────
 Symbol lookup (find/get)   ✓            ✓             ✓
 Code editing (rename/etc)  ✓            ✓             ✓

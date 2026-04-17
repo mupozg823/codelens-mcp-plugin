@@ -66,6 +66,11 @@ jobs:
         shell: bash
         run: python3 scripts/agent-contract-check.py --project . --strict
 
+      - name: surface manifest drift check
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: python3 scripts/surface-manifest.py
+
       - name: cargo test (mcp + http)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test -p codelens-mcp --features http
@@ -150,7 +155,10 @@ jobs:
           python3 benchmarks/embedding-quality.py . \
             --binary target/release/codelens-mcp \
             --output benchmarks/embedding-quality-results.json \
-            --markdown-output benchmarks/embedding-quality-summary.md | tee benchmarks/embedding-quality-ci.txt
+            --markdown-output benchmarks/embedding-quality-summary.md \
+            --check \
+            --min-hybrid-mrr 0.65 \
+            --min-lexical-mrr 0.50 | tee benchmarks/embedding-quality-ci.txt
           cat benchmarks/embedding-quality-summary.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: external phase3 matrix summary

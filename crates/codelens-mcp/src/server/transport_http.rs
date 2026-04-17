@@ -60,42 +60,7 @@ pub(crate) fn build_router(state: Arc<AppState>) -> Router {
 
 /// MCP Server Card — static metadata for agent discovery without a live session.
 async fn server_card_handler(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    let surface = *state.surface();
-    let tool_count = crate::tool_defs::visible_tools(surface).len();
-    let daemon_mode = state.daemon_mode().as_str();
-
-    let card = serde_json::json!({
-        "name": "codelens-mcp",
-        "version": env!("CARGO_PKG_VERSION"),
-        "description": format!(
-            "Compressed context and verification tool for agent harnesses ({daemon_mode} daemon)"
-        ),
-        "transport": ["stdio", "streamable-http"],
-        "capabilities": {
-            "tools": true,
-            "resources": true,
-            "prompts": true,
-            "sampling": false
-        },
-        "tool_count": tool_count,
-        "active_surface": surface.as_label(),
-        "daemon_mode": daemon_mode,
-        "languages": 25,
-        "features": [
-            "role-based-tool-surfaces",
-            "composite-workflow-tools",
-            "analysis-handles-and-sections",
-            "durable-analysis-jobs",
-            "mutation-audit-log",
-            "session-resume",
-            "session-client-metadata",
-            "deferred-tool-loading",
-            "tree-sitter-symbol-parsing",
-            "import-graph-analysis",
-            "lsp-integration",
-            "token-budget-control"
-        ]
-    });
+    let card = crate::surface_manifest::build_server_card(&state);
 
     (
         StatusCode::OK,

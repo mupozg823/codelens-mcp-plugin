@@ -71,7 +71,9 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
 
     let had_caution = gate_allowance.map(|a| a.caution) == Some(true);
     if had_caution {
-        state.metrics().record_mutation_with_caution();
+        state
+            .metrics()
+            .record_mutation_with_caution_for_session(Some(logical_session_id));
     }
 
     // Mutation allowed with caution = no fresh preflight was found
@@ -153,7 +155,8 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         effort_offset,
     );
 
-    state.metrics().record_call_with_tokens_for_session(
+    let target_paths = state.extract_target_paths(arguments);
+    state.metrics().record_call_with_targets_for_session(
         name,
         elapsed_ms as u64,
         true,
@@ -162,11 +165,14 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         truncated,
         harness_phase,
         Some(logical_session_id),
+        &target_paths,
     );
     if emitted_composite_guidance
         && !matches!(name, "get_tool_metrics" | "set_profile" | "set_preset")
     {
-        state.metrics().record_composite_guidance_emitted(name);
+        state
+            .metrics()
+            .record_composite_guidance_emitted_for_session(name, Some(logical_session_id));
     }
 
     let max_result_size = max_result_size_chars_for_tool(name, truncated);
@@ -178,6 +184,7 @@ pub(crate) fn build_error_response(
     name: &str,
     error: CodeLensError,
     gate_failure: Option<MutationGateFailure>,
+    arguments: &serde_json::Value,
     active_surface: &str,
     logical_session_id: &str,
     state: &AppState,
@@ -186,7 +193,8 @@ pub(crate) fn build_error_response(
 ) -> JsonRpcResponse {
     let elapsed_ms = start.elapsed().as_millis();
 
-    state.metrics().record_call_with_tokens_for_session(
+    let target_paths = state.extract_target_paths(arguments);
+    state.metrics().record_call_with_targets_for_session(
         name,
         elapsed_ms as u64,
         false,
@@ -195,6 +203,7 @@ pub(crate) fn build_error_response(
         false,
         None,
         Some(logical_session_id),
+        &target_paths,
     );
 
     if error.is_protocol_error() {

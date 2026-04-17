@@ -71,7 +71,9 @@ pub(super) fn run_gate_and_execute(
     Option<MutationGateFailure>,
 ) {
     if is_refactor_gated_mutation_tool(name) {
-        state.metrics().record_mutation_preflight_checked();
+        state
+            .metrics()
+            .record_mutation_preflight_checked_for_session(Some(session.session_id.as_str()));
         match evaluate_mutation_gate(state, name, session, surface, arguments) {
             Ok(allowance) => {
                 let result = match DISPATCH_TABLE.get(name) {
@@ -82,14 +84,25 @@ pub(super) fn run_gate_and_execute(
             }
             Err(failure) => {
                 if failure.missing_preflight || failure.stale {
-                    state.metrics().record_mutation_without_preflight();
+                    state
+                        .metrics()
+                        .record_mutation_without_preflight_for_session(Some(
+                            session.session_id.as_str(),
+                        ));
                 }
                 if failure.rename_without_symbol_preflight {
-                    state.metrics().record_rename_without_symbol_preflight();
+                    state
+                        .metrics()
+                        .record_rename_without_symbol_preflight_for_session(Some(
+                            session.session_id.as_str(),
+                        ));
                 }
                 state
                     .metrics()
-                    .record_mutation_preflight_gate_denied(failure.stale);
+                    .record_mutation_preflight_gate_denied_for_session(
+                        failure.stale,
+                        Some(session.session_id.as_str()),
+                    );
                 let message = failure.message.clone();
                 (Err(CodeLensError::Validation(message)), None, Some(failure))
             }

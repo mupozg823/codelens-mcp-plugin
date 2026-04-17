@@ -27,6 +27,7 @@ mod server;
 mod session_context;
 mod session_metrics_payload;
 mod state;
+mod surface_manifest;
 mod telemetry;
 mod test_helpers;
 mod tool_defs;
@@ -165,6 +166,15 @@ fn main() -> Result<()> {
                 .map(|s| RuntimeDaemonMode::from_str(&s))
         })
         .unwrap_or(RuntimeDaemonMode::Standard);
+
+    if args.iter().any(|arg| arg == "--print-surface-manifest") {
+        let surface = profile
+            .map(ToolSurface::Profile)
+            .unwrap_or_else(|| ToolSurface::Preset(preset));
+        let manifest = surface_manifest::build_surface_manifest(surface, daemon_mode);
+        println!("{}", serde_json::to_string_pretty(&manifest)?);
+        return Ok(());
+    }
 
     // Project root resolution priority:
     // 1. Explicit path argument (if not ".")

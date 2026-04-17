@@ -337,8 +337,67 @@ pub(super) fn tool_metrics_output_schema() -> serde_json::Value {
             "count": {"type": "integer"},
             "surfaces": {"type": "array", "items": {"type": "object"}},
             "per_surface": {"type": "array", "items": {"type": "object"}},
+            "scope": {"type": "string", "enum": ["global", "session"]},
+            "session_id": {"type": ["string", "null"]},
             "session": {"type": "object"},
             "derived_kpis": {"type": "object"}
+        }
+    })
+}
+
+pub(super) fn builder_session_audit_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": {"type": "string", "enum": ["pass", "warn", "fail", "not_applicable"]},
+            "score": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+            "checks": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string"},
+                        "status": {"type": "string", "enum": ["pass", "warn", "fail", "not_applicable"]},
+                        "summary": {"type": "string"},
+                        "evidence": {"type": "object"}
+                    }
+                }
+            },
+            "findings": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "code": {"type": "string"},
+                        "severity": {"type": "string", "enum": ["warn", "fail"]},
+                        "summary": {"type": "string"},
+                        "evidence": {"type": "object"}
+                    }
+                }
+            },
+            "recommended_next_tools": {"type": "array", "items": {"type": "string"}},
+            "session_summary": {"type": "object"},
+            "session_metrics": {"type": "object"},
+            "coordination_snapshot": {"type": "object"}
+        }
+    })
+}
+
+pub(super) fn planner_session_audit_output_schema() -> serde_json::Value {
+    builder_session_audit_output_schema()
+}
+
+pub(super) fn session_markdown_output_schema() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "required": ["markdown", "session_name", "scope", "tool_count", "total_calls"],
+        "properties": {
+            "markdown": {"type": "string"},
+            "session_name": {"type": "string"},
+            "session_id": {"type": ["string", "null"]},
+            "scope": {"type": "string", "enum": ["global", "session"]},
+            "tool_count": {"type": "integer"},
+            "total_calls": {"type": "integer"}
         }
     })
 }

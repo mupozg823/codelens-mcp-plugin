@@ -31,6 +31,18 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "mimeType": "application/json"
         }),
         json!({
+            "uri": "codelens://surface/manifest",
+            "name": "Surface Manifest",
+            "description": "Canonical runtime and documentation surface manifest",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://harness/modes",
+            "name": "Harness Modes",
+            "description": "Canonical harness-mode topology and communication policy",
+            "mimeType": "application/json"
+        }),
+        json!({
             "uri": "codelens://stats/token-efficiency",
             "name": "Token Efficiency Stats",
             "description": "Session-level token, chain, and handle reuse metrics",

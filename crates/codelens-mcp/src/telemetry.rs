@@ -35,6 +35,9 @@ pub struct ToolInvocation {
     /// Harness phase at invocation time (plan/build/review/eval).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub phase: Option<String>,
+    /// Normalized target paths associated with the invocation, when available.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub target_paths: Vec<String>,
 }
 
 #[derive(Debug, Default, Serialize, Clone)]
@@ -151,6 +154,13 @@ pub struct SessionMetrics {
     pub timeline: Vec<ToolInvocation>,
 }
 
+#[derive(Debug, Default, Clone)]
+struct SessionTelemetryBucket {
+    tools: HashMap<String, ToolMetrics>,
+    surfaces: HashMap<String, SurfaceMetrics>,
+    session: SessionMetrics,
+}
+
 const MAX_TIMELINE: usize = 200;
 const MAX_LATENCY_SAMPLES: usize = 256;
 const SESSION_RATE_LIMIT_WINDOW_MS: u64 = 60_000;
@@ -237,7 +247,11 @@ struct PersistedEvent<'a> {
     success: bool,
     truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    session_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     phase: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    target_paths: Option<&'a [String]>,
 }
 
 /// Append-only JSONL writer for tool invocation telemetry.
@@ -315,6 +329,7 @@ pub struct ToolMetricsRegistry {
     inner: Mutex<HashMap<String, ToolMetrics>>,
     surfaces: Mutex<HashMap<String, SurfaceMetrics>>,
     session: Mutex<SessionMetrics>,
+    session_buckets: Mutex<HashMap<String, SessionTelemetryBucket>>,
     session_windows: Mutex<HashMap<String, VecDeque<u64>>>,
     writer: Option<TelemetryWriter>,
 }
@@ -325,6 +340,7 @@ impl ToolMetricsRegistry {
             inner: Mutex::new(HashMap::new()),
             surfaces: Mutex::new(HashMap::new()),
             session: Mutex::new(SessionMetrics::default()),
+            session_buckets: Mutex::new(HashMap::new()),
             session_windows: Mutex::new(HashMap::new()),
             writer: TelemetryWriter::from_env(),
         }
@@ -336,6 +352,7 @@ impl ToolMetricsRegistry {
             inner: Mutex::new(HashMap::new()),
             surfaces: Mutex::new(HashMap::new()),
             session: Mutex::new(SessionMetrics::default()),
+            session_buckets: Mutex::new(HashMap::new()),
             session_windows: Mutex::new(HashMap::new()),
             writer,
         }
@@ -364,9 +381,8 @@ impl ToolMetricsRegistry {
         );
     }
 
-    /// Record a tool invocation with token estimate and logical session context.
     #[allow(clippy::too_many_arguments)]
-    pub fn record_call_with_tokens_for_session(
+    pub fn record_call_with_targets_for_session(
         &self,
         name: &str,
         elapsed_ms: u64,
@@ -376,6 +392,7 @@ impl ToolMetricsRegistry {
         truncated: bool,
         phase: Option<&str>,
         logical_session_id: Option<&str>,
+        target_paths: &[String],
     ) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -416,110 +433,50 @@ impl ToolMetricsRegistry {
             entry.last_called_at = now;
         }
 
-        // Session-level metrics
         {
             let mut session = self
                 .session
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
+            record_session_call(
+                &mut session,
+                name,
+                elapsed_ms,
+                success,
+                tokens,
+                surface,
+                truncated,
+                phase,
+                target_paths,
+            );
+        }
 
-            let previous = session.timeline.last().cloned();
-            session.total_calls += 1;
-            if success {
-                session.success_count += 1;
-            }
-            session.total_ms += elapsed_ms;
-            session.total_tokens += tokens;
-            if name == "tools/list" {
-                session.tools_list_tokens += tokens;
-            }
-            if is_workflow_tool(name) {
-                session.composite_calls += 1;
-            } else {
-                session.low_level_calls += 1;
-            }
-            if !success {
-                session.error_count += 1;
-            }
-            if let Some(origin_tool) = session.pending_composite_guidance_from.clone()
-                && !matches!(name, "get_tool_metrics" | "set_profile" | "set_preset")
-            {
-                if is_workflow_tool(name) || name == "get_analysis_section" {
-                    session.composite_guidance_followed_count += 1;
-                } else {
-                    session.composite_guidance_missed_count += 1;
-                    *session
-                        .composite_guidance_missed_by_origin
-                        .entry(origin_tool)
-                        .or_insert(0) += 1;
-                }
-                session.pending_composite_guidance_from = None;
-            }
-            if session.pending_quality_contract
-                && (name == "get_analysis_section"
-                    || name == "get_file_diagnostics"
-                    || name == "find_tests")
-            {
-                session.recommended_check_followthrough_count += 1;
-                session.pending_quality_contract = false;
-            }
-            if name != "get_tool_metrics"
-                && session.pending_verifier_contract
-                && (name == "get_analysis_section"
-                    || name == "get_file_diagnostics"
-                    || name == "find_tests"
-                    || name == "safe_rename_report"
-                    || name == "verify_change_readiness"
-                    || name == "unresolved_reference_check"
-                    || crate::tool_defs::is_content_mutation_tool(name))
-            {
-                session.verifier_followthrough_count += 1;
-                session.pending_verifier_contract = false;
-            }
-            if let Some(prev) = previous
-                && prev.tool == name
-                && !prev.success
-            {
-                session.retry_count += 1;
-            }
-            if name != "get_tool_metrics"
-                && let Some(prev_tool) = session.pending_truncation_tool.take()
-            {
-                session.truncation_followup_count += 1;
-                if prev_tool == name {
-                    session.truncation_same_tool_retry_count += 1;
-                }
-            }
-            push_latency_sample(&mut session.latency_samples, elapsed_ms);
-            if session.timeline.len() < MAX_TIMELINE {
-                session.timeline.push(ToolInvocation {
-                    tool: name.to_owned(),
-                    surface: surface.to_owned(),
-                    elapsed_ms,
-                    tokens,
-                    success,
-                    truncated,
-                    phase: phase.map(ToOwned::to_owned),
-                });
-            } else {
-                session.timeline.remove(0);
-                session.timeline.push(ToolInvocation {
-                    tool: name.to_owned(),
-                    surface: surface.to_owned(),
-                    elapsed_ms,
-                    tokens,
-                    success,
-                    truncated,
-                    phase: phase.map(ToOwned::to_owned),
-                });
-            }
-            if truncated {
-                session.truncated_response_count += 1;
-                session.pending_truncation_tool = Some(name.to_owned());
-            }
-            if has_low_level_chain(&session.timeline) {
-                session.repeated_low_level_chain_count += 1;
-            }
+        if let Some(session_id) = logical_session_id {
+            let mut buckets = self
+                .session_buckets
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let bucket = buckets.entry(session_id.to_owned()).or_default();
+            record_tool_call(&mut bucket.tools, name, elapsed_ms, success, tokens, now);
+            record_surface_call(
+                &mut bucket.surfaces,
+                surface,
+                elapsed_ms,
+                success,
+                tokens,
+                now,
+            );
+            record_session_call(
+                &mut bucket.session,
+                name,
+                elapsed_ms,
+                success,
+                tokens,
+                surface,
+                truncated,
+                phase,
+                target_paths,
+            );
         }
 
         {
@@ -527,18 +484,7 @@ impl ToolMetricsRegistry {
                 .surfaces
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
-            let entry = surfaces.entry(surface.to_owned()).or_default();
-            entry.call_count += 1;
-            if success {
-                entry.success_count += 1;
-            }
-            entry.total_ms += elapsed_ms;
-            entry.total_tokens += tokens;
-            push_latency_sample(&mut entry.latency_samples, elapsed_ms);
-            if !success {
-                entry.error_count += 1;
-            }
-            entry.last_called_at = now;
+            record_surface_call(&mut surfaces, surface, elapsed_ms, success, tokens, now);
         }
 
         // Persist the event to the append-only telemetry log if enabled.
@@ -552,9 +498,37 @@ impl ToolMetricsRegistry {
                 tokens,
                 success,
                 truncated,
+                session_id: logical_session_id,
                 phase,
+                target_paths: (!target_paths.is_empty()).then_some(target_paths),
             });
         }
+    }
+
+    /// Record a tool invocation with token estimate and logical session context.
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_call_with_tokens_for_session(
+        &self,
+        name: &str,
+        elapsed_ms: u64,
+        success: bool,
+        tokens: usize,
+        surface: &str,
+        truncated: bool,
+        phase: Option<&str>,
+        logical_session_id: Option<&str>,
+    ) {
+        self.record_call_with_targets_for_session(
+            name,
+            elapsed_ms,
+            success,
+            tokens,
+            surface,
+            truncated,
+            phase,
+            logical_session_id,
+            &[],
+        );
     }
 
     /// Return a snapshot of all per-tool metrics, sorted by call_count descending.
@@ -577,6 +551,15 @@ impl ToolMetricsRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .clone()
+    }
+
+    pub fn session_snapshot_for(&self, logical_session_id: &str) -> SessionMetrics {
+        self.session_buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(logical_session_id)
+            .map(|bucket| bucket.session.clone())
+            .unwrap_or_default()
     }
 
     /// Return the number of calls recorded for the logical session within
@@ -612,156 +595,274 @@ impl ToolMetricsRegistry {
         entries
     }
 
+    pub fn snapshot_for_session(&self, logical_session_id: &str) -> Vec<(String, ToolMetrics)> {
+        let buckets = self
+            .session_buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(bucket) = buckets.get(logical_session_id) else {
+            return Vec::new();
+        };
+        let mut entries: Vec<(String, ToolMetrics)> = bucket
+            .tools
+            .iter()
+            .map(|(name, metrics)| (name.clone(), metrics.clone()))
+            .collect();
+        entries.sort_by(|a, b| b.1.call_count.cmp(&a.1.call_count));
+        entries
+    }
+
+    pub fn surface_snapshot_for_session(
+        &self,
+        logical_session_id: &str,
+    ) -> Vec<(String, SurfaceMetrics)> {
+        let buckets = self
+            .session_buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(bucket) = buckets.get(logical_session_id) else {
+            return Vec::new();
+        };
+        let mut entries: Vec<(String, SurfaceMetrics)> = bucket
+            .surfaces
+            .iter()
+            .map(|(surface, metrics)| (surface.clone(), metrics.clone()))
+            .collect();
+        entries.sort_by(|a, b| b.1.call_count.cmp(&a.1.call_count));
+        entries
+    }
+
+    pub fn has_session_snapshot(&self, logical_session_id: &str) -> bool {
+        self.session_buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains_key(logical_session_id)
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_analysis_read(&self, is_section: bool) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.handle_reuse_count += 1;
-        session.quality_focus_reuse_count += 1;
-        if session.pending_composite_guidance_from.take().is_some() {
-            session.composite_guidance_followed_count += 1;
-        }
-        if session.pending_truncation_tool.take().is_some() {
-            session.truncation_followup_count += 1;
-            session.truncation_handle_followup_count += 1;
-        }
-        if session.pending_quality_contract {
-            session.recommended_check_followthrough_count += 1;
-            session.pending_quality_contract = false;
-        }
-        if session.pending_verifier_contract {
-            session.verifier_followthrough_count += 1;
-            session.pending_verifier_contract = false;
-        }
-        if is_section {
-            session.analysis_section_reads += 1;
-        } else {
-            session.analysis_summary_reads += 1;
-        }
+        self.record_analysis_read_for_session(is_section, None);
     }
 
+    pub fn record_analysis_read_for_session(
+        &self,
+        is_section: bool,
+        logical_session_id: Option<&str>,
+    ) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.handle_reuse_count += 1;
+            session.quality_focus_reuse_count += 1;
+            if session.pending_composite_guidance_from.take().is_some() {
+                session.composite_guidance_followed_count += 1;
+            }
+            if session.pending_truncation_tool.take().is_some() {
+                session.truncation_followup_count += 1;
+                session.truncation_handle_followup_count += 1;
+            }
+            if session.pending_quality_contract {
+                session.recommended_check_followthrough_count += 1;
+                session.pending_quality_contract = false;
+            }
+            if session.pending_verifier_contract {
+                session.verifier_followthrough_count += 1;
+                session.pending_verifier_contract = false;
+            }
+            if is_section {
+                session.analysis_section_reads += 1;
+            } else {
+                session.analysis_summary_reads += 1;
+            }
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_analysis_cache_hit(&self) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.analysis_cache_hit_count += 1;
-        session.handle_reuse_count += 1;
-        session.quality_focus_reuse_count += 1;
+        self.record_analysis_cache_hit_for_session(None);
     }
 
+    pub fn record_analysis_cache_hit_for_session(&self, logical_session_id: Option<&str>) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.analysis_cache_hit_count += 1;
+            session.handle_reuse_count += 1;
+            session.quality_focus_reuse_count += 1;
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_quality_contract_emitted(
         &self,
         quality_focus_count: usize,
         recommended_checks_count: usize,
         performance_watchpoint_count: usize,
     ) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.quality_contract_emitted_count += 1;
-        session.recommended_checks_emitted_count += recommended_checks_count as u64;
-        session.performance_watchpoint_emit_count += performance_watchpoint_count as u64;
-        session.pending_quality_contract = recommended_checks_count > 0;
-        if quality_focus_count == 0 {
-            session.pending_quality_contract = false;
-        }
+        self.record_quality_contract_emitted_for_session(
+            quality_focus_count,
+            recommended_checks_count,
+            performance_watchpoint_count,
+            None,
+        );
     }
 
+    pub fn record_quality_contract_emitted_for_session(
+        &self,
+        quality_focus_count: usize,
+        recommended_checks_count: usize,
+        performance_watchpoint_count: usize,
+        logical_session_id: Option<&str>,
+    ) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.quality_contract_emitted_count += 1;
+            session.recommended_checks_emitted_count += recommended_checks_count as u64;
+            session.performance_watchpoint_emit_count += performance_watchpoint_count as u64;
+            session.pending_quality_contract = recommended_checks_count > 0;
+            if quality_focus_count == 0 {
+                session.pending_quality_contract = false;
+            }
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_verifier_contract_emitted(
         &self,
         blocker_count: usize,
         verifier_check_count: usize,
     ) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.verifier_contract_emitted_count += 1;
-        if blocker_count > 0 {
-            session.blocker_emit_count += 1;
-        }
-        session.pending_verifier_contract = verifier_check_count > 0;
+        self.record_verifier_contract_emitted_for_session(
+            blocker_count,
+            verifier_check_count,
+            None,
+        );
     }
 
+    pub fn record_verifier_contract_emitted_for_session(
+        &self,
+        blocker_count: usize,
+        verifier_check_count: usize,
+        logical_session_id: Option<&str>,
+    ) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.verifier_contract_emitted_count += 1;
+            if blocker_count > 0 {
+                session.blocker_emit_count += 1;
+            }
+            session.pending_verifier_contract = verifier_check_count > 0;
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_coordination_overlap_emitted(&self, caution_only: bool) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.coordination_overlap_emit_count += 1;
-        if caution_only {
-            session.coordination_caution_emit_count += 1;
-        }
+        self.record_coordination_overlap_emitted_for_session(caution_only, None);
     }
 
+    pub fn record_coordination_overlap_emitted_for_session(
+        &self,
+        caution_only: bool,
+        logical_session_id: Option<&str>,
+    ) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.coordination_overlap_emit_count += 1;
+            if caution_only {
+                session.coordination_caution_emit_count += 1;
+            }
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_coordination_registration(&self) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.coordination_registration_count += 1;
+        self.record_coordination_registration_for_session(None);
     }
 
+    pub fn record_coordination_registration_for_session(&self, logical_session_id: Option<&str>) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.coordination_registration_count += 1;
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_coordination_claim(&self) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.coordination_claim_count += 1;
+        self.record_coordination_claim_for_session(None);
     }
 
+    pub fn record_coordination_claim_for_session(&self, logical_session_id: Option<&str>) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.coordination_claim_count += 1;
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_coordination_release(&self) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.coordination_release_count += 1;
+        self.record_coordination_release_for_session(None);
     }
 
+    pub fn record_coordination_release_for_session(&self, logical_session_id: Option<&str>) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.coordination_release_count += 1;
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_mutation_without_preflight(&self) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.mutation_without_preflight_count += 1;
+        self.record_mutation_without_preflight_for_session(None);
     }
 
+    pub fn record_mutation_without_preflight_for_session(&self, logical_session_id: Option<&str>) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.mutation_without_preflight_count += 1;
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_mutation_preflight_checked(&self) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.mutation_preflight_checked_count += 1;
+        self.record_mutation_preflight_checked_for_session(None);
     }
 
+    pub fn record_mutation_preflight_checked_for_session(&self, logical_session_id: Option<&str>) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.mutation_preflight_checked_count += 1;
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_mutation_preflight_gate_denied(&self, stale: bool) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.mutation_preflight_gate_denied_count += 1;
-        if stale {
-            session.stale_preflight_reject_count += 1;
-        }
+        self.record_mutation_preflight_gate_denied_for_session(stale, None);
     }
 
+    pub fn record_mutation_preflight_gate_denied_for_session(
+        &self,
+        stale: bool,
+        logical_session_id: Option<&str>,
+    ) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.mutation_preflight_gate_denied_count += 1;
+            if stale {
+                session.stale_preflight_reject_count += 1;
+            }
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_mutation_with_caution(&self) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.mutation_with_caution_count += 1;
+        self.record_mutation_with_caution_for_session(None);
     }
 
+    pub fn record_mutation_with_caution_for_session(&self, logical_session_id: Option<&str>) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.mutation_with_caution_count += 1;
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_rename_without_symbol_preflight(&self) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.rename_without_symbol_preflight_count += 1;
+        self.record_rename_without_symbol_preflight_for_session(None);
+    }
+
+    pub fn record_rename_without_symbol_preflight_for_session(
+        &self,
+        logical_session_id: Option<&str>,
+    ) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.rename_without_symbol_preflight_count += 1;
+        });
     }
 
     pub fn record_deferred_namespace_expansion(&self) {
@@ -780,29 +881,42 @@ impl ToolMetricsRegistry {
         session.deferred_hidden_tool_call_denied_count += 1;
     }
 
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_composite_guidance_emitted(&self, origin_tool: &str) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.composite_guidance_emitted_count += 1;
-        session.pending_composite_guidance_from = Some(origin_tool.to_owned());
+        self.record_composite_guidance_emitted_for_session(origin_tool, None);
     }
 
+    pub fn record_composite_guidance_emitted_for_session(
+        &self,
+        origin_tool: &str,
+        logical_session_id: Option<&str>,
+    ) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.composite_guidance_emitted_count += 1;
+            session.pending_composite_guidance_from = Some(origin_tool.to_owned());
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_profile_switch(&self) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.profile_switch_count += 1;
+        self.record_profile_switch_for_session(None);
     }
 
+    pub fn record_profile_switch_for_session(&self, logical_session_id: Option<&str>) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.profile_switch_count += 1;
+        });
+    }
+
+    #[allow(dead_code)] // compatibility wrapper; session-aware callers use *_for_session
     pub fn record_preset_switch(&self) {
-        let mut session = self
-            .session
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        session.preset_switch_count += 1;
+        self.record_preset_switch_for_session(None);
+    }
+
+    pub fn record_preset_switch_for_session(&self, logical_session_id: Option<&str>) {
+        self.mutate_session_metrics(logical_session_id, |session| {
+            session.preset_switch_count += 1;
+        });
     }
 
     pub fn record_transport_session(&self, transport: &str) {
@@ -935,6 +1049,186 @@ impl ToolMetricsRegistry {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         session_windows.clear();
+
+        let mut session_buckets = self
+            .session_buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session_buckets.clear();
+    }
+}
+
+fn record_tool_call(
+    map: &mut HashMap<String, ToolMetrics>,
+    name: &str,
+    elapsed_ms: u64,
+    success: bool,
+    tokens: usize,
+    now: u64,
+) {
+    let entry = map.entry(name.to_owned()).or_default();
+    entry.call_count += 1;
+    if success {
+        entry.success_count += 1;
+    }
+    entry.total_ms += elapsed_ms;
+    entry.total_tokens += tokens;
+    if elapsed_ms > entry.max_ms {
+        entry.max_ms = elapsed_ms;
+    }
+    push_latency_sample(&mut entry.latency_samples, elapsed_ms);
+    if !success {
+        entry.error_count += 1;
+    }
+    entry.last_called_at = now;
+}
+
+fn record_surface_call(
+    surfaces: &mut HashMap<String, SurfaceMetrics>,
+    surface: &str,
+    elapsed_ms: u64,
+    success: bool,
+    tokens: usize,
+    now: u64,
+) {
+    let entry = surfaces.entry(surface.to_owned()).or_default();
+    entry.call_count += 1;
+    if success {
+        entry.success_count += 1;
+    }
+    entry.total_ms += elapsed_ms;
+    entry.total_tokens += tokens;
+    push_latency_sample(&mut entry.latency_samples, elapsed_ms);
+    if !success {
+        entry.error_count += 1;
+    }
+    entry.last_called_at = now;
+}
+
+fn record_session_call(
+    session: &mut SessionMetrics,
+    name: &str,
+    elapsed_ms: u64,
+    success: bool,
+    tokens: usize,
+    surface: &str,
+    truncated: bool,
+    phase: Option<&str>,
+    target_paths: &[String],
+) {
+    let previous = session.timeline.last().cloned();
+    session.total_calls += 1;
+    if success {
+        session.success_count += 1;
+    }
+    session.total_ms += elapsed_ms;
+    session.total_tokens += tokens;
+    if name == "tools/list" {
+        session.tools_list_tokens += tokens;
+    }
+    if is_workflow_tool(name) {
+        session.composite_calls += 1;
+    } else {
+        session.low_level_calls += 1;
+    }
+    if !success {
+        session.error_count += 1;
+    }
+    if let Some(origin_tool) = session.pending_composite_guidance_from.clone()
+        && !matches!(name, "get_tool_metrics" | "set_profile" | "set_preset")
+    {
+        if is_workflow_tool(name) || name == "get_analysis_section" {
+            session.composite_guidance_followed_count += 1;
+        } else {
+            session.composite_guidance_missed_count += 1;
+            *session
+                .composite_guidance_missed_by_origin
+                .entry(origin_tool)
+                .or_insert(0) += 1;
+        }
+        session.pending_composite_guidance_from = None;
+    }
+    if session.pending_quality_contract
+        && (name == "get_analysis_section"
+            || name == "get_file_diagnostics"
+            || name == "find_tests")
+    {
+        session.recommended_check_followthrough_count += 1;
+        session.pending_quality_contract = false;
+    }
+    if name != "get_tool_metrics"
+        && session.pending_verifier_contract
+        && (name == "get_analysis_section"
+            || name == "get_file_diagnostics"
+            || name == "find_tests"
+            || name == "safe_rename_report"
+            || name == "verify_change_readiness"
+            || name == "unresolved_reference_check"
+            || crate::tool_defs::is_content_mutation_tool(name))
+    {
+        session.verifier_followthrough_count += 1;
+        session.pending_verifier_contract = false;
+    }
+    if let Some(prev) = previous
+        && prev.tool == name
+        && !prev.success
+    {
+        session.retry_count += 1;
+    }
+    if name != "get_tool_metrics"
+        && let Some(prev_tool) = session.pending_truncation_tool.take()
+    {
+        session.truncation_followup_count += 1;
+        if prev_tool == name {
+            session.truncation_same_tool_retry_count += 1;
+        }
+    }
+    push_latency_sample(&mut session.latency_samples, elapsed_ms);
+    let invocation = ToolInvocation {
+        tool: name.to_owned(),
+        surface: surface.to_owned(),
+        elapsed_ms,
+        tokens,
+        success,
+        truncated,
+        phase: phase.map(ToOwned::to_owned),
+        target_paths: target_paths.to_vec(),
+    };
+    if session.timeline.len() < MAX_TIMELINE {
+        session.timeline.push(invocation);
+    } else {
+        session.timeline.remove(0);
+        session.timeline.push(invocation);
+    }
+    if truncated {
+        session.truncated_response_count += 1;
+        session.pending_truncation_tool = Some(name.to_owned());
+    }
+    if has_low_level_chain(&session.timeline) {
+        session.repeated_low_level_chain_count += 1;
+    }
+}
+
+impl ToolMetricsRegistry {
+    fn mutate_session_metrics<F>(&self, logical_session_id: Option<&str>, mut f: F)
+    where
+        F: FnMut(&mut SessionMetrics),
+    {
+        {
+            let mut session = self
+                .session
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            f(&mut session);
+        }
+        if let Some(session_id) = logical_session_id {
+            let mut buckets = self
+                .session_buckets
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let bucket = buckets.entry(session_id.to_owned()).or_default();
+            f(&mut bucket.session);
+        }
     }
 }
 
@@ -1231,7 +1525,9 @@ mod tests {
             tokens: 500,
             success: true,
             truncated: false,
+            session_id: Some("session-a"),
             phase: Some("plan"),
+            target_paths: None,
         });
 
         let contents = std::fs::read_to_string(&path).expect("read jsonl");
@@ -1243,6 +1539,7 @@ mod tests {
         assert_eq!(parsed["tokens"], 500);
         assert_eq!(parsed["success"], true);
         assert_eq!(parsed["truncated"], false);
+        assert_eq!(parsed["session_id"], "session-a");
         assert_eq!(parsed["phase"], "plan");
         assert_eq!(parsed["timestamp_ms"], 123);
 
@@ -1263,7 +1560,9 @@ mod tests {
                 tokens: (i * 10) as usize,
                 success: true,
                 truncated: false,
+                session_id: None,
                 phase: None,
+                target_paths: None,
             });
         }
 

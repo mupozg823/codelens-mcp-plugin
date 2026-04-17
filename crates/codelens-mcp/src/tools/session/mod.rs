@@ -1,12 +1,17 @@
+mod audit_common;
+mod builder_audit;
 mod coordination;
 pub(crate) mod metrics_config;
+mod planner_audit;
 mod project_ops;
 
+pub use builder_audit::audit_builder_session;
 pub use coordination::{claim_files, list_active_agents, register_agent_work, release_files};
 pub use metrics_config::{
     export_session_markdown, get_capabilities, get_tool_metrics, get_watch_status,
     prune_index_failures, set_preset, set_profile,
 };
+pub use planner_audit::audit_planner_session;
 pub use project_ops::{
     activate_project, add_queryable_project, auto_set_embed_hint_lang, list_queryable_projects,
     onboarding, prepare_for_new_conversation, prepare_harness_session, query_project,

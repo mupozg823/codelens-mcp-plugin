@@ -70,6 +70,8 @@ pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
     "get_changed_files",
     "find_tests",
     "unresolved_reference_check",
+    "audit_builder_session",
+    "audit_planner_session",
     "export_session_markdown",
 ];
 
@@ -493,7 +495,16 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "get_ranked_context",
             "check_lsp_status",
         ],
-        "get_tool_metrics" => &["export_session_markdown", "set_preset", "get_capabilities"],
+        "get_tool_metrics" => &[
+            "audit_builder_session",
+            "export_session_markdown",
+            "get_capabilities",
+        ],
+        "audit_builder_session" => &[
+            "get_tool_metrics",
+            "export_session_markdown",
+            "list_active_agents",
+        ],
 
         // ── Semantic ─────────────────────────────────────────────────
         "semantic_search" => &["find_symbol", "get_symbols_overview", "find_similar_code"],

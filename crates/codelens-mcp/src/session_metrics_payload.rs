@@ -6,13 +6,24 @@ pub(crate) struct SessionMetricsPayload {
     pub(crate) derived_kpis: Value,
 }
 
-pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsPayload {
-    let session = state.metrics().session_snapshot();
+pub(crate) fn build_session_metrics_payload(
+    state: &AppState,
+    logical_session_id: Option<&str>,
+    coordination_scope: Option<&str>,
+) -> SessionMetricsPayload {
+    let session = logical_session_id
+        .map(|session_id| state.metrics().session_snapshot_for(session_id))
+        .unwrap_or_else(|| state.metrics().session_snapshot());
     let handle_reads = session.analysis_summary_reads + session.analysis_section_reads;
     let watcher_stats = state.watcher_stats();
     let watcher_failure_health = state.watcher_failure_health();
-    let coordination = state
-        .coordination_counts_for_session(&crate::session_context::SessionRequestContext::default());
+    let coordination = coordination_scope
+        .map(|scope| state.coordination_counts_for_scope(scope))
+        .unwrap_or_else(|| {
+            state.coordination_counts_for_session(
+                &crate::session_context::SessionRequestContext::default(),
+            )
+        });
     let coordination_lock = state.coordination_lock_stats();
 
     let mut session_json = Map::new();

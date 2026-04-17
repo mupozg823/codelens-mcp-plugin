@@ -7,6 +7,9 @@ pub(crate) enum ToolPreset {
     Full,     // all tools
 }
 
+pub(crate) const ALL_PRESETS: &[ToolPreset] =
+    &[ToolPreset::Minimal, ToolPreset::Balanced, ToolPreset::Full];
+
 impl ToolPreset {
     pub fn from_str(s: &str) -> Self {
         match s.to_ascii_lowercase().as_str() {
@@ -27,6 +30,16 @@ pub(crate) enum ToolProfile {
     CiAudit,
     WorkflowFirst,
 }
+
+pub(crate) const ALL_PROFILES: &[ToolProfile] = &[
+    ToolProfile::PlannerReadonly,
+    ToolProfile::BuilderMinimal,
+    ToolProfile::ReviewerGraph,
+    ToolProfile::EvaluatorCompact,
+    ToolProfile::RefactorFull,
+    ToolProfile::CiAudit,
+    ToolProfile::WorkflowFirst,
+];
 
 impl ToolProfile {
     pub fn from_str(s: &str) -> Option<Self> {
@@ -129,6 +142,9 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "get_watch_status",
     "prune_index_failures",
     "get_tool_metrics",
+    "audit_builder_session",
+    "audit_planner_session",
+    "export_session_markdown",
     "export_session_markdown",
     "summarize_changes",
     "summarize_file",
@@ -158,6 +174,8 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "set_profile",
     "set_preset",
     "get_tool_metrics",
+    "audit_builder_session",
+    "audit_planner_session",
     // Workflow-first entrypoints
     "explore_codebase",
     "review_architecture",
@@ -205,6 +223,9 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "set_profile",
     "set_preset",
     "get_tool_metrics",
+    "audit_builder_session",
+    "audit_planner_session",
+    "export_session_markdown",
     "explore_codebase",
     "trace_request_path",
     "plan_safe_refactor",
@@ -246,6 +267,9 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "get_current_config",
     "set_profile",
     "set_preset",
+    "audit_builder_session",
+    "audit_planner_session",
+    "export_session_markdown",
     // Workflow-first entrypoints
     "review_architecture",
     "cleanup_duplicate_logic",
@@ -289,6 +313,9 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "set_profile",
     "set_preset",
     "get_tool_metrics",
+    "audit_builder_session",
+    "audit_planner_session",
+    "export_session_markdown",
     // Workflow-first entrypoints
     "explore_codebase",
     "trace_request_path",
@@ -348,6 +375,8 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "set_profile",
     "set_preset",
     "get_tool_metrics",
+    "audit_builder_session",
+    "audit_planner_session",
     "export_session_markdown",
     "explore_codebase",
     "review_architecture",
@@ -392,6 +421,8 @@ pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
     "get_current_config",
     "set_preset",
     "set_profile",
+    "audit_planner_session",
+    "export_session_markdown",
     // Canonical workflow entrypoints
     "explore_codebase",
     "trace_request_path",

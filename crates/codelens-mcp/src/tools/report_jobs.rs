@@ -303,6 +303,7 @@ fn run_dead_code_report_job(
             vec![scope.to_owned()]
         },
         None,
+        Some(arguments),
     )
     .map(|(payload, _meta)| payload)
     .map_err(|error| error.to_string())
@@ -425,6 +426,7 @@ fn run_impact_report_job(
         sections,
         target_files,
         None,
+        Some(arguments),
     )
     .map(|(payload, _meta)| payload)
     .map_err(|error| error.to_string())
@@ -547,6 +549,7 @@ fn run_refactor_safety_report_job(
                 .to_owned(),
         ],
         symbol.map(ToOwned::to_owned),
+        Some(arguments),
     )
     .map(|(payload, _meta)| payload)
     .map_err(|error| error.to_string())
@@ -786,12 +789,16 @@ pub fn cancel_analysis_job(state: &AppState, arguments: &Value) -> ToolResult {
 }
 
 pub fn get_analysis_section(state: &AppState, arguments: &Value) -> ToolResult {
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
     let analysis_id = required_string(arguments, "analysis_id")?;
     let section = required_string(arguments, "section")?;
     let scope = state.project_scope_for_arguments(arguments);
     let artifact = state
         .get_analysis_for_scope(&scope, analysis_id)
         .ok_or_else(|| CodeLensError::NotFound(format!("unknown analysis_id `{analysis_id}`")))?;
+    state
+        .metrics()
+        .record_analysis_read_for_session(true, Some(session.session_id.as_str()));
     let content =
         state
             .get_analysis_section(analysis_id, section)

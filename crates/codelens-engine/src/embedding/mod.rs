@@ -7,10 +7,10 @@ use serde::Serialize;
 use std::sync::Mutex;
 
 // ── Sub-modules ───────────────────────────────────────────────────────
-pub(super) mod ffi;
 mod cache;
 mod chunk_ops;
 mod engine_impl;
+pub(super) mod ffi;
 mod prompt;
 mod runtime;
 mod vec_store;
@@ -50,8 +50,8 @@ pub(super) use prompt::{
 };
 #[cfg(test)]
 pub(super) use runtime::{
-    embed_batch_size, recommended_embed_threads, requested_embedding_model_override,
-    DEFAULT_MACOS_EMBED_BATCH_SIZE, CODESEARCH_MODEL_NAME,
+    CODESEARCH_MODEL_NAME, DEFAULT_MACOS_EMBED_BATCH_SIZE, embed_batch_size,
+    recommended_embed_threads, requested_embedding_model_override,
 };
 
 // ── Result type ───────────────────────────────────────────────────────

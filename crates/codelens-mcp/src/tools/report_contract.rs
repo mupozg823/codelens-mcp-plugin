@@ -2,6 +2,7 @@ use super::report_payload::{build_handle_payload, infer_risk_level};
 use super::report_verifier::build_verifier_contract;
 use super::{AppState, ToolResult, success_meta};
 use crate::protocol::BackendKind;
+use crate::session_context::SessionRequestContext;
 use crate::tool_defs::{ToolProfile, ToolSurface};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -41,7 +42,12 @@ pub(super) fn make_handle_response(
     mut sections: BTreeMap<String, Value>,
     touched_files: Vec<String>,
     symbol_hint: Option<String>,
+    arguments: Option<&Value>,
 ) -> ToolResult {
+    let logical_session_id = arguments
+        .map(SessionRequestContext::from_json)
+        .map(|session| session.session_id);
+    let logical_session_id = logical_session_id.as_deref();
     let risk_level = infer_risk_level(&summary, &top_findings, &next_actions);
     let ci_audit = matches!(*state.surface(), ToolSurface::Profile(ToolProfile::CiAudit));
     let inline_overlapping_claims = overlapping_claims_from_sections(&sections);
@@ -58,7 +64,9 @@ pub(super) fn make_handle_response(
     if let Some(cache_key) = cache_key.as_deref()
         && let Some(artifact) = state.find_reusable_analysis_for_current_scope(tool_name, cache_key)
     {
-        state.metrics().record_analysis_cache_hit();
+        state
+            .metrics()
+            .record_analysis_cache_hit_for_session(logical_session_id);
         let mut data = build_handle_payload(
             tool_name,
             &artifact.id,
@@ -78,7 +86,7 @@ pub(super) fn make_handle_response(
         if !overlapping_claims.is_empty() {
             data["overlapping_claims"] = serde_json::json!(overlapping_claims);
         }
-        state.metrics().record_quality_contract_emitted(
+        state.metrics().record_quality_contract_emitted_for_session(
             data["quality_focus"]
                 .as_array()
                 .map(|v| v.len())
@@ -91,14 +99,18 @@ pub(super) fn make_handle_response(
                 .as_array()
                 .map(|v| v.len())
                 .unwrap_or(0),
+            logical_session_id,
         );
-        state.metrics().record_verifier_contract_emitted(
-            data["blockers"].as_array().map(|v| v.len()).unwrap_or(0),
-            data["verifier_checks"]
-                .as_array()
-                .map(|v| v.len())
-                .unwrap_or(0),
-        );
+        state
+            .metrics()
+            .record_verifier_contract_emitted_for_session(
+                data["blockers"].as_array().map(|v| v.len()).unwrap_or(0),
+                data["verifier_checks"]
+                    .as_array()
+                    .map(|v| v.len())
+                    .unwrap_or(0),
+                logical_session_id,
+            );
         return Ok((data, success_meta(BackendKind::Hybrid, artifact.confidence)));
     }
     let artifact = state.store_analysis_for_current_scope(
@@ -132,7 +144,7 @@ pub(super) fn make_handle_response(
     if !inline_overlapping_claims.is_empty() {
         data["overlapping_claims"] = serde_json::json!(inline_overlapping_claims);
     }
-    state.metrics().record_quality_contract_emitted(
+    state.metrics().record_quality_contract_emitted_for_session(
         data["quality_focus"]
             .as_array()
             .map(|v| v.len())
@@ -145,14 +157,18 @@ pub(super) fn make_handle_response(
             .as_array()
             .map(|v| v.len())
             .unwrap_or(0),
+        logical_session_id,
     );
-    state.metrics().record_verifier_contract_emitted(
-        data["blockers"].as_array().map(|v| v.len()).unwrap_or(0),
-        data["verifier_checks"]
-            .as_array()
-            .map(|v| v.len())
-            .unwrap_or(0),
-    );
+    state
+        .metrics()
+        .record_verifier_contract_emitted_for_session(
+            data["blockers"].as_array().map(|v| v.len()).unwrap_or(0),
+            data["verifier_checks"]
+                .as_array()
+                .map(|v| v.len())
+                .unwrap_or(0),
+            logical_session_id,
+        );
     // Cross-phase: inject recent analysis IDs so agents can reference prior results.
     let prior_ids = state.recent_analysis_ids();
     if prior_ids.len() > 1 {

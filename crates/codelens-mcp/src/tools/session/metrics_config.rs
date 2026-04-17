@@ -8,6 +8,8 @@ use crate::AppState;
 use serde_json::json;
 use std::collections::VecDeque;
 
+use super::audit_common::{is_builder_surface, is_planner_surface};
+
 /// Bucket latency samples into a compact histogram: <10ms, <50ms, <200ms, <1s, 1s+.
 fn latency_histogram(samples: &VecDeque<u64>) -> serde_json::Value {
     let (mut lt10, mut lt50, mut lt200, mut lt1000, mut gte1000) = (0u32, 0, 0, 0, 0);
@@ -828,8 +830,15 @@ pub fn get_capabilities(state: &AppState, arguments: &serde_json::Value) -> Tool
 }
 
 pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
-    let snapshot = state.metrics().snapshot();
-    let surfaces = state.metrics().surface_snapshot();
+    let requested_session_id = _arguments
+        .get("session_id")
+        .and_then(|value| value.as_str());
+    let snapshot = requested_session_id
+        .map(|session_id| state.metrics().snapshot_for_session(session_id))
+        .unwrap_or_else(|| state.metrics().snapshot());
+    let surfaces = requested_session_id
+        .map(|session_id| state.metrics().surface_snapshot_for_session(session_id))
+        .unwrap_or_else(|| state.metrics().surface_snapshot());
     let per_tool: Vec<serde_json::Value> = snapshot
         .into_iter()
         .map(|(name, m)| {
@@ -877,7 +886,23 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
             })
         })
         .collect::<Vec<_>>();
-    let metrics_payload = build_session_metrics_payload(state);
+    let coordination_scope: Option<String> = requested_session_id.and_then(|session_id| {
+        #[cfg(feature = "http")]
+        {
+            state.session_store.as_ref().and_then(|store| {
+                store
+                    .get(session_id)
+                    .and_then(|session| session.client_metadata().project_path)
+            })
+        }
+        #[cfg(not(feature = "http"))]
+        {
+            let _ = session_id;
+            None
+        }
+    });
+    let metrics_payload =
+        build_session_metrics_payload(state, requested_session_id, coordination_scope.as_deref());
     Ok((
         json!({
             "tools": per_tool.clone(),
@@ -885,6 +910,8 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
             "count": count,
             "surfaces": per_surface.clone(),
             "per_surface": per_surface,
+            "scope": if requested_session_id.is_some() { "session" } else { "global" },
+            "session_id": requested_session_id,
             "session": metrics_payload.session,
             "derived_kpis": metrics_payload.derived_kpis
         }),
@@ -898,8 +925,13 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
         .get("name")
         .and_then(|v| v.as_str())
         .unwrap_or("session");
-    let snapshot = state.metrics().snapshot();
-    let session = state.metrics().session_snapshot();
+    let requested_session_id = arguments.get("session_id").and_then(|value| value.as_str());
+    let snapshot = requested_session_id
+        .map(|session_id| state.metrics().snapshot_for_session(session_id))
+        .unwrap_or_else(|| state.metrics().snapshot());
+    let session = requested_session_id
+        .map(|session_id| state.metrics().session_snapshot_for(session_id))
+        .unwrap_or_else(|| state.metrics().session_snapshot());
 
     let total_calls = session.total_calls.max(1);
     let mut tools: Vec<_> = snapshot.into_iter().collect();
@@ -908,6 +940,9 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
 
     let mut md = String::with_capacity(2048);
     md.push_str(&format!("# Session Telemetry: {session_name}\n\n"));
+    if let Some(session_id) = requested_session_id {
+        md.push_str(&format!("Filtered session: `{session_id}`\n\n"));
+    }
     md.push_str("## Summary\n\n| Metric | Value |\n|---|---|\n");
     md.push_str(&format!("| Total calls | {} |\n", total_calls));
     md.push_str(&format!("| Total time | {}ms |\n", session.total_ms));
@@ -963,10 +998,98 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
         }
     ));
 
+    if let Some(session_id) = requested_session_id {
+        #[cfg(feature = "http")]
+        let current_surface = state
+            .session_store
+            .as_ref()
+            .and_then(|store| store.get(session_id))
+            .map(|session| session.surface().as_label().to_owned())
+            .or_else(|| session.timeline.last().map(|entry| entry.surface.clone()))
+            .unwrap_or_else(|| state.surface().as_label().to_owned());
+        #[cfg(not(feature = "http"))]
+        let current_surface = session
+            .timeline
+            .last()
+            .map(|entry| entry.surface.clone())
+            .unwrap_or_else(|| state.surface().as_label().to_owned());
+
+        let (audit_title, audit) = if is_builder_surface(&current_surface) {
+            (
+                "Builder Audit",
+                super::builder_audit::build_builder_session_audit(state, arguments)?,
+            )
+        } else if is_planner_surface(&current_surface) {
+            (
+                "Planner Audit",
+                super::planner_audit::build_planner_session_audit(state, arguments)?,
+            )
+        } else {
+            let builder = super::builder_audit::build_builder_session_audit(state, arguments)?;
+            if builder
+                .get("status")
+                .and_then(|value| value.as_str())
+                .is_some_and(|status| status != "not_applicable")
+            {
+                ("Builder Audit", builder)
+            } else {
+                (
+                    "Planner Audit",
+                    super::planner_audit::build_planner_session_audit(state, arguments)?,
+                )
+            }
+        };
+
+        md.push_str(&format!("\n## {audit_title}\n\n"));
+        md.push_str(&format!(
+            "- Status: `{}`\n- Score: `{:.2}`\n",
+            audit
+                .get("status")
+                .and_then(|value| value.as_str())
+                .unwrap_or("unknown"),
+            audit
+                .get("score")
+                .and_then(|value| value.as_f64())
+                .unwrap_or(0.0)
+        ));
+        if let Some(findings) = audit.get("findings").and_then(|value| value.as_array()) {
+            if findings.is_empty() {
+                md.push_str("- Findings: none\n");
+            } else {
+                md.push_str("- Findings:\n");
+                for finding in findings {
+                    let severity = finding
+                        .get("severity")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("warn");
+                    let summary = finding
+                        .get("summary")
+                        .and_then(|value| value.as_str())
+                        .unwrap_or("");
+                    md.push_str(&format!("  - [{}] {}\n", severity, summary));
+                }
+            }
+        }
+        if let Some(next_tools) = audit
+            .get("recommended_next_tools")
+            .and_then(|value| value.as_array())
+            .filter(|items| !items.is_empty())
+        {
+            let tools = next_tools
+                .iter()
+                .filter_map(|value| value.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            md.push_str(&format!("- Recommended next tools: {}\n", tools));
+        }
+    }
+
     Ok((
         json!({
             "markdown": md,
             "session_name": session_name,
+            "session_id": requested_session_id,
+            "scope": if requested_session_id.is_some() { "session" } else { "global" },
             "tool_count": count,
             "total_calls": total_calls,
         }),
@@ -1015,7 +1138,9 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         state.set_surface(ToolSurface::Preset(new_preset));
         state.set_token_budget(budget);
     }
-    state.metrics().record_preset_switch();
+    state
+        .metrics()
+        .record_preset_switch_for_session(Some(session.session_id.as_str()));
 
     Ok((
         json!({
@@ -1062,7 +1187,9 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         state.set_surface(ToolSurface::Profile(profile));
         state.set_token_budget(budget);
     }
-    state.metrics().record_profile_switch();
+    state
+        .metrics()
+        .record_profile_switch_for_session(Some(session.session_id.as_str()));
 
     Ok((
         json!({

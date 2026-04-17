@@ -1,0 +1,1803 @@
+{
+  "schema_version": "codelens-surface-manifest-v1",
+  "workspace": {
+    "version": "1.9.39",
+    "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
+    "members": [
+      "crates/codelens-engine",
+      "crates/codelens-mcp",
+      "crates/codelens-tui"
+    ],
+    "member_count": 3
+  },
+  "tool_registry": {
+    "definition_count": 109,
+    "output_schema_count": 76,
+    "namespaces": {
+      "filesystem": 6,
+      "graph": 12,
+      "lsp": 3,
+      "memory": 5,
+      "mutation": 16,
+      "reports": 27,
+      "session": 30,
+      "symbols": 10
+    },
+    "tiers": {
+      "analysis": 21,
+      "primitive": 56,
+      "workflow": 32
+    },
+    "tools": [
+      {
+        "name": "get_current_config",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 159
+      },
+      {
+        "name": "read_file",
+        "namespace": "filesystem",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 119
+      },
+      {
+        "name": "list_dir",
+        "namespace": "filesystem",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 93
+      },
+      {
+        "name": "find_file",
+        "namespace": "filesystem",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 91
+      },
+      {
+        "name": "search_for_pattern",
+        "namespace": "filesystem",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 306
+      },
+      {
+        "name": "find_annotations",
+        "namespace": "filesystem",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 148
+      },
+      {
+        "name": "find_tests",
+        "namespace": "filesystem",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 142
+      },
+      {
+        "name": "get_symbols_overview",
+        "namespace": "symbols",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 254
+      },
+      {
+        "name": "find_symbol",
+        "namespace": "symbols",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 304
+      },
+      {
+        "name": "get_ranked_context",
+        "namespace": "symbols",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 418
+      },
+      {
+        "name": "search_symbols_fuzzy",
+        "namespace": "symbols",
+        "tier": "analysis",
+        "has_output_schema": false,
+        "estimated_tokens": 181
+      },
+      {
+        "name": "get_complexity",
+        "namespace": "graph",
+        "tier": "analysis",
+        "has_output_schema": false,
+        "estimated_tokens": 96
+      },
+      {
+        "name": "refresh_symbol_index",
+        "namespace": "session",
+        "tier": "workflow",
+        "has_output_schema": false,
+        "estimated_tokens": 80
+      },
+      {
+        "name": "get_project_structure",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 154
+      },
+      {
+        "name": "find_referencing_symbols",
+        "namespace": "symbols",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 337
+      },
+      {
+        "name": "get_file_diagnostics",
+        "namespace": "lsp",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 180
+      },
+      {
+        "name": "search_workspace_symbols",
+        "namespace": "symbols",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 122
+      },
+      {
+        "name": "get_type_hierarchy",
+        "namespace": "symbols",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 207
+      },
+      {
+        "name": "plan_symbol_rename",
+        "namespace": "symbols",
+        "tier": "analysis",
+        "has_output_schema": false,
+        "estimated_tokens": 133
+      },
+      {
+        "name": "check_lsp_status",
+        "namespace": "lsp",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 71
+      },
+      {
+        "name": "get_lsp_recipe",
+        "namespace": "lsp",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 98
+      },
+      {
+        "name": "get_changed_files",
+        "namespace": "graph",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 150
+      },
+      {
+        "name": "get_impact_analysis",
+        "namespace": "graph",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 246
+      },
+      {
+        "name": "find_scoped_references",
+        "namespace": "graph",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 259
+      },
+      {
+        "name": "get_symbol_importance",
+        "namespace": "graph",
+        "tier": "analysis",
+        "has_output_schema": false,
+        "estimated_tokens": 85
+      },
+      {
+        "name": "find_dead_code",
+        "namespace": "graph",
+        "tier": "analysis",
+        "has_output_schema": false,
+        "estimated_tokens": 99
+      },
+      {
+        "name": "find_circular_dependencies",
+        "namespace": "graph",
+        "tier": "analysis",
+        "has_output_schema": false,
+        "estimated_tokens": 83
+      },
+      {
+        "name": "get_change_coupling",
+        "namespace": "graph",
+        "tier": "analysis",
+        "has_output_schema": false,
+        "estimated_tokens": 105
+      },
+      {
+        "name": "rename_symbol",
+        "namespace": "mutation",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 316
+      },
+      {
+        "name": "replace_symbol_body",
+        "namespace": "mutation",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 153
+      },
+      {
+        "name": "replace_content",
+        "namespace": "mutation",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 183
+      },
+      {
+        "name": "replace_lines",
+        "namespace": "mutation",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 151
+      },
+      {
+        "name": "delete_lines",
+        "namespace": "mutation",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 129
+      },
+      {
+        "name": "insert_at_line",
+        "namespace": "mutation",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 135
+      },
+      {
+        "name": "insert_before_symbol",
+        "namespace": "mutation",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 146
+      },
+      {
+        "name": "insert_after_symbol",
+        "namespace": "mutation",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 146
+      },
+      {
+        "name": "insert_content",
+        "namespace": "mutation",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 219
+      },
+      {
+        "name": "replace",
+        "namespace": "mutation",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 291
+      },
+      {
+        "name": "create_text_file",
+        "namespace": "mutation",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 146
+      },
+      {
+        "name": "analyze_missing_imports",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 89
+      },
+      {
+        "name": "add_import",
+        "namespace": "mutation",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 165
+      },
+      {
+        "name": "refactor_extract_function",
+        "namespace": "mutation",
+        "tier": "workflow",
+        "has_output_schema": false,
+        "estimated_tokens": 164
+      },
+      {
+        "name": "refactor_inline_function",
+        "namespace": "mutation",
+        "tier": "workflow",
+        "has_output_schema": false,
+        "estimated_tokens": 177
+      },
+      {
+        "name": "refactor_move_to_file",
+        "namespace": "mutation",
+        "tier": "analysis",
+        "has_output_schema": false,
+        "estimated_tokens": 182
+      },
+      {
+        "name": "refactor_change_signature",
+        "namespace": "mutation",
+        "tier": "analysis",
+        "has_output_schema": false,
+        "estimated_tokens": 217
+      },
+      {
+        "name": "propagate_deletions",
+        "namespace": "session",
+        "tier": "workflow",
+        "has_output_schema": false,
+        "estimated_tokens": 158
+      },
+      {
+        "name": "explore_codebase",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 198
+      },
+      {
+        "name": "trace_request_path",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 179
+      },
+      {
+        "name": "review_architecture",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 168
+      },
+      {
+        "name": "plan_safe_refactor",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 190
+      },
+      {
+        "name": "audit_security_context",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 177
+      },
+      {
+        "name": "analyze_change_impact",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 176
+      },
+      {
+        "name": "cleanup_duplicate_logic",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 187
+      },
+      {
+        "name": "review_changes",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 194
+      },
+      {
+        "name": "assess_change_readiness",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 206
+      },
+      {
+        "name": "diagnose_issues",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 185
+      },
+      {
+        "name": "onboard_project",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 152
+      },
+      {
+        "name": "analyze_change_request",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 719
+      },
+      {
+        "name": "verify_change_readiness",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 719
+      },
+      {
+        "name": "find_minimal_context_for_change",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 674
+      },
+      {
+        "name": "summarize_symbol_impact",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 685
+      },
+      {
+        "name": "module_boundary_report",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 673
+      },
+      {
+        "name": "mermaid_module_graph",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 702
+      },
+      {
+        "name": "safe_rename_report",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 688
+      },
+      {
+        "name": "unresolved_reference_check",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 698
+      },
+      {
+        "name": "dead_code_report",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 673
+      },
+      {
+        "name": "impact_report",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 681
+      },
+      {
+        "name": "refactor_safety_report",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 689
+      },
+      {
+        "name": "diff_aware_references",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 674
+      },
+      {
+        "name": "semantic_code_review",
+        "namespace": "session",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 683
+      },
+      {
+        "name": "start_analysis_job",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 340
+      },
+      {
+        "name": "get_analysis_job",
+        "namespace": "reports",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 239
+      },
+      {
+        "name": "cancel_analysis_job",
+        "namespace": "reports",
+        "tier": "workflow",
+        "has_output_schema": true,
+        "estimated_tokens": 249
+      },
+      {
+        "name": "list_analysis_jobs",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 310
+      },
+      {
+        "name": "list_analysis_artifacts",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 202
+      },
+      {
+        "name": "get_analysis_section",
+        "namespace": "reports",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 127
+      },
+      {
+        "name": "list_memories",
+        "namespace": "memory",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 120
+      },
+      {
+        "name": "read_memory",
+        "namespace": "memory",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 81
+      },
+      {
+        "name": "write_memory",
+        "namespace": "memory",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 88
+      },
+      {
+        "name": "delete_memory",
+        "namespace": "memory",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 83
+      },
+      {
+        "name": "rename_memory",
+        "namespace": "memory",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 96
+      },
+      {
+        "name": "activate_project",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 211
+      },
+      {
+        "name": "prepare_harness_session",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 2813
+      },
+      {
+        "name": "register_agent_work",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 211
+      },
+      {
+        "name": "list_active_agents",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 107
+      },
+      {
+        "name": "claim_files",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 225
+      },
+      {
+        "name": "release_files",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 194
+      },
+      {
+        "name": "prepare_for_new_conversation",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 75
+      },
+      {
+        "name": "summarize_changes",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 72
+      },
+      {
+        "name": "get_watch_status",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 197
+      },
+      {
+        "name": "prune_index_failures",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 159
+      },
+      {
+        "name": "add_queryable_project",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 94
+      },
+      {
+        "name": "remove_queryable_project",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 86
+      },
+      {
+        "name": "query_project",
+        "namespace": "session",
+        "tier": "analysis",
+        "has_output_schema": false,
+        "estimated_tokens": 138
+      },
+      {
+        "name": "list_queryable_projects",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 74
+      },
+      {
+        "name": "set_preset",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 122
+      },
+      {
+        "name": "set_profile",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 131
+      },
+      {
+        "name": "get_capabilities",
+        "namespace": "session",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 1017
+      },
+      {
+        "name": "get_tool_metrics",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 218
+      },
+      {
+        "name": "audit_builder_session",
+        "namespace": "session",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 351
+      },
+      {
+        "name": "audit_planner_session",
+        "namespace": "session",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 349
+      },
+      {
+        "name": "export_session_markdown",
+        "namespace": "session",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 219
+      },
+      {
+        "name": "summarize_file",
+        "namespace": "session",
+        "tier": "workflow",
+        "has_output_schema": false,
+        "estimated_tokens": 95
+      },
+      {
+        "name": "semantic_search",
+        "namespace": "symbols",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 298
+      },
+      {
+        "name": "index_embeddings",
+        "namespace": "symbols",
+        "tier": "primitive",
+        "has_output_schema": false,
+        "estimated_tokens": 71
+      },
+      {
+        "name": "find_similar_code",
+        "namespace": "graph",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 269
+      },
+      {
+        "name": "find_code_duplicates",
+        "namespace": "graph",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 214
+      },
+      {
+        "name": "classify_symbol",
+        "namespace": "graph",
+        "tier": "analysis",
+        "has_output_schema": true,
+        "estimated_tokens": 206
+      },
+      {
+        "name": "find_misplaced_code",
+        "namespace": "graph",
+        "tier": "primitive",
+        "has_output_schema": true,
+        "estimated_tokens": 188
+      }
+    ]
+  },
+  "surfaces": {
+    "profiles": [
+      {
+        "name": "planner-readonly",
+        "tool_count": 35,
+        "preferred_namespaces": [
+          "reports",
+          "symbols",
+          "graph",
+          "session"
+        ],
+        "preferred_tiers": [
+          "workflow"
+        ],
+        "tools": [
+          "explore_codebase",
+          "review_architecture",
+          "review_changes",
+          "prepare_harness_session",
+          "plan_safe_refactor",
+          "diagnose_issues",
+          "onboard_project",
+          "analyze_change_request",
+          "verify_change_readiness",
+          "find_minimal_context_for_change",
+          "mermaid_module_graph",
+          "impact_report",
+          "start_analysis_job",
+          "get_analysis_job",
+          "get_analysis_section",
+          "get_symbols_overview",
+          "find_symbol",
+          "get_ranked_context",
+          "find_referencing_symbols",
+          "semantic_search",
+          "index_embeddings",
+          "get_changed_files",
+          "get_impact_analysis",
+          "get_current_config",
+          "activate_project",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
+          "set_preset",
+          "set_profile",
+          "get_capabilities",
+          "get_tool_metrics",
+          "audit_builder_session",
+          "audit_planner_session"
+        ]
+      },
+      {
+        "name": "builder-minimal",
+        "tool_count": 36,
+        "preferred_namespaces": [
+          "reports",
+          "symbols",
+          "filesystem",
+          "session"
+        ],
+        "preferred_tiers": [
+          "workflow",
+          "analysis",
+          "primitive"
+        ],
+        "tools": [
+          "explore_codebase",
+          "trace_request_path",
+          "plan_safe_refactor",
+          "prepare_harness_session",
+          "verify_change_readiness",
+          "find_minimal_context_for_change",
+          "refresh_symbol_index",
+          "replace_symbol_body",
+          "get_ranked_context",
+          "plan_symbol_rename",
+          "get_capabilities",
+          "audit_builder_session",
+          "audit_planner_session",
+          "rename_symbol",
+          "get_symbols_overview",
+          "find_symbol",
+          "find_referencing_symbols",
+          "semantic_search",
+          "index_embeddings",
+          "find_tests",
+          "get_current_config",
+          "analyze_missing_imports",
+          "activate_project",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
+          "set_preset",
+          "set_profile",
+          "get_tool_metrics",
+          "export_session_markdown",
+          "get_file_diagnostics",
+          "insert_content",
+          "replace",
+          "create_text_file",
+          "add_import"
+        ]
+      },
+      {
+        "name": "reviewer-graph",
+        "tool_count": 35,
+        "preferred_namespaces": [
+          "reports",
+          "graph",
+          "symbols",
+          "session"
+        ],
+        "preferred_tiers": [
+          "workflow"
+        ],
+        "tools": [
+          "review_architecture",
+          "review_changes",
+          "cleanup_duplicate_logic",
+          "prepare_harness_session",
+          "diagnose_issues",
+          "verify_change_readiness",
+          "summarize_symbol_impact",
+          "module_boundary_report",
+          "mermaid_module_graph",
+          "impact_report",
+          "refactor_safety_report",
+          "diff_aware_references",
+          "start_analysis_job",
+          "semantic_code_review",
+          "get_analysis_job",
+          "get_analysis_section",
+          "get_changed_files",
+          "get_impact_analysis",
+          "find_scoped_references",
+          "get_symbols_overview",
+          "find_symbol",
+          "get_ranked_context",
+          "find_referencing_symbols",
+          "get_current_config",
+          "activate_project",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
+          "set_preset",
+          "set_profile",
+          "audit_builder_session",
+          "audit_planner_session",
+          "export_session_markdown",
+          "get_file_diagnostics"
+        ]
+      },
+      {
+        "name": "evaluator-compact",
+        "tool_count": 14,
+        "preferred_namespaces": [
+          "reports",
+          "symbols",
+          "lsp",
+          "session"
+        ],
+        "preferred_tiers": [
+          "primitive",
+          "analysis"
+        ],
+        "tools": [
+          "get_analysis_section",
+          "get_symbols_overview",
+          "find_symbol",
+          "get_file_diagnostics",
+          "get_current_config",
+          "activate_project",
+          "prepare_harness_session",
+          "set_preset",
+          "set_profile",
+          "read_file",
+          "find_tests",
+          "get_changed_files",
+          "get_capabilities",
+          "verify_change_readiness"
+        ]
+      },
+      {
+        "name": "refactor-full",
+        "tool_count": 49,
+        "preferred_namespaces": [
+          "reports",
+          "session"
+        ],
+        "preferred_tiers": [
+          "workflow"
+        ],
+        "tools": [
+          "plan_safe_refactor",
+          "review_changes",
+          "trace_request_path",
+          "prepare_harness_session",
+          "explore_codebase",
+          "review_architecture",
+          "diagnose_issues",
+          "verify_change_readiness",
+          "safe_rename_report",
+          "unresolved_reference_check",
+          "impact_report",
+          "refactor_safety_report",
+          "diff_aware_references",
+          "start_analysis_job",
+          "replace_symbol_body",
+          "refactor_extract_function",
+          "refactor_inline_function",
+          "get_analysis_job",
+          "get_analysis_section",
+          "get_current_config",
+          "analyze_missing_imports",
+          "activate_project",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
+          "set_preset",
+          "set_profile",
+          "get_tool_metrics",
+          "audit_builder_session",
+          "audit_planner_session",
+          "export_session_markdown",
+          "get_symbols_overview",
+          "find_symbol",
+          "get_ranked_context",
+          "find_referencing_symbols",
+          "get_file_diagnostics",
+          "plan_symbol_rename",
+          "get_changed_files",
+          "get_impact_analysis",
+          "find_scoped_references",
+          "rename_symbol",
+          "replace_content",
+          "insert_content",
+          "replace",
+          "create_text_file",
+          "add_import",
+          "refactor_move_to_file",
+          "refactor_change_signature"
+        ]
+      },
+      {
+        "name": "ci-audit",
+        "tool_count": 43,
+        "preferred_namespaces": [
+          "reports",
+          "graph",
+          "session"
+        ],
+        "preferred_tiers": [
+          "workflow"
+        ],
+        "tools": [
+          "review_changes",
+          "cleanup_duplicate_logic",
+          "review_architecture",
+          "prepare_harness_session",
+          "explore_codebase",
+          "diagnose_issues",
+          "analyze_change_request",
+          "verify_change_readiness",
+          "summarize_symbol_impact",
+          "module_boundary_report",
+          "unresolved_reference_check",
+          "dead_code_report",
+          "impact_report",
+          "refactor_safety_report",
+          "diff_aware_references",
+          "start_analysis_job",
+          "get_analysis_job",
+          "get_analysis_section",
+          "get_changed_files",
+          "get_impact_analysis",
+          "find_scoped_references",
+          "find_dead_code",
+          "find_circular_dependencies",
+          "get_change_coupling",
+          "get_current_config",
+          "activate_project",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
+          "set_preset",
+          "set_profile",
+          "get_capabilities",
+          "get_tool_metrics",
+          "audit_builder_session",
+          "audit_planner_session",
+          "export_session_markdown",
+          "read_file",
+          "search_for_pattern",
+          "find_tests",
+          "get_symbols_overview",
+          "find_symbol",
+          "get_ranked_context"
+        ]
+      },
+      {
+        "name": "workflow-first",
+        "tool_count": 19,
+        "preferred_namespaces": [
+          "workflow",
+          "session"
+        ],
+        "preferred_tiers": [
+          "workflow"
+        ],
+        "tools": [
+          "explore_codebase",
+          "trace_request_path",
+          "review_architecture",
+          "plan_safe_refactor",
+          "cleanup_duplicate_logic",
+          "review_changes",
+          "diagnose_issues",
+          "onboard_project",
+          "analyze_change_request",
+          "get_current_config",
+          "activate_project",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
+          "set_preset",
+          "set_profile",
+          "audit_planner_session",
+          "export_session_markdown"
+        ]
+      }
+    ],
+    "presets": [
+      {
+        "name": "minimal",
+        "tool_count": 27,
+        "preferred_namespaces": [
+          "symbols",
+          "filesystem",
+          "mutation"
+        ],
+        "preferred_tiers": [
+          "primitive",
+          "analysis"
+        ],
+        "tools": [
+          "get_symbols_overview",
+          "find_symbol",
+          "find_referencing_symbols",
+          "search_workspace_symbols",
+          "read_file",
+          "list_dir",
+          "find_file",
+          "search_for_pattern",
+          "insert_content",
+          "replace",
+          "create_text_file",
+          "get_current_config",
+          "get_file_diagnostics",
+          "activate_project",
+          "prepare_harness_session",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
+          "set_preset",
+          "set_profile",
+          "get_ranked_context",
+          "get_type_hierarchy",
+          "plan_symbol_rename",
+          "rename_symbol",
+          "replace_symbol_body",
+          "refresh_symbol_index"
+        ]
+      },
+      {
+        "name": "balanced",
+        "tool_count": 76,
+        "preferred_namespaces": [
+          "reports",
+          "symbols",
+          "graph",
+          "filesystem",
+          "session"
+        ],
+        "preferred_tiers": [
+          "workflow",
+          "analysis"
+        ],
+        "tools": [
+          "explore_codebase",
+          "review_architecture",
+          "review_changes",
+          "prepare_harness_session",
+          "trace_request_path",
+          "plan_safe_refactor",
+          "cleanup_duplicate_logic",
+          "diagnose_issues",
+          "onboard_project",
+          "analyze_change_request",
+          "verify_change_readiness",
+          "find_minimal_context_for_change",
+          "summarize_symbol_impact",
+          "module_boundary_report",
+          "mermaid_module_graph",
+          "safe_rename_report",
+          "unresolved_reference_check",
+          "dead_code_report",
+          "impact_report",
+          "refactor_safety_report",
+          "diff_aware_references",
+          "start_analysis_job",
+          "cancel_analysis_job",
+          "refresh_symbol_index",
+          "propagate_deletions",
+          "semantic_code_review",
+          "replace_symbol_body",
+          "get_ranked_context",
+          "get_type_hierarchy",
+          "plan_symbol_rename",
+          "get_impact_analysis",
+          "find_scoped_references",
+          "find_similar_code",
+          "find_code_duplicates",
+          "classify_symbol",
+          "query_project",
+          "get_capabilities",
+          "rename_symbol",
+          "get_analysis_job",
+          "get_analysis_section",
+          "get_symbols_overview",
+          "find_symbol",
+          "find_referencing_symbols",
+          "search_workspace_symbols",
+          "semantic_search",
+          "index_embeddings",
+          "get_changed_files",
+          "find_misplaced_code",
+          "find_annotations",
+          "find_tests",
+          "get_current_config",
+          "analyze_missing_imports",
+          "list_analysis_jobs",
+          "list_analysis_artifacts",
+          "activate_project",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
+          "add_queryable_project",
+          "remove_queryable_project",
+          "list_queryable_projects",
+          "set_preset",
+          "set_profile",
+          "get_file_diagnostics",
+          "replace_content",
+          "delete_lines",
+          "insert_content",
+          "replace",
+          "create_text_file",
+          "add_import",
+          "list_memories",
+          "read_memory",
+          "write_memory",
+          "delete_memory",
+          "rename_memory"
+        ]
+      },
+      {
+        "name": "full",
+        "tool_count": 109,
+        "preferred_namespaces": [
+          "filesystem",
+          "graph",
+          "lsp",
+          "memory",
+          "mutation",
+          "reports",
+          "session",
+          "symbols"
+        ],
+        "preferred_tiers": [
+          "workflow",
+          "analysis",
+          "primitive"
+        ],
+        "tools": [
+          "explore_codebase",
+          "review_architecture",
+          "plan_safe_refactor",
+          "prepare_harness_session",
+          "replace_symbol_body",
+          "refactor_extract_function",
+          "refactor_inline_function",
+          "trace_request_path",
+          "audit_security_context",
+          "analyze_change_impact",
+          "cleanup_duplicate_logic",
+          "review_changes",
+          "assess_change_readiness",
+          "diagnose_issues",
+          "onboard_project",
+          "analyze_change_request",
+          "verify_change_readiness",
+          "find_minimal_context_for_change",
+          "summarize_symbol_impact",
+          "module_boundary_report",
+          "mermaid_module_graph",
+          "safe_rename_report",
+          "unresolved_reference_check",
+          "dead_code_report",
+          "impact_report",
+          "refactor_safety_report",
+          "diff_aware_references",
+          "start_analysis_job",
+          "cancel_analysis_job",
+          "refresh_symbol_index",
+          "propagate_deletions",
+          "semantic_code_review",
+          "summarize_file",
+          "get_complexity",
+          "get_impact_analysis",
+          "find_scoped_references",
+          "get_symbol_importance",
+          "find_dead_code",
+          "find_circular_dependencies",
+          "get_change_coupling",
+          "find_similar_code",
+          "find_code_duplicates",
+          "classify_symbol",
+          "rename_symbol",
+          "refactor_move_to_file",
+          "refactor_change_signature",
+          "query_project",
+          "get_capabilities",
+          "audit_builder_session",
+          "audit_planner_session",
+          "get_ranked_context",
+          "search_symbols_fuzzy",
+          "get_type_hierarchy",
+          "plan_symbol_rename",
+          "read_file",
+          "list_dir",
+          "find_file",
+          "search_for_pattern",
+          "find_annotations",
+          "find_tests",
+          "get_changed_files",
+          "find_misplaced_code",
+          "get_file_diagnostics",
+          "check_lsp_status",
+          "get_lsp_recipe",
+          "list_memories",
+          "read_memory",
+          "write_memory",
+          "delete_memory",
+          "rename_memory",
+          "replace_content",
+          "replace_lines",
+          "delete_lines",
+          "insert_at_line",
+          "insert_before_symbol",
+          "insert_after_symbol",
+          "insert_content",
+          "replace",
+          "create_text_file",
+          "add_import",
+          "get_analysis_job",
+          "get_analysis_section",
+          "get_current_config",
+          "get_project_structure",
+          "analyze_missing_imports",
+          "list_analysis_jobs",
+          "list_analysis_artifacts",
+          "activate_project",
+          "register_agent_work",
+          "list_active_agents",
+          "claim_files",
+          "release_files",
+          "prepare_for_new_conversation",
+          "summarize_changes",
+          "get_watch_status",
+          "prune_index_failures",
+          "add_queryable_project",
+          "remove_queryable_project",
+          "list_queryable_projects",
+          "set_preset",
+          "set_profile",
+          "get_tool_metrics",
+          "export_session_markdown",
+          "get_symbols_overview",
+          "find_symbol",
+          "find_referencing_symbols",
+          "search_workspace_symbols",
+          "semantic_search",
+          "index_embeddings"
+        ]
+      }
+    ]
+  },
+  "languages": {
+    "language_family_count": 30,
+    "extension_count": 49,
+    "import_capable_extension_count": 28,
+    "families": [
+      {
+        "canonical": "c",
+        "display_name": "C",
+        "extensions": [
+          "c",
+          "h"
+        ],
+        "language_ids": [
+          "c"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "clj",
+        "display_name": "Clojure/ClojureScript",
+        "extensions": [
+          "clj",
+          "cljs"
+        ],
+        "language_ids": [
+          "clojure",
+          "clojurescript"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "cpp",
+        "display_name": "C++",
+        "extensions": [
+          "cc",
+          "cpp",
+          "cxx",
+          "hh",
+          "hpp",
+          "hxx"
+        ],
+        "language_ids": [
+          "cpp"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "cs",
+        "display_name": "C#",
+        "extensions": [
+          "cs"
+        ],
+        "language_ids": [
+          "csharp"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "css",
+        "display_name": "CSS",
+        "extensions": [
+          "css"
+        ],
+        "language_ids": [
+          "css"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "dart",
+        "display_name": "Dart",
+        "extensions": [
+          "dart"
+        ],
+        "language_ids": [
+          "dart"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "erl",
+        "display_name": "Erlang",
+        "extensions": [
+          "erl",
+          "hrl"
+        ],
+        "language_ids": [
+          "erlang"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "ex",
+        "display_name": "Elixir",
+        "extensions": [
+          "ex",
+          "exs"
+        ],
+        "language_ids": [
+          "elixir"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "go",
+        "display_name": "Go",
+        "extensions": [
+          "go"
+        ],
+        "language_ids": [
+          "go"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "hs",
+        "display_name": "Haskell",
+        "extensions": [
+          "hs"
+        ],
+        "language_ids": [
+          "haskell"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "html",
+        "display_name": "HTML",
+        "extensions": [
+          "htm",
+          "html"
+        ],
+        "language_ids": [
+          "html"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "java",
+        "display_name": "Java",
+        "extensions": [
+          "java"
+        ],
+        "language_ids": [
+          "java"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "jl",
+        "display_name": "Julia",
+        "extensions": [
+          "jl"
+        ],
+        "language_ids": [
+          "julia"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "js",
+        "display_name": "JavaScript",
+        "extensions": [
+          "cjs",
+          "js",
+          "mjs"
+        ],
+        "language_ids": [
+          "javascript"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "kt",
+        "display_name": "Kotlin",
+        "extensions": [
+          "kt",
+          "kts"
+        ],
+        "language_ids": [
+          "kotlin"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "lua",
+        "display_name": "Lua",
+        "extensions": [
+          "lua"
+        ],
+        "language_ids": [
+          "lua"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "ml",
+        "display_name": "OCaml",
+        "extensions": [
+          "ml",
+          "mli"
+        ],
+        "language_ids": [
+          "ocaml"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "php",
+        "display_name": "PHP",
+        "extensions": [
+          "php"
+        ],
+        "language_ids": [
+          "php"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "py",
+        "display_name": "Python",
+        "extensions": [
+          "py"
+        ],
+        "language_ids": [
+          "python"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "r",
+        "display_name": "R",
+        "extensions": [
+          "R",
+          "r"
+        ],
+        "language_ids": [
+          "r"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "rb",
+        "display_name": "Ruby",
+        "extensions": [
+          "rb"
+        ],
+        "language_ids": [
+          "ruby"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "rs",
+        "display_name": "Rust",
+        "extensions": [
+          "rs"
+        ],
+        "language_ids": [
+          "rust"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "scala",
+        "display_name": "Scala",
+        "extensions": [
+          "sc",
+          "scala"
+        ],
+        "language_ids": [
+          "scala"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "sh",
+        "display_name": "Bash/Shell",
+        "extensions": [
+          "bash",
+          "sh"
+        ],
+        "language_ids": [
+          "shellscript"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "swift",
+        "display_name": "Swift",
+        "extensions": [
+          "swift"
+        ],
+        "language_ids": [
+          "swift"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "toml",
+        "display_name": "TOML",
+        "extensions": [
+          "toml"
+        ],
+        "language_ids": [
+          "toml"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "ts",
+        "display_name": "TypeScript",
+        "extensions": [
+          "ts"
+        ],
+        "language_ids": [
+          "typescript"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "tsx",
+        "display_name": "TSX/JSX",
+        "extensions": [
+          "jsx",
+          "tsx"
+        ],
+        "language_ids": [
+          "javascriptreact",
+          "typescriptreact"
+        ],
+        "supports_imports": true
+      },
+      {
+        "canonical": "yaml",
+        "display_name": "YAML",
+        "extensions": [
+          "yaml",
+          "yml"
+        ],
+        "language_ids": [
+          "yaml"
+        ],
+        "supports_imports": false
+      },
+      {
+        "canonical": "zig",
+        "display_name": "Zig",
+        "extensions": [
+          "zig"
+        ],
+        "language_ids": [
+          "zig"
+        ],
+        "supports_imports": false
+      }
+    ]
+  },
+  "runtime": {
+    "server_name": "codelens-mcp",
+    "version": "1.9.39",
+    "transport": [
+      "stdio",
+      "streamable-http"
+    ],
+    "active_surface": "preset:balanced",
+    "visible_tool_count": 76,
+    "daemon_mode": "standard",
+    "supports_http": true,
+    "supports_semantic": true,
+    "supports_scip_backend": false,
+    "supports_otel": false,
+    "server_card_features": [
+      "role-based-tool-surfaces",
+      "composite-workflow-tools",
+      "analysis-handles-and-sections",
+      "durable-analysis-jobs",
+      "mutation-audit-log",
+      "session-resume",
+      "session-client-metadata",
+      "deferred-tool-loading",
+      "tree-sitter-symbol-parsing",
+      "import-graph-analysis",
+      "lsp-integration",
+      "token-budget-control",
+      "surface-manifest",
+      "semantic-search",
+      "streamable-http"
+    ]
+  },
+  "summary": {
+    "workspace_version": "1.9.39",
+    "workspace_member_count": 3,
+    "registered_tool_definitions": 109,
+    "tool_output_schemas": {
+      "declared": 76,
+      "total": 109
+    },
+    "supported_language_families": 30,
+    "supported_extensions": 49
+  }
+}

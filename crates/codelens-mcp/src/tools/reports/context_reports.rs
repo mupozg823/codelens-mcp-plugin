@@ -127,6 +127,7 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
         sections,
         touched_files,
         None,
+        Some(arguments),
     )
 }
 
@@ -194,6 +195,7 @@ pub fn find_minimal_context_for_change(state: &AppState, arguments: &Value) -> T
             })
             .collect(),
         None,
+        Some(arguments),
     )
 }
 
@@ -260,5 +262,6 @@ pub fn summarize_symbol_impact(state: &AppState, arguments: &Value) -> ToolResul
             .map(|value| vec![value.to_owned()])
             .unwrap_or_default(),
         Some(symbol.to_owned()),
+        Some(arguments),
     )
 }

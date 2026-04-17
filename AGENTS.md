@@ -31,12 +31,16 @@ cargo clippy -- -W clippy::all
 
 Before any CodeLens mutation tool in `refactor-full` (`rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`, `delete_lines`, `add_import`, `refactor_*`):
 
-1. Run `verify_change_readiness` with the target file path(s).
-2. Check `mutation_ready`:
+1. Run `verify_change_readiness` with:
+   - `task`: the intended change in one sentence
+   - `changed_files`: the full target file set
+   - `profile_hint`: usually `refactor-full`
+2. Check `readiness.mutation_ready`:
    - `ready`: proceed.
-   - `caution`: proceed, then run `get_file_diagnostics`.
+   - `caution`: proceed only if the caution is acceptable; if `overlapping_claims` is present, treat it as a coordination stop and decide whether to wait or reassign.
    - `blocked`: stop and resolve blockers first.
-3. For `rename_symbol`, run `safe_rename_report` or `unresolved_reference_check` instead of generic preflight.
+3. Re-run `get_file_diagnostics` on modified files after the edit.
+4. For `rename_symbol`, run `safe_rename_report` or `unresolved_reference_check` instead of generic preflight.
 
 The server enforces this gate in `refactor-full`. Missing or stale preflight evidence is rejected at runtime.
 

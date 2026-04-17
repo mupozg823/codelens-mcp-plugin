@@ -113,6 +113,14 @@ fn infer_git_branch(project_root: &Path) -> String {
 }
 
 impl AppState {
+    pub(crate) fn coordination_snapshot_for_scope(&self, scope: &str) -> CoordinationSnapshot {
+        self.coord_store.snapshot(scope)
+    }
+
+    pub(crate) fn coordination_counts_for_scope(&self, scope: &str) -> CoordinationCounts {
+        self.coordination_snapshot_for_scope(scope).counts
+    }
+
     pub(crate) fn register_agent_work_for_arguments(
         &self,
         arguments: &Value,
@@ -203,8 +211,7 @@ impl AppState {
         &self,
         session: &SessionRequestContext,
     ) -> CoordinationSnapshot {
-        self.coord_store
-            .snapshot(&self.project_scope_for_session(session))
+        self.coordination_snapshot_for_scope(&self.project_scope_for_session(session))
     }
 
     pub(crate) fn coordination_counts_for_session(

@@ -4,6 +4,8 @@
 
 This document describes how to use released CodeLens features to coordinate multiple agents on one repository. It does **not** require a custom `codex-builder` agent file, and it does **not** assume Claude/Codex-specific local harness hacks.
 
+For the higher-level operating shapes that sit above these primitives, see [Harness modes](harness-modes.md).
+
 ## What CodeLens Provides vs What the Host Provides
 
 CodeLens provides:
@@ -13,6 +15,9 @@ CodeLens provides:
 - bounded bootstrap via `prepare_harness_session`
 - advisory coordination via `register_agent_work`, `claim_files`, `list_active_agents`, and `release_files`
 - mutation safety via `verify_change_readiness`, `safe_rename_report`, and runtime mutation gates
+- session-scoped builder audit via `audit_builder_session`, `get_tool_metrics(session_id=...)`, and `export_session_markdown(session_id=...)`
+- session-scoped planner/reviewer audit via `audit_planner_session`
+- canonical runtime/doc surface inventory via `codelens://surface/manifest`
 
 The host or harness still provides:
 
@@ -175,6 +180,81 @@ Do not auto-dispatch through an overlap. Report it back to the orchestrator.
 ```
 
 TTL expiry is only a safety net. Explicit release is better because it keeps the shared view current.
+
+## Builder Session Audit
+
+`audit_builder_session` is the public session-level check for builder/refactor discipline. It does not add new hard blocks. It scores whether a builder session used CodeLens in the expected order and with enough evidence.
+
+Typical compact call:
+
+```json
+{
+  "name": "audit_builder_session",
+  "arguments": {
+    "session_id": "builder-session-id",
+    "detail": "compact"
+  }
+}
+```
+
+Expected status meanings:
+
+- `pass` -> bootstrap, preflight, diagnostics, and coordination evidence are all present
+- `warn` -> mutation succeeded, but the session skipped bootstrap, diagnostics, or coordination discipline
+- `fail` -> mutation/preflight contract was violated
+- `not_applicable` -> no builder/refactor flow was recorded for that session
+
+Related session tools:
+
+- `get_tool_metrics({"session_id":"..."})` -> machine-readable per-session telemetry
+- `export_session_markdown({"session_id":"..."})` -> human-readable markdown with the same session's audit summary appended
+
+Current scope:
+
+- builder / refactor sessions only
+- planner / reviewer sessions use `audit_planner_session`
+
+## Planner / Reviewer Session Audit
+
+`audit_planner_session` is the read-side companion to `audit_builder_session`. It stays audit-only: no new runtime hard blocks are added.
+
+Typical compact call:
+
+```json
+{
+  "name": "audit_planner_session",
+  "arguments": {
+    "session_id": "planner-session-id",
+    "detail": "compact"
+  }
+}
+```
+
+Expected status meanings:
+
+- `pass` -> bootstrap, workflow-first routing, and read-side evidence all line up
+- `warn` -> the session skipped bootstrap, lacked change evidence, fell into low-level chains, or reviewed files without symbol/diagnostic evidence
+- `fail` -> the planner/reviewer session attempted content mutation or shows mutation-gate denial traces
+- `not_applicable` -> the session never entered a planner/reviewer read-side flow
+
+Related session tools:
+
+- `get_tool_metrics({"session_id":"..."})` -> machine-readable per-session telemetry for either builder or planner sessions
+- `export_session_markdown({"session_id":"..."})` -> appends the role-appropriate builder or planner audit summary automatically
+
+## Canonical Surface Manifest
+
+CodeLens now publishes a single machine-readable surface manifest at `codelens://surface/manifest`.
+
+Use it when you need the authoritative source for:
+
+- workspace version and members
+- live registered tool count and output-schema coverage
+- profile/preset membership
+- supported language families and extensions
+- server-card summary inputs
+
+Repository docs consume the generated form of the same manifest at [`docs/generated/surface-manifest.json`](generated/surface-manifest.json).
 
 ## TTL Guidance
 

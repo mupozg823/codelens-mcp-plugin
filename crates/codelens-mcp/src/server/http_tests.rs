@@ -2214,6 +2214,7 @@ async fn server_card_exposes_daemon_mode() {
     let body = body_string(resp).await;
     assert!(body.contains("\"daemon_mode\": \"read-only\""));
     assert!(body.contains("session-client-metadata"));
+    assert!(body.contains("\"surface_manifest\""));
 }
 
 #[tokio::test]

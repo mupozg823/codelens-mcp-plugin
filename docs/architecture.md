@@ -1,13 +1,18 @@
 # CodeLens MCP — Architecture & Project Overview
 
 > Pure Rust MCP server and harness optimization tool for code intelligence
-> 3 crates in the workspace | 2 primary runtime boundaries | 25 languages | tree-sitter-first
+> Harness optimization control plane with generated surface governance and tree-sitter-first retrieval
 
 ## Current Snapshot (2026-04-16)
 
-- Workspace version: `1.9.30`
-- Registered tool definitions in source: `107` `Tool::new(...)` entries in [`crates/codelens-mcp/src/tool_defs/build.rs`](../crates/codelens-mcp/src/tool_defs/build.rs)
-- Tool output schemas in source: `73 / 107`
+<!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:BEGIN -->
+- Workspace version: `1.9.39`
+- Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
+- Registered tool definitions in source: `109`
+- Tool output schemas in source: `76 / 109`
+- Supported language families: `30` across `49` extensions
+- Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
+<!-- SURFACE_MANIFEST_ARCHITECTURE_SNAPSHOT:END -->
 - Runtime surface is profile- and session-dependent; use [`prepare_harness_session`](../crates/codelens-mcp/src/tools/session/project_ops.rs) and `tools/list` for live counts rather than this document
 - Published distribution channels: crates.io, GitHub Releases, Homebrew tap, installer script, source builds
 - Current release notes: [GitHub Release v1.9.30](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.30)
@@ -94,8 +99,8 @@ Operational deployment modes:
 │  │                     │                                         │  │
 │  │  ┌─────────────────────────────────────────────────────────┐  │  │
 │  │  │              Tool Categories (profile dependent)        │  │  │
-│  │  │  File(7) │ Symbol(7) │ LSP(7) │ Analysis(7) │ Edit(17)  │  │  │
-│  │  │  Workflow(17) │ Memory(5) │ Session(16) │ Semantic(6*)  │  │  │
+│  │  │  File │ Symbol │ LSP │ Analysis │ Edit                  │  │  │
+│  │  │  Workflow │ Memory │ Session │ Semantic*               │  │  │
 │  │  │                         * cfg-gated                     │  │  │
 │  │  └─────────────────────────────────────────────────────────┘  │  │
 │  └───────────────────────────────┬───────────────────────────────┘  │
@@ -113,7 +118,7 @@ Operational deployment modes:
 │  │       │            │            │               │             │  │
 │  │  ┌────▼────────────▼────────────▼───────────────▼────────┐    │  │
 │  │  │              Foundation Layer                          │    │  │
-│  │  │  tree-sitter (25 lang) │ LSP pool (opt-in)            │    │  │
+│  │  │  tree-sitter registry  │ LSP pool (opt-in)            │    │  │
 │  │  │  Lang Registry         │ Scope Analysis               │    │  │
 │  │  │  Lang Config           │ File Watcher (notify)        │    │  │
 │  │  │  VFS / Project Root    │ Embedding (MiniLM + fastembed)│   │  │
@@ -448,31 +453,21 @@ MINIMAL  (20)   ██████████████                      
 
 ### Output Schemas
 
-- **73 of 107 tools** declare a JSON output schema in the current source tree
+- Output schema coverage is generated from the surface manifest snapshot above
 - All read handles (`analysis_handle`), mutation results, and primary symbol/reference payloads are schema-typed
 - Response annotations include `_meta["anthropic/maxResultSizeChars"]` per MCP v2.1.91+
 
 ---
 
-## 5. Language Support (25)
+## 5. Language Support
 
-```
-Phase 1-5 (Original 16):
-  Python, JavaScript, TypeScript, TSX, Go, Java, Kotlin, Rust,
-  C, C++, PHP, Swift, Scala, Ruby, C#, Dart
+<!-- SURFACE_MANIFEST_ARCHITECTURE_LANGUAGES:BEGIN -->
+Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
-Phase 6a (Added 9):
-  Lua, Zig, Elixir, Haskell, OCaml, Erlang, R, Bash, Julia
+Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
-Deferred (tree-sitter 0.26 required):
-  Perl
-
-Each language has:
-  ├── tree-sitter grammar (statically linked)
-  ├── Symbol extraction query (lang_config.rs)
-  ├── Extension mapping (lang_registry.rs)
-  └── LSP recipe + command mapping (opt-in, 22 recipes)
-```
+The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](generated/surface-manifest.json).
+<!-- SURFACE_MANIFEST_ARCHITECTURE_LANGUAGES:END -->
 
 ---
 
@@ -544,7 +539,7 @@ All mutation tools are gated:
 │  │                                                   │  │
 │  │  ✅ Streamable HTTP + SSE                         │  │
 │  │  ✅ Tool Annotations (readOnly/destructive)       │  │
-│  │  ✅ Tool Output Schemas (73/107 tools)            │  │
+│  │  ✅ Tool Output Schemas (generated manifest)      │  │
 │  │  ✅ Preset + Role Profile subsetting              │  │
 │  │  ✅ Token budget control (_profile)               │  │
 │  │  ✅ Adaptive compression (OpenDev 5-stage)        │  │

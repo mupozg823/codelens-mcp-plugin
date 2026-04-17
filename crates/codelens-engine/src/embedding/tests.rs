@@ -1384,11 +1384,13 @@ fn full_reindex_removes_deleted_files() {
     let count = engine.index_from_project(&project).unwrap();
     assert_eq!(count, 2);
     assert_eq!(engine.store.count().unwrap(), 2);
-    assert!(engine
-        .store
-        .embeddings_for_files(&["extra.py"])
-        .unwrap()
-        .is_empty());
+    assert!(
+        engine
+            .store
+            .embeddings_for_files(&["extra.py"])
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]
@@ -1482,9 +1484,11 @@ fn find_similar_code_uses_index_and_excludes_target_symbol() {
 
     let matches = engine.find_similar_code("main.py", "hello", 5).unwrap();
     assert!(!matches.is_empty());
-    assert!(matches
-        .iter()
-        .all(|m| !(m.file_path == "main.py" && m.symbol_name == "hello")));
+    assert!(
+        matches
+            .iter()
+            .all(|m| !(m.file_path == "main.py" && m.symbol_name == "hello"))
+    );
 }
 
 #[test]

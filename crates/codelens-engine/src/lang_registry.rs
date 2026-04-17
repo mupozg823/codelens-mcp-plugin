@@ -357,6 +357,11 @@ pub fn import_extensions() -> impl Iterator<Item = &'static str> {
         .map(|e| e.ext)
 }
 
+/// Return all supported language registry entries.
+pub fn all_entries() -> impl Iterator<Item = &'static ExtEntry> {
+    EXTENSIONS.iter()
+}
+
 /// Return all supported extensions.
 pub fn all_extensions() -> impl Iterator<Item = &'static str> {
     EXTENSIONS.iter().map(|e| e.ext)

@@ -1406,6 +1406,8 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(encoded.contains("codelens://profile/planner-readonly/guide"));
     assert!(encoded.contains("codelens://profile/planner-readonly/guide/full"));
     assert!(encoded.contains("codelens://tools/list/full"));
+    assert!(encoded.contains("codelens://surface/manifest"));
+    assert!(encoded.contains("codelens://harness/modes"));
     assert!(encoded.contains("codelens://session/http"));
     assert!(encoded.contains("codelens://analysis/recent"));
     assert!(encoded.contains("codelens://analysis/jobs"));
@@ -1513,6 +1515,40 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(session_resource_body.contains("preferred_namespaces"));
     assert!(session_resource_body.contains("preferred_tiers"));
     assert!(session_resource_body.contains("deferred_namespace_gate"));
+
+    let surface_manifest = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(242)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://surface/manifest"})),
+        },
+    )
+    .unwrap();
+    let surface_manifest_body = serde_json::to_string(&surface_manifest).unwrap();
+    assert!(surface_manifest_body.contains("schema_version"));
+    assert!(surface_manifest_body.contains("tool_registry"));
+    assert!(surface_manifest_body.contains("surfaces"));
+    assert!(surface_manifest_body.contains("harness_modes"));
+    assert!(surface_manifest_body.contains("languages"));
+
+    let harness_modes = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(242_1)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://harness/modes"})),
+        },
+    )
+    .unwrap();
+    let harness_modes_body = serde_json::to_string(&harness_modes).unwrap();
+    assert!(harness_modes_body.contains("planner-builder"));
+    assert!(harness_modes_body.contains("reviewer-gate"));
+    assert!(harness_modes_body.contains("explicit-only"));
+    assert!(harness_modes_body.contains("asymmetric-handoff"));
+
     assert!(session_resource_body.contains("deferred_tier_gate"));
     assert!(session_resource_body.contains("mutation_preflight_required"));
     assert!(session_resource_body.contains("preflight_ttl_seconds"));
@@ -3099,6 +3135,708 @@ fn session_scoped_preflight_does_not_cross_sessions() {
             .unwrap_or("")
             .contains("requires a fresh preflight")
     );
+}
+
+#[test]
+fn get_tool_metrics_filters_by_session_id() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("session_a.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    fs::write(project.as_path().join("session_b.py"), "beta\n").unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "session_a.py"}),
+        "session-a",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "read_file",
+        json!({"relative_path": "session_b.py"}),
+        "session-b",
+    );
+
+    let metrics_a = call_tool(
+        &state,
+        "get_tool_metrics",
+        json!({"session_id": "session-a"}),
+    );
+    let metrics_b = call_tool(
+        &state,
+        "get_tool_metrics",
+        json!({"session_id": "session-b"}),
+    );
+
+    let per_tool_a = metrics_a["data"]["per_tool"]
+        .as_array()
+        .expect("session-a per_tool array");
+    let per_tool_b = metrics_b["data"]["per_tool"]
+        .as_array()
+        .expect("session-b per_tool array");
+
+    assert_eq!(metrics_a["data"]["scope"], json!("session"));
+    assert_eq!(metrics_a["data"]["session_id"], json!("session-a"));
+    assert_eq!(metrics_b["data"]["session_id"], json!("session-b"));
+    assert!(
+        per_tool_a
+            .iter()
+            .any(|entry| entry["tool"] == json!("get_symbols_overview"))
+    );
+    assert!(
+        !per_tool_a
+            .iter()
+            .any(|entry| entry["tool"] == json!("read_file"))
+    );
+    assert!(
+        per_tool_b
+            .iter()
+            .any(|entry| entry["tool"] == json!("read_file"))
+    );
+    assert!(
+        !per_tool_b
+            .iter()
+            .any(|entry| entry["tool"] == json!("get_symbols_overview"))
+    );
+}
+
+#[test]
+fn audit_builder_session_is_not_applicable_for_non_builder_session() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "reviewer-graph"}),
+        "reviewer-session",
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_builder_session",
+        json!({"session_id": "reviewer-session"}),
+    );
+    assert_eq!(audit["data"]["status"], json!("not_applicable"));
+}
+
+#[test]
+fn audit_builder_session_warns_when_bootstrap_is_missing() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("bootstrap_warn.py"),
+        "print('old')\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "builder-minimal"}),
+        "builder-warn",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "bootstrap_warn.py"}),
+        "builder-warn",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "verify_change_readiness",
+        json!({
+            "task": "update bootstrap warn file",
+            "changed_files": ["bootstrap_warn.py"]
+        }),
+        "builder-warn",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "replace",
+        json!({
+            "relative_path": "bootstrap_warn.py",
+            "old_text": "old",
+            "new_text": "new"
+        }),
+        "builder-warn",
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_builder_session",
+        json!({"session_id": "builder-warn"}),
+    );
+    assert_eq!(audit["data"]["status"], json!("warn"));
+    assert!(
+        audit["data"]["findings"]
+            .as_array()
+            .map(|findings| findings
+                .iter()
+                .any(|finding| finding["code"] == json!("bootstrap_order")))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn audit_builder_session_fails_when_gate_failure_was_recorded() {
+    let project = project_root();
+    fs::write(project.as_path().join("audit_fail.py"), "print('old')\n").unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "refactor-full"}),
+        "builder-fail",
+    );
+    let preflight = call_tool_with_session(
+        &state,
+        "verify_change_readiness",
+        json!({
+            "task": "update audit fail file",
+            "changed_files": ["audit_fail.py"]
+        }),
+        "builder-fail",
+    );
+    assert_eq!(preflight["success"], json!(true));
+    state.set_recent_preflight_timestamp_for_test("builder-fail", 0);
+
+    let payload = call_tool_with_session(
+        &state,
+        "replace_content",
+        json!({
+            "relative_path": "audit_fail.py",
+            "old_text": "old",
+            "new_text": "new"
+        }),
+        "builder-fail",
+    );
+    assert_eq!(payload["success"], json!(false));
+
+    let audit = call_tool(
+        &state,
+        "audit_builder_session",
+        json!({"session_id": "builder-fail"}),
+    );
+    assert_eq!(audit["data"]["status"], json!("fail"));
+    assert!(
+        audit["data"]["findings"]
+            .as_array()
+            .map(|findings| findings
+                .iter()
+                .any(|finding| finding["code"] == json!("mutation_gate")))
+            .unwrap_or(false)
+    );
+}
+
+#[cfg(feature = "http")]
+fn make_http_state(project: &codelens_engine::ProjectRoot) -> crate::AppState {
+    crate::AppState::new_minimal(project.clone(), crate::tool_defs::ToolPreset::Full)
+        .with_session_store()
+}
+
+#[cfg(feature = "http")]
+fn create_http_profile_session(
+    state: &crate::AppState,
+    project: &codelens_engine::ProjectRoot,
+    profile: crate::tool_defs::ToolProfile,
+) -> String {
+    let session = state
+        .session_store
+        .as_ref()
+        .expect("session store")
+        .create();
+    let session_id = session.id.clone();
+    session.set_client_metadata(crate::server::session::SessionClientMetadata {
+        client_name: Some("BuilderHarness".to_owned()),
+        requested_profile: Some(profile.as_str().to_owned()),
+        project_path: Some(project.as_path().to_string_lossy().to_string()),
+        ..Default::default()
+    });
+    state.set_session_surface_and_budget(
+        &session_id,
+        crate::tool_defs::ToolSurface::Profile(profile),
+        crate::tool_defs::default_budget_for_profile(profile),
+    );
+    session_id
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn audit_builder_session_passes_for_happy_path_http_builder() {
+    let project = project_root();
+    fs::write(project.as_path().join("http_builder.py"), "print('old')\n").unwrap();
+    let state = make_http_state(&project);
+    let session_id = create_http_profile_session(
+        &state,
+        &project,
+        crate::tool_defs::ToolProfile::RefactorFull,
+    );
+
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "refactor-full", "detail": "compact"}),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "http_builder.py"}),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_file_diagnostics",
+        json!({"file_path": "http_builder.py"}),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "verify_change_readiness",
+        json!({"task": "update http builder file", "changed_files": ["http_builder.py"]}),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "register_agent_work",
+        json!({
+            "agent_name": "builder-http",
+            "branch": "audit/http-pass",
+            "worktree": project.as_path().to_string_lossy().to_string(),
+            "intent": "happy path builder audit"
+        }),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "claim_files",
+        json!({"paths": ["http_builder.py"], "reason": "happy path builder audit"}),
+        &session_id,
+    );
+    let payload = call_tool_with_session(
+        &state,
+        "replace_content",
+        json!({
+            "relative_path": "http_builder.py",
+            "old_text": "old",
+            "new_text": "new"
+        }),
+        &session_id,
+    );
+    assert_eq!(payload["success"], json!(true));
+    let _ = call_tool_with_session(
+        &state,
+        "get_file_diagnostics",
+        json!({"file_path": "http_builder.py"}),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "release_files",
+        json!({"paths": ["http_builder.py"]}),
+        &session_id,
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_builder_session",
+        json!({"session_id": session_id}),
+    );
+    assert_eq!(audit["data"]["status"], json!("pass"));
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn audit_builder_session_warns_when_http_coordination_is_missing() {
+    let project = project_root();
+    fs::write(project.as_path().join("http_warn.py"), "print('old')\n").unwrap();
+    let state = make_http_state(&project);
+    let session_id = create_http_profile_session(
+        &state,
+        &project,
+        crate::tool_defs::ToolProfile::RefactorFull,
+    );
+
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "refactor-full", "detail": "compact"}),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "http_warn.py"}),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "verify_change_readiness",
+        json!({"task": "update http warn file", "changed_files": ["http_warn.py"]}),
+        &session_id,
+    );
+    let payload = call_tool_with_session(
+        &state,
+        "replace_content",
+        json!({
+            "relative_path": "http_warn.py",
+            "old_text": "old",
+            "new_text": "new"
+        }),
+        &session_id,
+    );
+    assert_eq!(payload["success"], json!(true));
+
+    let audit = call_tool(
+        &state,
+        "audit_builder_session",
+        json!({"session_id": session_id}),
+    );
+    assert_eq!(audit["data"]["status"], json!("warn"));
+    assert!(
+        audit["data"]["findings"]
+            .as_array()
+            .map(|findings| {
+                findings
+                    .iter()
+                    .any(|finding| finding["code"] == json!("coordination_registration"))
+                    && findings
+                        .iter()
+                        .any(|finding| finding["code"] == json!("coordination_claim"))
+            })
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn audit_planner_session_is_not_applicable_for_non_planner_session() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "builder-minimal"}),
+        "builder-session",
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_planner_session",
+        json!({"session_id": "builder-session"}),
+    );
+    assert_eq!(audit["data"]["status"], json!("not_applicable"));
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn audit_planner_session_passes_for_happy_path_reviewer() {
+    let project = project_root();
+    fs::write(project.as_path().join("planner_pass.py"), "print('ok')\n").unwrap();
+    let state = make_http_state(&project);
+    let session_id = create_http_profile_session(
+        &state,
+        &project,
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    );
+
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "planner_pass.py"}),
+        &session_id,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["planner_pass.py"], "task": "review planner path"}),
+        &session_id,
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_planner_session",
+        json!({"session_id": session_id}),
+    );
+    assert_eq!(audit["data"]["status"], json!("pass"));
+}
+
+#[test]
+fn audit_planner_session_warns_when_bootstrap_is_missing() {
+    let project = project_root();
+    fs::write(project.as_path().join("planner_warn.py"), "print('ok')\n").unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "reviewer-graph"}),
+        "planner-warn",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "planner_warn.py"}),
+        "planner-warn",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["planner_warn.py"], "task": "review planner path"}),
+        "planner-warn",
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_planner_session",
+        json!({"session_id": "planner-warn"}),
+    );
+    assert_eq!(audit["data"]["status"], json!("warn"));
+    assert!(
+        audit["data"]["findings"]
+            .as_array()
+            .map(|findings| findings
+                .iter()
+                .any(|finding| finding["code"] == json!("bootstrap_order")))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn audit_planner_session_warns_when_change_evidence_is_missing() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "reviewer-graph"}),
+        "planner-change-evidence",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        "planner-change-evidence",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "verify_change_readiness",
+        json!({"task": "review change evidence"}),
+        "planner-change-evidence",
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_planner_session",
+        json!({"session_id": "planner-change-evidence"}),
+    );
+    assert_eq!(audit["data"]["status"], json!("warn"));
+    assert!(
+        audit["data"]["findings"]
+            .as_array()
+            .map(|findings| findings
+                .iter()
+                .any(|finding| finding["code"] == json!("change_evidence")))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn audit_planner_session_warns_when_workflow_first_guidance_is_missed() {
+    let project = project_root();
+    fs::write(project.as_path().join("planner_chain.py"), "print('ok')\n").unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "planner-readonly"}),
+        "planner-chain",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "planner-readonly", "detail": "compact"}),
+        "planner-chain",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "planner_chain.py"}),
+        "planner-chain",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "find_symbol",
+        json!({"name": "missing_symbol", "include_body": true}),
+        "planner-chain",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_file_diagnostics",
+        json!({"file_path": "planner_chain.py"}),
+        "planner-chain",
+    );
+
+    let audit = call_tool(
+        &state,
+        "audit_planner_session",
+        json!({"session_id": "planner-chain"}),
+    );
+    assert_eq!(audit["data"]["status"], json!("warn"));
+    assert!(
+        audit["data"]["findings"]
+            .as_array()
+            .map(|findings| findings
+                .iter()
+                .any(|finding| finding["code"] == json!("workflow_first")))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn audit_planner_session_fails_on_mutation_attempt() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "reviewer-graph"}),
+        "planner-fail",
+    );
+    let payload = call_tool_with_session(
+        &state,
+        "create_text_file",
+        json!({"relative_path": "planner_fail.py", "content": "print('fail')\n"}),
+        "planner-fail",
+    );
+    assert_eq!(payload["success"], json!(false));
+
+    let audit = call_tool(
+        &state,
+        "audit_planner_session",
+        json!({"session_id": "planner-fail"}),
+    );
+    assert_eq!(audit["data"]["status"], json!("fail"));
+}
+
+#[cfg(feature = "http")]
+#[test]
+fn audit_planner_session_isolated_by_session_id() {
+    let project = project_root();
+    fs::write(project.as_path().join("planner_a.py"), "print('a')\n").unwrap();
+    fs::write(project.as_path().join("planner_b.py"), "print('b')\n").unwrap();
+    let state = make_http_state(&project);
+    let session_a = create_http_profile_session(
+        &state,
+        &project,
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    );
+    let session_b = create_http_profile_session(
+        &state,
+        &project,
+        crate::tool_defs::ToolProfile::ReviewerGraph,
+    );
+
+    let _ = call_tool_with_session(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["planner_a.py"], "task": "review a"}),
+        &session_a,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        &session_b,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "planner_b.py"}),
+        &session_b,
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["planner_b.py"], "task": "review b"}),
+        &session_b,
+    );
+
+    let metrics_a = call_tool(
+        &state,
+        "get_tool_metrics",
+        json!({"session_id": session_a.as_str()}),
+    );
+    assert_eq!(metrics_a["data"]["session_id"], json!(session_a.as_str()));
+    let audit_a = call_tool(
+        &state,
+        "audit_planner_session",
+        json!({"session_id": session_a.as_str()}),
+    );
+    assert_eq!(audit_a["data"]["status"], json!("warn"));
+    assert!(
+        audit_a["data"]["findings"]
+            .as_array()
+            .map(|findings| findings
+                .iter()
+                .any(|finding| finding["code"] == json!("bootstrap_order")))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn export_session_markdown_appends_planner_audit_summary() {
+    let project = project_root();
+    fs::write(project.as_path().join("planner_md.py"), "print('md')\n").unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "reviewer-graph"}),
+        "planner-md",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "prepare_harness_session",
+        json!({"profile": "reviewer-graph", "detail": "compact"}),
+        "planner-md",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "get_symbols_overview",
+        json!({"path": "planner_md.py"}),
+        "planner-md",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "review_changes",
+        json!({"changed_files": ["planner_md.py"], "task": "review markdown"}),
+        "planner-md",
+    );
+
+    let markdown = call_tool(
+        &state,
+        "export_session_markdown",
+        json!({"session_id": "planner-md", "name": "planner-md"}),
+    );
+    let body = markdown["data"]["markdown"].as_str().unwrap_or("");
+    assert!(body.contains("## Planner Audit"));
 }
 
 #[test]

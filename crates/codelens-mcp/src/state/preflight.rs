@@ -48,6 +48,18 @@ impl AppState {
                     super::push_unique_string(&mut targets, self.normalize_target_path(path));
                 } else if let Some(path) = value.get("path").and_then(|item| item.as_str()) {
                     super::push_unique_string(&mut targets, self.normalize_target_path(path));
+                } else if let Some(path) = value.get("file").and_then(|item| item.as_str()) {
+                    super::push_unique_string(&mut targets, self.normalize_target_path(path));
+                }
+            }
+        }
+
+        if let Some(paths) = arguments.get("paths").and_then(|value| value.as_array()) {
+            for value in paths {
+                if let Some(path) = value.as_str() {
+                    super::push_unique_string(&mut targets, self.normalize_target_path(path));
+                } else if let Some(path) = value.get("path").and_then(|item| item.as_str()) {
+                    super::push_unique_string(&mut targets, self.normalize_target_path(path));
                 }
             }
         }

@@ -4,7 +4,7 @@
 
 **Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
 
-Pure Rust MCP server for multi-agent harnesses. 25 languages, hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, 5-stage token compression, and enterprise-ready observability — all in a single self-contained binary, no external daemons or service installs required (the binary statically links its dependencies and ships its own SQLite, vector store, and ONNX runtime).
+Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, token compression, and enterprise-ready observability — all in a single self-contained binary, no external daemons or service installs required (the binary statically links its dependencies and ships its own SQLite, vector store, and ONNX runtime).
 
 [![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/mupozg823/codelens-mcp-plugin/actions)
 [![crates.io](https://img.shields.io/crates/v/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
@@ -13,6 +13,19 @@ Pure Rust MCP server for multi-agent harnesses. 25 languages, hybrid retrieval (
 [![Downloads](https://img.shields.io/crates/d/codelens-mcp.svg)](https://crates.io/crates/codelens-mcp)
 
 </div>
+
+<!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
+## Surface Snapshot
+
+- Workspace version: `1.9.39`
+- Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
+- Registered tool definitions: `109`
+- Tool output schemas: `76 / 109`
+- Supported language families: `30` across `49` extensions
+- Profiles: `planner-readonly` (35), `builder-minimal` (36), `reviewer-graph` (35), `evaluator-compact` (14), `refactor-full` (49), `ci-audit` (43), `workflow-first` (19)
+- Presets: `minimal` (27), `balanced` (76), `full` (109)
+- Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
+<!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
 
 ---
 
@@ -194,7 +207,7 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 | **Context quality**   | Ranked, bounded, structured                | Raw text, no prioritization  |
 | **Multi-file impact** | 1 tool call                                | 5-10 grep + read cycles      |
 | **Runtime**           | Single Rust binary, <12ms cold start       | N/A                          |
-| **Language support**  | 25 languages, single self-contained binary | N/A                          |
+| **Language support**  | Generated from the surface manifest         | N/A                          |
 | **Agent awareness**   | Doom-loop detection, mutation gates        | None                         |
 
 ## Key Features
@@ -248,11 +261,15 @@ verify_change_readiness → "ready" → rename_symbol
                         → "blocked" → fix blockers first
 ```
 
-## 25 Languages
+## Language Support
 
-Python, JavaScript, TypeScript, TSX, Go, Java, Kotlin, Rust, C, C++, PHP, Swift, Scala, Ruby, C#, Dart, Lua, Zig, Elixir, Haskell, OCaml, Erlang, R, Bash, Julia
+<!-- SURFACE_MANIFEST_README_LANGUAGES:BEGIN -->
+Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
-All via statically-linked tree-sitter grammars. Ships its own SQLite, vector store, and ONNX runtime — no external services required.
+Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
+
+The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json).
+<!-- SURFACE_MANIFEST_README_LANGUAGES:END -->
 
 ## Performance
 
@@ -407,7 +424,7 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 | Streamable HTTP + SSE                   | Supported                              |
 | Role-based capability negotiation       | `--profile` flag                       |
 | Tool Annotations (readOnly/destructive) | Supported                              |
-| Tool Output Schemas                     | 73/107 tools carry output schemas      |
+| Tool Output Schemas                     | Generated from the surface manifest    |
 | `.well-known/mcp.json` Server Card      | HTTP transport                         |
 | Analysis handles + section expansion    | Supported                              |
 | Durable analysis jobs                   | Supported                              |

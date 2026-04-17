@@ -1,11 +1,15 @@
 use crate::AppState;
 use crate::protocol::BackendKind;
+use crate::session_context::SessionRequestContext;
 use crate::tool_runtime::{ToolResult, success_meta};
 use serde_json::json;
 
 pub fn register_agent_work(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let session = SessionRequestContext::from_json(arguments);
     let agent = state.register_agent_work_for_arguments(arguments)?;
-    state.metrics().record_coordination_registration();
+    state
+        .metrics()
+        .record_coordination_registration_for_session(Some(session.session_id.as_str()));
     Ok((
         json!({
             "status": "registered",
@@ -27,8 +31,11 @@ pub fn list_active_agents(state: &AppState, arguments: &serde_json::Value) -> To
 }
 
 pub fn claim_files(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let session = SessionRequestContext::from_json(arguments);
     let claim = state.claim_files_for_arguments(arguments)?;
-    state.metrics().record_coordination_claim();
+    state
+        .metrics()
+        .record_coordination_claim_for_session(Some(session.session_id.as_str()));
     let claimed_paths = claim.paths.clone();
     let session_id = claim.session_id.clone();
     Ok((
@@ -43,9 +50,12 @@ pub fn claim_files(state: &AppState, arguments: &serde_json::Value) -> ToolResul
 }
 
 pub fn release_files(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    let session = SessionRequestContext::from_json(arguments);
     let (session_id, released_paths, remaining_claim) =
         state.release_files_for_arguments(arguments)?;
-    state.metrics().record_coordination_release();
+    state
+        .metrics()
+        .record_coordination_release_for_session(Some(session.session_id.as_str()));
     let remaining_claim_count = usize::from(remaining_claim.is_some());
     Ok((
         json!({

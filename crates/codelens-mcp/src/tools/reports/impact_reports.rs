@@ -312,6 +312,7 @@ pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
         sections,
         vec![path.to_owned()],
         None,
+        Some(arguments),
     )
 }
 
@@ -429,6 +430,7 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
         sections,
         vec![path.to_owned()],
         None,
+        Some(arguments),
     )
 }
 
@@ -528,6 +530,7 @@ pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
             vec![scope.to_owned()]
         },
         None,
+        Some(arguments),
     )
 }
 
@@ -705,6 +708,7 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         sections,
         target_files,
         None,
+        Some(arguments),
     )
 }
 
@@ -902,6 +906,7 @@ pub fn refactor_safety_report(state: &AppState, arguments: &Value) -> ToolResult
                 .to_owned(),
         ],
         symbol.map(ToOwned::to_owned),
+        Some(arguments),
     )
 }
 
@@ -989,6 +994,7 @@ pub fn diff_aware_references(state: &AppState, arguments: &Value) -> ToolResult 
         sections,
         changed_files,
         None,
+        Some(arguments),
     )
 }
 
@@ -1030,6 +1036,7 @@ pub fn semantic_code_review(state: &AppState, arguments: &Value) -> ToolResult {
             sections,
             Vec::new(),
             None,
+            Some(arguments),
         );
     }
 
@@ -1152,5 +1159,6 @@ pub fn semantic_code_review(state: &AppState, arguments: &Value) -> ToolResult {
         sections,
         changed_files,
         None,
+        Some(arguments),
     )
 }

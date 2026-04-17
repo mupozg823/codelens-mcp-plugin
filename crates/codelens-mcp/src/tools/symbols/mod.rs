@@ -10,9 +10,7 @@ pub use handlers::{
 
 #[cfg(test)]
 mod tests {
-    use super::analyzer::{
-        annotate_ranked_context_provenance, merge_semantic_ranked_entries,
-    };
+    use super::analyzer::{annotate_ranked_context_provenance, merge_semantic_ranked_entries};
     use super::formatter::truncate_body_preview;
     use codelens_engine::{RankedContextEntry, RankedContextResult, SemanticMatch};
     use serde_json::json;

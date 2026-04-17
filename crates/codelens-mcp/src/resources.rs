@@ -107,8 +107,25 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
         "codelens://tools/list/full" => {
             json_resource(uri, visible_tool_details(state, uri, params))
         }
+        "codelens://surface/manifest" => json_resource(
+            uri,
+            crate::surface_manifest::build_surface_manifest_for_state(state),
+        ),
+        "codelens://harness/modes" => json_resource(
+            uri,
+            crate::surface_manifest::build_surface_manifest_for_state(state)["harness_modes"]
+                .clone(),
+        ),
         "codelens://stats/token-efficiency" => {
-            let metrics_payload = build_session_metrics_payload(state);
+            let metrics_payload = build_session_metrics_payload(
+                state,
+                if request.session.is_local() {
+                    None
+                } else {
+                    Some(request.session.session_id.as_str())
+                },
+                request.session.project_path.as_deref(),
+            );
             let mut stats = metrics_payload.session;
             stats.insert("derived_kpis".to_owned(), metrics_payload.derived_kpis);
             json_resource(uri, Value::Object(stats))
@@ -148,9 +165,24 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             let section = parts.next().unwrap_or("summary");
             if let Some(artifact) = state.get_analysis(analysis_id) {
                 let content = if section == "summary" {
-                    state.metrics().record_analysis_read(false);
+                    state.metrics().record_analysis_read_for_session(
+                        false,
+                        if request.session.is_local() {
+                            None
+                        } else {
+                            Some(request.session.session_id.as_str())
+                        },
+                    );
                     analysis_summary_payload(&artifact)
                 } else {
+                    state.metrics().record_analysis_read_for_session(
+                        true,
+                        if request.session.is_local() {
+                            None
+                        } else {
+                            Some(request.session.session_id.as_str())
+                        },
+                    );
                     state
                         .get_analysis_section(analysis_id, section)
                         .unwrap_or_else(

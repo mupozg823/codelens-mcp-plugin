@@ -139,6 +139,7 @@ pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResul
         sections,
         touched_files,
         None,
+        Some(arguments),
     );
     if !overlapping_claims.is_empty()
         && let Ok((payload, _meta)) = &mut result
@@ -171,7 +172,14 @@ pub fn verify_change_readiness(state: &AppState, arguments: &Value) -> ToolResul
         };
         state
             .metrics()
-            .record_coordination_overlap_emitted(caution_applied);
+            .record_coordination_overlap_emitted_for_session(
+                caution_applied,
+                Some(
+                    crate::session_context::SessionRequestContext::from_json(arguments)
+                        .session_id
+                        .as_str(),
+                ),
+            );
     }
     result
 }
@@ -238,6 +246,7 @@ pub fn safe_rename_report(state: &AppState, arguments: &Value) -> ToolResult {
         sections,
         vec![file_path.to_owned()],
         Some(symbol.to_owned()),
+        Some(arguments),
     )
 }
 
@@ -341,5 +350,6 @@ pub fn unresolved_reference_check(state: &AppState, arguments: &Value) -> ToolRe
         sections,
         touched_files,
         symbol.map(ToOwned::to_owned),
+        Some(arguments),
     )
 }

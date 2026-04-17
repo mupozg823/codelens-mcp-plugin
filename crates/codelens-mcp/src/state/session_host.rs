@@ -7,8 +7,8 @@ use serde_json::Value;
 
 use crate::error::CodeLensError;
 
-use super::session_runtime;
 use super::AppState;
+use super::session_runtime;
 
 impl AppState {
     pub(crate) fn current_project_scope(&self) -> String {

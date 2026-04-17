@@ -130,6 +130,8 @@ pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
         "set_profile"                  => session::set_profile,
         "get_capabilities"             => session::get_capabilities,
         "get_tool_metrics"             => session::get_tool_metrics,
+        "audit_builder_session"        => session::audit_builder_session,
+        "audit_planner_session"        => session::audit_planner_session,
         "export_session_markdown"      => session::export_session_markdown,
         // ── Composite ──
         "summarize_file"               => composite::summarize_file,

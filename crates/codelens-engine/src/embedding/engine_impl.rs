@@ -7,12 +7,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use super::cache::{
-    reusable_embedding_key_for_chunk, reusable_embedding_key_for_symbol, ReusableEmbeddingKey,
-    TextEmbeddingCache,
+    ReusableEmbeddingKey, TextEmbeddingCache, reusable_embedding_key_for_chunk,
+    reusable_embedding_key_for_symbol,
 };
 use super::chunk_ops::{
-    cosine_similarity, duplicate_candidate_limit, duplicate_pair_key, stored_chunk_key,
-    stored_chunk_key_for_score, CategoryScore, DuplicatePair, OutlierSymbol, StoredChunkKey,
+    CategoryScore, DuplicatePair, OutlierSymbol, StoredChunkKey, cosine_similarity,
+    duplicate_candidate_limit, duplicate_pair_key, stored_chunk_key, stored_chunk_key_for_score,
 };
 use super::ffi;
 use super::prompt::{
@@ -21,8 +21,8 @@ use super::prompt::{
 use super::runtime::{configured_rerank_blend, embed_batch_size, max_embed_symbols};
 use super::vec_store::SqliteVecStore;
 use super::{
-    EmbeddingEngine, EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch,
-    CHANGED_FILE_QUERY_CHUNK, DEFAULT_DUPLICATE_SCAN_BATCH_SIZE,
+    CHANGED_FILE_QUERY_CHUNK, DEFAULT_DUPLICATE_SCAN_BATCH_SIZE, EmbeddingEngine,
+    EmbeddingIndexInfo, EmbeddingRuntimeInfo, SemanticMatch,
 };
 use rusqlite::Connection;
 
