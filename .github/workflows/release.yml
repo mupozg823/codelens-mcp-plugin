@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
 
+env:
+  # Some actions@v4 are still bundled on Node 20; keeping the opt-in until
+  # all used actions ship a Node 24 variant prevents deprecation annotations.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build:
     name: Build (${{ matrix.name }})
@@ -192,7 +197,7 @@ jobs:
             --output release-manifest.json
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4
+        uses: sigstore/cosign-installer@v3
 
       - name: Sign release artifacts
         env:
@@ -229,7 +234,7 @@ jobs:
             --require-targets darwin-arm64,linux-x86_64,windows-x86_64
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2.1.0
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             codelens-mcp-airgap-*.tar.gz
