@@ -306,3 +306,53 @@ jobs:
           git add Formula/codelens-mcp.rb
           git diff --cached --quiet || git commit -m "codelens-mcp ${VERSION}"
           git push
+
+  publish-crates-io:
+    name: Publish to crates.io
+    needs: [publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Publish workspace crates
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          # crates.io publish runs only when the API token is configured.
+          # The workspace has three publishable crates with internal
+          # path+version deps, so the publish order matters:
+          #   codelens-engine  (leaf)
+          # → codelens-mcp     (depends on engine)
+          # → codelens-tui     (depends on engine)
+          #
+          # `cargo publish` waits for the registry index to become
+          # consistent before returning, so subsequent publishes can
+          # resolve the just-published dep. If the version already exists
+          # on crates.io (e.g. a previous run published engine but the
+          # workflow was retried), we treat that as a no-op rather than a
+          # failure.
+          if [[ -z "${CARGO_REGISTRY_TOKEN}" ]]; then
+            echo "CARGO_REGISTRY_TOKEN is not set; skipping crates.io publish."
+            exit 0
+          fi
+
+          publish_one() {
+            local pkg="$1"
+            echo "=== publishing $pkg ==="
+            if cargo publish -p "$pkg" 2>&1 | tee /tmp/publish.log; then
+              return 0
+            fi
+            if grep -q "crate version .* is already uploaded" /tmp/publish.log; then
+              echo "$pkg already published at this version; continuing."
+              return 0
+            fi
+            echo "$pkg publish failed; aborting."
+            return 1
+          }
+
+          publish_one codelens-engine
+          publish_one codelens-mcp
+          publish_one codelens-tui
