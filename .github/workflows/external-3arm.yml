@@ -1,0 +1,110 @@
+name: External 3-arm benchmark
+
+# Manual-trigger only by default. Uncomment the schedule block to run nightly
+# once the external repo prep job is stable. This benchmark is long-running
+# (minutes per repo × arm) and should not block the main CI hot path.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: Comma-separated repo slugs to measure (axum,ripgrep,django,typescript)
+        required: false
+        default: "axum,ripgrep,django,typescript"
+  # schedule:
+  #   - cron: "17 4 * * *"  # 04:17 UTC daily
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  external-3arm:
+    name: External 3-arm (${{ github.event.inputs.repos }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-3arm-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-3arm-
+
+      - name: Build release binary (semantic)
+        run: cargo build --release --features semantic
+
+      - name: Prepare external repo worktrees
+        shell: bash
+        env:
+          INPUT_REPOS: ${{ github.event.inputs.repos || 'axum,ripgrep,django,typescript' }}
+        run: |
+          set -euo pipefail
+          mkdir -p external-repos/bridges
+          declare -A REPO_URL=(
+            [axum]=https://github.com/tokio-rs/axum
+            [ripgrep]=https://github.com/BurntSushi/ripgrep
+            [django]=https://github.com/django/django
+            [typescript]=https://github.com/microsoft/TypeScript
+          )
+          IFS=',' read -ra SLUGS <<< "$INPUT_REPOS"
+          for slug in "${SLUGS[@]}"; do
+            url="${REPO_URL[$slug]:-}"
+            if [[ -z "$url" ]]; then
+              echo "unknown slug: $slug" >&2
+              exit 2
+            fi
+            if [[ ! -d "external-repos/$slug" ]]; then
+              git clone --depth 1 "$url" "external-repos/$slug"
+            fi
+            # Copy optional per-repo bridges override, if present in the repo.
+            if [[ -f "benchmarks/bridges/${slug}.bridges.json" ]]; then
+              cp "benchmarks/bridges/${slug}.bridges.json" \
+                 "external-repos/bridges/${slug}.bridges.json"
+            fi
+          done
+
+      - name: Run external 3-arm matrix
+        shell: bash
+        env:
+          INPUT_REPOS: ${{ github.event.inputs.repos || 'axum,ripgrep,django,typescript' }}
+        run: |
+          set -euo pipefail
+          declare -A DATASETS=(
+            [axum]=benchmarks/embedding-quality-dataset-axum.json
+            [ripgrep]=benchmarks/embedding-quality-dataset-ripgrep.json
+            [django]=benchmarks/embedding-quality-dataset-django.json
+            [typescript]=benchmarks/embedding-quality-dataset-typescript.json
+          )
+          IFS=',' read -ra SLUGS <<< "$INPUT_REPOS"
+          args=()
+          for slug in "${SLUGS[@]}"; do
+            ds="${DATASETS[$slug]:-}"
+            if [[ -z "$ds" ]]; then
+              echo "no dataset registered for slug: $slug" >&2
+              exit 2
+            fi
+            args+=("${slug}:${ds}")
+          done
+          python3 benchmarks/external-3arm.py \
+            --repos-dir external-repos \
+            --datasets "${args[@]}" \
+            --output benchmarks/external-3arm-results.json
+          cat benchmarks/external-3arm-results.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload matrix artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: external-3arm-matrix
+          path: |
+            benchmarks/external-3arm-results.json
+            benchmarks/external-3arm-results.md
