@@ -5,7 +5,8 @@ use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::resources::{read_resource, resources};
 use crate::tool_defs::{
     is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
-    preferred_tier_labels, tool_namespace, tool_phase_label, tool_tier_label, visible_tools,
+    preferred_phase_labels, preferred_tier_labels, tool_namespace, tool_phase_label,
+    tool_tier_label, visible_tools,
 };
 use crate::AppState;
 use serde_json::{json, Map, Value};
@@ -315,6 +316,10 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 json!(preferred_namespaces),
             );
             payload.insert("preferred_tiers".to_owned(), json!(preferred_tiers));
+            payload.insert(
+                "preferred_phases".to_owned(),
+                json!(preferred_phase_labels(surface)),
+            );
             payload.insert("loaded_namespaces".to_owned(), json!(loaded_namespaces));
             payload.insert("loaded_tiers".to_owned(), json!(loaded_tiers));
             payload.insert(

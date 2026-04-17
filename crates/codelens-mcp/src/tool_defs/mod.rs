@@ -190,6 +190,29 @@ pub(crate) fn preferred_tier_labels(surface: ToolSurface) -> Vec<&'static str> {
         .collect()
 }
 
+/// First consumer of the `phase` tool alias introduced in v1.9.39/40.
+/// Each profile declares which phase(s) its visible surface is intended
+/// to serve. The mapping is advisory — `tools/list {"phase": ...}` still
+/// works as a standalone filter — but it lets hosts that already select
+/// a profile (the common case) get phase-scoped ordering guidance
+/// without issuing an extra list call per phase.
+pub(crate) fn preferred_phase_labels(surface: ToolSurface) -> Vec<&'static str> {
+    match surface {
+        ToolSurface::Profile(ToolProfile::PlannerReadonly) => vec!["plan", "review"],
+        ToolSurface::Profile(ToolProfile::BuilderMinimal) => vec!["build", "review"],
+        ToolSurface::Profile(ToolProfile::ReviewerGraph) => vec!["review", "eval"],
+        ToolSurface::Profile(ToolProfile::EvaluatorCompact) => vec!["eval"],
+        ToolSurface::Profile(ToolProfile::RefactorFull) => vec!["build", "review"],
+        ToolSurface::Profile(ToolProfile::CiAudit) => vec!["review", "eval"],
+        // workflow-first is deliberately phase-agnostic — it exposes
+        // the short high-value workflow surface to every phase.
+        ToolSurface::Profile(ToolProfile::WorkflowFirst) => vec![],
+        // Presets are version-legacy concepts; phase shaping is a
+        // profile-layer decision.
+        ToolSurface::Preset(_) => vec![],
+    }
+}
+
 pub(crate) fn visible_tiers(surface: ToolSurface) -> Vec<&'static str> {
     let mut tiers = raw_visible_tools(surface)
         .into_iter()

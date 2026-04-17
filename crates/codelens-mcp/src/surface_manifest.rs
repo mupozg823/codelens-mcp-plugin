@@ -1,7 +1,8 @@
 use crate::state::RuntimeDaemonMode;
 use crate::tool_defs::{
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_phase_label, tool_tier_label,
-    tools, visible_tools, ToolPreset, ToolProfile, ToolSurface, ALL_PRESETS, ALL_PROFILES,
+    preferred_namespaces, preferred_phase_labels, preferred_tier_labels, tool_namespace,
+    tool_phase_label, tool_tier_label, tools, visible_tools, ToolPreset, ToolProfile, ToolSurface,
+    ALL_PRESETS, ALL_PROFILES,
 };
 use crate::AppState;
 use serde_json::{json, Value};
@@ -68,6 +69,7 @@ pub(crate) fn build_surface_manifest(
                 "tool_count": visible.len(),
                 "preferred_namespaces": preferred_namespaces(surface),
                 "preferred_tiers": preferred_tier_labels(surface),
+                "preferred_phases": preferred_phase_labels(surface),
                 "tools": visible.iter().map(|tool| tool.name).collect::<Vec<_>>(),
             })
         })

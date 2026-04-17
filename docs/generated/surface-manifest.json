@@ -924,6 +924,10 @@
         "preferred_tiers": [
           "workflow"
         ],
+        "preferred_phases": [
+          "plan",
+          "review"
+        ],
         "tools": [
           "explore_codebase",
           "review_architecture",
@@ -976,6 +980,10 @@
           "analysis",
           "primitive"
         ],
+        "preferred_phases": [
+          "build",
+          "review"
+        ],
         "tools": [
           "explore_codebase",
           "trace_request_path",
@@ -1026,6 +1034,10 @@
         ],
         "preferred_tiers": [
           "workflow"
+        ],
+        "preferred_phases": [
+          "review",
+          "eval"
         ],
         "tools": [
           "review_architecture",
@@ -1078,6 +1090,9 @@
           "primitive",
           "analysis"
         ],
+        "preferred_phases": [
+          "eval"
+        ],
         "tools": [
           "get_analysis_section",
           "get_symbols_overview",
@@ -1104,6 +1119,10 @@
         ],
         "preferred_tiers": [
           "workflow"
+        ],
+        "preferred_phases": [
+          "build",
+          "review"
         ],
         "tools": [
           "plan_safe_refactor",
@@ -1168,6 +1187,10 @@
         "preferred_tiers": [
           "workflow"
         ],
+        "preferred_phases": [
+          "review",
+          "eval"
+        ],
         "tools": [
           "review_changes",
           "cleanup_duplicate_logic",
@@ -1224,6 +1247,7 @@
         "preferred_tiers": [
           "workflow"
         ],
+        "preferred_phases": [],
         "tools": [
           "explore_codebase",
           "trace_request_path",

@@ -250,6 +250,72 @@ fn tools_list_can_be_filtered_by_phase() {
 }
 
 #[test]
+fn profile_declares_preferred_phases_as_adoption_signal() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+    // planner-readonly is curated to emit plan + review tools as its
+    // preferred phase surface; the manifest field proves CodeLens
+    // itself consumes the phase alias, not just its hosts.
+    let _ = call_tool(
+        &state,
+        "set_profile",
+        json!({"profile": "planner-readonly"}),
+    );
+
+    let list_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(301)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({})),
+        },
+    )
+    .unwrap();
+    let encoded = serde_json::to_string(&list_resp).unwrap();
+    assert!(
+        encoded.contains("\"preferred_phases\":[\"plan\",\"review\"]"),
+        "planner-readonly must advertise plan+review as preferred phases"
+    );
+
+    // builder-minimal advertises build+review.
+    let _ = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
+    let list_builder = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(302)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({})),
+        },
+    )
+    .unwrap();
+    let encoded_builder = serde_json::to_string(&list_builder).unwrap();
+    assert!(
+        encoded_builder.contains("\"preferred_phases\":[\"build\",\"review\"]"),
+        "builder-minimal must advertise build+review as preferred phases"
+    );
+
+    // workflow-first is intentionally phase-agnostic.
+    let _ = call_tool(&state, "set_profile", json!({"profile": "workflow-first"}));
+    let list_workflow = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(303)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({})),
+        },
+    )
+    .unwrap();
+    let encoded_workflow = serde_json::to_string(&list_workflow).unwrap();
+    assert!(
+        encoded_workflow.contains("\"preferred_phases\":[]"),
+        "workflow-first must remain phase-agnostic"
+    );
+}
+
+#[test]
 fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
