@@ -1,14 +1,14 @@
-use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_context::SessionRequestContext;
 use crate::telemetry::ToolInvocation;
 use crate::tool_defs::is_content_mutation_tool;
-use crate::tool_runtime::{ToolResult, success_meta};
-use serde_json::{Value, json};
+use crate::tool_runtime::{success_meta, ToolResult};
+use crate::AppState;
+use serde_json::{json, Value};
 
 use super::audit_common::{
-    CHECK_FAIL, CHECK_NA, CHECK_PASS, CHECK_WARN, add_check, collect_seen_paths,
-    is_planner_surface, missing_paths, push_unique, resolve_audit_session_view,
+    add_check, collect_seen_paths, is_planner_surface, missing_paths, push_unique,
+    resolve_audit_session_view, CHECK_FAIL, CHECK_NA, CHECK_PASS, CHECK_WARN,
 };
 
 const CHANGE_EVIDENCE_WORKFLOWS: &[&str] = &[
@@ -101,7 +101,7 @@ fn role_audit_session_summary(
     })
 }
 
-pub(super) fn build_planner_session_audit(
+pub(crate) fn build_planner_session_audit(
     state: &AppState,
     arguments: &Value,
 ) -> Result<Value, crate::error::CodeLensError> {

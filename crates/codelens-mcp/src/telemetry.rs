@@ -562,6 +562,18 @@ impl ToolMetricsRegistry {
             .unwrap_or_default()
     }
 
+    /// Enumerate logical session ids currently tracked in the telemetry
+    /// bucket map. Used by aggregation surfaces such as `eval_session_audit`
+    /// that need to iterate every known session in one pass.
+    pub fn tracked_session_ids(&self) -> Vec<String> {
+        self.session_buckets
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .keys()
+            .cloned()
+            .collect()
+    }
+
     /// Return the number of calls recorded for the logical session within
     /// the recent sliding window used by dispatch rate limiting.
     pub fn session_call_count(&self, logical_session_id: &str) -> u64 {

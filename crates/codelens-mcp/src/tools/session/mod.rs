@@ -1,8 +1,8 @@
 mod audit_common;
-mod builder_audit;
+pub(crate) mod builder_audit;
 mod coordination;
 pub(crate) mod metrics_config;
-mod planner_audit;
+pub(crate) mod planner_audit;
 mod project_ops;
 
 pub use builder_audit::audit_builder_session;

@@ -1,0 +1,11 @@
+{
+  "$schema_note": "Ground truth for offline eval lane `eval_tool_selection` (ADR-0005 §5 Horizon 1). Each entry pairs a user-framed task with the tool (and expected arguments) the agent SHOULD pick at that step. Populate only from real captured sessions to avoid synthetic self-grading. Minimum shipable sample count: 30.",
+  "schema_version": "codelens-tool-selection-dataset-v1",
+  "collection_protocol": {
+    "source": "opt-in anonymized session traces under .codelens/eval-traces/ (Horizon 1 item #2)",
+    "redaction": "PII-scrubbed; file paths kept only if inside the project scope; user query text rewritten into canonical task form",
+    "labelling": "at least two reviewers agree on the correct_tool before a sample is committed to this file",
+    "rejection_policy": "samples where reviewers disagree go to tool-selection-dataset-pending.json, not here"
+  },
+  "samples": []
+}

@@ -259,6 +259,13 @@ fn build_harness_spec() -> Value {
             "hard_blocks_added_by_spec": false,
             "recommended_transport": "http",
             "preferred_communication_pattern": "asymmetric-handoff",
+            "routing_policy": {
+                "global_default": "conditional-codelens-first",
+                "simple_local_lookup_edit": "native-first",
+                "multi_file_review_refactor": "codelens-first-after-bootstrap",
+                "long_running_analysis": "codelens-job-first",
+                "reason": "CodeLens adds bootstrap and protocol overhead that is not worth paying for trivial point lookups, but wins when bounded workflow evidence, session-scoped audit, or reusable artifacts matter."
+            },
             "ttl_policy": {
                 "strategy": "expected_duration_x_1_5",
                 "default_secs": 600,
