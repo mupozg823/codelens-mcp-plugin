@@ -116,6 +116,7 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 - Builder -> planner escalation: `explicit-only`
 - Canonical harness modes: `solo-local`, `planner-builder`, `reviewer-gate`, `batch-analysis`
 - Runtime resources: `codelens://harness/modes`, `codelens://harness/spec`
+- Handoff schema resource: `codelens://schemas/handoff-artifact/v1`
 <!-- SURFACE_MANIFEST_PLATFORM_HARNESS:END -->
 
 Live Claude/Codex bidirectional chat is not the default operating model. The recommended pattern is still asymmetric handoff over shared CodeLens state, with builder-to-planner escalation kept explicit and rare.

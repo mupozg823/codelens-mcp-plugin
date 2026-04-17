@@ -1,10 +1,10 @@
-use crate::AppState;
 use crate::state::RuntimeDaemonMode;
 use crate::tool_defs::{
-    ALL_PRESETS, ALL_PROFILES, ToolPreset, ToolProfile, ToolSurface, preferred_namespaces,
-    preferred_tier_labels, tool_namespace, tool_tier_label, tools, visible_tools,
+    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_phase_label, tool_tier_label,
+    tools, visible_tools, ToolPreset, ToolProfile, ToolSurface, ALL_PRESETS, ALL_PROFILES,
 };
-use serde_json::{Value, json};
+use crate::AppState;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const SURFACE_MANIFEST_SCHEMA_VERSION: &str = "codelens-surface-manifest-v1";
@@ -48,6 +48,13 @@ pub(crate) fn build_surface_manifest(
         .fold(BTreeMap::new(), |mut acc, tool| {
             *acc.entry(tool_tier_label(tool.name).to_owned())
                 .or_insert(0usize) += 1;
+            acc
+        });
+    let phase_counts = tool_definitions
+        .iter()
+        .fold(BTreeMap::new(), |mut acc, tool| {
+            let key = tool_phase_label(tool.name).unwrap_or("agnostic").to_owned();
+            *acc.entry(key).or_insert(0usize) += 1;
             acc
         });
 
@@ -106,11 +113,13 @@ pub(crate) fn build_surface_manifest(
             "output_schema_count": output_schema_count,
             "namespaces": namespace_counts,
             "tiers": tier_counts,
+            "phases": phase_counts,
             "tools": tool_definitions.iter().map(|tool| {
                 json!({
                     "name": tool.name,
                     "namespace": tool_namespace(tool.name),
                     "tier": tool_tier_label(tool.name),
+                    "phase": tool_phase_label(tool.name),
                     "has_output_schema": tool.output_schema.is_some(),
                     "estimated_tokens": tool.estimated_tokens,
                 })
@@ -944,12 +953,10 @@ mod tests {
         );
         assert_eq!(
             manifest["tool_registry"]["output_schema_count"],
-            json!(
-                tools()
-                    .iter()
-                    .filter(|tool| tool.output_schema.is_some())
-                    .count()
-            )
+            json!(tools()
+                .iter()
+                .filter(|tool| tool.output_schema.is_some())
+                .count())
         );
         assert_eq!(
             manifest["runtime"]["visible_tool_count"],
@@ -958,7 +965,10 @@ mod tests {
         assert_eq!(manifest["workspace"]["member_count"], json!(3));
         assert_eq!(manifest["summary"]["harness_mode_count"], json!(4));
         assert_eq!(manifest["summary"]["harness_contract_count"], json!(3));
-        assert_eq!(manifest["summary"]["harness_artifact_schema_count"], json!(1));
+        assert_eq!(
+            manifest["summary"]["harness_artifact_schema_count"],
+            json!(1)
+        );
         assert_eq!(
             manifest["harness_modes"]["schema_version"],
             json!(HARNESS_MODES_SCHEMA_VERSION)
@@ -967,27 +977,22 @@ mod tests {
             manifest["harness_spec"]["schema_version"],
             json!(HARNESS_SPEC_SCHEMA_VERSION)
         );
-        assert!(
-            manifest["harness_modes"]["modes"]
-                .as_array()
-                .is_some_and(|modes| modes
-                    .iter()
-                    .any(|mode| mode["name"] == json!("planner-builder")))
-        );
-        assert!(
-            manifest["harness_spec"]["contracts"]
-                .as_array()
-                .is_some_and(|contracts| contracts
-                    .iter()
-                    .any(|contract| contract["name"] == json!("planner-builder-handoff")))
-        );
-        assert!(
-            manifest["harness_artifacts"]["schemas"]
-                .as_array()
-                .is_some_and(|schemas| schemas
-                    .iter()
-                    .any(|schema| schema["runtime_resource"] == json!(HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI)))
-        );
+        assert!(manifest["harness_modes"]["modes"]
+            .as_array()
+            .is_some_and(|modes| modes
+                .iter()
+                .any(|mode| mode["name"] == json!("planner-builder"))));
+        assert!(manifest["harness_spec"]["contracts"]
+            .as_array()
+            .is_some_and(|contracts| contracts
+                .iter()
+                .any(|contract| contract["name"] == json!("planner-builder-handoff"))));
+        assert!(manifest["harness_artifacts"]["schemas"]
+            .as_array()
+            .is_some_and(|schemas| schemas
+                .iter()
+                .any(|schema| schema["runtime_resource"]
+                    == json!(HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI))));
 
         let manifest_profiles = manifest["surfaces"]["profiles"]
             .as_array()

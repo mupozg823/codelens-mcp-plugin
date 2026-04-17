@@ -61,6 +61,42 @@ pub enum ToolTier {
     Workflow,
 }
 
+/// Harness phase alias — phase-aware surface reduction per ADR-0005 step 4.
+/// Tools mapped to `None` are substrate/infrastructure visible across phases.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolPhase {
+    /// Planning phase — read-only context, ranked retrieval, pre-change analysis.
+    Plan,
+    /// Build phase — mutation, refactor, edit primitives.
+    Build,
+    /// Review phase — diagnostics, diff-aware inspection, verifier/audit reports.
+    Review,
+    /// Eval phase — telemetry export, audit export, analysis artifact retrieval.
+    Eval,
+}
+
+impl ToolPhase {
+    pub const fn as_label(self) -> &'static str {
+        match self {
+            Self::Plan => "plan",
+            Self::Build => "build",
+            Self::Review => "review",
+            Self::Eval => "eval",
+        }
+    }
+
+    pub fn from_label(label: &str) -> Option<Self> {
+        match label {
+            "plan" => Some(Self::Plan),
+            "build" => Some(Self::Build),
+            "review" => Some(Self::Review),
+            "eval" => Some(Self::Eval),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct ToolAnnotations {
     #[serde(rename = "readOnlyHint", skip_serializing_if = "Option::is_none")]

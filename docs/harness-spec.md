@@ -16,6 +16,7 @@ This document is generated from the same canonical manifest that powers the runt
 - TTL default/max: `600` / `3600` seconds
 - Explicit release preferred: `true`
 - Runtime resource: `codelens://harness/spec`
+- Handoff artifact schema: `codelens://schemas/handoff-artifact/v1` (codelens-handoff-artifact-v1)
 <!-- SURFACE_MANIFEST_HARNESS_SPEC_OVERVIEW:END -->
 
 ## Contracts

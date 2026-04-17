@@ -523,6 +523,106 @@ pub(crate) fn is_tool_in_preset(name: &str, preset: ToolPreset) -> bool {
 
 // ── Namespace mapping ──────────────────────────────────────────────────
 
+/// Phase alias per ADR-0005 step 4 — harness-phase scoping for `tools/list`
+/// filter without introducing a second tool registry. Returning `None` marks
+/// the tool as phase-agnostic (infrastructure / coordination).
+pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
+    use crate::protocol::ToolPhase;
+    match name {
+        // Plan — analyze/retrieve/orient before deciding to edit.
+        "analyze_change_request"
+        | "explore_codebase"
+        | "trace_request_path"
+        | "review_architecture"
+        | "plan_safe_refactor"
+        | "plan_symbol_rename"
+        | "analyze_change_impact"
+        | "find_minimal_context_for_change"
+        | "summarize_symbol_impact"
+        | "module_boundary_report"
+        | "mermaid_module_graph"
+        | "impact_report"
+        | "get_impact_analysis"
+        | "onboard_project"
+        | "get_ranked_context"
+        | "get_symbols_overview"
+        | "find_symbol"
+        | "find_referencing_symbols"
+        | "search_symbols_fuzzy"
+        | "search_workspace_symbols"
+        | "get_type_hierarchy"
+        | "semantic_search"
+        | "index_embeddings"
+        | "find_scoped_references"
+        | "get_symbol_importance"
+        | "get_change_coupling"
+        | "get_complexity"
+        | "find_similar_code"
+        | "get_changed_files" => Some(ToolPhase::Plan),
+
+        // Build — mutation surface.
+        "rename_symbol"
+        | "replace_symbol_body"
+        | "delete_lines"
+        | "insert_at_line"
+        | "insert_before_symbol"
+        | "insert_after_symbol"
+        | "insert_content"
+        | "replace_content"
+        | "replace_lines"
+        | "replace"
+        | "create_text_file"
+        | "add_import"
+        | "refactor_extract_function"
+        | "refactor_inline_function"
+        | "refactor_move_to_file"
+        | "refactor_change_signature"
+        | "cleanup_duplicate_logic"
+        | "propagate_deletions" => Some(ToolPhase::Build),
+
+        // Review — post-edit safety, verifier, diff-aware inspection, audits.
+        "review_changes"
+        | "diff_aware_references"
+        | "verify_change_readiness"
+        | "assess_change_readiness"
+        | "safe_rename_report"
+        | "refactor_safety_report"
+        | "unresolved_reference_check"
+        | "dead_code_report"
+        | "find_dead_code"
+        | "find_circular_dependencies"
+        | "find_misplaced_code"
+        | "find_code_duplicates"
+        | "classify_symbol"
+        | "diagnose_issues"
+        | "audit_security_context"
+        | "get_file_diagnostics"
+        | "check_lsp_status"
+        | "get_lsp_recipe"
+        | "audit_builder_session"
+        | "audit_planner_session"
+        | "semantic_code_review" => Some(ToolPhase::Review),
+
+        // Eval — telemetry, audit export, analysis artifact retrieval.
+        "get_tool_metrics"
+        | "export_session_markdown"
+        | "start_analysis_job"
+        | "get_analysis_job"
+        | "cancel_analysis_job"
+        | "get_analysis_section"
+        | "list_analysis_jobs"
+        | "list_analysis_artifacts" => Some(ToolPhase::Eval),
+
+        // Infrastructure (filesystem, memory, session coordination) is
+        // deliberately phase-agnostic: used in every phase.
+        _ => None,
+    }
+}
+
+pub(crate) fn tool_phase_label(name: &str) -> Option<&'static str> {
+    tool_phase(name).map(|p| p.as_label())
+}
+
 pub(crate) fn tool_namespace(name: &str) -> &'static str {
     match name {
         "read_file" | "list_dir" | "find_file" | "search_for_pattern" | "find_annotations"

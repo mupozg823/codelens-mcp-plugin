@@ -131,10 +131,9 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             crate::surface_manifest::build_surface_manifest_for_state(state)["harness_spec"]
                 .clone(),
         ),
-        "codelens://schemas/handoff-artifact/v1" => schema_resource(
-            uri,
-            crate::surface_manifest::handoff_artifact_schema_json(),
-        ),
+        "codelens://schemas/handoff-artifact/v1" => {
+            schema_resource(uri, crate::surface_manifest::handoff_artifact_schema_json())
+        }
         "codelens://stats/token-efficiency" => {
             let metrics_payload = build_session_metrics_payload(
                 state,

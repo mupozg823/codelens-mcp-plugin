@@ -28,11 +28,19 @@
       "primitive": 56,
       "workflow": 32
     },
+    "phases": {
+      "agnostic": 33,
+      "build": 18,
+      "eval": 8,
+      "plan": 29,
+      "review": 21
+    },
     "tools": [
       {
         "name": "get_current_config",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 159
       },
@@ -40,6 +48,7 @@
         "name": "read_file",
         "namespace": "filesystem",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 119
       },
@@ -47,6 +56,7 @@
         "name": "list_dir",
         "namespace": "filesystem",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 93
       },
@@ -54,6 +64,7 @@
         "name": "find_file",
         "namespace": "filesystem",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 91
       },
@@ -61,6 +72,7 @@
         "name": "search_for_pattern",
         "namespace": "filesystem",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 306
       },
@@ -68,6 +80,7 @@
         "name": "find_annotations",
         "namespace": "filesystem",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 148
       },
@@ -75,6 +88,7 @@
         "name": "find_tests",
         "namespace": "filesystem",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 142
       },
@@ -82,6 +96,7 @@
         "name": "get_symbols_overview",
         "namespace": "symbols",
         "tier": "primitive",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 254
       },
@@ -89,6 +104,7 @@
         "name": "find_symbol",
         "namespace": "symbols",
         "tier": "primitive",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 304
       },
@@ -96,6 +112,7 @@
         "name": "get_ranked_context",
         "namespace": "symbols",
         "tier": "analysis",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 418
       },
@@ -103,6 +120,7 @@
         "name": "search_symbols_fuzzy",
         "namespace": "symbols",
         "tier": "analysis",
+        "phase": "plan",
         "has_output_schema": false,
         "estimated_tokens": 181
       },
@@ -110,6 +128,7 @@
         "name": "get_complexity",
         "namespace": "graph",
         "tier": "analysis",
+        "phase": "plan",
         "has_output_schema": false,
         "estimated_tokens": 96
       },
@@ -117,6 +136,7 @@
         "name": "refresh_symbol_index",
         "namespace": "session",
         "tier": "workflow",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 80
       },
@@ -124,6 +144,7 @@
         "name": "get_project_structure",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 154
       },
@@ -131,6 +152,7 @@
         "name": "find_referencing_symbols",
         "namespace": "symbols",
         "tier": "primitive",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 337
       },
@@ -138,6 +160,7 @@
         "name": "get_file_diagnostics",
         "namespace": "lsp",
         "tier": "primitive",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 180
       },
@@ -145,6 +168,7 @@
         "name": "search_workspace_symbols",
         "namespace": "symbols",
         "tier": "primitive",
+        "phase": "plan",
         "has_output_schema": false,
         "estimated_tokens": 122
       },
@@ -152,6 +176,7 @@
         "name": "get_type_hierarchy",
         "namespace": "symbols",
         "tier": "analysis",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 207
       },
@@ -159,6 +184,7 @@
         "name": "plan_symbol_rename",
         "namespace": "symbols",
         "tier": "analysis",
+        "phase": "plan",
         "has_output_schema": false,
         "estimated_tokens": 133
       },
@@ -166,6 +192,7 @@
         "name": "check_lsp_status",
         "namespace": "lsp",
         "tier": "primitive",
+        "phase": "review",
         "has_output_schema": false,
         "estimated_tokens": 71
       },
@@ -173,6 +200,7 @@
         "name": "get_lsp_recipe",
         "namespace": "lsp",
         "tier": "primitive",
+        "phase": "review",
         "has_output_schema": false,
         "estimated_tokens": 98
       },
@@ -180,6 +208,7 @@
         "name": "get_changed_files",
         "namespace": "graph",
         "tier": "primitive",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 150
       },
@@ -187,6 +216,7 @@
         "name": "get_impact_analysis",
         "namespace": "graph",
         "tier": "analysis",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 246
       },
@@ -194,6 +224,7 @@
         "name": "find_scoped_references",
         "namespace": "graph",
         "tier": "analysis",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 259
       },
@@ -201,6 +232,7 @@
         "name": "get_symbol_importance",
         "namespace": "graph",
         "tier": "analysis",
+        "phase": "plan",
         "has_output_schema": false,
         "estimated_tokens": 85
       },
@@ -208,6 +240,7 @@
         "name": "find_dead_code",
         "namespace": "graph",
         "tier": "analysis",
+        "phase": "review",
         "has_output_schema": false,
         "estimated_tokens": 99
       },
@@ -215,6 +248,7 @@
         "name": "find_circular_dependencies",
         "namespace": "graph",
         "tier": "analysis",
+        "phase": "review",
         "has_output_schema": false,
         "estimated_tokens": 83
       },
@@ -222,6 +256,7 @@
         "name": "get_change_coupling",
         "namespace": "graph",
         "tier": "analysis",
+        "phase": "plan",
         "has_output_schema": false,
         "estimated_tokens": 105
       },
@@ -229,6 +264,7 @@
         "name": "rename_symbol",
         "namespace": "mutation",
         "tier": "analysis",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 316
       },
@@ -236,6 +272,7 @@
         "name": "replace_symbol_body",
         "namespace": "mutation",
         "tier": "workflow",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 153
       },
@@ -243,6 +280,7 @@
         "name": "replace_content",
         "namespace": "mutation",
         "tier": "primitive",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 183
       },
@@ -250,6 +288,7 @@
         "name": "replace_lines",
         "namespace": "mutation",
         "tier": "primitive",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 151
       },
@@ -257,6 +296,7 @@
         "name": "delete_lines",
         "namespace": "mutation",
         "tier": "primitive",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 129
       },
@@ -264,6 +304,7 @@
         "name": "insert_at_line",
         "namespace": "mutation",
         "tier": "primitive",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 135
       },
@@ -271,6 +312,7 @@
         "name": "insert_before_symbol",
         "namespace": "mutation",
         "tier": "primitive",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 146
       },
@@ -278,6 +320,7 @@
         "name": "insert_after_symbol",
         "namespace": "mutation",
         "tier": "primitive",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 146
       },
@@ -285,6 +328,7 @@
         "name": "insert_content",
         "namespace": "mutation",
         "tier": "primitive",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 219
       },
@@ -292,6 +336,7 @@
         "name": "replace",
         "namespace": "mutation",
         "tier": "primitive",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 291
       },
@@ -299,6 +344,7 @@
         "name": "create_text_file",
         "namespace": "mutation",
         "tier": "primitive",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 146
       },
@@ -306,6 +352,7 @@
         "name": "analyze_missing_imports",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 89
       },
@@ -313,6 +360,7 @@
         "name": "add_import",
         "namespace": "mutation",
         "tier": "primitive",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 165
       },
@@ -320,6 +368,7 @@
         "name": "refactor_extract_function",
         "namespace": "mutation",
         "tier": "workflow",
+        "phase": "build",
         "has_output_schema": false,
         "estimated_tokens": 164
       },
@@ -327,6 +376,7 @@
         "name": "refactor_inline_function",
         "namespace": "mutation",
         "tier": "workflow",
+        "phase": "build",
         "has_output_schema": false,
         "estimated_tokens": 177
       },
@@ -334,6 +384,7 @@
         "name": "refactor_move_to_file",
         "namespace": "mutation",
         "tier": "analysis",
+        "phase": "build",
         "has_output_schema": false,
         "estimated_tokens": 182
       },
@@ -341,6 +392,7 @@
         "name": "refactor_change_signature",
         "namespace": "mutation",
         "tier": "analysis",
+        "phase": "build",
         "has_output_schema": false,
         "estimated_tokens": 217
       },
@@ -348,6 +400,7 @@
         "name": "propagate_deletions",
         "namespace": "session",
         "tier": "workflow",
+        "phase": "build",
         "has_output_schema": false,
         "estimated_tokens": 158
       },
@@ -355,6 +408,7 @@
         "name": "explore_codebase",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 198
       },
@@ -362,6 +416,7 @@
         "name": "trace_request_path",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 179
       },
@@ -369,6 +424,7 @@
         "name": "review_architecture",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 168
       },
@@ -376,6 +432,7 @@
         "name": "plan_safe_refactor",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 190
       },
@@ -383,6 +440,7 @@
         "name": "audit_security_context",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 177
       },
@@ -390,6 +448,7 @@
         "name": "analyze_change_impact",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 176
       },
@@ -397,6 +456,7 @@
         "name": "cleanup_duplicate_logic",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "build",
         "has_output_schema": true,
         "estimated_tokens": 187
       },
@@ -404,6 +464,7 @@
         "name": "review_changes",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 194
       },
@@ -411,6 +472,7 @@
         "name": "assess_change_readiness",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 206
       },
@@ -418,6 +480,7 @@
         "name": "diagnose_issues",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 185
       },
@@ -425,6 +488,7 @@
         "name": "onboard_project",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 152
       },
@@ -432,6 +496,7 @@
         "name": "analyze_change_request",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 719
       },
@@ -439,6 +504,7 @@
         "name": "verify_change_readiness",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 719
       },
@@ -446,6 +512,7 @@
         "name": "find_minimal_context_for_change",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 674
       },
@@ -453,6 +520,7 @@
         "name": "summarize_symbol_impact",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 685
       },
@@ -460,6 +528,7 @@
         "name": "module_boundary_report",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 673
       },
@@ -467,6 +536,7 @@
         "name": "mermaid_module_graph",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 702
       },
@@ -474,6 +544,7 @@
         "name": "safe_rename_report",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 688
       },
@@ -481,6 +552,7 @@
         "name": "unresolved_reference_check",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 698
       },
@@ -488,6 +560,7 @@
         "name": "dead_code_report",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 673
       },
@@ -495,6 +568,7 @@
         "name": "impact_report",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 681
       },
@@ -502,6 +576,7 @@
         "name": "refactor_safety_report",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 689
       },
@@ -509,6 +584,7 @@
         "name": "diff_aware_references",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 674
       },
@@ -516,6 +592,7 @@
         "name": "semantic_code_review",
         "namespace": "session",
         "tier": "workflow",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 683
       },
@@ -523,6 +600,7 @@
         "name": "start_analysis_job",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "eval",
         "has_output_schema": true,
         "estimated_tokens": 340
       },
@@ -530,6 +608,7 @@
         "name": "get_analysis_job",
         "namespace": "reports",
         "tier": "primitive",
+        "phase": "eval",
         "has_output_schema": true,
         "estimated_tokens": 239
       },
@@ -537,6 +616,7 @@
         "name": "cancel_analysis_job",
         "namespace": "reports",
         "tier": "workflow",
+        "phase": "eval",
         "has_output_schema": true,
         "estimated_tokens": 249
       },
@@ -544,6 +624,7 @@
         "name": "list_analysis_jobs",
         "namespace": "session",
         "tier": "primitive",
+        "phase": "eval",
         "has_output_schema": true,
         "estimated_tokens": 310
       },
@@ -551,6 +632,7 @@
         "name": "list_analysis_artifacts",
         "namespace": "session",
         "tier": "primitive",
+        "phase": "eval",
         "has_output_schema": true,
         "estimated_tokens": 202
       },
@@ -558,6 +640,7 @@
         "name": "get_analysis_section",
         "namespace": "reports",
         "tier": "primitive",
+        "phase": "eval",
         "has_output_schema": true,
         "estimated_tokens": 127
       },
@@ -565,6 +648,7 @@
         "name": "list_memories",
         "namespace": "memory",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 120
       },
@@ -572,6 +656,7 @@
         "name": "read_memory",
         "namespace": "memory",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 81
       },
@@ -579,6 +664,7 @@
         "name": "write_memory",
         "namespace": "memory",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 88
       },
@@ -586,6 +672,7 @@
         "name": "delete_memory",
         "namespace": "memory",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 83
       },
@@ -593,6 +680,7 @@
         "name": "rename_memory",
         "namespace": "memory",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 96
       },
@@ -600,6 +688,7 @@
         "name": "activate_project",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 211
       },
@@ -607,6 +696,7 @@
         "name": "prepare_harness_session",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 2813
       },
@@ -614,6 +704,7 @@
         "name": "register_agent_work",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 211
       },
@@ -621,6 +712,7 @@
         "name": "list_active_agents",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 107
       },
@@ -628,6 +720,7 @@
         "name": "claim_files",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 225
       },
@@ -635,6 +728,7 @@
         "name": "release_files",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 194
       },
@@ -642,6 +736,7 @@
         "name": "prepare_for_new_conversation",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 75
       },
@@ -649,6 +744,7 @@
         "name": "summarize_changes",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 72
       },
@@ -656,6 +752,7 @@
         "name": "get_watch_status",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 197
       },
@@ -663,6 +760,7 @@
         "name": "prune_index_failures",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 159
       },
@@ -670,6 +768,7 @@
         "name": "add_queryable_project",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 94
       },
@@ -677,6 +776,7 @@
         "name": "remove_queryable_project",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 86
       },
@@ -684,6 +784,7 @@
         "name": "query_project",
         "namespace": "session",
         "tier": "analysis",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 138
       },
@@ -691,6 +792,7 @@
         "name": "list_queryable_projects",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 74
       },
@@ -698,6 +800,7 @@
         "name": "set_preset",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 122
       },
@@ -705,6 +808,7 @@
         "name": "set_profile",
         "namespace": "session",
         "tier": "primitive",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 131
       },
@@ -712,6 +816,7 @@
         "name": "get_capabilities",
         "namespace": "session",
         "tier": "analysis",
+        "phase": null,
         "has_output_schema": true,
         "estimated_tokens": 1017
       },
@@ -719,6 +824,7 @@
         "name": "get_tool_metrics",
         "namespace": "session",
         "tier": "primitive",
+        "phase": "eval",
         "has_output_schema": true,
         "estimated_tokens": 218
       },
@@ -726,6 +832,7 @@
         "name": "audit_builder_session",
         "namespace": "session",
         "tier": "analysis",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 351
       },
@@ -733,6 +840,7 @@
         "name": "audit_planner_session",
         "namespace": "session",
         "tier": "analysis",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 349
       },
@@ -740,6 +848,7 @@
         "name": "export_session_markdown",
         "namespace": "session",
         "tier": "primitive",
+        "phase": "eval",
         "has_output_schema": true,
         "estimated_tokens": 219
       },
@@ -747,6 +856,7 @@
         "name": "summarize_file",
         "namespace": "session",
         "tier": "workflow",
+        "phase": null,
         "has_output_schema": false,
         "estimated_tokens": 95
       },
@@ -754,6 +864,7 @@
         "name": "semantic_search",
         "namespace": "symbols",
         "tier": "primitive",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 298
       },
@@ -761,6 +872,7 @@
         "name": "index_embeddings",
         "namespace": "symbols",
         "tier": "primitive",
+        "phase": "plan",
         "has_output_schema": false,
         "estimated_tokens": 71
       },
@@ -768,6 +880,7 @@
         "name": "find_similar_code",
         "namespace": "graph",
         "tier": "analysis",
+        "phase": "plan",
         "has_output_schema": true,
         "estimated_tokens": 269
       },
@@ -775,6 +888,7 @@
         "name": "find_code_duplicates",
         "namespace": "graph",
         "tier": "analysis",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 214
       },
@@ -782,6 +896,7 @@
         "name": "classify_symbol",
         "namespace": "graph",
         "tier": "analysis",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 206
       },
@@ -789,6 +904,7 @@
         "name": "find_misplaced_code",
         "namespace": "graph",
         "tier": "primitive",
+        "phase": "review",
         "has_output_schema": true,
         "estimated_tokens": 188
       }
@@ -1987,6 +2103,23 @@
       }
     ]
   },
+  "harness_artifacts": {
+    "schemas": [
+      {
+        "name": "handoff-artifact-v1",
+        "title": "CodeLens Harness Handoff Artifact v1",
+        "schema_id": "https://codelens.mcp/schemas/handoff-artifact.v1.json",
+        "schema_version": "codelens-handoff-artifact-v1",
+        "runtime_resource": "codelens://schemas/handoff-artifact/v1",
+        "doc_path": "docs/schemas/handoff-artifact.v1.json",
+        "kinds": [
+          "planner_brief",
+          "builder_result",
+          "reviewer_verdict"
+        ]
+      }
+    ]
+  },
   "languages": {
     "language_family_count": 30,
     "extension_count": 49,
@@ -2375,6 +2508,7 @@
       "surface-manifest",
       "harness-modes",
       "portable-harness-spec",
+      "handoff-artifact-schema",
       "semantic-search",
       "streamable-http"
     ]
@@ -2389,6 +2523,7 @@
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,
+    "harness_artifact_schema_count": 1,
     "supported_language_families": 30,
     "supported_extensions": 49
   }

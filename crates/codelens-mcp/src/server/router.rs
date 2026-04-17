@@ -1,4 +1,3 @@
-use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::dispatch::dispatch_tool;
 use crate::prompts::{get_prompt, prompts};
@@ -6,9 +5,10 @@ use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
 use crate::resources::{read_resource, resources};
 use crate::tool_defs::{
     is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
-    preferred_tier_labels, tool_namespace, tool_tier_label, visible_tools,
+    preferred_tier_labels, tool_namespace, tool_phase_label, tool_tier_label, visible_tools,
 };
-use serde_json::{Map, Value, json};
+use crate::AppState;
+use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 
 fn visible_axes_from_tools(
@@ -145,6 +145,12 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 .as_ref()
                 .and_then(|params| params.get("tier"))
                 .and_then(|value| value.as_str());
+            let requested_phase = request
+                .params
+                .as_ref()
+                .and_then(|params| params.get("phase"))
+                .and_then(|value| value.as_str())
+                .and_then(crate::protocol::ToolPhase::from_label);
             let full_listing = request
                 .params
                 .as_ref()
@@ -243,6 +249,19 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                         tool_names.contains(&tool.name)
                     }
                     _ => true,
+                })
+                .filter(|tool| match requested_phase {
+                    // Phase-agnostic tools (filesystem, memory, session
+                    // coordination, deferred-loading controls) always pass so
+                    // a phase-scoped listing is not stripped of infrastructure.
+                    Some(phase) => {
+                        is_deferred_control_tool(tool.name)
+                            || match tool_phase_label(tool.name) {
+                                Some(label) => label == phase.as_label(),
+                                None => true,
+                            }
+                    }
+                    None => true,
                 })
                 .collect::<Vec<_>>();
             let response_tools = filtered

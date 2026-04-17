@@ -177,6 +177,79 @@ fn tools_list_can_be_filtered_by_namespace() {
 }
 
 #[test]
+fn tools_list_can_be_filtered_by_phase() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    // phase=build surfaces mutation tools but not planning reports.
+    let build_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(201)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"phase": "build"})),
+        },
+    )
+    .unwrap();
+    let build_encoded = serde_json::to_string(&build_resp).unwrap();
+    assert!(
+        build_encoded.contains("\"rename_symbol\""),
+        "build phase should include rename_symbol"
+    );
+    assert!(
+        build_encoded.contains("\"replace_symbol_body\""),
+        "build phase should include replace_symbol_body"
+    );
+    assert!(
+        !build_encoded.contains("\"impact_report\""),
+        "build phase should not include impact_report (plan tool)"
+    );
+
+    // phase=plan surfaces analysis/retrieval, not mutations.
+    let plan_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(202)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"phase": "plan"})),
+        },
+    )
+    .unwrap();
+    let plan_encoded = serde_json::to_string(&plan_resp).unwrap();
+    assert!(plan_encoded.contains("\"impact_report\""));
+    assert!(plan_encoded.contains("\"find_symbol\""));
+    assert!(
+        !plan_encoded.contains("\"rename_symbol\""),
+        "plan phase should not include mutation tools"
+    );
+
+    // Phase-agnostic infrastructure (read_file) should pass through in both.
+    assert!(
+        build_encoded.contains("\"read_file\""),
+        "phase filter should pass through phase-agnostic infrastructure"
+    );
+    assert!(plan_encoded.contains("\"read_file\""));
+
+    // Unknown phase label falls back to unfiltered — malformed input does
+    // not strip the surface.
+    let bogus_resp = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(203)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({"phase": "deploy"})),
+        },
+    )
+    .unwrap();
+    let bogus_encoded = serde_json::to_string(&bogus_resp).unwrap();
+    assert!(bogus_encoded.contains("\"rename_symbol\""));
+    assert!(bogus_encoded.contains("\"impact_report\""));
+}
+
+#[test]
 fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -194,10 +267,8 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(
-        encoded
-            .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]")
-    );
+    assert!(encoded
+        .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"review_architecture\""));
@@ -435,12 +506,10 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("blocked by daemon mode")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("blocked by daemon mode"));
 }
 
 #[test]
@@ -459,12 +528,10 @@ fn hidden_tools_are_blocked_at_call_time() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("not available in active surface")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("not available in active surface"));
 }
 
 #[test]
@@ -489,11 +556,9 @@ fn watch_status_reports_lock_contention_field() {
     assert!(payload["data"].get("stale_index_failures").is_some());
     assert!(payload["data"].get("persistent_index_failures").is_some());
     assert!(payload["data"].get("pruned_missing_failures").is_some());
-    assert!(
-        payload["data"]
-            .get("recent_failure_window_seconds")
-            .is_some()
-    );
+    assert!(payload["data"]
+        .get("recent_failure_window_seconds")
+        .is_some());
 }
 
 #[test]
