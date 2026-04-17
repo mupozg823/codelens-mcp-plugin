@@ -1,0 +1,404 @@
+use super::super::{
+    optional_bool, optional_string, optional_usize, query_analysis::analyze_retrieval_query,
+    required_string, success_meta, AppState, ToolResult,
+};
+use super::{
+    analyzer::{
+        annotate_ranked_context_provenance, compact_semantic_evidence,
+        merge_semantic_ranked_entries, semantic_results_for_query, semantic_scores_for_query,
+    },
+    formatter::{compact_symbol_bodies, count_branches},
+};
+use crate::error::CodeLensError;
+use crate::protocol::BackendKind;
+use codelens_engine::{read_file, search_symbols_hybrid_with_semantic, SymbolInfo, SymbolKind};
+use serde_json::{json, Value};
+
+pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
+    let path = required_string(arguments, "path")?;
+    let explicit_depth = arguments.get("depth").and_then(|v| v.as_u64());
+    let depth = explicit_depth.unwrap_or(1) as usize;
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    let budget = state.execution_token_budget(&session);
+    let mut symbols = state
+        .symbol_index()
+        .get_symbols_overview_cached(path, depth)?;
+
+    // Token guard: auto-strip children when response would exceed budget.
+    // Skip if depth was explicitly requested (user intentionally wants full detail).
+    let estimated_chars: usize = symbols.iter().map(|s| 80 + s.children.len() * 120).sum();
+    let budget_chars = budget * 4;
+    let stripped = explicit_depth.is_none() && estimated_chars > budget_chars;
+    if stripped {
+        for sym in &mut symbols {
+            let child_count = sym.children.len();
+            sym.children.clear();
+            sym.signature = format!("{} ({child_count} symbols)", sym.signature);
+        }
+    }
+
+    // Hard limit: truncate if still too large (unless explicit depth)
+    let max_symbols = if explicit_depth.is_some() {
+        usize::MAX
+    } else {
+        budget_chars / 80
+    };
+    let truncated = symbols.len() > max_symbols;
+    if truncated {
+        symbols.truncate(max_symbols);
+    }
+
+    Ok((
+        json!({
+            "symbols": symbols,
+            "count": symbols.len(),
+            "truncated": truncated,
+            "auto_summarized": stripped,
+        }),
+        success_meta(BackendKind::TreeSitter, 0.93),
+    ))
+}
+
+pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
+    let symbol_id = optional_string(arguments, "symbol_id");
+    let name = symbol_id
+        .or_else(|| optional_string(arguments, "name"))
+        .ok_or_else(|| CodeLensError::MissingParam("symbol_id or name".into()))?;
+    let file_path = optional_string(arguments, "file_path");
+    let include_body = optional_bool(arguments, "include_body", false);
+    let exact_match = optional_bool(arguments, "exact_match", false);
+    let max_matches = optional_usize(arguments, "max_matches", 50);
+    let body_full = optional_bool(arguments, "body_full", false);
+    let body_line_limit = optional_usize(arguments, "body_line_limit", 12);
+    let body_char_limit = optional_usize(arguments, "body_char_limit", 600);
+    // Try SCIP precise definitions first (if available), then tree-sitter.
+    #[cfg(feature = "scip-backend")]
+    if let Some(backend) = state.scip() {
+        use codelens_engine::PreciseBackend as _;
+        let scip_file = file_path.unwrap_or("");
+        if let Ok(defs) = backend.find_definitions(name, scip_file, 0) {
+            if !defs.is_empty() {
+                let limited: Vec<_> = defs.into_iter().take(max_matches).collect();
+                let count = limited.len();
+                let syms: Vec<serde_json::Value> = limited
+                    .iter()
+                    .map(|d| {
+                        // Enrich with hover documentation from SCIP if available.
+                        let doc = backend
+                            .hover(&d.file_path, d.line, 0)
+                            .ok()
+                            .flatten()
+                            .unwrap_or_default();
+                        let mut sym = json!({
+                            "name": d.name,
+                            "kind": d.kind,
+                            "file_path": d.file_path,
+                            "line": d.line,
+                            "signature": if d.signature.is_empty() { &doc } else { &d.signature },
+                            "name_path": d.name_path,
+                            "score": d.score,
+                        });
+                        if !doc.is_empty() {
+                            sym["documentation"] = serde_json::Value::String(doc);
+                        }
+                        sym
+                    })
+                    .collect();
+                return Ok((
+                    json!({
+                        "symbols": syms,
+                        "count": count,
+                        "body_truncated_count": 0,
+                        "body_preview": false,
+                        "backend": "scip",
+                    }),
+                    success_meta(BackendKind::Scip, 0.98),
+                ));
+            }
+        }
+    }
+
+    Ok(state
+        .symbol_index()
+        .find_symbol_cached(name, file_path, include_body, exact_match, max_matches)
+        .map(|mut value| {
+            let body_truncated_count = if include_body && !body_full {
+                compact_symbol_bodies(&mut value, 3, body_line_limit, body_char_limit)
+            } else {
+                0
+            };
+            (
+                json!({
+                    "symbols": value,
+                    "count": value.len(),
+                    "body_truncated_count": body_truncated_count,
+                    "body_preview": include_body && !body_full,
+                }),
+                success_meta(BackendKind::TreeSitter, 0.93),
+            )
+        })?)
+}
+
+pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
+    let query = required_string(arguments, "query")?;
+    let query_analysis = analyze_retrieval_query(query);
+    let path = optional_string(arguments, "path");
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    let max_tokens = arguments
+        .get("max_tokens")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or_else(|| state.execution_token_budget(&session));
+    let include_body = optional_bool(arguments, "include_body", false);
+    let depth = optional_usize(arguments, "depth", 2);
+    let disable_semantic = optional_bool(arguments, "disable_semantic", false);
+    let exact_identifier_projection = query_analysis.original_query
+        != query_analysis.expanded_query
+        && !query_analysis.expanded_query.contains(char::is_whitespace);
+    let effective_disable_semantic =
+        disable_semantic || query_analysis.prefer_lexical_only || exact_identifier_projection;
+    let use_semantic_in_core = !effective_disable_semantic;
+    // Build semantic scores for hybrid ranking if embeddings are available.
+    // The default model is the bundled CodeSearchNet MiniLM-L12 INT8 variant.
+    let semantic_results = semantic_results_for_query(state, query, 50, effective_disable_semantic);
+    let semantic_scores = semantic_results
+        .iter()
+        .filter(|r| r.score > 0.05)
+        .map(|r| (format!("{}:{}", r.file_path, r.symbol_name), r.score))
+        .collect();
+
+    // Boost scores for files recently accessed in this session
+    let recent_files = state.recent_file_paths_for_session(&session);
+    let mut boosted_scores: std::collections::HashMap<String, f64> = if use_semantic_in_core {
+        semantic_scores
+    } else {
+        std::collections::HashMap::new()
+    };
+    if !recent_files.is_empty() {
+        let boost = 0.15_f64;
+        for (key, score) in boosted_scores.iter_mut() {
+            if recent_files.iter().any(|f| key.starts_with(f.as_str())) {
+                *score += boost;
+            }
+        }
+    }
+
+    // query-type-aware weights available via get_ranked_context_cached_with_query_type
+    // but current dataset shows default weights are near-optimal (0.680 MRR).
+    // Kept as None until per-type weight tuning yields measurable improvement.
+    let mut result = state.symbol_index().get_ranked_context_cached(
+        &query_analysis.expanded_query,
+        path,
+        max_tokens,
+        include_body,
+        depth,
+        Some(&state.graph_cache()),
+        boosted_scores,
+    )?;
+    let structural_keys = result
+        .symbols
+        .iter()
+        .map(|entry| format!("{}:{}", entry.file, entry.name))
+        .collect::<std::collections::HashSet<_>>();
+
+    if !effective_disable_semantic {
+        merge_semantic_ranked_entries(query, &mut result, semantic_results.clone(), 8);
+    }
+
+    // v1.5 Phase 2e: sparse term coverage bonus — post-process
+    // re-ordering pass. Runs on the ORIGINAL user `query`, not the
+    // MCP-expanded retrieval string, because the expansion adds dozens
+    // of derivative tokens (snake_case, CamelCase, alias groups) that
+    // dilute the coverage ratio below any reasonable threshold — the
+    // 4-arm pilot that measured zero effect used the expanded query
+    // and confirmed this dilution. Running the pass here (after
+    // `get_ranked_context_cached` + `merge_semantic_ranked_entries`)
+    // also keeps the engine layer free of query-semantics knowledge —
+    // the engine ranks, the MCP layer decides what "the query" means.
+    if codelens_engine::sparse_weighting_enabled() {
+        let query_lower_for_sparse = query.to_lowercase();
+        let mut changed = false;
+        for entry in result.symbols.iter_mut() {
+            let bonus = codelens_engine::sparse_coverage_bonus_from_fields(
+                &query_lower_for_sparse,
+                &entry.name,
+                &entry.name, // no name_path on RankedContextEntry; reuse name
+                &entry.signature,
+                &entry.file,
+            );
+            if bonus > 0.0 {
+                entry.relevance_score = entry.relevance_score.saturating_add(bonus as i32);
+                changed = true;
+            }
+        }
+        if changed {
+            result
+                .symbols
+                .sort_unstable_by(|a, b| b.relevance_score.cmp(&a.relevance_score));
+        }
+    }
+
+    let semantic_evidence = if effective_disable_semantic {
+        Vec::new()
+    } else {
+        compact_semantic_evidence(&result, &semantic_results, 5)
+    };
+    let mut payload =
+        serde_json::to_value(&result).map_err(|e| CodeLensError::Internal(e.into()))?;
+    annotate_ranked_context_provenance(&mut payload, &structural_keys, &semantic_results);
+    if let Some(map) = payload.as_object_mut() {
+        map.insert(
+            "retrieval".to_owned(),
+            json!({
+                "semantic_enabled": !effective_disable_semantic,
+                "semantic_used_in_core": use_semantic_in_core,
+                "query_type": if query_analysis.prefer_lexical_only { "identifier" }
+                    else if query_analysis.natural_language { "natural_language" }
+                    else { "short_phrase" },
+                "lexical_query": query_analysis.expanded_query,
+                "semantic_query": query_analysis.semantic_query,
+            }),
+        );
+        if !semantic_evidence.is_empty() {
+            map.insert("semantic_evidence".to_owned(), json!(semantic_evidence));
+        }
+    }
+
+    let backend = if result.symbols.iter().any(|s| s.relevance_score > 0) {
+        BackendKind::TreeSitter
+    } else {
+        BackendKind::Semantic
+    };
+    Ok((payload, success_meta(backend, 0.91)))
+}
+
+pub fn refresh_symbol_index(state: &AppState, _arguments: &Value) -> ToolResult {
+    let stats = state.symbol_index().refresh_all()?;
+    state.graph_cache().invalidate();
+    Ok((json!(stats), success_meta(BackendKind::TreeSitter, 0.95)))
+}
+
+pub fn get_complexity(state: &AppState, arguments: &Value) -> ToolResult {
+    let path = required_string(arguments, "path")?;
+    let symbol_name = optional_string(arguments, "symbol_name");
+    let file_result = read_file(&state.project(), path, None, None)?;
+    let lines = file_result.content.lines().collect::<Vec<_>>();
+    let symbols = state.symbol_index().get_symbols_overview_cached(path, 2)?;
+
+    let functions = flatten_symbols(&symbols)
+        .into_iter()
+        .filter(|s| matches!(s.kind, SymbolKind::Function | SymbolKind::Method))
+        .filter(|s| symbol_name.is_none_or(|name| s.name == name))
+        .map(|s| {
+            let start = s.line.saturating_sub(1).min(lines.len());
+            let end = (s.line + 50).min(lines.len());
+            let branches = count_branches(&lines[start..end]);
+            json!({
+                "name": s.name,
+                "kind": s.kind.as_label(),
+                "file": s.file_path,
+                "line": s.line,
+                "branches": branches,
+                "complexity": 1 + branches
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let results = if functions.is_empty() {
+        let branches = count_branches(&lines);
+        vec![json!({
+            "name": path,
+            "branches": branches,
+            "complexity": 1 + branches
+        })]
+    } else {
+        functions
+    };
+
+    let avg_complexity = if results.is_empty() {
+        0.0
+    } else {
+        results
+            .iter()
+            .filter_map(|e| e.get("complexity").and_then(|v| v.as_i64()))
+            .map(|v| v as f64)
+            .sum::<f64>()
+            / results.len() as f64
+    };
+
+    Ok((
+        json!({
+            "path": path,
+            "functions": results,
+            "count": results.len(),
+            "avg_complexity": avg_complexity
+        }),
+        success_meta(BackendKind::TreeSitter, 0.89),
+    ))
+}
+
+pub fn get_project_structure(state: &AppState, _arguments: &Value) -> ToolResult {
+    let dirs = state.symbol_index().get_project_structure()?;
+    let total_files: usize = dirs.iter().map(|d| d.files).sum();
+    let total_symbols: usize = dirs.iter().map(|d| d.symbols).sum();
+    Ok((
+        json!({
+            "directories": dirs,
+            "total_files": total_files,
+            "total_symbols": total_symbols,
+            "dir_count": dirs.len()
+        }),
+        success_meta(BackendKind::Sqlite, 0.95),
+    ))
+}
+
+pub fn search_symbols_fuzzy(state: &AppState, arguments: &Value) -> ToolResult {
+    let query = required_string(arguments, "query")?;
+    let max_results = optional_usize(arguments, "max_results", 30);
+    let fuzzy_threshold = arguments
+        .get("fuzzy_threshold")
+        .and_then(|v| v.as_f64())
+        .unwrap_or(0.6);
+    let disable_semantic = optional_bool(arguments, "disable_semantic", false);
+    // Build semantic scores if embeddings are available (same pattern as get_ranked_context)
+    let semantic_scores = semantic_scores_for_query(state, query, 50, disable_semantic);
+
+    let sem_ref = if semantic_scores.is_empty() {
+        None
+    } else {
+        Some(&semantic_scores)
+    };
+
+    let backend = if sem_ref.is_some() {
+        BackendKind::Hybrid
+    } else {
+        BackendKind::Sqlite
+    };
+
+    Ok(search_symbols_hybrid_with_semantic(
+        &state.project(),
+        query,
+        max_results,
+        fuzzy_threshold,
+        sem_ref,
+    )
+    .map(|value| {
+        (
+            json!({ "results": value, "count": value.len() }),
+            success_meta(backend, 0.9),
+        )
+    })?)
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+
+pub fn flatten_symbols(symbols: &[SymbolInfo]) -> Vec<SymbolInfo> {
+    let mut flat = Vec::new();
+    let mut stack = symbols.to_vec();
+    while let Some(mut symbol) = stack.pop() {
+        let children = std::mem::take(&mut symbol.children);
+        flat.push(symbol);
+        stack.extend(children);
+    }
+    flat
+}
