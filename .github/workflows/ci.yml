@@ -56,6 +56,11 @@ jobs:
         shell: bash
         run: ./scripts/quality-gate.sh --mode ci
 
+      - name: dataset hygiene lint
+        if: matrix.os == 'ubuntu-latest'
+        shell: bash
+        run: python3 benchmarks/lint-datasets.py --project .
+
       - name: cargo test (mcp + http)
         if: matrix.os == 'ubuntu-latest'
         run: cargo test -p codelens-mcp --features http
