@@ -105,6 +105,24 @@ impl AppState {
         session_runtime::bind_project_to_session(self, session_id, project_path);
     }
 
+    /// Decide whether a write operation should target the per-session store
+    /// or fall through to global AppState. Returns true only when:
+    ///   (a) the request carries a real (non-"local") session id, AND
+    ///   (b) the session store has been initialized (`with_session_store`).
+    ///
+    /// Every write path that has an `if !session.is_local()` branch must use
+    /// this helper instead — otherwise a non-local session_id from a test or
+    /// a caller running without `with_session_store` silently no-ops (the
+    /// session-scoped setter runs, finds no matching session entry, and
+    /// returns without writing anywhere).
+    #[cfg(feature = "http")]
+    pub(crate) fn should_route_to_session(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+    ) -> bool {
+        !session.is_local() && self.session_store.is_some()
+    }
+
     #[cfg(feature = "http")]
     pub(crate) fn ensure_session_project<'a>(
         &'a self,

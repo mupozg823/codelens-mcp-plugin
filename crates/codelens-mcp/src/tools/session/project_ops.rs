@@ -315,7 +315,7 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
             )
         };
     #[cfg(feature = "http")]
-    if !session.is_local() {
+    if state.should_route_to_session(&session) {
         state.set_session_surface_and_budget(&session.session_id, auto_surface, auto_budget);
         state.bind_project_to_session(&session.session_id, &project_base_path);
     } else {
@@ -386,7 +386,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         #[cfg(feature = "http")]
         {
             let session = crate::session_context::SessionRequestContext::from_json(arguments);
-            if !session.is_local() {
+            if state.should_route_to_session(&session) {
                 state.set_session_surface_and_budget(
                     &session.session_id,
                     state.execution_surface(&session),

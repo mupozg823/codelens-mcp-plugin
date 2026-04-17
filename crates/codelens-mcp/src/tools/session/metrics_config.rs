@@ -1,10 +1,10 @@
-use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
+    default_budget_for_preset, default_budget_for_profile, ToolPreset, ToolProfile, ToolSurface,
 };
-use crate::tool_runtime::{ToolResult, success_meta};
+use crate::tool_runtime::{success_meta, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::VecDeque;
 
@@ -1000,7 +1000,7 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         .map(|v| v as usize)
         .unwrap_or(default_budget_for_preset(new_preset));
     #[cfg(feature = "http")]
-    if !session.is_local() {
+    if state.should_route_to_session(&session) {
         state.set_session_surface_and_budget(
             &session.session_id,
             ToolSurface::Preset(new_preset),
@@ -1047,7 +1047,7 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         .map(|v| v as usize)
         .unwrap_or(default_budget_for_profile(profile));
     #[cfg(feature = "http")]
-    if !session.is_local() {
+    if state.should_route_to_session(&session) {
         state.set_session_surface_and_budget(
             &session.session_id,
             ToolSurface::Profile(profile),
@@ -1202,7 +1202,7 @@ mod capability_reporting_tests {
     #[cfg(feature = "semantic")]
     #[test]
     fn planner_readonly_and_builder_minimal_expose_semantic_search() {
-        use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
+        use crate::tool_defs::{is_tool_in_surface, ToolProfile, ToolSurface};
 
         for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
             let surface = ToolSurface::Profile(profile);
