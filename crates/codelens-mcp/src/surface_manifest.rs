@@ -9,9 +9,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const SURFACE_MANIFEST_SCHEMA_VERSION: &str = "codelens-surface-manifest-v1";
 pub(crate) const HARNESS_MODES_SCHEMA_VERSION: &str = "codelens-harness-modes-v1";
+pub(crate) const HARNESS_SPEC_SCHEMA_VERSION: &str = "codelens-harness-spec-v1";
 pub(crate) const SURFACE_MANIFEST_DOC_PATH: &str = "docs/generated/surface-manifest.json";
+pub(crate) const HANDOFF_ARTIFACT_SCHEMA_DOC_PATH: &str = "docs/schemas/handoff-artifact.v1.json";
+pub(crate) const HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI: &str =
+    "codelens://schemas/handoff-artifact/v1";
 
 const WORKSPACE_CARGO_TOML: &str = include_str!("../../../Cargo.toml");
+const HANDOFF_ARTIFACT_SCHEMA_TEXT: &str =
+    include_str!("../../../docs/schemas/handoff-artifact.v1.json");
 
 pub(crate) fn build_surface_manifest_for_state(state: &AppState) -> Value {
     build_surface_manifest(*state.surface(), state.daemon_mode())
@@ -77,6 +83,8 @@ pub(crate) fn build_surface_manifest(
 
     let language_inventory = build_language_inventory();
     let harness_modes = build_harness_modes();
+    let harness_spec = build_harness_spec();
+    let harness_artifacts = build_harness_artifacts_summary();
     let language_family_count = language_inventory["language_family_count"]
         .as_u64()
         .unwrap_or_default();
@@ -113,6 +121,8 @@ pub(crate) fn build_surface_manifest(
             "presets": presets,
         },
         "harness_modes": harness_modes,
+        "harness_spec": harness_spec,
+        "harness_artifacts": harness_artifacts,
         "languages": language_inventory,
         "runtime": {
             "server_name": "codelens-mcp",
@@ -136,6 +146,8 @@ pub(crate) fn build_surface_manifest(
                 "total": total_tool_count,
             },
             "harness_mode_count": 4,
+            "harness_contract_count": 3,
+            "harness_artifact_schema_count": 1,
             "supported_language_families": language_family_count,
             "supported_extensions": extension_count,
         }
@@ -196,6 +208,8 @@ fn server_card_features() -> Vec<&'static str> {
         "token-budget-control",
         "surface-manifest",
         "harness-modes",
+        "portable-harness-spec",
+        "handoff-artifact-schema",
     ];
     if cfg!(feature = "semantic") {
         features.push("semantic-search");
@@ -225,6 +239,381 @@ fn build_harness_modes() -> Value {
             harness_mode_reviewer_gate(),
             harness_mode_batch_analysis(),
         ]
+    })
+}
+
+fn build_harness_spec() -> Value {
+    json!({
+        "schema_version": HARNESS_SPEC_SCHEMA_VERSION,
+        "defaults": {
+            "audit_mode": "audit-only",
+            "hard_blocks_added_by_spec": false,
+            "recommended_transport": "http",
+            "preferred_communication_pattern": "asymmetric-handoff",
+            "ttl_policy": {
+                "strategy": "expected_duration_x_1_5",
+                "default_secs": 600,
+                "max_secs": 3600,
+                "explicit_release_preferred": true,
+            }
+        },
+        "contracts": [
+            planner_builder_handoff_contract(),
+            reviewer_signoff_contract(),
+            batch_analysis_contract(),
+        ]
+    })
+}
+
+pub(crate) fn handoff_artifact_schema_json() -> Value {
+    serde_json::from_str(HANDOFF_ARTIFACT_SCHEMA_TEXT)
+        .expect("handoff artifact schema must be valid JSON")
+}
+
+fn build_harness_artifacts_summary() -> Value {
+    let schema = handoff_artifact_schema_json();
+    let kinds = schema["properties"]["kind"]["enum"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    json!({
+        "schemas": [
+            {
+                "name": "handoff-artifact-v1",
+                "title": schema["title"],
+                "schema_id": schema["$id"],
+                "schema_version": schema["properties"]["schema_version"]["const"],
+                "runtime_resource": HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI,
+                "doc_path": HANDOFF_ARTIFACT_SCHEMA_DOC_PATH,
+                "kinds": kinds,
+            }
+        ]
+    })
+}
+
+fn planner_builder_handoff_contract() -> Value {
+    json!({
+        "name": "planner-builder-handoff",
+        "mode": "planner-builder",
+        "intent": "Planner/reviewer session prepares bounded evidence, then a mutation-enabled builder session executes the change under explicit coordination.",
+        "roles": [
+            harness_role(
+                "planner-reviewer",
+                &[ToolProfile::PlannerReadonly, ToolProfile::ReviewerGraph],
+                false,
+                "collect structure, diagnostics, and readiness evidence before dispatch"
+            ),
+            harness_role(
+                "builder-refactor",
+                &[ToolProfile::BuilderMinimal, ToolProfile::RefactorFull],
+                true,
+                "perform bounded mutation only after preflight, diagnostics, and coordination"
+            )
+        ],
+        "preflight_sequence": [
+            harness_contract_step(
+                1,
+                "prepare_harness_session",
+                true,
+                "planner or builder bootstrap",
+                "establish session-local project view, visible surface, and health summary"
+            ),
+            harness_contract_step(
+                2,
+                "get_symbols_overview",
+                true,
+                "per target file before mutation",
+                "record structural evidence for the touched files"
+            ),
+            harness_contract_step(
+                3,
+                "get_file_diagnostics",
+                true,
+                "per target file before mutation",
+                "record baseline diagnostic evidence for the touched files"
+            ),
+            harness_contract_step(
+                4,
+                "verify_change_readiness",
+                true,
+                "once for the full change set before mutation",
+                "produce readiness status, blockers, and overlapping claim evidence"
+            )
+        ],
+        "coordination_discipline": {
+            "required_for": "non-local-http builder sessions that mutate files",
+            "steps": [
+                harness_contract_step(
+                    5,
+                    "register_agent_work",
+                    true,
+                    "before mutation dispatch",
+                    "publish session identity, worktree, branch, and intent"
+                ),
+                harness_contract_step(
+                    6,
+                    "claim_files",
+                    true,
+                    "before mutation execution",
+                    "publish advisory file reservations for the intended change set"
+                ),
+                harness_contract_step(
+                    10,
+                    "release_files",
+                    true,
+                    "after completion",
+                    "explicitly release claims instead of waiting for TTL expiry"
+                )
+            ],
+            "ttl_policy": {
+                "strategy": "expected_duration_x_1_5",
+                "default_secs": 600,
+                "max_secs": 3600,
+                "same_ttl_for_registration_and_claims": true
+            }
+        },
+        "mutation_execution": {
+            "step_order": [
+                "mutation pass",
+                "get_file_diagnostics",
+                "audit_builder_session"
+            ],
+            "notes": [
+                "run post-edit diagnostics after the mutation pass",
+                "builder audit stays audit-only and does not add new runtime hard blocks"
+            ]
+        },
+        "gates": [
+            {
+                "condition": "mutation_ready == blocked",
+                "action": "stop",
+                "reason": "builder mutation must not start while the verifier reports blockers"
+            },
+            {
+                "condition": "mutation_ready == caution && overlapping_claims > 0",
+                "action": "stop-and-escalate",
+                "reason": "the orchestrator decides whether to wait, reassign, or continue"
+            },
+            {
+                "condition": "rename-heavy mutation",
+                "action": "require-symbol-preflight",
+                "required_tools": ["safe_rename_report", "unresolved_reference_check"],
+                "reason": "rename_symbol requires symbol-aware evidence, not only generic readiness"
+            }
+        ],
+        "audits": {
+            "planner_session_tool": "audit_planner_session",
+            "builder_session_tool": "audit_builder_session",
+            "export_tool": "export_session_markdown",
+            "session_metrics_tool": "get_tool_metrics"
+        },
+        "handoff_artifact_template": {
+            "name": "planner_builder_dispatch",
+            "format": "json",
+            "required_fields": [
+                "mode",
+                "from_session_id",
+                "target_profile",
+                "task",
+                "target_files",
+                "preflight.tools_run",
+                "preflight.mutation_ready",
+                "preflight.overlapping_claims",
+                "coordination.ttl_secs",
+                "coordination.claimed_paths"
+            ],
+            "example": {
+                "mode": "planner-builder",
+                "from_session_id": "<planner-session-id>",
+                "target_profile": "builder-minimal",
+                "task": "Implement the bounded change described by the planner",
+                "target_files": ["src/example.rs"],
+                "preflight": {
+                    "tools_run": [
+                        "prepare_harness_session",
+                        "get_symbols_overview",
+                        "get_file_diagnostics",
+                        "verify_change_readiness"
+                    ],
+                    "mutation_ready": "ready",
+                    "overlapping_claims": []
+                },
+                "coordination": {
+                    "ttl_secs": 600,
+                    "claimed_paths": ["src/example.rs"]
+                }
+            }
+        }
+    })
+}
+
+fn reviewer_signoff_contract() -> Value {
+    json!({
+        "name": "reviewer-signoff",
+        "mode": "reviewer-gate",
+        "intent": "Read-only reviewer or CI-facing session validates a builder session and exports a human-readable signoff artifact.",
+        "roles": [
+            harness_role(
+                "reviewer",
+                &[ToolProfile::ReviewerGraph, ToolProfile::CiAudit],
+                false,
+                "perform diff-aware review, signoff, and audit validation without content mutation"
+            )
+        ],
+        "read_sequence": [
+            harness_contract_step(
+                1,
+                "prepare_harness_session",
+                true,
+                "before the first reviewer workflow",
+                "bind the reviewer session to the project and bounded read-side surface"
+            ),
+            harness_contract_step(
+                2,
+                "review_changes or impact_report",
+                true,
+                "during signoff",
+                "collect diff-aware and impact-aware evidence for the change under review"
+            ),
+            harness_contract_step(
+                3,
+                "audit_planner_session",
+                true,
+                "after reviewer workflow",
+                "validate read-side bootstrap, workflow-first routing, and file evidence discipline"
+            ),
+            harness_contract_step(
+                4,
+                "audit_builder_session",
+                true,
+                "when a builder session exists",
+                "validate the paired builder/refactor session before merge or handoff"
+            ),
+            harness_contract_step(
+                5,
+                "export_session_markdown",
+                true,
+                "at the end of signoff",
+                "emit a human-readable reviewer or builder audit summary"
+            )
+        ],
+        "gates": [
+            {
+                "condition": "planner/reviewer session attempts content mutation",
+                "action": "fail-audit",
+                "reason": "reviewer-gate is read-side only"
+            },
+            {
+                "condition": "workflow is diff-aware but target paths are missing",
+                "action": "warn-audit",
+                "reason": "review_changes, impact_report, and related workflows require change evidence"
+            }
+        ],
+        "audits": {
+            "primary_tool": "audit_planner_session",
+            "paired_builder_tool": "audit_builder_session",
+            "export_tool": "export_session_markdown"
+        },
+        "handoff_artifact_template": {
+            "name": "review_signoff_summary",
+            "format": "json",
+            "required_fields": [
+                "mode",
+                "reviewer_session_id",
+                "reviewed_session_id",
+                "status",
+                "findings",
+                "recommended_next_tools"
+            ],
+            "example": {
+                "mode": "reviewer-gate",
+                "reviewer_session_id": "<reviewer-session-id>",
+                "reviewed_session_id": "<builder-session-id>",
+                "status": "pass",
+                "findings": [],
+                "recommended_next_tools": ["export_session_markdown"]
+            }
+        }
+    })
+}
+
+fn batch_analysis_contract() -> Value {
+    json!({
+        "name": "batch-analysis-artifact",
+        "mode": "batch-analysis",
+        "intent": "Long-running read-only analyses should move through durable jobs and bounded sections rather than raw full-report expansion.",
+        "roles": [
+            harness_role(
+                "analysis-runner",
+                &[ToolProfile::WorkflowFirst, ToolProfile::EvaluatorCompact, ToolProfile::CiAudit],
+                false,
+                "queue durable read-side jobs and consume bounded sections"
+            )
+        ],
+        "analysis_sequence": [
+            harness_contract_step(
+                1,
+                "prepare_harness_session",
+                true,
+                "before job creation",
+                "establish the analysis surface and runtime health view"
+            ),
+            harness_contract_step(
+                2,
+                "start_analysis_job",
+                true,
+                "to enqueue the long-running report",
+                "create a durable analysis job and handle"
+            ),
+            harness_contract_step(
+                3,
+                "get_analysis_job",
+                true,
+                "while polling progress",
+                "track job state without reopening a raw report"
+            ),
+            harness_contract_step(
+                4,
+                "get_analysis_section",
+                true,
+                "to expand only one section at a time",
+                "keep the analysis bounded and section-oriented"
+            )
+        ],
+        "resource_handoff": {
+            "summary_resource_pattern": "codelens://analysis/{id}/summary",
+            "section_access_pattern": "codelens://analysis/{id}/{section}",
+            "metrics_tool": "get_tool_metrics"
+        },
+        "gates": [
+            {
+                "condition": "analysis requires full raw report expansion before a handle exists",
+                "action": "prefer-job-handle",
+                "reason": "batch-analysis should stay handle-first and section-oriented"
+            }
+        ],
+        "audits": {
+            "primary_tool": "audit_planner_session",
+            "metrics_tool": "get_tool_metrics"
+        },
+        "handoff_artifact_template": {
+            "name": "analysis_job_handoff",
+            "format": "json",
+            "required_fields": [
+                "mode",
+                "session_id",
+                "analysis_id",
+                "summary_resource",
+                "available_sections"
+            ],
+            "example": {
+                "mode": "batch-analysis",
+                "session_id": "<analysis-session-id>",
+                "analysis_id": "<analysis-id>",
+                "summary_resource": "codelens://analysis/<analysis-id>/summary",
+                "available_sections": ["summary", "risk_hotspots"]
+            }
+        }
     })
 }
 
@@ -393,6 +782,22 @@ fn harness_role(
     })
 }
 
+fn harness_contract_step(
+    order: usize,
+    tool: &str,
+    required: bool,
+    when: &str,
+    purpose: &str,
+) -> Value {
+    json!({
+        "order": order,
+        "tool": tool,
+        "required": required,
+        "when": when,
+        "purpose": purpose,
+    })
+}
+
 fn preset_label(preset: ToolPreset) -> &'static str {
     match preset {
         ToolPreset::Minimal => "minimal",
@@ -552,14 +957,36 @@ mod tests {
         );
         assert_eq!(manifest["workspace"]["member_count"], json!(3));
         assert_eq!(manifest["summary"]["harness_mode_count"], json!(4));
+        assert_eq!(manifest["summary"]["harness_contract_count"], json!(3));
+        assert_eq!(manifest["summary"]["harness_artifact_schema_count"], json!(1));
         assert_eq!(
             manifest["harness_modes"]["schema_version"],
             json!(HARNESS_MODES_SCHEMA_VERSION)
         );
+        assert_eq!(
+            manifest["harness_spec"]["schema_version"],
+            json!(HARNESS_SPEC_SCHEMA_VERSION)
+        );
         assert!(
             manifest["harness_modes"]["modes"]
                 .as_array()
-                .is_some_and(|modes| modes.iter().any(|mode| mode["name"] == json!("planner-builder")))
+                .is_some_and(|modes| modes
+                    .iter()
+                    .any(|mode| mode["name"] == json!("planner-builder")))
+        );
+        assert!(
+            manifest["harness_spec"]["contracts"]
+                .as_array()
+                .is_some_and(|contracts| contracts
+                    .iter()
+                    .any(|contract| contract["name"] == json!("planner-builder-handoff")))
+        );
+        assert!(
+            manifest["harness_artifacts"]["schemas"]
+                .as_array()
+                .is_some_and(|schemas| schemas
+                    .iter()
+                    .any(|schema| schema["runtime_resource"] == json!(HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI)))
         );
 
         let manifest_profiles = manifest["surfaces"]["profiles"]

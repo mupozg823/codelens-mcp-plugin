@@ -41,6 +41,16 @@ fn json_resource(uri: &str, payload: Value) -> Value {
     })
 }
 
+fn schema_resource(uri: &str, payload: Value) -> Value {
+    json!({
+        "contents": [{
+            "uri": uri,
+            "mimeType": "application/schema+json",
+            "text": serde_json::to_string_pretty(&payload).unwrap_or_default()
+        }]
+    })
+}
+
 fn text_resource(uri: &str, text: String) -> Value {
     json!({
         "contents": [{
@@ -115,6 +125,15 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             uri,
             crate::surface_manifest::build_surface_manifest_for_state(state)["harness_modes"]
                 .clone(),
+        ),
+        "codelens://harness/spec" => json_resource(
+            uri,
+            crate::surface_manifest::build_surface_manifest_for_state(state)["harness_spec"]
+                .clone(),
+        ),
+        "codelens://schemas/handoff-artifact/v1" => schema_resource(
+            uri,
+            crate::surface_manifest::handoff_artifact_schema_json(),
         ),
         "codelens://stats/token-efficiency" => {
             let metrics_payload = build_session_metrics_payload(

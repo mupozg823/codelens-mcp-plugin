@@ -4,7 +4,7 @@
 
 This document describes how to use released CodeLens features to coordinate multiple agents on one repository. It does **not** require a custom `codex-builder` agent file, and it does **not** assume Claude/Codex-specific local harness hacks.
 
-For the higher-level operating shapes that sit above these primitives, see [Harness modes](harness-modes.md).
+For the higher-level operating shapes that sit above these primitives, see [Harness modes](harness-modes.md). For the machine-readable contract that a host can reuse directly, see [Portable harness spec](harness-spec.md).
 
 ## What CodeLens Provides vs What the Host Provides
 

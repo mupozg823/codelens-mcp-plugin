@@ -43,6 +43,18 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "mimeType": "application/json"
         }),
         json!({
+            "uri": "codelens://harness/spec",
+            "name": "Harness Spec",
+            "description": "Portable harness contract with preflight, coordination, audit, and handoff templates",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://schemas/handoff-artifact/v1",
+            "name": "Handoff Artifact Schema v1",
+            "description": "JSON schema for planner -> builder -> reviewer handoff artifacts",
+            "mimeType": "application/schema+json"
+        }),
+        json!({
             "uri": "codelens://stats/token-efficiency",
             "name": "Token Efficiency Stats",
             "description": "Session-level token, chain, and handle reuse metrics",

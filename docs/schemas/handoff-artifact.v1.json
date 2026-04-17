@@ -1,0 +1,306 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://codelens.mcp/schemas/handoff-artifact.v1.json",
+  "title": "CodeLens Harness Handoff Artifact v1",
+  "description": "Machine-readable contract for planner -> builder -> reviewer handoffs in the planner-builder harness mode. The substrate (CodeLens) persists these artifacts; agent hosts (Claude, Codex, Cursor, CI) read and write them. Live bidirectional agent chat is explicitly NOT a substrate-level feature — agents coordinate by writing and reading these artifacts.",
+  "type": "object",
+  "required": ["schema_version", "kind", "session_id", "created_at", "payload"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "codelens-handoff-artifact-v1"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["planner_brief", "builder_result", "reviewer_verdict"],
+      "description": "Which leg of the planner -> builder -> reviewer chain this artifact represents."
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The CodeLens session that produced this artifact. Audit endpoints (audit_builder_session / audit_planner_session) are scoped by this id."
+    },
+    "producer": {
+      "type": "object",
+      "description": "Identifies the host/agent that wrote this artifact.",
+      "required": ["role", "surface"],
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": [
+            "planner-reviewer",
+            "builder-refactor",
+            "reviewer",
+            "solo-agent"
+          ]
+        },
+        "surface": {
+          "type": "string",
+          "enum": [
+            "planner-readonly",
+            "reviewer-graph",
+            "builder-minimal",
+            "refactor-full",
+            "evaluator-compact",
+            "ci-audit",
+            "workflow-first"
+          ]
+        },
+        "client_name": { "type": "string" },
+        "client_version": { "type": "string" }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp."
+    },
+    "parent_artifact": {
+      "type": "object",
+      "description": "Link to the upstream artifact this one responds to. builder_result references planner_brief; reviewer_verdict references builder_result.",
+      "required": ["kind", "session_id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["planner_brief", "builder_result"]
+        },
+        "session_id": { "type": "string" },
+        "artifact_hash": {
+          "type": "string",
+          "description": "Optional content hash of the upstream artifact for integrity checking."
+        }
+      }
+    },
+    "payload": {
+      "oneOf": [
+        { "$ref": "#/$defs/PlannerBrief" },
+        { "$ref": "#/$defs/BuilderResult" },
+        { "$ref": "#/$defs/ReviewerVerdict" }
+      ]
+    }
+  },
+  "$defs": {
+    "PlannerBrief": {
+      "type": "object",
+      "description": "Planner output consumed by a builder. Must be ready for delegation — the builder should not need to re-plan.",
+      "required": ["goal", "ranked_context", "acceptance", "preflight"],
+      "additionalProperties": false,
+      "properties": {
+        "goal": {
+          "type": "string",
+          "description": "Single-sentence statement of the change intent."
+        },
+        "rationale": { "type": "string" },
+        "ranked_context": {
+          "type": "array",
+          "description": "Files / symbols / context items the builder should read before acting. Produced by analyze_change_request, get_ranked_context, or impact_report.",
+          "items": { "$ref": "#/$defs/ContextItem" }
+        },
+        "target_paths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Concrete file paths expected to be edited. Used by claim_files."
+        },
+        "scope": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "file_change_cap": { "type": "integer", "minimum": 1 },
+            "forbidden_paths": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "forbidden_behaviors": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        },
+        "acceptance": {
+          "type": "array",
+          "description": "Objective acceptance criteria the builder result will be scored against.",
+          "items": {
+            "type": "object",
+            "required": ["id", "statement"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "statement": { "type": "string" },
+              "verification": {
+                "type": "string",
+                "description": "Concrete command or tool call that verifies the criterion."
+              }
+            }
+          }
+        },
+        "preflight": {
+          "type": "object",
+          "description": "Readiness evidence the planner ran before dispatch. Builders reject briefs that fail preflight.",
+          "required": ["verify_change_readiness"],
+          "additionalProperties": false,
+          "properties": {
+            "verify_change_readiness": { "$ref": "#/$defs/PreflightReport" },
+            "safe_rename_report": { "$ref": "#/$defs/PreflightReport" }
+          }
+        },
+        "coordination": {
+          "type": "object",
+          "description": "register_agent_work + claim_files state that the builder should adopt.",
+          "additionalProperties": false,
+          "properties": {
+            "agent_work_id": { "type": "string" },
+            "claimed_files": { "type": "array", "items": { "type": "string" } },
+            "ttl_seconds": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "BuilderResult": {
+      "type": "object",
+      "description": "Builder output consumed by a reviewer. Must carry the evidence a reviewer needs to judge safety without re-reading the whole diff from scratch.",
+      "required": ["changed_files", "tests", "audit"],
+      "additionalProperties": false,
+      "properties": {
+        "changed_files": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["path", "change_type"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "change_type": {
+                "type": "string",
+                "enum": ["add", "modify", "delete", "rename"]
+              },
+              "lines_added": { "type": "integer", "minimum": 0 },
+              "lines_removed": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "acceptance_results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "status"],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "status": {
+                "type": "string",
+                "enum": ["pass", "fail", "skipped"]
+              },
+              "evidence": { "type": "string" }
+            }
+          }
+        },
+        "tests": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "commands": { "type": "array", "items": { "type": "string" } },
+            "passed": { "type": "integer", "minimum": 0 },
+            "failed": { "type": "integer", "minimum": 0 },
+            "log_excerpt": { "type": "string" }
+          }
+        },
+        "diagnostics": {
+          "type": "array",
+          "description": "Key findings from get_file_diagnostics per changed file.",
+          "items": {
+            "type": "object",
+            "required": ["path", "severity"],
+            "additionalProperties": false,
+            "properties": {
+              "path": { "type": "string" },
+              "severity": {
+                "type": "string",
+                "enum": ["info", "warning", "error"]
+              },
+              "summary": { "type": "string" }
+            }
+          }
+        },
+        "audit": {
+          "type": "object",
+          "description": "Output of audit_builder_session for this session_id. Reviewer gates on pass/warn/fail here.",
+          "required": ["status"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "type": "string", "enum": ["pass", "warn", "fail"] },
+            "failed_checks": { "type": "array", "items": { "type": "string" } },
+            "export_markdown_uri": {
+              "type": "string",
+              "description": "codelens:// resource URI pointing at the export_session_markdown artifact."
+            }
+          }
+        }
+      }
+    },
+    "ReviewerVerdict": {
+      "type": "object",
+      "description": "Reviewer output. Closes the handoff chain; merge gates read this.",
+      "required": ["decision", "rationale"],
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": ["approve", "request_changes", "block"]
+        },
+        "rationale": { "type": "string" },
+        "audit": {
+          "type": "object",
+          "description": "Output of audit_planner_session for the reviewer's own session — proves the reviewer used the read-only surface correctly.",
+          "required": ["status"],
+          "additionalProperties": false,
+          "properties": {
+            "status": { "type": "string", "enum": ["pass", "warn", "fail"] },
+            "failed_checks": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "requested_changes": {
+          "type": "array",
+          "description": "Populated when decision = request_changes. Each item becomes a new PlannerBrief acceptance criterion on the next loop.",
+          "items": {
+            "type": "object",
+            "required": ["statement"],
+            "additionalProperties": false,
+            "properties": {
+              "statement": { "type": "string" },
+              "target_path": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "ContextItem": {
+      "type": "object",
+      "required": ["kind", "reference"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["file", "symbol", "report"] },
+        "reference": {
+          "type": "string",
+          "description": "File path, symbol id, or codelens:// URI."
+        },
+        "rank": { "type": "number" },
+        "why": { "type": "string" }
+      }
+    },
+    "PreflightReport": {
+      "type": "object",
+      "required": ["status", "generated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "status": { "type": "string", "enum": ["ready", "caution", "blocked"] },
+        "generated_at": { "type": "string", "format": "date-time" },
+        "ttl_seconds": { "type": "integer", "minimum": 1 },
+        "blockers": { "type": "array", "items": { "type": "string" } },
+        "cautions": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

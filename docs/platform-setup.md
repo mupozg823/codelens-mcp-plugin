@@ -101,11 +101,21 @@ Planner/reviewer sessions use the same session filter shape:
 
 Use `resources/read` on `codelens://surface/manifest` when you need the canonical source for workspace version, tool counts, profile membership, or supported-language inventory. Repository docs are generated from the same manifest.
 
+Use `resources/read` on `codelens://harness/spec` when the host needs the portable contract for preflight order, coordination TTL discipline, audit hooks, or handoff artifact skeletons.
+
+Use `resources/read` on `codelens://schemas/handoff-artifact/v1` when the host needs the JSON schema for persisted planner/builder/reviewer handoff artifacts.
+
 For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces and tiers first, and omits `outputSchema` during bootstrap to keep session overhead bounded. Clients can expand one namespace at a time with `{"namespace":"reports"}`, open primitive tools with `{"tier":"primitive"}`, request the full surface explicitly with `{"full": true}`, or opt back into schemas with `{"includeOutputSchema": true}`. In deferred sessions, hidden namespaces and primitive tiers can gate `tools/call` until the client explicitly loads them, and `codelens://tools/list` / `codelens://session/http` resources reflect the same session state.
 
 ## Recommended Harness Modes
 
 <!-- SURFACE_MANIFEST_PLATFORM_HARNESS:BEGIN -->
+- Default communication pattern: `asymmetric-handoff`
+- Live bidirectional agent chat: `discouraged`
+- Planner -> builder delegation: `recommended`
+- Builder -> planner escalation: `explicit-only`
+- Canonical harness modes: `solo-local`, `planner-builder`, `reviewer-gate`, `batch-analysis`
+- Runtime resources: `codelens://harness/modes`, `codelens://harness/spec`
 <!-- SURFACE_MANIFEST_PLATFORM_HARNESS:END -->
 
 Live Claude/Codex bidirectional chat is not the default operating model. The recommended pattern is still asymmetric handoff over shared CodeLens state, with builder-to-planner escalation kept explicit and rare.

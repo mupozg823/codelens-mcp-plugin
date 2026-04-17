@@ -1408,6 +1408,8 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(encoded.contains("codelens://tools/list/full"));
     assert!(encoded.contains("codelens://surface/manifest"));
     assert!(encoded.contains("codelens://harness/modes"));
+    assert!(encoded.contains("codelens://harness/spec"));
+    assert!(encoded.contains("codelens://schemas/handoff-artifact/v1"));
     assert!(encoded.contains("codelens://session/http"));
     assert!(encoded.contains("codelens://analysis/recent"));
     assert!(encoded.contains("codelens://analysis/jobs"));
@@ -1531,6 +1533,8 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(surface_manifest_body.contains("tool_registry"));
     assert!(surface_manifest_body.contains("surfaces"));
     assert!(surface_manifest_body.contains("harness_modes"));
+    assert!(surface_manifest_body.contains("harness_spec"));
+    assert!(surface_manifest_body.contains("harness_artifacts"));
     assert!(surface_manifest_body.contains("languages"));
 
     let harness_modes = handle_request(
@@ -1548,6 +1552,39 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(harness_modes_body.contains("reviewer-gate"));
     assert!(harness_modes_body.contains("explicit-only"));
     assert!(harness_modes_body.contains("asymmetric-handoff"));
+
+    let harness_spec = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(242_2)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://harness/spec"})),
+        },
+    )
+    .unwrap();
+    let harness_spec_body = serde_json::to_string(&harness_spec).unwrap();
+    assert!(harness_spec_body.contains("planner-builder-handoff"));
+    assert!(harness_spec_body.contains("reviewer-signoff"));
+    assert!(harness_spec_body.contains("batch-analysis-artifact"));
+    assert!(harness_spec_body.contains("planner_builder_dispatch"));
+    assert!(harness_spec_body.contains("expected_duration_x_1_5"));
+
+    let handoff_schema = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(242_3)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://schemas/handoff-artifact/v1"})),
+        },
+    )
+    .unwrap();
+    let handoff_schema_body = serde_json::to_string(&handoff_schema).unwrap();
+    assert!(handoff_schema_body.contains("codelens-handoff-artifact-v1"));
+    assert!(handoff_schema_body.contains("planner_brief"));
+    assert!(handoff_schema_body.contains("builder_result"));
+    assert!(handoff_schema_body.contains("reviewer_verdict"));
 
     assert!(session_resource_body.contains("deferred_tier_gate"));
     assert!(session_resource_body.contains("mutation_preflight_required"));
