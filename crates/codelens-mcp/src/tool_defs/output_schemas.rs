@@ -446,6 +446,9 @@ pub(super) fn workflow_alias_output_schema() -> serde_json::Value {
         "properties": {
             "workflow": {"type": "string"},
             "delegated_tool": {"type": "string"},
+            "deprecated": {"type": "boolean"},
+            "replacement_tool": {"type": ["string", "null"]},
+            "removal_target": {"type": ["string", "null"]},
             "result": {}
         }
     })

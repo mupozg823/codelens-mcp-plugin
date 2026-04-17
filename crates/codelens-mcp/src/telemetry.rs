@@ -1,7 +1,7 @@
 //! Per-tool usage telemetry: call counts, latency, and error tracking.
 
 use serde::Serialize;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::path::PathBuf;
@@ -52,24 +52,35 @@ pub struct SurfaceMetrics {
 /// Session-level aggregate metrics across all tool calls.
 #[derive(Debug, Default, Serialize, Clone)]
 pub struct SessionMetrics {
+    // ── Core ─────────────────────────────────────────────────────────────
     pub total_calls: u64,
     pub success_count: u64,
     pub total_ms: u64,
     pub total_tokens: usize,
     pub error_count: u64,
-    pub tools_list_tokens: usize,
-    pub analysis_summary_reads: u64,
-    pub analysis_section_reads: u64,
     pub retry_count: u64,
-    pub analysis_cache_hit_count: u64,
     pub truncated_response_count: u64,
     pub truncation_followup_count: u64,
     pub truncation_same_tool_retry_count: u64,
     pub truncation_handle_followup_count: u64,
     pub handle_reuse_count: u64,
+
+    // ── Token usage ──────────────────────────────────────────────────────
+    pub tools_list_tokens: usize,
+
+    // ── Analysis context reads ───────────────────────────────────────────
+    pub analysis_summary_reads: u64,
+    pub analysis_section_reads: u64,
+    pub analysis_cache_hit_count: u64,
+
+    // ── Workflow guidance ────────────────────────────────────────────────
     pub repeated_low_level_chain_count: u64,
     pub composite_guidance_emitted_count: u64,
     pub composite_guidance_followed_count: u64,
+    pub composite_guidance_missed_count: u64,
+    pub composite_guidance_missed_by_origin: BTreeMap<String, u64>,
+
+    // ── Quality contract / verifier ──────────────────────────────────────
     pub quality_contract_emitted_count: u64,
     pub recommended_checks_emitted_count: u64,
     pub recommended_check_followthrough_count: u64,
@@ -78,23 +89,37 @@ pub struct SessionMetrics {
     pub verifier_contract_emitted_count: u64,
     pub blocker_emit_count: u64,
     pub verifier_followthrough_count: u64,
+
+    // ── Coordination ─────────────────────────────────────────────────────
     pub coordination_registration_count: u64,
     pub coordination_claim_count: u64,
     pub coordination_release_count: u64,
     pub coordination_overlap_emit_count: u64,
     pub coordination_caution_emit_count: u64,
+
+    // ── Mutation gate / preflight ────────────────────────────────────────
     pub mutation_preflight_checked_count: u64,
     pub mutation_without_preflight_count: u64,
     pub mutation_preflight_gate_denied_count: u64,
     pub stale_preflight_reject_count: u64,
     pub mutation_with_caution_count: u64,
     pub rename_without_symbol_preflight_count: u64,
+
+    // ── Namespace / surface tier ─────────────────────────────────────────
     pub deferred_namespace_expansion_count: u64,
     pub deferred_hidden_tool_call_denied_count: u64,
+    pub profile_switch_count: u64,
+    pub preset_switch_count: u64,
+
+    // ── Call-type classification ─────────────────────────────────────────
     pub composite_calls: u64,
     pub low_level_calls: u64,
+
+    // ── Transport ────────────────────────────────────────────────────────
     pub stdio_session_count: u64,
     pub http_session_count: u64,
+
+    // ── Analysis job system ──────────────────────────────────────────────
     pub analysis_jobs_enqueued: u64,
     pub analysis_jobs_started: u64,
     pub analysis_jobs_completed: u64,
@@ -110,12 +135,14 @@ pub struct SessionMetrics {
     pub analysis_worker_limit: u64,
     pub analysis_cost_budget: u64,
     pub analysis_transport_mode: String,
+
+    // ── Internal state (excluded from serialization) ─────────────────────
     #[serde(skip_serializing)]
     pub latency_samples: VecDeque<u64>,
     #[serde(skip_serializing)]
     pending_truncation_tool: Option<String>,
     #[serde(skip_serializing)]
-    pending_composite_guidance: bool,
+    pending_composite_guidance_from: Option<String>,
     #[serde(skip_serializing)]
     pending_quality_contract: bool,
     #[serde(skip_serializing)]
@@ -158,6 +185,16 @@ fn is_workflow_tool(name: &str) -> bool {
     matches!(
         name,
         "tools/list"
+            | "explore_codebase"
+            | "trace_request_path"
+            | "review_architecture"
+            | "plan_safe_refactor"
+            | "audit_security_context"
+            | "analyze_change_impact"
+            | "cleanup_duplicate_logic"
+            | "review_changes"
+            | "assess_change_readiness"
+            | "diagnose_issues"
             | "onboard_project"
             | "analyze_change_request"
             | "verify_change_readiness"
@@ -170,6 +207,7 @@ fn is_workflow_tool(name: &str) -> bool {
             | "impact_report"
             | "refactor_safety_report"
             | "diff_aware_references"
+            | "semantic_code_review"
             | "start_analysis_job"
             | "get_analysis_job"
             | "cancel_analysis_job"
@@ -403,11 +441,19 @@ impl ToolMetricsRegistry {
             if !success {
                 session.error_count += 1;
             }
-            if name != "get_tool_metrics" && session.pending_composite_guidance {
-                if is_workflow_tool(name) {
+            if let Some(origin_tool) = session.pending_composite_guidance_from.clone()
+                && !matches!(name, "get_tool_metrics" | "set_profile" | "set_preset")
+            {
+                if is_workflow_tool(name) || name == "get_analysis_section" {
                     session.composite_guidance_followed_count += 1;
+                } else {
+                    session.composite_guidance_missed_count += 1;
+                    *session
+                        .composite_guidance_missed_by_origin
+                        .entry(origin_tool)
+                        .or_insert(0) += 1;
                 }
-                session.pending_composite_guidance = false;
+                session.pending_composite_guidance_from = None;
             }
             if session.pending_quality_contract
                 && (name == "get_analysis_section"
@@ -573,6 +619,9 @@ impl ToolMetricsRegistry {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         session.handle_reuse_count += 1;
         session.quality_focus_reuse_count += 1;
+        if session.pending_composite_guidance_from.take().is_some() {
+            session.composite_guidance_followed_count += 1;
+        }
         if session.pending_truncation_tool.take().is_some() {
             session.truncation_followup_count += 1;
             session.truncation_handle_followup_count += 1;
@@ -731,13 +780,29 @@ impl ToolMetricsRegistry {
         session.deferred_hidden_tool_call_denied_count += 1;
     }
 
-    pub fn record_composite_guidance_emitted(&self) {
+    pub fn record_composite_guidance_emitted(&self, origin_tool: &str) {
         let mut session = self
             .session
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         session.composite_guidance_emitted_count += 1;
-        session.pending_composite_guidance = true;
+        session.pending_composite_guidance_from = Some(origin_tool.to_owned());
+    }
+
+    pub fn record_profile_switch(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.profile_switch_count += 1;
+    }
+
+    pub fn record_preset_switch(&self) {
+        let mut session = self
+            .session
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        session.preset_switch_count += 1;
     }
 
     pub fn record_transport_session(&self, transport: &str) {
@@ -1106,6 +1171,18 @@ mod tests {
         assert_eq!(session.truncation_followup_count, 2);
         assert_eq!(session.truncation_same_tool_retry_count, 1);
         assert_eq!(session.truncation_handle_followup_count, 1);
+    }
+
+    #[test]
+    fn profile_and_preset_switch_counts_accumulate() {
+        let reg = ToolMetricsRegistry::new();
+        reg.record_preset_switch();
+        reg.record_preset_switch();
+        reg.record_profile_switch();
+
+        let session = reg.session_snapshot();
+        assert_eq!(session.preset_switch_count, 2);
+        assert_eq!(session.profile_switch_count, 1);
     }
 
     #[test]

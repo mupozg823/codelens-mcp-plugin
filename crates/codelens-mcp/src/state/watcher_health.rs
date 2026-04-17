@@ -1,6 +1,11 @@
-use super::{AppState, WATCHER_RECENT_FAILURE_WINDOW_SECS};
+use super::AppState;
 use crate::error::CodeLensError;
 use crate::runtime_types::WatcherFailureHealth;
+
+/// Sliding window (seconds) over which watcher index-failure counts are
+/// aggregated for health reporting. Owned here because this submodule is
+/// the sole consumer.
+const WATCHER_RECENT_FAILURE_WINDOW_SECS: i64 = 15 * 60;
 
 pub(super) fn watcher_failure_health(state: &AppState) -> WatcherFailureHealth {
     let symbol_index = state.symbol_index();

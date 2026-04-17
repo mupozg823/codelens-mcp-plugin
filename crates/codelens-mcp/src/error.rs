@@ -99,4 +99,53 @@ impl CodeLensError {
     pub fn is_protocol_error(&self) -> bool {
         matches!(self, Self::ToolNotFound(_) | Self::MissingParam(_))
     }
+
+    /// Structured recovery hint derived from the error variant.
+    ///
+    /// Agents can parse this field to select a fallback action without
+    /// string-matching the error message. Returns `None` when no specific
+    /// recovery path is known.
+    pub fn recovery_hint(&self) -> Option<RecoveryHint> {
+        match self {
+            Self::MissingParam(field) => Some(RecoveryHint::RequireField {
+                field: field.clone(),
+            }),
+            Self::ToolNotFound(_) => Some(RecoveryHint::FallbackTool {
+                tool: "get_capabilities".to_owned(),
+                reason: "list currently available tools and features".to_owned(),
+            }),
+            #[cfg(feature = "semantic")]
+            Self::FeatureUnavailable(_) => Some(RecoveryHint::RequireFeature {
+                feature: "semantic".to_owned(),
+                install: "rebuild with `--features semantic` and call index_embeddings".to_owned(),
+            }),
+            Self::LspNotAttached(_) => Some(RecoveryHint::FallbackTool {
+                tool: "find_symbol".to_owned(),
+                reason: "tree-sitter index satisfies most symbol lookups without LSP".to_owned(),
+            }),
+            Self::IndexNotReady(_) => Some(RecoveryHint::RetryAfterSeconds { seconds: 5 }),
+            Self::Timeout { .. } => Some(RecoveryHint::FallbackTool {
+                tool: "start_analysis_job".to_owned(),
+                reason: "move heavy work to the durable job queue".to_owned(),
+            }),
+            Self::ResourceExhausted(_) => Some(RecoveryHint::RetryAfterSeconds { seconds: 10 }),
+            _ => None,
+        }
+    }
+}
+
+/// Structured recovery hint — lets agents pick a fallback action without
+/// parsing error strings. Emitted in the error response when the variant
+/// has a clear recovery path.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RecoveryHint {
+    /// Call this tool instead; it satisfies the same intent by another route.
+    FallbackTool { tool: String, reason: String },
+    /// Feature must be enabled via build flag or data setup before the call succeeds.
+    RequireFeature { feature: String, install: String },
+    /// A required input field is missing — name it explicitly so the agent can supply it.
+    RequireField { field: String },
+    /// The operation can succeed if retried after a short wait.
+    RetryAfterSeconds { seconds: u64 },
 }

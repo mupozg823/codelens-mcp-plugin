@@ -1,5 +1,6 @@
 use crate::AppState;
 use crate::error::CodeLensError;
+use crate::tool_defs::deprecated_workflow_alias;
 use crate::tool_runtime::{ToolHandler, ToolResult};
 use serde_json::{Value, json};
 
@@ -9,17 +10,30 @@ use crate::protocol::BackendKind;
 use crate::tool_runtime::success_meta;
 
 fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
+    let deprecation = deprecated_workflow_alias(workflow);
     match payload {
         Value::Object(mut map) => {
             map.insert("workflow".to_owned(), json!(workflow));
             map.insert("delegated_tool".to_owned(), json!(delegated_tool));
+            if let Some((replacement_tool, removal_target)) = deprecation {
+                map.insert("deprecated".to_owned(), json!(true));
+                map.insert("replacement_tool".to_owned(), json!(replacement_tool));
+                map.insert("removal_target".to_owned(), json!(removal_target));
+            }
             Value::Object(map)
         }
-        other => json!({
-            "workflow": workflow,
-            "delegated_tool": delegated_tool,
-            "result": other,
-        }),
+        other => {
+            let mut map = serde_json::Map::new();
+            map.insert("workflow".to_owned(), json!(workflow));
+            map.insert("delegated_tool".to_owned(), json!(delegated_tool));
+            if let Some((replacement_tool, removal_target)) = deprecation {
+                map.insert("deprecated".to_owned(), json!(true));
+                map.insert("replacement_tool".to_owned(), json!(replacement_tool));
+                map.insert("removal_target".to_owned(), json!(removal_target));
+            }
+            map.insert("result".to_owned(), other);
+            Value::Object(map)
+        }
     }
 }
 

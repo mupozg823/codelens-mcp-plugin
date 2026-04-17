@@ -108,6 +108,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     resp.budget_hint = Some(hint);
     resp.elapsed_ms = Some(elapsed_ms as u64);
     resp.routing_hint = Some(routing_hint_for_payload(&resp));
+    resp.reasoning_scaffold = tools::reasoning_scaffold::reasoning_scaffold_for(name);
 
     let emitted_composite_guidance =
         apply_contextual_guidance(&mut resp, name, &recent_tools, harness_phase, surface);
@@ -162,8 +163,10 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         harness_phase,
         Some(logical_session_id),
     );
-    if emitted_composite_guidance {
-        state.metrics().record_composite_guidance_emitted();
+    if emitted_composite_guidance
+        && !matches!(name, "get_tool_metrics" | "set_profile" | "set_preset")
+    {
+        state.metrics().record_composite_guidance_emitted(name);
     }
 
     let max_result_size = max_result_size_chars_for_tool(name, truncated);
@@ -198,7 +201,11 @@ pub(crate) fn build_error_response(
         return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());
     }
 
+    // Derive the structured recovery hint before consuming the error via `to_string()`.
+    let recovery_hint = error.recovery_hint();
+
     let mut resp = ToolCallResponse::error(error.to_string());
+    resp.recovery_hint = recovery_hint;
     if let Some(failure) = gate_failure {
         let analysis_hint = failure
             .analysis_id
@@ -227,10 +234,8 @@ pub(crate) fn build_error_response(
 /// Additive companion to `suggested_next_tools` — never replaces it. Pre-fills
 /// `arguments` for follow-up tools the server can unambiguously derive from
 /// (a) the current call's own arguments, and (b) the fresh payload (most
-/// usefully `analysis_id`). Applies only to the four high-value workflow
-/// origins: `verify_change_readiness`, `analyze_change_request`,
-/// `impact_report`, `safe_rename_report`. Other origins stay with the
-/// existing string-only `suggested_next_tools`.
+/// usefully `analysis_id`). Applies only to bounded workflow/report follow-ups
+/// where the server can forward scope without inventing new intent.
 fn build_suggested_next_calls(
     current_tool: &str,
     current_args: &serde_json::Value,
@@ -242,6 +247,7 @@ fn build_suggested_next_calls(
         .and_then(|v| v.as_str());
     let task = current_args.get("task").and_then(|v| v.as_str());
     let changed_files = current_args.get("changed_files").cloned();
+    let path = current_args.get("path").and_then(|v| v.as_str());
     let file_path = current_args
         .get("file_path")
         .and_then(|v| v.as_str())
@@ -250,12 +256,71 @@ fn build_suggested_next_calls(
         .get("symbol")
         .and_then(|v| v.as_str())
         .or_else(|| current_args.get("symbol_name").and_then(|v| v.as_str()))
-        .or_else(|| current_args.get("name").and_then(|v| v.as_str()));
+        .or_else(|| current_args.get("name").and_then(|v| v.as_str()))
+        .or_else(|| current_args.get("function_name").and_then(|v| v.as_str()))
+        .or_else(|| current_args.get("entrypoint").and_then(|v| v.as_str()));
     let new_name = current_args.get("new_name").and_then(|v| v.as_str());
+    let target_path = file_path.or(path);
+    let single_changed_file = current_args
+        .get("changed_files")
+        .and_then(|v| v.as_array())
+        .and_then(|items| {
+            if items.len() == 1 {
+                items.first().and_then(|value| value.as_str())
+            } else {
+                None
+            }
+        });
+    let diagnostic_path = target_path.or(single_changed_file);
 
     let mut calls = Vec::new();
     for next in next_tools.iter().take(3) {
         let call = match (current_tool, next.as_str()) {
+            ("explore_codebase", "review_architecture") => {
+                target_path.map(|p| SuggestedNextCall {
+                    tool: "review_architecture".to_owned(),
+                    arguments: json!({ "path": p }),
+                    reason: "Escalate the same scoped exploration into an architecture review instead of starting over.".to_owned(),
+                })
+            }
+            ("explore_codebase", "analyze_change_impact" | "impact_report") => {
+                target_path.map(|p| SuggestedNextCall {
+                    tool: next.clone(),
+                    arguments: json!({ "path": p }),
+                    reason: "Carry the same scoped path into an impact pass without re-entering the target.".to_owned(),
+                })
+            }
+            ("trace_request_path", "plan_safe_refactor") => symbol.map(|sym| SuggestedNextCall {
+                tool: "plan_safe_refactor".to_owned(),
+                arguments: json!({ "symbol": sym }),
+                reason: "Use the traced entrypoint as the symbol anchor for refactor planning.".to_owned(),
+            }),
+            ("review_architecture", "plan_safe_refactor") => {
+                target_path.map(|p| SuggestedNextCall {
+                    tool: "plan_safe_refactor".to_owned(),
+                    arguments: json!({ "path": p }),
+                    reason: "Reuse the reviewed scope as the refactor planning target.".to_owned(),
+                })
+            }
+            ("review_architecture", "analyze_change_impact" | "impact_report") => {
+                target_path.map(|p| SuggestedNextCall {
+                    tool: next.clone(),
+                    arguments: json!({ "path": p }),
+                    reason: "Take the same architecture scope into an impact report instead of re-specifying it.".to_owned(),
+                })
+            }
+            ("plan_safe_refactor", "trace_request_path") => symbol.map(|sym| SuggestedNextCall {
+                tool: "trace_request_path".to_owned(),
+                arguments: json!({ "symbol": sym }),
+                reason: "Trace the same symbol before editing to confirm the execution path.".to_owned(),
+            }),
+            ("plan_safe_refactor", "analyze_change_impact" | "impact_report") => {
+                target_path.map(|p| SuggestedNextCall {
+                    tool: next.clone(),
+                    arguments: json!({ "path": p }),
+                    reason: "Assess blast radius for the same refactor scope without restating the target.".to_owned(),
+                })
+            }
             ("verify_change_readiness", "get_analysis_section") => analysis_id.map(|aid| {
                 SuggestedNextCall {
                     tool: "get_analysis_section".to_owned(),
@@ -293,6 +358,47 @@ fn build_suggested_next_calls(
                     tool: "verify_change_readiness".to_owned(),
                     arguments: args,
                     reason: "Promote the impact evidence into a readiness verdict for the same scope.".to_owned(),
+                }
+            }),
+            ("review_changes", "impact_report") => {
+                let mut args = json!({});
+                if let Some(cf) = changed_files.clone() {
+                    args["changed_files"] = cf;
+                    Some(SuggestedNextCall {
+                        tool: "impact_report".to_owned(),
+                        arguments: args,
+                        reason: "Re-run the broader impact view over the same changed files.".to_owned(),
+                    })
+                } else if let Some(p) = target_path {
+                    args["path"] = json!(p);
+                    Some(SuggestedNextCall {
+                        tool: "impact_report".to_owned(),
+                        arguments: args,
+                        reason: "Expand this review into a broader impact report for the same scope.".to_owned(),
+                    })
+                } else {
+                    None
+                }
+            }
+            ("review_changes", "diagnose_issues") => diagnostic_path.map(|p| SuggestedNextCall {
+                tool: "diagnose_issues".to_owned(),
+                arguments: json!({ "path": p }),
+                reason: "Drill into diagnostics for the same reviewed file while the scope is still warm.".to_owned(),
+            }),
+            ("diagnose_issues", "review_changes") => diagnostic_path.map(|p| SuggestedNextCall {
+                tool: "review_changes".to_owned(),
+                arguments: json!({ "path": p }),
+                reason: "Promote the same file-level issue into a broader change review.".to_owned(),
+            }),
+            ("diagnose_issues", "find_symbol") => symbol.map(|sym| {
+                let mut args = json!({ "name": sym });
+                if let Some(p) = target_path {
+                    args["file_path"] = json!(p);
+                }
+                SuggestedNextCall {
+                    tool: "find_symbol".to_owned(),
+                    arguments: args,
+                    reason: "Jump directly to the implicated symbol instead of searching from scratch.".to_owned(),
                 }
             }),
             ("safe_rename_report", "rename_symbol") => {

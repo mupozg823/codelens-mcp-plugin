@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 const DEFAULT_COORDINATION_TTL_SECS: u64 = 5 * 60;
@@ -350,7 +350,16 @@ mod lock_stats_tests {
         assert_eq!(stats0.avg_wait_micros(), 0);
 
         store.register_agent_work("/p", "s1", "a", "b", "w", "intent", Some(60));
-        store.claim_files("/p", "s1", "a", "b", "w", vec!["f.rs".into()], "r", Some(60));
+        store.claim_files(
+            "/p",
+            "s1",
+            "a",
+            "b",
+            "w",
+            vec!["f.rs".into()],
+            "r",
+            Some(60),
+        );
         let after_two = store.lock_stats();
         assert_eq!(
             after_two.acquire_count, 2,

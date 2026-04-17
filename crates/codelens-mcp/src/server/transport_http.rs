@@ -14,6 +14,7 @@ use super::transport_http_support::{
 };
 use crate::AppState;
 use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
+use crate::tool_defs::{ToolProfile, ToolSurface, default_budget_for_profile};
 use anyhow::Result;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -25,6 +26,23 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
+
+fn initialize_surface_and_budget(
+    state: &AppState,
+    metadata: Option<&super::session::SessionClientMetadata>,
+) -> (ToolSurface, usize) {
+    if let Some(profile) = metadata
+        .and_then(|metadata| metadata.requested_profile.as_deref())
+        .and_then(ToolProfile::from_str)
+    {
+        return (
+            ToolSurface::Profile(profile),
+            default_budget_for_profile(profile),
+        );
+    }
+
+    (*state.surface(), state.token_budget())
+}
 
 /// Build the axum Router for the MCP HTTP transport.
 /// Exposed for testing via `cargo test --features http`.
@@ -299,13 +317,15 @@ async fn mcp_post_handler(
 
     // Create session on initialize
     let initialize_session = if is_initialize {
+        let (initial_surface, initial_budget) =
+            initialize_surface_and_budget(&state, initialize_metadata.as_ref());
         create_initialize_session(
             state.session_store.as_ref(),
             session_id.as_deref(),
             initialize_metadata,
             &state.current_project_scope(),
-            *state.surface(),
-            state.token_budget(),
+            initial_surface,
+            initial_budget,
         )
     } else {
         None

@@ -120,6 +120,8 @@ fn set_profile_changes_tools_list() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("analyze_change_request"));
+    assert!(!encoded.contains("\"analyze_change_impact\""));
+    assert!(!encoded.contains("\"assess_change_readiness\""));
     assert!(!encoded.contains("\"rename_symbol\""));
 
     let builder_resp = call_tool(&state, "set_profile", json!({"profile": "builder-minimal"}));
@@ -142,6 +144,14 @@ fn set_profile_changes_tools_list() {
     assert!(builder_encoded.contains("\"add_import\""));
     assert!(builder_encoded.contains("\"verify_change_readiness\""));
     assert!(!builder_encoded.contains("\"unresolved_reference_check\""));
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert!(
+        metrics["data"]["session"]["profile_switch_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 2
+    );
 }
 
 #[test]
@@ -191,8 +201,10 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"review_architecture\""));
-    assert!(encoded.contains("\"analyze_change_impact\""));
-    assert!(encoded.contains("\"audit_security_context\""));
+    assert!(encoded.contains("\"review_changes\""));
+    assert!(encoded.contains("\"cleanup_duplicate_logic\""));
+    assert!(!encoded.contains("\"analyze_change_impact\""));
+    assert!(!encoded.contains("\"audit_security_context\""));
     assert!(!encoded.contains("\"find_symbol\""));
     assert!(!encoded.contains("\"read_file\""));
     assert!(encoded.contains("\"tool_count_total\""));
@@ -220,8 +232,9 @@ fn refactor_deferred_tools_list_starts_preview_first() {
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"tool_count\":"));
     assert!(encoded.contains("\"plan_safe_refactor\""));
-    assert!(encoded.contains("\"analyze_change_impact\""));
+    assert!(encoded.contains("\"review_changes\""));
     assert!(encoded.contains("\"trace_request_path\""));
+    assert!(!encoded.contains("\"analyze_change_impact\""));
     assert!(encoded.contains("\"activate_project\""));
     assert!(encoded.contains("\"set_profile\""));
     assert!(!encoded.contains("\"name\":\"rename_symbol\""));

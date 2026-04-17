@@ -50,7 +50,7 @@ jobs:
         run: cargo install cargo-cyclonedx --locked
 
       - name: Build
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --features http --target ${{ matrix.target }}
 
       - name: Generate CycloneDX SBOM
         shell: bash

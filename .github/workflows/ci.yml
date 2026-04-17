@@ -26,6 +26,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -69,6 +71,49 @@ jobs:
       - name: cargo build --release (http for benchmark gate)
         if: matrix.os == 'ubuntu-latest'
         run: cargo build --release --features http
+
+      - name: resolve HTTP surface benchmark baseline
+        if: matrix.os == 'ubuntu-latest'
+        id: http_surface_baseline_ref
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE_SHA="$(git rev-parse HEAD^)"
+          fi
+          echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "Using baseline commit: $BASE_SHA"
+
+      - name: build baseline release (http for surface benchmark)
+        if: matrix.os == 'ubuntu-latest'
+        id: http_surface_baseline_build
+        shell: bash
+        run: |
+          BASE_SHA="${{ steps.http_surface_baseline_ref.outputs.sha }}"
+          BASE_WORKTREE="$(mktemp -d)"
+          BASE_TARGET_DIR="$RUNNER_TEMP/codelens-http-surface-baseline-target"
+          trap 'git worktree remove --force "$BASE_WORKTREE" >/dev/null 2>&1 || true' EXIT
+          git worktree add --detach "$BASE_WORKTREE" "$BASE_SHA"
+          CARGO_TARGET_DIR="$BASE_TARGET_DIR" cargo build \
+            --release \
+            --features http \
+            -p codelens-mcp \
+            --manifest-path "$BASE_WORKTREE/Cargo.toml"
+          echo "binary=$BASE_TARGET_DIR/release/codelens-mcp" >> "$GITHUB_OUTPUT"
+
+      - name: HTTP surface benchmark summary
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          CODELENS_BIN: target/release/codelens-mcp
+        run: |
+          python3 benchmarks/http-surface-benchmark.py . \
+            --baseline-binary "${{ steps.http_surface_baseline_build.outputs.binary }}" \
+            --candidate-binary target/release/codelens-mcp \
+            --iterations 3 \
+            --output-json benchmarks/http-surface-benchmark.json \
+            --markdown-output benchmarks/http-surface-benchmark.md | tee benchmarks/http-surface-benchmark-ci.txt
+          cat benchmarks/http-surface-benchmark.md >> "$GITHUB_STEP_SUMMARY"
 
       - name: token-efficiency benchmark gate
         if: matrix.os == 'ubuntu-latest'
@@ -119,3 +164,6 @@ jobs:
             benchmarks/embedding-quality-summary.md
             benchmarks/embedding-quality-phase3-matrix.json
             benchmarks/embedding-quality-phase3-matrix.md
+            benchmarks/http-surface-benchmark.json
+            benchmarks/http-surface-benchmark.md
+            benchmarks/http-surface-benchmark-ci.txt

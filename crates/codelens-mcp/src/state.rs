@@ -23,7 +23,6 @@ mod project_runtime;
 mod session_runtime;
 mod watcher_health;
 
-const WATCHER_RECENT_FAILURE_WINDOW_SECS: i64 = 15 * 60;
 /// Default preflight TTL: 10 minutes. Override via CODELENS_PREFLIGHT_TTL_SECS.
 /// NLAH (arxiv:2603.25723): overly strict verifiers hurt performance by -0.8~-8.4%.
 /// Making TTL configurable lets agents tune verification overhead vs safety.
@@ -101,8 +100,9 @@ pub(crate) struct AppState {
     recent_files: crate::recent_buffer::RecentRingBuffer,
     /// Recent analysis IDs for cross-phase context (max 5).
     recent_analysis_ids: crate::recent_buffer::RecentRingBuffer,
-    /// Doom-loop detection: (tool_name, args_hash, consecutive_count, first_occurrence_ms)
-    doom_loop_counter: Mutex<(String, u64, usize, u64)>,
+    /// Doom-loop detection: per-session map of (tool_name, args_hash, consecutive_count, first_occurrence_ms).
+    /// Keyed by logical session_id so concurrent HTTP sessions do not corrupt each other's counters.
+    doom_loop_counter: Mutex<HashMap<String, (String, u64, usize, u64)>>,
     preflight_store: RecentPreflightStore,
     coord_store: Arc<AgentCoordinationStore>,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
@@ -622,19 +622,30 @@ impl AppState {
     /// Doom-loop detection: returns (repeat_count, is_rapid_burst).
     /// Threshold of 3 triggers a warning. `is_rapid_burst` is true when
     /// 3+ identical calls occur within 10 seconds (agent retry loop).
-    pub(crate) fn doom_loop_count(&self, name: &str, args_hash: u64) -> (usize, bool) {
-        let mut counter = self
+    ///
+    /// Keyed by `session_id` so concurrent HTTP sessions maintain independent
+    /// counters and do not corrupt each other's state.
+    pub(crate) fn doom_loop_count(
+        &self,
+        session_id: &str,
+        name: &str,
+        args_hash: u64,
+    ) -> (usize, bool) {
+        let mut counters = self
             .doom_loop_counter
             .lock()
             .unwrap_or_else(|p| p.into_inner());
         let now = Self::now_ms();
-        if counter.0 == name && counter.1 == args_hash {
-            counter.2 += 1;
+        let entry = counters
+            .entry(session_id.to_owned())
+            .or_insert_with(|| (String::new(), 0, 0, now));
+        if entry.0 == name && entry.1 == args_hash {
+            entry.2 += 1;
         } else {
-            *counter = (name.to_owned(), args_hash, 1, now);
+            *entry = (name.to_owned(), args_hash, 1, now);
         }
-        let is_rapid = counter.2 >= 3 && (now.saturating_sub(counter.3) < 10_000);
-        (counter.2, is_rapid)
+        let is_rapid = entry.2 >= 3 && (now.saturating_sub(entry.3) < 10_000);
+        (entry.2, is_rapid)
     }
 
     /// Get the recent tool call names (up to 5).
@@ -705,7 +716,7 @@ impl AppState {
             metrics: Arc::clone(&self.metrics),
             recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
             recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
-            doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
+            doom_loop_counter: Mutex::new(HashMap::new()),
             recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
             preflight_store: RecentPreflightStore::new(),
             // Coordination registry is shared across worker clones so async
@@ -792,7 +803,7 @@ impl AppState {
             metrics: Arc::new(ToolMetricsRegistry::new()),
             recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
             recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
-            doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
+            doom_loop_counter: Mutex::new(HashMap::new()),
             recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
             preflight_store: RecentPreflightStore::new(),
             coord_store: Arc::new(AgentCoordinationStore::new()),

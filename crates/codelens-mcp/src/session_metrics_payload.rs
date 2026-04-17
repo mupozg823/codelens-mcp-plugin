@@ -1,5 +1,5 @@
 use crate::AppState;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 pub(crate) struct SessionMetricsPayload {
     pub(crate) session: Map<String, Value>,
@@ -107,6 +107,14 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
         json!(session.composite_guidance_followed_count),
     );
     session_json.insert(
+        "composite_guidance_missed_count".to_owned(),
+        json!(session.composite_guidance_missed_count),
+    );
+    session_json.insert(
+        "composite_guidance_missed_by_origin".to_owned(),
+        json!(session.composite_guidance_missed_by_origin),
+    );
+    session_json.insert(
         "quality_contract_emitted_count".to_owned(),
         json!(session.quality_contract_emitted_count),
     );
@@ -190,6 +198,14 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
         "deferred_hidden_tool_call_denied_count".to_owned(),
         json!(session.deferred_hidden_tool_call_denied_count),
     );
+    session_json.insert(
+        "profile_switch_count".to_owned(),
+        json!(session.profile_switch_count),
+    );
+    session_json.insert(
+        "preset_switch_count".to_owned(),
+        json!(session.preset_switch_count),
+    );
     session_json.insert("composite_calls".to_owned(), json!(session.composite_calls));
     session_json.insert("low_level_calls".to_owned(), json!(session.low_level_calls));
     session_json.insert(
@@ -266,31 +282,39 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
     );
     session_json.insert(
         "watcher_running".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.running)
-            .unwrap_or(false)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.running)
+                .unwrap_or(false)
+        ),
     );
     session_json.insert(
         "watcher_events_processed".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.events_processed)
-            .unwrap_or(0)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.events_processed)
+                .unwrap_or(0)
+        ),
     );
     session_json.insert(
         "watcher_files_reindexed".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.files_reindexed)
-            .unwrap_or(0)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.files_reindexed)
+                .unwrap_or(0)
+        ),
     );
     session_json.insert(
         "watcher_lock_contention_batches".to_owned(),
-        json!(watcher_stats
-            .as_ref()
-            .map(|stats| stats.lock_contention_batches)
-            .unwrap_or(0)),
+        json!(
+            watcher_stats
+                .as_ref()
+                .map(|stats| stats.lock_contention_batches)
+                .unwrap_or(0)
+        ),
     );
     session_json.insert(
         "watcher_index_failures".to_owned(),
@@ -397,6 +421,9 @@ pub(crate) fn build_session_metrics_payload(state: &AppState) -> SessionMetricsP
         } else { 0.0 },
         "composite_guidance_followthrough_rate": if session.composite_guidance_emitted_count > 0 {
             session.composite_guidance_followed_count as f64 / session.composite_guidance_emitted_count as f64
+        } else { 0.0 },
+        "composite_guidance_miss_rate": if session.composite_guidance_emitted_count > 0 {
+            session.composite_guidance_missed_count as f64 / session.composite_guidance_emitted_count as f64
         } else { 0.0 },
         "analysis_job_success_rate": if session.analysis_jobs_started > 0 {
             session.analysis_jobs_completed as f64 / session.analysis_jobs_started as f64

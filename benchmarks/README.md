@@ -64,6 +64,23 @@ python3 benchmarks/render-summary.py --output benchmarks/token-efficiency-summar
 - scenario별 tool call count / low-level chain count / p95 latency / retry count
 - CI에서는 markdown summary를 `GITHUB_STEP_SUMMARY`와 artifact로 함께 저장
 
+### 1-1-1. HTTP surface / bootstrap benchmark (http-surface-benchmark.py)
+
+```bash
+python3 benchmarks/http-surface-benchmark.py . \
+  --baseline-binary /path/to/old/codelens-mcp \
+  --candidate-binary target/release/codelens-mcp \
+  --output-json benchmarks/results/http-surface-benchmark.json \
+  --markdown-output benchmarks/results/http-surface-benchmark.md
+```
+
+측정 항목:
+
+- profile-aware HTTP `tools/list` 응답 크기와 지연
+- deferred bootstrap 경로의 `prepare_harness_session` 응답 크기와 지연
+- `planner-readonly` / `reviewer-graph` / `refactor-full` surface에서 visible tool count 변화
+- deprecated workflow alias가 surface에서 계속 노출되는지 여부
+
 ### 1-2. 임베드 런타임 benchmark (embedding-runtime.py)
 
 ```bash

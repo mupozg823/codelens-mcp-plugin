@@ -68,6 +68,27 @@ impl AnalysisJobStore {
         let _ = fs::remove_file(self.job_path(job_id));
     }
 
+    fn latest_job(&self, job_id: &str, project_scope: Option<&str>) -> Option<AnalysisJob> {
+        let path = self.job_path(job_id);
+        let job = fs::read(&path)
+            .ok()
+            .and_then(|b| serde_json::from_slice::<AnalysisJob>(&b).ok())
+            .filter(|j| matches_scope(j.project_scope.as_deref(), project_scope))
+            .or_else(|| {
+                self.jobs
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .get(job_id)
+                    .cloned()
+                    .filter(|j| matches_scope(j.project_scope.as_deref(), project_scope))
+            })?;
+        self.jobs
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(job_id.to_owned(), job.clone());
+        Some(job)
+    }
+
     pub fn cleanup_stale_files(&self, now_ms: u64, project_scope: Option<&str>) {
         let entries = match fs::read_dir(self.jobs_dir()) {
             Ok(e) => e,
@@ -187,24 +208,7 @@ impl AnalysisJobStore {
     /// the caller (AppState) handles that cross-concern.
     pub fn get(&self, job_id: &str, project_scope: Option<&str>) -> Option<AnalysisJob> {
         self.prune(Self::now_ms(), project_scope);
-        let path = self.job_path(job_id);
-        let job = fs::read(&path)
-            .ok()
-            .and_then(|b| serde_json::from_slice::<AnalysisJob>(&b).ok())
-            .filter(|j| matches_scope(j.project_scope.as_deref(), project_scope))
-            .or_else(|| {
-                self.jobs
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .get(job_id)
-                    .cloned()
-                    .filter(|j| matches_scope(j.project_scope.as_deref(), project_scope))
-            })?;
-        self.jobs
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(job_id.to_owned(), job.clone());
-        Some(job)
+        self.latest_job(job_id, project_scope)
     }
 
     pub fn cancel(
@@ -241,19 +245,22 @@ impl AnalysisJobStore {
         project_scope: Option<&str>,
     ) -> Vec<AnalysisJob> {
         self.prune(Self::now_ms(), project_scope);
-        let jobs = self.jobs.lock().unwrap_or_else(|p| p.into_inner());
-        let order = self.order.lock().unwrap_or_else(|p| p.into_inner());
-        order
+        let order = self
+            .order
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
             .iter()
             .rev()
-            .filter_map(|id| jobs.get(id))
-            .filter(|job| matches_scope(job.project_scope.as_deref(), project_scope))
+            .cloned()
+            .collect::<Vec<_>>();
+        order
+            .iter()
+            .filter_map(|id| self.latest_job(id, project_scope))
             .filter(|job| {
                 status_filter
                     .map(|f| job.status.as_str() == f)
                     .unwrap_or(true)
             })
-            .cloned()
             .collect()
     }
 
@@ -324,7 +331,10 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "codelens-job-store-test-{}-{}",
             std::process::id(),
-            AnalysisJobStore::now_ms()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         fs::create_dir_all(&dir).unwrap();
         let store = AnalysisJobStore::new(dir.clone());
@@ -339,6 +349,57 @@ mod tests {
             "cleanup should not remove inflight tmp files"
         );
         let _ = fs::remove_file(tmp_path);
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn list_reads_latest_job_state_from_disk() {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-job-store-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let store = AnalysisJobStore::new(dir.clone());
+        let scope = "scope-a";
+        let job = store
+            .store(
+                "impact_report",
+                None,
+                vec!["impact_rows".to_owned()],
+                JobLifecycle::Running,
+                30,
+                Some("running".to_owned()),
+                None,
+                None,
+                scope.to_owned(),
+            )
+            .unwrap();
+
+        let path = dir.join(format!("{}.json", job.id));
+        let mut disk_job =
+            serde_json::from_slice::<AnalysisJob>(&fs::read(&path).unwrap()).unwrap();
+        disk_job.status = JobLifecycle::Completed;
+        disk_job.progress = 100;
+        disk_job.current_step = Some("completed".to_owned());
+        disk_job.updated_at_ms = AnalysisJobStore::now_ms();
+        let tmp_path = path.with_extension("json.tmp");
+        fs::write(&tmp_path, serde_json::to_vec_pretty(&disk_job).unwrap()).unwrap();
+        fs::rename(&tmp_path, &path).unwrap();
+
+        assert_eq!(
+            store.get(&job.id, Some(scope)).unwrap().status,
+            JobLifecycle::Completed
+        );
+        assert_eq!(
+            store.list(None, Some(scope)).first().unwrap().status,
+            JobLifecycle::Completed
+        );
+
+        let _ = fs::remove_file(path);
         let _ = fs::remove_dir_all(dir);
     }
 }

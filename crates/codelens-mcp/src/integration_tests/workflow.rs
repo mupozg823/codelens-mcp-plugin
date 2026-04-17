@@ -1307,21 +1307,29 @@ fn analysis_lists_expose_resource_handles_and_counts() {
     );
     let job_id = start["data"]["job_id"].as_str().unwrap();
 
-    for _ in 0..100 {
-        let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
-        if poll["data"]["status"] == json!("completed") {
+    let mut completed = json!({});
+    for _ in 0..500 {
+        completed = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
+        if completed["data"]["status"] == json!("completed") {
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
+    assert_eq!(
+        completed["data"]["status"],
+        json!("completed"),
+        "expected job to complete before list verification: {completed}"
+    );
 
     let jobs = call_tool(&state, "list_analysis_jobs", json!({}));
+
     assert!(jobs["data"]["count"].as_u64().unwrap_or_default() >= 1);
     assert!(
         jobs["data"]["status_counts"]["completed"]
             .as_u64()
             .unwrap_or_default()
-            >= 1
+            >= 1,
+        "expected a completed job in list_analysis_jobs payload: {jobs}"
     );
     assert!(jobs["data"]["jobs"].is_array());
     assert!(
@@ -1598,6 +1606,8 @@ fn tool_metrics_expose_kpis_and_chain_detection() {
     assert!(metrics["data"]["session"]["verifier_contract_emitted_count"].is_number());
     assert!(metrics["data"]["session"]["blocker_emit_count"].is_number());
     assert!(metrics["data"]["session"]["verifier_followthrough_count"].is_number());
+    assert!(metrics["data"]["session"]["composite_guidance_missed_count"].is_number());
+    assert!(metrics["data"]["session"]["composite_guidance_missed_by_origin"].is_object());
     assert!(metrics["data"]["session"]["mutation_preflight_checked_count"].is_number());
     assert!(metrics["data"]["session"]["mutation_without_preflight_count"].is_number());
     assert!(metrics["data"]["session"]["mutation_preflight_gate_denied_count"].is_number());
@@ -1606,6 +1616,8 @@ fn tool_metrics_expose_kpis_and_chain_detection() {
     assert!(metrics["data"]["session"]["rename_without_symbol_preflight_count"].is_number());
     assert!(metrics["data"]["session"]["deferred_namespace_expansion_count"].is_number());
     assert!(metrics["data"]["session"]["deferred_hidden_tool_call_denied_count"].is_number());
+    assert!(metrics["data"]["session"]["profile_switch_count"].is_number());
+    assert!(metrics["data"]["session"]["preset_switch_count"].is_number());
     assert!(metrics["data"]["derived_kpis"]["quality_contract_present_rate"].is_number());
     assert!(metrics["data"]["derived_kpis"]["recommended_check_followthrough_rate"].is_number());
     assert!(metrics["data"]["derived_kpis"]["quality_focus_reuse_rate"].is_number());
@@ -1615,6 +1627,7 @@ fn tool_metrics_expose_kpis_and_chain_detection() {
     assert!(metrics["data"]["derived_kpis"]["verifier_followthrough_rate"].is_number());
     assert!(metrics["data"]["derived_kpis"]["mutation_preflight_gate_deny_rate"].is_number());
     assert!(metrics["data"]["derived_kpis"]["deferred_hidden_tool_call_deny_rate"].is_number());
+    assert!(metrics["data"]["derived_kpis"]["composite_guidance_miss_rate"].is_number());
     assert!(
         metrics["data"]["session"]["repeated_low_level_chain_count"]
             .as_u64()
@@ -1800,6 +1813,11 @@ fn workflow_alias_tools_return_structured_content_and_delegate() {
     assert_eq!(
         value["result"]["structuredContent"]["delegated_tool"],
         json!("get_ranked_context")
+    );
+    assert!(
+        value["result"]["structuredContent"]
+            .get("deprecated")
+            .is_none()
     );
     assert!(value["result"]["structuredContent"]["symbols"].is_array());
 }
@@ -2086,7 +2104,7 @@ fn analysis_list_schemas_expose_machine_summary_fields() {
 }
 
 #[test]
-fn workflow_first_surfaces_prefer_alias_bootstrap() {
+fn workflow_surfaces_prefer_canonical_bootstrap_entrypoints() {
     use crate::protocol::ToolTier;
     use crate::tool_defs::{
         ToolPreset, ToolProfile, ToolSurface, preferred_bootstrap_tools, preferred_tiers,
@@ -2099,7 +2117,8 @@ fn workflow_first_surfaces_prefer_alias_bootstrap() {
         preferred_bootstrap_tools(ToolSurface::Preset(ToolPreset::Balanced)).unwrap_or(&[]);
     assert!(balanced_bootstrap.contains(&"explore_codebase"));
     assert!(balanced_bootstrap.contains(&"review_architecture"));
-    assert!(balanced_bootstrap.contains(&"analyze_change_impact"));
+    assert!(balanced_bootstrap.contains(&"review_changes"));
+    assert!(!balanced_bootstrap.contains(&"analyze_change_impact"));
 }
 
 #[test]
@@ -2130,11 +2149,76 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
         reviewer_tools,
         vec![
             "review_architecture",
-            "analyze_change_impact",
-            "audit_security_context",
+            "review_changes",
+            "cleanup_duplicate_logic",
             "prepare_harness_session",
         ]
     );
+}
+
+#[test]
+fn deprecated_aliases_are_hidden_from_non_full_visible_surfaces() {
+    use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, visible_tools};
+
+    let reviewer_tools = visible_tools(ToolSurface::Profile(ToolProfile::ReviewerGraph))
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect::<Vec<_>>();
+    assert!(!reviewer_tools.contains(&"analyze_change_impact"));
+    assert!(!reviewer_tools.contains(&"audit_security_context"));
+    assert!(!reviewer_tools.contains(&"assess_change_readiness"));
+    assert!(reviewer_tools.contains(&"review_changes"));
+    assert!(reviewer_tools.contains(&"cleanup_duplicate_logic"));
+
+    let full_tools = visible_tools(ToolSurface::Preset(ToolPreset::Full))
+        .into_iter()
+        .map(|tool| tool.name)
+        .collect::<Vec<_>>();
+    assert!(full_tools.contains(&"analyze_change_impact"));
+    assert!(full_tools.contains(&"audit_security_context"));
+    assert!(full_tools.contains(&"assess_change_readiness"));
+}
+
+#[test]
+fn deprecated_alias_direct_calls_still_work_when_replacement_is_in_surface() {
+    let cases = [
+        (
+            "planner-readonly",
+            "analyze_change_impact",
+            json!({"path": "compat.py"}),
+            "impact_report",
+        ),
+        (
+            "reviewer-graph",
+            "audit_security_context",
+            json!({"changed_files": ["compat.py"]}),
+            "semantic_code_review",
+        ),
+        (
+            "refactor-full",
+            "assess_change_readiness",
+            json!({"task": "check compat.py", "changed_files": ["compat.py"]}),
+            "verify_change_readiness",
+        ),
+    ];
+
+    for (profile, alias_tool, arguments, replacement_tool) in cases {
+        let project = project_root();
+        fs::write(
+            project.as_path().join("compat.py"),
+            "def alpha():\n    return 1\n",
+        )
+        .unwrap();
+        let state = make_state(&project);
+        let _ = call_tool(&state, "set_profile", json!({"profile": profile}));
+
+        let payload = call_tool(&state, alias_tool, arguments);
+        assert_eq!(payload["success"], json!(true), "{profile} / {alias_tool}");
+        assert_eq!(payload["data"]["workflow"], json!(alias_tool));
+        assert_eq!(payload["data"]["deprecated"], json!(true));
+        assert_eq!(payload["data"]["replacement_tool"], json!(replacement_tool));
+        assert_eq!(payload["data"]["removal_target"], json!("v2.0"));
+    }
 }
 
 #[test]
@@ -2167,6 +2251,57 @@ fn prepare_harness_session_defaults_to_surface_bootstrap_entrypoints() {
             .map(|items| items.iter().any(|value| value == "trace_request_path"))
             .unwrap_or(false)
     );
+}
+
+#[test]
+fn project_architecture_resource_recommends_canonical_workflows() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("architecture.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(252)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://project/architecture"})),
+        },
+    )
+    .unwrap();
+    let value = serde_json::to_value(&response).unwrap();
+    let text = value["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("resource text");
+    let payload: serde_json::Value = serde_json::from_str(text).expect("valid architecture JSON");
+    let notes = payload["notes"].as_array().expect("notes array");
+    assert!(
+        notes
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|note| note.contains("review_changes"))
+    );
+    assert!(
+        !notes
+            .iter()
+            .filter_map(|value| value.as_str())
+            .any(|note| note.contains("analyze_change_impact"))
+    );
+}
+
+#[test]
+fn suggest_next_prefers_canonical_workflows() {
+    let explore = crate::tools::suggest_next("explore_codebase").expect("explore suggestions");
+    assert!(explore.iter().any(|item| item == "review_changes"));
+    assert!(!explore.iter().any(|item| item == "analyze_change_impact"));
+
+    let alias = crate::tools::suggest_next("analyze_change_impact").expect("alias suggestions");
+    assert!(alias.iter().any(|item| item == "review_changes"));
+    assert!(!alias.iter().any(|item| item == "audit_security_context"));
 }
 
 #[test]
@@ -2228,6 +2363,85 @@ fn low_level_chain_emits_composite_guidance_and_tracks_followthrough() {
             .as_u64()
             .unwrap_or_default()
             >= 1
+    );
+    assert_eq!(
+        metrics["data"]["session"]["composite_guidance_missed_count"],
+        json!(0)
+    );
+}
+
+#[test]
+fn workflow_guidance_miss_tracks_origin_without_counting_profile_switch() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("guided_miss.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool(
+        &state,
+        "find_symbol",
+        json!({"name": "alpha", "file_path": "guided_miss.py", "include_body": false}),
+    );
+    let _ = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({"file_path": "guided_miss.py", "symbol_name": "alpha", "max_results": 10}),
+    );
+    let _ = call_tool(
+        &state,
+        "read_file",
+        json!({"relative_path": "guided_miss.py"}),
+    );
+    let _ = call_tool(
+        &state,
+        "set_profile",
+        json!({"profile": "planner-readonly"}),
+    );
+
+    let metrics_after_switch = call_tool(&state, "get_tool_metrics", json!({}));
+    assert_eq!(
+        metrics_after_switch["data"]["session"]["composite_guidance_missed_count"],
+        json!(0)
+    );
+    assert!(
+        metrics_after_switch["data"]["session"]["profile_switch_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+
+    let _ = call_tool(
+        &state,
+        "find_symbol",
+        json!({"name": "alpha", "file_path": "guided_miss.py", "include_body": false}),
+    );
+
+    let metrics = call_tool(&state, "get_tool_metrics", json!({}));
+    assert!(
+        metrics["data"]["session"]["composite_guidance_missed_count"]
+            .as_u64()
+            .unwrap_or_default()
+            >= 1
+    );
+    assert!(
+        metrics["data"]["derived_kpis"]["composite_guidance_miss_rate"]
+            .as_f64()
+            .unwrap_or_default()
+            > 0.0
+    );
+    let missed_by_origin = metrics["data"]["session"]["composite_guidance_missed_by_origin"]
+        .as_object()
+        .expect("missed-by-origin should be an object");
+    assert!(
+        missed_by_origin
+            .get("read_file")
+            .and_then(|value| value.as_u64())
+            .unwrap_or_default()
+            >= 1,
+        "expected read_file miss origin, got {missed_by_origin:?}"
     );
 }
 
@@ -3061,6 +3275,23 @@ fn diagnose_issues_returns_structured_content() {
         payload["data"]["delegated_tool"],
         json!("get_file_diagnostics")
     );
+    assert!(
+        payload["suggested_next_tools"]
+            .as_array()
+            .map(|items| items.iter().any(|value| value == "review_changes"))
+            .unwrap_or(false)
+    );
+    assert!(
+        payload["suggested_next_calls"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|entry| {
+                    entry["tool"] == json!("review_changes")
+                        && entry["arguments"]["path"] == json!("diag_test.py")
+                })
+            })
+            .unwrap_or(false)
+    );
 }
 
 #[test]
@@ -3091,6 +3322,12 @@ fn assess_change_readiness_returns_structured_content() {
         payload["data"]["delegated_tool"],
         json!("verify_change_readiness")
     );
+    assert_eq!(payload["data"]["deprecated"], json!(true));
+    assert_eq!(
+        payload["data"]["replacement_tool"],
+        json!("verify_change_readiness")
+    );
+    assert_eq!(payload["data"]["removal_target"], json!("v2.0"));
 }
 
 #[test]
@@ -3109,6 +3346,21 @@ fn review_changes_returns_structured_content() {
     assert_eq!(
         payload["data"]["delegated_tool"],
         json!("diff_aware_references")
+    );
+    assert!(
+        payload["suggested_next_calls"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|entry| {
+                    entry["tool"] == json!("impact_report")
+                        && entry["arguments"]["changed_files"].is_array()
+                }) && items.iter().any(|entry| {
+                    entry["tool"] == json!("diagnose_issues")
+                        && entry["arguments"]["path"] == json!("review_test.py")
+                })
+            })
+            .unwrap_or(false),
+        "expected forwarded impact/diagnose follow-ups: {payload}"
     );
 }
 

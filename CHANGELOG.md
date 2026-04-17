@@ -21,6 +21,24 @@ CHANGELOG will resume per-release entries starting with the next minor bump. Tre
 
 ## [Unreleased]
 
+## [1.9.31] — 2026-04-17
+
+### Added
+
+- **`CodeLensError::recovery_hint()` + `RecoveryHint` enum** (`error.rs`, `protocol.rs`, `dispatch/response.rs`): structured hint attached to every error response. Four variants — `FallbackTool { tool, reason }`, `RequireFeature { feature, install }`, `RequireField { field }`, `RetryAfterSeconds { seconds }`. Mapped from seven error variants (`MissingParam`, `ToolNotFound`, `FeatureUnavailable`, `LspNotAttached`, `IndexNotReady`, `Timeout`, `ResourceExhausted`). Agents can branch on the tagged enum without parsing the error message.
+- **`reasoning_scaffold` response field** (`tools/reasoning_scaffold.rs`, `protocol.rs`, `dispatch/response.rs`): structured cognitive hints (`what_this_tells_you` / `what_this_does_not_tell_you` / `if_looking_for_*`) attached to six planner/reviewer workflow responses — `review_architecture`, `module_boundary_report`, `impact_report`, `analyze_change_impact`, `review_changes`, `dead_code_report`, `analyze_change_request`, `explore_codebase`, `onboard_project`. Omitted for tools without a registered scaffold so token use stays lean.
+- **`tools::infer_harness_phase()`** (`tools/mod.rs`, `dispatch/mod.rs`): fallback harness-phase detection from the recent-tool trail when the client does not supply `_harness_phase`. Priority order `build` > `review` > `plan` matches the forward direction of a harness run. Composite guidance and `suggested_next_tools` consume the inferred phase, so phase-aware hints now work for clients that never set the flag.
+
+### Refactor
+
+- **`dispatch/mod.rs` 6-way decomposition** (1,133 → 187 lines, −83% at entry point): responsibilities extracted into sibling files — `envelope.rs` (request parse), `table.rs` (dispatch table + semantic handlers), `session.rs` (context + mutation gate + post-mutation), `validation.rs` (schema pre-check), `rate_limit.rs` (doom-loop hash + rate limit). External API is unchanged (`pub(crate) fn dispatch_tool` is still the only entry); both consumers (`server/router.rs`, `server/oneshot.rs`) compile without edits. Doom-loop tests and semantic rerank tests co-locate with their targets in `rate_limit.rs` / `table.rs`.
+- **`state.rs` misplaced-constant cleanup**: `WATCHER_RECENT_FAILURE_WINDOW_SECS` relocated from the state.rs root to its sole consumer `state/watcher_health.rs`. Confirmed via `find_misplaced_code` outlier report from the 2026-04-17 architecture audit.
+
+### Tests
+
+- `+10` tests in `codelens-mcp`: 3 `reasoning_scaffold` + 7 `phase_inference_tests`. `238 → 248 passed`, zero regressions, `cargo test -p codelens-engine` unchanged.
+- `0` new clippy warnings across `--workspace --all-features`.
+
 ### Deprecated
 
 - Five tools are marked deprecated and scheduled for removal in **v2.0**. Their descriptions now begin with `[DEPRECATED v1.12 → removal v2.0]`, and the three pure-delegate wrapper functions also carry `#[deprecated(since = "1.12.0", ...)]` to surface compiler warnings in downstream crates. Behavior is unchanged in v1.12 — only the documentation/warning surface shifts.

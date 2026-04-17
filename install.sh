@@ -52,7 +52,7 @@ else
 	fi
 	TMP_DIR=$(mktemp -d)
 	git clone --depth 1 "https://github.com/${REPO}.git" "$TMP_DIR" 2>/dev/null
-	(cd "$TMP_DIR" && cargo build --release)
+	(cd "$TMP_DIR" && cargo build --release --features http)
 	mkdir -p "$INSTALL_DIR"
 	cp "$TMP_DIR/target/release/${BIN_NAME}" "$INSTALL_DIR/"
 	rm -rf "$TMP_DIR"

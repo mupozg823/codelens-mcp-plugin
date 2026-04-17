@@ -3,7 +3,7 @@ use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 use crate::tool_defs::{
     ToolSurface, is_content_mutation_tool, is_deferred_control_tool, is_read_only_surface,
-    is_tool_in_surface, preferred_namespaces, preferred_tier_labels, tool_namespace,
+    is_tool_callable_in_surface, preferred_namespaces, preferred_tier_labels, tool_namespace,
     tool_tier_label,
 };
 
@@ -62,7 +62,7 @@ pub(crate) fn validate_tool_access(
 ) -> Result<(), CodeLensError> {
     let active_surface = surface.as_label();
 
-    if !is_tool_in_surface(name, surface) {
+    if !is_tool_callable_in_surface(name, surface) {
         return Err(CodeLensError::Validation(format!(
             "Tool `{name}` is not available in active surface `{active_surface}`"
         )));

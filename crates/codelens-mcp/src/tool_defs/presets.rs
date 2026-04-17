@@ -139,6 +139,10 @@ pub(crate) const BALANCED_EXCLUDES: &[&str] = &[
     "replace_lines",
     // ── Superseded by onboard_project ──
     "get_project_structure",
+    // ── Deprecated workflow aliases (keep direct-call compat only) ──
+    "audit_security_context",
+    "analyze_change_impact",
+    "assess_change_readiness",
 ];
 
 pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
@@ -157,10 +161,8 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     // Workflow-first entrypoints
     "explore_codebase",
     "review_architecture",
-    "analyze_change_impact",
     "plan_safe_refactor",
     "review_changes",
-    "assess_change_readiness",
     "diagnose_issues",
     // Symbol exploration
     "find_symbol",
@@ -206,7 +208,6 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "explore_codebase",
     "trace_request_path",
     "plan_safe_refactor",
-    "analyze_change_impact",
     "find_symbol",
     "get_symbols_overview",
     "get_ranked_context",
@@ -247,11 +248,8 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "set_preset",
     // Workflow-first entrypoints
     "review_architecture",
-    "analyze_change_impact",
-    "audit_security_context",
     "cleanup_duplicate_logic",
     "review_changes",
-    "assess_change_readiness",
     "diagnose_issues",
     // Symbol exploration
     "find_symbol",
@@ -296,9 +294,7 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "trace_request_path",
     "review_architecture",
     "plan_safe_refactor",
-    "analyze_change_impact",
     "review_changes",
-    "assess_change_readiness",
     "diagnose_issues",
     // Symbol exploration
     "find_symbol",
@@ -355,11 +351,8 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "export_session_markdown",
     "explore_codebase",
     "review_architecture",
-    "analyze_change_impact",
-    "audit_security_context",
     "cleanup_duplicate_logic",
     "review_changes",
-    "assess_change_readiness",
     "diagnose_issues",
     "read_file",
     "search_for_pattern",
@@ -387,7 +380,7 @@ pub(crate) const CI_AUDIT_TOOLS: &[&str] = &[
     "get_analysis_section",
 ];
 
-/// Problem-first workflow surface: 12 high-level tools + session essentials.
+/// Problem-first workflow surface: canonical workflow entrypoints + session essentials.
 /// Agents see these by default; low-level tools are deferred.
 pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
     // Session
@@ -399,16 +392,13 @@ pub(crate) const WORKFLOW_FIRST_TOOLS: &[&str] = &[
     "get_current_config",
     "set_preset",
     "set_profile",
-    // Workflow aliases (7 existing + 3 new)
+    // Canonical workflow entrypoints
     "explore_codebase",
     "trace_request_path",
     "review_architecture",
     "plan_safe_refactor",
-    "audit_security_context",
-    "analyze_change_impact",
     "cleanup_duplicate_logic",
     "review_changes",
-    "assess_change_readiness",
     "diagnose_issues",
     // Essential workflow-level tools
     "analyze_change_request",
@@ -456,6 +446,15 @@ pub(crate) fn default_budget_for_profile(profile: ToolProfile) -> usize {
 
 // ── Filtering ──────────────────────────────────────────────────────────
 
+pub(crate) fn deprecated_workflow_alias(name: &str) -> Option<(&'static str, &'static str)> {
+    match name {
+        "audit_security_context" => Some(("semantic_code_review", "v2.0")),
+        "analyze_change_impact" => Some(("impact_report", "v2.0")),
+        "assess_change_readiness" => Some(("verify_change_readiness", "v2.0")),
+        _ => None,
+    }
+}
+
 pub(crate) fn is_tool_in_profile(name: &str, profile: ToolProfile) -> bool {
     match profile {
         ToolProfile::PlannerReadonly => PLANNER_READONLY_TOOLS.contains(&name),
@@ -473,6 +472,13 @@ pub(crate) fn is_tool_in_surface(name: &str, surface: ToolSurface) -> bool {
         ToolSurface::Preset(preset) => is_tool_in_preset(name, preset),
         ToolSurface::Profile(profile) => is_tool_in_profile(name, profile),
     }
+}
+
+pub(crate) fn is_tool_callable_in_surface(name: &str, surface: ToolSurface) -> bool {
+    is_tool_in_surface(name, surface)
+        || deprecated_workflow_alias(name)
+            .map(|(replacement, _)| is_tool_in_surface(replacement, surface))
+            .unwrap_or(false)
 }
 
 /// Check if a tool is included in a given preset.

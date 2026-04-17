@@ -143,6 +143,17 @@ pub struct ToolCallResponse {
     pub routing_hint: Option<RoutingHint>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
+    /// Structured recovery hint for error responses. Additive — coexists with
+    /// `error` and `suggested_next_tools`. Lets agents select a fallback action
+    /// without parsing the error message string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recovery_hint: Option<crate::error::RecoveryHint>,
+    /// Structured cognitive scaffold for planner/reviewer workflow responses.
+    /// Names what the current payload is evidence for, what it is not, and
+    /// which adjacent tools answer different intents. Omitted for tools
+    /// without a registered scaffold to keep token use low.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_scaffold: Option<Value>,
 }
 
 /// Routing hint for external callers — guides sync vs async call strategy.
@@ -368,6 +379,8 @@ impl ToolCallResponse {
             budget_hint: None,
             routing_hint: None,
             elapsed_ms: None,
+            recovery_hint: None,
+            reasoning_scaffold: None,
         }
     }
 
@@ -390,6 +403,8 @@ impl ToolCallResponse {
             budget_hint: None,
             routing_hint: None,
             elapsed_ms: None,
+            recovery_hint: None,
+            reasoning_scaffold: None,
         }
     }
 }

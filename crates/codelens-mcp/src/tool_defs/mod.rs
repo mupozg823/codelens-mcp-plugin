@@ -7,7 +7,7 @@ mod presets;
 // Re-exports from presets
 pub(crate) use presets::{
     ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset, default_budget_for_profile,
-    is_tool_in_surface, tool_namespace,
+    deprecated_workflow_alias, is_tool_callable_in_surface, is_tool_in_surface, tool_namespace,
 };
 
 // Re-exports from build
@@ -112,7 +112,7 @@ pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => Some(&[
             "explore_codebase",
             "review_architecture",
-            "analyze_change_impact",
+            "review_changes",
             "prepare_harness_session",
         ]),
         ToolSurface::Profile(ToolProfile::BuilderMinimal) => Some(&[
@@ -123,28 +123,28 @@ pub(crate) fn preferred_bootstrap_tools(surface: ToolSurface) -> Option<&'static
         ]),
         ToolSurface::Profile(ToolProfile::ReviewerGraph) => Some(&[
             "review_architecture",
-            "analyze_change_impact",
-            "audit_security_context",
+            "review_changes",
+            "cleanup_duplicate_logic",
             "prepare_harness_session",
         ]),
         // Keep refactor bootstrap preview-first. Mutation and broader report tools
         // are still reachable after an explicit expansion or follow-up step.
         ToolSurface::Profile(ToolProfile::RefactorFull) => Some(&[
             "plan_safe_refactor",
-            "analyze_change_impact",
+            "review_changes",
             "trace_request_path",
             "prepare_harness_session",
         ]),
         ToolSurface::Profile(ToolProfile::CiAudit) => Some(&[
-            "analyze_change_impact",
-            "audit_security_context",
+            "review_changes",
+            "cleanup_duplicate_logic",
             "review_architecture",
             "prepare_harness_session",
         ]),
         ToolSurface::Preset(ToolPreset::Balanced) => Some(&[
             "explore_codebase",
             "review_architecture",
-            "analyze_change_impact",
+            "review_changes",
             "prepare_harness_session",
         ]),
         ToolSurface::Preset(ToolPreset::Full) => Some(&[

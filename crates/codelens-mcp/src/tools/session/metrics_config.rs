@@ -1015,6 +1015,7 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
         state.set_surface(ToolSurface::Preset(new_preset));
         state.set_token_budget(budget);
     }
+    state.metrics().record_preset_switch();
 
     Ok((
         json!({
@@ -1061,6 +1062,7 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
         state.set_surface(ToolSurface::Profile(profile));
         state.set_token_budget(budget);
     }
+    state.metrics().record_profile_switch();
 
     Ok((
         json!({

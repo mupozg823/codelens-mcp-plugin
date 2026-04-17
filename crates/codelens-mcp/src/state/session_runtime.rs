@@ -116,7 +116,7 @@ pub(super) fn doom_loop_count_for_session(
     if let Some(session_state) = http_session_state(state, _session) {
         return session_state.doom_loop_count(name, args_hash);
     }
-    state.doom_loop_count(name, args_hash)
+    state.doom_loop_count(_session.session_id.as_str(), name, args_hash)
 }
 
 #[cfg(feature = "http")]

@@ -5,6 +5,7 @@ pub mod lsp;
 pub mod memory;
 pub mod mutation;
 pub(crate) mod query_analysis;
+pub(crate) mod reasoning_scaffold;
 mod report_contract;
 pub(crate) mod report_jobs;
 mod report_payload;
@@ -206,7 +207,7 @@ pub fn default_lsp_args_for_command(command: &str) -> Vec<String> {
 pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
     "explore_codebase",
     "review_architecture",
-    "analyze_change_impact",
+    "review_changes",
     "analyze_change_request",
     "verify_change_readiness",
     "find_minimal_context_for_change",
@@ -248,9 +249,9 @@ pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
 /// Tools relevant during harness REVIEW phase
 pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
     "review_architecture",
-    "analyze_change_impact",
-    "audit_security_context",
     "cleanup_duplicate_logic",
+    "review_changes",
+    "diagnose_issues",
     "verify_change_readiness",
     "get_file_diagnostics",
     "get_impact_analysis",
@@ -270,8 +271,8 @@ pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
 
 /// Tools relevant during harness EVAL phase
 pub(crate) const EVAL_PHASE_TOOLS: &[&str] = &[
-    "analyze_change_impact",
-    "audit_security_context",
+    "review_changes",
+    "diagnose_issues",
     "verify_change_readiness",
     "get_file_diagnostics",
     "get_changed_files",
@@ -303,8 +304,9 @@ const MUTATION_TOOLS: &[&str] = &[
 
 const REVIEW_TOOLS: &[&str] = &[
     "review_architecture",
-    "analyze_change_impact",
-    "audit_security_context",
+    "review_changes",
+    "diagnose_issues",
+    "cleanup_duplicate_logic",
     "get_changed_files",
     "get_impact_analysis",
     "find_scoped_references",
@@ -318,6 +320,72 @@ const EXPLORATION_TOOLS: &[&str] = &[
     "onboard_project",
     "get_current_config",
 ];
+
+/// Infer the harness phase from recent tool usage when the client has not
+/// supplied `_harness_phase` explicitly.
+///
+/// Walks the most recent tools (newest first) and returns the first
+/// distinctive phase signal it finds. Priority order is
+/// `build` > `review` > `plan` because progression is one-way: once an
+/// agent has reached a mutation, it is building; mutations followed by
+/// review tools means the build is done and review is active.
+pub(crate) fn infer_harness_phase(recent_tools: &[String]) -> Option<&'static str> {
+    // Distinctive signals — tools that strongly indicate a single phase.
+    // These are a subset of PLAN_/BUILD_/REVIEW_/EVAL_PHASE_TOOLS filtered
+    // down to entries that do not appear in multiple phase lists.
+    const BUILD_SIGNAL: &[&str] = &[
+        "rename_symbol",
+        "replace_symbol_body",
+        "replace",
+        "replace_content",
+        "insert_content",
+        "insert_at_line",
+        "delete_lines",
+        "add_import",
+        "create_text_file",
+        "refactor_extract_function",
+        "refactor_inline_function",
+        "refactor_move_to_file",
+        "refactor_change_signature",
+        "plan_safe_refactor",
+        "trace_request_path",
+    ];
+    const REVIEW_SIGNAL: &[&str] = &[
+        "diff_aware_references",
+        "semantic_code_review",
+        "refactor_safety_report",
+        "dead_code_report",
+        "find_circular_dependencies",
+        "unresolved_reference_check",
+        "find_misplaced_code",
+        "find_code_duplicates",
+        "review_changes",
+        "review_architecture",
+    ];
+    const PLAN_SIGNAL: &[&str] = &[
+        "analyze_change_request",
+        "find_minimal_context_for_change",
+        "onboard_project",
+        "explore_codebase",
+        "analyze_change_impact",
+    ];
+
+    // Look at up to the 5 most recent tools. The most recent call is the
+    // last entry when `push_recent_tool_for_session` appends in order.
+    for tool in recent_tools.iter().rev().take(5) {
+        let t = tool.as_str();
+        if BUILD_SIGNAL.contains(&t) {
+            return Some("build");
+        }
+        if REVIEW_SIGNAL.contains(&t) {
+            return Some("review");
+        }
+        if PLAN_SIGNAL.contains(&t) {
+            return Some("plan");
+        }
+    }
+    None
+}
 
 /// Context-aware tool suggestions: overrides static suggestions based on recent workflow.
 pub fn suggest_next_contextual(
@@ -442,19 +510,19 @@ fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static
         ToolSurface::Profile(ToolProfile::PlannerReadonly) => &[
             "explore_codebase",
             "review_architecture",
-            "analyze_change_impact",
+            "review_changes",
             "plan_safe_refactor",
         ],
         ToolSurface::Profile(ToolProfile::ReviewerGraph)
         | ToolSurface::Profile(ToolProfile::CiAudit) => &[
             "review_architecture",
-            "analyze_change_impact",
-            "audit_security_context",
+            "review_changes",
             "cleanup_duplicate_logic",
+            "diagnose_issues",
         ],
         ToolSurface::Profile(ToolProfile::RefactorFull) => &[
             "plan_safe_refactor",
-            "analyze_change_impact",
+            "review_changes",
             "trace_request_path",
             "review_architecture",
         ],
@@ -466,7 +534,6 @@ fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static
         ToolSurface::Profile(ToolProfile::WorkflowFirst) => &[
             "explore_codebase",
             "review_architecture",
-            "analyze_change_impact",
             "plan_safe_refactor",
             "review_changes",
             "diagnose_issues",
@@ -475,7 +542,7 @@ fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static
             "explore_codebase",
             "trace_request_path",
             "plan_safe_refactor",
-            "analyze_change_impact",
+            "review_changes",
         ],
     }
 }
@@ -585,37 +652,31 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "get_capabilities",
             "get_ranked_context",
         ],
-        "explore_codebase" => &[
-            "find_symbol",
-            "review_architecture",
-            "analyze_change_impact",
-        ],
-        "trace_request_path" => &["plan_safe_refactor", "find_symbol", "analyze_change_impact"],
-        "review_architecture" => &[
-            "analyze_change_impact",
-            "explore_codebase",
-            "plan_safe_refactor",
-        ],
+        "explore_codebase" => &["find_symbol", "review_architecture", "review_changes"],
+        "trace_request_path" => &["plan_safe_refactor", "find_symbol", "review_changes"],
+        "review_architecture" => &["review_changes", "explore_codebase", "plan_safe_refactor"],
         "plan_safe_refactor" => &[
             "trace_request_path",
-            "analyze_change_impact",
+            "review_changes",
             "get_file_diagnostics",
         ],
         "audit_security_context" => &[
-            "analyze_change_impact",
+            "review_changes",
             "get_analysis_section",
             "review_architecture",
         ],
         "analyze_change_impact" => &[
             "review_architecture",
-            "audit_security_context",
+            "review_changes",
             "get_analysis_section",
         ],
         "cleanup_duplicate_logic" => &[
-            "audit_security_context",
+            "review_changes",
             "review_architecture",
             "get_analysis_section",
         ],
+        "review_changes" => &["get_analysis_section", "impact_report", "diagnose_issues"],
+        "diagnose_issues" => &["review_changes", "find_symbol", "verify_change_readiness"],
         "onboard_project" => &["get_ranked_context", "find_symbol", "get_capabilities"],
         "get_watch_status" => &["refresh_symbol_index", "prune_index_failures"],
         "prune_index_failures" => &["get_watch_status", "refresh_symbol_index"],
@@ -741,4 +802,68 @@ pub fn suggestion_reasons_for(
         reasons.insert(tool.clone(), reason.to_owned());
     }
     reasons
+}
+
+#[cfg(test)]
+mod phase_inference_tests {
+    use super::infer_harness_phase;
+
+    fn tools(names: &[&str]) -> Vec<String> {
+        names.iter().map(|s| (*s).to_owned()).collect()
+    }
+
+    #[test]
+    fn mutation_at_end_infers_build() {
+        let recent = tools(&["find_symbol", "verify_change_readiness", "rename_symbol"]);
+        assert_eq!(infer_harness_phase(&recent), Some("build"));
+    }
+
+    #[test]
+    fn review_signal_without_mutation_infers_review() {
+        let recent = tools(&["find_symbol", "dead_code_report", "get_symbols_overview"]);
+        // Most-recent window scans in reverse; dead_code_report wins over plan-only tools.
+        assert_eq!(infer_harness_phase(&recent), Some("review"));
+    }
+
+    #[test]
+    fn plan_only_trail_infers_plan() {
+        let recent = tools(&["onboard_project", "explore_codebase", "get_ranked_context"]);
+        assert_eq!(infer_harness_phase(&recent), Some("plan"));
+    }
+
+    #[test]
+    fn empty_recent_returns_none() {
+        assert_eq!(infer_harness_phase(&[]), None);
+    }
+
+    #[test]
+    fn unknown_tools_only_returns_none() {
+        let recent = tools(&["my_custom_thing", "another_unknown"]);
+        assert_eq!(infer_harness_phase(&recent), None);
+    }
+
+    #[test]
+    fn only_most_recent_five_are_considered() {
+        // Six tools: the oldest is a build signal, but it should be outside the window.
+        let recent = tools(&[
+            "rename_symbol", // oldest — outside window
+            "find_symbol",
+            "find_symbol",
+            "find_symbol",
+            "find_symbol",
+            "find_symbol",
+        ]);
+        assert_eq!(infer_harness_phase(&recent), None);
+    }
+
+    #[test]
+    fn most_recent_distinctive_signal_wins() {
+        // Build signal is older, review signal is newer within the window.
+        let recent = tools(&[
+            "rename_symbol",        // build (oldest of window)
+            "find_symbol",
+            "review_changes",       // review (newer)
+        ]);
+        assert_eq!(infer_harness_phase(&recent), Some("review"));
+    }
 }

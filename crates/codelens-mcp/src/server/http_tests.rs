@@ -151,6 +151,68 @@ async fn initialize_persists_client_metadata() {
 }
 
 #[tokio::test]
+async fn initialize_profile_sets_http_session_surface_and_tools_list() {
+    let state = test_state();
+    let app = build_router(state.clone());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"HarnessQA","version":"2.1.0"},"profile":"reviewer-graph"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+
+    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    assert_eq!(
+        session.surface(),
+        crate::tool_defs::ToolSurface::Profile(crate::tool_defs::ToolProfile::ReviewerGraph)
+    );
+    assert_eq!(
+        session.token_budget(),
+        crate::tool_defs::default_budget_for_profile(crate::tool_defs::ToolProfile::ReviewerGraph)
+    );
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(body.contains("\"active_surface\":\"reviewer-graph\""));
+    assert!(body.contains("\"review_architecture\""));
+    assert!(body.contains("\"review_changes\""));
+    assert!(body.contains("\"cleanup_duplicate_logic\""));
+    assert!(!body.contains("\"analyze_change_impact\""));
+    assert!(!body.contains("\"audit_security_context\""));
+    assert!(!body.contains("\"assess_change_readiness\""));
+}
+
+#[tokio::test]
 async fn initialize_persists_deferred_loading_preference() {
     let state = test_state();
     let app = build_router(state.clone());
@@ -1365,8 +1427,10 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     assert!(body.contains("\"loaded_namespaces\":[]"));
     assert!(body.contains("\"loaded_tiers\":[]"));
     assert!(body.contains("\"review_architecture\""));
-    assert!(body.contains("\"analyze_change_impact\""));
-    assert!(body.contains("\"audit_security_context\""));
+    assert!(body.contains("\"review_changes\""));
+    assert!(body.contains("\"cleanup_duplicate_logic\""));
+    assert!(!body.contains("\"analyze_change_impact\""));
+    assert!(!body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"find_symbol\""));
     assert!(!body.contains("\"read_file\""));
     let envelope: serde_json::Value = serde_json::from_str(&body).unwrap();
@@ -1385,8 +1449,8 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
         tool_names.iter().take(3).cloned().collect::<Vec<_>>(),
         vec![
             "review_architecture".to_owned(),
-            "analyze_change_impact".to_owned(),
-            "audit_security_context".to_owned(),
+            "review_changes".to_owned(),
+            "cleanup_duplicate_logic".to_owned(),
         ]
     );
 }
@@ -1441,8 +1505,9 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
     assert!(body.contains("\"preferred_namespaces\":[\"reports\",\"session\"]"));
     assert!(body.contains("\"tool_count\":"));
     assert!(body.contains("\"plan_safe_refactor\""));
-    assert!(body.contains("\"analyze_change_impact\""));
+    assert!(body.contains("\"review_changes\""));
     assert!(body.contains("\"trace_request_path\""));
+    assert!(!body.contains("\"analyze_change_impact\""));
     assert!(body.contains("\"activate_project\""));
     assert!(body.contains("\"set_profile\""));
     assert!(!body.contains("\"name\":\"rename_symbol\""));
@@ -1467,7 +1532,7 @@ async fn refactor_deferred_tools_list_starts_preview_first_for_session() {
         tool_names.iter().take(3).cloned().collect::<Vec<_>>(),
         vec![
             "plan_safe_refactor".to_owned(),
-            "analyze_change_impact".to_owned(),
+            "review_changes".to_owned(),
             "trace_request_path".to_owned(),
         ]
     );
