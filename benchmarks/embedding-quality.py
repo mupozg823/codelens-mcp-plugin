@@ -48,6 +48,23 @@ def parse_args():
     )
     parser.add_argument("--isolated-copy", action="store_true")
     parser.add_argument("--keep-isolated-copy", action="store_true")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Exit 1 if hybrid/lexical MRR floors are not met",
+    )
+    parser.add_argument(
+        "--min-hybrid-mrr",
+        type=float,
+        default=0.65,
+        help="Floor for hybrid MRR@N under --check (default 0.65; self baseline v1.9.36 = 0.681)",
+    )
+    parser.add_argument(
+        "--min-lexical-mrr",
+        type=float,
+        default=0.50,
+        help="Floor for lexical MRR@N under --check",
+    )
     return parser.parse_args()
 
 
@@ -529,6 +546,29 @@ def main():
     if ARGS.markdown_output:
         Path(ARGS.markdown_output).write_text(
             render_markdown(result) + "\n", encoding="utf-8"
+        )
+
+    if ARGS.check:
+        import sys
+
+        failures = []
+        if hybrid["mrr"] < ARGS.min_hybrid_mrr:
+            failures.append(
+                f"hybrid MRR {hybrid['mrr']:.3f} < floor {ARGS.min_hybrid_mrr:.3f}"
+            )
+        if lexical["mrr"] < ARGS.min_lexical_mrr:
+            failures.append(
+                f"lexical MRR {lexical['mrr']:.3f} < floor {ARGS.min_lexical_mrr:.3f}"
+            )
+        if failures:
+            print("\nEmbedding-quality gate failed:")
+            for failure in failures:
+                print(f"- {failure}")
+            sys.exit(1)
+        print(
+            f"\nEmbedding-quality gate passed: "
+            f"hybrid MRR {hybrid['mrr']:.3f} >= {ARGS.min_hybrid_mrr:.3f}, "
+            f"lexical MRR {lexical['mrr']:.3f} >= {ARGS.min_lexical_mrr:.3f}"
         )
 
 
