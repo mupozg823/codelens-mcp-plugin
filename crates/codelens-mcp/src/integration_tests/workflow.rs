@@ -3176,12 +3176,7 @@ fn prepend_path(dir: &std::path::Path, original_path: &str) -> std::ffi::OsStrin
     std::env::join_paths(paths).expect("join PATH entries")
 }
 
-#[test]
-fn diagnose_issues_returns_structured_content() {
-    // diagnose_issues with a path delegates to get_file_diagnostics, which
-    // needs an LSP server.  We create a minimal python3-based mock named
-    // `pyright-langserver` (the default binary for .py files) in a temp bin
-    // directory and prepend it to PATH for the duration of the test.
+fn install_mock_pyright() -> std::path::PathBuf {
     let mock_lsp = concat!(
         "#!/usr/bin/env python3\n",
         "import sys, json\n",
@@ -3246,6 +3241,14 @@ fn diagnose_issues_returns_structured_content() {
         .unwrap();
     }
 
+    bin_dir
+}
+
+#[test]
+fn diagnose_issues_returns_structured_content() {
+    // diagnose_issues with file_path delegates to get_file_diagnostics.
+    let bin_dir = install_mock_pyright();
+
     let project = project_root();
     fs::write(
         project.as_path().join("diag_test.py"),
@@ -3262,7 +3265,11 @@ fn diagnose_issues_returns_structured_content() {
         std::env::set_var("PATH", &patched_path);
     }
 
-    let payload = call_tool(&state, "diagnose_issues", json!({"path": "diag_test.py"}));
+    let payload = call_tool(
+        &state,
+        "diagnose_issues",
+        json!({"file_path": "diag_test.py"}),
+    );
 
     // SAFETY: restoring PATH; still under PATH_MUTEX.
     unsafe {
@@ -3292,6 +3299,74 @@ fn diagnose_issues_returns_structured_content() {
             })
             .unwrap_or(false)
     );
+}
+
+#[test]
+fn diagnose_issues_directory_scope_returns_directory_summary() {
+    let bin_dir = install_mock_pyright();
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    fs::write(
+        project.as_path().join("src/diag_test.py"),
+        "def hello():\n    return 1\n",
+    )
+    .unwrap();
+    fs::write(project.as_path().join("src/notes.txt"), "skip me\n").unwrap();
+    let state = make_state(&project);
+
+    let _guard = PATH_MUTEX.lock().unwrap_or_else(|p| p.into_inner());
+    let original_path = std::env::var("PATH").unwrap_or_default();
+    let patched_path = prepend_path(&bin_dir, &original_path);
+    unsafe {
+        std::env::set_var("PATH", &patched_path);
+    }
+
+    let payload = call_tool(&state, "diagnose_issues", json!({"path": "src"}));
+
+    unsafe {
+        std::env::set_var("PATH", original_path);
+    }
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["workflow"], json!("diagnose_issues"));
+    assert_eq!(
+        payload["data"]["delegated_tool"],
+        json!("directory_diagnostics")
+    );
+    assert_eq!(payload["data"]["scope"], json!("directory"));
+    assert_eq!(payload["data"]["diagnosable_file_count"], json!(1));
+    assert_eq!(payload["data"]["returned_file_count"], json!(1));
+    assert_eq!(
+        payload["data"]["files"][0]["file_path"],
+        json!("src/diag_test.py")
+    );
+    assert!(
+        payload["data"]["skipped_files"]
+            .as_array()
+            .map(|items| items
+                .iter()
+                .any(|entry| entry["file_path"] == json!("src/notes.txt")))
+            .unwrap_or(false)
+    );
+}
+
+#[test]
+fn diagnose_issues_symbol_requires_file_target() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let missing_file =
+        crate::tools::workflows::diagnose_issues(&state, &json!({"symbol": "hello"}))
+            .expect_err("missing file_path should fail");
+    assert!(missing_file.to_string().contains("file_path"));
+
+    fs::create_dir_all(project.as_path().join("pkg")).unwrap();
+    let directory_target = crate::tools::workflows::diagnose_issues(
+        &state,
+        &json!({"file_path": "pkg", "symbol": "hello"}),
+    );
+    let error = directory_target.expect_err("directory symbol target should fail");
+    assert!(error.to_string().contains("requires a file target"));
 }
 
 #[test]

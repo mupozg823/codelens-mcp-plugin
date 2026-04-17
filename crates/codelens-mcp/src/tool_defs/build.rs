@@ -124,12 +124,14 @@ fn build_tools() -> Vec<Tool> {
                 "task": {"type": "string", "description": "Description of the planned change"}
             }
         })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("diagnose_issues", "[CodeLens:Workflow] Diagnostics: file-level issues or unresolved reference check.", json!({
+        Tool::new("diagnose_issues", "[CodeLens:Workflow] Diagnostics: file, directory, or symbol-level issue triage.", json!({
             "type": "object",
             "properties": {
                 "file_path": {"type": "string", "description": "File to diagnose"},
                 "path": {"type": "string", "description": "Directory scope"},
-                "symbol": {"type": "string", "description": "Symbol to check references for"}
+                "symbol": {"type": "string", "description": "Symbol to check references for"},
+                "changed_files": {"type": "array", "items": {"type": "string"}, "description": "Optional changed files to narrow unresolved reference checks"},
+                "max_results": {"type": "integer", "description": "Optional per-file diagnostics cap"}
             }
         })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("onboard_project", "[CodeLens:Session] One-shot onboarding: structure, key files, cycles, stats.", json!({"type":"object","properties":{}})).with_output_schema(onboard_output_schema()).with_annotations(ro_w.clone()),
