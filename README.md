@@ -187,6 +187,10 @@ build:
 - `dev.codelens.mcp-readonly` -> `reviewer-graph` on `:7839`
 - `dev.codelens.mcp-mutation` -> `refactor-full` on `:7838`
 
+It also updates `.codelens/config.json` with repo-local `host_attach` URL
+overrides so `codelens-mcp attach`, `status`, and `doctor` reuse the same
+host-to-daemon contract.
+
 Generic single-daemon example, if you want to hand-edit a plist instead of
 using the installer above:
 

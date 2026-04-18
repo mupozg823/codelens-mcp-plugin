@@ -85,6 +85,11 @@ Recommended daemon split:
 
 For this repository's local launchd workflow, use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh). It installs the repo-local dual-daemon shape from a current `--features http` build and defaults to `7839` read-only plus `7838` mutation-enabled to match the local harness contract.
 
+That installer also writes repo-local `host_attach.per_host_urls` overrides
+into `.codelens/config.json` so `codelens-mcp attach`, `status`, and `doctor`
+render and verify against the same local contract instead of the public
+generic `7837` default.
+
 The host configuration examples below intentionally keep the public generic
 `7837` / `7838` URLs. If you are using this repository's local launchd
 workflow, replace the read-only `:7837` examples with `:7839` and leave the

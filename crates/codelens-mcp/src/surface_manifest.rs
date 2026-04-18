@@ -886,6 +886,13 @@ fn append_compiled_overlay_section(base: &str, host: &str) -> String {
     text
 }
 
+fn managed_host_policy_block(body: &str) -> String {
+    format!(
+        "<!-- CODELENS_HOST_ROUTING:BEGIN -->\n{}\n<!-- CODELENS_HOST_ROUTING:END -->\n",
+        body.trim_end()
+    )
+}
+
 fn augment_host_adapter_bundle(host: &str, bundle: &mut Value) {
     let overlay_previews = overlay_previews_for_host(host);
     let primary_preview = overlay_previews.first().cloned();
@@ -981,7 +988,7 @@ fn raw_host_adapter_bundle(host: &str) -> Option<Value> {
                     "path": "CLAUDE.md",
                     "format": "markdown",
                     "purpose": "Carry the routing policy into Claude's project instructions.",
-                    "template": append_compiled_overlay_section(r#"# CodeLens Routing
+                    "template": managed_host_policy_block(&append_compiled_overlay_section(r#"## CodeLens Routing
 
 - Use native Read/Glob/Grep first for trivial point lookups and single-file edits.
 - Escalate to CodeLens after the first local step for multi-file review, refactor preflight, or durable artifact generation.
@@ -993,7 +1000,7 @@ fn raw_host_adapter_bundle(host: &str) -> Option<Value> {
   4. `verify_change_readiness`
 - Prefer asymmetric handoff over live planner/builder chat.
 - If `delegate_to_codex_builder` appears in `suggested_next_calls`, preserve `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` verbatim when dispatching the builder.
-"#, host)
+"#, host))
                 }
             ]
         }),
@@ -1047,7 +1054,7 @@ url = "http://127.0.0.1:7837/mcp"
                     "path": "AGENTS.md",
                     "format": "markdown",
                     "purpose": "Tell Codex when to stay native and when to escalate into CodeLens workflow tools.",
-                    "template": append_compiled_overlay_section(r#"# CodeLens Routing
+                    "template": managed_host_policy_block(&append_compiled_overlay_section(r#"## CodeLens Routing
 
 - Native first for point lookups and already-local single-file edits.
 - Use `prepare_harness_session` before multi-file review or refactor-sensitive work.
@@ -1055,7 +1062,7 @@ url = "http://127.0.0.1:7837/mcp"
 - Use `refactor-full` only after `verify_change_readiness`; for rename-heavy changes also run `safe_rename_report` or `unresolved_reference_check`.
 - After mutation, run `audit_builder_session` and export the session summary if the change must cross sessions or CI.
 - If the planner hands you `delegate_to_codex_builder`, replay the first delegated builder call with `delegate_tool` + `delegate_arguments` unchanged, including `handoff_id`.
-"#, host)
+"#, host))
                 }
             ]
         }),
@@ -1175,13 +1182,13 @@ alwaysApply: true
                     "path": ".clinerules",
                     "format": "markdown",
                     "purpose": "Keep CodeLens for reviewer-heavy or handoff-heavy flows, not every approval cycle.",
-                    "template": append_compiled_overlay_section(r#"# CodeLens Routing
+                    "template": managed_host_policy_block(&append_compiled_overlay_section(r#"## CodeLens Routing
 
 - Use Cline's normal foreground loop for local debugging, browser checks, and explicit command approvals.
 - Bring in CodeLens after the first local step when the task spans multiple files or needs refactor preflight.
 - Use `reviewer-graph` for exploration and `builder-minimal` for bounded write passes.
 - If work crosses sessions, export an audit or handoff artifact instead of relying on chat history.
-"#, host)
+"#, host))
                 }
             ]
         }),

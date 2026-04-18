@@ -434,6 +434,15 @@ fn first_significant_template_line(template: &str) -> Option<&str> {
         .find(|line| !line.is_empty() && !line.starts_with("```") && *line != "---")
 }
 
+fn extract_managed_text_block(text: &str) -> Option<String> {
+    const BEGIN: &str = "<!-- CODELENS_HOST_ROUTING:BEGIN -->";
+    const END: &str = "<!-- CODELENS_HOST_ROUTING:END -->";
+
+    let start = text.find(BEGIN)?;
+    let end = text[start..].find(END)? + start + END.len();
+    Some(text[start..end].to_owned())
+}
+
 fn inspect_json_config_entry(path: &Path, template: &Value) -> String {
     let display = path.display();
     let Ok(content) = fs::read_to_string(path) else {
@@ -581,6 +590,16 @@ fn inspect_text_policy_file(path: &Path, expected: &str, format: &str) -> String
     if normalize_text_for_compare(&content) == normalize_text_for_compare(expected) {
         return format!("- {display} [{format}]: present (exact generated file)");
     }
+    if let Some(expected_block) = extract_managed_text_block(expected) {
+        if let Some(actual_block) = extract_managed_text_block(&content) {
+            if normalize_text_for_compare(&actual_block)
+                == normalize_text_for_compare(&expected_block)
+            {
+                return format!("- {display} [{format}]: present (exact managed block)");
+            }
+            return format!("- {display} [{format}]: present (customized managed block)");
+        }
+    }
     if first_significant_template_line(expected).is_some_and(|line| content.contains(line)) {
         return format!("- {display} [{format}]: present (customized)");
     }
@@ -604,6 +623,26 @@ fn inspect_text_policy_file_json(path: &Path, expected: &str, format: &str) -> V
             "status": "present_exact",
             "message": "present (exact generated file)",
         });
+    }
+    if let Some(expected_block) = extract_managed_text_block(expected) {
+        if let Some(actual_block) = extract_managed_text_block(&content) {
+            if normalize_text_for_compare(&actual_block)
+                == normalize_text_for_compare(&expected_block)
+            {
+                return json!({
+                    "path": path_text,
+                    "format": format,
+                    "status": "present_exact",
+                    "message": "present (exact managed block)",
+                });
+            }
+            return json!({
+                "path": path_text,
+                "format": format,
+                "status": "present_customized",
+                "message": "present (customized managed block)",
+            });
+        }
     }
     if first_significant_template_line(expected).is_some_and(|line| content.contains(line)) {
         return json!({
@@ -931,7 +970,7 @@ fn render_doctor_report(command: &str, hosts: &[&str], home: &Path, cwd: &Path) 
 
     out.push_str("\nInterpretation:\n");
     out.push_str("- `attached` means a machine-readable CodeLens config stanza or section is currently detectable.\n");
-    out.push_str("- `present (customized)` means the policy file exists and still resembles the generated template, but has local edits.\n");
+    out.push_str("- `present (customized)` means the policy file or managed block exists and still resembles the generated template, but has local edits.\n");
     out.push_str("- `manual review required` means the file exists but the lightweight checker cannot prove alignment.\n");
     Ok(out)
 }
@@ -974,8 +1013,8 @@ fn doctor_report_json(command: &str, hosts: &[&str], home: &Path, cwd: &Path) ->
         "legend": {
             "attached_exact": "machine-readable CodeLens config matches the generated entry exactly",
             "attached_customized": "machine-readable CodeLens config is present but differs from the generated entry",
-            "present_exact": "text policy file matches the generated template exactly",
-            "present_customized": "text policy file exists and still resembles the generated template, but has local edits",
+            "present_exact": "text policy file or managed block matches the generated template exactly",
+            "present_customized": "text policy file or managed block exists and still resembles the generated template, but has local edits",
             "manual_review_required": "the lightweight checker cannot prove alignment",
             "missing": "file is absent"
         }
