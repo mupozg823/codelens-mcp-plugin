@@ -155,6 +155,10 @@ pub(super) fn bm25_symbol_search_output_schema() -> serde_json::Value {
                                 "source": {"type": "string", "enum": ["sparse_bm25f"]},
                                 "retrieval_rank": {"type": "integer"}
                             }
+                        },
+                        "suggested_follow_up": {
+                            "type": "array",
+                            "items": {"type": "string"}
                         }
                     }
                 }

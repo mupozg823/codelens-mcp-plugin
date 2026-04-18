@@ -1,6 +1,6 @@
 use super::super::{
-    AppState, ToolResult, optional_bool, optional_string, optional_usize,
-    query_analysis::analyze_retrieval_query, required_string, success_meta,
+    optional_bool, optional_string, optional_usize, query_analysis::analyze_retrieval_query,
+    required_string, success_meta, AppState, ToolResult,
 };
 use super::{
     analyzer::{
@@ -13,8 +13,8 @@ use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::symbol_corpus::build_symbol_corpus;
 use crate::symbol_retrieval::search_symbols_bm25f;
-use codelens_engine::{SymbolInfo, SymbolKind, read_file, search_symbols_hybrid_with_semantic};
-use serde_json::{Value, json};
+use codelens_engine::{read_file, search_symbols_hybrid_with_semantic, SymbolInfo, SymbolKind};
+use serde_json::{json, Value};
 
 pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
@@ -187,6 +187,7 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
         .into_iter()
         .enumerate()
         .map(|(idx, hit)| {
+            let follow_up = suggested_follow_up(&hit.document.kind, hit.document.exported);
             json!({
                 "symbol_id": hit.document.symbol_id,
                 "name": hit.document.name,
@@ -207,7 +208,8 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
                 "provenance": {
                     "source": "sparse_bm25f",
                     "retrieval_rank": idx + 1,
-                }
+                },
+                "suggested_follow_up": follow_up,
             })
         })
         .collect();
@@ -505,4 +507,68 @@ pub fn flatten_symbols(symbols: &[SymbolInfo]) -> Vec<SymbolInfo> {
         stack.extend(children);
     }
     flat
+}
+
+/// Follow-up tool hints for a BM25 symbol card.
+///
+/// Mirrors the `bm25-sparse-lane-spec` matrix. Frontier-model harnesses
+/// select their next tool off this list, so the output is part of the
+/// response contract. Keep it short (1-3 entries) — the goal is
+/// guidance, not an exhaustive menu.
+fn suggested_follow_up(kind: &str, exported: bool) -> Vec<&'static str> {
+    let base: Vec<&'static str> = match kind {
+        "function" | "method" => vec!["find_symbol", "get_file_diagnostics"],
+        "class" | "interface" | "enum" | "type_alias" => {
+            vec!["find_symbol", "find_referencing_symbols"]
+        }
+        "module" | "file" => vec!["get_symbols_overview", "find_referencing_symbols"],
+        "variable" | "property" => vec!["find_symbol", "find_referencing_symbols"],
+        _ => vec!["find_symbol"],
+    };
+    if exported
+        && matches!(kind, "function" | "method" | "class" | "interface")
+        && !base.contains(&"find_referencing_symbols")
+    {
+        let mut with_refs = base.clone();
+        with_refs.push("find_referencing_symbols");
+        return with_refs;
+    }
+    base
+}
+
+#[cfg(test)]
+mod suggested_follow_up_tests {
+    use super::suggested_follow_up;
+
+    #[test]
+    fn function_gets_body_then_diagnostics() {
+        let hints = suggested_follow_up("function", false);
+        assert_eq!(hints.first().copied(), Some("find_symbol"));
+        assert!(hints.contains(&"get_file_diagnostics"));
+    }
+
+    #[test]
+    fn class_gets_body_and_references() {
+        let hints = suggested_follow_up("class", false);
+        assert_eq!(hints, vec!["find_symbol", "find_referencing_symbols"]);
+    }
+
+    #[test]
+    fn module_gets_overview_first() {
+        let hints = suggested_follow_up("module", false);
+        assert_eq!(hints.first().copied(), Some("get_symbols_overview"));
+    }
+
+    #[test]
+    fn exported_function_also_offers_references() {
+        let hints = suggested_follow_up("function", true);
+        assert!(hints.contains(&"find_referencing_symbols"));
+        assert!(hints.contains(&"find_symbol"));
+    }
+
+    #[test]
+    fn unknown_kind_falls_back_to_find_symbol() {
+        let hints = suggested_follow_up("unknown", false);
+        assert_eq!(hints, vec!["find_symbol"]);
+    }
 }

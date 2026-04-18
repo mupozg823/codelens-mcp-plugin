@@ -134,6 +134,18 @@ fn bm25_symbol_search_returns_symbol_cards() {
             .unwrap_or(false),
         "top hit should include matched_terms"
     );
+    let follow_up = top["suggested_follow_up"]
+        .as_array()
+        .expect("suggested_follow_up array");
+    assert!(
+        !follow_up.is_empty(),
+        "function cards should include at least one follow-up hint"
+    );
+    let hints: Vec<&str> = follow_up.iter().filter_map(|v| v.as_str()).collect();
+    assert!(
+        hints.contains(&"find_symbol"),
+        "function follow-up should include find_symbol, got {hints:?}"
+    );
 }
 
 #[test]
