@@ -166,7 +166,7 @@ pub(crate) enum SemanticSearchStatus {
     Available,
     /// The bundled CodeSearchNet ONNX model file is missing or
     /// corrupt. User remediation: reinstall with a binary that ships
-    /// the model, or set `CODELENS_MODEL_DIR`.
+    /// the model, or set `SYMBIOTE_MODEL_DIR` / `CODELENS_MODEL_DIR`.
     #[cfg(feature = "semantic")]
     ModelAssetsUnavailable,
     /// The active tool surface (preset or profile) does not include
@@ -215,7 +215,7 @@ impl SemanticSearchStatus {
             Self::Available => None,
             #[cfg(feature = "semantic")]
             Self::ModelAssetsUnavailable => Some(
-                "model assets unavailable — reinstall with bundled model or set CODELENS_MODEL_DIR",
+                "model assets unavailable — reinstall with bundled model or set SYMBIOTE_MODEL_DIR or CODELENS_MODEL_DIR",
             ),
             #[cfg(feature = "semantic")]
             Self::NotInActiveSurface => Some(

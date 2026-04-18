@@ -1,8 +1,8 @@
-use crate::AppState;
-use crate::resource_context::{ResourceRequestContext, build_visible_tool_context};
+use crate::resource_context::{build_visible_tool_context, ResourceRequestContext};
 use crate::surface_manifest::{HARNESS_HOST_COMPAT_RESOURCE_URI, HOST_ADAPTER_HOSTS};
 use crate::tool_defs::{tool_namespace, tool_preferred_executor_label, tool_tier_label};
-use serde_json::{Value, json};
+use crate::AppState;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
@@ -38,6 +38,30 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "mimeType": "application/json"
         }),
         json!({
+            "uri": "codelens://surface/overlay",
+            "name": "Surface Overlay Preview",
+            "description": "Runtime preview of the (profile × host_context × task_overlay) compiled plan — query with ?host=<id>&task=<id>",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://backend/capabilities",
+            "name": "Semantic Backend Capabilities",
+            "description": "Passive capability map for the Rust engine, LSP bridge, and SCIP bridge backends — lists which capability each backend claims to fulfil",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://registry/projects",
+            "name": "Project Registry",
+            "description": "Active project plus registered secondary projects with memory availability, without requiring a tool call",
+            "mimeType": "application/json"
+        }),
+        json!({
+            "uri": "codelens://registry/memory-scopes",
+            "name": "Memory Scope Registry",
+            "description": "Declared memory scopes (project + global) with current paths and mutation-wiring status",
+            "mimeType": "application/json"
+        }),
+        json!({
             "uri": "codelens://harness/modes",
             "name": "Harness Modes",
             "description": "Canonical harness-mode topology and communication policy",
@@ -52,7 +76,7 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
         json!({
             "uri": "codelens://harness/host-adapters",
             "name": "Host Adapter Spec",
-            "description": "Portable host-adaptation guidance for Claude Code, Codex, Cursor, and similar agent hosts",
+            "description": "Portable host-adaptation guidance for Claude Code, Codex, Cursor, Cline, Windsurf, and similar agent hosts",
             "mimeType": "application/json"
         }),
         json!({

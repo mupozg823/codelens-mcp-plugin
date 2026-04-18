@@ -71,14 +71,19 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
         "notifications/initialized"
         | "notifications/cancelled"
         | "notifications/progress"
-        | "notifications/roots/list_changed" => None,
+        | "notifications/roots/list_changed"
+        | "notifications/tools/list_changed"
+        | "notifications/resources/list_changed"
+        | "notifications/prompts/list_changed" => None,
 
         "initialize" => Some(JsonRpcResponse::result(
             request.id,
             json!({
                 "protocolVersion": "2025-03-26",
                 "capabilities": {
-                    "tools": {},
+                    "tools": {
+                        "listChanged": state.session_resume_supported()
+                    },
                     "resources": { "listChanged": false },
                     "prompts": { "listChanged": false }
                 },

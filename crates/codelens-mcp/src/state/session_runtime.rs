@@ -58,6 +58,14 @@ pub(super) fn set_session_surface_and_budget(
     }
 }
 
+#[cfg(feature = "http")]
+pub(super) fn notify_tools_list_changed(state: &AppState, session: &SessionRequestContext) {
+    if let Some(session_state) = http_session_state(state, session) {
+        let _ =
+            session_state.notify_jsonrpc("notifications/tools/list_changed", serde_json::json!({}));
+    }
+}
+
 pub(super) fn push_recent_tool_for_session(
     state: &AppState,
     _session: &SessionRequestContext,

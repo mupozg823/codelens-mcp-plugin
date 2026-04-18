@@ -5,6 +5,7 @@ mod analysis_handles;
 mod analysis_queue;
 mod artifact_store;
 mod authority;
+mod backend;
 mod build_info;
 mod cli;
 mod client_profile;
@@ -18,6 +19,7 @@ mod preflight_store;
 mod prompts;
 mod protocol;
 mod recent_buffer;
+mod registry;
 mod resource_analysis;
 mod resource_catalog;
 mod resource_context;
@@ -46,8 +48,8 @@ use anyhow::Result;
 use cli::format_http_startup_banner;
 use cli::{
     attach_host_arg, cli_option_value, is_attach_subcommand, is_detach_subcommand,
-    render_attach_instructions, resolve_startup_project, run_detach_command,
-    select_startup_project_source,
+    is_doctor_subcommand, render_attach_instructions, resolve_startup_project, run_detach_command,
+    run_doctor_command, select_startup_project_source,
 };
 use env_compat::dual_prefix_env;
 use server::oneshot::run_oneshot;
@@ -177,6 +179,10 @@ fn main() -> Result<()> {
     }
     if is_detach_subcommand(&args) {
         println!("{}", run_detach_command(&args)?);
+        return Ok(());
+    }
+    if is_doctor_subcommand(&args) {
+        println!("{}", run_doctor_command(&args)?);
         return Ok(());
     }
 

@@ -7,9 +7,14 @@ use crate::AppState;
 use crate::error::CodeLensError;
 use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
 use crate::protocol::{JsonRpcResponse, SuggestedNextCall, ToolCallResponse, ToolResponseMeta};
+use crate::telemetry::CallTelemetryHints;
 use crate::tool_defs::{ToolSurface, tool_definition};
 use crate::tools;
 use serde_json::{Map, Value, json};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+static HANDOFF_ID_COUNTER: AtomicU64 = AtomicU64::new(1);
 
 pub(crate) struct SuccessResponseInput<'a> {
     pub name: &'a str,
@@ -169,6 +174,10 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         effective_budget,
         effort_offset,
     );
+    let suggested_next_tools = resp.suggested_next_tools.as_deref().unwrap_or(&[]);
+    let handoff_id = arguments.get("handoff_id").and_then(|value| value.as_str());
+    let (delegate_hint_trigger, delegate_target_tool, delegate_handoff_id) =
+        delegate_hint_telemetry_fields(&resp);
 
     let target_paths = state.extract_target_paths(arguments);
     state.metrics().record_call_with_targets_for_session(
@@ -181,6 +190,13 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         harness_phase,
         Some(logical_session_id),
         &target_paths,
+        CallTelemetryHints {
+            suggested_next_tools,
+            delegate_hint_trigger,
+            delegate_target_tool,
+            delegate_handoff_id,
+            handoff_id,
+        },
     );
     if emitted_composite_guidance
         && !matches!(name, "get_tool_metrics" | "set_profile" | "set_preset")
@@ -211,19 +227,20 @@ pub(crate) fn build_error_response(
     let elapsed_ms = start.elapsed().as_millis();
 
     let target_paths = state.extract_target_paths(arguments);
-    state.metrics().record_call_with_targets_for_session(
-        name,
-        elapsed_ms as u64,
-        false,
-        0,
-        active_surface,
-        false,
-        None,
-        Some(logical_session_id),
-        &target_paths,
-    );
 
     if error.is_protocol_error() {
+        state.metrics().record_call_with_targets_for_session(
+            name,
+            elapsed_ms as u64,
+            false,
+            0,
+            active_surface,
+            false,
+            None,
+            Some(logical_session_id),
+            &target_paths,
+            CallTelemetryHints::default(),
+        );
         return JsonRpcResponse::error(id, error.jsonrpc_code(), error.to_string());
     }
 
@@ -266,6 +283,28 @@ pub(crate) fn build_error_response(
     if !next_calls.is_empty() {
         resp.suggested_next_calls = Some(next_calls);
     }
+    let suggested_next_tools = resp.suggested_next_tools.as_deref().unwrap_or(&[]);
+    let handoff_id = arguments.get("handoff_id").and_then(|value| value.as_str());
+    let (delegate_hint_trigger, delegate_target_tool, delegate_handoff_id) =
+        delegate_hint_telemetry_fields(&resp);
+    state.metrics().record_call_with_targets_for_session(
+        name,
+        elapsed_ms as u64,
+        false,
+        0,
+        active_surface,
+        false,
+        None,
+        Some(logical_session_id),
+        &target_paths,
+        CallTelemetryHints {
+            suggested_next_tools,
+            delegate_hint_trigger,
+            delegate_target_tool,
+            delegate_handoff_id,
+            handoff_id,
+        },
+    );
     let text = text_payload_for_response(&resp, None);
     let mut body = json!({
         "content": [{ "type": "text", "text": text }],
@@ -280,6 +319,37 @@ pub(crate) fn build_error_response(
         body["_meta"]["codelens/deprecatedRemovalTarget"] = json!(removal);
     }
     JsonRpcResponse::result(id, body)
+}
+
+fn delegate_hint_telemetry_fields(
+    resp: &ToolCallResponse,
+) -> (Option<&str>, Option<&str>, Option<&str>) {
+    resp.suggested_next_calls
+        .as_ref()
+        .and_then(|calls| {
+            calls.iter().find(|call| {
+                call.tool == "delegate_to_codex_builder"
+                    && call
+                        .arguments
+                        .get("trigger")
+                        .and_then(|value| value.as_str())
+                        .is_some()
+            })
+        })
+        .map(|call| {
+            (
+                call.arguments
+                    .get("trigger")
+                    .and_then(|value| value.as_str()),
+                call.arguments
+                    .get("delegate_tool")
+                    .and_then(|value| value.as_str()),
+                call.arguments
+                    .get("handoff_id")
+                    .and_then(|value| value.as_str()),
+            )
+        })
+        .unwrap_or((None, None, None))
 }
 
 /// Build the additive `suggested_next_calls` list for the current response.
@@ -595,6 +665,7 @@ fn build_delegate_to_codex_builder_arguments(
     doom_loop_count: usize,
     doom_loop_rapid: bool,
 ) -> Value {
+    let handoff_id = generate_delegate_handoff_id();
     let mut carry_forward = Map::new();
     for key in [
         "task",
@@ -611,6 +682,7 @@ fn build_delegate_to_codex_builder_arguments(
             carry_forward.insert(key.to_owned(), value.clone());
         }
     }
+    carry_forward.insert("handoff_id".to_owned(), json!(handoff_id.clone()));
     if let Some(analysis_id) = payload
         .and_then(|value| value.get("analysis_id"))
         .and_then(|value| value.as_str())
@@ -649,6 +721,7 @@ fn build_delegate_to_codex_builder_arguments(
     };
 
     let mut result = json!({
+        "handoff_id": handoff_id.clone(),
         "preferred_executor": "codex-builder",
         "delegate_tool": delegate_tool,
         "source_tool": current_tool,
@@ -667,9 +740,20 @@ fn build_delegate_to_codex_builder_arguments(
     if !carry_forward.is_empty() {
         result["carry_forward"] = Value::Object(carry_forward);
     }
-    if let Some(arguments) = delegate_arguments {
-        result["delegate_arguments"] = arguments;
+    let mut delegate_arguments = delegate_arguments.unwrap_or_else(|| Value::Object(Map::new()));
+    if let Value::Object(arguments) = &mut delegate_arguments {
+        arguments.insert("handoff_id".to_owned(), json!(handoff_id));
     }
+    result["delegate_arguments"] = delegate_arguments;
 
     result
+}
+
+fn generate_delegate_handoff_id() -> String {
+    let timestamp_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let sequence = HANDOFF_ID_COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("codelens-handoff-{timestamp_ms:x}-{sequence:x}")
 }

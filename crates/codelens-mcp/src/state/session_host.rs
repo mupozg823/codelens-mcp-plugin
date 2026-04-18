@@ -66,6 +66,14 @@ impl AppState {
         session_runtime::push_recent_tool_for_session(self, _session, name);
     }
 
+    #[cfg(feature = "http")]
+    pub(crate) fn notify_tools_list_changed(
+        &self,
+        session: &crate::session_context::SessionRequestContext,
+    ) {
+        session_runtime::notify_tools_list_changed(self, session);
+    }
+
     pub(crate) fn recent_tools_for_session(
         &self,
         _session: &crate::session_context::SessionRequestContext,

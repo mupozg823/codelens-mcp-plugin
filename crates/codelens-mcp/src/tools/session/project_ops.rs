@@ -4,7 +4,8 @@ use crate::resource_context::{
     ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
 };
 use crate::tool_defs::{
-    ToolPreset, ToolProfile, ToolSurface, default_budget_for_profile, preferred_bootstrap_tools,
+    HostContext, TaskOverlay, ToolPreset, ToolProfile, ToolSurface, compile_surface_overlay,
+    default_budget_for_profile, preferred_bootstrap_tools,
 };
 use crate::tool_runtime::{ToolResult, required_string, success_meta};
 use codelens_engine::memory::list_memory_names;
@@ -412,6 +413,15 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     let session = request.session.clone();
     let active_surface = state.execution_surface(&session);
     let token_budget = state.execution_token_budget(&session);
+    let requested_host_context = arguments
+        .get("host_context")
+        .and_then(|value| value.as_str());
+    let requested_task_overlay = arguments
+        .get("task_overlay")
+        .and_then(|value| value.as_str());
+    let host_context = requested_host_context.and_then(HostContext::from_str);
+    let task_overlay = requested_task_overlay.and_then(TaskOverlay::from_str);
+    let overlay_plan = compile_surface_overlay(active_surface, host_context, task_overlay);
 
     let config_payload = if detail == "full" {
         let (payload, _) = crate::tools::filesystem::get_current_config(state, arguments)?;
@@ -482,6 +492,28 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             ),
             _ => {}
         }
+        if requested_host_context.is_some() && host_context.is_none() {
+            push_prepare_harness_warning(
+                &mut warnings,
+                &mut warning_codes,
+                "unknown_host_context",
+                "prepare_harness_session received an unknown host_context hint and fell back to surface-default routing",
+                false,
+                "use_documented_host_context",
+                "bootstrap_routing",
+            );
+        }
+        if requested_task_overlay.is_some() && task_overlay.is_none() {
+            push_prepare_harness_warning(
+                &mut warnings,
+                &mut warning_codes,
+                "unknown_task_overlay",
+                "prepare_harness_session received an unknown task_overlay hint and fell back to surface-default routing",
+                false,
+                "use_documented_task_overlay",
+                "bootstrap_routing",
+            );
+        }
         warnings
     };
 
@@ -502,24 +534,61 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
-    let preferred_entrypoints_source = if requested_entrypoints.is_empty() {
-        "surface_default"
-    } else {
+    let overlay_preferred_entrypoints = overlay_plan
+        .preferred_entrypoints
+        .iter()
+        .map(|tool| (*tool).to_owned())
+        .collect::<Vec<_>>();
+    let preferred_entrypoints_source = if !requested_entrypoints.is_empty() {
         "provided"
+    } else if !overlay_preferred_entrypoints.is_empty() {
+        "overlay"
+    } else {
+        "surface_default"
     };
-    let preferred_entrypoints = if requested_entrypoints.is_empty() {
+    let preferred_entrypoints = if !requested_entrypoints.is_empty() {
+        requested_entrypoints
+    } else if !overlay_preferred_entrypoints.is_empty() {
+        overlay_preferred_entrypoints
+    } else {
         preferred_bootstrap_tools(active_surface)
             .unwrap_or(&[])
             .iter()
             .map(|tool| (*tool).to_owned())
             .collect::<Vec<_>>()
-    } else {
-        requested_entrypoints
     };
     let preferred_entrypoints_visible = preferred_entrypoints
         .iter()
         .filter(|tool| visible_tool_names.iter().any(|name| name == *tool))
         .cloned()
+        .collect::<Vec<_>>();
+    let overlay_preferred_entrypoints_visible = overlay_plan
+        .preferred_entrypoints
+        .iter()
+        .filter(|tool| visible_tool_names.iter().any(|name| name == *tool))
+        .map(|tool| (*tool).to_owned())
+        .collect::<Vec<_>>();
+    let overlay_emphasized_tools = overlay_plan
+        .emphasized_tools
+        .iter()
+        .map(|tool| (*tool).to_owned())
+        .collect::<Vec<_>>();
+    let overlay_emphasized_tools_visible = overlay_plan
+        .emphasized_tools
+        .iter()
+        .filter(|tool| visible_tool_names.iter().any(|name| name == *tool))
+        .map(|tool| (*tool).to_owned())
+        .collect::<Vec<_>>();
+    let overlay_avoid_tools = overlay_plan
+        .avoid_tools
+        .iter()
+        .map(|tool| (*tool).to_owned())
+        .collect::<Vec<_>>();
+    let overlay_avoid_tools_visible = overlay_plan
+        .avoid_tools
+        .iter()
+        .filter(|tool| visible_tool_names.iter().any(|name| name == *tool))
+        .map(|tool| (*tool).to_owned())
         .collect::<Vec<_>>();
     let preferred_entrypoints_with_executors = preferred_entrypoints_visible
         .iter()
@@ -552,6 +621,19 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "capabilities": capabilities_payload,
             "health_summary": health_summary,
             "warnings": warnings,
+            "overlay": {
+                "applied": overlay_plan.applied(),
+                "host_context": overlay_plan.host_context.map(|value| value.as_str()),
+                "task_overlay": overlay_plan.task_overlay.map(|value| value.as_str()),
+                "preferred_executor_bias": overlay_plan.preferred_executor_bias,
+                "preferred_entrypoints": overlay_plan.preferred_entrypoints,
+                "preferred_entrypoints_visible": overlay_preferred_entrypoints_visible,
+                "emphasized_tools": overlay_emphasized_tools,
+                "emphasized_tools_visible": overlay_emphasized_tools_visible,
+                "avoid_tools": overlay_avoid_tools,
+                "avoid_tools_visible": overlay_avoid_tools_visible,
+                "routing_notes": overlay_plan.routing_notes,
+            },
             "http_session": build_http_session_payload(state, &request),
             "visible_tools": {
                 "tool_count": visible.tools.len(),

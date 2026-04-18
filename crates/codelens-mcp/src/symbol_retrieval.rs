@@ -92,7 +92,7 @@ pub fn search_symbols_bm25f(
         let mut seen = std::collections::HashSet::new();
         query_tokens
             .iter()
-            .filter(|t| seen.insert(t.clone()))
+            .filter(|t| seen.insert((*t).clone()))
             .cloned()
             .collect()
     };

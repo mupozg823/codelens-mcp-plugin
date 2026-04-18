@@ -7,7 +7,8 @@ pub mod tool;
 
 // Re-exports from presets
 pub(crate) use presets::{
-    ALL_PRESETS, ALL_PROFILES, ToolPreset, ToolProfile, ToolSurface, default_budget_for_preset,
+    ALL_PRESETS, ALL_PROFILES, HostContext, SurfaceCompilerInput, TaskOverlay, ToolPreset,
+    ToolProfile, ToolSurface, compile_surface_overlay, default_budget_for_preset,
     default_budget_for_profile, deprecated_workflow_alias, is_tool_callable_in_surface,
     is_tool_in_surface, tool_anthropic_always_load, tool_anthropic_search_hint, tool_deprecation,
     tool_namespace, tool_phase_label, tool_preferred_executor, tool_preferred_executor_label,

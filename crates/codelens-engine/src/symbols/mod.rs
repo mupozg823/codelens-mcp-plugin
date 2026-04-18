@@ -292,6 +292,11 @@ impl SymbolIndex {
         db.dir_stats()
     }
 
+    pub fn indexed_file_paths(&self) -> Result<Vec<String>> {
+        let db = self.reader()?;
+        db.all_file_paths()
+    }
+
     pub fn get_symbols_overview(&self, path: &str, depth: usize) -> Result<Vec<SymbolInfo>> {
         let resolved = self.project.resolve(path)?;
         if resolved.is_dir() {

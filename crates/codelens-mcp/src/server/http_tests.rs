@@ -40,6 +40,17 @@ async fn body_string(resp: axum::response::Response) -> String {
     String::from_utf8(bytes.to_vec()).unwrap()
 }
 
+async fn next_sse_chunk(resp: axum::response::Response) -> String {
+    let mut body = resp.into_body();
+    let frame = tokio::time::timeout(Duration::from_secs(1), body.frame())
+        .await
+        .expect("timed out waiting for SSE frame")
+        .expect("SSE stream ended before first frame")
+        .expect("SSE frame error");
+    let bytes = frame.into_data().expect("expected SSE data frame");
+    String::from_utf8(bytes.to_vec()).expect("SSE chunk should be utf-8")
+}
+
 fn first_resource_text(body: &str) -> String {
     serde_json::from_str::<serde_json::Value>(body)
         .ok()
@@ -108,6 +119,36 @@ async fn post_initialize_returns_session_id() {
     let body = body_string(resp).await;
     assert!(body.contains("\"jsonrpc\":\"2.0\""));
     assert!(body.contains("\"id\":1"));
+}
+
+#[tokio::test]
+async fn initialize_advertises_tools_list_changed_in_http_mode() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    let value: serde_json::Value = serde_json::from_str(&body).expect("initialize json");
+    assert_eq!(
+        value["result"]["capabilities"]["tools"]["listChanged"],
+        serde_json::json!(true)
+    );
+    assert_eq!(
+        value["result"]["capabilities"]["resources"]["listChanged"],
+        serde_json::json!(false)
+    );
 }
 
 #[tokio::test]
@@ -2272,6 +2313,72 @@ async fn get_with_unknown_session_returns_not_found() {
         .unwrap();
 
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn set_profile_emits_tools_list_changed_notification_over_sse() {
+    let app = build_router(test_state());
+    let init = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let sid = init
+        .headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned();
+    let _ = body_string(init).await;
+
+    let sse = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/mcp")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sse.status(), StatusCode::OK);
+
+    let set_profile = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-session-id", &sid)
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"set_profile","arguments":{"profile":"reviewer-graph"}}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(set_profile.status(), StatusCode::OK);
+
+    let chunk = next_sse_chunk(sse).await;
+    assert!(
+        chunk.contains("event: message"),
+        "unexpected SSE event envelope: {chunk}"
+    );
+    assert!(
+        chunk.contains(r#""method":"notifications/tools/list_changed""#),
+        "expected tools/list_changed notification, got: {chunk}"
+    );
 }
 
 // ── DELETE /mcp (session termination) ────────────────────────────────

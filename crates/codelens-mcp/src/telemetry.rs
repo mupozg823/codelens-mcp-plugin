@@ -41,6 +41,21 @@ pub struct ToolInvocation {
     pub target_paths: Vec<String>,
 }
 
+/// Safe, non-PII telemetry hints derived from the tool response.
+///
+/// These fields intentionally exclude tool arguments and payload excerpts.
+/// They only record public tool names and synthetic delegate metadata so the
+/// append-only JSONL log can support routing analysis without leaking user
+/// query text.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CallTelemetryHints<'a> {
+    pub suggested_next_tools: &'a [String],
+    pub delegate_hint_trigger: Option<&'a str>,
+    pub delegate_target_tool: Option<&'a str>,
+    pub delegate_handoff_id: Option<&'a str>,
+    pub handoff_id: Option<&'a str>,
+}
+
 #[derive(Debug, Default, Serialize, Clone)]
 pub struct SurfaceMetrics {
     pub call_count: u64,
@@ -253,6 +268,16 @@ struct PersistedEvent<'a> {
     phase: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     target_paths: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "<[_]>::is_empty", default)]
+    suggested_next_tools: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delegate_hint_trigger: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delegate_target_tool: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    delegate_handoff_id: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    handoff_id: Option<&'a str>,
 }
 
 /// Append-only JSONL writer for tool invocation telemetry.
@@ -393,6 +418,7 @@ impl ToolMetricsRegistry {
         phase: Option<&str>,
         logical_session_id: Option<&str>,
         target_paths: &[String],
+        telemetry_hints: CallTelemetryHints<'_>,
     ) {
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -501,6 +527,11 @@ impl ToolMetricsRegistry {
                 session_id: logical_session_id,
                 phase,
                 target_paths: (!target_paths.is_empty()).then_some(target_paths),
+                suggested_next_tools: telemetry_hints.suggested_next_tools,
+                delegate_hint_trigger: telemetry_hints.delegate_hint_trigger,
+                delegate_target_tool: telemetry_hints.delegate_target_tool,
+                delegate_handoff_id: telemetry_hints.delegate_handoff_id,
+                handoff_id: telemetry_hints.handoff_id,
             });
         }
     }
@@ -528,6 +559,7 @@ impl ToolMetricsRegistry {
             phase,
             logical_session_id,
             &[],
+            CallTelemetryHints::default(),
         );
     }
 
@@ -1540,6 +1572,11 @@ mod tests {
             session_id: Some("session-a"),
             phase: Some("plan"),
             target_paths: None,
+            suggested_next_tools: &[],
+            delegate_hint_trigger: None,
+            delegate_target_tool: None,
+            delegate_handoff_id: None,
+            handoff_id: None,
         });
 
         let contents = std::fs::read_to_string(&path).expect("read jsonl");
@@ -1575,6 +1612,11 @@ mod tests {
                 session_id: None,
                 phase: None,
                 target_paths: None,
+                suggested_next_tools: &[],
+                delegate_hint_trigger: None,
+                delegate_target_tool: None,
+                delegate_handoff_id: None,
+                handoff_id: None,
             });
         }
 
@@ -1590,6 +1632,51 @@ mod tests {
                 "phase should be omitted when None"
             );
         }
+
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
+    }
+
+    #[test]
+    fn telemetry_writer_persists_delegate_hint_fields() {
+        let path = unique_telemetry_path("delegate");
+        let writer = TelemetryWriter::with_path(path.clone());
+        let suggested = vec![
+            "delegate_to_codex_builder".to_owned(),
+            "rename_symbol".to_owned(),
+        ];
+
+        writer.append_event(&PersistedEvent {
+            timestamp_ms: 321,
+            tool: "safe_rename_report",
+            surface: "refactor-full",
+            elapsed_ms: 18,
+            tokens: 144,
+            success: true,
+            truncated: false,
+            session_id: Some("planner-a"),
+            phase: Some("review"),
+            target_paths: None,
+            suggested_next_tools: &suggested,
+            delegate_hint_trigger: Some("preferred_executor_boundary"),
+            delegate_target_tool: Some("rename_symbol"),
+            delegate_handoff_id: Some("codelens-handoff-1"),
+            handoff_id: Some("codelens-handoff-1"),
+        });
+
+        let contents = std::fs::read_to_string(&path).expect("read jsonl");
+        let parsed: serde_json::Value =
+            serde_json::from_str(contents.trim()).expect("parse single jsonl line");
+        assert_eq!(
+            parsed["suggested_next_tools"],
+            serde_json::json!(["delegate_to_codex_builder", "rename_symbol"])
+        );
+        assert_eq!(
+            parsed["delegate_hint_trigger"],
+            "preferred_executor_boundary"
+        );
+        assert_eq!(parsed["delegate_target_tool"], "rename_symbol");
+        assert_eq!(parsed["delegate_handoff_id"], "codelens-handoff-1");
+        assert_eq!(parsed["handoff_id"], "codelens-handoff-1");
 
         let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }

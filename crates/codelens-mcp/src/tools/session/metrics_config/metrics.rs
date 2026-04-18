@@ -192,6 +192,8 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
     ));
 
     if let Some(session_id) = requested_session_id {
+        #[cfg(not(feature = "http"))]
+        let _ = session_id;
         #[cfg(feature = "http")]
         let current_surface = state
             .session_store

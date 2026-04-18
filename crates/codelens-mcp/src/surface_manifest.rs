@@ -1,9 +1,10 @@
 use crate::AppState;
 use crate::state::RuntimeDaemonMode;
 use crate::tool_defs::{
-    ALL_PRESETS, ALL_PROFILES, ToolPreset, ToolProfile, ToolSurface, preferred_namespaces,
-    preferred_phase_labels, preferred_tier_labels, tool_namespace, tool_phase_label,
-    tool_preferred_executor, tool_tier_label, tools, visible_tools,
+    ALL_PRESETS, ALL_PROFILES, HostContext, TaskOverlay, ToolPreset, ToolProfile, ToolSurface,
+    compile_surface_overlay, preferred_namespaces, preferred_phase_labels, preferred_tier_labels,
+    tool_namespace, tool_phase_label, tool_preferred_executor, tool_tier_label, tools,
+    visible_tools,
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
@@ -14,7 +15,9 @@ pub(crate) const HARNESS_SPEC_SCHEMA_VERSION: &str = "codelens-harness-spec-v1";
 pub(crate) const HOST_ADAPTERS_SCHEMA_VERSION: &str = "codelens-host-adapters-v1";
 pub(crate) const HARNESS_HOST_COMPAT_SCHEMA_VERSION: &str = "codelens-harness-host-v1";
 pub(crate) const AGENT_EXPERIENCE_SCHEMA_VERSION: &str = "codelens-agent-experience-v1";
-pub(crate) const HOST_ADAPTER_HOSTS: [&str; 4] = ["claude-code", "codex", "cursor", "cline"];
+pub(crate) const HOST_ADAPTER_HOSTS: [&str; 5] =
+    ["claude-code", "codex", "cursor", "cline", "windsurf"];
+#[cfg(feature = "http")]
 pub(crate) const SURFACE_MANIFEST_DOC_PATH: &str = "docs/generated/surface-manifest.json";
 pub(crate) const HOST_ADAPTERS_DOC_PATH: &str = "docs/host-adaptive-harness.md";
 pub(crate) const HOST_ADAPTERS_RESOURCE_URI: &str = "codelens://harness/host-adapters";
@@ -182,7 +185,7 @@ pub(crate) fn build_surface_manifest(
             },
             "harness_mode_count": 4,
             "harness_contract_count": 3,
-            "host_adapter_count": 4,
+            "host_adapter_count": HOST_ADAPTER_HOSTS.len(),
             "agent_experience_resource_count": 1,
             "harness_artifact_schema_count": 1,
             "supported_language_families": language_family_count,
@@ -191,6 +194,7 @@ pub(crate) fn build_surface_manifest(
     })
 }
 
+#[cfg(feature = "http")]
 pub(crate) fn build_server_card(state: &AppState) -> Value {
     let manifest = build_surface_manifest_for_state(state);
     let runtime = &manifest["runtime"];
@@ -381,6 +385,23 @@ fn build_host_adapters() -> Value {
                 "whether analysis jobs should replace direct long reports"
             ]
         },
+        "delegate_scaffold_contract": {
+            "synthetic_action": "delegate_to_codex_builder",
+            "required_payload_fields": [
+                "handoff_id",
+                "delegate_tool",
+                "delegate_arguments",
+                "carry_forward",
+                "briefing"
+            ],
+            "replay_rule": "preserve delegate_tool, delegate_arguments, carry_forward, and handoff_id verbatim for the first delegated builder call",
+            "telemetry_fields": [
+                "delegate_hint_trigger",
+                "delegate_target_tool",
+                "delegate_handoff_id",
+                "handoff_id"
+            ]
+        },
         "host_resources": HOST_ADAPTER_HOSTS
             .iter()
             .map(|host| format!("codelens://host-adapters/{host}"))
@@ -395,6 +416,13 @@ fn build_host_adapters() -> Value {
                     "best_fit": bundle["best_fit"],
                     "recommended_modes": bundle["recommended_modes"],
                     "preferred_profiles": bundle["preferred_profiles"],
+                    "default_profile": bundle["default_profile"],
+                    "default_task_overlay": bundle["default_task_overlay"],
+                    "primary_bootstrap_sequence": bundle["primary_bootstrap_sequence"],
+                    "native_primitives": bundle["native_primitives"],
+                    "preferred_codelens_use": bundle["preferred_codelens_use"],
+                    "routing_defaults": bundle["routing_defaults"],
+                    "avoid": bundle["avoid"],
                     "compiler_targets": bundle["compiler_targets"],
                 })
             })
@@ -483,12 +511,35 @@ fn build_agent_experience() -> Value {
                 "preferred_executor_field": "_meta.codelens/preferredExecutor",
                 "synthetic_delegate_action": "delegate_to_codex_builder",
                 "required_payload_fields": [
+                    "handoff_id",
                     "delegate_tool",
                     "delegate_arguments",
                     "carry_forward",
                     "briefing"
-                ]
+                ],
+                "replay_rule": "preserve delegate_tool, delegate_arguments, carry_forward, and handoff_id verbatim for the first delegated builder call",
+                "correlation_rule": "hosts should replay delegate_arguments.handoff_id unchanged so planner-side delegate emission and builder-side execution can be correlated across sessions"
             }
+        },
+        "host_guardrails": {
+            "delegate_scaffold": [
+                "treat delegate_to_codex_builder as synthetic advisory host action, not a server-callable tool",
+                "do not reconstruct delegated builder arguments from prose when delegate_arguments are present",
+                "preserve handoff_id at the scaffold top level and inside delegate_arguments for the first builder-heavy call"
+            ],
+            "session_closeout": [
+                "use export_session_markdown(session_id=...) as the canonical per-session artifact source",
+                "keep eval_session_audit as a runtime-scoped aggregate operator lane, not a stop-hook replacement"
+            ]
+        },
+        "telemetry_contract": {
+            "jsonl_fields": [
+                "delegate_hint_trigger",
+                "delegate_target_tool",
+                "delegate_handoff_id",
+                "handoff_id"
+            ],
+            "purpose": "measure delegate emission, builder consumption, and cross-session correlation without persisting tool arguments or user query text"
         },
         "tool_flow": {
             "discover": [
@@ -551,9 +602,210 @@ fn build_agent_experience() -> Value {
     })
 }
 
-pub(crate) fn host_adapter_bundle(host: &str) -> Option<Value> {
+fn host_context_for_adapter(host: &str) -> Option<HostContext> {
     match host {
-        "claude-code" => Some(json!({
+        "claude-code" => Some(HostContext::ClaudeCode),
+        "codex" => Some(HostContext::Codex),
+        "cursor" => Some(HostContext::Cursor),
+        "cline" => Some(HostContext::Cline),
+        "windsurf" => Some(HostContext::Windsurf),
+        _ => None,
+    }
+}
+
+fn overlay_specs_for_host(host: &str) -> Vec<(ToolProfile, TaskOverlay)> {
+    match host {
+        "claude-code" => vec![
+            (ToolProfile::PlannerReadonly, TaskOverlay::Planning),
+            (ToolProfile::ReviewerGraph, TaskOverlay::Review),
+            (ToolProfile::PlannerReadonly, TaskOverlay::Onboarding),
+        ],
+        "codex" => vec![
+            (ToolProfile::BuilderMinimal, TaskOverlay::Editing),
+            (ToolProfile::RefactorFull, TaskOverlay::Review),
+            (ToolProfile::CiAudit, TaskOverlay::BatchAnalysis),
+        ],
+        "cursor" => vec![
+            (ToolProfile::ReviewerGraph, TaskOverlay::Review),
+            (ToolProfile::PlannerReadonly, TaskOverlay::Planning),
+            (ToolProfile::CiAudit, TaskOverlay::BatchAnalysis),
+        ],
+        "cline" => vec![
+            (ToolProfile::BuilderMinimal, TaskOverlay::Editing),
+            (ToolProfile::ReviewerGraph, TaskOverlay::Review),
+        ],
+        "windsurf" => vec![
+            (ToolProfile::BuilderMinimal, TaskOverlay::Editing),
+            (ToolProfile::PlannerReadonly, TaskOverlay::Interactive),
+        ],
+        _ => Vec::new(),
+    }
+}
+
+fn compiled_overlay_preview(
+    profile: ToolProfile,
+    host_context: HostContext,
+    task_overlay: TaskOverlay,
+) -> Value {
+    let surface = ToolSurface::Profile(profile);
+    let plan = compile_surface_overlay(surface, Some(host_context), Some(task_overlay));
+    let mut bootstrap_sequence = vec!["prepare_harness_session".to_owned()];
+    for tool in &plan.preferred_entrypoints {
+        if !bootstrap_sequence.iter().any(|item| item == tool) {
+            bootstrap_sequence.push((*tool).to_owned());
+        }
+    }
+
+    json!({
+        "host_context": host_context.as_str(),
+        "profile": profile.as_str(),
+        "surface": surface.as_label(),
+        "task_overlay": task_overlay.as_str(),
+        "preferred_executor_bias": plan.preferred_executor_bias,
+        "bootstrap_sequence": bootstrap_sequence,
+        "preferred_entrypoints": plan.preferred_entrypoints,
+        "emphasized_tools": plan.emphasized_tools,
+        "avoid_tools": plan.avoid_tools,
+        "routing_notes": plan.routing_notes,
+    })
+}
+
+fn overlay_previews_for_host(host: &str) -> Vec<Value> {
+    let Some(host_context) = host_context_for_adapter(host) else {
+        return Vec::new();
+    };
+    overlay_specs_for_host(host)
+        .into_iter()
+        .map(|(profile, task_overlay)| {
+            compiled_overlay_preview(profile, host_context, task_overlay)
+        })
+        .collect()
+}
+
+fn primary_bootstrap_sequence_for_host(host: &str) -> Vec<String> {
+    overlay_previews_for_host(host)
+        .into_iter()
+        .next()
+        .and_then(|value| {
+            value.get("bootstrap_sequence").and_then(|items| {
+                items.as_array().map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item.as_str().map(str::to_owned))
+                        .collect::<Vec<_>>()
+                })
+            })
+        })
+        .unwrap_or_else(|| vec!["prepare_harness_session".to_owned()])
+}
+
+fn compiled_overlay_markdown_section(host: &str) -> String {
+    let previews = overlay_previews_for_host(host);
+    if previews.is_empty() {
+        return String::new();
+    }
+
+    let mut lines = vec![
+        "## Compiled Routing Overlays".to_owned(),
+        String::new(),
+        format!(
+            "- Primary bootstrap sequence: `{}`",
+            primary_bootstrap_sequence_for_host(host).join("` -> `")
+        ),
+    ];
+
+    for preview in previews {
+        let profile = preview
+            .get("profile")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown-profile");
+        let task_overlay = preview
+            .get("task_overlay")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown-overlay");
+        let preferred_executor_bias = preview
+            .get("preferred_executor_bias")
+            .and_then(|value| value.as_str())
+            .unwrap_or("any");
+        let bootstrap_sequence = preview
+            .get("bootstrap_sequence")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item.as_str())
+            .collect::<Vec<_>>();
+        let avoid_tools = preview
+            .get("avoid_tools")
+            .and_then(|value| value.as_array())
+            .into_iter()
+            .flatten()
+            .filter_map(|item| item.as_str())
+            .collect::<Vec<_>>();
+
+        let mut line = format!(
+            "- `{profile}` + `{task_overlay}` [bias: `{preferred_executor_bias}`]: `{}`",
+            bootstrap_sequence.join("` -> `")
+        );
+        if !avoid_tools.is_empty() {
+            line.push_str(&format!(" | avoid: `{}`", avoid_tools.join("`, `")));
+        }
+        lines.push(line);
+    }
+
+    lines.join("\n")
+}
+
+fn append_compiled_overlay_section(base: &str, host: &str) -> String {
+    let compiled = compiled_overlay_markdown_section(host);
+    let mut text = base.trim_end().to_owned();
+    if !compiled.is_empty() {
+        text.push_str("\n\n");
+        text.push_str(&compiled);
+    }
+    text.push('\n');
+    text
+}
+
+fn augment_host_adapter_bundle(host: &str, bundle: &mut Value) {
+    let overlay_previews = overlay_previews_for_host(host);
+    let primary_preview = overlay_previews.first().cloned();
+    let primary_bootstrap_sequence = primary_bootstrap_sequence_for_host(host);
+
+    if let Some(object) = bundle.as_object_mut() {
+        object.insert(
+            "host_context".to_owned(),
+            json!(host_context_for_adapter(host).map(|value| value.as_str())),
+        );
+        object.insert(
+            "overlay_previews".to_owned(),
+            Value::Array(overlay_previews),
+        );
+        object.insert(
+            "primary_bootstrap_sequence".to_owned(),
+            json!(primary_bootstrap_sequence),
+        );
+        object.insert(
+            "default_profile".to_owned(),
+            primary_preview
+                .as_ref()
+                .and_then(|value| value.get("profile"))
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+        object.insert(
+            "default_task_overlay".to_owned(),
+            primary_preview
+                .as_ref()
+                .and_then(|value| value.get("task_overlay"))
+                .cloned()
+                .unwrap_or(Value::Null),
+        );
+    }
+}
+
+pub(crate) fn host_adapter_bundle(host: &str) -> Option<Value> {
+    let mut bundle = match host {
+        "claude-code" => json!({
             "name": "claude-code",
             "resource_uri": format!("codelens://host-adapters/{host}"),
             "best_fit": "planner and reviewer orchestration with isolated research and explicit policy control",
@@ -577,6 +829,10 @@ pub(crate) fn host_adapter_bundle(host: &str) -> Option<Value> {
                 "builder_dispatch": "planner-builder-handoff-required",
                 "long_running_eval": "analysis-job-first"
             },
+            "delegate_scaffold_rules": [
+                "If `delegate_to_codex_builder` appears in suggested_next_calls, preserve delegate_tool, delegate_arguments, carry_forward, and handoff_id verbatim.",
+                "Do not rewrite the first delegated builder call from prose."
+            ],
             "avoid": [
                 "defaulting to live bidirectional chat between planner and builder",
                 "exposing mutation-heavy surfaces to read-side sessions"
@@ -605,7 +861,7 @@ pub(crate) fn host_adapter_bundle(host: &str) -> Option<Value> {
                     "path": "CLAUDE.md",
                     "format": "markdown",
                     "purpose": "Carry the routing policy into Claude's project instructions.",
-                    "template": r#"# CodeLens Routing
+                    "template": append_compiled_overlay_section(r#"# CodeLens Routing
 
 - Use native Read/Glob/Grep first for trivial point lookups and single-file edits.
 - Escalate to CodeLens after the first local step for multi-file review, refactor preflight, or durable artifact generation.
@@ -616,11 +872,12 @@ pub(crate) fn host_adapter_bundle(host: &str) -> Option<Value> {
   3. `get_file_diagnostics` per target file
   4. `verify_change_readiness`
 - Prefer asymmetric handoff over live planner/builder chat.
-"#
+- If `delegate_to_codex_builder` appears in `suggested_next_calls`, preserve `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` verbatim when dispatching the builder.
+"#, host)
                 }
             ]
-        })),
-        "codex" => Some(json!({
+        }),
+        "codex" => json!({
             "name": "codex",
             "resource_uri": format!("codelens://host-adapters/{host}"),
             "best_fit": "builder and refactor execution, parallel worktree-based implementation, and automation",
@@ -644,6 +901,10 @@ pub(crate) fn host_adapter_bundle(host: &str) -> Option<Value> {
                 "rename_or_broad_refactor": "refactor-full-after-preflight",
                 "ci_summary": "analysis-job-first"
             },
+            "delegate_scaffold_rules": [
+                "If the planner hands you `delegate_to_codex_builder`, replay delegate_tool plus delegate_arguments unchanged for the first builder-heavy call.",
+                "Preserve handoff_id exactly so planner-side emission and builder-side execution stay correlatable."
+            ],
             "avoid": [
                 "forcing CodeLens into trivial single-file lookups",
                 "copying Claude-specific subagent topology into Codex worktree flows"
@@ -666,18 +927,19 @@ url = "http://127.0.0.1:7837/mcp"
                     "path": "AGENTS.md",
                     "format": "markdown",
                     "purpose": "Tell Codex when to stay native and when to escalate into CodeLens workflow tools.",
-                    "template": r#"# CodeLens Routing
+                    "template": append_compiled_overlay_section(r#"# CodeLens Routing
 
 - Native first for point lookups and already-local single-file edits.
 - Use `prepare_harness_session` before multi-file review or refactor-sensitive work.
 - Default execution profile: `builder-minimal`.
 - Use `refactor-full` only after `verify_change_readiness`; for rename-heavy changes also run `safe_rename_report` or `unresolved_reference_check`.
 - After mutation, run `audit_builder_session` and export the session summary if the change must cross sessions or CI.
-"#
+- If the planner hands you `delegate_to_codex_builder`, replay the first delegated builder call with `delegate_tool` + `delegate_arguments` unchanged, including `handoff_id`.
+"#, host)
                 }
             ]
-        })),
-        "cursor" => Some(json!({
+        }),
+        "cursor" => json!({
             "name": "cursor",
             "resource_uri": format!("codelens://host-adapters/{host}"),
             "best_fit": "editor-local iteration with scoped rules plus asynchronous remote execution when needed",
@@ -701,6 +963,10 @@ url = "http://127.0.0.1:7837/mcp"
                 "background_queue": "analysis-job-first",
                 "wide_surface": "deferred-loading-required"
             },
+            "delegate_scaffold_rules": [
+                "If CodeLens emits `delegate_to_codex_builder`, forward delegate_tool, delegate_arguments, carry_forward, and handoff_id to the builder lane.",
+                "Do not regenerate builder arguments from prose when delegate_arguments are already present."
+            ],
             "avoid": [
                 "assuming foreground and background agents share the same trust boundary",
                 "shipping the full CodeLens surface into every mode"
@@ -729,7 +995,7 @@ url = "http://127.0.0.1:7837/mcp"
                     "path": ".cursor/rules/codelens-routing.mdc",
                     "format": "mdc",
                     "purpose": "Scope CodeLens to review-heavy and artifact-worthy tasks instead of every edit.",
-                    "template": r#"---
+                    "template": append_compiled_overlay_section(r#"---
 description: Route CodeLens usage by task risk and phase
 alwaysApply: true
 ---
@@ -738,11 +1004,12 @@ alwaysApply: true
 - Escalate to CodeLens when the task becomes multi-file, reviewer-heavy, refactor-sensitive, or needs durable analysis artifacts.
 - Prefer `reviewer-graph` for review/signoff and `ci-audit` for async analysis summaries.
 - In background-agent flows, assume localhost CodeLens is unavailable unless the daemon is reachable from the remote machine.
-"#
+- If CodeLens emits `delegate_to_codex_builder`, pass `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` through to the builder lane instead of rewriting them from prose.
+"#, host)
                 }
             ]
-        })),
-        "cline" => Some(json!({
+        }),
+        "cline" => json!({
             "name": "cline",
             "resource_uri": format!("codelens://host-adapters/{host}"),
             "best_fit": "human-in-the-loop debugging and foreground execution with explicit approvals",
@@ -788,18 +1055,66 @@ alwaysApply: true
                     "path": ".clinerules",
                     "format": "markdown",
                     "purpose": "Keep CodeLens for reviewer-heavy or handoff-heavy flows, not every approval cycle.",
-                    "template": r#"# CodeLens Routing
+                    "template": append_compiled_overlay_section(r#"# CodeLens Routing
 
 - Use Cline's normal foreground loop for local debugging, browser checks, and explicit command approvals.
 - Bring in CodeLens after the first local step when the task spans multiple files or needs refactor preflight.
 - Use `reviewer-graph` for exploration and `builder-minimal` for bounded write passes.
 - If work crosses sessions, export an audit or handoff artifact instead of relying on chat history.
-"#
+"#, host)
                 }
             ]
-        })),
-        _ => None,
-    }
+        }),
+        "windsurf" => json!({
+            "name": "windsurf",
+            "resource_uri": format!("codelens://host-adapters/{host}"),
+            "best_fit": "editor-local implementation with a hard MCP tool cap and bounded foreground agent flows",
+            "recommended_modes": ["solo-local", "reviewer-gate"],
+            "preferred_profiles": ["builder-minimal", "planner-readonly"],
+            "native_primitives": [
+                "global MCP config",
+                "foreground agent loop",
+                "workspace-local editing",
+                "100-tool cap across MCP servers"
+            ],
+            "preferred_codelens_use": [
+                "bounded builder execution under a small visible surface",
+                "compressed planning when the task escapes single-file scope"
+            ],
+            "routing_defaults": {
+                "foreground_lookup": "native-first",
+                "multi_file_edit": "builder-minimal-after-bootstrap",
+                "wide_surface": "deferred-loading-required",
+                "tool_cap": "keep-profile-bounded"
+            },
+            "avoid": [
+                "attaching the full CodeLens surface alongside many other MCP servers",
+                "using reviewer-heavy profiles as the default editing surface"
+            ],
+            "compiler_targets": [
+                "~/.codeium/windsurf/mcp_config.json"
+            ],
+            "native_files": [
+                {
+                    "path": "~/.codeium/windsurf/mcp_config.json",
+                    "format": "json",
+                    "purpose": "Attach CodeLens to Windsurf with the smallest stable config that respects the host-wide MCP tool cap.",
+                    "template": {
+                        "mcpServers": {
+                            "codelens": {
+                                "type": "http",
+                                "url": "http://127.0.0.1:7837/mcp"
+                            }
+                        }
+                    }
+                }
+            ]
+        }),
+        _ => return None,
+    };
+
+    augment_host_adapter_bundle(host, &mut bundle);
+    Some(bundle)
 }
 
 pub(crate) fn harness_host_compat_bundle(host: &str, selection_source: &str) -> Option<Value> {
@@ -828,9 +1143,13 @@ pub(crate) fn harness_host_compat_bundle(host: &str, selection_source: &str) -> 
                 .collect::<Vec<_>>()
         })
         .unwrap_or_default();
+    let bootstrap_sequence = adapter
+        .get("primary_bootstrap_sequence")
+        .cloned()
+        .unwrap_or_else(|| json!(["prepare_harness_session"]));
     let default_contract_mode = match host {
         "claude-code" => "planner-builder",
-        "codex" | "cursor" | "cline" => "solo-local",
+        "codex" | "cursor" | "cline" | "windsurf" => "solo-local",
         _ => "solo-local",
     };
 
@@ -845,16 +1164,15 @@ pub(crate) fn harness_host_compat_bundle(host: &str, selection_source: &str) -> 
         "preferred_profiles": preferred_profiles,
         "routing_defaults": routing_defaults,
         "guardrails": guardrails,
+        "default_profile": adapter.get("default_profile").cloned().unwrap_or(Value::Null),
+        "default_task_overlay": adapter.get("default_task_overlay").cloned().unwrap_or(Value::Null),
+        "overlay_previews": adapter.get("overlay_previews").cloned().unwrap_or_else(|| json!([])),
         "detected_host": {
             "host_id": host,
             "integration_style": "host-adapter-resource",
             "orchestration_owner": host,
             "default_contract_mode": default_contract_mode,
-            "bootstrap_sequence": [
-                "prepare_harness_session",
-                "tools/list",
-                "analyze_change_request or get_ranked_context"
-            ],
+            "bootstrap_sequence": bootstrap_sequence,
             "task_stages": [
                 "discover",
                 "investigate",

@@ -85,6 +85,428 @@ impl ToolSurface {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum HostContext {
+    ClaudeCode,
+    Codex,
+    Cursor,
+    Cline,
+    Windsurf,
+    VsCode,
+    JetBrains,
+    ApiAgent,
+}
+
+impl HostContext {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "claude-code" | "claude" => Some(Self::ClaudeCode),
+            "codex" => Some(Self::Codex),
+            "cursor" => Some(Self::Cursor),
+            "cline" => Some(Self::Cline),
+            "windsurf" => Some(Self::Windsurf),
+            "vscode" | "vs-code" | "vs_code" => Some(Self::VsCode),
+            "jetbrains" | "intellij" | "webstorm" | "pycharm" => Some(Self::JetBrains),
+            "api-agent" | "api" => Some(Self::ApiAgent),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::ClaudeCode => "claude-code",
+            Self::Codex => "codex",
+            Self::Cursor => "cursor",
+            Self::Cline => "cline",
+            Self::Windsurf => "windsurf",
+            Self::VsCode => "vscode",
+            Self::JetBrains => "jetbrains",
+            Self::ApiAgent => "api-agent",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskOverlay {
+    Planning,
+    Editing,
+    Review,
+    Onboarding,
+    BatchAnalysis,
+    Interactive,
+}
+
+impl TaskOverlay {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "planning" | "plan" => Some(Self::Planning),
+            "editing" | "edit" | "builder" => Some(Self::Editing),
+            "review" | "reviewing" => Some(Self::Review),
+            "onboarding" | "onboard" => Some(Self::Onboarding),
+            "batch-analysis" | "batch" | "analysis" => Some(Self::BatchAnalysis),
+            "interactive" | "chat" => Some(Self::Interactive),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Planning => "planning",
+            Self::Editing => "editing",
+            Self::Review => "review",
+            Self::Onboarding => "onboarding",
+            Self::BatchAnalysis => "batch-analysis",
+            Self::Interactive => "interactive",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SurfaceOverlayPlan {
+    pub host_context: Option<HostContext>,
+    pub task_overlay: Option<TaskOverlay>,
+    pub preferred_executor_bias: Option<&'static str>,
+    pub preferred_entrypoints: Vec<&'static str>,
+    pub emphasized_tools: Vec<&'static str>,
+    pub avoid_tools: Vec<&'static str>,
+    pub routing_notes: Vec<&'static str>,
+}
+
+impl SurfaceOverlayPlan {
+    pub fn applied(&self) -> bool {
+        self.host_context.is_some() || self.task_overlay.is_some()
+    }
+}
+
+/// Input bundle for the 2-layer surface compiler
+/// (profile × host_context × task_overlay).
+///
+/// Binds the three orthogonal lanes called out in
+/// `docs/design/serena-comparison-2026-04-18.md` §Adopt 1:
+///
+/// - `surface` — role lane (planner / builder / reviewer / …)
+/// - `host_context` — runtime envelope (claude-code / codex / cursor / …)
+/// - `task_overlay` — task shape (planning / editing / review / …)
+///
+/// Reserved extension points (not populated yet, tracked in the P2/P3 plan):
+///
+/// - semantic backend capability map (P2)
+/// - managed project memory reference (P3)
+///
+/// Use the builder methods to compose an input incrementally and `compile()`
+/// to produce a [`SurfaceOverlayPlan`]. The free function
+/// [`compile_surface_overlay`] remains the low-level entrypoint; this type
+/// is the stable contract for new callers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SurfaceCompilerInput {
+    pub surface: ToolSurface,
+    pub host_context: Option<HostContext>,
+    pub task_overlay: Option<TaskOverlay>,
+}
+
+impl SurfaceCompilerInput {
+    pub fn new(surface: ToolSurface) -> Self {
+        Self {
+            surface,
+            host_context: None,
+            task_overlay: None,
+        }
+    }
+
+    pub fn with_host(mut self, host: HostContext) -> Self {
+        self.host_context = Some(host);
+        self
+    }
+
+    pub fn with_task(mut self, task: TaskOverlay) -> Self {
+        self.task_overlay = Some(task);
+        self
+    }
+
+    pub fn compile(self) -> SurfaceOverlayPlan {
+        compile_surface_overlay(self.surface, self.host_context, self.task_overlay)
+    }
+}
+
+fn push_unique(items: &mut Vec<&'static str>, value: &'static str) {
+    if !items.contains(&value) {
+        items.push(value);
+    }
+}
+
+fn push_tool_if_in_surface(
+    items: &mut Vec<&'static str>,
+    surface: ToolSurface,
+    tool: &'static str,
+) {
+    if is_tool_in_surface(tool, surface) {
+        push_unique(items, tool);
+    }
+}
+
+fn push_entrypoint_if_in_surface(
+    items: &mut Vec<&'static str>,
+    surface: ToolSurface,
+    tool: &'static str,
+) {
+    if tool != "prepare_harness_session" {
+        push_tool_if_in_surface(items, surface, tool);
+    }
+}
+
+pub(crate) fn compile_surface_overlay(
+    surface: ToolSurface,
+    host_context: Option<HostContext>,
+    task_overlay: Option<TaskOverlay>,
+) -> SurfaceOverlayPlan {
+    let mut plan = SurfaceOverlayPlan {
+        host_context,
+        task_overlay,
+        preferred_executor_bias: None,
+        preferred_entrypoints: Vec::new(),
+        emphasized_tools: Vec::new(),
+        avoid_tools: Vec::new(),
+        routing_notes: Vec::new(),
+    };
+
+    if let Some(host_context) = host_context {
+        match host_context {
+            HostContext::ClaudeCode => {
+                plan.preferred_executor_bias = Some("claude");
+                for tool in [
+                    "prepare_harness_session",
+                    "analyze_change_request",
+                    "review_changes",
+                    "impact_report",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Claude Code hosts should stay in workflow/report lanes first and only cross into builder-heavy execution when the executor hint or delegate scaffold says so.",
+                );
+            }
+            HostContext::Codex => {
+                plan.preferred_executor_bias = Some("codex-builder");
+                for tool in [
+                    "prepare_harness_session",
+                    "explore_codebase",
+                    "trace_request_path",
+                    "plan_safe_refactor",
+                    "verify_change_readiness",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Codex hosts should bias toward compact bootstrap and execution-oriented follow-up tools instead of broad planner chatter.",
+                );
+            }
+            HostContext::Cursor => {
+                for tool in [
+                    "prepare_harness_session",
+                    "explore_codebase",
+                    "trace_request_path",
+                    "review_changes",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Cursor sessions should keep the initial MCP surface compact and lean on workflow-level tools before expanding primitives.",
+                );
+            }
+            HostContext::Cline => {
+                for tool in [
+                    "prepare_harness_session",
+                    "review_changes",
+                    "get_file_diagnostics",
+                    "verify_change_readiness",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Cline sessions benefit from explicit review and diagnostics checkpoints before mutation-heavy chains.",
+                );
+            }
+            HostContext::Windsurf => {
+                for tool in [
+                    "prepare_harness_session",
+                    "explore_codebase",
+                    "trace_request_path",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Windsurf hosts have a tighter MCP budget, so keep the surface bounded and prefer high-signal workflow entrypoints.",
+                );
+            }
+            HostContext::VsCode | HostContext::JetBrains => {
+                for tool in [
+                    "prepare_harness_session",
+                    "explore_codebase",
+                    "review_changes",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "IDE hosts should use CodeLens for bootstrap, review, and bounded context retrieval rather than mirroring the full editor-native toolchain.",
+                );
+            }
+            HostContext::ApiAgent => {
+                for tool in [
+                    "prepare_harness_session",
+                    "start_analysis_job",
+                    "get_analysis_section",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "API agents should prefer compact bootstrap and durable analysis handles over long in-band transcripts.",
+                );
+            }
+        }
+    }
+
+    if let Some(task_overlay) = task_overlay {
+        match task_overlay {
+            TaskOverlay::Planning => {
+                for tool in [
+                    "prepare_harness_session",
+                    "explore_codebase",
+                    "analyze_change_request",
+                    "review_architecture",
+                    "impact_report",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                for tool in [
+                    "rename_symbol",
+                    "replace_symbol_body",
+                    "insert_content",
+                    "replace",
+                    "add_import",
+                ] {
+                    push_tool_if_in_surface(&mut plan.avoid_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Planning overlay keeps the session in analyze/review lanes until the change boundary and acceptance checks are explicit.",
+                );
+            }
+            TaskOverlay::Editing => {
+                for tool in [
+                    "prepare_harness_session",
+                    "trace_request_path",
+                    "plan_safe_refactor",
+                    "verify_change_readiness",
+                    "get_file_diagnostics",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                for tool in [
+                    "rename_symbol",
+                    "replace_symbol_body",
+                    "insert_content",
+                    "replace",
+                    "add_import",
+                ] {
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Editing overlay expects trace -> preflight -> mutation -> diagnostics instead of repeated low-level search loops.",
+                );
+            }
+            TaskOverlay::Review => {
+                for tool in [
+                    "prepare_harness_session",
+                    "review_changes",
+                    "impact_report",
+                    "diff_aware_references",
+                    "audit_planner_session",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                for tool in [
+                    "rename_symbol",
+                    "replace_symbol_body",
+                    "insert_content",
+                    "replace",
+                ] {
+                    push_tool_if_in_surface(&mut plan.avoid_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Review overlay keeps the session in evidence and audit lanes; mutation tools remain secondary unless the task explicitly escalates.",
+                );
+            }
+            TaskOverlay::Onboarding => {
+                for tool in [
+                    "prepare_harness_session",
+                    "onboard_project",
+                    "explore_codebase",
+                    "review_architecture",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Onboarding overlay should favor durable project summaries and architectural overviews before narrow task routing.",
+                );
+            }
+            TaskOverlay::BatchAnalysis => {
+                for tool in [
+                    "prepare_harness_session",
+                    "start_analysis_job",
+                    "get_analysis_job",
+                    "get_analysis_section",
+                    "module_boundary_report",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Batch-analysis overlay should move heavy work onto durable analysis jobs instead of keeping the host in a long synchronous loop.",
+                );
+            }
+            TaskOverlay::Interactive => {
+                for tool in [
+                    "prepare_harness_session",
+                    "explore_codebase",
+                    "find_symbol",
+                    "get_ranked_context",
+                ] {
+                    push_entrypoint_if_in_surface(&mut plan.preferred_entrypoints, surface, tool);
+                    push_tool_if_in_surface(&mut plan.emphasized_tools, surface, tool);
+                }
+                push_unique(
+                    &mut plan.routing_notes,
+                    "Interactive overlay should keep bootstrap light and bias toward retrieval tools that answer the next question quickly.",
+                );
+            }
+        }
+    }
+
+    plan
+}
+
 pub(crate) const MINIMAL_TOOLS: &[&str] = &[
     "activate_project",
     "prepare_harness_session",
@@ -793,5 +1215,217 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         }
         "get_file_diagnostics" | "check_lsp_status" | "get_lsp_recipe" => "lsp",
         _ => "session",
+    }
+}
+
+#[cfg(test)]
+mod overlay_tests {
+    use super::*;
+
+    fn full_surface() -> ToolSurface {
+        ToolSurface::Preset(ToolPreset::Full)
+    }
+
+    #[test]
+    fn empty_inputs_produce_non_applied_plan() {
+        let plan = compile_surface_overlay(full_surface(), None, None);
+        assert!(!plan.applied());
+        assert!(plan.host_context.is_none());
+        assert!(plan.task_overlay.is_none());
+        assert!(plan.preferred_executor_bias.is_none());
+        assert!(plan.preferred_entrypoints.is_empty());
+        assert!(plan.emphasized_tools.is_empty());
+        assert!(plan.avoid_tools.is_empty());
+        assert!(plan.routing_notes.is_empty());
+    }
+
+    #[test]
+    fn claude_code_host_biases_toward_claude_executor() {
+        let plan = compile_surface_overlay(full_surface(), Some(HostContext::ClaudeCode), None);
+        assert!(plan.applied());
+        assert_eq!(plan.preferred_executor_bias, Some("claude"));
+        assert!(
+            plan.preferred_entrypoints
+                .contains(&"analyze_change_request")
+        );
+        assert!(!plan.routing_notes.is_empty());
+    }
+
+    #[test]
+    fn codex_host_biases_toward_codex_builder() {
+        let plan = compile_surface_overlay(full_surface(), Some(HostContext::Codex), None);
+        assert_eq!(plan.preferred_executor_bias, Some("codex-builder"));
+        assert!(plan.preferred_entrypoints.contains(&"plan_safe_refactor"));
+    }
+
+    #[test]
+    fn planning_task_overlay_avoids_mutation_tools() {
+        let plan = compile_surface_overlay(full_surface(), None, Some(TaskOverlay::Planning));
+        for mutation in [
+            "rename_symbol",
+            "replace_symbol_body",
+            "insert_content",
+            "replace",
+        ] {
+            assert!(
+                plan.avoid_tools.contains(&mutation),
+                "planning overlay should avoid {mutation}"
+            );
+        }
+        assert!(
+            plan.preferred_entrypoints
+                .contains(&"analyze_change_request")
+        );
+    }
+
+    #[test]
+    fn editing_task_overlay_emphasizes_mutation_tools() {
+        let plan = compile_surface_overlay(full_surface(), None, Some(TaskOverlay::Editing));
+        for mutation in [
+            "rename_symbol",
+            "replace_symbol_body",
+            "insert_content",
+            "replace",
+        ] {
+            assert!(
+                plan.emphasized_tools.contains(&mutation),
+                "editing overlay should emphasize {mutation}"
+            );
+        }
+        assert!(
+            plan.preferred_entrypoints
+                .contains(&"verify_change_readiness")
+        );
+        assert!(plan.avoid_tools.is_empty());
+    }
+
+    #[test]
+    fn review_task_overlay_keeps_mutation_out_of_primary_entrypoints() {
+        let plan = compile_surface_overlay(full_surface(), None, Some(TaskOverlay::Review));
+        assert!(plan.preferred_entrypoints.contains(&"review_changes"));
+        for mutation in [
+            "rename_symbol",
+            "replace_symbol_body",
+            "insert_content",
+            "replace",
+        ] {
+            assert!(!plan.preferred_entrypoints.contains(&mutation));
+            assert!(plan.avoid_tools.contains(&mutation));
+        }
+    }
+
+    #[test]
+    fn onboarding_overlay_leads_with_onboarding_and_architecture_tools() {
+        let plan = compile_surface_overlay(full_surface(), None, Some(TaskOverlay::Onboarding));
+        assert!(plan.preferred_entrypoints.contains(&"onboard_project"));
+        assert!(plan.preferred_entrypoints.contains(&"review_architecture"));
+    }
+
+    #[test]
+    fn batch_analysis_overlay_pushes_async_job_entrypoints() {
+        let plan = compile_surface_overlay(full_surface(), None, Some(TaskOverlay::BatchAnalysis));
+        assert!(plan.preferred_entrypoints.contains(&"start_analysis_job"));
+        assert!(plan.preferred_entrypoints.contains(&"get_analysis_section"));
+    }
+
+    #[test]
+    fn combined_host_and_task_merges_both_contributions() {
+        let plan = compile_surface_overlay(
+            full_surface(),
+            Some(HostContext::Codex),
+            Some(TaskOverlay::Editing),
+        );
+        assert!(plan.applied());
+        assert_eq!(plan.preferred_executor_bias, Some("codex-builder"));
+        // Host contribution (codex):
+        assert!(plan.preferred_entrypoints.contains(&"plan_safe_refactor"));
+        // Task contribution (editing):
+        assert!(plan.emphasized_tools.contains(&"rename_symbol"));
+        // Routing notes carry both:
+        assert!(plan.routing_notes.len() >= 2);
+    }
+
+    #[test]
+    fn overlay_respects_surface_tool_visibility() {
+        // Minimal preset does NOT include analyze_change_request. Even when
+        // Claude Code host overlay asks for it, the plan should not list it
+        // in preferred_entrypoints because push_entrypoint_if_in_surface
+        // filters by current surface visibility.
+        let plan = compile_surface_overlay(
+            ToolSurface::Preset(ToolPreset::Minimal),
+            Some(HostContext::ClaudeCode),
+            None,
+        );
+        assert!(
+            !plan
+                .preferred_entrypoints
+                .contains(&"analyze_change_request")
+        );
+    }
+
+    #[test]
+    fn every_host_variant_produces_routing_notes() {
+        // Regression guard: every host variant must contribute at least one
+        // routing note so downstream UX never renders an empty hint block.
+        for host in [
+            HostContext::ClaudeCode,
+            HostContext::Codex,
+            HostContext::Cursor,
+            HostContext::Cline,
+            HostContext::Windsurf,
+            HostContext::VsCode,
+            HostContext::JetBrains,
+            HostContext::ApiAgent,
+        ] {
+            let plan = compile_surface_overlay(full_surface(), Some(host), None);
+            assert!(
+                !plan.routing_notes.is_empty(),
+                "host {} produced empty routing_notes",
+                host.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn surface_compiler_input_builder_matches_free_function() {
+        let surface = ToolSurface::Profile(ToolProfile::BuilderMinimal);
+        let by_builder = SurfaceCompilerInput::new(surface)
+            .with_host(HostContext::Codex)
+            .with_task(TaskOverlay::Editing)
+            .compile();
+        let by_free_fn = compile_surface_overlay(
+            surface,
+            Some(HostContext::Codex),
+            Some(TaskOverlay::Editing),
+        );
+        assert_eq!(by_builder, by_free_fn);
+    }
+
+    #[test]
+    fn surface_compiler_input_default_only_carries_surface() {
+        let input = SurfaceCompilerInput::new(ToolSurface::Preset(ToolPreset::Full));
+        assert!(input.host_context.is_none());
+        assert!(input.task_overlay.is_none());
+        let plan = input.compile();
+        assert!(!plan.applied());
+    }
+
+    #[test]
+    fn every_task_overlay_produces_routing_notes() {
+        for task in [
+            TaskOverlay::Planning,
+            TaskOverlay::Editing,
+            TaskOverlay::Review,
+            TaskOverlay::Onboarding,
+            TaskOverlay::BatchAnalysis,
+            TaskOverlay::Interactive,
+        ] {
+            let plan = compile_surface_overlay(full_surface(), None, Some(task));
+            assert!(
+                !plan.routing_notes.is_empty(),
+                "task {} produced empty routing_notes",
+                task.as_str()
+            );
+        }
     }
 }

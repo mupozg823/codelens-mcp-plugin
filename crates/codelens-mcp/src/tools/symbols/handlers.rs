@@ -1,6 +1,6 @@
 use super::super::{
-    optional_bool, optional_string, optional_usize, query_analysis::analyze_retrieval_query,
-    required_string, success_meta, AppState, ToolResult,
+    AppState, ToolResult, optional_bool, optional_string, optional_usize,
+    query_analysis::analyze_retrieval_query, required_string, success_meta,
 };
 use super::{
     analyzer::{
@@ -13,8 +13,8 @@ use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::symbol_corpus::build_symbol_corpus;
 use crate::symbol_retrieval::{search_symbols_bm25f, unique_query_terms};
-use codelens_engine::{read_file, search_symbols_hybrid_with_semantic, SymbolInfo, SymbolKind};
-use serde_json::{json, Value};
+use codelens_engine::{SymbolInfo, SymbolKind, read_file, search_symbols_hybrid_with_semantic};
+use serde_json::{Value, json};
 
 pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
     let path = required_string(arguments, "path")?;

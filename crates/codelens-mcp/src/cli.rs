@@ -8,7 +8,7 @@ use crate::state::RuntimeDaemonMode;
 use crate::surface_manifest::HOST_ADAPTER_HOSTS;
 use anyhow::{Context, Result};
 use codelens_engine::ProjectRoot;
-use serde_json::Value;
+use serde_json::{Value, json};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -54,6 +54,13 @@ pub(crate) fn is_attach_subcommand(args: &[String]) -> bool {
 
 pub(crate) fn is_detach_subcommand(args: &[String]) -> bool {
     matches!(args.get(1).map(String::as_str), Some("detach"))
+}
+
+pub(crate) fn is_doctor_subcommand(args: &[String]) -> bool {
+    matches!(
+        args.get(1).map(String::as_str),
+        Some("doctor") | Some("status")
+    )
 }
 
 pub(crate) fn attach_host_arg(args: &[String]) -> Option<String> {
@@ -102,6 +109,78 @@ fn json_string_list(value: &Value, key: &str) -> Vec<String> {
         .collect()
 }
 
+fn push_labeled_line(out: &mut String, prefix: &str, label: &str, value: &str) {
+    if !value.is_empty() {
+        out.push_str(&format!("{prefix}{label}: {value}\n"));
+    }
+}
+
+fn push_joined_line(out: &mut String, prefix: &str, label: &str, values: &[String]) {
+    if !values.is_empty() {
+        out.push_str(&format!("{prefix}{label}: {}\n", values.join(", ")));
+    }
+}
+
+fn push_bulleted_block(out: &mut String, heading: &str, values: &[String]) {
+    if !values.is_empty() {
+        out.push_str(&format!("{heading}:\n"));
+        for value in values {
+            out.push_str(&format!("- {value}\n"));
+        }
+    }
+}
+
+fn append_host_adapter_common_metadata(out: &mut String, adapter: &Value, prefix: &str) {
+    let resource_uri = adapter
+        .get("resource_uri")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let preferred_profiles = json_string_list(adapter, "preferred_profiles");
+    let native_primitives = json_string_list(adapter, "native_primitives");
+    let compiler_targets = json_string_list(adapter, "compiler_targets");
+
+    push_labeled_line(out, prefix, "Adapter resource", resource_uri);
+    push_joined_line(out, prefix, "Preferred profiles", &preferred_profiles);
+    push_joined_line(out, prefix, "Native host primitives", &native_primitives);
+    push_joined_line(out, prefix, "Host-native targets", &compiler_targets);
+}
+
+fn append_host_adapter_attach_guidance(out: &mut String, adapter: &Value) {
+    let best_fit = adapter
+        .get("best_fit")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let recommended_modes = json_string_list(adapter, "recommended_modes");
+    let preferred_codelens_use = json_string_list(adapter, "preferred_codelens_use");
+    let avoid = json_string_list(adapter, "avoid");
+    let primary_bootstrap_sequence = json_string_list(adapter, "primary_bootstrap_sequence");
+
+    push_labeled_line(out, "", "Best fit", best_fit);
+    push_joined_line(out, "", "Recommended modes", &recommended_modes);
+    push_bulleted_block(out, "Use CodeLens for", &preferred_codelens_use);
+    push_bulleted_block(out, "Avoid", &avoid);
+    if !primary_bootstrap_sequence.is_empty() {
+        push_labeled_line(
+            out,
+            "",
+            "Primary bootstrap sequence",
+            &primary_bootstrap_sequence.join(" -> "),
+        );
+    }
+}
+
+fn host_adapter_common_metadata_json(adapter: &Value) -> Value {
+    json!({
+        "resource_uri": adapter
+            .get("resource_uri")
+            .cloned()
+            .unwrap_or(Value::Null),
+        "preferred_profiles": json_string_list(adapter, "preferred_profiles"),
+        "native_primitives": json_string_list(adapter, "native_primitives"),
+        "compiler_targets": json_string_list(adapter, "compiler_targets"),
+    })
+}
+
 fn render_template(template: &Value) -> Result<String> {
     if let Some(text) = template.as_str() {
         Ok(text.to_owned())
@@ -134,6 +213,14 @@ fn parse_json_route_from_template(template: &Value) -> Option<(Vec<String>, Stri
         return Some((Vec::new(), "codelens".to_owned()));
     }
     None
+}
+
+fn get_json_key<'a>(value: &'a Value, parent_path: &[String], key: &str) -> Option<&'a Value> {
+    let mut current = value;
+    for segment in parent_path {
+        current = current.get(segment)?;
+    }
+    current.get(key)
 }
 
 fn remove_json_key(value: &mut Value, parent_path: &[String], key: &str) -> bool {
@@ -303,6 +390,293 @@ fn remove_exact_text_file(path: &Path, expected: &str, label: &str, apply_change
     }
 }
 
+fn has_toml_section(content: &str, section: &str) -> bool {
+    let header = format!("[{section}]");
+    content.lines().any(|line| line.trim() == header)
+}
+
+fn first_significant_template_line(template: &str) -> Option<&str> {
+    template
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with("```") && *line != "---")
+}
+
+fn inspect_json_config_entry(path: &Path, template: &Value) -> String {
+    let display = path.display();
+    let Ok(content) = fs::read_to_string(path) else {
+        return format!("- {display} [json]: missing");
+    };
+    let Ok(payload) = serde_json::from_str::<Value>(&content) else {
+        return format!("- {display} [json]: present but invalid JSON");
+    };
+    let Some((parent_path, key)) = parse_json_route_from_template(template) else {
+        return format!("- {display} [json]: present but manual review required");
+    };
+    let Some(actual) = get_json_key(&payload, &parent_path, &key) else {
+        return format!("- {display} [json]: present but missing CodeLens entry");
+    };
+    let expected = get_json_key(template, &parent_path, &key);
+    if expected.is_some_and(|value| value == actual) {
+        format!("- {display} [json]: attached (exact CodeLens entry)")
+    } else {
+        format!("- {display} [json]: attached (customized CodeLens entry)")
+    }
+}
+
+fn inspect_json_config_entry_json(path: &Path, template: &Value) -> Value {
+    let path_text = path.display().to_string();
+    let Ok(content) = fs::read_to_string(path) else {
+        return json!({
+            "path": path_text,
+            "format": "json",
+            "status": "missing",
+            "message": "missing",
+        });
+    };
+    let Ok(payload) = serde_json::from_str::<Value>(&content) else {
+        return json!({
+            "path": path_text,
+            "format": "json",
+            "status": "invalid_json",
+            "message": "present but invalid JSON",
+        });
+    };
+    let Some((parent_path, key)) = parse_json_route_from_template(template) else {
+        return json!({
+            "path": path_text,
+            "format": "json",
+            "status": "manual_review_required",
+            "message": "present but manual review required",
+        });
+    };
+    let Some(actual) = get_json_key(&payload, &parent_path, &key) else {
+        return json!({
+            "path": path_text,
+            "format": "json",
+            "status": "missing_codelens_entry",
+            "message": "present but missing CodeLens entry",
+        });
+    };
+    let expected = get_json_key(template, &parent_path, &key);
+    if expected.is_some_and(|value| value == actual) {
+        json!({
+            "path": path_text,
+            "format": "json",
+            "status": "attached_exact",
+            "message": "attached (exact CodeLens entry)",
+        })
+    } else {
+        json!({
+            "path": path_text,
+            "format": "json",
+            "status": "attached_customized",
+            "message": "attached (customized CodeLens entry)",
+        })
+    }
+}
+
+fn inspect_toml_section(path: &Path, template: &str) -> String {
+    let display = path.display();
+    let Ok(content) = fs::read_to_string(path) else {
+        return format!("- {display} [toml]: missing");
+    };
+    let Some(section) = extract_toml_section_name(template) else {
+        return format!("- {display} [toml]: present but manual review required");
+    };
+    if !has_toml_section(&content, &section) {
+        return format!("- {display} [toml]: present but missing CodeLens section");
+    }
+    if normalize_text_for_compare(&content) == normalize_text_for_compare(template) {
+        format!("- {display} [toml]: attached (exact generated file)")
+    } else {
+        format!("- {display} [toml]: attached (CodeLens section present)")
+    }
+}
+
+fn inspect_toml_section_json(path: &Path, template: &str) -> Value {
+    let path_text = path.display().to_string();
+    let Ok(content) = fs::read_to_string(path) else {
+        return json!({
+            "path": path_text,
+            "format": "toml",
+            "status": "missing",
+            "message": "missing",
+        });
+    };
+    let Some(section) = extract_toml_section_name(template) else {
+        return json!({
+            "path": path_text,
+            "format": "toml",
+            "status": "manual_review_required",
+            "message": "present but manual review required",
+        });
+    };
+    if !has_toml_section(&content, &section) {
+        return json!({
+            "path": path_text,
+            "format": "toml",
+            "status": "missing_codelens_section",
+            "message": "present but missing CodeLens section",
+        });
+    }
+    if normalize_text_for_compare(&content) == normalize_text_for_compare(template) {
+        json!({
+            "path": path_text,
+            "format": "toml",
+            "status": "attached_exact",
+            "message": "attached (exact generated file)",
+        })
+    } else {
+        json!({
+            "path": path_text,
+            "format": "toml",
+            "status": "attached_customized",
+            "message": "attached (CodeLens section present)",
+        })
+    }
+}
+
+fn inspect_text_policy_file(path: &Path, expected: &str, format: &str) -> String {
+    let display = path.display();
+    let Ok(content) = fs::read_to_string(path) else {
+        return format!("- {display} [{format}]: missing");
+    };
+    if normalize_text_for_compare(&content) == normalize_text_for_compare(expected) {
+        return format!("- {display} [{format}]: present (exact generated file)");
+    }
+    if first_significant_template_line(expected).is_some_and(|line| content.contains(line)) {
+        return format!("- {display} [{format}]: present (customized)");
+    }
+    format!("- {display} [{format}]: present but manual review required")
+}
+
+fn inspect_text_policy_file_json(path: &Path, expected: &str, format: &str) -> Value {
+    let path_text = path.display().to_string();
+    let Ok(content) = fs::read_to_string(path) else {
+        return json!({
+            "path": path_text,
+            "format": format,
+            "status": "missing",
+            "message": "missing",
+        });
+    };
+    if normalize_text_for_compare(&content) == normalize_text_for_compare(expected) {
+        return json!({
+            "path": path_text,
+            "format": format,
+            "status": "present_exact",
+            "message": "present (exact generated file)",
+        });
+    }
+    if first_significant_template_line(expected).is_some_and(|line| content.contains(line)) {
+        return json!({
+            "path": path_text,
+            "format": format,
+            "status": "present_customized",
+            "message": "present (customized)",
+        });
+    }
+    json!({
+        "path": path_text,
+        "format": format,
+        "status": "manual_review_required",
+        "message": "present but manual review required",
+    })
+}
+
+fn inspect_host_file(path: &Path, format: &str, template: Option<&Value>) -> String {
+    match format {
+        "json" => template
+            .map(|template| inspect_json_config_entry(path, template))
+            .unwrap_or_else(|| {
+                format!(
+                    "- {} [json]: present but manual review required",
+                    path.display()
+                )
+            }),
+        "toml" => template
+            .and_then(Value::as_str)
+            .map(|template| inspect_toml_section(path, template))
+            .unwrap_or_else(|| {
+                format!(
+                    "- {} [toml]: present but manual review required",
+                    path.display()
+                )
+            }),
+        "markdown" | "mdc" => template
+            .and_then(Value::as_str)
+            .map(|template| inspect_text_policy_file(path, template, format))
+            .unwrap_or_else(|| {
+                format!(
+                    "- {} [{format}]: present but manual review required",
+                    path.display()
+                )
+            }),
+        other => {
+            if path.exists() {
+                format!("- {} [{other}]: present", path.display())
+            } else {
+                format!("- {} [{other}]: missing", path.display())
+            }
+        }
+    }
+}
+
+fn inspect_host_file_json(path: &Path, format: &str, template: Option<&Value>) -> Value {
+    match format {
+        "json" => template
+            .map(|template| inspect_json_config_entry_json(path, template))
+            .unwrap_or_else(|| {
+                json!({
+                    "path": path.display().to_string(),
+                    "format": "json",
+                    "status": "manual_review_required",
+                    "message": "present but manual review required",
+                })
+            }),
+        "toml" => template
+            .and_then(Value::as_str)
+            .map(|template| inspect_toml_section_json(path, template))
+            .unwrap_or_else(|| {
+                json!({
+                    "path": path.display().to_string(),
+                    "format": "toml",
+                    "status": "manual_review_required",
+                    "message": "present but manual review required",
+                })
+            }),
+        "markdown" | "mdc" => template
+            .and_then(Value::as_str)
+            .map(|template| inspect_text_policy_file_json(path, template, format))
+            .unwrap_or_else(|| {
+                json!({
+                    "path": path.display().to_string(),
+                    "format": format,
+                    "status": "manual_review_required",
+                    "message": "present but manual review required",
+                })
+            }),
+        other => {
+            if path.exists() {
+                json!({
+                    "path": path.display().to_string(),
+                    "format": other,
+                    "status": "present",
+                    "message": "present",
+                })
+            } else {
+                json!({
+                    "path": path.display().to_string(),
+                    "format": other,
+                    "status": "missing",
+                    "message": "missing",
+                })
+            }
+        }
+    }
+}
+
 fn detach_host_files(
     host: &str,
     home: &Path,
@@ -396,6 +770,41 @@ fn parse_detach_hosts(args: &[String]) -> Result<Vec<&'static str>> {
     Ok(vec![canonical])
 }
 
+fn parse_doctor_hosts(args: &[String]) -> Result<Vec<&'static str>> {
+    let filtered = args[2..]
+        .iter()
+        .filter(|arg| arg.as_str() != "--json")
+        .collect::<Vec<_>>();
+    if filtered.is_empty() {
+        anyhow::bail!(
+            "usage: codelens-mcp doctor <host>\n       codelens-mcp doctor --all\nsupported hosts: {}",
+            supported_attach_hosts()
+        );
+    }
+    if filtered
+        .iter()
+        .any(|arg| arg.as_str() == "--all" || arg.as_str() == "all")
+    {
+        return Ok(HOST_ADAPTER_HOSTS.into_iter().collect());
+    }
+
+    let requested = filtered
+        .iter()
+        .find(|arg| !arg.starts_with('-'))
+        .map(|arg| arg.as_str())
+        .context(format!(
+            "usage: codelens-mcp doctor <host>\n       codelens-mcp doctor --all\nsupported hosts: {}",
+            supported_attach_hosts()
+        ))?;
+    let canonical = canonical_attach_host(requested).ok_or_else(|| {
+        anyhow::anyhow!(
+            "unknown doctor host `{requested}`\nsupported hosts: {}",
+            supported_attach_hosts()
+        )
+    })?;
+    Ok(vec![canonical])
+}
+
 fn detach_is_dry_run(args: &[String]) -> bool {
     args[2..].iter().any(|arg| arg == "--dry-run")
 }
@@ -421,7 +830,15 @@ fn render_detach_report(
         if index > 0 {
             out.push('\n');
         }
+        let adapter = crate::surface_manifest::host_adapter_bundle(host)
+            .context("missing host adapter bundle for detach report")?;
+
+        out.push_str(&format!("{host}:\n"));
+        append_host_adapter_common_metadata(&mut out, &adapter, "- ");
         for line in detach_host_files(host, home, cwd, apply_changes)? {
+            if line == format!("{host}:") {
+                continue;
+            }
             out.push_str(&line);
             out.push('\n');
         }
@@ -443,6 +860,104 @@ pub(crate) fn run_detach_command(args: &[String]) -> Result<String> {
     render_detach_report(&hosts, &home, &cwd, !detach_is_dry_run(args))
 }
 
+fn render_doctor_report(command: &str, hosts: &[&str], home: &Path, cwd: &Path) -> Result<String> {
+    let mut out = String::new();
+    out.push_str(&format!("CodeLens {command} report\n"));
+    out.push_str(
+        "Host checks reuse canonical host-adapter metadata plus local filesystem state.\n\n",
+    );
+
+    for (index, host) in hosts.iter().enumerate() {
+        if index > 0 {
+            out.push('\n');
+        }
+        let adapter = crate::surface_manifest::host_adapter_bundle(host)
+            .context("missing host adapter bundle for doctor report")?;
+        let native_files = adapter
+            .get("native_files")
+            .and_then(Value::as_array)
+            .context("host adapter bundle is missing native_files")?;
+
+        out.push_str(&format!("{host}:\n"));
+        append_host_adapter_common_metadata(&mut out, &adapter, "- ");
+        for file in native_files {
+            let raw_path = file
+                .get("path")
+                .and_then(Value::as_str)
+                .context("native file entry is missing path")?;
+            let format = file.get("format").and_then(Value::as_str).unwrap_or("text");
+            let path = resolve_host_path(raw_path, home, cwd);
+            let template = file.get("template");
+            out.push_str(&inspect_host_file(&path, format, template));
+            out.push('\n');
+        }
+    }
+
+    out.push_str("\nInterpretation:\n");
+    out.push_str("- `attached` means a machine-readable CodeLens config stanza or section is currently detectable.\n");
+    out.push_str("- `present (customized)` means the policy file exists and still resembles the generated template, but has local edits.\n");
+    out.push_str("- `manual review required` means the file exists but the lightweight checker cannot prove alignment.\n");
+    Ok(out)
+}
+
+fn doctor_report_json(command: &str, hosts: &[&str], home: &Path, cwd: &Path) -> Result<Value> {
+    let host_reports = hosts
+        .iter()
+        .map(|host| {
+            let adapter = crate::surface_manifest::host_adapter_bundle(host)
+                .context("missing host adapter bundle for doctor report")?;
+            let native_files = adapter
+                .get("native_files")
+                .and_then(Value::as_array)
+                .context("host adapter bundle is missing native_files")?;
+            let files = native_files
+                .iter()
+                .map(|file| {
+                    let raw_path = file
+                        .get("path")
+                        .and_then(Value::as_str)
+                        .context("native file entry is missing path")?;
+                    let format = file.get("format").and_then(Value::as_str).unwrap_or("text");
+                    let path = resolve_host_path(raw_path, home, cwd);
+                    let template = file.get("template");
+                    Ok(inspect_host_file_json(&path, format, template))
+                })
+                .collect::<Result<Vec<_>>>()?;
+
+            Ok(json!({
+                "host": host,
+                "metadata": host_adapter_common_metadata_json(&adapter),
+                "files": files,
+            }))
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(json!({
+        "command": command,
+        "hosts": host_reports,
+        "legend": {
+            "attached_exact": "machine-readable CodeLens config matches the generated entry exactly",
+            "attached_customized": "machine-readable CodeLens config is present but differs from the generated entry",
+            "present_exact": "text policy file matches the generated template exactly",
+            "present_customized": "text policy file exists and still resembles the generated template, but has local edits",
+            "manual_review_required": "the lightweight checker cannot prove alignment",
+            "missing": "file is absent"
+        }
+    }))
+}
+
+pub(crate) fn run_doctor_command(args: &[String]) -> Result<String> {
+    let command = args.get(1).map(String::as_str).unwrap_or("doctor");
+    let hosts = parse_doctor_hosts(args)?;
+    let home = home_dir_from_env()?;
+    let cwd = std::env::current_dir().context("failed to resolve current working directory")?;
+    if args[2..].iter().any(|arg| arg == "--json") {
+        return serde_json::to_string_pretty(&doctor_report_json(command, &hosts, &home, &cwd)?)
+            .context("failed to render doctor report as JSON");
+    }
+    render_doctor_report(command, &hosts, &home, &cwd)
+}
+
 pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
     let requested = host.context(format!(
         "usage: codelens-mcp attach <host>\nsupported hosts: {}",
@@ -457,17 +972,12 @@ pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
     let adapter = crate::surface_manifest::host_adapter_bundle(canonical)
         .context("missing host adapter bundle for attach target")?;
 
-    let resource_uri = adapter
-        .get("resource_uri")
-        .and_then(Value::as_str)
+    let delegate_scaffold_rules = json_string_list(&adapter, "delegate_scaffold_rules");
+    let overlay_previews = adapter
+        .get("overlay_previews")
+        .and_then(Value::as_array)
+        .cloned()
         .unwrap_or_default();
-    let best_fit = adapter
-        .get("best_fit")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    let recommended_modes = json_string_list(&adapter, "recommended_modes");
-    let preferred_profiles = json_string_list(&adapter, "preferred_profiles");
-    let compiler_targets = json_string_list(&adapter, "compiler_targets");
 
     let routing_defaults = adapter
         .get("routing_defaults")
@@ -485,30 +995,8 @@ pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
     if requested != canonical {
         out.push_str(&format!("Requested alias: {requested} -> {canonical}\n"));
     }
-    if !resource_uri.is_empty() {
-        out.push_str(&format!("Adapter resource: {resource_uri}\n"));
-    }
-    if !best_fit.is_empty() {
-        out.push_str(&format!("Best fit: {best_fit}\n"));
-    }
-    if !recommended_modes.is_empty() {
-        out.push_str(&format!(
-            "Recommended modes: {}\n",
-            recommended_modes.join(", ")
-        ));
-    }
-    if !preferred_profiles.is_empty() {
-        out.push_str(&format!(
-            "Preferred profiles: {}\n",
-            preferred_profiles.join(", ")
-        ));
-    }
-    if !compiler_targets.is_empty() {
-        out.push_str(&format!(
-            "Host-native targets: {}\n",
-            compiler_targets.join(", ")
-        ));
-    }
+    append_host_adapter_common_metadata(&mut out, &adapter, "");
+    append_host_adapter_attach_guidance(&mut out, &adapter);
 
     if !routing_defaults.is_empty() {
         out.push_str("Routing defaults:\n");
@@ -518,8 +1006,49 @@ pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
         }
     }
 
+    if !delegate_scaffold_rules.is_empty() {
+        out.push_str("Delegate scaffold contract:\n");
+        for rule in delegate_scaffold_rules {
+            out.push_str(&format!("- {rule}\n"));
+        }
+    }
+
+    if !overlay_previews.is_empty() {
+        out.push_str("Compiled overlays:\n");
+        for preview in overlay_previews {
+            let profile = preview
+                .get("profile")
+                .and_then(Value::as_str)
+                .unwrap_or("<unknown-profile>");
+            let task_overlay = preview
+                .get("task_overlay")
+                .and_then(Value::as_str)
+                .unwrap_or("<unknown-overlay>");
+            let preferred_executor_bias = preview
+                .get("preferred_executor_bias")
+                .and_then(Value::as_str)
+                .unwrap_or("any");
+            let bootstrap_sequence = json_string_list(&preview, "bootstrap_sequence");
+            let avoid_tools = json_string_list(&preview, "avoid_tools");
+            out.push_str(&format!(
+                "- {profile} / {task_overlay}: {} [bias: {preferred_executor_bias}]\n",
+                if bootstrap_sequence.is_empty() {
+                    "prepare_harness_session".to_owned()
+                } else {
+                    bootstrap_sequence.join(" -> ")
+                }
+            ));
+            if !avoid_tools.is_empty() {
+                out.push_str(&format!("  avoid: {}\n", avoid_tools.join(", ")));
+            }
+        }
+    }
+
     out.push_str("\nCopy the following templates into the listed host-native files.\n");
     out.push_str("The default daemon URL assumes `http://127.0.0.1:7837/mcp`.\n");
+    out.push_str(&format!(
+        "Verify the host wiring with `codelens-mcp doctor {canonical}` after applying the config.\n"
+    ));
 
     for file in native_files {
         let path = file
@@ -680,7 +1209,8 @@ pub(crate) fn format_http_startup_banner(
 mod startup_tests {
     use super::{
         StartupProjectSource, canonical_attach_host, parse_cli_project_arg, parse_detach_hosts,
-        render_attach_instructions, render_detach_report, resolve_startup_project,
+        parse_doctor_hosts, render_attach_instructions, render_detach_report, render_doctor_report,
+        resolve_startup_project, run_doctor_command,
     };
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
@@ -754,10 +1284,46 @@ mod startup_tests {
     fn render_attach_instructions_for_codex_emits_copy_ready_targets() {
         let rendered = render_attach_instructions(Some("codex")).expect("attach output");
         assert!(rendered.contains("CodeLens attach target: codex"));
+        assert!(rendered.contains("Native host primitives:"));
+        assert!(rendered.contains("Use CodeLens for:"));
+        assert!(rendered.contains("Avoid:"));
+        assert!(rendered.contains("Primary bootstrap sequence:"));
+        assert!(rendered.contains("Delegate scaffold contract:"));
+        assert!(rendered.contains("Compiled overlays:"));
+        assert!(rendered.contains("## Compiled Routing Overlays"));
+        assert!(rendered.contains("delegate_to_codex_builder"));
+        assert!(rendered.contains("handoff_id"));
         assert!(rendered.contains("~/.codex/config.toml"));
         assert!(rendered.contains("AGENTS.md"));
+        assert!(rendered.contains("worktrees"));
+        assert!(rendered.contains("analysis jobs for CI-facing summaries"));
+        assert!(
+            rendered
+                .contains("copying Claude-specific subagent topology into Codex worktree flows")
+        );
+        assert!(rendered.contains("Verify the host wiring with `codelens-mcp doctor codex`"));
+        assert!(rendered.contains("builder-minimal / editing"));
         assert!(rendered.contains("builder-minimal"));
         assert!(rendered.contains("refactor-full"));
+    }
+
+    #[test]
+    fn render_attach_instructions_for_cursor_surfaces_delegate_handoff_contract() {
+        let rendered = render_attach_instructions(Some("cursor")).expect("attach output");
+        assert!(rendered.contains("CodeLens attach target: cursor"));
+        assert!(rendered.contains("Native host primitives:"));
+        assert!(rendered.contains("background agents"));
+        assert!(rendered.contains("Use CodeLens for:"));
+        assert!(rendered.contains("analysis jobs for background-agent queues"));
+        assert!(rendered.contains("Avoid:"));
+        assert!(rendered.contains("shipping the full CodeLens surface into every mode"));
+        assert!(rendered.contains("Primary bootstrap sequence:"));
+        assert!(rendered.contains("Delegate scaffold contract:"));
+        assert!(rendered.contains("Compiled overlays:"));
+        assert!(rendered.contains("## Compiled Routing Overlays"));
+        assert!(rendered.contains("delegate_to_codex_builder"));
+        assert!(rendered.contains("handoff_id"));
+        assert!(rendered.contains(".cursor/rules/codelens-routing.mdc"));
     }
 
     #[test]
@@ -796,6 +1362,9 @@ mod startup_tests {
 
         let report = render_detach_report(&["cursor"], &home, &cwd, true).expect("detach report");
         let updated = std::fs::read_to_string(cwd.join(".cursor/mcp.json")).unwrap();
+        assert!(report.contains("Adapter resource: codelens://host-adapters/cursor"));
+        assert!(report.contains("Preferred profiles: planner-readonly, reviewer-graph, ci-audit"));
+        assert!(report.contains("Host-native targets: .cursor/rules, AGENTS.md, .cursor/mcp.json, background-agent environment.json"));
         assert!(report.contains("removed CodeLens config entry"));
         assert!(!updated.contains("\"codelens\""));
         assert!(updated.contains("\"other\""));
@@ -821,6 +1390,11 @@ url = "http://127.0.0.1:9999/mcp"
 
         let report = render_detach_report(&["codex"], &home, &cwd, true).expect("detach report");
         let updated = std::fs::read_to_string(home.join(".codex/config.toml")).unwrap();
+        assert!(report.contains("Adapter resource: codelens://host-adapters/codex"));
+        assert!(report.contains("Native host primitives: AGENTS.md, skills, worktrees, shared MCP config, CLI, app, and IDE continuity"));
+        assert!(report.contains(
+            "Host-native targets: AGENTS.md, ~/.codex/config.toml, repo-local skill files"
+        ));
         assert!(report.contains("removed CodeLens TOML section"));
         assert!(!updated.contains("[mcp_servers.codelens]"));
         assert!(updated.contains("[mcp_servers.other]"));
@@ -851,6 +1425,187 @@ url = "http://127.0.0.1:9999/mcp"
         assert!(hosts.contains(&"claude-code"));
         assert!(hosts.contains(&"codex"));
         assert!(hosts.contains(&"windsurf"));
+    }
+
+    #[test]
+    fn doctor_report_detects_machine_attachment_and_customized_policy_file() {
+        let root = temp_dir("doctor-host");
+        let home = root.join("home");
+        let cwd = root.join("repo");
+        std::fs::create_dir_all(cwd.join(".cursor/rules")).unwrap();
+        std::fs::create_dir_all(cwd.join(".cursor")).unwrap();
+        std::fs::write(
+            cwd.join(".cursor/mcp.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mcpServers": {
+                    "codelens": { "type": "http", "url": "http://127.0.0.1:7837/mcp" },
+                    "other": { "type": "http", "url": "http://127.0.0.1:9999/mcp" }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            cwd.join(".cursor/rules/codelens-routing.mdc"),
+            "---\ndescription: Route CodeLens usage by task risk and phase\nalwaysApply: true\n---\n\nCustomized locally.\n",
+        )
+        .unwrap();
+
+        let report =
+            render_doctor_report("doctor", &["cursor"], &home, &cwd).expect("doctor report");
+        assert!(report.contains("CodeLens doctor report"));
+        assert!(report.contains("Adapter resource: codelens://host-adapters/cursor"));
+        assert!(report.contains(".cursor/mcp.json [json]: attached (exact CodeLens entry)"));
+        assert!(report.contains(".cursor/rules/codelens-routing.mdc [mdc]: present (customized)"));
+        assert!(report.contains("Interpretation:"));
+    }
+
+    #[test]
+    fn doctor_report_marks_missing_codex_files() {
+        let root = temp_dir("doctor-missing");
+        let home = root.join("home");
+        let cwd = root.join("repo");
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+
+        let report =
+            render_doctor_report("doctor", &["codex"], &home, &cwd).expect("doctor report");
+        assert!(report.contains(".codex/config.toml [toml]: missing"));
+        assert!(report.contains("AGENTS.md [markdown]: missing"));
+    }
+
+    #[test]
+    fn doctor_cli_accepts_all_flag() {
+        let hosts = parse_doctor_hosts(&[
+            "codelens-mcp".to_owned(),
+            "doctor".to_owned(),
+            "--all".to_owned(),
+        ])
+        .expect("doctor hosts");
+
+        assert!(hosts.contains(&"claude-code"));
+        assert!(hosts.contains(&"codex"));
+        assert!(hosts.contains(&"windsurf"));
+    }
+
+    #[test]
+    fn doctor_cli_accepts_json_flag_before_host() {
+        let hosts = parse_doctor_hosts(&[
+            "codelens-mcp".to_owned(),
+            "doctor".to_owned(),
+            "--json".to_owned(),
+            "cursor".to_owned(),
+        ])
+        .expect("doctor hosts");
+        assert_eq!(hosts, vec!["cursor"]);
+    }
+
+    #[test]
+    fn run_doctor_command_renders_json_report() {
+        let _guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let root = temp_dir("doctor-json");
+        let home = root.join("home");
+        let cwd = root.join("repo");
+        let previous_home = std::env::var("HOME").ok();
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        std::fs::create_dir_all(cwd.join(".cursor")).unwrap();
+        std::fs::write(
+            cwd.join(".cursor/mcp.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mcpServers": {
+                    "codelens": { "type": "http", "url": "http://127.0.0.1:7837/mcp" }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&cwd).unwrap();
+        let rendered = run_doctor_command(&[
+            "codelens-mcp".to_owned(),
+            "doctor".to_owned(),
+            "--json".to_owned(),
+            "cursor".to_owned(),
+        ])
+        .expect("doctor json");
+        std::env::set_current_dir(previous).unwrap();
+        unsafe {
+            match previous_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&rendered).expect("valid doctor json");
+        assert_eq!(payload["command"], serde_json::json!("doctor"));
+        assert_eq!(payload["hosts"][0]["host"], serde_json::json!("cursor"));
+        assert_eq!(
+            payload["hosts"][0]["metadata"]["resource_uri"],
+            serde_json::json!("codelens://host-adapters/cursor")
+        );
+        assert_eq!(
+            payload["hosts"][0]["files"][0]["status"],
+            serde_json::json!("attached_exact")
+        );
+    }
+
+    #[test]
+    fn run_status_command_renders_status_alias_in_text_and_json() {
+        let _guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let root = temp_dir("status-json");
+        let home = root.join("home");
+        let cwd = root.join("repo");
+        let previous_home = std::env::var("HOME").ok();
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        std::fs::create_dir_all(cwd.join(".cursor")).unwrap();
+        std::fs::write(
+            cwd.join(".cursor/mcp.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mcpServers": {
+                    "codelens": { "type": "http", "url": "http://127.0.0.1:7837/mcp" }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&cwd).unwrap();
+        let text = run_doctor_command(&[
+            "codelens-mcp".to_owned(),
+            "status".to_owned(),
+            "cursor".to_owned(),
+        ])
+        .expect("status text");
+        let rendered = run_doctor_command(&[
+            "codelens-mcp".to_owned(),
+            "status".to_owned(),
+            "--json".to_owned(),
+            "cursor".to_owned(),
+        ])
+        .expect("status json");
+        std::env::set_current_dir(previous).unwrap();
+        unsafe {
+            match previous_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+
+        assert!(text.contains("CodeLens status report"));
+        let payload: serde_json::Value =
+            serde_json::from_str(&rendered).expect("valid status json");
+        assert_eq!(payload["command"], serde_json::json!("status"));
     }
 
     /// Phase 4c (§observability): the startup banner must carry

@@ -886,6 +886,22 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                     }
                 }
             },
+            "overlay": {
+                "type": "object",
+                "properties": {
+                    "applied": {"type": "boolean"},
+                    "host_context": {"type": ["string", "null"]},
+                    "task_overlay": {"type": ["string", "null"]},
+                    "preferred_executor_bias": {"type": ["string", "null"]},
+                    "preferred_entrypoints": {"type": "array", "items": {"type": "string"}},
+                    "preferred_entrypoints_visible": {"type": "array", "items": {"type": "string"}},
+                    "emphasized_tools": {"type": "array", "items": {"type": "string"}},
+                    "emphasized_tools_visible": {"type": "array", "items": {"type": "string"}},
+                    "avoid_tools": {"type": "array", "items": {"type": "string"}},
+                    "avoid_tools_visible": {"type": "array", "items": {"type": "string"}},
+                    "routing_notes": {"type": "array", "items": {"type": "string"}}
+                }
+            },
             "coordination": {
                 "type": "object",
                 "properties": {
@@ -953,6 +969,7 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                     "tool_count": {"type": "integer"},
                     "tool_count_total": {"type": "integer"},
                     "tool_names": {"type": "array", "items": {"type": "string"}},
+                    "preferred_executors": {"type": "object"},
                     "all_namespaces": {"type": "array", "items": {"type": "string"}},
                     "all_tiers": {"type": "array", "items": {"type": "string"}},
                     "preferred_namespaces": {"type": "array", "items": {"type": "string"}},
@@ -973,7 +990,18 @@ pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
                     "preferred_entrypoints": {"type": "array", "items": {"type": "string"}},
                     "preferred_entrypoints_source": {"type": "string"},
                     "preferred_entrypoints_visible": {"type": "array", "items": {"type": "string"}},
-                    "recommended_entrypoint": {"type": ["string", "null"]}
+                    "preferred_entrypoints_with_executors": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "tool": {"type": "string"},
+                                "preferred_executor": {"type": "string"}
+                            }
+                        }
+                    },
+                    "recommended_entrypoint": {"type": ["string", "null"]},
+                    "recommended_entrypoint_preferred_executor": {"type": ["string", "null"]}
                 }
             },
             "harness": {

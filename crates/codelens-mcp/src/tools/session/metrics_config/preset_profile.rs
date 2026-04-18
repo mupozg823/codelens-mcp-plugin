@@ -50,6 +50,8 @@ pub fn set_preset(state: &AppState, arguments: &serde_json::Value) -> ToolResult
     state
         .metrics()
         .record_preset_switch_for_session(Some(session.session_id.as_str()));
+    #[cfg(feature = "http")]
+    state.notify_tools_list_changed(&session);
 
     Ok((
         json!({
@@ -99,6 +101,8 @@ pub fn set_profile(state: &AppState, arguments: &serde_json::Value) -> ToolResul
     state
         .metrics()
         .record_profile_switch_for_session(Some(session.session_id.as_str()));
+    #[cfg(feature = "http")]
+    state.notify_tools_list_changed(&session);
 
     Ok((
         json!({

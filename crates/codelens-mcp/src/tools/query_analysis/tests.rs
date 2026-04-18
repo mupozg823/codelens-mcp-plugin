@@ -28,7 +28,10 @@ fn sparse_symbol_search_prefers_identifiers_and_short_phrases() {
     assert!(analyze_retrieval_query("rename_symbol").prefer_sparse_symbol_search);
     assert!(analyze_retrieval_query("mutation gate").prefer_sparse_symbol_search);
     assert!(analyze_retrieval_query("change_signature").prefer_sparse_symbol_search);
-    assert!(!analyze_retrieval_query("rename a variable or function across the project").prefer_sparse_symbol_search);
+    assert!(
+        !analyze_retrieval_query("rename a variable or function across the project")
+            .prefer_sparse_symbol_search
+    );
 }
 
 #[test]

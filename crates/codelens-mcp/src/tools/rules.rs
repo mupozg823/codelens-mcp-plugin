@@ -5,10 +5,10 @@
 //! one line and the handler implementation never leaks into
 //! `tools/mod.rs`.
 
-use super::{required_string, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string};
 use crate::protocol::BackendKind;
 use crate::tool_runtime::success_meta;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 const DEFAULT_TOP_K: usize = 3;
 const MAX_TOP_K: usize = 20;

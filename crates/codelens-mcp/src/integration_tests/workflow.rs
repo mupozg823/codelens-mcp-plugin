@@ -74,23 +74,19 @@ fn impact_report_surfaces_unavailable_semantic_status() {
     let analysis_id = payload["data"]["analysis_id"]
         .as_str()
         .expect("analysis_id should be present");
-    assert!(
-        payload["data"]["available_sections"]
-            .as_array()
-            .map(|sections| sections.iter().any(|section| section == "semantic_status"))
-            .unwrap_or(false)
-    );
-    assert!(
-        payload["data"]["next_actions"]
-            .as_array()
-            .map(|actions| {
-                actions
-                    .iter()
-                    .filter_map(|value| value.as_str())
-                    .any(|value| value.contains("index_embeddings"))
-            })
-            .unwrap_or(false)
-    );
+    assert!(payload["data"]["available_sections"]
+        .as_array()
+        .map(|sections| sections.iter().any(|section| section == "semantic_status"))
+        .unwrap_or(false));
+    assert!(payload["data"]["next_actions"]
+        .as_array()
+        .map(|actions| {
+            actions
+                .iter()
+                .filter_map(|value| value.as_str())
+                .any(|value| value.contains("index_embeddings"))
+        })
+        .unwrap_or(false));
 
     let section = call_tool(
         &state,
@@ -107,12 +103,10 @@ fn impact_report_surfaces_unavailable_semantic_status() {
     let expected_reason_fragment = "index_embeddings";
     #[cfg(not(feature = "semantic"))]
     let expected_reason_fragment = "not compiled";
-    assert!(
-        section["data"]["content"]["reason"]
-            .as_str()
-            .unwrap_or("")
-            .contains(expected_reason_fragment)
-    );
+    assert!(section["data"]["content"]["reason"]
+        .as_str()
+        .unwrap_or("")
+        .contains(expected_reason_fragment));
 }
 
 #[cfg(feature = "semantic")]
@@ -170,16 +164,12 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"]["available"].is_array());
     assert!(payload["data"].get("lsp_attached").is_some());
     assert!(payload["data"]["diagnostics_guidance"].is_object());
-    assert!(
-        payload["data"]["diagnostics_guidance"]
-            .get("recommended_action")
-            .is_some()
-    );
-    assert!(
-        payload["data"]["diagnostics_guidance"]
-            .get("reason_code")
-            .is_some()
-    );
+    assert!(payload["data"]["diagnostics_guidance"]
+        .get("recommended_action")
+        .is_some());
+    assert!(payload["data"]["diagnostics_guidance"]
+        .get("reason_code")
+        .is_some());
     assert!(payload["data"].get("embeddings_loaded").is_some());
     assert_eq!(
         payload["data"]["embedding_model"],
@@ -197,16 +187,12 @@ fn get_capabilities_returns_features() {
     assert!(payload["data"]["daemon_binary_drift"].is_object());
     assert!(payload["data"]["daemon_binary_drift"]["status"].is_string());
     assert!(payload["data"]["daemon_binary_drift"]["stale_daemon"].is_boolean());
-    assert!(
-        payload["data"]["daemon_binary_drift"]
-            .get("recommended_action")
-            .is_some()
-    );
-    assert!(
-        payload["data"]["daemon_binary_drift"]
-            .get("reason_code")
-            .is_some()
-    );
+    assert!(payload["data"]["daemon_binary_drift"]
+        .get("recommended_action")
+        .is_some());
+    assert!(payload["data"]["daemon_binary_drift"]
+        .get("reason_code")
+        .is_some());
 }
 
 #[test]
@@ -449,19 +435,17 @@ fn prepare_harness_session_warns_when_daemon_binary_is_stale() {
         payload["data"]["health_summary"],
         payload["data"]["capabilities"]["health_summary"]
     );
-    assert!(
-        payload["data"]["warnings"]
-            .as_array()
-            .map(|warnings| {
-                warnings.iter().any(|warning| {
-                    warning["code"] == "stale_daemon_binary"
-                        && warning["restart_recommended"] == json!(true)
-                        && warning["recommended_action"] == json!("restart_mcp_server")
-                        && warning["action_target"] == json!("daemon")
-                })
+    assert!(payload["data"]["warnings"]
+        .as_array()
+        .map(|warnings| {
+            warnings.iter().any(|warning| {
+                warning["code"] == "stale_daemon_binary"
+                    && warning["restart_recommended"] == json!(true)
+                    && warning["recommended_action"] == json!("restart_mcp_server")
+                    && warning["action_target"] == json!("daemon")
             })
-            .unwrap_or(false)
-    );
+        })
+        .unwrap_or(false));
 }
 
 #[test]
@@ -481,19 +465,17 @@ fn prepare_harness_session_warns_when_diagnostics_recipe_is_missing() {
         payload["data"]["capabilities"]["diagnostics_guidance"]["status"],
         json!("unsupported_extension")
     );
-    assert!(
-        payload["data"]["warnings"]
-            .as_array()
-            .map(|warnings| {
-                warnings.iter().any(|warning| {
-                    warning["code"] == "diagnostics_unsupported_extension"
-                        && warning["restart_recommended"] == json!(false)
-                        && warning["recommended_action"] == json!("pass_explicit_lsp_command")
-                        && warning["action_target"] == json!("file_extension")
-                })
+    assert!(payload["data"]["warnings"]
+        .as_array()
+        .map(|warnings| {
+            warnings.iter().any(|warning| {
+                warning["code"] == "diagnostics_unsupported_extension"
+                    && warning["restart_recommended"] == json!(false)
+                    && warning["recommended_action"] == json!("pass_explicit_lsp_command")
+                    && warning["action_target"] == json!("file_extension")
             })
-            .unwrap_or(false)
-    );
+        })
+        .unwrap_or(false));
 }
 
 #[test]
@@ -587,14 +569,12 @@ fn prepare_harness_session_auto_refreshes_small_stale_index() {
         payload["data"]["index_recovery"]["after"]["stale_files"],
         json!(0)
     );
-    assert!(
-        !payload["data"]["warnings"]
-            .as_array()
-            .map(|warnings| warnings
-                .iter()
-                .any(|warning| warning["code"] == "stale_index"))
-            .unwrap_or(false)
-    );
+    assert!(!payload["data"]["warnings"]
+        .as_array()
+        .map(|warnings| warnings
+            .iter()
+            .any(|warning| warning["code"] == "stale_index"))
+        .unwrap_or(false));
 }
 
 #[test]
@@ -638,13 +618,11 @@ fn analyze_change_request_returns_handle_and_section() {
     );
     assert_eq!(section["success"], json!(true));
     assert_eq!(section["data"]["analysis_id"], json!(analysis_id));
-    assert!(
-        state
-            .analysis_dir()
-            .join(analysis_id)
-            .join("ranked_files.json")
-            .exists()
-    );
+    assert!(state
+        .analysis_dir()
+        .join(analysis_id)
+        .join("ranked_files.json")
+        .exists());
 }
 
 #[test]
@@ -675,12 +653,10 @@ fn ci_audit_reports_use_fixed_machine_schema() {
     assert!(payload["data"]["machine_summary"]["recommended_check_count"].is_number());
     assert!(payload["data"]["machine_summary"]["performance_watchpoint_count"].is_number());
     assert!(payload["data"]["evidence_handles"].is_array());
-    assert!(
-        payload["data"]["summary_resource"]["uri"]
-            .as_str()
-            .map(|uri| uri.ends_with("/summary"))
-            .unwrap_or(false)
-    );
+    assert!(payload["data"]["summary_resource"]["uri"]
+        .as_str()
+        .map(|uri| uri.ends_with("/summary"))
+        .unwrap_or(false));
     assert!(payload["data"]["section_handles"].is_array());
     assert!(payload["data"]["blockers"].is_array());
     assert!(payload["data"]["readiness"].is_object());
@@ -744,12 +720,10 @@ fn refactor_safety_report_keeps_preview_payload_lean() {
     assert!(payload["data"]["summary"].is_string());
     assert!(payload["data"]["readiness"].is_object());
     assert!(payload["data"]["available_sections"].is_array());
-    assert!(
-        payload["data"]["summary_resource"]["uri"]
-            .as_str()
-            .map(|uri| uri.ends_with("/summary"))
-            .unwrap_or(false)
-    );
+    assert!(payload["data"]["summary_resource"]["uri"]
+        .as_str()
+        .map(|uri| uri.ends_with("/summary"))
+        .unwrap_or(false));
     assert!(payload["data"]["section_handles"].is_array());
     assert!(payload["data"]["next_actions"].is_array());
     assert!(payload["data"].get("top_findings").is_none());
@@ -854,18 +828,14 @@ fn start_analysis_job_returns_completed_handle() {
     let analysis_id = completed_job.analysis_id.as_deref().unwrap();
     let poll = call_tool(&state, "get_analysis_job", json!({"job_id": job_id}));
     assert_eq!(poll["data"]["analysis_id"], json!(analysis_id));
-    assert!(
-        poll["data"]["summary_resource"]["uri"]
-            .as_str()
-            .map(|uri| uri.ends_with("/summary"))
-            .unwrap_or(false)
-    );
-    assert!(
-        poll["data"]["section_handles"]
-            .as_array()
-            .map(|items| !items.is_empty())
-            .unwrap_or(false)
-    );
+    assert!(poll["data"]["summary_resource"]["uri"]
+        .as_str()
+        .map(|uri| uri.ends_with("/summary"))
+        .unwrap_or(false));
+    assert!(poll["data"]["section_handles"]
+        .as_array()
+        .map(|items| !items.is_empty())
+        .unwrap_or(false));
 
     let section = call_tool(
         &state,
@@ -1008,14 +978,12 @@ fn eval_session_audit_aggregates_across_tracked_sessions() {
     );
     assert_eq!(rows["success"], json!(true));
     assert_eq!(rows["data"]["content"]["count"], json!(3));
-    assert!(
-        rows["data"]["content"]["sessions"]
-            .as_array()
-            .map(|sessions| sessions.iter().any(|session| {
-                session["role"] == json!("builder") && session["status"] == json!("warn")
-            }))
-            .unwrap_or(false)
-    );
+    assert!(rows["data"]["content"]["sessions"]
+        .as_array()
+        .map(|sessions| sessions.iter().any(|session| {
+            session["role"] == json!("builder") && session["status"] == json!("warn")
+        }))
+        .unwrap_or(false));
 }
 
 #[test]
@@ -1129,18 +1097,14 @@ fn analysis_job_text_payload_preserves_job_handle_fields() {
     )
     .unwrap();
     let completed = parse_tool_payload(&extract_tool_text(&poll_response));
-    assert!(
-        completed["data"]["summary_resource"]["uri"]
-            .as_str()
-            .map(|uri| uri.ends_with("/summary"))
-            .unwrap_or(false)
-    );
-    assert!(
-        completed["data"]["section_handles"]
-            .as_array()
-            .map(|items| !items.is_empty())
-            .unwrap_or(false)
-    );
+    assert!(completed["data"]["summary_resource"]["uri"]
+        .as_str()
+        .map(|uri| uri.ends_with("/summary"))
+        .unwrap_or(false));
+    assert!(completed["data"]["section_handles"]
+        .as_array()
+        .map(|items| !items.is_empty())
+        .unwrap_or(false));
 }
 
 #[test]
@@ -1509,14 +1473,12 @@ fn analysis_lists_expose_resource_handles_and_counts() {
             .unwrap_or_default()
             >= 1
     );
-    assert!(
-        artifacts["data"]["artifacts"]
-            .as_array()
-            .and_then(|items| items.first())
-            .and_then(|item| item["summary_resource"]["uri"].as_str())
-            .map(|uri| uri.ends_with("/summary"))
-            .unwrap_or(false)
-    );
+    assert!(artifacts["data"]["artifacts"]
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item["summary_resource"]["uri"].as_str())
+        .map(|uri| uri.ends_with("/summary"))
+        .unwrap_or(false));
 }
 
 #[test]
@@ -1558,11 +1520,19 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(encoded.contains("codelens://host-adapters/claude-code"));
     assert!(encoded.contains("codelens://host-adapters/codex"));
     assert!(encoded.contains("codelens://host-adapters/cursor"));
+    assert!(encoded.contains("codelens://host-adapters/windsurf"));
     assert!(encoded.contains("codelens://schemas/handoff-artifact/v1"));
     assert!(encoded.contains("codelens://session/http"));
     assert!(encoded.contains("codelens://analysis/recent"));
     assert!(encoded.contains("codelens://analysis/jobs"));
     assert!(encoded.contains(&format!("codelens://analysis/{analysis_id}/summary")));
+    assert!(encoded.contains("symbiote://profile/planner-readonly/guide"));
+    assert!(encoded.contains("symbiote://tools/list/full"));
+    assert!(encoded.contains("symbiote://harness/host"));
+    assert!(encoded.contains("symbiote://host-adapters/codex"));
+    assert!(encoded.contains("symbiote://schemas/handoff-artifact/v1"));
+    assert!(encoded.contains("symbiote://analysis/jobs"));
+    assert!(encoded.contains(&format!("symbiote://analysis/{analysis_id}/summary")));
 
     let read_response = handle_request(
         &state,
@@ -1737,6 +1707,13 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(host_adapters_body.contains("claude-code"));
     assert!(host_adapters_body.contains("codex"));
     assert!(host_adapters_body.contains("cursor"));
+    assert!(host_adapters_body.contains("windsurf"));
+    assert!(host_adapters_body.contains("handoff_id"));
+    assert!(host_adapters_body.contains("delegate_handoff_id"));
+    assert!(host_adapters_body.contains("replay_rule"));
+    assert!(host_adapters_body.contains("native_primitives"));
+    assert!(host_adapters_body.contains("preferred_codelens_use"));
+    assert!(host_adapters_body.contains("routing_defaults"));
 
     let harness_host = handle_request(
         &state,
@@ -1768,9 +1745,21 @@ fn resources_include_profile_guides_and_analysis_summaries() {
         json!("codelens://host-adapters/claude-code")
     );
     assert_eq!(
+        harness_host_payload["default_profile"],
+        json!("planner-readonly")
+    );
+    assert_eq!(
+        harness_host_payload["default_task_overlay"],
+        json!("planning")
+    );
+    assert_eq!(
         harness_host_payload["detected_host"]["host_id"],
         json!("claude-code")
     );
+    assert!(harness_host_payload["detected_host"]["bootstrap_sequence"]
+        .as_array()
+        .map(|items| items.iter().any(|value| value == "analyze_change_request"))
+        .unwrap_or(false));
 
     let agent_experience = handle_request(
         &state,
@@ -1802,6 +1791,13 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(codex_host_adapter_body.contains("builder-minimal"));
     assert!(codex_host_adapter_body.contains("~/.codex/config.toml"));
     assert!(codex_host_adapter_body.contains("AGENTS.md"));
+    assert!(codex_host_adapter_body.contains("delegate_to_codex_builder"));
+    assert!(codex_host_adapter_body.contains("handoff_id"));
+    assert!(codex_host_adapter_body.contains("overlay_previews"));
+    assert!(codex_host_adapter_body.contains("primary_bootstrap_sequence"));
+    assert!(codex_host_adapter_body.contains("default_task_overlay"));
+    assert!(codex_host_adapter_body.contains("editing"));
+    assert!(codex_host_adapter_body.contains("## Compiled Routing Overlays"));
 
     let cursor_host_adapter = handle_request(
         &state,
@@ -1816,6 +1812,24 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     let cursor_host_adapter_body = serde_json::to_string(&cursor_host_adapter).unwrap();
     assert!(cursor_host_adapter_body.contains(".cursor/rules/codelens-routing.mdc"));
     assert!(cursor_host_adapter_body.contains("background agents"));
+    assert!(cursor_host_adapter_body.contains("handoff_id"));
+    assert!(cursor_host_adapter_body.contains("overlay_previews"));
+    assert!(cursor_host_adapter_body.contains("primary_bootstrap_sequence"));
+    assert!(cursor_host_adapter_body.contains("## Compiled Routing Overlays"));
+
+    let windsurf_host_adapter = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(242_24)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://host-adapters/windsurf"})),
+        },
+    )
+    .unwrap();
+    let windsurf_host_adapter_body = serde_json::to_string(&windsurf_host_adapter).unwrap();
+    assert!(windsurf_host_adapter_body.contains("~/.codeium/windsurf/mcp_config.json"));
+    assert!(windsurf_host_adapter_body.contains("100-tool cap"));
 
     let handoff_schema = handle_request(
         &state,
@@ -2104,16 +2118,12 @@ fn output_schema_workflow_tools_return_structured_content() {
             .is_object()
     );
     assert!(bootstrap_value["result"]["structuredContent"]["routing"].is_object());
-    assert!(
-        bootstrap_value["result"]["structuredContent"]["routing"]
-            ["preferred_entrypoints_with_executors"]
-            .is_array()
-    );
-    assert!(
-        bootstrap_value["result"]["structuredContent"]["routing"]
-            ["recommended_entrypoint_preferred_executor"]
-            .is_string()
-    );
+    assert!(bootstrap_value["result"]["structuredContent"]["routing"]
+        ["preferred_entrypoints_with_executors"]
+        .is_array());
+    assert!(bootstrap_value["result"]["structuredContent"]["routing"]
+        ["recommended_entrypoint_preferred_executor"]
+        .is_string());
     assert!(bootstrap_value["result"]["structuredContent"]["warnings"].is_array());
     let bootstrap_text = parse_tool_payload(&extract_tool_text(&bootstrap_response));
     assert_eq!(
@@ -2164,11 +2174,9 @@ fn workflow_alias_tools_return_structured_content_and_delegate() {
         value["result"]["structuredContent"]["delegated_tool"],
         json!("get_ranked_context")
     );
-    assert!(
-        value["result"]["structuredContent"]
-            .get("deprecated")
-            .is_none()
-    );
+    assert!(value["result"]["structuredContent"]
+        .get("deprecated")
+        .is_none());
     assert!(value["result"]["structuredContent"]["symbols"].is_array());
 }
 
@@ -2203,30 +2211,24 @@ fn verifier_tools_return_structured_content_payload() {
     assert!(readiness_text["data"]["analysis_id"].is_string());
     assert!(readiness_text["data"]["summary"].is_string());
     assert!(readiness_text["data"]["readiness"].is_object());
-    assert!(
-        readiness_text["data"]["summary_resource"]["uri"]
-            .as_str()
-            .map(|uri| uri.contains("codelens://analysis/"))
-            .unwrap_or(false)
-    );
-    assert!(
-        readiness_text["data"]["section_handles"]
-            .as_array()
-            .map(|items| !items.is_empty() && items.len() <= 3)
-            .unwrap_or(false)
-    );
+    assert!(readiness_text["data"]["summary_resource"]["uri"]
+        .as_str()
+        .map(|uri| uri.contains("codelens://analysis/"))
+        .unwrap_or(false));
+    assert!(readiness_text["data"]["section_handles"]
+        .as_array()
+        .map(|items| !items.is_empty() && items.len() <= 3)
+        .unwrap_or(false));
     assert!(readiness_text["suggested_next_calls"].is_array());
-    assert!(
-        readiness_text["suggested_next_calls"]
-            .as_array()
-            .map(|items| {
-                items.iter().any(|entry| {
-                    entry["tool"].as_str() == Some("get_analysis_section")
-                        && entry["arguments"]["analysis_id"].is_string()
-                })
+    assert!(readiness_text["suggested_next_calls"]
+        .as_array()
+        .map(|items| {
+            items.iter().any(|entry| {
+                entry["tool"].as_str() == Some("get_analysis_section")
+                    && entry["arguments"]["analysis_id"].is_string()
             })
-            .unwrap_or(false)
-    );
+        })
+        .unwrap_or(false));
     assert_eq!(readiness_text["routing_hint"], json!("async"));
     assert!(readiness_text["data"].get("verifier_checks").is_none());
     assert!(readiness_text["data"].get("blockers").is_none());
@@ -2328,11 +2330,9 @@ fn oversized_analysis_handle_keeps_structured_content_schema_shape() {
         json!(true)
     );
     assert_eq!(value["result"]["structuredContent"].get("truncated"), None);
-    assert!(
-        value["result"]["structuredContent"]["analysis_id"]
-            .as_str()
-            .is_some()
-    );
+    assert!(value["result"]["structuredContent"]["analysis_id"]
+        .as_str()
+        .is_some());
     assert!(
         value["result"]["structuredContent"]["readiness"]["mutation_ready"]
             .as_str()
@@ -2395,6 +2395,7 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     assert!(properties.contains_key("capabilities"));
     assert!(properties.contains_key("health_summary"));
     assert!(properties.contains_key("warnings"));
+    assert!(properties.contains_key("overlay"));
     assert!(properties.contains_key("index_recovery"));
     assert!(properties.contains_key("visible_tools"));
     assert!(properties.contains_key("routing"));
@@ -2406,6 +2407,17 @@ fn prepare_harness_session_schema_matches_payload_shape() {
     assert!(http_session.contains_key("daemon_binary_drift"));
     assert!(http_session.contains_key("supported_files"));
     assert!(http_session.contains_key("stale_files"));
+    let overlay = schema["properties"]["overlay"]["properties"]
+        .as_object()
+        .expect("overlay properties");
+    assert!(overlay.contains_key("host_context"));
+    assert!(overlay.contains_key("task_overlay"));
+    assert!(overlay.contains_key("preferred_entrypoints_visible"));
+    let routing = schema["properties"]["routing"]["properties"]
+        .as_object()
+        .expect("routing properties");
+    assert!(routing.contains_key("preferred_entrypoints_with_executors"));
+    assert!(routing.contains_key("recommended_entrypoint_preferred_executor"));
 }
 
 #[test]
@@ -2457,7 +2469,7 @@ fn analysis_list_schemas_expose_machine_summary_fields() {
 fn workflow_surfaces_prefer_canonical_bootstrap_entrypoints() {
     use crate::protocol::ToolTier;
     use crate::tool_defs::{
-        ToolPreset, ToolProfile, ToolSurface, preferred_bootstrap_tools, preferred_tiers,
+        preferred_bootstrap_tools, preferred_tiers, ToolPreset, ToolProfile, ToolSurface,
     };
 
     let builder_tiers = preferred_tiers(ToolSurface::Profile(ToolProfile::BuilderMinimal));
@@ -2473,7 +2485,7 @@ fn workflow_surfaces_prefer_canonical_bootstrap_entrypoints() {
 
 #[test]
 fn visible_tools_order_workflow_surfaces_bootstrap_first() {
-    use crate::tool_defs::{ToolProfile, ToolSurface, visible_tools};
+    use crate::tool_defs::{visible_tools, ToolProfile, ToolSurface};
 
     let builder_tools = visible_tools(ToolSurface::Profile(ToolProfile::BuilderMinimal))
         .into_iter()
@@ -2508,7 +2520,7 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
 
 #[test]
 fn deprecated_aliases_are_hidden_from_non_full_visible_surfaces() {
-    use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface, visible_tools};
+    use crate::tool_defs::{visible_tools, ToolPreset, ToolProfile, ToolSurface};
 
     let reviewer_tools = visible_tools(ToolSurface::Profile(ToolProfile::ReviewerGraph))
         .into_iter()
@@ -2595,12 +2607,59 @@ fn prepare_harness_session_defaults_to_surface_bootstrap_entrypoints() {
         payload["data"]["routing"]["recommended_entrypoint"],
         json!("explore_codebase")
     );
-    assert!(
-        payload["data"]["routing"]["preferred_entrypoints"]
-            .as_array()
-            .map(|items| items.iter().any(|value| value == "trace_request_path"))
-            .unwrap_or(false)
+    assert!(payload["data"]["routing"]["preferred_entrypoints"]
+        .as_array()
+        .map(|items| items.iter().any(|value| value == "trace_request_path"))
+        .unwrap_or(false));
+}
+
+#[test]
+fn prepare_harness_session_overlay_can_override_bootstrap_routing() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("overlay.py"),
+        "def alpha():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let payload = call_tool(
+        &state,
+        "prepare_harness_session",
+        json!({
+            "profile": "refactor-full",
+            "host_context": "claude-code",
+            "task_overlay": "review"
+        }),
     );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["overlay"]["applied"], json!(true));
+    assert_eq!(
+        payload["data"]["overlay"]["host_context"],
+        json!("claude-code")
+    );
+    assert_eq!(payload["data"]["overlay"]["task_overlay"], json!("review"));
+    assert_eq!(
+        payload["data"]["routing"]["preferred_entrypoints_source"],
+        json!("overlay")
+    );
+    assert_eq!(
+        payload["data"]["routing"]["recommended_entrypoint"],
+        json!("review_changes")
+    );
+    assert!(payload["data"]["overlay"]["avoid_tools"]
+        .as_array()
+        .map(|items| items.iter().any(|value| value == "rename_symbol"))
+        .unwrap_or(false));
+    assert!(payload["data"]["overlay"]["routing_notes"]
+        .as_array()
+        .map(|items| items.iter().any(|value| {
+            value
+                .as_str()
+                .map(|text| text.contains("Review overlay"))
+                .unwrap_or(false)
+        }))
+        .unwrap_or(false));
 }
 
 #[test]
@@ -2629,18 +2688,14 @@ fn project_architecture_resource_recommends_canonical_workflows() {
         .expect("resource text");
     let payload: serde_json::Value = serde_json::from_str(text).expect("valid architecture JSON");
     let notes = payload["notes"].as_array().expect("notes array");
-    assert!(
-        notes
-            .iter()
-            .filter_map(|value| value.as_str())
-            .any(|note| note.contains("review_changes"))
-    );
-    assert!(
-        !notes
-            .iter()
-            .filter_map(|value| value.as_str())
-            .any(|note| note.contains("analyze_change_impact"))
-    );
+    assert!(notes
+        .iter()
+        .filter_map(|value| value.as_str())
+        .any(|note| note.contains("review_changes")));
+    assert!(!notes
+        .iter()
+        .filter_map(|value| value.as_str())
+        .any(|note| note.contains("analyze_change_impact")));
 }
 
 #[test]
@@ -2904,9 +2959,16 @@ fn safe_rename_report_emits_codex_builder_delegate_scaffold() {
         json!("codex-builder")
     );
     assert_eq!(
+        delegate_call["arguments"]["trigger"],
+        json!("preferred_executor_boundary")
+    );
+    assert_eq!(
         delegate_call["arguments"]["delegate_tool"],
         json!("rename_symbol")
     );
+    let handoff_id = delegate_call["arguments"]["handoff_id"]
+        .as_str()
+        .expect("delegate scaffold should include handoff_id");
     assert_eq!(
         delegate_call["arguments"]["delegate_arguments"]["file_path"],
         json!("rename_delegate.py")
@@ -2919,6 +2981,173 @@ fn safe_rename_report_emits_codex_builder_delegate_scaffold() {
         delegate_call["arguments"]["delegate_arguments"]["new_name"],
         json!("new_name")
     );
+    assert_eq!(
+        delegate_call["arguments"]["delegate_arguments"]["handoff_id"],
+        json!(handoff_id)
+    );
+    assert_eq!(
+        delegate_call["arguments"]["carry_forward"]["handoff_id"],
+        json!(handoff_id)
+    );
+}
+
+#[test]
+fn delegate_handoff_id_persists_across_planner_and_builder_sessions_in_telemetry() {
+    struct TelemetryEnvGuard {
+        prev_sym_enabled: Option<String>,
+        prev_enabled: Option<String>,
+        prev_sym_path: Option<String>,
+        prev_path: Option<String>,
+    }
+
+    impl TelemetryEnvGuard {
+        fn install(path: &std::path::Path) -> Self {
+            let guard = Self {
+                prev_sym_enabled: std::env::var("SYMBIOTE_TELEMETRY_ENABLED").ok(),
+                prev_enabled: std::env::var("CODELENS_TELEMETRY_ENABLED").ok(),
+                prev_sym_path: std::env::var("SYMBIOTE_TELEMETRY_PATH").ok(),
+                prev_path: std::env::var("CODELENS_TELEMETRY_PATH").ok(),
+            };
+            unsafe {
+                std::env::remove_var("SYMBIOTE_TELEMETRY_ENABLED");
+                std::env::set_var("CODELENS_TELEMETRY_ENABLED", "1");
+                std::env::remove_var("SYMBIOTE_TELEMETRY_PATH");
+                std::env::set_var("CODELENS_TELEMETRY_PATH", path);
+            }
+            guard
+        }
+    }
+
+    impl Drop for TelemetryEnvGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.prev_sym_enabled {
+                    Some(value) => std::env::set_var("SYMBIOTE_TELEMETRY_ENABLED", value),
+                    None => std::env::remove_var("SYMBIOTE_TELEMETRY_ENABLED"),
+                }
+                match &self.prev_enabled {
+                    Some(value) => std::env::set_var("CODELENS_TELEMETRY_ENABLED", value),
+                    None => std::env::remove_var("CODELENS_TELEMETRY_ENABLED"),
+                }
+                match &self.prev_sym_path {
+                    Some(value) => std::env::set_var("SYMBIOTE_TELEMETRY_PATH", value),
+                    None => std::env::remove_var("SYMBIOTE_TELEMETRY_PATH"),
+                }
+                match &self.prev_path {
+                    Some(value) => std::env::set_var("CODELENS_TELEMETRY_PATH", value),
+                    None => std::env::remove_var("CODELENS_TELEMETRY_PATH"),
+                }
+            }
+        }
+    }
+
+    let _env_lock = crate::env_compat::TEST_ENV_LOCK
+        .lock()
+        .unwrap_or_else(|poison| poison.into_inner());
+    let telemetry_path = std::env::temp_dir().join(format!(
+        "codelens-delegate-telemetry-{}-{:?}.jsonl",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos(),
+        std::thread::current().id()
+    ));
+    let _env_guard = TelemetryEnvGuard::install(&telemetry_path);
+
+    let project = project_root();
+    fs::write(
+        project.as_path().join("rename_delegate_telemetry.py"),
+        "def old_name():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "refactor-full"}),
+        "planner-session",
+    );
+    let _ = call_tool_with_session(
+        &state,
+        "set_profile",
+        json!({"profile": "refactor-full"}),
+        "builder-session",
+    );
+
+    let planner_payload = call_tool_with_session(
+        &state,
+        "safe_rename_report",
+        json!({
+            "file_path": "rename_delegate_telemetry.py",
+            "symbol": "old_name",
+            "new_name": "new_name"
+        }),
+        "planner-session",
+    );
+    assert_eq!(planner_payload["success"], json!(true));
+
+    let delegate_call = planner_payload["suggested_next_calls"]
+        .as_array()
+        .and_then(|calls| {
+            calls.iter().find(|call| {
+                call.get("tool").and_then(|value| value.as_str())
+                    == Some("delegate_to_codex_builder")
+            })
+        })
+        .cloned()
+        .expect("delegate_to_codex_builder should include a scaffold payload");
+
+    let handoff_id = delegate_call["arguments"]["handoff_id"]
+        .as_str()
+        .expect("delegate scaffold should include handoff_id")
+        .to_owned();
+    let builder_arguments = delegate_call["arguments"]["delegate_arguments"].clone();
+
+    let builder_payload = call_tool_with_session(
+        &state,
+        "rename_symbol",
+        builder_arguments,
+        "builder-session",
+    );
+    assert!(
+        builder_payload["data"].is_object()
+            || builder_payload.get("suggested_next_tools").is_some(),
+        "builder response should remain structured for telemetry correlation: {builder_payload}"
+    );
+
+    let contents = std::fs::read_to_string(&telemetry_path).expect("read telemetry jsonl");
+    let events: Vec<serde_json::Value> = contents
+        .lines()
+        .map(|line| serde_json::from_str(line).expect("parse telemetry jsonl line"))
+        .collect();
+
+    let planner_event = events
+        .iter()
+        .find(|event| {
+            event["session_id"] == json!("planner-session")
+                && event["tool"] == json!("safe_rename_report")
+                && event["delegate_handoff_id"].as_str() == Some(handoff_id.as_str())
+        })
+        .cloned()
+        .expect("planner event should persist delegate handoff metadata");
+    assert_eq!(
+        planner_event["delegate_hint_trigger"],
+        json!("preferred_executor_boundary")
+    );
+
+    let builder_event = events
+        .iter()
+        .find(|event| {
+            event["session_id"] == json!("builder-session")
+                && event["tool"] == json!("rename_symbol")
+                && event["handoff_id"].as_str() == Some(handoff_id.as_str())
+        })
+        .cloned()
+        .expect("builder event should persist the replayed handoff_id");
+    assert_ne!(planner_event["session_id"], builder_event["session_id"]);
+
+    let _ = std::fs::remove_dir_all(telemetry_path.parent().unwrap());
 }
 
 #[test]
@@ -2984,13 +3213,31 @@ fn repeated_builder_tool_emits_codex_builder_delegate_scaffold() {
         delegate_call["arguments"]["trigger"],
         json!("builder_doom_loop")
     );
+    assert!(
+        delegate_call["arguments"]["briefing"]["why_delegate"]
+            .as_str()
+            .map(|value| value.contains("repeated"))
+            .unwrap_or(false),
+        "doom-loop delegate scaffold should explain the repeated builder retry: {delegate_call}"
+    );
     assert_eq!(
         delegate_call["arguments"]["delegate_tool"],
         json!("rename_symbol")
     );
+    let handoff_id = delegate_call["arguments"]["handoff_id"]
+        .as_str()
+        .expect("delegate scaffold should include handoff_id");
     assert_eq!(
         delegate_call["arguments"]["delegate_arguments"]["dry_run"],
         json!(true)
+    );
+    assert_eq!(
+        delegate_call["arguments"]["delegate_arguments"]["handoff_id"],
+        json!(handoff_id)
+    );
+    assert_eq!(
+        delegate_call["arguments"]["carry_forward"]["handoff_id"],
+        json!(handoff_id)
     );
 }
 
@@ -3065,11 +3312,9 @@ fn foreign_project_scoped_analysis_is_ignored_for_reuse() {
     .unwrap();
 
     assert!(state.get_analysis(analysis_id).is_none());
-    assert!(
-        state
-            .find_reusable_analysis_for_current_scope("analyze_change_request", &cache_key)
-            .is_none()
-    );
+    assert!(state
+        .find_reusable_analysis_for_current_scope("analyze_change_request", &cache_key)
+        .is_none());
 }
 
 #[test]
@@ -3146,12 +3391,10 @@ fn analysis_artifacts_expire_by_ttl() {
 
     assert!(state.get_analysis(&analysis_id).is_none());
     assert!(!state.analysis_dir().join(&analysis_id).exists());
-    assert!(
-        state
-            .list_analysis_summaries()
-            .into_iter()
-            .all(|summary| summary.id != analysis_id)
-    );
+    assert!(state
+        .list_analysis_summaries()
+        .into_iter()
+        .all(|summary| summary.id != analysis_id));
 }
 
 #[test]
@@ -3337,12 +3580,10 @@ fn refactor_surface_requires_preflight_before_create_text_file() {
         json!({"relative_path": "mutated.txt", "content": "hello"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("requires a fresh preflight")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("requires a fresh preflight"));
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -3390,11 +3631,9 @@ fn verify_change_readiness_allows_same_file_mutation_and_tracks_caution() {
         }),
     );
     assert_eq!(payload["success"], json!(true));
-    assert!(
-        fs::read_to_string(project.as_path().join("gated.py"))
-            .unwrap()
-            .contains("new")
-    );
+    assert!(fs::read_to_string(project.as_path().join("gated.py"))
+        .unwrap()
+        .contains("new"));
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -3442,12 +3681,10 @@ fn safe_rename_report_blocked_preflight_blocks_rename_symbol() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("blocked by verifier readiness")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("blocked by verifier readiness"));
 }
 
 #[test]
@@ -3482,12 +3719,10 @@ fn rename_symbol_requires_symbol_aware_preflight() {
         }),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("symbol-aware preflight")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("symbol-aware preflight"));
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(
@@ -3566,12 +3801,10 @@ fn session_scoped_preflight_does_not_cross_sessions() {
         "session-b",
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("requires a fresh preflight")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("requires a fresh preflight"));
 }
 
 #[test]
@@ -3619,26 +3852,18 @@ fn get_tool_metrics_filters_by_session_id() {
     assert_eq!(metrics_a["data"]["scope"], json!("session"));
     assert_eq!(metrics_a["data"]["session_id"], json!("session-a"));
     assert_eq!(metrics_b["data"]["session_id"], json!("session-b"));
-    assert!(
-        per_tool_a
-            .iter()
-            .any(|entry| entry["tool"] == json!("get_symbols_overview"))
-    );
-    assert!(
-        !per_tool_a
-            .iter()
-            .any(|entry| entry["tool"] == json!("read_file"))
-    );
-    assert!(
-        per_tool_b
-            .iter()
-            .any(|entry| entry["tool"] == json!("read_file"))
-    );
-    assert!(
-        !per_tool_b
-            .iter()
-            .any(|entry| entry["tool"] == json!("get_symbols_overview"))
-    );
+    assert!(per_tool_a
+        .iter()
+        .any(|entry| entry["tool"] == json!("get_symbols_overview")));
+    assert!(!per_tool_a
+        .iter()
+        .any(|entry| entry["tool"] == json!("read_file")));
+    assert!(per_tool_b
+        .iter()
+        .any(|entry| entry["tool"] == json!("read_file")));
+    assert!(!per_tool_b
+        .iter()
+        .any(|entry| entry["tool"] == json!("get_symbols_overview")));
 }
 
 #[test]
@@ -3709,14 +3934,12 @@ fn audit_builder_session_warns_when_bootstrap_is_missing() {
         json!({"session_id": "builder-warn"}),
     );
     assert_eq!(audit["data"]["status"], json!("warn"));
-    assert!(
-        audit["data"]["findings"]
-            .as_array()
-            .map(|findings| findings
-                .iter()
-                .any(|finding| finding["code"] == json!("bootstrap_order")))
-            .unwrap_or(false)
-    );
+    assert!(audit["data"]["findings"]
+        .as_array()
+        .map(|findings| findings
+            .iter()
+            .any(|finding| finding["code"] == json!("bootstrap_order")))
+        .unwrap_or(false));
 }
 
 #[test]
@@ -3761,14 +3984,12 @@ fn audit_builder_session_fails_when_gate_failure_was_recorded() {
         json!({"session_id": "builder-fail"}),
     );
     assert_eq!(audit["data"]["status"], json!("fail"));
-    assert!(
-        audit["data"]["findings"]
-            .as_array()
-            .map(|findings| findings
-                .iter()
-                .any(|finding| finding["code"] == json!("mutation_gate")))
-            .unwrap_or(false)
-    );
+    assert!(audit["data"]["findings"]
+        .as_array()
+        .map(|findings| findings
+            .iter()
+            .any(|finding| finding["code"] == json!("mutation_gate")))
+        .unwrap_or(false));
 }
 
 #[cfg(feature = "http")]
@@ -3936,19 +4157,17 @@ fn audit_builder_session_warns_when_http_coordination_is_missing() {
         json!({"session_id": session_id}),
     );
     assert_eq!(audit["data"]["status"], json!("warn"));
-    assert!(
-        audit["data"]["findings"]
-            .as_array()
-            .map(|findings| {
-                findings
+    assert!(audit["data"]["findings"]
+        .as_array()
+        .map(|findings| {
+            findings
+                .iter()
+                .any(|finding| finding["code"] == json!("coordination_registration"))
+                && findings
                     .iter()
-                    .any(|finding| finding["code"] == json!("coordination_registration"))
-                    && findings
-                        .iter()
-                        .any(|finding| finding["code"] == json!("coordination_claim"))
-            })
-            .unwrap_or(false)
-    );
+                    .any(|finding| finding["code"] == json!("coordination_claim"))
+        })
+        .unwrap_or(false));
 }
 
 #[test]
@@ -4041,14 +4260,12 @@ fn audit_planner_session_warns_when_bootstrap_is_missing() {
         json!({"session_id": "planner-warn"}),
     );
     assert_eq!(audit["data"]["status"], json!("warn"));
-    assert!(
-        audit["data"]["findings"]
-            .as_array()
-            .map(|findings| findings
-                .iter()
-                .any(|finding| finding["code"] == json!("bootstrap_order")))
-            .unwrap_or(false)
-    );
+    assert!(audit["data"]["findings"]
+        .as_array()
+        .map(|findings| findings
+            .iter()
+            .any(|finding| finding["code"] == json!("bootstrap_order")))
+        .unwrap_or(false));
 }
 
 #[test]
@@ -4081,14 +4298,12 @@ fn audit_planner_session_warns_when_change_evidence_is_missing() {
         json!({"session_id": "planner-change-evidence"}),
     );
     assert_eq!(audit["data"]["status"], json!("warn"));
-    assert!(
-        audit["data"]["findings"]
-            .as_array()
-            .map(|findings| findings
-                .iter()
-                .any(|finding| finding["code"] == json!("change_evidence")))
-            .unwrap_or(false)
-    );
+    assert!(audit["data"]["findings"]
+        .as_array()
+        .map(|findings| findings
+            .iter()
+            .any(|finding| finding["code"] == json!("change_evidence")))
+        .unwrap_or(false));
 }
 
 #[test]
@@ -4134,14 +4349,12 @@ fn audit_planner_session_warns_when_workflow_first_guidance_is_missed() {
         json!({"session_id": "planner-chain"}),
     );
     assert_eq!(audit["data"]["status"], json!("warn"));
-    assert!(
-        audit["data"]["findings"]
-            .as_array()
-            .map(|findings| findings
-                .iter()
-                .any(|finding| finding["code"] == json!("workflow_first")))
-            .unwrap_or(false)
-    );
+    assert!(audit["data"]["findings"]
+        .as_array()
+        .map(|findings| findings
+            .iter()
+            .any(|finding| finding["code"] == json!("workflow_first")))
+        .unwrap_or(false));
 }
 
 #[test]
@@ -4226,14 +4439,12 @@ fn audit_planner_session_isolated_by_session_id() {
         json!({"session_id": session_a.as_str()}),
     );
     assert_eq!(audit_a["data"]["status"], json!("warn"));
-    assert!(
-        audit_a["data"]["findings"]
-            .as_array()
-            .map(|findings| findings
-                .iter()
-                .any(|finding| finding["code"] == json!("bootstrap_order")))
-            .unwrap_or(false)
-    );
+    assert!(audit_a["data"]["findings"]
+        .as_array()
+        .map(|findings| findings
+            .iter()
+            .any(|finding| finding["code"] == json!("bootstrap_order")))
+        .unwrap_or(false));
 }
 
 #[test]
@@ -4274,6 +4485,28 @@ fn export_session_markdown_appends_planner_audit_summary() {
     );
     let body = markdown["data"]["markdown"].as_str().unwrap_or("");
     assert!(body.contains("## Planner Audit"));
+}
+
+#[test]
+fn export_session_markdown_is_safe_for_unknown_session_id() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("planner_md_unknown.py"),
+        "print('md')\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    let markdown = call_tool(
+        &state,
+        "export_session_markdown",
+        json!({"session_id": "missing-session", "name": "missing-session"}),
+    );
+    assert_eq!(markdown["success"], json!(false));
+    assert_eq!(
+        markdown["error"],
+        json!("Not found: unknown session_id `missing-session`")
+    );
 }
 
 #[test]
@@ -4337,22 +4570,20 @@ fn replace_content_reindexes_existing_embedding_index_when_engine_is_not_loaded(
         search["data"]["retrieval"]["semantic_query"],
         json!("ember archive delta")
     );
-    assert!(
-        search["data"]["results"]
-            .as_array()
-            .map(|results| {
-                results
+    assert!(search["data"]["results"]
+        .as_array()
+        .map(|results| {
+            results
+                .iter()
+                .all(|result| result["provenance"]["source"] == json!("semantic"))
+                && results
                     .iter()
-                    .all(|result| result["provenance"]["source"] == json!("semantic"))
-                    && results
-                        .iter()
-                        .all(|result| result["provenance"]["adjusted_score"].is_number())
-                    && results.iter().any(|result| {
-                        result.get("symbol_name") == Some(&json!("ember_archive_delta"))
-                    })
-            })
-            .unwrap_or(false)
-    );
+                    .all(|result| result["provenance"]["adjusted_score"].is_number())
+                && results
+                    .iter()
+                    .any(|result| result.get("symbol_name") == Some(&json!("ember_archive_delta")))
+        })
+        .unwrap_or(false));
 }
 
 // ── Workflow alias success-contract tests ────────────────────────────────────
@@ -4466,23 +4697,19 @@ fn diagnose_issues_returns_structured_content() {
         payload["data"]["delegated_tool"],
         json!("get_file_diagnostics")
     );
-    assert!(
-        payload["suggested_next_tools"]
-            .as_array()
-            .map(|items| items.iter().any(|value| value == "review_changes"))
-            .unwrap_or(false)
-    );
-    assert!(
-        payload["suggested_next_calls"]
-            .as_array()
-            .map(|items| {
-                items.iter().any(|entry| {
-                    entry["tool"] == json!("review_changes")
-                        && entry["arguments"]["path"] == json!("diag_test.py")
-                })
+    assert!(payload["suggested_next_tools"]
+        .as_array()
+        .map(|items| items.iter().any(|value| value == "review_changes"))
+        .unwrap_or(false));
+    assert!(payload["suggested_next_calls"]
+        .as_array()
+        .map(|items| {
+            items.iter().any(|entry| {
+                entry["tool"] == json!("review_changes")
+                    && entry["arguments"]["path"] == json!("diag_test.py")
             })
-            .unwrap_or(false)
-    );
+        })
+        .unwrap_or(false));
 }
 
 #[test]
@@ -4553,6 +4780,15 @@ fn review_changes_returns_structured_content() {
             .unwrap_or(false),
         "expected forwarded impact/diagnose follow-ups: {payload}"
     );
+    assert!(
+        !payload["suggested_next_tools"]
+            .as_array()
+            .map(|items| items
+                .iter()
+                .any(|value| value == "delegate_to_codex_builder"))
+            .unwrap_or(false),
+        "non-builder follow-ups should not emit a codex-builder delegate scaffold: {payload}"
+    );
 }
 
 #[test]
@@ -4572,4 +4808,178 @@ fn cleanup_duplicate_logic_returns_structured_content() {
         payload["data"]["workflow"],
         json!("cleanup_duplicate_logic")
     );
+}
+
+#[test]
+fn surface_overlay_resource_returns_compiled_plan() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    // 1. List includes the overlay URI
+    let list_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1001)),
+            method: "resources/list".to_owned(),
+            params: None,
+        },
+    )
+    .unwrap();
+    let list_body = serde_json::to_string(&list_response).unwrap();
+    assert!(list_body.contains("codelens://surface/overlay"));
+    assert!(list_body.contains("symbiote://surface/overlay"));
+
+    // 2. Read with host + task renders a compiled plan
+    let read_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1002)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({
+                "uri": "codelens://surface/overlay",
+                "host": "codex",
+                "task": "editing",
+            })),
+        },
+    )
+    .unwrap();
+    let body = serde_json::to_string(&read_response).unwrap();
+    assert!(body.contains("\\\"applied\\\": true") || body.contains("applied"));
+    assert!(body.contains("codex"));
+    assert!(body.contains("editing"));
+    assert!(body.contains("codex-builder"));
+    assert!(body.contains("rename_symbol"));
+    assert!(body.contains("routing_notes"));
+
+    // 3. Unknown host is reported back without failing
+    let unknown_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1003)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({
+                "uri": "codelens://surface/overlay",
+                "host": "nonexistent-host",
+            })),
+        },
+    )
+    .unwrap();
+    let unknown_body = serde_json::to_string(&unknown_response).unwrap();
+    assert!(unknown_body.contains("unknown_host"));
+    assert!(unknown_body.contains("nonexistent-host"));
+
+    // 4. No params → non-applied plan (regression guard)
+    let empty_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1004)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://surface/overlay"})),
+        },
+    )
+    .unwrap();
+    let empty_body = serde_json::to_string(&empty_response).unwrap();
+    assert!(empty_body.contains("applied"));
+    assert!(empty_body.contains("preferred_entrypoints"));
+}
+
+#[test]
+fn backend_capabilities_resource_reports_all_known_backends() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    // 1. List includes the backend URI
+    let list_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(2001)),
+            method: "resources/list".to_owned(),
+            params: None,
+        },
+    )
+    .unwrap();
+    let list_body = serde_json::to_string(&list_response).unwrap();
+    assert!(list_body.contains("codelens://backend/capabilities"));
+    assert!(list_body.contains("symbiote://backend/capabilities"));
+
+    // 2. Read returns the three declared backends + capability coverage
+    let read_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(2002)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://backend/capabilities"})),
+        },
+    )
+    .unwrap();
+    let body = serde_json::to_string(&read_response).unwrap();
+    assert!(body.contains("rust-engine"));
+    assert!(body.contains("lsp-bridge"));
+    assert!(body.contains("scip-bridge"));
+    assert!(body.contains("capability_coverage"));
+    assert!(body.contains("symbol_lookup"));
+    assert!(body.contains("diagnostics"));
+    assert!(body.contains("semantic_search"));
+    // Passive scaffold disclosure present
+    assert!(body.contains("Passive scaffold"));
+}
+
+#[test]
+fn registry_resources_report_projects_and_memory_scopes() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    let list_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(3001)),
+            method: "resources/list".to_owned(),
+            params: None,
+        },
+    )
+    .unwrap();
+    let list_body = serde_json::to_string(&list_response).unwrap();
+    assert!(list_body.contains("codelens://registry/projects"));
+    assert!(list_body.contains("codelens://registry/memory-scopes"));
+    assert!(list_body.contains("symbiote://registry/projects"));
+
+    // Projects endpoint: active project must appear
+    let projects_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(3002)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://registry/projects"})),
+        },
+    )
+    .unwrap();
+    let projects_body = serde_json::to_string(&projects_response).unwrap();
+    assert!(projects_body.contains("is_active"));
+    assert!(projects_body.contains("has_project_memory"));
+    assert!(projects_body.contains("count_active"));
+
+    // Memory scopes endpoint: both scopes declared, only project wired
+    let scopes_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(3003)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://registry/memory-scopes"})),
+        },
+    )
+    .unwrap();
+    let scopes_body = serde_json::to_string(&scopes_response).unwrap();
+    assert!(scopes_body.contains("\\\"scope\\\": \\\"project\\\""));
+    assert!(scopes_body.contains("\\\"scope\\\": \\\"global\\\""));
+    assert!(scopes_body.contains("mutation_wired"));
+    assert!(scopes_body.contains("Passive scaffold"));
 }

@@ -162,6 +162,29 @@ impl SessionState {
         }
     }
 
+    pub fn notify_jsonrpc(&self, method: &str, params: serde_json::Value) -> bool {
+        let sender = self
+            .sse_tx
+            .lock()
+            .ok()
+            .and_then(|current| current.as_ref().cloned());
+        let Some(sender) = sender else {
+            return false;
+        };
+        let payload = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        })
+        .to_string();
+        sender
+            .try_send(SseEvent {
+                event_type: "message".to_owned(),
+                data: payload,
+            })
+            .is_ok()
+    }
+
     pub fn client_metadata(&self) -> SessionClientMetadata {
         self.client_metadata
             .read()
