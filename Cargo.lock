@@ -357,7 +357,7 @@ checksum = "c8d4a3bb8b1e0c1050499d1815f5ab16d04f0959b233085fb31653fbfc9d98f9"
 
 [[package]]
 name = "codelens-engine"
-version = "1.9.45"
+version = "1.9.46"
 dependencies = [
  "anyhow",
  "criterion",
@@ -422,7 +422,7 @@ dependencies = [
 
 [[package]]
 name = "codelens-mcp"
-version = "1.9.45"
+version = "1.9.46"
 dependencies = [
  "anyhow",
  "axum 0.8.8",
@@ -446,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "codelens-tui"
-version = "1.9.45"
+version = "1.9.46"
 dependencies = [
  "anyhow",
  "codelens-engine",
