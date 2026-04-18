@@ -40,6 +40,8 @@ pub struct Tool {
     pub output_schema: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub annotations: Option<ToolAnnotations>,
+    #[serde(rename = "_meta", skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Value>,
     /// Per-tool hard cap on response tokens. Enforced in dispatch_response.
     /// None means use the global request_budget.
     #[serde(skip)]
@@ -311,6 +313,7 @@ impl Tool {
             input_schema,
             output_schema: None,
             annotations: None,
+            meta: None,
             max_response_tokens: None,
             estimated_tokens: 0,
         }

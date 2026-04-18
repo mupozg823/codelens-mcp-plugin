@@ -623,6 +623,58 @@ pub(crate) fn tool_phase_label(name: &str) -> Option<&'static str> {
     tool_phase(name).map(|p| p.as_label())
 }
 
+/// ADR-0006 Layer 1 — routing hint advising which executor class is a
+/// better fit for this tool. Advisory only: the host is free to ignore.
+/// `Some("codex-builder")` — bulk implementation, pure relocation,
+///   multi-file refactor. Cheap/fast executor wins here.
+/// `Some("claude")` — orchestration, synthesis, design compression.
+///   Reasoning budget is the bottleneck.
+/// `None` — either executor is fine (retrieval primitives, reads,
+///   audits, session coordination, eval).
+pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
+    match name {
+        // Bulk implementation / mutation — Codex-class executor preferred.
+        "rename_symbol"
+        | "replace_symbol_body"
+        | "delete_lines"
+        | "insert_at_line"
+        | "insert_before_symbol"
+        | "insert_after_symbol"
+        | "insert_content"
+        | "replace_content"
+        | "replace_lines"
+        | "replace"
+        | "create_text_file"
+        | "add_import"
+        | "refactor_extract_function"
+        | "refactor_inline_function"
+        | "refactor_move_to_file"
+        | "refactor_change_signature"
+        | "propagate_deletions" => Some("codex-builder"),
+
+        // Orchestration / synthesis — Claude-class executor preferred.
+        "analyze_change_request"
+        | "plan_safe_refactor"
+        | "review_architecture"
+        | "trace_request_path"
+        | "review_changes"
+        | "cleanup_duplicate_logic"
+        | "find_minimal_context_for_change"
+        | "summarize_symbol_impact"
+        | "semantic_code_review" => Some("claude"),
+
+        // Everything else — retrieval primitives, file ops, audits,
+        // session coordination, eval, diagnostics — both executors
+        // handle equally well. Keep None conservative until we have
+        // measured divergence.
+        _ => None,
+    }
+}
+
+pub(crate) fn tool_preferred_executor_label(name: &str) -> &'static str {
+    tool_preferred_executor(name).unwrap_or("any")
+}
+
 pub(crate) fn tool_namespace(name: &str) -> &'static str {
     match name {
         "read_file" | "list_dir" | "find_file" | "search_for_pattern" | "find_annotations"

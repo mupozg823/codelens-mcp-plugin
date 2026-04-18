@@ -35,12 +35,18 @@
       "plan": 29,
       "review": 21
     },
+    "preferred_executors": {
+      "any": 83,
+      "claude": 9,
+      "codex-builder": 17
+    },
     "tools": [
       {
         "name": "get_current_config",
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 159
       },
@@ -49,6 +55,7 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 119
       },
@@ -57,6 +64,7 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 93
       },
@@ -65,6 +73,7 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 91
       },
@@ -73,6 +82,7 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 306
       },
@@ -81,6 +91,7 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 148
       },
@@ -89,6 +100,7 @@
         "namespace": "filesystem",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 142
       },
@@ -97,6 +109,7 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 254
       },
@@ -105,6 +118,7 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 304
       },
@@ -113,6 +127,7 @@
         "namespace": "symbols",
         "tier": "analysis",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 418
       },
@@ -121,6 +136,7 @@
         "namespace": "symbols",
         "tier": "analysis",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 181
       },
@@ -129,6 +145,7 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 96
       },
@@ -137,6 +154,7 @@
         "namespace": "session",
         "tier": "workflow",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 80
       },
@@ -145,6 +163,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 154
       },
@@ -153,6 +172,7 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 337
       },
@@ -161,6 +181,7 @@
         "namespace": "lsp",
         "tier": "primitive",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 180
       },
@@ -169,6 +190,7 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 122
       },
@@ -177,6 +199,7 @@
         "namespace": "symbols",
         "tier": "analysis",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 207
       },
@@ -185,6 +208,7 @@
         "namespace": "symbols",
         "tier": "analysis",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 133
       },
@@ -193,6 +217,7 @@
         "namespace": "lsp",
         "tier": "primitive",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 71
       },
@@ -201,6 +226,7 @@
         "namespace": "lsp",
         "tier": "primitive",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 98
       },
@@ -209,6 +235,7 @@
         "namespace": "graph",
         "tier": "primitive",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 150
       },
@@ -217,6 +244,7 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 246
       },
@@ -225,6 +253,7 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 259
       },
@@ -233,6 +262,7 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 85
       },
@@ -241,6 +271,7 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 99
       },
@@ -249,6 +280,7 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 83
       },
@@ -257,6 +289,7 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 105
       },
@@ -265,6 +298,7 @@
         "namespace": "mutation",
         "tier": "analysis",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 316
       },
@@ -273,6 +307,7 @@
         "namespace": "mutation",
         "tier": "workflow",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 153
       },
@@ -281,6 +316,7 @@
         "namespace": "mutation",
         "tier": "primitive",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 183
       },
@@ -289,6 +325,7 @@
         "namespace": "mutation",
         "tier": "primitive",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 151
       },
@@ -297,6 +334,7 @@
         "namespace": "mutation",
         "tier": "primitive",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 129
       },
@@ -305,6 +343,7 @@
         "namespace": "mutation",
         "tier": "primitive",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 135
       },
@@ -313,6 +352,7 @@
         "namespace": "mutation",
         "tier": "primitive",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 146
       },
@@ -321,6 +361,7 @@
         "namespace": "mutation",
         "tier": "primitive",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 146
       },
@@ -329,6 +370,7 @@
         "namespace": "mutation",
         "tier": "primitive",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 219
       },
@@ -337,6 +379,7 @@
         "namespace": "mutation",
         "tier": "primitive",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 291
       },
@@ -345,6 +388,7 @@
         "namespace": "mutation",
         "tier": "primitive",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 146
       },
@@ -353,6 +397,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 89
       },
@@ -361,6 +406,7 @@
         "namespace": "mutation",
         "tier": "primitive",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": true,
         "estimated_tokens": 165
       },
@@ -369,6 +415,7 @@
         "namespace": "mutation",
         "tier": "workflow",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": false,
         "estimated_tokens": 164
       },
@@ -377,6 +424,7 @@
         "namespace": "mutation",
         "tier": "workflow",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": false,
         "estimated_tokens": 177
       },
@@ -385,6 +433,7 @@
         "namespace": "mutation",
         "tier": "analysis",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": false,
         "estimated_tokens": 182
       },
@@ -393,6 +442,7 @@
         "namespace": "mutation",
         "tier": "analysis",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": false,
         "estimated_tokens": 217
       },
@@ -401,6 +451,7 @@
         "namespace": "session",
         "tier": "workflow",
         "phase": "build",
+        "preferred_executor": "codex-builder",
         "has_output_schema": false,
         "estimated_tokens": 158
       },
@@ -409,6 +460,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 198
       },
@@ -417,6 +469,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": "claude",
         "has_output_schema": true,
         "estimated_tokens": 179
       },
@@ -425,6 +478,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": "claude",
         "has_output_schema": true,
         "estimated_tokens": 168
       },
@@ -433,6 +487,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": "claude",
         "has_output_schema": true,
         "estimated_tokens": 190
       },
@@ -441,6 +496,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 177
       },
@@ -449,6 +505,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 176
       },
@@ -457,6 +514,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "build",
+        "preferred_executor": "claude",
         "has_output_schema": true,
         "estimated_tokens": 187
       },
@@ -465,6 +523,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": "claude",
         "has_output_schema": true,
         "estimated_tokens": 194
       },
@@ -473,6 +532,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 206
       },
@@ -481,6 +541,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 185
       },
@@ -489,6 +550,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 152
       },
@@ -497,6 +559,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": "claude",
         "has_output_schema": true,
         "estimated_tokens": 719
       },
@@ -505,6 +568,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 719
       },
@@ -513,6 +577,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": "claude",
         "has_output_schema": true,
         "estimated_tokens": 674
       },
@@ -521,6 +586,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": "claude",
         "has_output_schema": true,
         "estimated_tokens": 685
       },
@@ -529,6 +595,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 673
       },
@@ -537,6 +604,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 702
       },
@@ -545,6 +613,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 688
       },
@@ -553,6 +622,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 698
       },
@@ -561,6 +631,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 673
       },
@@ -569,6 +640,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 681
       },
@@ -577,6 +649,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 689
       },
@@ -585,6 +658,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 674
       },
@@ -593,6 +667,7 @@
         "namespace": "session",
         "tier": "workflow",
         "phase": "review",
+        "preferred_executor": "claude",
         "has_output_schema": true,
         "estimated_tokens": 683
       },
@@ -601,6 +676,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "eval",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 345
       },
@@ -609,6 +685,7 @@
         "namespace": "reports",
         "tier": "primitive",
         "phase": "eval",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 239
       },
@@ -617,6 +694,7 @@
         "namespace": "reports",
         "tier": "workflow",
         "phase": "eval",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 249
       },
@@ -625,6 +703,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": "eval",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 310
       },
@@ -633,6 +712,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": "eval",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 202
       },
@@ -641,6 +721,7 @@
         "namespace": "reports",
         "tier": "primitive",
         "phase": "eval",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 127
       },
@@ -649,6 +730,7 @@
         "namespace": "memory",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 120
       },
@@ -657,6 +739,7 @@
         "namespace": "memory",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 81
       },
@@ -665,6 +748,7 @@
         "namespace": "memory",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 88
       },
@@ -673,6 +757,7 @@
         "namespace": "memory",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 83
       },
@@ -681,6 +766,7 @@
         "namespace": "memory",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 96
       },
@@ -689,6 +775,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 211
       },
@@ -697,6 +784,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 2813
       },
@@ -705,6 +793,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 211
       },
@@ -713,6 +802,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 107
       },
@@ -721,6 +811,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 225
       },
@@ -729,6 +820,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 194
       },
@@ -737,6 +829,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 75
       },
@@ -745,6 +838,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 72
       },
@@ -753,6 +847,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 197
       },
@@ -761,6 +856,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 159
       },
@@ -769,6 +865,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 94
       },
@@ -777,6 +874,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 86
       },
@@ -785,6 +883,7 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 138
       },
@@ -793,6 +892,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 74
       },
@@ -801,6 +901,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 122
       },
@@ -809,6 +910,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 131
       },
@@ -817,6 +919,7 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 1017
       },
@@ -825,6 +928,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": "eval",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 218
       },
@@ -833,6 +937,7 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 351
       },
@@ -841,6 +946,7 @@
         "namespace": "session",
         "tier": "analysis",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 349
       },
@@ -849,6 +955,7 @@
         "namespace": "session",
         "tier": "primitive",
         "phase": "eval",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 219
       },
@@ -857,6 +964,7 @@
         "namespace": "session",
         "tier": "workflow",
         "phase": null,
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 95
       },
@@ -865,6 +973,7 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 298
       },
@@ -873,6 +982,7 @@
         "namespace": "symbols",
         "tier": "primitive",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": false,
         "estimated_tokens": 71
       },
@@ -881,6 +991,7 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "plan",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 269
       },
@@ -889,6 +1000,7 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 214
       },
@@ -897,6 +1009,7 @@
         "namespace": "graph",
         "tier": "analysis",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 206
       },
@@ -905,6 +1018,7 @@
         "namespace": "graph",
         "tier": "primitive",
         "phase": "review",
+        "preferred_executor": null,
         "has_output_schema": true,
         "estimated_tokens": 188
       }
@@ -2203,16 +2317,16 @@
         "whether analysis jobs should replace direct long reports"
       ]
     },
+    "host_resources": [
+      "codelens://host-adapters/claude-code",
+      "codelens://host-adapters/codex",
+      "codelens://host-adapters/cursor",
+      "codelens://host-adapters/cline"
+    ],
     "hosts": [
       {
         "name": "claude-code",
-        "native_primitives": [
-          "CLAUDE.md",
-          "subagents and agent teams",
-          "hooks",
-          "managed-mcp.json and .mcp.json",
-          "subagent-scoped MCP servers"
-        ],
+        "resource_uri": "codelens://host-adapters/claude-code",
         "best_fit": "planner and reviewer orchestration with isolated research and explicit policy control",
         "recommended_modes": [
           "solo-local",
@@ -2223,15 +2337,6 @@
           "planner-readonly",
           "reviewer-graph"
         ],
-        "preferred_codelens_use": [
-          "bootstrap and bounded architecture review",
-          "preflight before dispatching a builder",
-          "planner-session audit and handoff artifact production"
-        ],
-        "avoid": [
-          "defaulting to live bidirectional chat between planner and builder",
-          "exposing mutation-heavy surfaces to read-side sessions"
-        ],
         "compiler_targets": [
           "CLAUDE.md",
           ".mcp.json",
@@ -2241,13 +2346,7 @@
       },
       {
         "name": "codex",
-        "native_primitives": [
-          "AGENTS.md",
-          "skills",
-          "worktrees",
-          "shared MCP config",
-          "CLI, app, and IDE continuity"
-        ],
+        "resource_uri": "codelens://host-adapters/codex",
         "best_fit": "builder and refactor execution, parallel worktree-based implementation, and automation",
         "recommended_modes": [
           "solo-local",
@@ -2259,15 +2358,6 @@
           "refactor-full",
           "ci-audit"
         ],
-        "preferred_codelens_use": [
-          "bounded mutation after verify_change_readiness",
-          "session-scoped builder audit",
-          "analysis jobs for CI-facing summaries"
-        ],
-        "avoid": [
-          "forcing CodeLens into trivial single-file lookups",
-          "copying Claude-specific subagent topology into Codex worktree flows"
-        ],
         "compiler_targets": [
           "AGENTS.md",
           "~/.codex/config.toml",
@@ -2276,13 +2366,7 @@
       },
       {
         "name": "cursor",
-        "native_primitives": [
-          ".cursor/rules",
-          "AGENTS.md",
-          "custom modes",
-          "background agents",
-          "mcp.json"
-        ],
+        "resource_uri": "codelens://host-adapters/cursor",
         "best_fit": "editor-local iteration with scoped rules plus asynchronous remote execution when needed",
         "recommended_modes": [
           "solo-local",
@@ -2294,15 +2378,6 @@
           "reviewer-graph",
           "ci-audit"
         ],
-        "preferred_codelens_use": [
-          "architecture review and diff-aware signoff",
-          "analysis jobs for background-agent queues",
-          "minimal surface exposure through mode- or rule-specific routing"
-        ],
-        "avoid": [
-          "assuming foreground and background agents share the same trust boundary",
-          "shipping the full CodeLens surface into every mode"
-        ],
         "compiler_targets": [
           ".cursor/rules",
           "AGENTS.md",
@@ -2312,12 +2387,7 @@
       },
       {
         "name": "cline",
-        "native_primitives": [
-          "interactive permissioned terminal execution",
-          "browser loop",
-          "workspace checkpoints",
-          "MCP integrations"
-        ],
+        "resource_uri": "codelens://host-adapters/cline",
         "best_fit": "human-in-the-loop debugging and foreground execution with explicit approvals",
         "recommended_modes": [
           "solo-local",
@@ -2326,14 +2396,6 @@
         "preferred_profiles": [
           "builder-minimal",
           "reviewer-graph"
-        ],
-        "preferred_codelens_use": [
-          "review-heavy exploration before write passes",
-          "session audit and handoff artifacts when a change must cross sessions"
-        ],
-        "avoid": [
-          "treating Cline as a headless CI runner",
-          "relying on CodeLens where the foreground checkpoint loop already provides the needed safety"
         ],
         "compiler_targets": [
           "mcp_servers.json",
