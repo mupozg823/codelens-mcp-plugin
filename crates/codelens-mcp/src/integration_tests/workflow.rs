@@ -2803,6 +2803,145 @@ fn suggested_next_calls_forward_task_and_analysis_id() {
 }
 
 #[test]
+fn safe_rename_report_emits_codex_builder_delegate_scaffold() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("rename_delegate.py"),
+        "def old_name():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let payload = call_tool(
+        &state,
+        "safe_rename_report",
+        json!({
+            "file_path": "rename_delegate.py",
+            "symbol": "old_name",
+            "new_name": "new_name"
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+
+    let suggested = payload["suggested_next_tools"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        suggested
+            .iter()
+            .any(|value| value == "delegate_to_codex_builder"),
+        "expected delegate_to_codex_builder suggestion, got {payload}"
+    );
+
+    let delegate_call = payload["suggested_next_calls"]
+        .as_array()
+        .and_then(|calls| {
+            calls.iter().find(|call| {
+                call.get("tool").and_then(|value| value.as_str())
+                    == Some("delegate_to_codex_builder")
+            })
+        })
+        .cloned()
+        .expect("delegate_to_codex_builder should include a scaffold payload");
+
+    assert_eq!(
+        delegate_call["arguments"]["preferred_executor"],
+        json!("codex-builder")
+    );
+    assert_eq!(
+        delegate_call["arguments"]["delegate_tool"],
+        json!("rename_symbol")
+    );
+    assert_eq!(
+        delegate_call["arguments"]["delegate_arguments"]["file_path"],
+        json!("rename_delegate.py")
+    );
+    assert_eq!(
+        delegate_call["arguments"]["delegate_arguments"]["symbol_name"],
+        json!("old_name")
+    );
+    assert_eq!(
+        delegate_call["arguments"]["delegate_arguments"]["new_name"],
+        json!("new_name")
+    );
+}
+
+#[test]
+fn repeated_builder_tool_emits_codex_builder_delegate_scaffold() {
+    let project = project_root();
+    fs::write(
+        project.as_path().join("rename_loop.py"),
+        "def old_name():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let _ = call_tool(&state, "set_profile", json!({"profile": "refactor-full"}));
+
+    let preflight = call_tool(
+        &state,
+        "safe_rename_report",
+        json!({
+            "file_path": "rename_loop.py",
+            "symbol": "old_name",
+            "new_name": "new_name"
+        }),
+    );
+    assert_eq!(preflight["success"], json!(true));
+    assert_eq!(
+        preflight["data"]["readiness"]["mutation_ready"],
+        json!("ready")
+    );
+
+    let args = json!({
+        "file_path": "rename_loop.py",
+        "symbol_name": "old_name",
+        "new_name": "new_name",
+        "dry_run": true
+    });
+    let _ = call_tool(&state, "rename_symbol", args.clone());
+    let _ = call_tool(&state, "rename_symbol", args.clone());
+    let payload = call_tool(&state, "rename_symbol", args);
+    assert_eq!(payload["success"], json!(true));
+
+    let suggested = payload["suggested_next_tools"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        suggested
+            .iter()
+            .any(|value| value == "delegate_to_codex_builder"),
+        "expected delegate_to_codex_builder suggestion on repeated builder loop, got {payload}"
+    );
+
+    let delegate_call = payload["suggested_next_calls"]
+        .as_array()
+        .and_then(|calls| {
+            calls.iter().find(|call| {
+                call.get("tool").and_then(|value| value.as_str())
+                    == Some("delegate_to_codex_builder")
+            })
+        })
+        .cloned()
+        .expect("delegate_to_codex_builder should include a scaffold payload");
+
+    assert_eq!(
+        delegate_call["arguments"]["trigger"],
+        json!("builder_doom_loop")
+    );
+    assert_eq!(
+        delegate_call["arguments"]["delegate_tool"],
+        json!("rename_symbol")
+    );
+    assert_eq!(
+        delegate_call["arguments"]["delegate_arguments"]["dry_run"],
+        json!(true)
+    );
+}
+
+#[test]
 fn analysis_artifacts_evict_oldest_disk_payloads() {
     let project = project_root();
     fs::write(

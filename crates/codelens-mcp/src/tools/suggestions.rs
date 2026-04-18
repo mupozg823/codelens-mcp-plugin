@@ -596,6 +596,9 @@ pub fn suggestion_reasons_for(
     let mut reasons = std::collections::HashMap::new();
     for tool in tools {
         let reason = match tool.as_str() {
+            "delegate_to_codex_builder" => {
+                "Hand off the next builder-heavy step to a Codex-class executor"
+            }
             "get_file_diagnostics" => "Check for type errors or lint issues after this change",
             "get_analysis_section" => "Expand a specific section from the analysis handle",
             "verify_change_readiness" => "Validate mutation safety before editing code",

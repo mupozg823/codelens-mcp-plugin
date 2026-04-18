@@ -120,6 +120,8 @@ Use `resources/read` on `codelens://schemas/handoff-artifact/v1` when the host n
 
 `tools/list` and `tools/call` also expose the server-side routing classifier as `_meta["codelens/preferredExecutor"]`. Treat it as an advisory executor hint: `codex-builder`, `claude`, or `any`.
 
+When a response crosses from a planner/reviewer step into a builder-heavy step, or when a builder-heavy tool is retried in a loop, CodeLens also prepends the synthetic host action `delegate_to_codex_builder` in `suggested_next_tools` and `suggested_next_calls`. This is not a callable MCP server tool. Treat it as a ready-made handoff scaffold containing `delegate_tool`, optional `delegate_arguments`, `carry_forward`, and a compact completion contract for the target Codex builder session.
+
 For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces and tiers first, and omits `outputSchema` during bootstrap to keep session overhead bounded. Clients can expand one namespace at a time with `{"namespace":"reports"}`, open primitive tools with `{"tier":"primitive"}`, request the full surface explicitly with `{"full": true}`, or opt back into schemas with `{"includeOutputSchema": true}`. In deferred sessions, hidden namespaces and primitive tiers can gate `tools/call` until the client explicitly loads them, and `codelens://tools/list` / `codelens://session/http` resources reflect the same session state.
 
 ## Recommended Harness Modes

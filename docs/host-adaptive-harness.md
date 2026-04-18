@@ -138,6 +138,8 @@ The same policy is also emitted at tool granularity through runtime metadata:
 - `tools/list` exposes `_meta["codelens/preferredExecutor"]` per tool
 - `tools/call` echoes `_meta["codelens/preferredExecutor"]` on the call result
 - current labels are `codex-builder`, `claude`, and `any`
+- `suggested_next_tools` / `suggested_next_calls` may prepend the synthetic host action `delegate_to_codex_builder` when the next step crosses into a builder-heavy lane or a builder-heavy tool is being retried in a loop
+- that synthetic action is advisory, not callable on the server; hosts should read its `delegate_tool`, optional `delegate_arguments`, `carry_forward`, and `briefing` payload to launch a builder session without reshaping context
 
 ### Layer 4. Eval and governance
 

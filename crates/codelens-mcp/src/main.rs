@@ -9,6 +9,7 @@ mod build_info;
 mod cli;
 mod client_profile;
 mod dispatch;
+mod env_compat;
 mod error;
 mod job_store;
 mod mutation_audit;

@@ -61,7 +61,21 @@ fn text_resource(uri: &str, text: String) -> Value {
     })
 }
 
+/// ADR-0007 Phase 2: accept `symbiote://<rest>` as an alias of
+/// `codelens://<rest>`. Dispatch logic below remains pinned to the
+/// canonical `codelens://` form; this normalizer is the single rewrite
+/// site so we don't have to dual-match every arm.
+fn normalize_resource_uri(uri: &str) -> std::borrow::Cow<'_, str> {
+    if let Some(rest) = uri.strip_prefix("symbiote://") {
+        std::borrow::Cow::Owned(format!("codelens://{}", rest))
+    } else {
+        std::borrow::Cow::Borrowed(uri)
+    }
+}
+
 pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>) -> Value {
+    let normalized = normalize_resource_uri(uri);
+    let uri = normalized.as_ref();
     let request = ResourceRequestContext::from_request(uri, params);
     let _session_project_guard = state
         .ensure_session_project(&request.session)
