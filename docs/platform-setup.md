@@ -112,6 +112,13 @@ For daemon-wide aggregation across currently tracked runtime sessions, enqueue t
 
 For operator snapshots against a running HTTP daemon, use [`scripts/export-eval-session-audit.sh`](../scripts/export-eval-session-audit.sh). That script is intentionally separate from host Stop hooks because aggregate runtime state only exists in the daemon, not in a fresh one-shot CLI process.
 
+For a daily macOS operator snapshot, install the launchd wrapper with [`scripts/install-eval-session-audit-launchd.sh`](../scripts/install-eval-session-audit-launchd.sh). Example:
+
+```bash
+bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
+```
+
 Use `resources/read` on `codelens://surface/manifest` when you need the canonical source for workspace version, tool counts, profile membership, or supported-language inventory. Repository docs are generated from the same manifest.
 
 Use `resources/read` on `codelens://harness/spec` when the host needs the portable contract for preflight order, coordination TTL discipline, audit hooks, or handoff artifact skeletons.

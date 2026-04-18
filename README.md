@@ -192,6 +192,13 @@ launchctl load ~/Library/LaunchAgents/dev.codelens.mcp.plist
 launchctl list | grep codelens   # confirm it's running
 ```
 
+For the separate daily aggregate audit snapshot, install the operator job with:
+
+```bash
+bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
+```
+
 See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.
 
 ### Distribution Channels
