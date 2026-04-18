@@ -1,5 +1,23 @@
 # CodeLens MCP — Codex Repo Notes
 
+<!-- CODELENS_HOST_ROUTING:BEGIN -->
+## CodeLens Routing
+
+- Native first for point lookups and already-local single-file edits.
+- Use `prepare_harness_session` before multi-file review or refactor-sensitive work.
+- Default execution profile: `builder-minimal`.
+- Use `refactor-full` only after `verify_change_readiness`; for rename-heavy changes also run `safe_rename_report` or `unresolved_reference_check`.
+- After mutation, run `audit_builder_session` and export the session summary if the change must cross sessions or CI.
+- If the planner hands you `delegate_to_codex_builder`, replay the first delegated builder call with `delegate_tool` + `delegate_arguments` unchanged, including `handoff_id`.
+
+## Compiled Routing Overlays
+
+- Primary bootstrap sequence: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics`
+- `builder-minimal` + `editing` [bias: `codex-builder`]: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `get_file_diagnostics`
+- `refactor-full` + `review` [bias: `codex-builder`]: `prepare_harness_session` -> `explore_codebase` -> `trace_request_path` -> `plan_safe_refactor` -> `verify_change_readiness` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session` | avoid: `rename_symbol`, `replace_symbol_body`, `insert_content`, `replace`
+- `ci-audit` + `batch-analysis` [bias: `codex-builder`]: `prepare_harness_session` -> `explore_codebase` -> `verify_change_readiness` -> `start_analysis_job` -> `get_analysis_job` -> `get_analysis_section` -> `module_boundary_report`
+<!-- CODELENS_HOST_ROUTING:END -->
+
 ## Verify
 
 ```bash

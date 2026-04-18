@@ -1,5 +1,27 @@
 # CodeLens MCP
 
+<!-- CODELENS_HOST_ROUTING:BEGIN -->
+## CodeLens Routing
+
+- Use native Read/Glob/Grep first for trivial point lookups and single-file edits.
+- Escalate to CodeLens after the first local step for multi-file review, refactor preflight, or durable artifact generation.
+- Default CodeLens profile for planning/review is `reviewer-graph`.
+- Before dispatching a builder, run:
+  1. `prepare_harness_session`
+  2. `get_symbols_overview` per target file
+  3. `get_file_diagnostics` per target file
+  4. `verify_change_readiness`
+- Prefer asymmetric handoff over live planner/builder chat.
+- If `delegate_to_codex_builder` appears in `suggested_next_calls`, preserve `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` verbatim when dispatching the builder.
+
+## Compiled Routing Overlays
+
+- Primary bootstrap sequence: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `explore_codebase` -> `review_architecture`
+- `planner-readonly` + `planning` [bias: `claude`]: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `explore_codebase` -> `review_architecture`
+- `reviewer-graph` + `review` [bias: `claude`]: `prepare_harness_session` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session`
+- `planner-readonly` + `onboarding` [bias: `claude`]: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `onboard_project` -> `explore_codebase` -> `review_architecture`
+<!-- CODELENS_HOST_ROUTING:END -->
+
 ## Tool Routing — PREFER CodeLens over Read/Grep for code tasks
 
 | Task                      | Use This                                         | Not This              |
