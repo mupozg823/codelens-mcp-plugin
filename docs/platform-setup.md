@@ -85,6 +85,11 @@ Recommended daemon split:
 
 For this repository's local launchd workflow, use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh). It installs the repo-local dual-daemon shape from a current `--features http` build and defaults to `7839` read-only plus `7838` mutation-enabled to match the local harness contract.
 
+The host configuration examples below intentionally keep the public generic
+`7837` / `7838` URLs. If you are using this repository's local launchd
+workflow, replace the read-only `:7837` examples with `:7839` and leave the
+mutation-enabled `:7838` examples unchanged.
+
 If you need a public planner -> builder delegation pattern, including fixed preflight order, coordination TTL discipline, and explicit `release_files`, see [Multi-agent integration](multi-agent-integration.md).
 
 For builder-session audit operations after a run:
@@ -117,9 +122,13 @@ For operator snapshots against a running HTTP daemon, use [`scripts/export-eval-
 For a daily macOS operator snapshot, install the launchd wrapper with [`scripts/install-eval-session-audit-launchd.sh`](../scripts/install-eval-session-audit-launchd.sh). Example:
 
 ```bash
-bash scripts/install-eval-session-audit-launchd.sh . --mcp-url http://127.0.0.1:7839/mcp --hour 23 --minute 55
+bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
 ```
+
+That launchd wrapper defaults to `http://127.0.0.1:7839/mcp` so it matches
+this repository's local read-only daemon shape. Pass `--mcp-url` only if your
+running daemon uses a different address such as the public generic `:7837`.
 
 If `export-eval-session-audit.sh` fails with `unsupported analysis job kind 'eval_session_audit'`, the running daemon is older than the current aggregate lane. Restart that daemon from a current build before treating it as a script failure.
 
@@ -188,6 +197,11 @@ For deferred loading flows, opt in during `initialize` with `{"deferredToolLoadi
 Live Claude/Codex bidirectional chat is not the default operating model. The recommended pattern is still asymmetric handoff over shared CodeLens state, with builder-to-planner escalation kept explicit and rare.
 
 ### 1. Claude Code (CLI / Desktop / Web)
+
+The host-specific attach examples in this section use the public generic
+read-only daemon URL `http://127.0.0.1:7837/mcp`. If you installed this
+repository's local launchd workflow, substitute `http://127.0.0.1:7839/mcp`
+for the read-only examples below.
 
 **Global config** (`~/.claude.json`):
 

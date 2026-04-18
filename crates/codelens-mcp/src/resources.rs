@@ -168,6 +168,10 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             uri,
             crate::surface_manifest::build_surface_manifest_for_state(state),
         ),
+        "codelens://operator/dashboard" => {
+            let dashboard = crate::operator::build_operator_dashboard(state);
+            json_resource(uri, serde_json::to_value(&dashboard).unwrap_or(Value::Null))
+        }
         "codelens://registry/projects" => {
             let entries = crate::registry::enumerate_projects(state);
             json_resource(

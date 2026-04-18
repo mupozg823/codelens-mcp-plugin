@@ -126,7 +126,7 @@ launchd agent for the aggregate runtime lane instead of trying to piggyback
 on host Stop hooks:
 
 ```bash
-bash scripts/install-eval-session-audit-launchd.sh . --mcp-url http://127.0.0.1:7839/mcp --hour 23 --minute 55
+bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
 ```
 
@@ -139,6 +139,8 @@ session-scoped.
 If you also use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh)
 in this repository, point the aggregate job at `http://127.0.0.1:7839/mcp`,
 because that installer's repo-local read-only daemon default is `:7839`.
+Pass `--mcp-url` only if your running daemon uses a different address such as
+the public generic read-only example on `:7837`.
 
 ## Troubleshooting
 

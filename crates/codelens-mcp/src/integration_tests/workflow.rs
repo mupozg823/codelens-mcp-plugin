@@ -4983,3 +4983,51 @@ fn registry_resources_report_projects_and_memory_scopes() {
     assert!(scopes_body.contains("mutation_wired"));
     assert!(scopes_body.contains("Passive scaffold"));
 }
+
+#[test]
+fn operator_dashboard_aggregates_across_existing_telemetry() {
+    let project = project_root();
+    let state = make_state(&project);
+
+    // 1. Listed
+    let list_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4001)),
+            method: "resources/list".to_owned(),
+            params: None,
+        },
+    )
+    .unwrap();
+    let list_body = serde_json::to_string(&list_response).unwrap();
+    assert!(list_body.contains("codelens://operator/dashboard"));
+    assert!(list_body.contains("symbiote://operator/dashboard"));
+
+    // 2. Read returns all aggregated sections
+    let read_response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(4002)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://operator/dashboard"})),
+        },
+    )
+    .unwrap();
+    let body = serde_json::to_string(&read_response).unwrap();
+    assert!(body.contains("project_root"));
+    assert!(body.contains("active_surface"));
+    assert!(body.contains("daemon_mode"));
+    assert!(body.contains("daemon_started_at"));
+    assert!(body.contains("\\\"health\\\""));
+    assert!(body.contains("indexed_files"));
+    assert!(body.contains("\\\"jobs\\\""));
+    assert!(body.contains("status_counts"));
+    assert!(body.contains("\\\"analyses\\\""));
+    assert!(body.contains("tool_counts"));
+    assert!(body.contains("\\\"backends\\\""));
+    assert!(body.contains("rust-engine"));
+    assert!(body.contains("memory_scopes"));
+    assert!(body.contains("Operator plane aggregates"));
+}

@@ -11,7 +11,7 @@ once per day against a running CodeLens HTTP daemon.
 Options:
   --hour N          Hour in local time (default: 23)
   --minute N        Minute in local time (default: 55)
-  --mcp-url URL     MCP HTTP endpoint (default: http://127.0.0.1:7837/mcp)
+  --mcp-url URL     MCP HTTP endpoint (default: http://127.0.0.1:7839/mcp)
   --output-dir DIR  Snapshot output dir (default: <repo>/.codelens/reports/daily)
   --label LABEL     launchd label (default: dev.codelens.eval-session-audit.<repo>)
   --plist-path PATH Write plist here instead of ~/Library/LaunchAgents/<label>.plist
@@ -31,7 +31,7 @@ SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT=""
 HOUR=23
 MINUTE=55
-MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7837/mcp}"
+MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7839/mcp}"
 OUTPUT_DIR=""
 LABEL=""
 PLIST_PATH=""

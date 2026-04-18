@@ -61,6 +61,10 @@ codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon
 codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
 ```
 
+Those are the public generic example ports. If you are using this repository's
+local launchd installer, the repo-local dual-daemon shape is `:7839`
+read-only plus `:7838` mutation-enabled.
+
 Operational rule:
 
 - one mutation-enabled agent per worktree

@@ -62,6 +62,12 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "mimeType": "application/json"
         }),
         json!({
+            "uri": "codelens://operator/dashboard",
+            "name": "Operator Dashboard",
+            "description": "Point-in-time operator snapshot — project + surface + index health + job queue + analysis summary + backends + memory scopes, aggregated from existing telemetry",
+            "mimeType": "application/json"
+        }),
+        json!({
             "uri": "codelens://harness/modes",
             "name": "Harness Modes",
             "description": "Canonical harness-mode topology and communication policy",

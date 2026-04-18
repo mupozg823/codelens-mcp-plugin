@@ -121,6 +121,10 @@ codelens-mcp /path/to/project --transport http --profile reviewer-graph --daemon
 codelens-mcp /path/to/project --transport http --profile refactor-full --daemon-mode mutation-enabled --port 7838
 ```
 
+Those ports are the public generic example. In this repository's local launchd
+workflow, the repo-local dual-daemon installer uses `:7839` for the read-only
+daemon and `:7838` for the mutation daemon.
+
 Every MCP client then attaches by URL instead of spawning a subprocess:
 
 ```json
@@ -130,6 +134,10 @@ Every MCP client then attaches by URL instead of spawning a subprocess:
   }
 }
 ```
+
+If you are following this repository's local launchd workflow, replace the
+read-only example URL above with `http://127.0.0.1:7839/mcp`. The `:7837`
+address remains the public generic example used throughout this section.
 
 #### When to prefer HTTP vs stdio
 
@@ -158,11 +166,11 @@ Recommended operating policy:
 
 #### Troubleshooting
 
-- **`Failed to reconnect` on the client** — the daemon likely exited or the port is wrong. Verify with `curl http://127.0.0.1:7837/mcp` (should return an MCP server response, not a TCP refused).
+- **`Failed to reconnect` on the client** — the daemon likely exited or the configured URL/port is wrong. Verify with `curl <configured-mcp-url>`; for this repository's local launchd workflow that is usually `http://127.0.0.1:7839/mcp` for read-only and `http://127.0.0.1:7838/mcp` for mutation.
 - **Stale index warning on first attach** — expected when the watcher hasn't caught up after a daemon restart. Call `refresh_symbol_index` via MCP once, or restart the daemon with the project root as its CWD.
 - **Host config sanity check** — `codelens-mcp doctor <host>` (or `codelens-mcp status <host>`) inspects the host-native files and tells you whether the CodeLens entry is attached exactly, customized, missing, or needs manual review. Add `--json` when another script or host automation needs a machine-readable report.
 - **Broken or stale `~/.local/bin/codelens-mcp`** — if `cargo clean` removed the repo build a symlink points at, or if PATH still resolves to an older cargo-installed binary that does not know newer subcommands like `doctor` / `status`, run `bash scripts/sync-local-bin.sh .` to rebuild and re-link the local checkout, or `cargo install --path crates/codelens-mcp --force` to install a fresh standalone binary under `~/.cargo/bin/`.
-- **Multiple daemons listening on the same port** — only one will actually bind; the rest exit immediately. Check with `lsof -iTCP:7837 -sTCP:LISTEN`.
+- **Multiple daemons listening on the same port** — only one will actually bind; the rest exit immediately. Check the actual configured port, for example `lsof -iTCP:7839 -sTCP:LISTEN` or `lsof -iTCP:7838 -sTCP:LISTEN` in this repository's local launchd workflow.
 - **Health check** — `scripts/mcp-doctor.sh . --strict` verifies that the configured transport matches an actual attach.
 
 #### Auto-start on macOS (launchd)
@@ -178,6 +186,9 @@ build:
 
 - `dev.codelens.mcp-readonly` -> `reviewer-graph` on `:7839`
 - `dev.codelens.mcp-mutation` -> `refactor-full` on `:7838`
+
+Generic single-daemon example, if you want to hand-edit a plist instead of
+using the installer above:
 
 ```xml
 <!-- ~/Library/LaunchAgents/dev.codelens.mcp.plist -->
@@ -207,7 +218,7 @@ launchctl list | grep codelens   # confirm it's running
 For the separate daily aggregate audit snapshot, install the operator job with:
 
 ```bash
-bash scripts/install-eval-session-audit-launchd.sh . --mcp-url http://127.0.0.1:7839/mcp --hour 23 --minute 55
+bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
 ```
 
