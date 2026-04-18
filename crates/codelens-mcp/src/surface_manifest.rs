@@ -12,11 +12,13 @@ pub(crate) const SURFACE_MANIFEST_SCHEMA_VERSION: &str = "codelens-surface-manif
 pub(crate) const HARNESS_MODES_SCHEMA_VERSION: &str = "codelens-harness-modes-v1";
 pub(crate) const HARNESS_SPEC_SCHEMA_VERSION: &str = "codelens-harness-spec-v1";
 pub(crate) const HOST_ADAPTERS_SCHEMA_VERSION: &str = "codelens-host-adapters-v1";
+pub(crate) const HARNESS_HOST_COMPAT_SCHEMA_VERSION: &str = "codelens-harness-host-v1";
 pub(crate) const AGENT_EXPERIENCE_SCHEMA_VERSION: &str = "codelens-agent-experience-v1";
 pub(crate) const HOST_ADAPTER_HOSTS: [&str; 4] = ["claude-code", "codex", "cursor", "cline"];
 pub(crate) const SURFACE_MANIFEST_DOC_PATH: &str = "docs/generated/surface-manifest.json";
 pub(crate) const HOST_ADAPTERS_DOC_PATH: &str = "docs/host-adaptive-harness.md";
 pub(crate) const HOST_ADAPTERS_RESOURCE_URI: &str = "codelens://harness/host-adapters";
+pub(crate) const HARNESS_HOST_COMPAT_RESOURCE_URI: &str = "codelens://harness/host";
 pub(crate) const AGENT_EXPERIENCE_DOC_PATH: &str = "docs/design/symbiote-ux-flows-v1.md";
 pub(crate) const AGENT_EXPERIENCE_RESOURCE_URI: &str = "codelens://design/agent-experience";
 pub(crate) const HANDOFF_ARTIFACT_SCHEMA_DOC_PATH: &str = "docs/schemas/handoff-artifact.v1.json";
@@ -798,6 +800,71 @@ alwaysApply: true
         })),
         _ => None,
     }
+}
+
+pub(crate) fn harness_host_compat_bundle(host: &str, selection_source: &str) -> Option<Value> {
+    let adapter = host_adapter_bundle(host)?;
+    let recommended_modes = adapter
+        .get("recommended_modes")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let preferred_profiles = adapter
+        .get("preferred_profiles")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let routing_defaults = adapter
+        .get("routing_defaults")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let guardrails = adapter
+        .get("avoid")
+        .and_then(|value| value.as_array())
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(str::to_owned))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let default_contract_mode = match host {
+        "claude-code" => "planner-builder",
+        "codex" | "cursor" | "cline" => "solo-local",
+        _ => "solo-local",
+    };
+
+    Some(json!({
+        "schema_version": HARNESS_HOST_COMPAT_SCHEMA_VERSION,
+        "resource_uri": HARNESS_HOST_COMPAT_RESOURCE_URI,
+        "requested_host": host,
+        "selection_source": selection_source,
+        "portable_resource": HOST_ADAPTERS_RESOURCE_URI,
+        "adapter_resource": format!("codelens://host-adapters/{host}"),
+        "recommended_modes": recommended_modes,
+        "preferred_profiles": preferred_profiles,
+        "routing_defaults": routing_defaults,
+        "guardrails": guardrails,
+        "detected_host": {
+            "host_id": host,
+            "integration_style": "host-adapter-resource",
+            "orchestration_owner": host,
+            "default_contract_mode": default_contract_mode,
+            "bootstrap_sequence": [
+                "prepare_harness_session",
+                "tools/list",
+                "analyze_change_request or get_ranked_context"
+            ],
+            "task_stages": [
+                "discover",
+                "investigate",
+                "act",
+                "verify",
+                "handoff"
+            ],
+            "guardrails": guardrails
+        }
+    }))
 }
 
 pub(crate) fn handoff_artifact_schema_json() -> Value {

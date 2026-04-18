@@ -10,6 +10,9 @@ multiple host adapters.
 
 Portable runtime summary: `codelens://harness/host-adapters`
 
+Compatibility alias for consumers that want one resolved host contract:
+`codelens://harness/host` with a `host` parameter such as `{"host":"claude-code"}`.
+
 Portable UX / flow summary: `codelens://design/agent-experience`
 
 Concrete per-host bundles:

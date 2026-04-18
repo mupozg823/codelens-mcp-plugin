@@ -150,6 +150,33 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             crate::surface_manifest::build_surface_manifest_for_state(state)["host_adapters"]
                 .clone(),
         ),
+        "codelens://harness/host" => {
+            let requested_host = params
+                .and_then(|value| value.get("host"))
+                .and_then(|value| value.as_str())
+                .unwrap_or("claude-code");
+            let selection_source = if params
+                .and_then(|value| value.get("host"))
+                .and_then(|value| value.as_str())
+                .is_some()
+            {
+                "request_param"
+            } else {
+                "default"
+            };
+            let body = crate::surface_manifest::harness_host_compat_bundle(
+                requested_host,
+                selection_source,
+            )
+            .unwrap_or_else(|| {
+                json!({
+                    "error": format!("Unknown host `{requested_host}`"),
+                    "requested_host": requested_host,
+                    "selection_source": selection_source
+                })
+            });
+            json_resource(uri, body)
+        }
         "codelens://design/agent-experience" => json_resource(
             uri,
             crate::surface_manifest::build_surface_manifest_for_state(state)["agent_experience"]

@@ -1553,6 +1553,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(encoded.contains("codelens://harness/modes"));
     assert!(encoded.contains("codelens://harness/spec"));
     assert!(encoded.contains("codelens://harness/host-adapters"));
+    assert!(encoded.contains("codelens://harness/host"));
     assert!(encoded.contains("codelens://design/agent-experience"));
     assert!(encoded.contains("codelens://host-adapters/claude-code"));
     assert!(encoded.contains("codelens://host-adapters/codex"));
@@ -1736,6 +1737,40 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(host_adapters_body.contains("claude-code"));
     assert!(host_adapters_body.contains("codex"));
     assert!(host_adapters_body.contains("cursor"));
+
+    let harness_host = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(242_215)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://harness/host", "host": "claude-code"})),
+        },
+    )
+    .unwrap();
+    let harness_host_value = serde_json::to_value(&harness_host).unwrap();
+    let harness_host_text = harness_host_value["result"]["contents"][0]["text"]
+        .as_str()
+        .expect("resource text");
+    let harness_host_payload: serde_json::Value =
+        serde_json::from_str(harness_host_text).expect("valid harness host JSON");
+    assert_eq!(
+        harness_host_payload["schema_version"],
+        json!("codelens-harness-host-v1")
+    );
+    assert_eq!(harness_host_payload["requested_host"], json!("claude-code"));
+    assert_eq!(
+        harness_host_payload["selection_source"],
+        json!("request_param")
+    );
+    assert_eq!(
+        harness_host_payload["adapter_resource"],
+        json!("codelens://host-adapters/claude-code")
+    );
+    assert_eq!(
+        harness_host_payload["detected_host"]["host_id"],
+        json!("claude-code")
+    );
 
     let agent_experience = handle_request(
         &state,

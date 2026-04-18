@@ -114,6 +114,8 @@ Use `resources/read` on `codelens://harness/spec` when the host needs the portab
 
 Use `resources/read` on `codelens://harness/host-adapters` when the host needs portable guidance for adapting that contract to Claude Code, Codex, Cursor, Cline, or another agent runtime with different native primitives.
 
+Use `resources/read` on `codelens://harness/host` with `{"host":"claude-code"}` or another host id when the consumer expects one resolved host summary instead of the broader adapter index. This compatibility alias returns `detected_host`, `selection_source`, `bootstrap_sequence`, `task_stages`, and `guardrails` in a single payload.
+
 Use `resources/read` on `codelens://host-adapters/<host>` when you need concrete host-native template bundles rather than only the cross-host summary. Example: `codelens://host-adapters/codex`.
 
 Use `resources/read` on `codelens://design/agent-experience` when the host needs the portable product-flow contract: naming gate, attach UX, user flow, agent flow, tool flow, reference flow, and harness flow.
