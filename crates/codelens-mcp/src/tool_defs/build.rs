@@ -211,6 +211,9 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("list_analysis_artifacts", "[CodeLens:Workflow] List stored analysis artifacts with summary resource handles for reuse.", json!({"type":"object","properties":{}})).with_output_schema(analysis_artifact_list_output_schema()).with_annotations(ro_p.clone()),
         Tool::new("get_analysis_section", "[CodeLens:Workflow] Expand a stored analysis section by analysis_id.", json!({"required":["analysis_id","section"],"type":"object","properties":{"analysis_id":{"type":"string"},"section":{"type":"string"}}})).with_output_schema(analysis_section_output_schema()).with_annotations(ro_p.clone()),
 
+        // ── Rule corpus retrieval ───────────────────────────────────────
+        Tool::new("find_relevant_rules", "[CodeLens:Workflow] BM25 search over CLAUDE.md + project memory for policy snippets matching a query. Separate corpus from code retrieval — rule text never pollutes semantic_search results.", json!({"required":["query"],"type":"object","properties":{"query":{"type":"string","description":"Natural-language query; identifier tokens are preserved"},"top_k":{"type":"integer","description":"Top-K results (1-20, default 3)"}}})).with_annotations(ro_a.clone()).with_max_response_tokens(2048),
+
         // ── Memory ──────────────────────────────────────────────────────
         Tool::new("list_memories", "[CodeLens:Memory] List project memory files under .codelens/memories.", json!({"type":"object","properties":{"topic":{"type":"string","description":"Optional topic to filter"}}})).with_output_schema(memory_list_output_schema()).with_annotations(ro_p.clone()),
         Tool::new("read_memory", "[CodeLens:Memory] Read a named project memory file.", json!({"required":["memory_name"],"type":"object","properties":{"memory_name":{"type":"string"}}})).with_annotations(ro_p.clone()),

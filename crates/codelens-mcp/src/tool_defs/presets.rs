@@ -785,7 +785,8 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "get_analysis_job"
         | "cancel_analysis_job"
         | "get_analysis_section"
-        | "onboard_project" => "reports",
+        | "onboard_project"
+        | "find_relevant_rules" => "reports",
         "list_memories" | "read_memory" | "write_memory" | "delete_memory" | "rename_memory" => {
             "memory"
         }

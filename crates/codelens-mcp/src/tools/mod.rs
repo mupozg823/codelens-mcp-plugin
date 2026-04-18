@@ -12,6 +12,7 @@ mod report_payload;
 mod report_utils;
 mod report_verifier;
 pub mod reports;
+pub mod rules;
 pub mod session;
 mod suggestions;
 pub mod symbols;
@@ -182,6 +183,8 @@ pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_
         "list_analysis_jobs"           => report_jobs::list_analysis_jobs,
         "list_analysis_artifacts"      => report_jobs::list_analysis_artifacts,
         "retry_analysis_job"           => report_jobs::retry_analysis_job,
+        // ── Rule corpus retrieval ──
+        "find_relevant_rules"          => rules::find_relevant_rules,
     }
 }
 
