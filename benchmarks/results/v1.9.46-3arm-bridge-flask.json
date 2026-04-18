@@ -1,0 +1,19 @@
+{
+  "flask": {
+    "bridge-off": {
+      "hybrid_mrr": 0.525,
+      "semantic_mrr": 0.5583333333333333,
+      "lexical_mrr": 0.31666666666666665,
+      "error": null
+    },
+    "generic-on": {
+      "hybrid_mrr": 0.525,
+      "semantic_mrr": 0.5583333333333333,
+      "lexical_mrr": 0.31666666666666665,
+      "error": null
+    },
+    "repo-on": {
+      "error": "no per-repo bridges.json override available"
+    }
+  }
+}

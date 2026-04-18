@@ -167,16 +167,28 @@ def run_arm(
 
 
 def summarize(result: dict) -> dict:
-    methods = result.get("methods", {}) if isinstance(result, dict) else {}
+    raw_methods = result.get("methods", []) if isinstance(result, dict) else []
+    # embedding-quality.py emits methods as a list of dicts keyed by
+    # `method`; earlier versions used a dict. Normalize both shapes.
+    if isinstance(raw_methods, list):
+        methods = {m.get("method"): m for m in raw_methods if isinstance(m, dict)}
+    elif isinstance(raw_methods, dict):
+        methods = raw_methods
+    else:
+        methods = {}
 
     def mrr_of(method_key: str) -> float | None:
         m = methods.get(method_key, {})
-        return m.get("mrr")
+        return m.get("mrr") if isinstance(m, dict) else None
 
     return {
-        "hybrid_mrr": mrr_of("get_ranked_context_hybrid"),
+        # Current embedding-quality.py names; fall back to the legacy
+        # `*_hybrid` / `*_lexical` keys if an older output is replayed.
+        "hybrid_mrr": mrr_of("get_ranked_context")
+        or mrr_of("get_ranked_context_hybrid"),
         "semantic_mrr": mrr_of("semantic_search"),
-        "lexical_mrr": mrr_of("get_ranked_context_lexical"),
+        "lexical_mrr": mrr_of("get_ranked_context_no_semantic")
+        or mrr_of("get_ranked_context_lexical"),
         "error": result.get("error"),
     }
 
