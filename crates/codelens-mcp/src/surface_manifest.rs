@@ -8,6 +8,7 @@ use crate::tool_defs::{
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 
 pub(crate) const SURFACE_MANIFEST_SCHEMA_VERSION: &str = "codelens-surface-manifest-v1";
 pub(crate) const HARNESS_MODES_SCHEMA_VERSION: &str = "codelens-harness-modes-v1";
@@ -33,7 +34,14 @@ const HANDOFF_ARTIFACT_SCHEMA_TEXT: &str =
     include_str!(concat!(env!("OUT_DIR"), "/handoff-artifact.v1.json"));
 
 pub(crate) fn build_surface_manifest_for_state(state: &AppState) -> Value {
-    build_surface_manifest(*state.surface(), state.daemon_mode())
+    let mut manifest = build_surface_manifest(*state.surface(), state.daemon_mode());
+    if let Some(object) = manifest.as_object_mut() {
+        object.insert(
+            "host_adapters".to_owned(),
+            build_host_adapters_for_project(Some(state.project().as_path())),
+        );
+    }
+    manifest
 }
 
 pub(crate) fn build_surface_manifest(
@@ -316,6 +324,10 @@ fn build_harness_spec() -> Value {
 }
 
 fn build_host_adapters() -> Value {
+    build_host_adapters_for_project(None)
+}
+
+fn build_host_adapters_for_project(project_root: Option<&Path>) -> Value {
     json!({
         "schema_version": HOST_ADAPTERS_SCHEMA_VERSION,
         "runtime_resource": HOST_ADAPTERS_RESOURCE_URI,
@@ -408,7 +420,7 @@ fn build_host_adapters() -> Value {
             .collect::<Vec<_>>(),
         "hosts": HOST_ADAPTER_HOSTS
             .iter()
-            .filter_map(|host| host_adapter_bundle(host))
+            .filter_map(|host| host_adapter_bundle_for_project(host, project_root))
             .map(|bundle| {
                 json!({
                     "name": bundle["name"],
@@ -428,6 +440,114 @@ fn build_host_adapters() -> Value {
             })
             .collect::<Vec<_>>()
     })
+}
+
+fn load_project_host_attach_config(project_root: &Path) -> Option<Value> {
+    let path = project_root.join(".codelens/config.json");
+    let content = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+fn project_host_attach_url(project_root: &Path, host: &str) -> Option<String> {
+    load_project_host_attach_config(project_root)?
+        .get("host_attach")
+        .and_then(|value| value.get("per_host_urls"))
+        .and_then(|value| value.get(host))
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
+fn set_codelens_json_template_url(template: &mut Value, url: &str) -> bool {
+    for pointer in ["/mcpServers/codelens", "/servers/codelens", "/codelens"] {
+        if let Some(server) = template.pointer_mut(pointer)
+            && let Some(object) = server.as_object_mut()
+        {
+            object.insert("url".to_owned(), json!(url));
+            return true;
+        }
+    }
+    false
+}
+
+fn set_codelens_toml_template_url(template: &str, url: &str) -> String {
+    let mut in_codelens_section = false;
+    let mut updated = false;
+    let mut lines = Vec::new();
+
+    for line in template.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            in_codelens_section = trimmed == "[mcp_servers.codelens]";
+            lines.push(line.to_owned());
+            continue;
+        }
+
+        if in_codelens_section && trimmed.starts_with("url = ") {
+            let indent = &line[..line.len() - line.trim_start().len()];
+            lines.push(format!(r#"{indent}url = "{url}""#));
+            updated = true;
+            continue;
+        }
+
+        lines.push(line.to_owned());
+    }
+
+    if !updated {
+        return template.to_owned();
+    }
+
+    let mut rewritten = lines.join("\n");
+    if template.ends_with('\n') {
+        rewritten.push('\n');
+    }
+    rewritten
+}
+
+fn apply_host_attach_project_overrides(
+    host: &str,
+    bundle: &mut Value,
+    project_root: Option<&Path>,
+) {
+    let Some(project_root) = project_root else {
+        return;
+    };
+    let Some(url) = project_host_attach_url(project_root, host) else {
+        return;
+    };
+
+    if let Some(native_files) = bundle.get_mut("native_files").and_then(Value::as_array_mut) {
+        for file in native_files {
+            let format = file
+                .get("format")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_owned();
+            let Some(template) = file.get_mut("template") else {
+                continue;
+            };
+            match format.as_str() {
+                "json" => {
+                    let _ = set_codelens_json_template_url(template, &url);
+                }
+                "toml" => {
+                    if let Some(text) = template.as_str() {
+                        *template = Value::String(set_codelens_toml_template_url(text, &url));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if let Some(object) = bundle.as_object_mut() {
+        object.insert("resolved_mcp_url".to_owned(), json!(url));
+        object.insert(
+            "resolved_mcp_url_source".to_owned(),
+            json!(format!(
+                ".codelens/config.json host_attach.per_host_urls.{host}"
+            )),
+        );
+    }
 }
 
 fn build_agent_experience() -> Value {
@@ -803,7 +923,7 @@ fn augment_host_adapter_bundle(host: &str, bundle: &mut Value) {
     }
 }
 
-pub(crate) fn host_adapter_bundle(host: &str) -> Option<Value> {
+fn raw_host_adapter_bundle(host: &str) -> Option<Value> {
     let mut bundle = match host {
         "claude-code" => json!({
             "name": "claude-code",
@@ -1117,8 +1237,21 @@ alwaysApply: true
     Some(bundle)
 }
 
-pub(crate) fn harness_host_compat_bundle(host: &str, selection_source: &str) -> Option<Value> {
-    let adapter = host_adapter_bundle(host)?;
+pub(crate) fn host_adapter_bundle_for_project(
+    host: &str,
+    project_root: Option<&Path>,
+) -> Option<Value> {
+    let mut bundle = raw_host_adapter_bundle(host)?;
+    apply_host_attach_project_overrides(host, &mut bundle, project_root);
+    Some(bundle)
+}
+
+pub(crate) fn harness_host_compat_bundle_for_project(
+    host: &str,
+    selection_source: &str,
+    project_root: Option<&Path>,
+) -> Option<Value> {
+    let adapter = host_adapter_bundle_for_project(host, project_root)?;
     let recommended_modes = adapter
         .get("recommended_modes")
         .and_then(|value| value.as_array())
@@ -1847,6 +1980,20 @@ impl LanguageFamily {
 mod tests {
     use super::*;
     use crate::tool_defs::ToolProfile;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-surface-manifest-{name}-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn manifest_matches_registry_counts() {
@@ -1940,5 +2087,67 @@ mod tests {
                 json!(visible_tools(ToolSurface::Preset(*preset)).len())
             );
         }
+    }
+
+    #[test]
+    fn host_adapter_bundle_uses_project_local_json_url_override() {
+        let root = temp_dir("host-attach-json-override");
+        fs::create_dir_all(root.join(".codelens")).unwrap();
+        fs::write(
+            root.join(".codelens/config.json"),
+            serde_json::to_string_pretty(&json!({
+                "host_attach": {
+                    "per_host_urls": {
+                        "cursor": "http://127.0.0.1:7839/mcp"
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let bundle =
+            host_adapter_bundle_for_project("cursor", Some(root.as_path())).expect("cursor bundle");
+        assert_eq!(
+            bundle["resolved_mcp_url"],
+            json!("http://127.0.0.1:7839/mcp")
+        );
+        assert_eq!(
+            bundle["native_files"][0]["template"]["mcpServers"]["codelens"]["url"],
+            json!("http://127.0.0.1:7839/mcp")
+        );
+    }
+
+    #[test]
+    fn host_adapter_bundle_uses_project_local_toml_url_override() {
+        let root = temp_dir("host-attach-toml-override");
+        fs::create_dir_all(root.join(".codelens")).unwrap();
+        fs::write(
+            root.join(".codelens/config.json"),
+            serde_json::to_string_pretty(&json!({
+                "host_attach": {
+                    "per_host_urls": {
+                        "codex": "http://127.0.0.1:7838/mcp"
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let bundle =
+            host_adapter_bundle_for_project("codex", Some(root.as_path())).expect("codex bundle");
+        let toml_template = bundle["native_files"]
+            .as_array()
+            .and_then(|files| {
+                files.iter().find(|file| {
+                    file.get("path").and_then(Value::as_str) == Some("~/.codex/config.toml")
+                })
+            })
+            .and_then(|file| file.get("template"))
+            .and_then(Value::as_str)
+            .expect("codex toml template");
+
+        assert!(toml_template.contains("url = \"http://127.0.0.1:7838/mcp\""));
     }
 }

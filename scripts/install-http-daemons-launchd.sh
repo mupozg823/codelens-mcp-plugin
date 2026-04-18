@@ -10,6 +10,9 @@ CodeLens setup on macOS:
   - read-only reviewer/planner daemon
   - mutation-enabled builder/refactor daemon
 
+Also writes repo-local host attach overrides into `.codelens/config.json`
+so `codelens-mcp attach/status/doctor` reuse the same host -> URL contract.
+
 Defaults in this repository follow the repo-local operating contract:
   - readonly: reviewer-graph on :7839
   - mutation: refactor-full on :7838
@@ -281,6 +284,44 @@ EOF
 	fi
 }
 
+update_host_attach_config() {
+	local config_path="$REPO_ROOT/.codelens/config.json"
+	local readonly_url="http://127.0.0.1:${READONLY_PORT}/mcp"
+	local mutation_url="http://127.0.0.1:${MUTATION_PORT}/mcp"
+
+	mkdir -p "$(dirname "$config_path")"
+	python3 - "$config_path" "$readonly_url" "$mutation_url" <<'PY'
+import json
+import pathlib
+import sys
+
+config_path = pathlib.Path(sys.argv[1])
+readonly_url = sys.argv[2]
+mutation_url = sys.argv[3]
+
+payload = {}
+if config_path.exists():
+    payload = json.loads(config_path.read_text())
+    if not isinstance(payload, dict):
+        raise SystemExit(f"{config_path} must contain a JSON object")
+
+host_attach = payload.setdefault("host_attach", {})
+if not isinstance(host_attach, dict):
+    raise SystemExit("host_attach must be a JSON object")
+
+per_host_urls = host_attach.setdefault("per_host_urls", {})
+if not isinstance(per_host_urls, dict):
+    raise SystemExit("host_attach.per_host_urls must be a JSON object")
+
+per_host_urls["claude-code"] = readonly_url
+per_host_urls["cursor"] = readonly_url
+per_host_urls["codex"] = mutation_url
+
+config_path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+PY
+	echo "==> Updated host attach overrides in $config_path"
+}
+
 readonly_stdout="$LOG_DIR/${readonly_label}.out.log"
 readonly_stderr="$LOG_DIR/${readonly_label}.err.log"
 mutation_stdout="$LOG_DIR/${mutation_label}.out.log"
@@ -301,6 +342,7 @@ fi
 
 create_plist "$readonly_label" "$READONLY_PROFILE" "read-only" "$READONLY_PORT" "$READONLY_LOG_LEVEL" "$readonly_stdout" "$readonly_stderr" "$readonly_plist"
 create_plist "$mutation_label" "$MUTATION_PROFILE" "mutation-enabled" "$MUTATION_PORT" "$MUTATION_LOG_LEVEL" "$mutation_stdout" "$mutation_stderr" "$mutation_plist"
+update_host_attach_config
 
 echo "==> Wrote $readonly_plist"
 echo "==> Wrote $mutation_plist"

@@ -1,0 +1,17 @@
+---
+description: Route CodeLens usage by task risk and phase
+alwaysApply: true
+---
+
+- Use native code search and local file reads first for trivial lookups and single-file edits.
+- Escalate to CodeLens when the task becomes multi-file, reviewer-heavy, refactor-sensitive, or needs durable analysis artifacts.
+- Prefer `reviewer-graph` for review/signoff and `ci-audit` for async analysis summaries.
+- In background-agent flows, assume localhost CodeLens is unavailable unless the daemon is reachable from the remote machine.
+- If CodeLens emits `delegate_to_codex_builder`, pass `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` through to the builder lane instead of rewriting them from prose.
+
+## Compiled Routing Overlays
+
+- Primary bootstrap sequence: `prepare_harness_session` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session`
+- `reviewer-graph` + `review` [bias: `any`]: `prepare_harness_session` -> `review_changes` -> `impact_report` -> `diff_aware_references` -> `audit_planner_session`
+- `planner-readonly` + `planning` [bias: `any`]: `prepare_harness_session` -> `explore_codebase` -> `review_changes` -> `analyze_change_request` -> `review_architecture` -> `impact_report`
+- `ci-audit` + `batch-analysis` [bias: `any`]: `prepare_harness_session` -> `explore_codebase` -> `review_changes` -> `start_analysis_job` -> `get_analysis_job` -> `get_analysis_section` -> `module_boundary_report`

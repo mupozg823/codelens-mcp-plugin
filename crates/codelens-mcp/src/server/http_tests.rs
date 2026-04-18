@@ -655,9 +655,13 @@ async fn analysis_jobs_follow_session_bound_project_scope() {
         serde_json::json!([])
     );
 
+    // Poll schedule: fewer calls, longer sleeps to keep us well under the
+    // 300-calls/minute per-session rate limit. Total wall budget: ~30 s
+    // (200 polls × 150 ms), which is plenty for impact_report on a
+    // 2-file tempdir project even on congested CI.
     let mut analysis_id = None;
     let mut last_poll_payload = None;
-    for _ in 0..2000 {
+    for _ in 0..200 {
         let poll = app
             .clone()
             .oneshot(
@@ -698,7 +702,7 @@ async fn analysis_jobs_follow_session_bound_project_scope() {
         ) {
             panic!("analysis job did not complete successfully: {poll_payload}");
         }
-        tokio::time::sleep(Duration::from_millis(20)).await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
     }
 
     let analysis_id = analysis_id.unwrap_or_else(|| {

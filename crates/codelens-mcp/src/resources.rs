@@ -1,5 +1,6 @@
 //! MCP resource definitions and handlers.
 
+use crate::AppState;
 use crate::resource_analysis::{
     analysis_resource_entries, analysis_summary_payload, recent_analysis_jobs_payload,
     recent_analysis_payload,
@@ -8,17 +9,16 @@ use crate::resource_catalog::{
     static_resource_entries, visible_tool_details, visible_tool_summary,
 };
 use crate::resource_context::{
-    build_agent_activity_payload, build_http_session_payload, ResourceRequestContext,
+    ResourceRequestContext, build_agent_activity_payload, build_http_session_payload,
 };
 use crate::resource_profiles::{profile_guide, profile_guide_summary, profile_resource_entries};
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    visible_tools, HostContext, SurfaceCompilerInput, TaskOverlay, ToolProfile,
+    HostContext, SurfaceCompilerInput, TaskOverlay, ToolProfile, visible_tools,
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
-use crate::AppState;
 use codelens_engine::{detect_frameworks, detect_workspace_packages};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn resources(state: &AppState) -> Vec<Value> {
     let project_name = state
@@ -284,9 +284,10 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             } else {
                 "default"
             };
-            let body = crate::surface_manifest::harness_host_compat_bundle(
+            let body = crate::surface_manifest::harness_host_compat_bundle_for_project(
                 requested_host,
                 selection_source,
+                Some(state.project().as_path()),
             )
             .unwrap_or_else(|| {
                 json!({
@@ -304,8 +305,11 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
         ),
         _ if uri.starts_with("codelens://host-adapters/") => {
             let host = uri.trim_start_matches("codelens://host-adapters/");
-            let body = crate::surface_manifest::host_adapter_bundle(host)
-                .unwrap_or_else(|| json!({"error": format!("Unknown host adapter `{host}`")}));
+            let body = crate::surface_manifest::host_adapter_bundle_for_project(
+                host,
+                Some(state.project().as_path()),
+            )
+            .unwrap_or_else(|| json!({"error": format!("Unknown host adapter `{host}`")}));
             json_resource(uri, body)
         }
         "codelens://schemas/handoff-artifact/v1" => {

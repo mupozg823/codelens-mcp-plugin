@@ -395,6 +395,38 @@ fn has_toml_section(content: &str, section: &str) -> bool {
     content.lines().any(|line| line.trim() == header)
 }
 
+fn extract_toml_section_block(content: &str, section: &str) -> Option<String> {
+    let header = format!("[{section}]");
+    let mut in_section = false;
+    let mut lines = Vec::new();
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if !in_section {
+            if trimmed == header {
+                in_section = true;
+                lines.push(line.to_owned());
+            }
+            continue;
+        }
+
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            break;
+        }
+        lines.push(line.to_owned());
+    }
+
+    if !in_section {
+        return None;
+    }
+
+    while lines.last().is_some_and(|line| line.trim().is_empty()) {
+        lines.pop();
+    }
+
+    Some(lines.join("\n"))
+}
+
 fn first_significant_template_line(template: &str) -> Option<&str> {
     template
         .lines()
@@ -487,7 +519,9 @@ fn inspect_toml_section(path: &Path, template: &str) -> String {
     if !has_toml_section(&content, &section) {
         return format!("- {display} [toml]: present but missing CodeLens section");
     }
-    if normalize_text_for_compare(&content) == normalize_text_for_compare(template) {
+    let actual_section =
+        extract_toml_section_block(&content, &section).unwrap_or_else(|| content.clone());
+    if normalize_text_for_compare(&actual_section) == normalize_text_for_compare(template) {
         format!("- {display} [toml]: attached (exact generated file)")
     } else {
         format!("- {display} [toml]: attached (CodeLens section present)")
@@ -520,7 +554,9 @@ fn inspect_toml_section_json(path: &Path, template: &str) -> Value {
             "message": "present but missing CodeLens section",
         });
     }
-    if normalize_text_for_compare(&content) == normalize_text_for_compare(template) {
+    let actual_section =
+        extract_toml_section_block(&content, &section).unwrap_or_else(|| content.clone());
+    if normalize_text_for_compare(&actual_section) == normalize_text_for_compare(template) {
         json!({
             "path": path_text,
             "format": "toml",
@@ -683,7 +719,7 @@ fn detach_host_files(
     cwd: &Path,
     apply_changes: bool,
 ) -> Result<Vec<String>> {
-    let adapter = crate::surface_manifest::host_adapter_bundle(host)
+    let adapter = crate::surface_manifest::host_adapter_bundle_for_project(host, Some(cwd))
         .context("missing host adapter bundle for detach target")?;
     let native_files = adapter
         .get("native_files")
@@ -830,7 +866,7 @@ fn render_detach_report(
         if index > 0 {
             out.push('\n');
         }
-        let adapter = crate::surface_manifest::host_adapter_bundle(host)
+        let adapter = crate::surface_manifest::host_adapter_bundle_for_project(host, Some(cwd))
             .context("missing host adapter bundle for detach report")?;
 
         out.push_str(&format!("{host}:\n"));
@@ -871,7 +907,7 @@ fn render_doctor_report(command: &str, hosts: &[&str], home: &Path, cwd: &Path) 
         if index > 0 {
             out.push('\n');
         }
-        let adapter = crate::surface_manifest::host_adapter_bundle(host)
+        let adapter = crate::surface_manifest::host_adapter_bundle_for_project(host, Some(cwd))
             .context("missing host adapter bundle for doctor report")?;
         let native_files = adapter
             .get("native_files")
@@ -904,7 +940,7 @@ fn doctor_report_json(command: &str, hosts: &[&str], home: &Path, cwd: &Path) ->
     let host_reports = hosts
         .iter()
         .map(|host| {
-            let adapter = crate::surface_manifest::host_adapter_bundle(host)
+            let adapter = crate::surface_manifest::host_adapter_bundle_for_project(host, Some(cwd))
                 .context("missing host adapter bundle for doctor report")?;
             let native_files = adapter
                 .get("native_files")
@@ -969,7 +1005,8 @@ pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
             supported_attach_hosts()
         )
     })?;
-    let adapter = crate::surface_manifest::host_adapter_bundle(canonical)
+    let cwd = std::env::current_dir().context("failed to resolve current working directory")?;
+    let adapter = crate::surface_manifest::host_adapter_bundle_for_project(canonical, Some(&cwd))
         .context("missing host adapter bundle for attach target")?;
 
     let delegate_scaffold_rules = json_string_list(&adapter, "delegate_scaffold_rules");
@@ -1045,7 +1082,17 @@ pub(crate) fn render_attach_instructions(host: Option<&str>) -> Result<String> {
     }
 
     out.push_str("\nCopy the following templates into the listed host-native files.\n");
-    out.push_str("The default daemon URL assumes `http://127.0.0.1:7837/mcp`.\n");
+    if let Some(url) = adapter.get("resolved_mcp_url").and_then(Value::as_str) {
+        let source = adapter
+            .get("resolved_mcp_url_source")
+            .and_then(Value::as_str)
+            .unwrap_or(".codelens/config.json");
+        out.push_str(&format!(
+            "Project-local daemon URL override from `{source}`: `{url}`.\n"
+        ));
+    } else {
+        out.push_str("The default daemon URL assumes `http://127.0.0.1:7837/mcp`.\n");
+    }
     out.push_str(&format!(
         "Verify the host wiring with `codelens-mcp doctor {canonical}` after applying the config.\n"
     ));
@@ -1342,6 +1389,37 @@ mod startup_tests {
     }
 
     #[test]
+    fn render_attach_instructions_reports_project_local_url_override() {
+        let _guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let root = temp_dir("attach-override");
+        std::fs::create_dir_all(root.join(".codelens")).unwrap();
+        std::fs::write(
+            root.join(".codelens/config.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "host_attach": {
+                    "per_host_urls": {
+                        "cursor": "http://127.0.0.1:7839/mcp"
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&root).unwrap();
+        let rendered = render_attach_instructions(Some("cursor")).expect("attach output");
+        std::env::set_current_dir(previous).unwrap();
+
+        assert!(rendered.contains(
+            "Project-local daemon URL override from `.codelens/config.json host_attach.per_host_urls.cursor`: `http://127.0.0.1:7839/mcp`."
+        ));
+        assert!(rendered.contains("\"url\": \"http://127.0.0.1:7839/mcp\""));
+    }
+
+    #[test]
     fn detach_report_removes_codelens_json_entry_and_keeps_other_servers() {
         let root = temp_dir("detach-json");
         let home = root.join("home");
@@ -1472,6 +1550,31 @@ url = "http://127.0.0.1:9999/mcp"
             render_doctor_report("doctor", &["codex"], &home, &cwd).expect("doctor report");
         assert!(report.contains(".codex/config.toml [toml]: missing"));
         assert!(report.contains("AGENTS.md [markdown]: missing"));
+    }
+
+    #[test]
+    fn doctor_report_treats_matching_toml_section_as_exact_even_with_extra_sections() {
+        let root = temp_dir("doctor-toml-section-exact");
+        let home = root.join("home");
+        let cwd = root.join("repo");
+        std::fs::create_dir_all(home.join(".codex")).unwrap();
+        std::fs::create_dir_all(&cwd).unwrap();
+        std::fs::write(
+            home.join(".codex/config.toml"),
+            r#"sandbox_mode = "workspace-write"
+
+[mcp_servers.codelens]
+url = "http://127.0.0.1:7837/mcp"
+
+[mcp_servers.other]
+url = "http://127.0.0.1:9999/mcp"
+"#,
+        )
+        .unwrap();
+
+        let report =
+            render_doctor_report("doctor", &["codex"], &home, &cwd).expect("doctor report");
+        assert!(report.contains(".codex/config.toml [toml]: attached (exact generated file)"));
     }
 
     #[test]
@@ -1606,6 +1709,68 @@ url = "http://127.0.0.1:9999/mcp"
         let payload: serde_json::Value =
             serde_json::from_str(&rendered).expect("valid status json");
         assert_eq!(payload["command"], serde_json::json!("status"));
+    }
+
+    #[test]
+    fn run_status_command_honors_project_local_host_attach_override() {
+        let _guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let root = temp_dir("status-override");
+        let home = root.join("home");
+        let cwd = root.join("repo");
+        let previous_home = std::env::var("HOME").ok();
+        unsafe {
+            std::env::set_var("HOME", &home);
+        }
+        std::fs::create_dir_all(cwd.join(".cursor")).unwrap();
+        std::fs::create_dir_all(cwd.join(".codelens")).unwrap();
+        std::fs::write(
+            cwd.join(".codelens/config.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "host_attach": {
+                    "per_host_urls": {
+                        "cursor": "http://127.0.0.1:7839/mcp"
+                    }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            cwd.join(".cursor/mcp.json"),
+            serde_json::to_string_pretty(&serde_json::json!({
+                "mcpServers": {
+                    "codelens": { "type": "http", "url": "http://127.0.0.1:7839/mcp" }
+                }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let previous = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&cwd).unwrap();
+        let rendered = run_doctor_command(&[
+            "codelens-mcp".to_owned(),
+            "status".to_owned(),
+            "--json".to_owned(),
+            "cursor".to_owned(),
+        ])
+        .expect("status json");
+        std::env::set_current_dir(previous).unwrap();
+        unsafe {
+            match previous_home {
+                Some(value) => std::env::set_var("HOME", value),
+                None => std::env::remove_var("HOME"),
+            }
+        }
+
+        let payload: serde_json::Value =
+            serde_json::from_str(&rendered).expect("valid status json");
+        assert_eq!(
+            payload["hosts"][0]["files"][0]["status"],
+            serde_json::json!("attached_exact")
+        );
     }
 
     /// Phase 4c (§observability): the startup banner must carry
