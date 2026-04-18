@@ -19,16 +19,15 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 </div>
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
-
 ## Surface Snapshot
 
-- Workspace version: `1.9.45`
+- Workspace version: `1.9.46`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions: `109`
-- Tool output schemas: `76 / 109`
+- Registered tool definitions: `111`
+- Tool output schemas: `77 / 111`
 - Supported language families: `30` across `49` extensions
 - Profiles: `planner-readonly` (35), `builder-minimal` (36), `reviewer-graph` (35), `evaluator-compact` (14), `refactor-full` (49), `ci-audit` (43), `workflow-first` (19)
-- Presets: `minimal` (27), `balanced` (76), `full` (109)
+- Presets: `minimal` (27), `balanced` (78), `full` (111)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
 
@@ -161,7 +160,8 @@ Recommended operating policy:
 
 - **`Failed to reconnect` on the client** — the daemon likely exited or the port is wrong. Verify with `curl http://127.0.0.1:7837/mcp` (should return an MCP server response, not a TCP refused).
 - **Stale index warning on first attach** — expected when the watcher hasn't caught up after a daemon restart. Call `refresh_symbol_index` via MCP once, or restart the daemon with the project root as its CWD.
-- **Broken `~/.local/bin/codelens-mcp` symlink** — if `cargo clean` removed the `target/release/codelens-mcp` this symlink points at, the daemon cannot start. Run `bash scripts/sync-local-bin.sh .` to re-link, or `cargo install --path crates/codelens-mcp --force` to install a real binary under `~/.cargo/bin/`.
+- **Host config sanity check** — `codelens-mcp doctor <host>` (or `codelens-mcp status <host>`) inspects the host-native files and tells you whether the CodeLens entry is attached exactly, customized, missing, or needs manual review. Add `--json` when another script or host automation needs a machine-readable report.
+- **Broken or stale `~/.local/bin/codelens-mcp`** — if `cargo clean` removed the repo build a symlink points at, or if PATH still resolves to an older cargo-installed binary that does not know newer subcommands like `doctor` / `status`, run `bash scripts/sync-local-bin.sh .` to rebuild and re-link the local checkout, or `cargo install --path crates/codelens-mcp --force` to install a fresh standalone binary under `~/.cargo/bin/`.
 - **Multiple daemons listening on the same port** — only one will actually bind; the rest exit immediately. Check with `lsof -iTCP:7837 -sTCP:LISTEN`.
 - **Health check** — `scripts/mcp-doctor.sh . --strict` verifies that the configured transport matches an actual attach.
 
@@ -269,13 +269,11 @@ verify_change_readiness → "ready" → rename_symbol
 ## Language Support
 
 <!-- SURFACE_MANIFEST_README_LANGUAGES:BEGIN -->
-
 Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
 The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json).
-
 <!-- SURFACE_MANIFEST_README_LANGUAGES:END -->
 
 ## Performance

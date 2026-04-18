@@ -64,7 +64,13 @@ struct ToolEvent {
     target_paths: Option<Vec<String>>,
 }
 
-const PHASE_CYCLE: &[Option<&str>] = &[None, Some("plan"), Some("build"), Some("review"), Some("eval")];
+const PHASE_CYCLE: &[Option<&str>] = &[
+    None,
+    Some("plan"),
+    Some("build"),
+    Some("review"),
+    Some("eval"),
+];
 
 struct WatchState {
     trace_path: PathBuf,
