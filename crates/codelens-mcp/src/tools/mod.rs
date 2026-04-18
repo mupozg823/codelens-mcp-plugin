@@ -69,6 +69,7 @@ pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_
         "get_symbols_overview"         => symbols::get_symbols_overview,
         "find_symbol"                  => symbols::find_symbol,
         "get_ranked_context"           => symbols::get_ranked_context,
+        "bm25_symbol_search"          => symbols::bm25_symbol_search,
         "refresh_symbol_index"         => symbols::refresh_symbol_index,
         "get_complexity"               => symbols::get_complexity,
         "search_symbols_fuzzy"         => symbols::search_symbols_fuzzy,

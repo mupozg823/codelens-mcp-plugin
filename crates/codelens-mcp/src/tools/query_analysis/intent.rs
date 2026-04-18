@@ -5,6 +5,7 @@ pub(crate) struct RetrievalQueryAnalysis {
     pub expanded_query: String,
     pub prefer_lexical_only: bool,
     pub natural_language: bool,
+    pub prefer_sparse_symbol_search: bool,
 }
 
 pub(super) fn query_prefers_lexical_only(query: &str) -> bool {
@@ -20,6 +21,21 @@ pub(super) fn query_prefers_lexical_only(query: &str) -> bool {
         .chars()
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
     looks_path_like || identifier_chars_only
+}
+
+pub(super) fn query_prefers_sparse_symbol_search(query: &str) -> bool {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if query_prefers_lexical_only(trimmed) {
+        return true;
+    }
+    let token_count = trimmed
+        .split(|c: char| c.is_whitespace() || c == '_' || c == '-')
+        .filter(|t| !t.is_empty())
+        .count();
+    (2..=4).contains(&token_count) && !is_natural_language_query(trimmed)
 }
 
 fn is_natural_language_query(query: &str) -> bool {
@@ -129,11 +145,13 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
             expanded_query: String::new(),
             prefer_lexical_only: false,
             natural_language: false,
+            prefer_sparse_symbol_search: false,
         };
     }
 
     let prefer_lexical_only = query_prefers_lexical_only(trimmed);
     let natural_language = is_natural_language_query(trimmed);
+    let prefer_sparse_symbol_search = query_prefers_sparse_symbol_search(trimmed);
     let lowered = trimmed.to_ascii_lowercase();
     let exact_aliases = exact_retrieval_aliases(&lowered);
     let alias_expansion_phrase = trimmed.contains(' ')
@@ -183,6 +201,7 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
         expanded_query,
         prefer_lexical_only,
         natural_language,
+        prefer_sparse_symbol_search,
     }
 }
 

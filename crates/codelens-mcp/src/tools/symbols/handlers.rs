@@ -11,6 +11,8 @@ use super::{
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
+use crate::symbol_corpus::build_symbol_corpus;
+use crate::symbol_retrieval::search_symbols_bm25f;
 use codelens_engine::{SymbolInfo, SymbolKind, read_file, search_symbols_hybrid_with_semantic};
 use serde_json::{Value, json};
 
@@ -139,6 +141,100 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
         })?)
 }
 
+pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
+    let query = required_string(arguments, "query")?;
+    let query_analysis = analyze_retrieval_query(query);
+    let max_results = optional_usize(arguments, "max_results", 10);
+    let include_tests = optional_bool(arguments, "include_tests", false);
+    let include_generated = optional_bool(arguments, "include_generated", false);
+    let session = crate::session_context::SessionRequestContext::from_json(arguments);
+    let recent_files = state.recent_file_paths_for_session(&session);
+
+    let mut all_symbols = Vec::new();
+    for path in state.symbol_index().indexed_file_paths()? {
+        if let Ok(symbols) = state.symbol_index().get_symbols_overview_cached(&path, 3) {
+            all_symbols.extend(flatten_symbols(&symbols));
+        }
+    }
+
+    let corpus = build_symbol_corpus(&all_symbols);
+    let mut scored = search_symbols_bm25f(
+        &corpus,
+        &query_analysis.expanded_query,
+        max_results.saturating_mul(3).max(max_results),
+        include_tests,
+        include_generated,
+    );
+
+    if !recent_files.is_empty() {
+        for hit in &mut scored {
+            if recent_files
+                .iter()
+                .any(|path| hit.document.file_path.starts_with(path))
+            {
+                hit.score *= 1.08;
+            }
+        }
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+    }
+    scored.truncate(max_results);
+
+    let payload_results: Vec<Value> = scored
+        .into_iter()
+        .enumerate()
+        .map(|(idx, hit)| {
+            json!({
+                "symbol_id": hit.document.symbol_id,
+                "name": hit.document.name,
+                "name_path": hit.document.name_path,
+                "kind": hit.document.kind,
+                "file_path": hit.document.file_path,
+                "module_path": hit.document.module_path,
+                "signature": hit.document.signature,
+                "language": hit.document.language,
+                "line": hit.document.line_start,
+                "score": ((hit.score * 1000.0).round() / 1000.0),
+                "why_matched": hit.matched_terms,
+                "flags": {
+                    "is_test": hit.document.is_test,
+                    "is_generated": hit.document.is_generated,
+                    "exported": hit.document.exported,
+                },
+                "provenance": {
+                    "source": "sparse_bm25f",
+                    "retrieval_rank": idx + 1,
+                }
+            })
+        })
+        .collect();
+
+    Ok((
+        json!({
+            "query": query,
+            "results": payload_results,
+            "count": payload_results.len(),
+            "retrieval": {
+                "lane": "sparse_bm25f",
+                "query_type": if query_analysis.prefer_lexical_only {
+                    "identifier"
+                } else if query_analysis.natural_language {
+                    "natural_language"
+                } else {
+                    "short_phrase"
+                },
+                "recommended": query_analysis.prefer_sparse_symbol_search,
+                "lexical_query": query_analysis.expanded_query,
+                "semantic_query": query_analysis.semantic_query,
+            }
+        }),
+        success_meta(BackendKind::Sqlite, 0.88),
+    ))
+}
+
 pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     let query = required_string(arguments, "query")?;
     let query_analysis = analyze_retrieval_query(query);
@@ -252,6 +348,14 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
             json!({
                 "semantic_enabled": !effective_disable_semantic,
                 "semantic_used_in_core": use_semantic_in_core,
+                "preferred_lane": if query_analysis.prefer_sparse_symbol_search {
+                    "sparse_bm25f"
+                } else if effective_disable_semantic {
+                    "structural_lexical"
+                } else {
+                    "hybrid_semantic"
+                },
+                "sparse_lane_recommended": query_analysis.prefer_sparse_symbol_search,
                 "query_type": if query_analysis.prefer_lexical_only { "identifier" }
                     else if query_analysis.natural_language { "natural_language" }
                     else { "short_phrase" },

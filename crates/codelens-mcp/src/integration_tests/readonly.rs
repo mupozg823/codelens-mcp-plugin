@@ -89,6 +89,54 @@ fn returns_ranked_context_without_semantic_when_requested() {
 }
 
 #[test]
+fn bm25_symbol_search_returns_symbol_cards() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).unwrap();
+    fs::write(
+        project.as_path().join("src/dispatch.py"),
+        "def dispatch_tool(name):\n    pass\n\ndef register_handler(kind):\n    pass\n",
+    )
+    .unwrap();
+    fs::write(
+        project.as_path().join("src/graph.py"),
+        "def build_graph(nodes):\n    pass\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    call_tool(&state, "refresh_symbol_index", json!({}));
+
+    let payload = call_tool(
+        &state,
+        "bm25_symbol_search",
+        json!({ "query": "dispatch_tool" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["retrieval"]["lane"], json!("sparse_bm25f"));
+
+    let results = payload["data"]["results"]
+        .as_array()
+        .expect("results array");
+    assert!(
+        !results.is_empty(),
+        "expected at least one BM25 match for `dispatch_tool`, got: {payload}"
+    );
+    let top = &results[0];
+    assert_eq!(top["name"], json!("dispatch_tool"));
+    assert_eq!(top["kind"].as_str().unwrap_or_default().is_empty(), false);
+    assert!(
+        top["score"].as_f64().unwrap_or_default() > 0.0,
+        "top hit should have positive BM25F score"
+    );
+    assert!(
+        top["why_matched"]
+            .as_array()
+            .map(|arr| !arr.is_empty())
+            .unwrap_or(false),
+        "top hit should include matched_terms"
+    );
+}
+
+#[test]
 fn returns_blast_radius_via_tool_call() {
     let project = project_root();
     fs::create_dir_all(project.as_path().join("pkg")).unwrap();

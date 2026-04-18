@@ -725,6 +725,7 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         | "find_symbol"
         | "get_ranked_context"
         | "search_symbols_fuzzy"
+        | "bm25_symbol_search"
         | "find_referencing_symbols"
         | "search_workspace_symbols"
         | "get_type_hierarchy"
