@@ -23,6 +23,8 @@ mod resource_catalog;
 mod resource_context;
 mod resource_profiles;
 mod resources;
+mod rule_corpus;
+mod rule_retrieval;
 mod runtime_types;
 mod server;
 mod session_context;
