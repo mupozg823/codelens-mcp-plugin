@@ -64,6 +64,8 @@ struct ToolEvent {
     target_paths: Option<Vec<String>>,
 }
 
+const PHASE_CYCLE: &[Option<&str>] = &[None, Some("plan"), Some("build"), Some("review"), Some("eval")];
+
 struct WatchState {
     trace_path: PathBuf,
     events: Vec<ToolEvent>,
@@ -72,6 +74,8 @@ struct WatchState {
     last_error: Option<String>,
     paused: bool,
     last_update: Instant,
+    /// Index into PHASE_CYCLE — 0 means "no filter".
+    phase_filter: usize,
 }
 
 impl WatchState {
@@ -84,6 +88,22 @@ impl WatchState {
             last_error: None,
             paused: false,
             last_update: Instant::now(),
+            phase_filter: 0,
+        }
+    }
+
+    fn active_phase(&self) -> Option<&'static str> {
+        PHASE_CYCLE[self.phase_filter]
+    }
+
+    fn cycle_phase(&mut self) {
+        self.phase_filter = (self.phase_filter + 1) % PHASE_CYCLE.len();
+    }
+
+    fn event_matches_filter(&self, event: &ToolEvent) -> bool {
+        match self.active_phase() {
+            None => true,
+            Some(phase) => event.phase.as_deref() == Some(phase),
         }
     }
 
@@ -159,6 +179,7 @@ impl WatchState {
         self.events
             .iter()
             .rev()
+            .filter(|event| self.event_matches_filter(event))
             .take(TIMELINE_CAP)
             .map(|event| {
                 let status = if event.success { "✓" } else { "✗" };
@@ -245,7 +266,11 @@ impl WatchState {
         let mut total_tokens = 0u64;
         let mut total_ms = 0u64;
         let mut failures = 0u64;
-        for event in &self.events {
+        for event in self
+            .events
+            .iter()
+            .filter(|event| self.event_matches_filter(event))
+        {
             let entry = counts.entry(event.tool.as_str()).or_insert((0, 0, 0));
             entry.0 += 1;
             entry.1 += event.elapsed_ms;
@@ -360,11 +385,16 @@ pub fn run(trace_arg: Option<&str>, project_root: &Path) -> Result<()> {
                 .split(size);
 
             let timeline_items = state.timeline_items();
+            let filter_label = match state.active_phase() {
+                Some(phase) => format!(" · phase={phase}"),
+                None => String::new(),
+            };
             let timeline = List::new(timeline_items).block(
                 Block::default()
                     .title(format!(
-                        "Live tool timeline · trace={}{}",
+                        "Live tool timeline · trace={}{}{}",
                         state.trace_path.display(),
+                        filter_label,
                         if state.paused { " · paused" } else { "" }
                     ))
                     .borders(Borders::ALL),
@@ -380,7 +410,7 @@ pub fn run(trace_arg: Option<&str>, project_root: &Path) -> Result<()> {
 
             let summary = state.summary_paragraph().block(
                 Block::default()
-                    .title("Session summary · q quit · p pause/resume · c clear")
+                    .title("Session summary · q quit · p pause · c clear · f phase filter")
                     .borders(Borders::ALL),
             );
             frame.render_widget(summary, chunks[2]);
@@ -397,6 +427,7 @@ pub fn run(trace_arg: Option<&str>, project_root: &Path) -> Result<()> {
                     KeyCode::Char('q') | KeyCode::Esc => break Ok(()),
                     KeyCode::Char('p') => state.paused = !state.paused,
                     KeyCode::Char('c') => state.events.clear(),
+                    KeyCode::Char('f') => state.cycle_phase(),
                     _ => {}
                 }
             }
