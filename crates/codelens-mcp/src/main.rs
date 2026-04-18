@@ -32,6 +32,7 @@ mod session_metrics_payload;
 mod state;
 mod surface_manifest;
 mod symbol_corpus;
+mod symbol_retrieval;
 mod telemetry;
 mod test_helpers;
 mod tool_defs;
