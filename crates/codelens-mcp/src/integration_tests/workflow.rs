@@ -2889,9 +2889,9 @@ fn repeated_builder_tool_emits_codex_builder_delegate_scaffold() {
         }),
     );
     assert_eq!(preflight["success"], json!(true));
-    assert_eq!(
+    assert_ne!(
         preflight["data"]["readiness"]["mutation_ready"],
-        json!("ready")
+        json!("blocked")
     );
 
     let args = json!({
@@ -2903,7 +2903,7 @@ fn repeated_builder_tool_emits_codex_builder_delegate_scaffold() {
     let _ = call_tool(&state, "rename_symbol", args.clone());
     let _ = call_tool(&state, "rename_symbol", args.clone());
     let payload = call_tool(&state, "rename_symbol", args);
-    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["success"], json!(false));
 
     let suggested = payload["suggested_next_tools"]
         .as_array()

@@ -77,6 +77,8 @@ pub(crate) fn dispatch_tool(
             state,
             start,
             id,
+            0,
+            false,
         );
     }
 
@@ -106,6 +108,8 @@ pub(crate) fn dispatch_tool(
                 state,
                 start,
                 id,
+                ctx.doom_count,
+                ctx.doom_rapid,
             );
         }
     };
@@ -122,6 +126,8 @@ pub(crate) fn dispatch_tool(
             state,
             start,
             id,
+            ctx.doom_count,
+            ctx.doom_rapid,
         );
     }
 
@@ -137,6 +143,8 @@ pub(crate) fn dispatch_tool(
             state,
             start,
             id,
+            ctx.doom_count,
+            ctx.doom_rapid,
         );
     }
 
@@ -195,6 +203,8 @@ pub(crate) fn dispatch_tool(
             state,
             start,
             id,
+            ctx.doom_count,
+            ctx.doom_rapid,
         ),
     }
 }
