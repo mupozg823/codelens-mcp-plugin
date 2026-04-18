@@ -140,7 +140,35 @@ This keeps the expensive body reads off the retrieval hot path.
 - Treat BM25 output as a substitute for graph / mutation-safety
   workflows.
 
-## Measurement
+## Measurement (updated 2026-04-18 evening)
+
+### Baseline run
+
+Dataset: `benchmarks/embedding-quality-dataset-self.json` (n=104, Rust-heavy, v1.9.46). Archived as `benchmarks/results/v1.9.46-bm25-vs-hybrid-self.json`.
+
+| Method                           |       MRR | Acc@1 | identifier (n=31) | natural_language (n=62) | short_phrase (n=11) | avg ms |
+| -------------------------------- | --------: | ----: | ----------------: | ----------------------: | ------------------: | -----: |
+| `get_ranked_context` (hybrid)    | **0.681** | 64.4% |         **0.935** |               **0.575** |           **0.561** |    123 |
+| `semantic_search`                |     0.633 | 58.7% |             0.919 |                   0.519 |               0.470 |    552 |
+| `bm25_symbol_search`             |     0.607 | 56.7% |             0.935 |                   0.487 |               0.364 |    102 |
+| `get_ranked_context_no_semantic` |     0.527 | 49.0% |             0.935 |                   0.371 |               0.258 |     48 |
+
+### Findings
+
+1. **No identifier-class win.** `bm25_symbol_search` ties `get_ranked_context` at 0.935 on identifier queries. The spec's headline claim — "BM25 wins on identifiers" — is **not supported** by this dataset.
+2. **Net regression overall** (−0.074 MRR vs hybrid).
+3. **Significant loss on natural_language** (−15.3%) and **short_phrase** (−35.1%). Routing these to the sparse lane would strictly degrade quality.
+4. **Overlap with existing lexical-only mode.** On identifier queries `bm25_symbol_search` (0.935) and `get_ranked_context_no_semantic` (0.935) are identical; the sparse lane adds no retrieval signal beyond what the existing lexical path already provides, and is ~2× slower (102 vs 48 ms).
+
+### Routing policy (binding)
+
+Given the measurement above:
+
+- **Do NOT wire `bm25_symbol_search` into the default `get_ranked_context` / `analyze_change_request` router.** Any such wiring regresses NL and short_phrase queries on this dataset.
+- `bm25_symbol_search` remains available as an **explicit opt-in tool** — debugging / inspection / dense-disabled builds / future labeled benchmarks.
+- Before this policy changes, a new measurement must show **a strict identifier-class MRR win over `get_ranked_context` on at least one labeled dataset** — not a tie, a win. And must show **no NL / short_phrase regression**.
+
+### Going forward
 
 Before any field-weight or policy change lands:
 

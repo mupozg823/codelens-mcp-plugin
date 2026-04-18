@@ -280,6 +280,11 @@ def candidate_rows(method_name, payload):
             {"name": row.get("name"), "file": row.get("file")}
             for row in data.get("symbols", [])
         ]
+    if method_name == "bm25_symbol_search":
+        return [
+            {"name": row.get("name"), "file": row.get("file_path")}
+            for row in data.get("results", [])
+        ]
     return []
 
 
@@ -488,6 +493,17 @@ def main():
                 "query": item["query"],
                 "max_tokens": 1200,
                 "include_body": False,
+            },
+        )
+    )
+    methods.append(
+        evaluate_method(
+            "bm25_symbol_search",
+            dataset,
+            "bm25_symbol_search",
+            lambda item: {
+                "query": item["query"],
+                "max_results": ARGS.max_results,
             },
         )
     )
