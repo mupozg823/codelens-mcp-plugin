@@ -132,6 +132,10 @@ bash scripts/export-eval-session-audit.sh
 
 # Human-readable operator report
 bash scripts/export-eval-session-audit.sh --format markdown
+
+# JSON snapshot plus refreshed historical summary
+bash scripts/export-eval-session-audit.sh \
+  --history-summary-path .codelens/reports/daily/latest-summary.md
 ```
 
 For a daily macOS operator snapshot, install the launchd wrapper with [`scripts/install-eval-session-audit-launchd.sh`](../scripts/install-eval-session-audit-launchd.sh). Example:
@@ -142,6 +146,8 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-sessio
 ```
 
 Add `--format markdown` if the operator lane should emit directly readable daily reports instead of JSON snapshots.
+For scheduled jobs, prefer the default JSON output so the history summarizer
+continues to have canonical input artifacts.
 
 Once daily JSON snapshots accumulate, summarize recent drift/trend over that history with:
 
@@ -159,6 +165,27 @@ bash scripts/summarize-eval-session-audit-history.sh .codelens/reports/daily/lat
 The history summarizer is file-based and offline. It reads prior
 `eval-session-audit-*.json` artifacts under `.codelens/reports/daily/` and
 does not depend on a currently running daemon.
+
+`install-eval-session-audit-launchd.sh` automatically wires the daily JSON
+snapshot job to refresh `.codelens/reports/daily/latest-summary.md` after each
+run. Override that with `--history-summary-path <path>` or disable it by
+switching the scheduled job to `--format markdown` only if you intentionally do
+not want JSON history.
+
+If you want an operator verdict instead of only a descriptive report, run:
+
+```bash
+# pass/warn/fail classification, exit non-zero only on fail
+bash scripts/eval-session-audit-operator-gate.sh
+
+# escalate warn to a failing exit code for stricter automation
+bash scripts/eval-session-audit-operator-gate.sh --fail-on-warn
+```
+
+The operator gate reuses the historical summary data and applies lightweight
+thresholds over the latest builder/planner pass rates plus coverage gaps. It is
+an operator/CI layer on top of the file-based trend report, not a replacement
+for per-session `audit_builder_session` / `audit_planner_session`.
 
 That launchd wrapper defaults to `http://127.0.0.1:7839/mcp` so it matches
 this repository's local read-only daemon shape. Pass `--mcp-url` only if your

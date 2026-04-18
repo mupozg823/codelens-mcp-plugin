@@ -11,6 +11,12 @@ per-session Stop-hook artifact.
 
 Options:
   --format json|markdown   Output format (default: json)
+  --history-summary-path PATH
+                         Refresh a historical trend summary after writing a
+                         JSON snapshot
+  --history-summary-limit N
+                         Number of recent JSON snapshots to include when
+                         refreshing the historical trend summary (default: 14)
   --mcp-url URL            MCP HTTP endpoint (default: http://127.0.0.1:7837/mcp)
   --timeout-secs N         RPC timeout in seconds (default: 10)
   --poll-interval-secs N   Poll interval in seconds (default: 0.5)
@@ -20,6 +26,7 @@ Options:
 Examples:
   bash scripts/export-eval-session-audit.sh
   bash scripts/export-eval-session-audit.sh --format markdown
+  bash scripts/export-eval-session-audit.sh --history-summary-path .codelens/reports/daily/latest-summary.md
   bash scripts/export-eval-session-audit.sh .codelens/reports/daily/latest.md --format markdown
 EOF
 }
@@ -29,8 +36,12 @@ TIMEOUT_SECS="${CODELENS_AUDIT_TIMEOUT_SECS:-10}"
 POLL_INTERVAL_SECS="${CODELENS_AUDIT_POLL_INTERVAL_SECS:-0.5}"
 MAX_POLLS="${CODELENS_AUDIT_MAX_POLLS:-20}"
 OUTPUT_FORMAT="${CODELENS_AUDIT_OUTPUT_FORMAT:-json}"
+HISTORY_SUMMARY_PATH="${CODELENS_AUDIT_HISTORY_SUMMARY_PATH:-}"
+HISTORY_SUMMARY_LIMIT="${CODELENS_AUDIT_HISTORY_SUMMARY_LIMIT:-14}"
 DEFAULT_OUTPUT_DIR="${CODELENS_AUDIT_OUTPUT_DIR:-.codelens/reports}"
 OUTPUT_PATH=""
+SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SUMMARY_SCRIPT="$SCRIPT_DIR/summarize-eval-session-audit-history.sh"
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
@@ -40,6 +51,14 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--format)
 		OUTPUT_FORMAT="${2:-}"
+		shift 2
+		;;
+	--history-summary-path)
+		HISTORY_SUMMARY_PATH="${2:-}"
+		shift 2
+		;;
+	--history-summary-limit)
+		HISTORY_SUMMARY_LIMIT="${2:-}"
 		shift 2
 		;;
 	--mcp-url)
@@ -83,6 +102,16 @@ json | markdown) ;;
 	;;
 esac
 
+if ! [[ "$HISTORY_SUMMARY_LIMIT" =~ ^[0-9]+$ ]] || [[ "$HISTORY_SUMMARY_LIMIT" == "0" ]]; then
+	echo "--history-summary-limit must be a positive integer" >&2
+	exit 2
+fi
+
+if [[ -n "$HISTORY_SUMMARY_PATH" && "$OUTPUT_FORMAT" != "json" ]]; then
+	echo "--history-summary-path requires --format json because the history summarizer reads JSON snapshots" >&2
+	exit 2
+fi
+
 if [[ -z "$OUTPUT_PATH" ]]; then
 	mkdir -p "$DEFAULT_OUTPUT_DIR"
 	if [[ "$OUTPUT_FORMAT" == "markdown" ]]; then
@@ -94,7 +123,8 @@ else
 	mkdir -p "$(dirname "$OUTPUT_PATH")"
 fi
 
-python3 - "$OUTPUT_PATH" "$OUTPUT_FORMAT" "$MCP_URL" "$TIMEOUT_SECS" "$POLL_INTERVAL_SECS" "$MAX_POLLS" <<'PY'
+WRITTEN_PATH="$(
+	python3 - "$OUTPUT_PATH" "$OUTPUT_FORMAT" "$MCP_URL" "$TIMEOUT_SECS" "$POLL_INTERVAL_SECS" "$MAX_POLLS" <<'PY'
 import json
 import sys
 import time
@@ -323,3 +353,20 @@ else:
 Path(output_path).write_text(rendered, encoding="utf-8")
 print(output_path)
 PY
+)"
+
+if [[ -n "$HISTORY_SUMMARY_PATH" ]]; then
+	if [[ ! -x "$SUMMARY_SCRIPT" ]]; then
+		echo "warning: history summary refresh skipped because $SUMMARY_SCRIPT is not executable" >&2
+	else
+		SNAPSHOT_DIR="$(dirname "$WRITTEN_PATH")"
+		if ! bash "$SUMMARY_SCRIPT" \
+			--input-dir "$SNAPSHOT_DIR" \
+			--limit "$HISTORY_SUMMARY_LIMIT" \
+			"$HISTORY_SUMMARY_PATH" >/dev/null; then
+			echo "warning: failed to refresh history summary at $HISTORY_SUMMARY_PATH" >&2
+		fi
+	fi
+fi
+
+printf '%s\n' "$WRITTEN_PATH"

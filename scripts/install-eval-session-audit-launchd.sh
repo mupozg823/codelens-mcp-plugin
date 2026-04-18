@@ -12,6 +12,11 @@ Options:
   --hour N          Hour in local time (default: 23)
   --minute N        Minute in local time (default: 55)
   --format FMT      Snapshot format: json or markdown (default: json)
+  --history-summary-path PATH
+                    Refresh this historical summary after each JSON snapshot
+  --history-summary-limit N
+                    Number of recent JSON snapshots to include in that summary
+                    (default: 14)
   --mcp-url URL     MCP HTTP endpoint (default: http://127.0.0.1:7839/mcp)
   --output-dir DIR  Snapshot output dir (default: <repo>/.codelens/reports/daily)
   --label LABEL     launchd label (default: dev.codelens.eval-session-audit.<repo>)
@@ -34,6 +39,8 @@ HOUR=23
 MINUTE=55
 MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7839/mcp}"
 OUTPUT_FORMAT="${CODELENS_AUDIT_OUTPUT_FORMAT:-json}"
+HISTORY_SUMMARY_PATH="${CODELENS_AUDIT_HISTORY_SUMMARY_PATH:-}"
+HISTORY_SUMMARY_LIMIT="${CODELENS_AUDIT_HISTORY_SUMMARY_LIMIT:-14}"
 OUTPUT_DIR=""
 LABEL=""
 PLIST_PATH=""
@@ -69,6 +76,14 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--format)
 		OUTPUT_FORMAT="${2:-}"
+		shift 2
+		;;
+	--history-summary-path)
+		HISTORY_SUMMARY_PATH="${2:-}"
+		shift 2
+		;;
+	--history-summary-limit)
+		HISTORY_SUMMARY_LIMIT="${2:-}"
 		shift 2
 		;;
 	--mcp-url)
@@ -142,9 +157,22 @@ json | markdown) ;;
 	exit 2
 	;;
 esac
+if ! is_int_in_range "$HISTORY_SUMMARY_LIMIT" 1 9999; then
+	echo "--history-summary-limit must be an integer in [1, 9999]" >&2
+	exit 2
+fi
 
 if [[ -z "$OUTPUT_DIR" ]]; then
 	OUTPUT_DIR="$REPO_ROOT/.codelens/reports/daily"
+fi
+
+if [[ -z "$HISTORY_SUMMARY_PATH" && "$OUTPUT_FORMAT" == "json" ]]; then
+	HISTORY_SUMMARY_PATH="$OUTPUT_DIR/latest-summary.md"
+fi
+
+if [[ -n "$HISTORY_SUMMARY_PATH" && "$OUTPUT_FORMAT" != "json" ]]; then
+	echo "--history-summary-path requires --format json because the history summarizer consumes JSON snapshots" >&2
+	exit 2
 fi
 
 if [[ -z "$LABEL" ]]; then
@@ -175,7 +203,12 @@ PY
 }
 
 EXPORT_SCRIPT="$REPO_ROOT/scripts/export-eval-session-audit.sh"
-LAUNCH_COMMAND="cd $(quote_for_bash "$REPO_ROOT") && CODELENS_AUDIT_MCP_URL=$(quote_for_bash "$MCP_URL") CODELENS_AUDIT_OUTPUT_DIR=$(quote_for_bash "$OUTPUT_DIR") CODELENS_AUDIT_OUTPUT_FORMAT=$(quote_for_bash "$OUTPUT_FORMAT") bash $(quote_for_bash "$EXPORT_SCRIPT")"
+LAUNCH_COMMAND="cd $(quote_for_bash "$REPO_ROOT") && CODELENS_AUDIT_MCP_URL=$(quote_for_bash "$MCP_URL") CODELENS_AUDIT_OUTPUT_DIR=$(quote_for_bash "$OUTPUT_DIR") CODELENS_AUDIT_OUTPUT_FORMAT=$(quote_for_bash "$OUTPUT_FORMAT")"
+if [[ -n "$HISTORY_SUMMARY_PATH" ]]; then
+	LAUNCH_COMMAND+=" && CODELENS_AUDIT_HISTORY_SUMMARY_PATH=$(quote_for_bash "$HISTORY_SUMMARY_PATH")"
+	LAUNCH_COMMAND+=" && CODELENS_AUDIT_HISTORY_SUMMARY_LIMIT=$(quote_for_bash "$HISTORY_SUMMARY_LIMIT")"
+fi
+LAUNCH_COMMAND+=" bash $(quote_for_bash "$EXPORT_SCRIPT")"
 LABEL_XML="$(xml_escape "$LABEL")"
 LAUNCH_COMMAND_XML="$(xml_escape "$LAUNCH_COMMAND")"
 REPO_ROOT_XML="$(xml_escape "$REPO_ROOT")"
@@ -235,6 +268,9 @@ echo "==> Schedule: daily $(printf '%02d:%02d' "$HOUR" "$MINUTE")"
 echo "==> MCP URL: $MCP_URL"
 echo "==> Output format: $OUTPUT_FORMAT"
 echo "==> Output dir: $OUTPUT_DIR"
+if [[ -n "$HISTORY_SUMMARY_PATH" ]]; then
+	echo "==> History summary: $HISTORY_SUMMARY_PATH (limit=$HISTORY_SUMMARY_LIMIT)"
+fi
 echo "==> stdout log: $STDOUT_PATH"
 echo "==> stderr log: $STDERR_PATH"
 

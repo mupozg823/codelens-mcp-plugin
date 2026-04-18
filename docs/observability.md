@@ -132,8 +132,11 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-sessio
 
 That wrapper runs [`scripts/export-eval-session-audit.sh`](../scripts/export-eval-session-audit.sh)
 against the configured MCP URL and writes timestamped JSON snapshots under
-.codelens/reports/daily/` by default. Pass `--format markdown` if you want
-human-readable daily operator reports instead of JSON. Keep this separate from per-session
+`.codelens/reports/daily/` by default. It also refreshes
+`.codelens/reports/daily/latest-summary.md` after each JSON snapshot so the
+operator has one rolling trend report without losing the canonical history
+artifacts. Pass `--format markdown` only when you intentionally want readable
+snapshot files instead of JSON history. Keep this separate from per-session
 artifacts: the daily snapshot is daemon-scoped, while Stop hooks are
 session-scoped.
 
@@ -154,6 +157,18 @@ bash scripts/summarize-eval-session-audit-history.sh --limit 7
 That summarizer is intentionally offline and file-based. It reads historical
 artifacts under `.codelens/reports/daily/` and therefore complements the live
 daemon aggregate lane rather than replacing it.
+
+For a lightweight operator verdict on top of that history, use
+[`scripts/eval-session-audit-operator-gate.sh`](../scripts/eval-session-audit-operator-gate.sh):
+
+```bash
+bash scripts/eval-session-audit-operator-gate.sh
+bash scripts/eval-session-audit-operator-gate.sh --fail-on-warn
+```
+
+That gate does not inspect the daemon directly. It reuses the historical
+summary and applies configurable thresholds to classify the recent window as
+`pass`, `warn`, or `fail`.
 
 ## Troubleshooting
 

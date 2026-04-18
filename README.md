@@ -226,11 +226,15 @@ bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
 ```
 
+That scheduled job keeps JSON snapshots as the canonical history and refreshes
+`.codelens/reports/daily/latest-summary.md` after each run by default.
+
 For an ad hoc operator snapshot without launchd, run:
 
 ```bash
 bash scripts/export-eval-session-audit.sh
 bash scripts/export-eval-session-audit.sh --format markdown
+bash scripts/export-eval-session-audit.sh --history-summary-path .codelens/reports/daily/latest-summary.md
 ```
 
 To summarize recent daily snapshots into a drift/trend report, run:
@@ -238,6 +242,13 @@ To summarize recent daily snapshots into a drift/trend report, run:
 ```bash
 bash scripts/summarize-eval-session-audit-history.sh
 bash scripts/summarize-eval-session-audit-history.sh --limit 7
+```
+
+To turn that history into an operator `pass` / `warn` / `fail` verdict, run:
+
+```bash
+bash scripts/eval-session-audit-operator-gate.sh
+bash scripts/eval-session-audit-operator-gate.sh --fail-on-warn
 ```
 
 See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.
