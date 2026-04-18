@@ -14,6 +14,64 @@ fn estimate_serialized_tokens(tool: &Tool) -> usize {
         .unwrap_or(0)
 }
 
+fn tool_title_override(name: &str) -> Option<&'static str> {
+    match name {
+        "get_current_config" => Some("Current Config"),
+        "get_project_structure" => Some("Project Structure"),
+        "get_symbols_overview" => Some("Symbols Overview"),
+        "get_ranked_context" => Some("Ranked Context"),
+        "get_complexity" => Some("Complexity"),
+        "check_lsp_status" => Some("LSP Status"),
+        "get_lsp_recipe" => Some("LSP Recipe"),
+        "get_changed_files" => Some("Changed Files"),
+        "get_impact_analysis" => Some("Impact Analysis"),
+        "get_symbol_importance" => Some("Symbol Importance"),
+        "get_change_coupling" => Some("Change Coupling"),
+        "get_file_diagnostics" => Some("File Diagnostics"),
+        "get_analysis_job" => Some("Analysis Job"),
+        "list_analysis_jobs" => Some("Analysis Jobs"),
+        "list_analysis_artifacts" => Some("Analysis Artifacts"),
+        "get_analysis_section" => Some("Analysis Section"),
+        "get_tool_metrics" => Some("Tool Metrics"),
+        "list_memories" => Some("Memories"),
+        "list_queryable_projects" => Some("Queryable Projects"),
+        "get_capabilities" => Some("Capabilities"),
+        _ => None,
+    }
+}
+
+fn title_word(part: &str) -> String {
+    match part {
+        "ai" => "AI".to_owned(),
+        "ci" => "CI".to_owned(),
+        "lsp" => "LSP".to_owned(),
+        "mcp" => "MCP".to_owned(),
+        _ => {
+            let mut chars = part.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut word = first.to_ascii_uppercase().to_string();
+                    word.push_str(chars.as_str());
+                    word
+                }
+                None => String::new(),
+            }
+        }
+    }
+}
+
+fn tool_title(name: &str) -> String {
+    if let Some(title) = tool_title_override(name) {
+        return title.to_owned();
+    }
+
+    name.split('_')
+        .filter(|part| !part.is_empty())
+        .map(title_word)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 pub(crate) fn tools() -> &'static [Tool] {
     &TOOLS
 }
@@ -201,7 +259,8 @@ fn build_tools() -> Vec<Tool> {
             .annotations
             .take()
             .unwrap_or_else(crate::protocol::ToolAnnotations::read_only)
-            .with_namespace(tool_namespace(tool.name));
+            .with_namespace(tool_namespace(tool.name))
+            .with_title(tool_title(tool.name));
         tool.annotations = Some(annotations);
         tool.estimated_tokens = estimate_serialized_tokens(tool);
     }

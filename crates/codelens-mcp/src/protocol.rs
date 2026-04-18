@@ -101,6 +101,8 @@ impl ToolPhase {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct ToolAnnotations {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
     #[serde(rename = "readOnlyHint", skip_serializing_if = "Option::is_none")]
     pub read_only_hint: Option<bool>,
     #[serde(rename = "destructiveHint", skip_serializing_if = "Option::is_none")]
@@ -338,6 +340,7 @@ impl Tool {
 impl ToolAnnotations {
     pub fn read_only() -> Self {
         Self {
+            title: None,
             read_only_hint: Some(true),
             destructive_hint: Some(false),
             approval_required: Some(false),
@@ -351,6 +354,7 @@ impl ToolAnnotations {
 
     pub fn destructive() -> Self {
         Self {
+            title: None,
             read_only_hint: Some(false),
             destructive_hint: Some(true),
             approval_required: Some(true),
@@ -364,6 +368,7 @@ impl ToolAnnotations {
 
     pub fn mutating() -> Self {
         Self {
+            title: None,
             read_only_hint: Some(false),
             destructive_hint: Some(false),
             approval_required: Some(false),
@@ -378,6 +383,11 @@ impl ToolAnnotations {
     /// Set the tool tier.
     pub fn with_tier(mut self, tier: ToolTier) -> Self {
         self.tier = Some(tier);
+        self
+    }
+
+    pub fn with_title(mut self, title: impl Into<String>) -> Self {
+        self.title = Some(title.into());
         self
     }
 

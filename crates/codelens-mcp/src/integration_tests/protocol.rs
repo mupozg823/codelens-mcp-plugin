@@ -333,8 +333,10 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(encoded
-        .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
+    assert!(
+        encoded
+            .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]")
+    );
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"review_architecture\""));
@@ -576,6 +578,54 @@ fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
 }
 
 #[test]
+fn tools_list_exposes_annotation_titles() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "full": true,
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    let tools = value["result"]["tools"]
+        .as_array()
+        .expect("tools/list tools array");
+    let bootstrap = tools
+        .iter()
+        .find(|tool| tool["name"] == "prepare_harness_session")
+        .expect("prepare_harness_session present");
+    let find_symbol = tools
+        .iter()
+        .find(|tool| tool["name"] == "find_symbol")
+        .expect("find_symbol present");
+    let lsp_recipe = tools
+        .iter()
+        .find(|tool| tool["name"] == "get_lsp_recipe")
+        .expect("get_lsp_recipe present");
+    let metrics = tools
+        .iter()
+        .find(|tool| tool["name"] == "get_tool_metrics")
+        .expect("get_tool_metrics present");
+
+    assert_eq!(
+        bootstrap["annotations"]["title"],
+        json!("Prepare Harness Session")
+    );
+    assert_eq!(find_symbol["annotations"]["title"], json!("Find Symbol"));
+    assert_eq!(lsp_recipe["annotations"]["title"], json!("LSP Recipe"));
+    assert_eq!(metrics["annotations"]["title"], json!("Tool Metrics"));
+}
+
+#[test]
 fn tool_call_result_meta_exposes_preferred_executor() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -704,10 +754,12 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("blocked by daemon mode"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("blocked by daemon mode")
+    );
 }
 
 #[test]
@@ -726,10 +778,12 @@ fn hidden_tools_are_blocked_at_call_time() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("not available in active surface"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not available in active surface")
+    );
 }
 
 #[test]
@@ -754,9 +808,11 @@ fn watch_status_reports_lock_contention_field() {
     assert!(payload["data"].get("stale_index_failures").is_some());
     assert!(payload["data"].get("persistent_index_failures").is_some());
     assert!(payload["data"].get("pruned_missing_failures").is_some());
-    assert!(payload["data"]
-        .get("recent_failure_window_seconds")
-        .is_some());
+    assert!(
+        payload["data"]
+            .get("recent_failure_window_seconds")
+            .is_some()
+    );
 }
 
 #[test]
