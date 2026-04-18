@@ -12,12 +12,29 @@ pub(crate) fn semantic_query_for_embedding_search(
     project_root: Option<&Path>,
 ) -> String {
     if analysis.natural_language {
-        let project_bridges = project_root.map(load_project_bridges).unwrap_or_default();
+        let project_bridges = if project_bridges_disabled() {
+            Vec::new()
+        } else {
+            project_root.map(load_project_bridges).unwrap_or_default()
+        };
         let bridged = bridge_nl_to_code_vocabulary(&analysis.semantic_query, &project_bridges);
         format!("function {}", bridged)
     } else {
         analysis.semantic_query.clone()
     }
+}
+
+/// Runtime flag — `CODELENS_PROJECT_BRIDGES_OFF=1` skips loading
+/// `.codelens/bridges.json` entirely, so the retrieval pipeline sees
+/// only the hard-coded `GENERIC_BRIDGES`. Pairs with
+/// `CODELENS_GENERIC_BRIDGES_OFF=1` to enable the three-arm ablation
+/// matrix required by Phase 0 of the enterprise roadmap
+/// (bridge-off / generic-on / repo-on). Both flags off is the default.
+#[cfg(feature = "semantic")]
+fn project_bridges_disabled() -> bool {
+    std::env::var("CODELENS_PROJECT_BRIDGES_OFF")
+        .map(|v| v == "1")
+        .unwrap_or(false)
 }
 
 #[cfg(feature = "semantic")]
@@ -115,4 +132,73 @@ fn bridge_nl_to_code_vocabulary(query: &str, project_bridges: &[(String, String)
         apply(nl, code);
     }
     result
+}
+
+#[cfg(all(test, feature = "semantic"))]
+mod ablation_flag_tests {
+    use super::bridge_nl_to_code_vocabulary;
+    use std::sync::Mutex;
+
+    // Env vars are process-global; serialize tests that toggle them.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn with_env<F: FnOnce()>(key: &str, value: Option<&str>, f: F) {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let prev = std::env::var(key).ok();
+        match value {
+            Some(v) => unsafe { std::env::set_var(key, v) },
+            None => unsafe { std::env::remove_var(key) },
+        }
+        f();
+        match prev {
+            Some(v) => unsafe { std::env::set_var(key, v) },
+            None => unsafe { std::env::remove_var(key) },
+        }
+    }
+
+    #[test]
+    fn generic_bridges_apply_by_default() {
+        with_env("CODELENS_GENERIC_BRIDGES_OFF", None, || {
+            let result = bridge_nl_to_code_vocabulary("who calls this", &[]);
+            // "who calls" → appends "callers" (both "who" and "calls" already present)
+            assert!(result.contains("callers"), "got: {result}");
+        });
+    }
+
+    #[test]
+    fn generic_bridges_disabled_by_env_flag() {
+        with_env("CODELENS_GENERIC_BRIDGES_OFF", Some("1"), || {
+            let result = bridge_nl_to_code_vocabulary("who calls this", &[]);
+            assert!(
+                !result.contains("callers"),
+                "generic bridge should not fire when flag=1, got: {result}"
+            );
+        });
+    }
+
+    #[test]
+    fn project_bridges_apply_when_flag_off() {
+        with_env("CODELENS_GENERIC_BRIDGES_OFF", Some("1"), || {
+            let project = vec![("render template".to_owned(), "render_template".to_owned())];
+            let result = bridge_nl_to_code_vocabulary("render template please", &project);
+            assert!(result.contains("render_template"), "got: {result}");
+        });
+    }
+
+    #[test]
+    fn project_bridges_disabled_flag_is_observable() {
+        // The gating lives in semantic_query_for_embedding_search, not in
+        // bridge_nl_to_code_vocabulary itself — so this test exercises the
+        // flag's observable side: project_bridges_disabled() returns true
+        // when set, false otherwise.
+        with_env("CODELENS_PROJECT_BRIDGES_OFF", Some("1"), || {
+            assert!(super::project_bridges_disabled());
+        });
+        with_env("CODELENS_PROJECT_BRIDGES_OFF", None, || {
+            assert!(!super::project_bridges_disabled());
+        });
+        with_env("CODELENS_PROJECT_BRIDGES_OFF", Some("0"), || {
+            assert!(!super::project_bridges_disabled());
+        });
+    }
 }
