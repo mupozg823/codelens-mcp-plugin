@@ -15,23 +15,66 @@ use crate::tools::ToolResult;
 #[cfg(feature = "semantic")]
 use serde_json::json;
 
-pub(crate) static DISPATCH_TABLE: LazyLock<HashMap<&'static str, std::sync::Arc<dyn crate::tool_runtime::McpTool>>> =
-    LazyLock::new(|| {
-        let m = tools::dispatch_table();
-        #[cfg(feature = "semantic")]
-        let mut m = m;
-        #[cfg(feature = "semantic")]
-        {
-            use crate::tool_runtime::ToolBuilder;
-            m.insert("semantic_search", std::sync::Arc::new(ToolBuilder::new("semantic_search").handler(semantic_search_handler).build()));
-            m.insert("index_embeddings", std::sync::Arc::new(ToolBuilder::new("index_embeddings").handler(index_embeddings_handler).build()));
-            m.insert("find_similar_code", std::sync::Arc::new(ToolBuilder::new("find_similar_code").handler(find_similar_code_handler).build()));
-            m.insert("find_code_duplicates", std::sync::Arc::new(ToolBuilder::new("find_code_duplicates").handler(|s, a| find_code_duplicates_handler(s, a)).build()));
-            m.insert("classify_symbol", std::sync::Arc::new(ToolBuilder::new("classify_symbol").handler(classify_symbol_handler).build()));
-            m.insert("find_misplaced_code", std::sync::Arc::new(ToolBuilder::new("find_misplaced_code").handler(|s, a| find_misplaced_code_handler(s, a)).build()));
-        }
-        m
-    });
+pub(crate) static DISPATCH_TABLE: LazyLock<
+    HashMap<&'static str, std::sync::Arc<dyn crate::tool_runtime::McpTool>>,
+> = LazyLock::new(|| {
+    let m = tools::dispatch_table();
+    #[cfg(feature = "semantic")]
+    let mut m = m;
+    #[cfg(feature = "semantic")]
+    {
+        use crate::tool_runtime::ToolBuilder;
+        m.insert(
+            "semantic_search",
+            std::sync::Arc::new(
+                ToolBuilder::new("semantic_search")
+                    .handler(semantic_search_handler)
+                    .build(),
+            ),
+        );
+        m.insert(
+            "index_embeddings",
+            std::sync::Arc::new(
+                ToolBuilder::new("index_embeddings")
+                    .handler(index_embeddings_handler)
+                    .build(),
+            ),
+        );
+        m.insert(
+            "find_similar_code",
+            std::sync::Arc::new(
+                ToolBuilder::new("find_similar_code")
+                    .handler(find_similar_code_handler)
+                    .build(),
+            ),
+        );
+        m.insert(
+            "find_code_duplicates",
+            std::sync::Arc::new(
+                ToolBuilder::new("find_code_duplicates")
+                    .handler(|s, a| find_code_duplicates_handler(s, a))
+                    .build(),
+            ),
+        );
+        m.insert(
+            "classify_symbol",
+            std::sync::Arc::new(
+                ToolBuilder::new("classify_symbol")
+                    .handler(classify_symbol_handler)
+                    .build(),
+            ),
+        );
+        m.insert(
+            "find_misplaced_code",
+            std::sync::Arc::new(
+                ToolBuilder::new("find_misplaced_code")
+                    .handler(|s, a| find_misplaced_code_handler(s, a))
+                    .build(),
+            ),
+        );
+    }
+    m
+});
 
 // ── Semantic handlers (feature-gated) ──────────────────────────────────
 

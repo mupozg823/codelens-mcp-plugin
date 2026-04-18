@@ -17,7 +17,7 @@ use anyhow::{Context, Result};
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
-    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{
     Terminal,
@@ -170,15 +170,15 @@ impl WatchState {
                     .unwrap_or("");
                 let spans = vec![
                     Span::styled(format!("{status} "), status_style(event.success)),
-                    Span::styled(format!("{:24} ", event.tool), Style::default().fg(Color::Cyan)),
+                    Span::styled(
+                        format!("{:24} ", event.tool),
+                        Style::default().fg(Color::Cyan),
+                    ),
                     Span::styled(
                         format!("{:10} ", event.surface),
                         Style::default().fg(Color::DarkGray),
                     ),
-                    Span::styled(
-                        format!("{:>6} ", phase),
-                        Style::default().fg(Color::Yellow),
-                    ),
+                    Span::styled(format!("{:>6} ", phase), Style::default().fg(Color::Yellow)),
                     Span::raw(format!("{:>5}ms ", event.elapsed_ms)),
                     Span::styled(
                         format!("{:>5}tok ", event.tokens),
@@ -227,10 +227,7 @@ impl WatchState {
                 if let Some(paths) = event.target_paths.as_ref()
                     && !paths.is_empty()
                 {
-                    lines.push(Line::from(format!(
-                        "targets  : {}",
-                        paths.join(", ")
-                    )));
+                    lines.push(Line::from(format!("targets  : {}", paths.join(", "))));
                 }
                 Paragraph::new(lines)
                     .style(Style::default())
@@ -249,9 +246,7 @@ impl WatchState {
         let mut total_ms = 0u64;
         let mut failures = 0u64;
         for event in &self.events {
-            let entry = counts
-                .entry(event.tool.as_str())
-                .or_insert((0, 0, 0));
+            let entry = counts.entry(event.tool.as_str()).or_insert((0, 0, 0));
             entry.0 += 1;
             entry.1 += event.elapsed_ms;
             entry.2 += event.tokens as u64;
@@ -270,10 +265,7 @@ impl WatchState {
         let mut lines = vec![
             Line::from(vec![
                 Span::raw("observed : "),
-                Span::styled(
-                    format!("{total_events}"),
-                    Style::default().fg(Color::Green),
-                ),
+                Span::styled(format!("{total_events}"), Style::default().fg(Color::Green)),
                 Span::raw("  failures: "),
                 Span::styled(
                     format!("{failures}"),

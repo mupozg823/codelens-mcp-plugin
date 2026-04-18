@@ -1,14 +1,14 @@
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 use crate::tool_defs::ToolSurface;
 use crate::tool_runtime::ToolResult;
-use crate::AppState;
 use serde_json::Value;
 
 use super::table::DISPATCH_TABLE;
 use crate::mutation_gate::{
-    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
-    MutationGateFailure,
+    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
+    is_refactor_gated_mutation_tool,
 };
 
 /// Orchestrates tool discovery, validation, and lifecycle execution.
