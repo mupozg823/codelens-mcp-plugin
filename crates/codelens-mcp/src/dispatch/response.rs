@@ -267,16 +267,19 @@ pub(crate) fn build_error_response(
         resp.suggested_next_calls = Some(next_calls);
     }
     let text = text_payload_for_response(&resp, None);
-    JsonRpcResponse::result(
-        id,
-        json!({
-            "content": [{ "type": "text", "text": text }],
-            "isError": true,
-            "_meta": {
-                "codelens/preferredExecutor": crate::tool_defs::tool_preferred_executor_label(name)
-            }
-        }),
-    )
+    let mut body = json!({
+        "content": [{ "type": "text", "text": text }],
+        "isError": true,
+        "_meta": {
+            "codelens/preferredExecutor": crate::tool_defs::tool_preferred_executor_label(name)
+        }
+    });
+    if let Some((since, replacement, removal)) = crate::tool_defs::tool_deprecation(name) {
+        body["_meta"]["codelens/deprecatedSince"] = json!(since);
+        body["_meta"]["codelens/deprecatedReplacement"] = json!(replacement);
+        body["_meta"]["codelens/deprecatedRemovalTarget"] = json!(removal);
+    }
+    JsonRpcResponse::result(id, body)
 }
 
 /// Build the additive `suggested_next_calls` list for the current response.

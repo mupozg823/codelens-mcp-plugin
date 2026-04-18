@@ -225,6 +225,7 @@ fn run_simple_report_job(
     Ok(result)
 }
 
+#[allow(deprecated)]
 fn run_dead_code_report_job(
     state: &AppState,
     scope_key: &str,
@@ -311,6 +312,7 @@ fn run_dead_code_report_job(
     .map_err(|error| error.to_string())
 }
 
+#[allow(deprecated)]
 fn run_impact_report_job(
     state: &AppState,
     scope: &str,

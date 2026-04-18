@@ -217,6 +217,9 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
             let include_annotations =
                 list_param_bool(&request, "includeAnnotations", "include_annotations")
                     .unwrap_or(!lean_contract);
+            let include_deprecated =
+                list_param_bool(&request, "includeDeprecated", "include_deprecated")
+                    .unwrap_or(false);
             let filtered = all_tools
                 .iter()
                 .copied()
@@ -264,14 +267,32 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     }
                     None => true,
                 })
+                .filter(|tool| {
+                    include_deprecated || crate::tool_defs::tool_deprecation(tool.name).is_none()
+                })
                 .collect::<Vec<_>>();
             let response_tools = filtered
                 .iter()
                 .map(|tool| {
                     let mut tool = (*tool).clone();
-                    tool.meta = Some(json!({
+                    let mut meta = json!({
                         "codelens/preferredExecutor": tool_preferred_executor_label(tool.name),
-                    }));
+                    });
+                    if let Some(search_hint) = crate::tool_defs::tool_anthropic_search_hint(tool.name)
+                    {
+                        meta["anthropic/searchHint"] = json!(search_hint);
+                    }
+                    if crate::tool_defs::tool_anthropic_always_load(tool.name) {
+                        meta["anthropic/alwaysLoad"] = Value::Bool(true);
+                    }
+                    if let Some((since, replacement, removal)) =
+                        crate::tool_defs::tool_deprecation(tool.name)
+                    {
+                        meta["codelens/deprecatedSince"] = json!(since);
+                        meta["codelens/deprecatedReplacement"] = json!(replacement);
+                        meta["codelens/deprecatedRemovalTarget"] = json!(removal);
+                    }
+                    tool.meta = Some(meta);
                     if !include_output_schema {
                         tool.output_schema = None;
                     }

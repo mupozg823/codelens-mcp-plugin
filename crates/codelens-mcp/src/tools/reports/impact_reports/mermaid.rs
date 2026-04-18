@@ -148,6 +148,7 @@ pub(crate) fn render_module_mermaid(
     out
 }
 
+#[allow(deprecated)]
 pub fn mermaid_module_graph(state: &AppState, arguments: &Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
     let max_nodes = arguments

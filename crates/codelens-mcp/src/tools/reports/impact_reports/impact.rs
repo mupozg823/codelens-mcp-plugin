@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 
 use super::{insert_semantic_status, push_unique, semantic_degraded_note};
 
+#[allow(deprecated)]
 pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
     let changed_files = strings_from_array(
         arguments

@@ -12,6 +12,7 @@ use super::{
     push_unique, semantic_degraded_note,
 };
 
+#[allow(deprecated)]
 pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
     let impact = crate::tools::graph::get_impact_analysis(
@@ -130,6 +131,7 @@ pub fn module_boundary_report(state: &AppState, arguments: &Value) -> ToolResult
     )
 }
 
+#[allow(deprecated)]
 pub fn dead_code_report(state: &AppState, arguments: &Value) -> ToolResult {
     let scope = arguments
         .get("scope")

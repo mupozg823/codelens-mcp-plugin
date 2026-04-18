@@ -55,14 +55,14 @@ fn set_preset_changes_tools_list() {
             jsonrpc: "2.0".to_owned(),
             id: Some(json!(1)),
             method: "tools/list".to_owned(),
-            params: None,
+            params: Some(json!({"include_deprecated": true})),
         },
     )
     .unwrap();
     let full_json = serde_json::to_string(&full_resp).unwrap();
     assert!(
         full_json.contains("find_dead_code"),
-        "Full preset should include find_dead_code"
+        "Full preset with include_deprecated should include find_dead_code"
     );
     assert!(
         full_json.contains("set_preset"),
@@ -333,10 +333,8 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(
-        encoded
-            .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]")
-    );
+    assert!(encoded
+        .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"review_architecture\""));
@@ -523,6 +521,61 @@ fn tools_list_exposes_preferred_executor_per_tool() {
 }
 
 #[test]
+fn tools_list_exposes_claude_toolsearch_meta_for_bootstrap_tools() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "full": true,
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    let tools = value["result"]["tools"]
+        .as_array()
+        .expect("tools/list tools array");
+    let bootstrap = tools
+        .iter()
+        .find(|tool| tool["name"] == "prepare_harness_session")
+        .expect("prepare_harness_session present");
+    let explore = tools
+        .iter()
+        .find(|tool| tool["name"] == "explore_codebase")
+        .expect("explore_codebase present");
+    let review = tools
+        .iter()
+        .find(|tool| tool["name"] == "review_changes")
+        .expect("review_changes present");
+    let symbol = tools
+        .iter()
+        .find(|tool| tool["name"] == "find_symbol")
+        .expect("find_symbol present");
+
+    assert_eq!(bootstrap["_meta"]["anthropic/alwaysLoad"], json!(true));
+    assert_eq!(
+        bootstrap["_meta"]["anthropic/searchHint"],
+        json!("bootstrap CodeLens harness session")
+    );
+    assert_eq!(
+        explore["_meta"]["anthropic/searchHint"],
+        json!("explore codebase with compressed context")
+    );
+    assert_eq!(
+        review["_meta"]["anthropic/searchHint"],
+        json!("review changed files and risk")
+    );
+    assert!(symbol["_meta"].get("anthropic/alwaysLoad").is_none());
+}
+
+#[test]
 fn tool_call_result_meta_exposes_preferred_executor() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -651,12 +704,10 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("blocked by daemon mode")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("blocked by daemon mode"));
 }
 
 #[test]
@@ -675,12 +726,10 @@ fn hidden_tools_are_blocked_at_call_time() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("not available in active surface")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("not available in active surface"));
 }
 
 #[test]
@@ -705,11 +754,9 @@ fn watch_status_reports_lock_contention_field() {
     assert!(payload["data"].get("stale_index_failures").is_some());
     assert!(payload["data"].get("persistent_index_failures").is_some());
     assert!(payload["data"].get("pruned_missing_failures").is_some());
-    assert!(
-        payload["data"]
-            .get("recent_failure_window_seconds")
-            .is_some()
-    );
+    assert!(payload["data"]
+        .get("recent_failure_window_seconds")
+        .is_some());
 }
 
 #[test]

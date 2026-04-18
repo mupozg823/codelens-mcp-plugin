@@ -477,13 +477,23 @@ pub(crate) fn default_budget_for_profile(profile: ToolProfile) -> usize {
 
 // ── Filtering ──────────────────────────────────────────────────────────
 
-pub(crate) fn deprecated_workflow_alias(name: &str) -> Option<(&'static str, &'static str)> {
+/// Full deprecation info: `(since_version, replacement_tool, removal_target)`.
+///
+/// Used by `tools/list` and `tools/call` envelope annotations so clients can
+/// surface deprecation status without consulting docs.
+pub(crate) fn tool_deprecation(name: &str) -> Option<(&'static str, &'static str, &'static str)> {
     match name {
-        "audit_security_context" => Some(("semantic_code_review", "v2.0")),
-        "analyze_change_impact" => Some(("impact_report", "v2.0")),
-        "assess_change_readiness" => Some(("verify_change_readiness", "v2.0")),
+        "audit_security_context" => Some(("1.12.0", "semantic_code_review", "v2.0")),
+        "analyze_change_impact" => Some(("1.12.0", "impact_report", "v2.0")),
+        "assess_change_readiness" => Some(("1.12.0", "verify_change_readiness", "v2.0")),
+        "get_impact_analysis" => Some(("1.9.46", "impact_report", "v2.0")),
+        "find_dead_code" => Some(("1.9.46", "dead_code_report", "v2.0")),
         _ => None,
     }
+}
+
+pub(crate) fn deprecated_workflow_alias(name: &str) -> Option<(&'static str, &'static str)> {
+    tool_deprecation(name).map(|(_, replacement, removal)| (replacement, removal))
 }
 
 pub(crate) fn is_tool_in_profile(name: &str, profile: ToolProfile) -> bool {
@@ -673,6 +683,38 @@ pub(crate) fn tool_preferred_executor(name: &str) -> Option<&'static str> {
 
 pub(crate) fn tool_preferred_executor_label(name: &str) -> &'static str {
     tool_preferred_executor(name).unwrap_or("any")
+}
+
+/// Claude Code snapshot compatibility:
+/// these `_meta["anthropic/searchHint"]` phrases are consumed by the upstream
+/// ToolSearch scorer for deferred MCP tools. Keep hints short and capability-
+/// focused; omit low-signal tools instead of auto-generating noisy strings.
+pub(crate) fn tool_anthropic_search_hint(name: &str) -> Option<&'static str> {
+    match name {
+        "prepare_harness_session" => Some("bootstrap CodeLens harness session"),
+        "explore_codebase" => Some("explore codebase with compressed context"),
+        "analyze_change_request" => Some("plan a code change safely"),
+        "trace_request_path" => Some("trace a request path"),
+        "review_changes" => Some("review changed files and risk"),
+        "verify_change_readiness" => Some("verify edit safety before mutation"),
+        "safe_rename_report" => Some("preview rename safety and blockers"),
+        "refactor_safety_report" => Some("preview refactor safety and impact"),
+        "start_analysis_job" => Some("run durable analysis in background"),
+        "get_analysis_section" => Some("expand one analysis report section"),
+        "audit_builder_session" => Some("audit builder session process"),
+        "audit_planner_session" => Some("audit planner session process"),
+        _ => None,
+    }
+}
+
+/// Claude Code MCP tools are deferred by default. Mark only the minimal
+/// turn-1 bootstrap surface as always-load so hosts can start efficiently
+/// without bloating the initial tool prompt.
+pub(crate) fn tool_anthropic_always_load(name: &str) -> bool {
+    matches!(
+        name,
+        "prepare_harness_session" | "explore_codebase" | "analyze_change_request"
+    )
 }
 
 pub(crate) fn tool_namespace(name: &str) -> &'static str {
