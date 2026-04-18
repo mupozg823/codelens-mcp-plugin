@@ -20,8 +20,7 @@ pub mod workflows;
 
 use crate::AppState;
 pub use crate::tool_runtime::{
-    ToolHandler, ToolResult, optional_bool, optional_string, optional_usize, required_string,
-    success_meta,
+    ToolResult, optional_bool, optional_string, optional_usize, required_string, success_meta,
 };
 // Re-export the recommendation-engine API so `crate::tools::*` consumers keep
 // working after the split out of `tools/mod.rs`. `suggest_next` itself is only
@@ -38,14 +37,12 @@ pub(crate) use suggestions::{
 /// Each entry is `"tool_name" => module::handler_fn`.
 macro_rules! tool_registry {
     ($($name:expr => $handler:expr),* $(,)?) => {{
-        let mut m: HashMap<&'static str, std::sync::Arc<dyn crate::tool_runtime::McpTool>> = HashMap::new();
+        let mut m: HashMap<&'static str, std::sync::Arc<dyn crate::tool_defs::tool::McpTool>> = HashMap::new();
         $(
             m.insert(
                 $name,
                 std::sync::Arc::new(
-                    crate::tool_runtime::ToolBuilder::new($name)
-                        .handler($handler)
-                        .build()
+                    crate::tool_defs::tool::BuiltTool::new($handler)
                 )
             );
         )*
@@ -55,7 +52,8 @@ macro_rules! tool_registry {
 
 /// Build the dispatch table. Add new tools here — one line per tool.
 #[allow(deprecated)]
-pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_runtime::McpTool>> {
+pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_defs::tool::McpTool>>
+{
     tool_registry! {
         // ── File I/O ──
         "get_current_config"           => filesystem::get_current_config,

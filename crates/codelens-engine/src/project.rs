@@ -105,6 +105,7 @@ pub const EXCLUDED_DIRS: &[&str] = &[
     ".vscode",
     ".cursor",
     ".claude",
+    ".claire",
     // Build output
     ".gradle",
     "build",
@@ -519,11 +520,31 @@ fn normalize_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::ProjectRoot;
+    use super::{ProjectRoot, is_excluded};
     use std::{
         env, fs,
+        path::Path,
         sync::{Mutex, OnceLock},
     };
+
+    #[test]
+    fn excludes_agent_worktree_directories() {
+        // Regression guard: agent worktrees are copies of the source tree and
+        // must never appear in walks (dead_code, embedding, symbol indexing).
+        assert!(is_excluded(Path::new(
+            ".claire/worktrees/agent-abc/src/lib.rs"
+        )));
+        assert!(is_excluded(Path::new(
+            ".claude/worktrees/agent-xyz/main.rs"
+        )));
+        assert!(is_excluded(Path::new("project/.claire/anything.rs")));
+        // And the usual suspects stay excluded.
+        assert!(is_excluded(Path::new("node_modules/foo/index.js")));
+        assert!(is_excluded(Path::new("target/debug/build.rs")));
+        // Non-excluded paths should pass through.
+        assert!(!is_excluded(Path::new("crates/codelens-engine/src/lib.rs")));
+        assert!(!is_excluded(Path::new("src/claire_not_a_dir.rs")));
+    }
 
     #[test]
     fn rejects_path_escape() {

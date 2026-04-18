@@ -31,6 +31,10 @@ Thumbs.db
 
 # Claude Code local settings (per-developer)
 .claude/settings.local.json
+
+# Agent worktrees (subagent isolation copies — not source of truth)
+.claire/
+.claude/worktrees/
 models/.venv/
 models/codelens-code-search/
 models/benchmark_results.json

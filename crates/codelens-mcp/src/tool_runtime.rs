@@ -5,8 +5,6 @@ use crate::protocol::{BackendKind, ToolResponseMeta};
 /// Tool handler result type — every handler returns this.
 pub type ToolResult = Result<(serde_json::Value, ToolResponseMeta), CodeLensError>;
 
-pub use crate::tool_defs::tool::{McpTool, ToolBuilder};
-
 pub fn success_meta(backend: BackendKind, confidence: f64) -> ToolResponseMeta {
     ToolResponseMeta {
         backend_used: backend.to_string(),
