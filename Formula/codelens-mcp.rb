@@ -22,7 +22,17 @@ class CodelensMcp < Formula
 
   def caveats
     <<~EOS
-      Add to your Claude Code MCP config (~/.claude.json):
+      Generate host-specific attach instructions:
+
+        codelens-mcp attach codex
+        codelens-mcp attach claude-code
+
+      Detach machine-editable host config later with:
+
+        codelens-mcp detach codex
+        codelens-mcp detach --all
+
+      Example Claude Code MCP config (~/.claude.json):
 
         "codelens": {
           "type": "stdio",

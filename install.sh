@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # CodeLens MCP — Universal Installer
 # Usage: curl -fsSL https://raw.githubusercontent.com/mupozg823/codelens-mcp-plugin/main/install.sh | bash
+#        bash install.sh detach
 #
 # Installs the binary and auto-configures detected AI coding agents:
 #   Claude Code, Cursor, VS Code, Codex, Windsurf, Cline
@@ -9,6 +10,111 @@ set -euo pipefail
 REPO="mupozg823/codelens-mcp-plugin"
 INSTALL_DIR="${CODELENS_INSTALL_DIR:-$HOME/.local/bin}"
 BIN_NAME="codelens-mcp"
+MODE="${1:-install}"
+
+render_mcp_json() {
+	local fmt="$1"
+	case "$fmt" in
+	claude)
+		cat <<EOF
+{
+  "mcpServers": {
+    "codelens": {
+      "type": "stdio",
+      "command": "${BIN_PATH}",
+      "args": [".", "--profile", "planner-readonly"]
+    }
+  }
+}
+EOF
+		;;
+	cursor)
+		cat <<EOF
+{
+  "mcpServers": {
+    "codelens": {
+      "command": "${BIN_PATH}",
+      "args": [".", "--profile", "builder-minimal"]
+    }
+  }
+}
+EOF
+		;;
+	vscode)
+		cat <<EOF
+{
+  "servers": {
+    "codelens": {
+      "type": "stdio",
+      "command": "${BIN_PATH}",
+      "args": [".", "--profile", "builder-minimal"]
+    }
+  }
+}
+EOF
+		;;
+	generic)
+		cat <<EOF
+{
+  "codelens": {
+    "command": "${BIN_PATH}",
+    "args": [".", "--profile", "builder-minimal"],
+    "transport": "stdio"
+  }
+}
+EOF
+		;;
+	esac
+}
+
+remove_generated_file_if_exact() {
+	local file="$1" fmt="$2" label="$3"
+	[ -f "$file" ] || return 0
+	local expected actual
+	expected="$(render_mcp_json "$fmt")"
+	actual="$(cat "$file")"
+	if [ "$actual" = "$expected" ]; then
+		rm -f "$file"
+		echo "  ✓ Removed ${label}: ${file}"
+	else
+		echo "  ! Left ${label} in place (file was modified): ${file}"
+	fi
+}
+
+run_detach() {
+	BIN_PATH="${INSTALL_DIR}/${BIN_NAME}"
+	echo "==> Detaching codelens-mcp..."
+	if [ -x "$BIN_PATH" ]; then
+		"$BIN_PATH" detach --all || true
+	fi
+	remove_generated_file_if_exact "$HOME/.claude.json" "claude" "Claude Code config"
+	remove_generated_file_if_exact "$HOME/.cursor/mcp.json" "cursor" "Cursor config"
+	for vsc_file in \
+		"$HOME/.vscode/mcp.json" \
+		"$HOME/Library/Application Support/Code/User/mcp.json" \
+		"$HOME/.config/Code/User/mcp.json"; do
+		remove_generated_file_if_exact "$vsc_file" "vscode" "VS Code config"
+	done
+	for ws_file in "$HOME/.windsurf/mcp_servers.json" "$HOME/.codeium/windsurf/mcp_servers.json"; do
+		remove_generated_file_if_exact "$ws_file" "generic" "Windsurf config"
+	done
+	if [ -f "$BIN_PATH" ]; then
+		rm -f "$BIN_PATH"
+		echo "  ✓ Removed binary: ${BIN_PATH}"
+	else
+		echo "  - Binary not present: ${BIN_PATH}"
+	fi
+	echo ""
+	echo "==> Manual follow-up:"
+	echo "  - Remove repo-local .codelens/ directories only if you also want to discard cached state."
+	echo "  - For Homebrew installs outside ${INSTALL_DIR}, run: brew uninstall codelens-mcp"
+	echo "  - For Cargo installs, run: cargo uninstall codelens-mcp"
+	exit 0
+}
+
+if [ "$MODE" = "detach" ]; then
+	run_detach
+fi
 
 # ── Detect platform ──────────────────────────────────────────────────
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -67,57 +173,7 @@ echo ""
 write_mcp_json() {
 	local file="$1" fmt="$2"
 	mkdir -p "$(dirname "$file")"
-	case "$fmt" in
-	claude)
-		cat >"$file" <<EOF
-{
-  "mcpServers": {
-    "codelens": {
-      "type": "stdio",
-      "command": "${BIN_PATH}",
-      "args": [".", "--profile", "planner-readonly"]
-    }
-  }
-}
-EOF
-		;;
-	cursor)
-		cat >"$file" <<EOF
-{
-  "mcpServers": {
-    "codelens": {
-      "command": "${BIN_PATH}",
-      "args": [".", "--profile", "builder-minimal"]
-    }
-  }
-}
-EOF
-		;;
-	vscode)
-		cat >"$file" <<EOF
-{
-  "servers": {
-    "codelens": {
-      "type": "stdio",
-      "command": "${BIN_PATH}",
-      "args": [".", "--profile", "builder-minimal"]
-    }
-  }
-}
-EOF
-		;;
-	generic)
-		cat >"$file" <<EOF
-{
-  "codelens": {
-    "command": "${BIN_PATH}",
-    "args": [".", "--profile", "builder-minimal"],
-    "transport": "stdio"
-  }
-}
-EOF
-		;;
-	esac
+	render_mcp_json "$fmt" >"$file"
 }
 
 # ── Auto-configure detected agents ──────────────────────────────────

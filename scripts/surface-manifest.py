@@ -18,6 +18,7 @@ PLATFORM_PATH = REPO_ROOT / "docs" / "platform-setup.md"
 INDEX_PATH = REPO_ROOT / "docs" / "index.md"
 HARNESS_PATH = REPO_ROOT / "docs" / "harness-modes.md"
 HARNESS_SPEC_PATH = REPO_ROOT / "docs" / "harness-spec.md"
+HOST_ADAPTIVE_PATH = REPO_ROOT / "docs" / "host-adaptive-harness.md"
 
 README_SNAPSHOT_BEGIN = "<!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->"
 README_SNAPSHOT_END = "<!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->"
@@ -41,6 +42,10 @@ HARNESS_SPEC_OVERVIEW_BEGIN = "<!-- SURFACE_MANIFEST_HARNESS_SPEC_OVERVIEW:BEGIN
 HARNESS_SPEC_OVERVIEW_END = "<!-- SURFACE_MANIFEST_HARNESS_SPEC_OVERVIEW:END -->"
 HARNESS_SPEC_CONTRACTS_BEGIN = "<!-- SURFACE_MANIFEST_HARNESS_SPEC_CONTRACTS:BEGIN -->"
 HARNESS_SPEC_CONTRACTS_END = "<!-- SURFACE_MANIFEST_HARNESS_SPEC_CONTRACTS:END -->"
+HOST_ADAPTER_SUMMARY_BEGIN = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_SUMMARY:BEGIN -->"
+HOST_ADAPTER_SUMMARY_END = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_SUMMARY:END -->"
+HOST_ADAPTER_GUIDANCE_BEGIN = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_GUIDANCE:BEGIN -->"
+HOST_ADAPTER_GUIDANCE_END = "<!-- SURFACE_MANIFEST_HOST_ADAPTER_GUIDANCE:END -->"
 
 
 def load_manifest() -> dict:
@@ -374,6 +379,67 @@ def render_harness_spec_contracts(manifest: dict) -> str:
     return "\n".join(sections).rstrip()
 
 
+def render_host_adapter_summary(manifest: dict) -> str:
+    sections = [
+        "## Generated Host Runtime Snapshot",
+        "",
+        "Generated from the canonical surface manifest. Runtime resources remain the authoritative source when the doc and live server differ.",
+        "",
+    ]
+    for host in manifest["host_adapters"]["hosts"]:
+        sections.extend(
+            [
+                f"### `{host['name']}`",
+                "",
+                f"- Resource: `{host['resource_uri']}`",
+                f"- Best fit: {host['best_fit']}",
+                "- Recommended modes: "
+                + ", ".join(f"`{mode}`" for mode in host["recommended_modes"]),
+                "- Preferred profiles: "
+                + ", ".join(f"`{profile}`" for profile in host["preferred_profiles"]),
+                f"- Default compiled overlay: profile=`{host['default_profile']}`, task_overlay=`{host['default_task_overlay']}`",
+                "- Primary bootstrap sequence: "
+                + " -> ".join(f"`{step}`" for step in host["primary_bootstrap_sequence"]),
+                "- Compiler targets: "
+                + ", ".join(f"`{target}`" for target in host["compiler_targets"]),
+                "",
+            ]
+        )
+    return "\n".join(sections).rstrip()
+
+
+def render_host_adapter_guidance(manifest: dict) -> str:
+    sections = [
+        "Generated from the canonical surface manifest. Use this block as the default operator guidance when the prose below is stale.",
+        "",
+    ]
+    for host in manifest["host_adapters"]["hosts"]:
+        routing_defaults = host.get("routing_defaults", {})
+        routing_summary = ", ".join(
+            f"`{key}={value}`" for key, value in routing_defaults.items()
+        )
+        sections.extend(
+            [
+                f"### `{host['name']}`",
+                "",
+                f"- Best fit: {host['best_fit']}",
+                "- Recommended CodeLens modes: "
+                + ", ".join(f"`{mode}`" for mode in host["recommended_modes"]),
+                "- Preferred profiles: "
+                + ", ".join(f"`{profile}`" for profile in host["preferred_profiles"]),
+                "- Native host primitives: "
+                + ", ".join(f"`{item}`" for item in host["native_primitives"]),
+                "- Use CodeLens for: "
+                + "; ".join(host["preferred_codelens_use"]),
+                "- Avoid: "
+                + "; ".join(host["avoid"]),
+                "- Routing defaults: " + routing_summary,
+                "",
+            ]
+        )
+    return "\n".join(sections).rstrip()
+
+
 def render_language_block(manifest: dict, link_path: str) -> str:
     families = manifest["languages"]["families"]
     names = ", ".join(family["display_name"] for family in families)
@@ -472,6 +538,20 @@ def expected_files(manifest: dict) -> dict[Path, str]:
         render_harness_spec_contracts(manifest),
     )
 
+    host_adaptive = HOST_ADAPTIVE_PATH.read_text(encoding="utf-8")
+    host_adaptive = replace_block(
+        host_adaptive,
+        HOST_ADAPTER_SUMMARY_BEGIN,
+        HOST_ADAPTER_SUMMARY_END,
+        render_host_adapter_summary(manifest),
+    )
+    host_adaptive = replace_block(
+        host_adaptive,
+        HOST_ADAPTER_GUIDANCE_BEGIN,
+        HOST_ADAPTER_GUIDANCE_END,
+        render_host_adapter_guidance(manifest),
+    )
+
     return {
         MANIFEST_PATH: manifest_text,
         README_PATH: readme,
@@ -480,6 +560,7 @@ def expected_files(manifest: dict) -> dict[Path, str]:
         INDEX_PATH: index,
         HARNESS_PATH: harness,
         HARNESS_SPEC_PATH: harness_spec,
+        HOST_ADAPTIVE_PATH: host_adaptive,
     }
 
 
