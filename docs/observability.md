@@ -75,6 +75,50 @@ Then open http://localhost:16686 and filter by `service.name="codelens-mcp"`.
 - Semantic-backend status (`semantic disabled reason`) is exposed in the
   relevant tool responses but not yet tagged on the span.
 
+## Offline JSONL analysis
+
+For operator-side review of harness behavior over time, use the local
+telemetry analyzer instead of trying to infer session quality from OTel
+spans alone:
+
+```bash
+CODELENS_TELEMETRY_ENABLED=1 \
+  ./target/debug/codelens-mcp /path/to/project --transport http --port 7837
+
+scripts/analyze-tool-usage.py
+scripts/analyze-tool-usage.py --format json --output /tmp/codelens-telemetry.json
+```
+
+The analyzer reads:
+
+- `.codelens/telemetry/tool_usage.jsonl` for append-only execution traces
+- `docs/generated/surface-manifest.json` for `preferred_executor` / `phase`
+  metadata
+- `crates/codelens-mcp/src/telemetry.rs` for the current workflow-tool
+  classification used by runtime low-level-chain metrics
+- latest `.codelens/analysis-cache/*/session_rows.json` when present for
+  planner/builder audit status counts and top finding codes
+
+It reports:
+
+- literal `delegate_to_codex_builder` emission counts and triggers
+- unique scaffold `handoff_id` emission, consumption, and cross-session correlation counts
+- actual transitions into `codex-builder` tools
+- a measured `builder follow-through proxy`
+- repeated low-level tool-chain counts
+- top failed tools
+- latest cached audit warn/fail causes
+
+The `builder follow-through proxy` is deliberately still named as a
+proxy. The JSONL sink now records safe suggestion metadata
+(`suggested_next_tools`, `delegate_hint_trigger`,
+`delegate_target_tool`, `delegate_handoff_id`, `handoff_id`), so
+literal delegate emission and preserved scaffold reuse are both
+measurable. Hosts that replay the scaffold into a builder session can
+therefore be correlated across logical sessions by shared `handoff_id`.
+The `builder follow-through proxy` still remains useful when a host does
+not preserve that field, so both measurements are reported.
+
 ## Troubleshooting
 
 - Spans do not appear in the collector:

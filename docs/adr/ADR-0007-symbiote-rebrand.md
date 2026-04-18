@@ -121,8 +121,9 @@ Mitigations:
 
 - v1.9.x remains fully supported under `codelens-*` crate names through
   an explicit sunset horizon (minimum 6 months after v2.0.0 GA).
-- `docs/migrate-from-codelens.md` ships in v2.0.0 with line-by-line
-  config diffs for Claude Code, Codex, Cursor, Cline, Windsurf, CI.
+- [`docs/migrate-from-codelens.md`](../migrate-from-codelens.md)
+  ships in v2.0.0 with line-by-line config diffs for Claude Code,
+  Codex, Cursor, Cline, Windsurf, CI.
 - Old repo URL and crate pages redirect / link to the new name.
 - v2.0.0 release notes open with "What changed" and "Nothing in your
   session breaks unless you upgrade" — the migration is pull-based.
@@ -153,7 +154,10 @@ Rebrand planning rolls out across three commits + one migration session.
 - Crate rename across workspace.
 - New crates.io publishes under `symbiote-*`.
 - Homebrew tap, install.sh, GitHub repo rename.
-- `docs/migrate-from-codelens.md` with migration recipes.
+- [`docs/migrate-from-codelens.md`](../migrate-from-codelens.md)
+  with migration recipes.
+- [`docs/design/symbiote-phase3-rename-plan.md`](../design/symbiote-phase3-rename-plan.md)
+  as the ordered cutover runbook. Do not do a blind repo-wide replace.
 - Old crates.io entries keep their READMEs pointing at the new name.
 
 ### Phase 4 — v1.9.x maintenance sunset (6+ months after v2.0.0)

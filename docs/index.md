@@ -8,16 +8,19 @@ CodeLens MCP is a pure Rust MCP server for multi-agent coding harnesses. This si
 - [Harness modes](harness-modes.md)
 - [Portable harness spec](harness-spec.md)
 - [Host-adaptive harness](host-adaptive-harness.md)
+- [Migration guide: CodeLens -> Symbiote](migrate-from-codelens.md)
 - [Symbiote UX / Agent Flows](design/symbiote-ux-flows-v1.md)
+- [Symbiote Phase 3 Rename Plan](design/symbiote-phase3-rename-plan.md)
 - [Multi-agent integration](multi-agent-integration.md)
 - [Architecture overview](architecture.md)
 - [Release verification](release-verification.md)
 - [Benchmarks](benchmarks.md)
+- [BM25 sparse lane spec](design/bm25-sparse-lane-spec-2026-04-18.md)
 
 ## Current Release
 
 <!-- SURFACE_MANIFEST_INDEX_RELEASE:BEGIN -->
-- [GitHub Release v1.9.45](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.45)
+- [GitHub Release v1.9.46](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.46)
 - [Repository README](https://github.com/mupozg823/codelens-mcp-plugin/blob/main/README.md)
 - [Current source tree](https://github.com/mupozg823/codelens-mcp-plugin)
 <!-- SURFACE_MANIFEST_INDEX_RELEASE:END -->
@@ -44,3 +47,4 @@ CodeLens MCP is a pure Rust MCP server for multi-agent coding harnesses. This si
 - [SCIP precise navigation guide](scip-guide.md)
 - [Serena comparison](serena-comparison.md)
 - [Architecture audit snapshot](architecture-audit-2026-04-12.md)
+- [BM25 sparse lane spec](design/bm25-sparse-lane-spec-2026-04-18.md)

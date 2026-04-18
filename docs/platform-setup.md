@@ -99,6 +99,8 @@ Planner/reviewer sessions use the same session filter shape:
 
 `get_tool_metrics()` without `session_id` still returns the global snapshot. Add `session_id` only when you want one logical session instead of the daemon-wide aggregate.
 
+For host-side session closeout, prefer `export_session_markdown(session_id=...)` as the canonical per-session artifact source. Claude Stop hooks should treat it as best-effort augmentation of local raw audit rows, not as a blocking closeout step.
+
 For daemon-wide aggregation across currently tracked runtime sessions, enqueue the single shipped eval lane:
 
 1. `start_analysis_job({"kind":"eval_session_audit","profile_hint":"ci-audit"})`
@@ -107,6 +109,8 @@ For daemon-wide aggregation across currently tracked runtime sessions, enqueue t
 4. `get_analysis_section({"analysis_id":"<analysis-id>","section":"session_rows"})`
 
 `eval_session_audit` is runtime-scoped. It summarizes the sessions the daemon is currently tracking and does not backfill prior daemon restarts or external telemetry logs.
+
+For operator snapshots against a running HTTP daemon, use [`scripts/export-eval-session-audit.sh`](../scripts/export-eval-session-audit.sh). That script is intentionally separate from host Stop hooks because aggregate runtime state only exists in the daemon, not in a fresh one-shot CLI process.
 
 Use `resources/read` on `codelens://surface/manifest` when you need the canonical source for workspace version, tool counts, profile membership, or supported-language inventory. Repository docs are generated from the same manifest.
 
@@ -118,13 +122,43 @@ Use `resources/read` on `codelens://harness/host` with `{"host":"claude-code"}` 
 
 Use `resources/read` on `codelens://host-adapters/<host>` when you need concrete host-native template bundles rather than only the cross-host summary. Example: `codelens://host-adapters/codex`.
 
+For a local copy-ready version of the same host bundle, run `codelens-mcp attach <host>`. Example: `codelens-mcp attach codex`.
+
+To preview cleanup without touching files, run `codelens-mcp detach <host> --dry-run`. To actually remove machine-editable host config, run `codelens-mcp detach <host>` or `codelens-mcp detach --all`. The installer also exposes the same cleanup entrypoint via `bash install.sh detach`.
+
+To verify that the host-native config is really attached after editing files, run `codelens-mcp doctor <host>` or `codelens-mcp status <host>`. Use `--all` to inspect every supported host contract at once, or `--json` when a host-side script needs a machine-readable status payload.
+
+If your PATH still resolves to an older cargo-installed binary that does not know newer subcommands like `doctor` / `status`, run `bash scripts/sync-local-bin.sh .` to rebuild and re-link `~/.local/bin/codelens-mcp` to the current checkout.
+
+For a stricter repo-local health check, run `bash scripts/mcp-doctor.sh . --strict`. That script reuses `status --json --all`, ignores non-machine policy files, and fails when a configured transport is unreachable or its machine-readable attach is malformed.
+
+If you are preparing for the future public rename rather than changing runtime behavior today, use [Migrate from CodeLens to Symbiote](migrate-from-codelens.md) for host-by-host config diffs and the cutover checklist.
+
 Use `resources/read` on `codelens://design/agent-experience` when the host needs the portable product-flow contract: naming gate, attach UX, user flow, agent flow, tool flow, reference flow, and harness flow.
 
 Use `resources/read` on `codelens://schemas/handoff-artifact/v1` when the host needs the JSON schema for persisted planner/builder/reviewer handoff artifacts.
 
+`prepare_harness_session` also accepts optional `host_context` and `task_overlay` hints. Those hints compile into advisory bootstrap routing and overlay notes without changing the active tool surface or profile, so the same profile can adapt to Claude Code, Codex, Cursor, Cline, Windsurf, or a different task mode.
+
+### Retrieval Lane Quick Rule
+
+Use the sparse BM25 lane when the query is lexical and narrow:
+
+- `bm25_symbol_search` for identifiers, symbol paths, signature fragments, and 2-4 token short phrases
+- `find_relevant_rules` for CLAUDE.md / project memory / policy snippets
+- `get_ranked_context` for long natural-language intent, semantic exploration, and broad architecture questions
+
+If a host starts with `get_ranked_context`, inspect `retrieval.preferred_lane` and `retrieval.sparse_lane_recommended` in the response before deciding whether to retry on the sparse lane.
+
+For the full routing matrix, output-card contract, and corpus-separation rules, see [BM25 sparse lane spec](design/bm25-sparse-lane-spec-2026-04-18.md).
+
 `tools/list` and `tools/call` also expose the server-side routing classifier as `_meta["codelens/preferredExecutor"]`. Treat it as an advisory executor hint: `codex-builder`, `claude`, or `any`.
 
+In HTTP sessions, `initialize` advertises `capabilities.tools.listChanged = true`, and CodeLens emits `notifications/tools/list_changed` after runtime surface switches such as `set_profile` or `set_preset`. Hosts that cache tool registries should use that notification to refresh `tools/list` instead of assuming the initial surface is static.
+
 When a response crosses from a planner/reviewer step into a builder-heavy step, or when a builder-heavy tool is retried in a loop, CodeLens also prepends the synthetic host action `delegate_to_codex_builder` in `suggested_next_tools` and `suggested_next_calls`. This is not a callable MCP server tool. Treat it as a ready-made handoff scaffold containing `delegate_tool`, optional `delegate_arguments`, `carry_forward`, and a compact completion contract for the target Codex builder session.
+
+If that scaffold includes `handoff_id`, preserve it verbatim at the scaffold top level and inside the first replayed builder call's `delegate_arguments`. Do not rebuild those arguments from prose. That one field is what lets telemetry correlate planner-side delegate emission with later builder-side execution across logical sessions.
 
 For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces and tiers first, and omits `outputSchema` during bootstrap to keep session overhead bounded. Clients can expand one namespace at a time with `{"namespace":"reports"}`, open primitive tools with `{"tier":"primitive"}`, request the full surface explicitly with `{"full": true}`, or opt back into schemas with `{"includeOutputSchema": true}`. In deferred sessions, hidden namespaces and primitive tiers can gate `tools/call` until the client explicitly loads them, and `codelens://tools/list` / `codelens://session/http` resources reflect the same session state.
 
@@ -200,6 +234,8 @@ After a builder/refactor pass completes, run `audit_builder_session` on that ses
 
 After a planner/reviewer pass completes, run `audit_planner_session` on that same session id. Treat `warn` as missing bootstrap / workflow-first / evidence discipline, and `fail` as a read-side contract break (for example a mutation attempt from a read-only surface).
 
+If Claude consumes a `delegate_to_codex_builder` scaffold, pass `delegate_tool`, `delegate_arguments`, `carry_forward`, and `handoff_id` through to the Codex builder handoff verbatim. Do not rewrite the first delegated builder call from prose.
+
 **Legacy presets:**
 
 - `minimal` — smallest point-tool surface
@@ -235,6 +271,8 @@ After a planner/reviewer pass completes, run `audit_planner_session` on that sam
   }
 }
 ```
+
+If a Cursor foreground or background agent forwards work into a builder lane, preserve `handoff_id` from any `delegate_to_codex_builder` scaffold instead of regenerating builder arguments from prose.
 
 ---
 
@@ -281,6 +319,8 @@ Recent matching preflight is required before `refactor-full` content mutations e
 For Codex or other builder agents attached over HTTP, use the same session id with `get_tool_metrics`, `audit_builder_session`, and `export_session_markdown` to review one builder session in isolation instead of the daemon-wide aggregate.
 
 For planner/reviewer agents on `planner-readonly` or `reviewer-graph`, replace the audit call with `audit_planner_session`. `export_session_markdown(session_id=...)` chooses the builder or planner audit summary automatically from the session surface.
+
+If Codex receives a planner-side `delegate_to_codex_builder` scaffold, the first builder-heavy call should replay `delegate_tool` plus `delegate_arguments` unchanged, including `handoff_id`.
 
 ---
 
@@ -429,8 +469,8 @@ agent = client.agents.create(
 ## Preset Comparison
 
 <!-- SURFACE_MANIFEST_PLATFORM_SURFACES:BEGIN -->
-- Workspace version: `1.9.45`
-- Presets: `minimal` (27), `balanced` (76), `full` (109)
+- Workspace version: `1.9.46`
+- Presets: `minimal` (27), `balanced` (78), `full` (111)
 - Profiles: `planner-readonly` (35), `builder-minimal` (36), `reviewer-graph` (35), `evaluator-compact` (14), `refactor-full` (49), `ci-audit` (43), `workflow-first` (19)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_PLATFORM_SURFACES:END -->

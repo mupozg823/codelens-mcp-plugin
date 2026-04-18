@@ -3,6 +3,7 @@
 Status: draft for v2.0.0 release readiness
 Date: 2026-04-18
 Parent: [ADR-0007](../adr/ADR-0007-symbiote-rebrand.md)
+Cutover planning: [Phase 3 rename execution plan](symbiote-phase3-rename-plan.md)
 Runtime summary: `codelens://design/agent-experience`
 
 This document specifies the end-to-end flows Symbiote MCP must support
@@ -412,11 +413,11 @@ already landed.
 - [x] Handoff artifact v1 schema + 3 external producers — `57fa853`, `204a038`, `d5b65e5`
 - [x] Phase-aware surface reduction — `1cf43ef`
 - [x] `preferred_executor` routing metadata — `c26f92d` + ADR-0006
-- [x] `symbiote://` URI alias + `env_compat` helper — `50f5dcf` + ADR-0007 Phase 2
-- [ ] `detach` command in `install.sh` and Homebrew formula
-- [ ] `symbiote-mcp attach <host>` subcommand generating mcpServers JSON for Claude Code / Cursor / Cline / Windsurf / Codex CLI
+- [x] `symbiote://` URI alias + dual resource discovery emission + `env_compat` helper — `50f5dcf` + ADR-0007 Phase 2
+- [x] `detach` command in `install.sh` and Homebrew formula, backed by `codelens-mcp detach <host>` / `detach --all` for machine-editable host config cleanup
+- [x] `codelens-mcp attach <host>` subcommand generating host-native MCP config templates for Claude Code / Cursor / Cline / Windsurf / Codex CLI; `symbiote-mcp` binary alias lands with the Phase 3 rename
 - [ ] Full rename pass (Phase 3): crate names, binary, repo, `.codelens/` → `.symbiote/`, docs
-- [ ] `docs/migrate-from-codelens.md` with line-by-line config diffs per host
+- [x] `docs/migrate-from-codelens.md` with line-by-line config diffs per host
 - [ ] Announcement post + v2.0.0 release notes with rootkit disambiguation paragraph
 
 ## 12. Success criteria (post-v2.0.0)

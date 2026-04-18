@@ -202,8 +202,11 @@ CODELENS_TELEMETRY_PATH=/var/log/codelens/traces.jsonl codelens-mcp ...
 
 Each JSONL line records: `timestamp_ms`, `tool`, `surface`, `phase`,
 `session_id`, `target_paths`, `elapsed_ms`, `tokens`, `success`,
-`truncated`. **Tool arguments are intentionally excluded** so the
-trace cannot leak user query text or PII through the pipeline.
+`truncated`, plus safe routing metadata when available:
+`suggested_next_tools`, `delegate_hint_trigger`, `delegate_target_tool`,
+`delegate_handoff_id`, `handoff_id`.
+**Tool arguments are intentionally excluded** so the trace cannot leak
+user query text or PII through the pipeline.
 
 Aggregation for the shipped eval lane:
 

@@ -28,6 +28,22 @@ The host or harness still provides:
 
 CodeLens is the shared coordination and verification layer, not the orchestrator.
 
+## Delegate Scaffold Correlation
+
+When CodeLens prepends the synthetic host action
+`delegate_to_codex_builder` in `suggested_next_calls`, the scaffold now
+includes a stable `handoff_id` in three places:
+
+- top-level `handoff_id`
+- `delegate_arguments.handoff_id`
+- `carry_forward.handoff_id`
+
+Hosts should preserve that value when they replay the delegated builder
+call. This does not create a new runtime contract or hard block. It
+simply lets the append-only telemetry log correlate planner-side
+delegate emission with later builder-side execution, even when those
+steps happen under different logical sessions.
+
 ## Recommended Role Split
 
 For multi-agent HTTP deployments, keep the surfaces asymmetric:
