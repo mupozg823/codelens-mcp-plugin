@@ -119,6 +119,23 @@ therefore be correlated across logical sessions by shared `handoff_id`.
 The `builder follow-through proxy` still remains useful when a host does
 not preserve that field, so both measurements are reported.
 
+## Daily aggregate snapshots on macOS
+
+If you keep a long-running HTTP daemon up with launchd, install a second
+launchd agent for the aggregate runtime lane instead of trying to piggyback
+on host Stop hooks:
+
+```bash
+bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
+```
+
+That wrapper runs [`scripts/export-eval-session-audit.sh`](../scripts/export-eval-session-audit.sh)
+against the configured MCP URL and writes timestamped JSON snapshots under
+`.codelens/reports/daily/` by default. Keep this separate from per-session
+artifacts: the daily snapshot is daemon-scoped, while Stop hooks are
+session-scoped.
+
 ## Troubleshooting
 
 - Spans do not appear in the collector:
