@@ -1,15 +1,31 @@
-//! Lexical retrieval over the rule corpus (P2.1b).
+//! Lexical retrieval over the rule corpus (P2.1b + P2.1b-v2).
 //!
-//! Self-contained BM25 implementation — we do NOT reuse the engine's
+//! Self-contained BM25F implementation — we do NOT reuse the engine's
 //! SQLite FTS5 pipeline because the rule corpus is small, static-per-
 //! session, and markdown-shaped (`frontmatter_name` + `section_title`
 //! + body), which does not fit the `SymbolRow` schema the FTS5 index
 //! is tied to.
 //!
-//! Parameters use the classic BM25 defaults: `k1 = 1.2`, `b = 0.75`.
+//! ### BM25F field weighting (P2.1b-v2)
+//!
+//! Rule snippets have three distinct fields:
+//! - `frontmatter_name`  — deliberate memory-entry title, highest signal
+//! - `section_title`     — `## ` header text, medium signal
+//! - `content`           — full body, lowest per-token signal
+//!
+//! Plain BM25 over a concatenated string underweights title hits. BM25F
+//! weights tf per field before normalization, then divides by a weighted
+//! doc length so a title match dominates body noise without over-
+//! inflating short docs. Parameters:
+//! - `W_NAME  = 3.0`, `W_TITLE = 2.0`, `W_BODY  = 1.0`
+//! - `k1 = 1.2`, `b = 0.75` (classic BM25 defaults)
+//! - Coordinate bonus: if the snippet matches ≥ 80% of query terms,
+//!   multiply score by 1.1 — a small "this really is the right rule"
+//!   nudge without distorting raw BM25 math.
+//!
 //! No stemming, no stopword filtering — rule text is short enough that
 //! missing these adds more risk of noise than gain. Tokenization is
-//! lowercase + split on non-alphanumeric.
+//! lowercase + split on non-alphanumeric (underscore preserved).
 //!
 //! Cost model: fully on-the-fly, rebuilt each call. A typical rule
 //! corpus is < 200 chunks at < 2 kB each → score pass stays under 5 ms
@@ -18,7 +34,7 @@
 use crate::rule_corpus::RuleSnippet;
 use std::collections::HashMap;
 
-/// One rule snippet paired with its BM25 score against the query.
+/// One rule snippet paired with its BM25F score against the query.
 #[derive(Debug, Clone)]
 pub struct ScoredSnippet {
     pub snippet: RuleSnippet,
@@ -28,8 +44,54 @@ pub struct ScoredSnippet {
 const BM25_K1: f64 = 1.2;
 const BM25_B: f64 = 0.75;
 const MIN_TOKEN_LEN: usize = 2;
+const W_NAME: f64 = 3.0;
+const W_TITLE: f64 = 2.0;
+const W_BODY: f64 = 1.0;
+const COORDINATE_THRESHOLD: f64 = 0.8;
+const COORDINATE_BONUS: f64 = 1.1;
 
-/// Score every snippet against `query` via BM25 and return the top
+struct FieldTokens {
+    name: Vec<String>,
+    title: Vec<String>,
+    body: Vec<String>,
+}
+
+impl FieldTokens {
+    fn total_any(&self) -> bool {
+        !self.name.is_empty() || !self.title.is_empty() || !self.body.is_empty()
+    }
+
+    fn contains(&self, token: &str) -> bool {
+        self.name.iter().any(|t| t == token)
+            || self.title.iter().any(|t| t == token)
+            || self.body.iter().any(|t| t == token)
+    }
+
+    /// Weighted tf for a single query term across fields.
+    fn weighted_tf(&self, token: &str) -> f64 {
+        let tf_name = self.name.iter().filter(|t| *t == token).count() as f64;
+        let tf_title = self.title.iter().filter(|t| *t == token).count() as f64;
+        let tf_body = self.body.iter().filter(|t| *t == token).count() as f64;
+        W_NAME * tf_name + W_TITLE * tf_title + W_BODY * tf_body
+    }
+
+    /// Weighted doc length: Σ W_f × |field_f|.
+    fn weighted_length(&self) -> f64 {
+        W_NAME * self.name.len() as f64
+            + W_TITLE * self.title.len() as f64
+            + W_BODY * self.body.len() as f64
+    }
+}
+
+fn tokenize_fields(snippet: &RuleSnippet) -> FieldTokens {
+    FieldTokens {
+        name: tokenize(snippet.frontmatter_name.as_deref().unwrap_or("")),
+        title: tokenize(snippet.section_title.as_deref().unwrap_or("")),
+        body: tokenize(&snippet.content),
+    }
+}
+
+/// Score every snippet against `query` via BM25F and return the top
 /// `top_k` matches sorted by descending score. Snippets with zero
 /// score are dropped so an empty / irrelevant query yields an empty
 /// vector rather than arbitrary top rows.
@@ -45,28 +107,34 @@ pub fn find_relevant_rules(
     if query_tokens.is_empty() {
         return Vec::new();
     }
-
-    let doc_tokens: Vec<Vec<String>> = corpus
-        .iter()
-        .map(|snippet| tokenize(&searchable_text(snippet)))
-        .collect();
-    let doc_lengths: Vec<usize> = doc_tokens.iter().map(|tokens| tokens.len()).collect();
-    let total_length: usize = doc_lengths.iter().sum();
-    let n_docs = corpus.len() as f64;
-    let avgdl = if total_length == 0 {
-        1.0
-    } else {
-        total_length as f64 / n_docs
+    let unique_query_terms: Vec<&String> = {
+        let mut seen = std::collections::HashSet::new();
+        query_tokens
+            .iter()
+            .filter(|qt| seen.insert(qt.as_str()))
+            .collect()
     };
 
+    let doc_fields: Vec<FieldTokens> = corpus.iter().map(tokenize_fields).collect();
+    let doc_weighted_lengths: Vec<f64> = doc_fields.iter().map(|f| f.weighted_length()).collect();
+    let total_weighted_length: f64 = doc_weighted_lengths.iter().sum();
+    let n_docs = corpus.len() as f64;
+    let avgdl = if total_weighted_length == 0.0 {
+        1.0
+    } else {
+        total_weighted_length / n_docs
+    };
+
+    // df: document-frequency for each unique query term. A doc "contains"
+    // the term if ANY field holds it — field boundaries don't split df.
     let mut df: HashMap<&str, usize> = HashMap::new();
-    for qt in &query_tokens {
+    for qt in &unique_query_terms {
         if df.contains_key(qt.as_str()) {
             continue;
         }
-        let count = doc_tokens
+        let count = doc_fields
             .iter()
-            .filter(|tokens| tokens.iter().any(|t| t == qt))
+            .filter(|fields| fields.total_any() && fields.contains(qt.as_str()))
             .count();
         df.insert(qt.as_str(), count);
     }
@@ -75,20 +143,32 @@ pub fn find_relevant_rules(
         .iter()
         .enumerate()
         .map(|(idx, snippet)| {
-            let dl = doc_lengths[idx] as f64;
+            let fields = &doc_fields[idx];
+            let dl = doc_weighted_lengths[idx];
             let mut score = 0.0_f64;
-            for qt in &query_tokens {
-                let tf = doc_tokens[idx].iter().filter(|t| *t == qt).count() as f64;
-                if tf == 0.0 {
+            let mut matched_terms = 0usize;
+            for qt in &unique_query_terms {
+                let tf_w = fields.weighted_tf(qt.as_str());
+                if tf_w == 0.0 {
                     continue;
                 }
+                matched_terms += 1;
                 let docs_with_term = *df.get(qt.as_str()).unwrap_or(&0) as f64;
                 // Robertson-Sparck Jones IDF with +1 smoothing — never
                 // goes negative even when a term hits every doc.
                 let idf = ((n_docs - docs_with_term + 0.5) / (docs_with_term + 0.5) + 1.0).ln();
-                let tf_norm =
-                    tf * (BM25_K1 + 1.0) / (tf + BM25_K1 * (1.0 - BM25_B + BM25_B * dl / avgdl));
+                let tf_norm = tf_w * (BM25_K1 + 1.0)
+                    / (tf_w + BM25_K1 * (1.0 - BM25_B + BM25_B * dl / avgdl));
                 score += idf * tf_norm;
+            }
+            // Coordinate bonus: reward docs that cover most of the query.
+            let coverage = if unique_query_terms.is_empty() {
+                0.0
+            } else {
+                matched_terms as f64 / unique_query_terms.len() as f64
+            };
+            if score > 0.0 && coverage >= COORDINATE_THRESHOLD {
+                score *= COORDINATE_BONUS;
             }
             ScoredSnippet {
                 snippet: snippet.clone(),
@@ -107,10 +187,10 @@ pub fn find_relevant_rules(
     scored
 }
 
-/// Concatenate all searchable fields of a snippet. `frontmatter_name`
-/// and `section_title` are counted once each so a title hit contributes
-/// roughly one extra occurrence to tf, giving titles a mild boost
-/// without a separate field-weight multiplier.
+/// (Legacy P2.1b helper) Concatenate searchable fields for testing or
+/// for callers that want a single inspection string. Field weighting
+/// does NOT happen here — scoring uses `tokenize_fields` directly.
+#[allow(dead_code)]
 fn searchable_text(snippet: &RuleSnippet) -> String {
     let mut out = String::with_capacity(snippet.content.len() + 128);
     if let Some(name) = snippet.frontmatter_name.as_deref() {
@@ -298,5 +378,97 @@ mod tests {
         assert!(tokens.contains(&"an".to_string()));
         assert!(tokens.contains(&"and".to_string()));
         assert!(tokens.contains(&"alpha".to_string()));
+    }
+
+    // ─── BM25F field-weighting tests (P2.1b-v2) ───
+
+    #[test]
+    fn frontmatter_name_match_outranks_body_only_match() {
+        // Name-field match gets 3× weight. A single body match in doc B
+        // must score strictly lower than a single name match in doc A,
+        // even though both docs have exactly one occurrence of the term.
+        let corpus = vec![
+            snippet(
+                RuleSource::Memory,
+                Some("caching strategy"),
+                None,
+                "unrelated text no match here",
+            ),
+            snippet(
+                RuleSource::Memory,
+                Some("unrelated entry"),
+                None,
+                "we discuss caching in this paragraph exactly once",
+            ),
+        ];
+        let results = find_relevant_rules(&corpus, "caching", 2);
+        assert_eq!(results.len(), 2);
+        assert_eq!(
+            results[0].snippet.frontmatter_name.as_deref(),
+            Some("caching strategy"),
+            "name-field match should rank above body-only match"
+        );
+        assert!(
+            results[0].score > results[1].score,
+            "expected {} > {}",
+            results[0].score,
+            results[1].score
+        );
+    }
+
+    #[test]
+    fn title_match_outranks_body_only_match() {
+        // Title gets 2× weight vs body's 1×. Doc A has the term once in
+        // `## ` title, doc B has it once in body — title should win.
+        let corpus = vec![
+            snippet(
+                RuleSource::Global,
+                None,
+                Some("Mutation Gate Protocol"),
+                "body content without the keyword",
+            ),
+            snippet(
+                RuleSource::Global,
+                None,
+                Some("Unrelated Section"),
+                "this paragraph mentions mutation once",
+            ),
+        ];
+        let results = find_relevant_rules(&corpus, "mutation", 2);
+        assert_eq!(results.len(), 2);
+        assert_eq!(
+            results[0].snippet.section_title.as_deref(),
+            Some("Mutation Gate Protocol")
+        );
+        assert!(results[0].score > results[1].score);
+    }
+
+    #[test]
+    fn coordinate_bonus_rewards_full_query_match() {
+        // Doc A matches both query terms. Doc B matches one term twice.
+        // Even if raw BM25F would put them close, the coordinate bonus
+        // on doc A (coverage = 2/2 ≥ 0.8) should push it clearly ahead.
+        let corpus = vec![
+            snippet(
+                RuleSource::Global,
+                None,
+                None,
+                "cargo test is the standard Rust verification workflow",
+            ),
+            snippet(
+                RuleSource::Global,
+                None,
+                None,
+                "we test test test repeatedly in this very long document \
+                 full of other words to dilute the length normalization",
+            ),
+        ];
+        let results = find_relevant_rules(&corpus, "cargo test", 2);
+        assert_eq!(results.len(), 2);
+        assert!(
+            results[0].snippet.content.contains("cargo test"),
+            "full-coverage doc (cargo + test) should rank first"
+        );
+        assert!(results[0].score > results[1].score);
     }
 }
