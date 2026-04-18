@@ -159,6 +159,10 @@ pub(super) fn bm25_symbol_search_output_schema() -> serde_json::Value {
                         "suggested_follow_up": {
                             "type": "array",
                             "items": {"type": "string"}
+                        },
+                        "confidence": {
+                            "type": "string",
+                            "enum": ["high", "medium", "low"]
                         }
                     }
                 }

@@ -146,6 +146,17 @@ fn bm25_symbol_search_returns_symbol_cards() {
         hints.contains(&"find_symbol"),
         "function follow-up should include find_symbol, got {hints:?}"
     );
+    let confidence = top["confidence"]
+        .as_str()
+        .expect("confidence tier field must be present");
+    assert!(
+        matches!(confidence, "high" | "medium" | "low"),
+        "confidence must be one of high/medium/low, got {confidence}"
+    );
+    assert_eq!(
+        confidence, "high",
+        "an exact identifier match on a function's name should land in the high tier"
+    );
 }
 
 #[test]

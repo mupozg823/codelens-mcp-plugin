@@ -231,6 +231,18 @@ impl FieldTokens {
     }
 }
 
+/// Unique query tokens under the same symbol-aware tokenizer used by
+/// [`search_symbols_bm25f`]. Exposed so the MCP handler can compute
+/// coverage ratios (matched_terms / unique_query_terms) without
+/// re-implementing the tokenization contract.
+pub fn unique_query_terms(query: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    tokenize(query)
+        .into_iter()
+        .filter(|t| seen.insert(t.clone()))
+        .collect()
+}
+
 fn tokenize_fields(doc: &SymbolDocument) -> FieldTokens {
     FieldTokens {
         name_path: tokenize(&doc.name_path),

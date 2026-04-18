@@ -12,7 +12,7 @@ use super::{
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::symbol_corpus::build_symbol_corpus;
-use crate::symbol_retrieval::search_symbols_bm25f;
+use crate::symbol_retrieval::{search_symbols_bm25f, unique_query_terms};
 use codelens_engine::{read_file, search_symbols_hybrid_with_semantic, SymbolInfo, SymbolKind};
 use serde_json::{json, Value};
 
@@ -183,11 +183,18 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
     }
     scored.truncate(max_results);
 
+    let total_query_terms = unique_query_terms(&query_analysis.expanded_query).len();
     let payload_results: Vec<Value> = scored
         .into_iter()
         .enumerate()
         .map(|(idx, hit)| {
             let follow_up = suggested_follow_up(&hit.document.kind, hit.document.exported);
+            let confidence = confidence_tier(
+                &hit.matched_terms,
+                total_query_terms,
+                &hit.document.name,
+                &hit.document.name_path,
+            );
             json!({
                 "symbol_id": hit.document.symbol_id,
                 "name": hit.document.name,
@@ -210,6 +217,7 @@ pub fn bm25_symbol_search(state: &AppState, arguments: &Value) -> ToolResult {
                     "retrieval_rank": idx + 1,
                 },
                 "suggested_follow_up": follow_up,
+                "confidence": confidence,
             })
         })
         .collect();
@@ -570,5 +578,102 @@ mod suggested_follow_up_tests {
     fn unknown_kind_falls_back_to_find_symbol() {
         let hints = suggested_follow_up("unknown", false);
         assert_eq!(hints, vec!["find_symbol"]);
+    }
+}
+
+/// Cross-field confidence tier for a BM25 symbol card.
+///
+/// Without a separate dense arm, we cannot yet compute a true
+/// BM25-vs-dense agreement signal. This heuristic is the *cross-field*
+/// proxy: a result that matches query terms on the high-weight
+/// identifier fields (`name`, `name_path`) **and** covers most of the
+/// unique query terms is a high-confidence hit; a result that matches
+/// only on low-weight fields (body lexical chunk, doc comment) is low.
+///
+/// - `high`   — ≥80% query-term coverage AND a hit on name or name_path
+/// - `medium` — 2+ matched terms OR a name/name_path hit
+/// - `low`    — single term hit, or matches only on body/doc fields
+///
+/// Frontier-model callers use this to decide whether to trust the card
+/// for direct consumption or to cross-check via `find_symbol` +
+/// `find_referencing_symbols` before acting.
+fn confidence_tier(
+    matched_terms: &[String],
+    unique_query_terms: usize,
+    name: &str,
+    name_path: &str,
+) -> &'static str {
+    if matched_terms.is_empty() || unique_query_terms == 0 {
+        return "low";
+    }
+    let coverage = matched_terms.len() as f64 / unique_query_terms as f64;
+    let name_lower = name.to_ascii_lowercase();
+    let name_path_lower = name_path.to_ascii_lowercase();
+    let identifier_hit = matched_terms.iter().any(|term| {
+        let term_lower = term.to_ascii_lowercase();
+        name_lower.contains(&term_lower) || name_path_lower.contains(&term_lower)
+    });
+
+    if coverage >= 0.8 && identifier_hit {
+        "high"
+    } else if identifier_hit || matched_terms.len() >= 2 {
+        "medium"
+    } else {
+        "low"
+    }
+}
+
+#[cfg(test)]
+mod confidence_tier_tests {
+    use super::confidence_tier;
+
+    #[test]
+    fn full_coverage_on_name_path_is_high() {
+        let matched = vec!["dispatch".to_owned(), "tool".to_owned()];
+        assert_eq!(
+            confidence_tier(&matched, 2, "dispatch_tool", "dispatch::dispatch_tool"),
+            "high"
+        );
+    }
+
+    #[test]
+    fn partial_coverage_with_name_hit_is_medium() {
+        let matched = vec!["dispatch".to_owned()];
+        assert_eq!(
+            confidence_tier(&matched, 3, "dispatch_tool", "dispatch::dispatch_tool"),
+            "medium"
+        );
+    }
+
+    #[test]
+    fn body_only_match_is_low() {
+        let matched = vec!["invoke".to_owned()];
+        assert_eq!(
+            confidence_tier(&matched, 2, "dispatch_tool", "dispatch::dispatch_tool"),
+            "low"
+        );
+    }
+
+    #[test]
+    fn multiple_matches_without_name_hit_is_medium() {
+        let matched = vec!["invoke".to_owned(), "handler".to_owned()];
+        assert_eq!(
+            confidence_tier(&matched, 3, "dispatch_tool", "dispatch::dispatch_tool"),
+            "medium"
+        );
+    }
+
+    #[test]
+    fn empty_matched_is_low() {
+        assert_eq!(confidence_tier(&[], 2, "x", "a::x"), "low");
+    }
+
+    #[test]
+    fn zero_query_terms_is_low() {
+        let matched = vec!["dispatch".to_owned()];
+        assert_eq!(
+            confidence_tier(&matched, 0, "dispatch_tool", "dispatch::dispatch_tool"),
+            "low"
+        );
     }
 }
