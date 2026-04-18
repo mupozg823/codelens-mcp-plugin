@@ -133,12 +133,13 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-sessio
 That wrapper runs [`scripts/export-eval-session-audit.sh`](../scripts/export-eval-session-audit.sh)
 against the configured MCP URL and writes timestamped JSON snapshots under
 `.codelens/reports/daily/` by default. It also refreshes
-`.codelens/reports/daily/latest-summary.md` after each JSON snapshot so the
-operator has one rolling trend report without losing the canonical history
-artifacts. Pass `--format markdown` only when you intentionally want readable
-snapshot files instead of JSON history. Keep this separate from per-session
-artifacts: the daily snapshot is daemon-scoped, while Stop hooks are
-session-scoped.
+`.codelens/reports/daily/latest-summary.md` and
+`.codelens/reports/daily/latest-gate.md` after each JSON snapshot so the
+operator has one rolling trend report plus one rolling verdict without losing
+the canonical history artifacts. Pass `--format markdown` only when you
+intentionally want readable snapshot files instead of JSON history. Keep this
+separate from per-session artifacts: the daily snapshot is daemon-scoped,
+while Stop hooks are session-scoped.
 
 If you also use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh)
 in this repository, point the aggregate job at `http://127.0.0.1:7839/mcp`,
@@ -169,6 +170,13 @@ bash scripts/eval-session-audit-operator-gate.sh --fail-on-warn
 That gate does not inspect the daemon directly. It reuses the historical
 summary and applies configurable thresholds to classify the recent window as
 `pass`, `warn`, or `fail`.
+
+When the daily export job stays on JSON output, the recommended artifact chain
+is:
+
+1. `eval-session-audit-*.json` for canonical history
+2. `latest-summary.md` for drift/trend interpretation
+3. `latest-gate.md` for the current operator verdict
 
 ## Troubleshooting
 

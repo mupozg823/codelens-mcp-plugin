@@ -14,8 +14,11 @@ Options:
   --format FMT      Snapshot format: json or markdown (default: json)
   --history-summary-path PATH
                     Refresh this historical summary after each JSON snapshot
+  --history-gate-path PATH
+                    Refresh this operator gate artifact after each JSON snapshot
   --history-summary-limit N
-                    Number of recent JSON snapshots to include in that summary
+                    Number of recent JSON snapshots to include in the summary
+                    and gate artifacts
                     (default: 14)
   --mcp-url URL     MCP HTTP endpoint (default: http://127.0.0.1:7839/mcp)
   --output-dir DIR  Snapshot output dir (default: <repo>/.codelens/reports/daily)
@@ -40,6 +43,7 @@ MINUTE=55
 MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7839/mcp}"
 OUTPUT_FORMAT="${CODELENS_AUDIT_OUTPUT_FORMAT:-json}"
 HISTORY_SUMMARY_PATH="${CODELENS_AUDIT_HISTORY_SUMMARY_PATH:-}"
+HISTORY_GATE_PATH="${CODELENS_AUDIT_HISTORY_GATE_PATH:-}"
 HISTORY_SUMMARY_LIMIT="${CODELENS_AUDIT_HISTORY_SUMMARY_LIMIT:-14}"
 OUTPUT_DIR=""
 LABEL=""
@@ -80,6 +84,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--history-summary-path)
 		HISTORY_SUMMARY_PATH="${2:-}"
+		shift 2
+		;;
+	--history-gate-path)
+		HISTORY_GATE_PATH="${2:-}"
 		shift 2
 		;;
 	--history-summary-limit)
@@ -169,9 +177,16 @@ fi
 if [[ -z "$HISTORY_SUMMARY_PATH" && "$OUTPUT_FORMAT" == "json" ]]; then
 	HISTORY_SUMMARY_PATH="$OUTPUT_DIR/latest-summary.md"
 fi
+if [[ -z "$HISTORY_GATE_PATH" && "$OUTPUT_FORMAT" == "json" ]]; then
+	HISTORY_GATE_PATH="$OUTPUT_DIR/latest-gate.md"
+fi
 
 if [[ -n "$HISTORY_SUMMARY_PATH" && "$OUTPUT_FORMAT" != "json" ]]; then
 	echo "--history-summary-path requires --format json because the history summarizer consumes JSON snapshots" >&2
+	exit 2
+fi
+if [[ -n "$HISTORY_GATE_PATH" && "$OUTPUT_FORMAT" != "json" ]]; then
+	echo "--history-gate-path requires --format json because the operator gate consumes JSON snapshots" >&2
 	exit 2
 fi
 
@@ -204,9 +219,14 @@ PY
 
 EXPORT_SCRIPT="$REPO_ROOT/scripts/export-eval-session-audit.sh"
 LAUNCH_COMMAND="cd $(quote_for_bash "$REPO_ROOT") && CODELENS_AUDIT_MCP_URL=$(quote_for_bash "$MCP_URL") CODELENS_AUDIT_OUTPUT_DIR=$(quote_for_bash "$OUTPUT_DIR") CODELENS_AUDIT_OUTPUT_FORMAT=$(quote_for_bash "$OUTPUT_FORMAT")"
+if [[ -n "$HISTORY_SUMMARY_PATH" || -n "$HISTORY_GATE_PATH" ]]; then
+	LAUNCH_COMMAND+=" && CODELENS_AUDIT_HISTORY_SUMMARY_LIMIT=$(quote_for_bash "$HISTORY_SUMMARY_LIMIT")"
+fi
 if [[ -n "$HISTORY_SUMMARY_PATH" ]]; then
 	LAUNCH_COMMAND+=" && CODELENS_AUDIT_HISTORY_SUMMARY_PATH=$(quote_for_bash "$HISTORY_SUMMARY_PATH")"
-	LAUNCH_COMMAND+=" && CODELENS_AUDIT_HISTORY_SUMMARY_LIMIT=$(quote_for_bash "$HISTORY_SUMMARY_LIMIT")"
+fi
+if [[ -n "$HISTORY_GATE_PATH" ]]; then
+	LAUNCH_COMMAND+=" && CODELENS_AUDIT_HISTORY_GATE_PATH=$(quote_for_bash "$HISTORY_GATE_PATH")"
 fi
 LAUNCH_COMMAND+=" bash $(quote_for_bash "$EXPORT_SCRIPT")"
 LABEL_XML="$(xml_escape "$LABEL")"

@@ -227,7 +227,8 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-sessio
 ```
 
 That scheduled job keeps JSON snapshots as the canonical history and refreshes
-`.codelens/reports/daily/latest-summary.md` after each run by default.
+`.codelens/reports/daily/latest-summary.md` plus
+`.codelens/reports/daily/latest-gate.md` after each run by default.
 
 For an ad hoc operator snapshot without launchd, run:
 
@@ -235,6 +236,7 @@ For an ad hoc operator snapshot without launchd, run:
 bash scripts/export-eval-session-audit.sh
 bash scripts/export-eval-session-audit.sh --format markdown
 bash scripts/export-eval-session-audit.sh --history-summary-path .codelens/reports/daily/latest-summary.md
+bash scripts/export-eval-session-audit.sh --history-gate-path .codelens/reports/daily/latest-gate.md
 ```
 
 To summarize recent daily snapshots into a drift/trend report, run:
@@ -250,6 +252,10 @@ To turn that history into an operator `pass` / `warn` / `fail` verdict, run:
 bash scripts/eval-session-audit-operator-gate.sh
 bash scripts/eval-session-audit-operator-gate.sh --fail-on-warn
 ```
+
+The export script can also refresh that gate artifact automatically after each
+JSON snapshot, so scheduled operators do not need a second wrapper job just to
+keep `latest-gate.md` current.
 
 See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.
 

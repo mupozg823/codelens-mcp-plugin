@@ -136,6 +136,10 @@ bash scripts/export-eval-session-audit.sh --format markdown
 # JSON snapshot plus refreshed historical summary
 bash scripts/export-eval-session-audit.sh \
   --history-summary-path .codelens/reports/daily/latest-summary.md
+
+# JSON snapshot plus refreshed operator gate artifact
+bash scripts/export-eval-session-audit.sh \
+  --history-gate-path .codelens/reports/daily/latest-gate.md
 ```
 
 For a daily macOS operator snapshot, install the launchd wrapper with [`scripts/install-eval-session-audit-launchd.sh`](../scripts/install-eval-session-audit-launchd.sh). Example:
@@ -167,10 +171,11 @@ The history summarizer is file-based and offline. It reads prior
 does not depend on a currently running daemon.
 
 `install-eval-session-audit-launchd.sh` automatically wires the daily JSON
-snapshot job to refresh `.codelens/reports/daily/latest-summary.md` after each
-run. Override that with `--history-summary-path <path>` or disable it by
-switching the scheduled job to `--format markdown` only if you intentionally do
-not want JSON history.
+snapshot job to refresh `.codelens/reports/daily/latest-summary.md` and
+`.codelens/reports/daily/latest-gate.md` after each run. Override those with
+`--history-summary-path <path>` and `--history-gate-path <path>`, or disable
+both by switching the scheduled job to `--format markdown` only if you
+intentionally do not want JSON history.
 
 If you want an operator verdict instead of only a descriptive report, run:
 
@@ -186,6 +191,13 @@ The operator gate reuses the historical summary data and applies lightweight
 thresholds over the latest builder/planner pass rates plus coverage gaps. It is
 an operator/CI layer on top of the file-based trend report, not a replacement
 for per-session `audit_builder_session` / `audit_planner_session`.
+
+The export script can refresh that gate artifact automatically after each JSON
+snapshot, so the recommended operator chain is:
+
+1. `eval-session-audit-*.json` as canonical daily history
+2. `latest-summary.md` as the rolling descriptive report
+3. `latest-gate.md` as the rolling pass/warn/fail verdict
 
 That launchd wrapper defaults to `http://127.0.0.1:7839/mcp` so it matches
 this repository's local read-only daemon shape. Pass `--mcp-url` only if your
