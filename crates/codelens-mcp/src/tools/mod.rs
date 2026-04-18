@@ -37,20 +37,24 @@ pub(crate) use suggestions::{
 /// Each entry is `"tool_name" => module::handler_fn`.
 macro_rules! tool_registry {
     ($($name:expr => $handler:expr),* $(,)?) => {{
-        let entries: &[(&str, ToolHandler)] = &[
-            $(($name, $handler)),*
-        ];
-        let mut m: HashMap<&'static str, ToolHandler> = HashMap::with_capacity(entries.len());
-        for &(name, handler) in entries {
-            m.insert(name, handler);
-        }
+        let mut m: HashMap<&'static str, std::sync::Arc<dyn crate::tool_runtime::McpTool>> = HashMap::new();
+        $(
+            m.insert(
+                $name,
+                std::sync::Arc::new(
+                    crate::tool_runtime::ToolBuilder::new($name)
+                        .handler($handler)
+                        .build()
+                )
+            );
+        )*
         m
     }};
 }
 
 /// Build the dispatch table. Add new tools here — one line per tool.
 #[allow(deprecated)]
-pub fn dispatch_table() -> HashMap<&'static str, ToolHandler> {
+pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_runtime::McpTool>> {
     tool_registry! {
         // ── File I/O ──
         "get_current_config"           => filesystem::get_current_config,

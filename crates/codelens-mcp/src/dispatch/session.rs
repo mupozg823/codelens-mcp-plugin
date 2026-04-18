@@ -1,19 +1,13 @@
 //! Session context collection, mutation gate execution, and post-mutation side effects.
 
-use crate::AppState;
-use crate::error::CodeLensError;
-use crate::mutation_gate::{
-    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
-    is_refactor_gated_mutation_tool,
-};
 use crate::tools;
+use crate::AppState;
 use tracing::warn;
 
 #[cfg(feature = "semantic")]
 use codelens_engine::EmbeddingEngine;
 
 use super::rate_limit::hash_args_for_doom_loop;
-use super::table::DISPATCH_TABLE;
 
 /// Contextual data gathered from the session before executing a tool.
 pub(super) struct SessionContext {
@@ -54,65 +48,6 @@ pub(super) fn collect_session_context(
         recent_tools,
         doom_count,
         doom_rapid,
-    }
-}
-
-/// Execute the tool through the mutation gate (if applicable) or directly.
-/// Returns `(tool_result, gate_allowance, gate_failure)`.
-pub(super) fn run_gate_and_execute(
-    state: &AppState,
-    name: &str,
-    arguments: &serde_json::Value,
-    session: &crate::session_context::SessionRequestContext,
-    surface: crate::tool_defs::ToolSurface,
-) -> (
-    tools::ToolResult,
-    Option<MutationGateAllowance>,
-    Option<MutationGateFailure>,
-) {
-    if is_refactor_gated_mutation_tool(name) {
-        state
-            .metrics()
-            .record_mutation_preflight_checked_for_session(Some(session.session_id.as_str()));
-        match evaluate_mutation_gate(state, name, session, surface, arguments) {
-            Ok(allowance) => {
-                let result = match DISPATCH_TABLE.get(name) {
-                    Some(handler) => handler(state, arguments),
-                    None => Err(CodeLensError::ToolNotFound(name.to_owned())),
-                };
-                (result, allowance, None)
-            }
-            Err(failure) => {
-                if failure.missing_preflight || failure.stale {
-                    state
-                        .metrics()
-                        .record_mutation_without_preflight_for_session(Some(
-                            session.session_id.as_str(),
-                        ));
-                }
-                if failure.rename_without_symbol_preflight {
-                    state
-                        .metrics()
-                        .record_rename_without_symbol_preflight_for_session(Some(
-                            session.session_id.as_str(),
-                        ));
-                }
-                state
-                    .metrics()
-                    .record_mutation_preflight_gate_denied_for_session(
-                        failure.stale,
-                        Some(session.session_id.as_str()),
-                    );
-                let message = failure.message.clone();
-                (Err(CodeLensError::Validation(message)), None, Some(failure))
-            }
-        }
-    } else {
-        let result = match DISPATCH_TABLE.get(name) {
-            Some(handler) => handler(state, arguments),
-            None => Err(CodeLensError::ToolNotFound(name.to_owned())),
-        };
-        (result, None, None)
     }
 }
 
@@ -188,7 +123,7 @@ pub(super) fn apply_post_mutation(
 pub(super) fn record_span_fields(
     span: &tracing::Span,
     name: &str,
-    result: &tools::ToolResult,
+    result: &crate::tool_runtime::ToolResult,
     elapsed_ms: u128,
     active_surface: &str,
 ) {

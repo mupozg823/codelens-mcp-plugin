@@ -452,6 +452,7 @@ dependencies = [
  "codelens-engine",
  "crossterm",
  "ratatui",
+ "serde",
  "serde_json",
 ]
 

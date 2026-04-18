@@ -18,4 +18,5 @@ codelens-engine = { path = "../codelens-engine", version = "=1.9.45" }
 ratatui = "0.29"
 crossterm = "0.28"
 anyhow.workspace = true
+serde.workspace = true
 serde_json.workspace = true

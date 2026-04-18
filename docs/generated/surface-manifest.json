@@ -2405,6 +2405,175 @@
       }
     ]
   },
+  "agent_experience": {
+    "schema_version": "codelens-agent-experience-v1",
+    "runtime_resource": "codelens://design/agent-experience",
+    "doc_path": "docs/design/symbiote-ux-flows-v1.md",
+    "goal": "Expose a portable product and agent-flow contract that both humans and agent hosts can consume directly.",
+    "naming_policy": {
+      "public_primary_name": "CodeLens MCP",
+      "transition_codename": "Symbiote",
+      "runtime_aliases": [
+        "symbiote://",
+        "SYMBIOTE_*"
+      ],
+      "public_cutover_status": "blocked_pending_trademark_clearance",
+      "reason_codes": [
+        "existing_live_symbiote_marks_in_software_adjacent_classes",
+        "marvel_dominates_bare_symbiote_search_results",
+        "linux_rootkit_search_overlap"
+      ],
+      "rule": "Keep the product architecture and UX metaphor symbiotic, but do not flip the public primary install/docs/binary name until clearance is complete."
+    },
+    "information_architecture": {
+      "core_surfaces": [
+        {
+          "id": "attach",
+          "audience": [
+            "human",
+            "host"
+          ],
+          "purpose": "Install, verify, and attach the MCP server to a host in under one minute."
+        },
+        {
+          "id": "session_overview",
+          "audience": [
+            "human",
+            "agent"
+          ],
+          "purpose": "Show active profile, visible surface, health, and current session scope."
+        },
+        {
+          "id": "task_router",
+          "audience": [
+            "agent"
+          ],
+          "purpose": "Translate task phase and risk into role profile, preferred executor, and next-tool shortlist."
+        },
+        {
+          "id": "audit_timeline",
+          "audience": [
+            "human",
+            "agent",
+            "ci"
+          ],
+          "purpose": "Summarize bootstrap, verifier, mutation, and signoff evidence per session."
+        },
+        {
+          "id": "handoff_inspector",
+          "audience": [
+            "human",
+            "agent"
+          ],
+          "purpose": "Inspect planner/builder/reviewer artifacts and synthetic delegation scaffolds without reading raw chat history."
+        },
+        {
+          "id": "detach_or_migrate",
+          "audience": [
+            "human",
+            "ops"
+          ],
+          "purpose": "Remove or migrate the attachment cleanly without residue."
+        }
+      ]
+    },
+    "user_flow": {
+      "north_star": "under_60_seconds_to_first_compressed_answer",
+      "steps": [
+        "install_or_verify_binary",
+        "attach_to_host",
+        "prepare_harness_session",
+        "analyze_change_request",
+        "optional_audit_and_export"
+      ]
+    },
+    "agent_flow": {
+      "bootstrap_sequence": [
+        "prepare_harness_session",
+        "tools/list",
+        "analyze_change_request or get_ranked_context"
+      ],
+      "role_lattice": [
+        "planner-readonly",
+        "builder-minimal",
+        "reviewer-graph",
+        "refactor-full",
+        "evaluator-compact",
+        "ci-audit",
+        "workflow-first"
+      ],
+      "delegation_contract": {
+        "preferred_executor_field": "_meta.codelens/preferredExecutor",
+        "synthetic_delegate_action": "delegate_to_codex_builder",
+        "required_payload_fields": [
+          "delegate_tool",
+          "delegate_arguments",
+          "carry_forward",
+          "briefing"
+        ]
+      }
+    },
+    "tool_flow": {
+      "discover": [
+        "analyze_change_request",
+        "get_ranked_context"
+      ],
+      "investigate": [
+        "find_symbol",
+        "find_referencing_symbols",
+        "get_symbols_overview",
+        "semantic_search"
+      ],
+      "act": [
+        "plan_safe_refactor",
+        "verify_change_readiness",
+        "mutation_tools",
+        "review_changes"
+      ],
+      "verify": [
+        "get_file_diagnostics",
+        "audit_builder_session",
+        "audit_planner_session"
+      ],
+      "handoff": [
+        "export_session_markdown",
+        "codelens://schemas/handoff-artifact/v1"
+      ]
+    },
+    "reference_flow": {
+      "primary_path": [
+        "find_symbol",
+        "find_referencing_symbols",
+        "get_impact_analysis",
+        "get_type_hierarchy"
+      ],
+      "fallback_ladder": [
+        "find_symbol",
+        "semantic_search",
+        "get_ranked_context",
+        "host_native_grep"
+      ]
+    },
+    "harness_flow": {
+      "recommended_modes": [
+        "solo-local",
+        "planner-builder",
+        "reviewer-gate",
+        "batch-analysis"
+      ],
+      "runtime_resources": [
+        "codelens://harness/modes",
+        "codelens://harness/spec",
+        "codelens://harness/host-adapters"
+      ],
+      "host_resources": [
+        "codelens://host-adapters/claude-code",
+        "codelens://host-adapters/codex",
+        "codelens://host-adapters/cursor",
+        "codelens://host-adapters/cline"
+      ]
+    }
+  },
   "harness_artifacts": {
     "schemas": [
       {
@@ -2811,6 +2980,7 @@
       "harness-modes",
       "portable-harness-spec",
       "host-adapter-spec",
+      "agent-experience-spec",
       "handoff-artifact-schema",
       "semantic-search",
       "streamable-http"
@@ -2827,6 +2997,7 @@
     "harness_mode_count": 4,
     "harness_contract_count": 3,
     "host_adapter_count": 4,
+    "agent_experience_resource_count": 1,
     "harness_artifact_schema_count": 1,
     "supported_language_families": 30,
     "supported_extensions": 49

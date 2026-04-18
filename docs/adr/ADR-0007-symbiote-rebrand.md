@@ -1,6 +1,6 @@
-# ADR-0007: Rebrand CodeLens MCP → Symbiote MCP (v2.0.0)
+# ADR-0007: Symbiote as the v2 product metaphor and candidate rename
 
-- Status: Accepted (rebrand intent); execution spans v1.9.x → v2.0.0 transition
+- Status: Accepted as product direction; public primary-name cutover pending trademark clearance
 - Date: 2026-04-18
 - Supersedes: none
 - Related: ADR-0005 (harness-v2 substrate), ADR-0006 (routing enforcement)
@@ -33,12 +33,20 @@ This is exactly the CodeLens ↔ Claude/Codex/Cursor relationship today:
 
 ## Decision
 
-Rebrand to **Symbiote MCP** at the v2.0.0 major bump. Tagline:
+Adopt **Symbiote** as the product metaphor, transition codename, and
+v2 candidate rename. Tagline:
 
 > Symbiote MCP — harness-engineering as a symbiotic substrate.
 > Attach to your agent. Your code intelligence becomes superhuman.
 
-Scope of the rebrand (breaking change — hence v2.0.0):
+Safe-to-ship before clearance:
+
+- Symbiote-centered UX / flow docs and product language
+- `symbiote://...` compatibility alias
+- `SYMBIOTE_*` environment compatibility
+- explicit migration planning for a future major rename
+
+Still gated pending clearance:
 
 - crate names: `codelens-engine` → `symbiote-engine`,
   `codelens-mcp` → `symbiote-mcp`, `codelens-tui` → `symbiote-tui`.
@@ -50,9 +58,11 @@ Scope of the rebrand (breaking change — hence v2.0.0):
 - env vars: `CODELENS_*` → `SYMBIOTE_*` with both accepted until v3.0.
 - docs, install.sh, Homebrew formula, install channel table.
 
-Old crate names stay on crates.io with a `README.md` pointing at the new
-crates; they are not yanked. Existing `1.9.x` users continue to install
-and build; new users land on `2.0.0` under the new name.
+Until clearance completes, **CodeLens MCP** remains the canonical public
+install/docs/binary name and Symbiote remains a transition codename plus
+runtime alias family. Old crate names stay on crates.io with a
+`README.md` pointing at the new crates once the rename actually ships;
+they are not yanked.
 
 ## Alternatives considered and rejected
 
@@ -68,10 +78,8 @@ and build; new users land on `2.0.0` under the new name.
 ### R1 — Linux rootkit namesake (Intezer Labs, 2022)
 
 A BPF/`LD_PRELOAD`-based Linux userland rootkit was publicly disclosed
-as "Symbiote" by Intezer Labs. The name is not registered as a trademark
-by Marvel, Intezer, or any operating vendor, so there is no legal block.
-But search-engine results for bare "Symbiote" are dominated by the
-rootkit story for at least the next 2-3 years. Mitigations:
+as "Symbiote" by Intezer Labs. Search-engine results for bare
+"Symbiote" are still materially polluted by that story. Mitigations:
 
 - Full product name is **Symbiote MCP**, disambiguating from the rootkit
   in every search context (MCP is now a well-indexed term since the
@@ -81,7 +89,20 @@ rootkit story for at least the next 2-3 years. Mitigations:
 - All social/announcement copy uses "Symbiote MCP" or "Symbiote — the
   MCP harness substrate", never bare "Symbiote".
 
-### R2 — Marvel IP association
+### R2 — Existing third-party `SYMBIOTE` registrations
+
+As of 2026-04-18, third-party trademark records show live `SYMBIOTE`
+registrations in software-adjacent classes. That does not automatically
+block use of **Symbiote MCP**, but it makes a direct public rename a
+clearance-gated decision rather than a branding-only preference.
+Mitigations:
+
+- do not ship the crate/binary/repo rename before counsel review
+- keep `CodeLens MCP` as the public primary name until clearance passes
+- keep the architecture, docs, aliases, and migration plan decoupled
+  from the final public name string
+
+### R3 — Marvel IP association
 
 "Symbiote" the biological/colloquial term predates Marvel's 1988
 introduction by over a century. Marvel trademarks specific names
@@ -93,7 +114,7 @@ Mitigations:
 - If Marvel contacts for trademark concern, respond with documentation
   showing we use the pre-Marvel biological term.
 
-### R3 — Migration cost and user confusion
+### R4 — Migration cost and user confusion
 
 crates.io publishes are irrevocable; a rebrand cannot hide the old name.
 Mitigations:
@@ -108,7 +129,7 @@ Mitigations:
 
 ## Execution plan
 
-Rebrand rolls out across three commits + one migration session.
+Rebrand planning rolls out across three commits + one migration session.
 
 ### Phase 1 — tagline + README + ADR (this commit)
 
@@ -127,7 +148,7 @@ Rebrand rolls out across three commits + one migration session.
 - Announcement post or GitHub Discussions thread: "CodeLens MCP is
   becoming Symbiote MCP at v2.0.0".
 
-### Phase 3 — v2.0.0 cutover (dedicated session)
+### Phase 3 — v2.0.0 cutover (dedicated session, only after clearance)
 
 - Crate rename across workspace.
 - New crates.io publishes under `symbiote-*`.

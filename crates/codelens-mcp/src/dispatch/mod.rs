@@ -11,6 +11,7 @@
 
 mod access;
 mod envelope;
+mod query_engine;
 mod rate_limit;
 mod response;
 mod response_support;
@@ -23,11 +24,11 @@ use crate::protocol::JsonRpcResponse;
 use crate::tool_defs::is_content_mutation_tool;
 use access::validate_tool_access;
 use envelope::ToolCallEnvelope;
+use query_engine::QueryEngine;
 use rate_limit::check_rate_limit;
 use response::{SuccessResponseInput, build_error_response, build_success_response};
-use session::{
-    apply_post_mutation, collect_session_context, record_span_fields, run_gate_and_execute,
-};
+use session::{apply_post_mutation, collect_session_context, record_span_fields};
+
 use tracing::info_span;
 use validation::validate_required_params;
 
@@ -149,8 +150,9 @@ pub(crate) fn dispatch_tool(
     }
 
     // 6. Execute via mutation gate (if applicable) or directly via dispatch table.
+    let engine = QueryEngine::new(state);
     let (result, gate_allowance, gate_failure) =
-        run_gate_and_execute(state, name, arguments, session, ctx.surface);
+        engine.submit_message(name, arguments, session, ctx.surface);
 
     // 7. Post-mutation side effects (graph invalidation, audit, incremental reindex).
     if result.is_ok() && is_content_mutation_tool(name) {

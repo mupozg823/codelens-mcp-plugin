@@ -1,5 +1,6 @@
 mod app;
 mod ui;
+mod watch;
 
 use anyhow::Result;
 use app::App;
@@ -44,6 +45,29 @@ fn parse_cli_args(argv: &[String]) -> CliArgs {
 
 fn main() -> Result<()> {
     let argv: Vec<String> = std::env::args().collect();
+
+    // Subcommand: `codelens-tui watch [--trace <path>] [project_path]`
+    // Live observer over the server's telemetry JSONL stream.
+    if argv.get(1).map(String::as_str) == Some("watch") {
+        let rest: Vec<String> = argv.iter().skip(2).cloned().collect();
+        let mut trace_path: Option<String> = None;
+        let mut project_path = ".".to_string();
+        let mut iter = rest.iter();
+        while let Some(arg) = iter.next() {
+            match arg.as_str() {
+                "--trace" => {
+                    if let Some(value) = iter.next() {
+                        trace_path = Some(value.clone());
+                    }
+                }
+                _ if !arg.starts_with('-') => project_path = arg.clone(),
+                _ => {}
+            }
+        }
+        let project_root = std::path::PathBuf::from(&project_path);
+        return watch::run(trace_path.as_deref(), &project_root);
+    }
+
     let args = parse_cli_args(&argv);
 
     // --check mode: non-interactive verification of index health

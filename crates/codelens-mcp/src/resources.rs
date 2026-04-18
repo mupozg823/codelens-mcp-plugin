@@ -150,6 +150,11 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             crate::surface_manifest::build_surface_manifest_for_state(state)["host_adapters"]
                 .clone(),
         ),
+        "codelens://design/agent-experience" => json_resource(
+            uri,
+            crate::surface_manifest::build_surface_manifest_for_state(state)["agent_experience"]
+                .clone(),
+        ),
         _ if uri.starts_with("codelens://host-adapters/") => {
             let host = uri.trim_start_matches("codelens://host-adapters/");
             let body = crate::surface_manifest::host_adapter_bundle(host)

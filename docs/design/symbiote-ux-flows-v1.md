@@ -3,6 +3,7 @@
 Status: draft for v2.0.0 release readiness
 Date: 2026-04-18
 Parent: [ADR-0007](../adr/ADR-0007-symbiote-rebrand.md)
+Runtime summary: `codelens://design/agent-experience`
 
 This document specifies the end-to-end flows Symbiote MCP must support
 so the rebrand is more than a rename. Every flow below is designed to
@@ -10,6 +11,34 @@ honor the symbiote metaphor (host retains identity + control, symbiote
 attaches, together they form a superhuman capability neither has alone)
 and to stay universal — any MCP-capable host should be able to follow
 the flow with only standard MCP primitives.
+
+## 0. Naming deployment strategy
+
+`Symbiote` is the right **product metaphor** for the UX and flow model:
+attach to a host, preserve host identity, add capabilities the host does
+not have alone. But that does **not** mean the public primary product
+name should flip immediately.
+
+Current deployment policy:
+
+- Keep **CodeLens MCP** as the public primary install/docs/binary name
+  until trademark clearance is complete.
+- Keep **Symbiote** as the transition codename, UX metaphor, and runtime
+  alias family (`symbiote://`, `SYMBIOTE_*`) during the v1.9.x -> v2.0.0
+  bridge.
+- Treat a public primary-name cutover as **blocked pending clearance**,
+  not as an unconditional release task.
+
+Why this gate exists:
+
+- bare `Symbiote` search results are still dominated by Marvel and the
+  Linux rootkit story, which weakens first-run trust
+- existing third-party `SYMBIOTE` registrations make a direct software
+  rename materially riskier than the metaphor alone suggests
+
+Design consequence: the **flows** can and should be symbiotic now, even
+if the final public brand string stays `CodeLens MCP` longer than the
+metaphor does.
 
 ## 1. Brand → UX principles
 
@@ -58,6 +87,30 @@ Cline, Windsurf, or any MCP client that supports stdio or HTTP.
 
 Acceptance test: an untrained user on a fresh machine reaches step [4]
 in under 60 seconds end-to-end. Measure during every release.
+
+## 2b. Product IA / interface surfaces
+
+Even when the host owns the actual UI, Symbiote needs a stable
+information architecture so every host renders the same product shape.
+
+### Core surfaces
+
+| Surface              | Primary user        | Minimum payload                                                                 |
+| -------------------- | ------------------- | ------------------------------------------------------------------------------- |
+| Attach               | human + host setup  | install channel, verify command, host config target, reachable MCP URL         |
+| Session overview     | human + active agent| active profile, visible surface, daemon mode, index health, recent session id  |
+| Task router          | active agent        | task phase, risk level, preferred executor, suggested next tools               |
+| Audit timeline       | human + CI          | bootstrap evidence, verifier evidence, mutation evidence, audit verdict        |
+| Handoff inspector    | planner/builder/reviewer | handoff artifact JSON, `delegate_to_codex_builder`, exported markdown     |
+| Detach / migrate     | human + ops         | remove binary, remove config, preserve or delete runtime state                 |
+
+### Minimal host-native rendering contract
+
+- If a host has rich panels, render Session overview + Audit timeline.
+- If a host is terminal-only, these surfaces can collapse to structured
+  JSON resources and markdown exports.
+- If a host is agent-only, the same surfaces must remain machine-readable
+  through runtime resources and `suggested_next_calls`.
 
 ## 3. Agent flow — universal role lattice
 

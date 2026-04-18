@@ -116,6 +116,8 @@ Use `resources/read` on `codelens://harness/host-adapters` when the host needs p
 
 Use `resources/read` on `codelens://host-adapters/<host>` when you need concrete host-native template bundles rather than only the cross-host summary. Example: `codelens://host-adapters/codex`.
 
+Use `resources/read` on `codelens://design/agent-experience` when the host needs the portable product-flow contract: naming gate, attach UX, user flow, agent flow, tool flow, reference flow, and harness flow.
+
 Use `resources/read` on `codelens://schemas/handoff-artifact/v1` when the host needs the JSON schema for persisted planner/builder/reviewer handoff artifacts.
 
 `tools/list` and `tools/call` also expose the server-side routing classifier as `_meta["codelens/preferredExecutor"]`. Treat it as an advisory executor hint: `codex-builder`, `claude`, or `any`.

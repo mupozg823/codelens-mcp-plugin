@@ -10,6 +10,8 @@ multiple host adapters.
 
 Portable runtime summary: `codelens://harness/host-adapters`
 
+Portable UX / flow summary: `codelens://design/agent-experience`
+
 Concrete per-host bundles:
 
 - `codelens://host-adapters/claude-code`

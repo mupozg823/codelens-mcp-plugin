@@ -3,6 +3,7 @@
 mod build;
 mod output_schemas;
 mod presets;
+pub mod tool;
 
 // Re-exports from presets
 pub(crate) use presets::{

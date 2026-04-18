@@ -56,6 +56,12 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "mimeType": "application/json"
         }),
         json!({
+            "uri": "codelens://design/agent-experience",
+            "name": "Agent Experience Spec",
+            "description": "Portable UX, user-flow, agent-flow, tool-flow, and harness-flow contract",
+            "mimeType": "application/json"
+        }),
+        json!({
             "uri": "codelens://schemas/handoff-artifact/v1",
             "name": "Handoff Artifact Schema v1",
             "description": "JSON schema for planner -> builder -> reviewer handoff artifacts",

@@ -1553,6 +1553,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(encoded.contains("codelens://harness/modes"));
     assert!(encoded.contains("codelens://harness/spec"));
     assert!(encoded.contains("codelens://harness/host-adapters"));
+    assert!(encoded.contains("codelens://design/agent-experience"));
     assert!(encoded.contains("codelens://host-adapters/claude-code"));
     assert!(encoded.contains("codelens://host-adapters/codex"));
     assert!(encoded.contains("codelens://host-adapters/cursor"));
@@ -1682,6 +1683,7 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(surface_manifest_body.contains("harness_modes"));
     assert!(surface_manifest_body.contains("harness_spec"));
     assert!(surface_manifest_body.contains("host_adapters"));
+    assert!(surface_manifest_body.contains("agent_experience"));
     assert!(surface_manifest_body.contains("harness_artifacts"));
     assert!(surface_manifest_body.contains("languages"));
 
@@ -1734,6 +1736,22 @@ fn resources_include_profile_guides_and_analysis_summaries() {
     assert!(host_adapters_body.contains("claude-code"));
     assert!(host_adapters_body.contains("codex"));
     assert!(host_adapters_body.contains("cursor"));
+
+    let agent_experience = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(242_211)),
+            method: "resources/read".to_owned(),
+            params: Some(json!({"uri": "codelens://design/agent-experience"})),
+        },
+    )
+    .unwrap();
+    let agent_experience_body = serde_json::to_string(&agent_experience).unwrap();
+    assert!(agent_experience_body.contains("codelens-agent-experience-v1"));
+    assert!(agent_experience_body.contains("blocked_pending_trademark_clearance"));
+    assert!(agent_experience_body.contains("delegate_to_codex_builder"));
+    assert!(agent_experience_body.contains("under_60_seconds_to_first_compressed_answer"));
 
     let codex_host_adapter = handle_request(
         &state,
