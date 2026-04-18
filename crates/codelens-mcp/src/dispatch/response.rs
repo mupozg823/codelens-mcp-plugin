@@ -176,7 +176,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     }
 
     let max_result_size = max_result_size_chars_for_tool(name, truncated);
-    success_jsonrpc_response(id, text, structured_content, Some(max_result_size))
+    success_jsonrpc_response(id, name, text, structured_content, Some(max_result_size))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -233,7 +233,10 @@ pub(crate) fn build_error_response(
         id,
         json!({
             "content": [{ "type": "text", "text": text }],
-            "isError": true
+            "isError": true,
+            "_meta": {
+                "codelens/preferredExecutor": crate::tool_defs::tool_preferred_executor_label(name)
+            }
         }),
     )
 }

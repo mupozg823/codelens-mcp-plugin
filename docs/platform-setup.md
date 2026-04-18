@@ -118,6 +118,8 @@ Use `resources/read` on `codelens://host-adapters/<host>` when you need concrete
 
 Use `resources/read` on `codelens://schemas/handoff-artifact/v1` when the host needs the JSON schema for persisted planner/builder/reviewer handoff artifacts.
 
+`tools/list` and `tools/call` also expose the server-side routing classifier as `_meta["codelens/preferredExecutor"]`. Treat it as an advisory executor hint: `codex-builder`, `claude`, or `any`.
+
 For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces and tiers first, and omits `outputSchema` during bootstrap to keep session overhead bounded. Clients can expand one namespace at a time with `{"namespace":"reports"}`, open primitive tools with `{"tier":"primitive"}`, request the full surface explicitly with `{"full": true}`, or opt back into schemas with `{"includeOutputSchema": true}`. In deferred sessions, hidden namespaces and primitive tiers can gate `tools/call` until the client explicitly loads them, and `codelens://tools/list` / `codelens://session/http` resources reflect the same session state.
 
 ## Recommended Harness Modes

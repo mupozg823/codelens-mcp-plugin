@@ -1,8 +1,10 @@
 <div align="center">
 
-# CodeLens MCP
+# CodeLens MCP → Symbiote MCP
 
 **Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
+
+_Becoming **Symbiote MCP** at v2.0 — harness-engineering as a symbiotic substrate. Attach to your agent. Your code intelligence becomes superhuman._ See [ADR-0007](docs/adr/ADR-0007-symbiote-rebrand.md) for the rebrand plan.
 
 Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, token compression, and enterprise-ready observability — all in a single self-contained binary, no external daemons or service installs required (the binary statically links its dependencies and ships its own SQLite, vector store, and ONNX runtime).
 
@@ -201,14 +203,14 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 ## Why CodeLens?
 
-|                       | CodeLens                                   | Read/Grep baseline           |
-| --------------------- | ------------------------------------------ | ---------------------------- |
-| **Token cost**        | 50-87% less                                | Full file content every time |
-| **Context quality**   | Ranked, bounded, structured                | Raw text, no prioritization  |
-| **Multi-file impact** | 1 tool call                                | 5-10 grep + read cycles      |
-| **Runtime**           | Single Rust binary, <12ms cold start       | N/A                          |
-| **Language support**  | Generated from the surface manifest         | N/A                          |
-| **Agent awareness**   | Doom-loop detection, mutation gates        | None                         |
+|                       | CodeLens                             | Read/Grep baseline           |
+| --------------------- | ------------------------------------ | ---------------------------- |
+| **Token cost**        | 50-87% less                          | Full file content every time |
+| **Context quality**   | Ranked, bounded, structured          | Raw text, no prioritization  |
+| **Multi-file impact** | 1 tool call                          | 5-10 grep + read cycles      |
+| **Runtime**           | Single Rust binary, <12ms cold start | N/A                          |
+| **Language support**  | Generated from the surface manifest  | N/A                          |
+| **Agent awareness**   | Doom-loop detection, mutation gates  | None                         |
 
 ## Key Features
 

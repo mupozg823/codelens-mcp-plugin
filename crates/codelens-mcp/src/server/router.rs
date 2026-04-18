@@ -7,7 +7,7 @@ use crate::resources::{read_resource, resources};
 use crate::tool_defs::{
     is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
     preferred_phase_labels, preferred_tier_labels, tool_namespace, tool_phase_label,
-    tool_tier_label, visible_tools,
+    tool_preferred_executor_label, tool_tier_label, visible_tools,
 };
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
@@ -269,6 +269,9 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                 .iter()
                 .map(|tool| {
                     let mut tool = (*tool).clone();
+                    tool.meta = Some(json!({
+                        "codelens/preferredExecutor": tool_preferred_executor_label(tool.name),
+                    }));
                     if !include_output_schema {
                         tool.output_schema = None;
                     }

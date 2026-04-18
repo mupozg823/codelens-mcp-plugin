@@ -133,6 +133,12 @@ Each `codelens://host-adapters/{host}` resource includes:
 - host-native config targets
 - copy-ready template snippets
 
+The same policy is also emitted at tool granularity through runtime metadata:
+
+- `tools/list` exposes `_meta["codelens/preferredExecutor"]` per tool
+- `tools/call` echoes `_meta["codelens/preferredExecutor"]` on the call result
+- current labels are `codex-builder`, `claude`, and `any`
+
 ### Layer 4. Eval and governance
 
 Only keep lanes that create new signal:

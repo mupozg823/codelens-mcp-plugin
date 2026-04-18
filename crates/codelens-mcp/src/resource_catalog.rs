@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::resource_context::{ResourceRequestContext, build_visible_tool_context};
 use crate::surface_manifest::HOST_ADAPTER_HOSTS;
-use crate::tool_defs::{tool_namespace, tool_tier_label};
+use crate::tool_defs::{tool_namespace, tool_preferred_executor_label, tool_tier_label};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
@@ -98,12 +98,16 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
     let lean_contract = request.lean_tool_contract();
     let mut namespace_counts = BTreeMap::new();
     let mut tier_counts = BTreeMap::new();
+    let mut executor_counts = BTreeMap::new();
     for tool in &context.tools {
         *namespace_counts
             .entry(tool_namespace(tool.name).to_owned())
             .or_insert(0usize) += 1;
         *tier_counts
             .entry(tool_tier_label(tool.name).to_owned())
+            .or_insert(0usize) += 1;
+        *executor_counts
+            .entry(tool_preferred_executor_label(tool.name).to_owned())
             .or_insert(0usize) += 1;
     }
     let prioritized = context
@@ -114,7 +118,8 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
             json!({
                 "name": tool.name,
                 "namespace": tool_namespace(tool.name),
-                "tier": tool_tier_label(tool.name)
+                "tier": tool_tier_label(tool.name),
+                "preferred_executor": tool_preferred_executor_label(tool.name)
             })
         })
         .collect::<Vec<_>>();
@@ -152,6 +157,7 @@ pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&
         "deferred_loading_active".to_owned(),
         json!(context.deferred_loading_active),
     );
+    payload.insert("preferred_executors".to_owned(), json!(executor_counts));
     payload.insert("recommended_tools".to_owned(), json!(prioritized));
     payload.insert(
         "note".to_owned(),
@@ -188,7 +194,8 @@ pub(crate) fn visible_tool_details(state: &AppState, uri: &str, params: Option<&
                 "name": tool.name,
                 "namespace": tool_namespace(tool.name),
                 "description": tool.description,
-                "tier": tool_tier_label(tool.name)
+                "tier": tool_tier_label(tool.name),
+                "preferred_executor": tool_preferred_executor_label(tool.name)
             })
         })
         .collect::<Vec<_>>();

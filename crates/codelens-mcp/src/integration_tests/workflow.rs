@@ -2046,7 +2046,21 @@ fn output_schema_workflow_tools_return_structured_content() {
     assert!(
         bootstrap_value["result"]["structuredContent"]["visible_tools"]["tool_names"].is_array()
     );
+    assert!(
+        bootstrap_value["result"]["structuredContent"]["visible_tools"]["preferred_executors"]
+            .is_object()
+    );
     assert!(bootstrap_value["result"]["structuredContent"]["routing"].is_object());
+    assert!(
+        bootstrap_value["result"]["structuredContent"]["routing"]
+            ["preferred_entrypoints_with_executors"]
+            .is_array()
+    );
+    assert!(
+        bootstrap_value["result"]["structuredContent"]["routing"]
+            ["recommended_entrypoint_preferred_executor"]
+            .is_string()
+    );
     assert!(bootstrap_value["result"]["structuredContent"]["warnings"].is_array());
     let bootstrap_text = parse_tool_payload(&extract_tool_text(&bootstrap_response));
     assert_eq!(

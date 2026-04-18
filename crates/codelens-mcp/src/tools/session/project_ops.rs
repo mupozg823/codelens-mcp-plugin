@@ -521,7 +521,25 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
         .filter(|tool| visible_tool_names.iter().any(|name| name == *tool))
         .cloned()
         .collect::<Vec<_>>();
+    let preferred_entrypoints_with_executors = preferred_entrypoints_visible
+        .iter()
+        .map(|tool| {
+            json!({
+                "tool": tool,
+                "preferred_executor": crate::tool_defs::tool_preferred_executor_label(tool),
+            })
+        })
+        .collect::<Vec<_>>();
     let recommended_entrypoint = preferred_entrypoints_visible.first().cloned();
+    let recommended_entrypoint_preferred_executor = recommended_entrypoint
+        .as_deref()
+        .map(crate::tool_defs::tool_preferred_executor_label);
+    let mut visible_executor_counts = std::collections::BTreeMap::new();
+    for tool in &visible.tools {
+        *visible_executor_counts
+            .entry(crate::tool_defs::tool_preferred_executor_label(tool.name).to_owned())
+            .or_insert(0usize) += 1;
+    }
 
     Ok((
         json!({
@@ -539,6 +557,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 "tool_count": visible.tools.len(),
                 "tool_count_total": visible.total_tool_count,
                 "tool_names": visible_tool_names,
+                "preferred_executors": visible_executor_counts,
                 "all_namespaces": visible.all_namespaces,
                 "all_tiers": visible.all_tiers,
                 "preferred_namespaces": visible.preferred_namespaces,
@@ -556,7 +575,9 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 "preferred_entrypoints": preferred_entrypoints,
                 "preferred_entrypoints_source": preferred_entrypoints_source,
                 "preferred_entrypoints_visible": preferred_entrypoints_visible,
+                "preferred_entrypoints_with_executors": preferred_entrypoints_with_executors,
                 "recommended_entrypoint": recommended_entrypoint,
+                "recommended_entrypoint_preferred_executor": recommended_entrypoint_preferred_executor,
             },
             "harness": {
                 "effort_level": state.effort_level().as_str(),

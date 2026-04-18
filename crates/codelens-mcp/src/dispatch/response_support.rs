@@ -694,6 +694,7 @@ pub(crate) fn max_result_size_chars_for_tool(name: &str, truncated: bool) -> usi
 
 pub(crate) fn success_jsonrpc_response(
     id: Option<Value>,
+    tool_name: &str,
     text: String,
     structured_content: Option<Value>,
     max_result_size_chars: Option<usize>,
@@ -704,10 +705,11 @@ pub(crate) fn success_jsonrpc_response(
     if let Some(structured_content) = structured_content {
         result["structuredContent"] = structured_content;
     }
+    result["_meta"] = json!({
+        "codelens/preferredExecutor": crate::tool_defs::tool_preferred_executor_label(tool_name)
+    });
     if let Some(max_chars) = max_result_size_chars {
-        result["_meta"] = json!({
-            "anthropic/maxResultSizeChars": max_chars
-        });
+        result["_meta"]["anthropic/maxResultSizeChars"] = json!(max_chars);
     }
     JsonRpcResponse::result(id, result)
 }

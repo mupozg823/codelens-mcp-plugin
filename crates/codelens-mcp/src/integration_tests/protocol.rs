@@ -411,6 +411,7 @@ fn codex_client_name_enables_lean_tools_list_contract() {
     assert!(encoded.contains("\"default_contract_mode\":\"lean\""));
     assert!(encoded.contains("\"include_output_schema\":false"));
     assert!(encoded.contains("\"include_annotations\":false"));
+    assert!(encoded.contains("\"codelens/preferredExecutor\""));
     assert!(!encoded.contains("\"outputSchema\""));
     assert!(!encoded.contains("\"annotations\""));
     assert!(!encoded.contains("\"visible_namespaces\""));
@@ -473,6 +474,82 @@ fn codex_client_can_restore_annotations_explicitly() {
     assert!(encoded.contains("\"client_profile\":\"codex\""));
     assert!(encoded.contains("\"include_annotations\":true"));
     assert!(encoded.contains("\"annotations\""));
+}
+
+#[test]
+fn tools_list_exposes_preferred_executor_per_tool() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/list".to_owned(),
+            params: Some(json!({
+                "full": true,
+            })),
+        },
+    )
+    .expect("tools/list should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    let tools = value["result"]["tools"]
+        .as_array()
+        .expect("tools/list tools array");
+    let rename = tools
+        .iter()
+        .find(|tool| tool["name"] == "rename_symbol")
+        .expect("rename_symbol present");
+    let review = tools
+        .iter()
+        .find(|tool| tool["name"] == "review_changes")
+        .expect("review_changes present");
+    let symbol = tools
+        .iter()
+        .find(|tool| tool["name"] == "find_symbol")
+        .expect("find_symbol present");
+
+    assert_eq!(
+        rename["_meta"]["codelens/preferredExecutor"],
+        json!("codex-builder")
+    );
+    assert_eq!(
+        review["_meta"]["codelens/preferredExecutor"],
+        json!("claude")
+    );
+    assert_eq!(symbol["_meta"]["codelens/preferredExecutor"], json!("any"));
+}
+
+#[test]
+fn tool_call_result_meta_exposes_preferred_executor() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "create_text_file",
+                "arguments": {
+                    "_session_id": default_session_id(&state),
+                    "relative_path": "new_file.txt",
+                    "content": "hello\n"
+                }
+            })),
+        },
+    )
+    .expect("tools/call should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    assert_eq!(
+        value["result"]["_meta"]["codelens/preferredExecutor"],
+        json!("codex-builder")
+    );
 }
 
 #[test]
