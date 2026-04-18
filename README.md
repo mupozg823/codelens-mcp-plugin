@@ -226,6 +226,20 @@ bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
 ```
 
+For an ad hoc operator snapshot without launchd, run:
+
+```bash
+bash scripts/export-eval-session-audit.sh
+bash scripts/export-eval-session-audit.sh --format markdown
+```
+
+To summarize recent daily snapshots into a drift/trend report, run:
+
+```bash
+bash scripts/summarize-eval-session-audit-history.sh
+bash scripts/summarize-eval-session-audit-history.sh --limit 7
+```
+
 See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Code, and other platforms.
 
 ### Distribution Channels

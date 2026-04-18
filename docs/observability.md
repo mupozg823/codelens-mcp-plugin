@@ -132,7 +132,8 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-sessio
 
 That wrapper runs [`scripts/export-eval-session-audit.sh`](../scripts/export-eval-session-audit.sh)
 against the configured MCP URL and writes timestamped JSON snapshots under
-`.codelens/reports/daily/` by default. Keep this separate from per-session
+.codelens/reports/daily/` by default. Pass `--format markdown` if you want
+human-readable daily operator reports instead of JSON. Keep this separate from per-session
 artifacts: the daily snapshot is daemon-scoped, while Stop hooks are
 session-scoped.
 
@@ -141,6 +142,18 @@ in this repository, point the aggregate job at `http://127.0.0.1:7839/mcp`,
 because that installer's repo-local read-only daemon default is `:7839`.
 Pass `--mcp-url` only if your running daemon uses a different address such as
 the public generic read-only example on `:7837`.
+
+After multiple daily JSON snapshots accumulate, render a trend report from the
+historical files with [`scripts/summarize-eval-session-audit-history.sh`](../scripts/summarize-eval-session-audit-history.sh):
+
+```bash
+bash scripts/summarize-eval-session-audit-history.sh
+bash scripts/summarize-eval-session-audit-history.sh --limit 7
+```
+
+That summarizer is intentionally offline and file-based. It reads historical
+artifacts under `.codelens/reports/daily/` and therefore complements the live
+daemon aggregate lane rather than replacing it.
 
 ## Troubleshooting
 

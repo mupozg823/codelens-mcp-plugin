@@ -1,21 +1,100 @@
 #!/bin/bash
 set -euo pipefail
 
+usage() {
+	cat <<'EOF'
+Usage: bash scripts/export-eval-session-audit.sh [output-path] [options]
+
+Export a daemon-wide `eval_session_audit` snapshot from a running CodeLens
+HTTP daemon. The snapshot is intentionally aggregate/runtime-scoped, not a
+per-session Stop-hook artifact.
+
+Options:
+  --format json|markdown   Output format (default: json)
+  --mcp-url URL            MCP HTTP endpoint (default: http://127.0.0.1:7837/mcp)
+  --timeout-secs N         RPC timeout in seconds (default: 10)
+  --poll-interval-secs N   Poll interval in seconds (default: 0.5)
+  --max-polls N            Maximum job polls before timing out (default: 20)
+  -h, --help               Show this help
+
+Examples:
+  bash scripts/export-eval-session-audit.sh
+  bash scripts/export-eval-session-audit.sh --format markdown
+  bash scripts/export-eval-session-audit.sh .codelens/reports/daily/latest.md --format markdown
+EOF
+}
+
 MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7837/mcp}"
 TIMEOUT_SECS="${CODELENS_AUDIT_TIMEOUT_SECS:-10}"
 POLL_INTERVAL_SECS="${CODELENS_AUDIT_POLL_INTERVAL_SECS:-0.5}"
 MAX_POLLS="${CODELENS_AUDIT_MAX_POLLS:-20}"
+OUTPUT_FORMAT="${CODELENS_AUDIT_OUTPUT_FORMAT:-json}"
 DEFAULT_OUTPUT_DIR="${CODELENS_AUDIT_OUTPUT_DIR:-.codelens/reports}"
-OUTPUT_PATH="${1:-}"
+OUTPUT_PATH=""
+
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+	-h | --help)
+		usage
+		exit 0
+		;;
+	--format)
+		OUTPUT_FORMAT="${2:-}"
+		shift 2
+		;;
+	--mcp-url)
+		MCP_URL="${2:-}"
+		shift 2
+		;;
+	--timeout-secs)
+		TIMEOUT_SECS="${2:-}"
+		shift 2
+		;;
+	--poll-interval-secs)
+		POLL_INTERVAL_SECS="${2:-}"
+		shift 2
+		;;
+	--max-polls)
+		MAX_POLLS="${2:-}"
+		shift 2
+		;;
+	-*)
+		echo "unknown option: $1" >&2
+		usage >&2
+		exit 2
+		;;
+	*)
+		if [[ -n "$OUTPUT_PATH" ]]; then
+			echo "multiple output paths provided" >&2
+			usage >&2
+			exit 2
+		fi
+		OUTPUT_PATH="$1"
+		shift
+		;;
+	esac
+done
+
+case "$OUTPUT_FORMAT" in
+json | markdown) ;;
+*)
+	echo "--format must be one of: json, markdown" >&2
+	exit 2
+	;;
+esac
 
 if [[ -z "$OUTPUT_PATH" ]]; then
 	mkdir -p "$DEFAULT_OUTPUT_DIR"
-	OUTPUT_PATH="$DEFAULT_OUTPUT_DIR/eval-session-audit-$(date +%Y%m%d-%H%M%S).json"
+	if [[ "$OUTPUT_FORMAT" == "markdown" ]]; then
+		OUTPUT_PATH="$DEFAULT_OUTPUT_DIR/eval-session-audit-$(date +%Y%m%d-%H%M%S).md"
+	else
+		OUTPUT_PATH="$DEFAULT_OUTPUT_DIR/eval-session-audit-$(date +%Y%m%d-%H%M%S).json"
+	fi
 else
 	mkdir -p "$(dirname "$OUTPUT_PATH")"
 fi
 
-python3 - "$OUTPUT_PATH" "$MCP_URL" "$TIMEOUT_SECS" "$POLL_INTERVAL_SECS" "$MAX_POLLS" <<'PY'
+python3 - "$OUTPUT_PATH" "$OUTPUT_FORMAT" "$MCP_URL" "$TIMEOUT_SECS" "$POLL_INTERVAL_SECS" "$MAX_POLLS" <<'PY'
 import json
 import sys
 import time
@@ -24,7 +103,7 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-output_path, mcp_url, timeout_secs, poll_interval_secs, max_polls = sys.argv[1:]
+output_path, output_format, mcp_url, timeout_secs, poll_interval_secs, max_polls = sys.argv[1:]
 timeout_secs = float(timeout_secs)
 poll_interval_secs = float(poll_interval_secs)
 max_polls = int(max_polls)
@@ -87,6 +166,88 @@ def section_content(payload):
     if content is None:
         raise SystemExit(f"Missing section content in payload: {json.dumps(payload)}")
     return content
+
+
+def render_markdown(payload):
+    audit = payload["audit_pass_rate"]
+    rows = payload["session_rows"]
+
+    def percent(value):
+        if value is None:
+            return "n/a"
+        return f"{value * 100:.1f}%"
+
+    def counts_line(label, counts):
+        return (
+            f"- {label}: pass={counts.get('pass', 0)}, "
+            f"warn={counts.get('warn', 0)}, fail={counts.get('fail', 0)}"
+        )
+
+    def format_list(items):
+        if not items:
+            return "_none_"
+        return ", ".join(f"`{item}`" for item in items)
+
+    lines = [
+        "# CodeLens eval_session_audit",
+        "",
+        f"- Generated at: `{payload['generated_at']}`",
+        f"- MCP URL: `{payload['mcp_url']}`",
+        f"- Job ID: `{payload['job_id']}`",
+        f"- Analysis ID: `{payload['analysis_id']}`",
+        "",
+        "## Audit Pass Rate",
+        "",
+        f"- Tracked runtime sessions: `{audit.get('tracked_session_count', 0)}`",
+        f"- Applicable audited sessions: `{audit.get('session_count', 0)}`",
+        f"- Skipped runtime sessions: `{audit.get('skipped_session_count', 0)}`",
+        f"- Builder pass rate: `{percent(audit.get('builder_pass_rate'))}` across `{audit.get('builder_session_count', 0)}` session(s)",
+        f"- Planner pass rate: `{percent(audit.get('planner_pass_rate'))}` across `{audit.get('planner_session_count', 0)}` session(s)",
+        "",
+        "### Status Counts",
+        "",
+        counts_line("Builder", audit.get("builder_status_counts", {})),
+        counts_line("Planner", audit.get("planner_status_counts", {})),
+        "",
+        "### Top Failed Checks",
+        "",
+    ]
+
+    top_failed = audit.get("top_failed_checks") or []
+    if top_failed:
+        for item in top_failed:
+            code = item.get("code", "unknown")
+            count = item.get("count", 0)
+            lines.append(f"- `{code}` in `{count}` session(s)")
+    else:
+        lines.append("- _none_")
+
+    lines.extend(["", "## Session Rows", ""])
+    sessions = rows.get("sessions") or []
+    if not sessions:
+        lines.append("_none_")
+    else:
+        for session in sessions:
+            session_id = session.get("session_id") or "unknown-session"
+            title = session_id[:8] if isinstance(session_id, str) else "unknown"
+            lines.extend(
+                [
+                    f"### `{title}`",
+                    "",
+                    f"- session_id: `{session_id}`",
+                    f"- role: `{session.get('role', 'unknown')}`",
+                    f"- status: `{session.get('status', 'unknown')}`",
+                    f"- score: `{session.get('score', 'n/a')}`",
+                    f"- surface: `{session.get('surface', 'unknown')}`",
+                    f"- transport: `{session.get('transport', 'unknown')}`",
+                    f"- finding_codes: {format_list(session.get('finding_codes') or [])}",
+                    f"- recent_tools: {format_list(session.get('recent_tools') or [])}",
+                    f"- recommended_next_tools: {format_list(session.get('recommended_next_tools') or [])}",
+                    "",
+                ]
+            )
+
+    return "\n".join(lines).rstrip() + "\n"
 
 
 start_payload = tool_call(
@@ -155,6 +316,10 @@ payload = {
     "audit_pass_rate": audit_pass_rate,
     "session_rows": session_rows,
 }
-Path(output_path).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+if output_format == "markdown":
+    rendered = render_markdown(payload)
+else:
+    rendered = json.dumps(payload, indent=2) + "\n"
+Path(output_path).write_text(rendered, encoding="utf-8")
 print(output_path)
 PY

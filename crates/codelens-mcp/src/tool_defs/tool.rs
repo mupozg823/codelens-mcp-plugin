@@ -1,5 +1,5 @@
-use crate::AppState;
 use crate::tool_runtime::ToolResult;
+use crate::AppState;
 use serde_json::Value;
 
 /// Runtime behaviour of a dispatch-table entry. Identification lives on the
@@ -15,10 +15,14 @@ pub trait McpTool: Send + Sync {
     fn execute(&self, state: &AppState, arguments: &Value) -> ToolResult;
 }
 
+/// Boxed executor signature shared by [`BuiltTool`] and any future
+/// function-backed tool adapters.
+type ToolExecutor = Box<dyn Fn(&AppState, &Value) -> ToolResult + Send + Sync>;
+
 /// Function-backed tool. Construct with [`BuiltTool::new`] — the handler is
 /// required at construction, so there is no "half-built" state.
 pub struct BuiltTool {
-    executable: Box<dyn Fn(&AppState, &Value) -> ToolResult + Send + Sync>,
+    executable: ToolExecutor,
 }
 
 impl BuiltTool {

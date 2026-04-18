@@ -590,8 +590,8 @@ fn inspect_text_policy_file(path: &Path, expected: &str, format: &str) -> String
     if normalize_text_for_compare(&content) == normalize_text_for_compare(expected) {
         return format!("- {display} [{format}]: present (exact generated file)");
     }
-    if let Some(expected_block) = extract_managed_text_block(expected) {
-        if let Some(actual_block) = extract_managed_text_block(&content) {
+    if let Some(expected_block) = extract_managed_text_block(expected)
+        && let Some(actual_block) = extract_managed_text_block(&content) {
             if normalize_text_for_compare(&actual_block)
                 == normalize_text_for_compare(&expected_block)
             {
@@ -599,7 +599,6 @@ fn inspect_text_policy_file(path: &Path, expected: &str, format: &str) -> String
             }
             return format!("- {display} [{format}]: present (customized managed block)");
         }
-    }
     if first_significant_template_line(expected).is_some_and(|line| content.contains(line)) {
         return format!("- {display} [{format}]: present (customized)");
     }
@@ -624,8 +623,8 @@ fn inspect_text_policy_file_json(path: &Path, expected: &str, format: &str) -> V
             "message": "present (exact generated file)",
         });
     }
-    if let Some(expected_block) = extract_managed_text_block(expected) {
-        if let Some(actual_block) = extract_managed_text_block(&content) {
+    if let Some(expected_block) = extract_managed_text_block(expected)
+        && let Some(actual_block) = extract_managed_text_block(&content) {
             if normalize_text_for_compare(&actual_block)
                 == normalize_text_for_compare(&expected_block)
             {
@@ -643,7 +642,6 @@ fn inspect_text_policy_file_json(path: &Path, expected: &str, format: &str) -> V
                 "message": "present (customized managed block)",
             });
         }
-    }
     if first_significant_template_line(expected).is_some_and(|line| content.contains(line)) {
         return json!({
             "path": path_text,
@@ -1294,7 +1292,8 @@ pub(crate) fn format_http_startup_banner(
 #[cfg(test)]
 mod startup_tests {
     use super::{
-        StartupProjectSource, canonical_attach_host, parse_cli_project_arg, parse_detach_hosts,
+        StartupProjectSource, canonical_attach_host, inspect_text_policy_file,
+        inspect_text_policy_file_json, parse_cli_project_arg, parse_detach_hosts,
         parse_doctor_hosts, render_attach_instructions, render_detach_report, render_doctor_report,
         resolve_startup_project, run_doctor_command,
     };
@@ -1381,6 +1380,8 @@ mod startup_tests {
         assert!(rendered.contains("handoff_id"));
         assert!(rendered.contains("~/.codex/config.toml"));
         assert!(rendered.contains("AGENTS.md"));
+        assert!(rendered.contains("<!-- CODELENS_HOST_ROUTING:BEGIN -->"));
+        assert!(rendered.contains("<!-- CODELENS_HOST_ROUTING:END -->"));
         assert!(rendered.contains("worktrees"));
         assert!(rendered.contains("analysis jobs for CI-facing summaries"));
         assert!(
@@ -1589,6 +1590,66 @@ url = "http://127.0.0.1:9999/mcp"
             render_doctor_report("doctor", &["codex"], &home, &cwd).expect("doctor report");
         assert!(report.contains(".codex/config.toml [toml]: missing"));
         assert!(report.contains("AGENTS.md [markdown]: missing"));
+    }
+
+    #[test]
+    fn inspect_text_policy_file_treats_exact_managed_block_as_present_exact() {
+        let root = temp_dir("doctor-managed-block-exact");
+        let file = root.join("AGENTS.md");
+        let expected = r#"<!-- CODELENS_HOST_ROUTING:BEGIN -->
+## CodeLens Routing
+
+- Native first.
+<!-- CODELENS_HOST_ROUTING:END -->
+"#;
+        std::fs::write(
+            &file,
+            format!(
+                "# Repo Notes\n\n{}\n## Local Notes\n\nKeep the rest of the file.\n",
+                expected.trim_end()
+            ),
+        )
+        .unwrap();
+
+        let text_status = inspect_text_policy_file(&file, expected, "markdown");
+        let json_status = inspect_text_policy_file_json(&file, expected, "markdown");
+
+        assert!(text_status.contains("present (exact managed block)"));
+        assert_eq!(json_status["status"], "present_exact");
+        assert_eq!(json_status["message"], "present (exact managed block)");
+    }
+
+    #[test]
+    fn inspect_text_policy_file_treats_modified_managed_block_as_present_customized() {
+        let root = temp_dir("doctor-managed-block-customized");
+        let file = root.join("CLAUDE.md");
+        let expected = r#"<!-- CODELENS_HOST_ROUTING:BEGIN -->
+## CodeLens Routing
+
+- Native first.
+<!-- CODELENS_HOST_ROUTING:END -->
+"#;
+        let customized = r#"<!-- CODELENS_HOST_ROUTING:BEGIN -->
+## CodeLens Routing
+
+- Native first, but customized locally.
+<!-- CODELENS_HOST_ROUTING:END -->
+"#;
+        std::fs::write(
+            &file,
+            format!(
+                "# Project Notes\n\n{}\n## Remaining Instructions\n\nLocal content.\n",
+                customized.trim_end()
+            ),
+        )
+        .unwrap();
+
+        let text_status = inspect_text_policy_file(&file, expected, "markdown");
+        let json_status = inspect_text_policy_file_json(&file, expected, "markdown");
+
+        assert!(text_status.contains("present (customized managed block)"));
+        assert_eq!(json_status["status"], "present_customized");
+        assert_eq!(json_status["message"], "present (customized managed block)");
     }
 
     #[test]

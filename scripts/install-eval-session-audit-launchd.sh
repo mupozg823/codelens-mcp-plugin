@@ -11,6 +11,7 @@ once per day against a running CodeLens HTTP daemon.
 Options:
   --hour N          Hour in local time (default: 23)
   --minute N        Minute in local time (default: 55)
+  --format FMT      Snapshot format: json or markdown (default: json)
   --mcp-url URL     MCP HTTP endpoint (default: http://127.0.0.1:7839/mcp)
   --output-dir DIR  Snapshot output dir (default: <repo>/.codelens/reports/daily)
   --label LABEL     launchd label (default: dev.codelens.eval-session-audit.<repo>)
@@ -32,6 +33,7 @@ REPO_ROOT=""
 HOUR=23
 MINUTE=55
 MCP_URL="${CODELENS_AUDIT_MCP_URL:-http://127.0.0.1:7839/mcp}"
+OUTPUT_FORMAT="${CODELENS_AUDIT_OUTPUT_FORMAT:-json}"
 OUTPUT_DIR=""
 LABEL=""
 PLIST_PATH=""
@@ -63,6 +65,10 @@ while [[ $# -gt 0 ]]; do
 		;;
 	--minute)
 		MINUTE="${2:-}"
+		shift 2
+		;;
+	--format)
+		OUTPUT_FORMAT="${2:-}"
 		shift 2
 		;;
 	--mcp-url)
@@ -129,6 +135,13 @@ if ! is_int_in_range "$MINUTE" 0 59; then
 	echo "--minute must be an integer in [0, 59]" >&2
 	exit 2
 fi
+case "$OUTPUT_FORMAT" in
+json | markdown) ;;
+*)
+	echo "--format must be one of: json, markdown" >&2
+	exit 2
+	;;
+esac
 
 if [[ -z "$OUTPUT_DIR" ]]; then
 	OUTPUT_DIR="$REPO_ROOT/.codelens/reports/daily"
@@ -162,7 +175,7 @@ PY
 }
 
 EXPORT_SCRIPT="$REPO_ROOT/scripts/export-eval-session-audit.sh"
-LAUNCH_COMMAND="cd $(quote_for_bash "$REPO_ROOT") && CODELENS_AUDIT_MCP_URL=$(quote_for_bash "$MCP_URL") CODELENS_AUDIT_OUTPUT_DIR=$(quote_for_bash "$OUTPUT_DIR") bash $(quote_for_bash "$EXPORT_SCRIPT")"
+LAUNCH_COMMAND="cd $(quote_for_bash "$REPO_ROOT") && CODELENS_AUDIT_MCP_URL=$(quote_for_bash "$MCP_URL") CODELENS_AUDIT_OUTPUT_DIR=$(quote_for_bash "$OUTPUT_DIR") CODELENS_AUDIT_OUTPUT_FORMAT=$(quote_for_bash "$OUTPUT_FORMAT") bash $(quote_for_bash "$EXPORT_SCRIPT")"
 LABEL_XML="$(xml_escape "$LABEL")"
 LAUNCH_COMMAND_XML="$(xml_escape "$LAUNCH_COMMAND")"
 REPO_ROOT_XML="$(xml_escape "$REPO_ROOT")"
@@ -220,6 +233,7 @@ fi
 echo "==> Wrote $PLIST_PATH"
 echo "==> Schedule: daily $(printf '%02d:%02d' "$HOUR" "$MINUTE")"
 echo "==> MCP URL: $MCP_URL"
+echo "==> Output format: $OUTPUT_FORMAT"
 echo "==> Output dir: $OUTPUT_DIR"
 echo "==> stdout log: $STDOUT_PATH"
 echo "==> stderr log: $STDERR_PATH"

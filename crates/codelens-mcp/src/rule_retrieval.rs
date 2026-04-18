@@ -1,10 +1,10 @@
 //! Lexical retrieval over the rule corpus (P2.1b + P2.1b-v2).
 //!
 //! Self-contained BM25F implementation — we do NOT reuse the engine's
-//! SQLite FTS5 pipeline because the rule corpus is small, static-per-
-//! session, and markdown-shaped (`frontmatter_name` + `section_title`
-//! + body), which does not fit the `SymbolRow` schema the FTS5 index
-//! is tied to.
+//! SQLite FTS5 pipeline because the rule corpus is small,
+//! static-per-session, and markdown-shaped (`frontmatter_name` +
+//! `section_title` + body), which does not fit the `SymbolRow` schema
+//! the FTS5 index is tied to.
 //!
 //! ### BM25F field weighting (P2.1b-v2)
 //!

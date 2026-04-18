@@ -124,12 +124,41 @@ For daemon-wide aggregation across currently tracked runtime sessions, enqueue t
 
 For operator snapshots against a running HTTP daemon, use [`scripts/export-eval-session-audit.sh`](../scripts/export-eval-session-audit.sh). That script is intentionally separate from host Stop hooks because aggregate runtime state only exists in the daemon, not in a fresh one-shot CLI process.
 
+Examples:
+
+```bash
+# JSON snapshot (default)
+bash scripts/export-eval-session-audit.sh
+
+# Human-readable operator report
+bash scripts/export-eval-session-audit.sh --format markdown
+```
+
 For a daily macOS operator snapshot, install the launchd wrapper with [`scripts/install-eval-session-audit-launchd.sh`](../scripts/install-eval-session-audit-launchd.sh). Example:
 
 ```bash
 bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
 ```
+
+Add `--format markdown` if the operator lane should emit directly readable daily reports instead of JSON snapshots.
+
+Once daily JSON snapshots accumulate, summarize recent drift/trend over that history with:
+
+```bash
+# Readable summary to stdout
+bash scripts/summarize-eval-session-audit-history.sh
+
+# Last 7 snapshots only
+bash scripts/summarize-eval-session-audit-history.sh --limit 7
+
+# Persist the rendered summary
+bash scripts/summarize-eval-session-audit-history.sh .codelens/reports/daily/latest-summary.md
+```
+
+The history summarizer is file-based and offline. It reads prior
+`eval-session-audit-*.json` artifacts under `.codelens/reports/daily/` and
+does not depend on a currently running daemon.
 
 That launchd wrapper defaults to `http://127.0.0.1:7839/mcp` so it matches
 this repository's local read-only daemon shape. Pass `--mcp-url` only if your
