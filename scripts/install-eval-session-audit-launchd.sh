@@ -152,8 +152,22 @@ quote_for_bash() {
 	printf '%q' "$1"
 }
 
+xml_escape() {
+	python3 - "$1" <<'PY'
+import html
+import sys
+
+print(html.escape(sys.argv[1], quote=True))
+PY
+}
+
 EXPORT_SCRIPT="$REPO_ROOT/scripts/export-eval-session-audit.sh"
-BASH_COMMAND="cd $(quote_for_bash "$REPO_ROOT") && CODELENS_AUDIT_MCP_URL=$(quote_for_bash "$MCP_URL") CODELENS_AUDIT_OUTPUT_DIR=$(quote_for_bash "$OUTPUT_DIR") bash $(quote_for_bash "$EXPORT_SCRIPT")"
+LAUNCH_COMMAND="cd $(quote_for_bash "$REPO_ROOT") && CODELENS_AUDIT_MCP_URL=$(quote_for_bash "$MCP_URL") CODELENS_AUDIT_OUTPUT_DIR=$(quote_for_bash "$OUTPUT_DIR") bash $(quote_for_bash "$EXPORT_SCRIPT")"
+LABEL_XML="$(xml_escape "$LABEL")"
+LAUNCH_COMMAND_XML="$(xml_escape "$LAUNCH_COMMAND")"
+REPO_ROOT_XML="$(xml_escape "$REPO_ROOT")"
+STDOUT_PATH_XML="$(xml_escape "$STDOUT_PATH")"
+STDERR_PATH_XML="$(xml_escape "$STDERR_PATH")"
 
 RUN_AT_LOAD_XML=""
 if [[ "$RUN_AT_LOAD" == "1" ]]; then
@@ -166,15 +180,15 @@ PLIST_CONTENT="$(cat <<EOF
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${LABEL}</string>
+  <string>${LABEL_XML}</string>
   <key>ProgramArguments</key>
   <array>
     <string>/bin/bash</string>
     <string>-lc</string>
-    <string>${BASH_COMMAND}</string>
+    <string>${LAUNCH_COMMAND_XML}</string>
   </array>
   <key>WorkingDirectory</key>
-  <string>${REPO_ROOT}</string>
+  <string>${REPO_ROOT_XML}</string>
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key>
@@ -183,9 +197,9 @@ PLIST_CONTENT="$(cat <<EOF
     <integer>${MINUTE}</integer>
   </dict>
 ${RUN_AT_LOAD_XML}  <key>StandardOutPath</key>
-  <string>${STDOUT_PATH}</string>
+  <string>${STDOUT_PATH_XML}</string>
   <key>StandardErrorPath</key>
-  <string>${STDERR_PATH}</string>
+  <string>${STDERR_PATH_XML}</string>
 </dict>
 </plist>
 EOF

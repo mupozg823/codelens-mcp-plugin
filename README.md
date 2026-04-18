@@ -167,6 +167,18 @@ Recommended operating policy:
 
 #### Auto-start on macOS (launchd)
 
+For this repository, prefer the installer script over hand-editing plist files:
+
+```bash
+bash scripts/install-http-daemons-launchd.sh . --load
+```
+
+That installs two repo-local launchd agents from a current `--features http`
+build:
+
+- `dev.codelens.mcp-readonly` -> `reviewer-graph` on `:7839`
+- `dev.codelens.mcp-mutation` -> `refactor-full` on `:7838`
+
 ```xml
 <!-- ~/Library/LaunchAgents/dev.codelens.mcp.plist -->
 <?xml version="1.0" encoding="UTF-8"?>
@@ -195,7 +207,7 @@ launchctl list | grep codelens   # confirm it's running
 For the separate daily aggregate audit snapshot, install the operator job with:
 
 ```bash
-bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
+bash scripts/install-eval-session-audit-launchd.sh . --mcp-url http://127.0.0.1:7839/mcp --hour 23 --minute 55
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
 ```
 

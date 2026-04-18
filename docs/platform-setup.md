@@ -83,6 +83,8 @@ Recommended daemon split:
 - `7837` read-only daemon for planning, review, CI, and remote bootstrap
 - `7838` mutation-enabled daemon only for explicit gated refactor sessions
 
+For this repository's local launchd workflow, use [`scripts/install-http-daemons-launchd.sh`](../scripts/install-http-daemons-launchd.sh). It installs the repo-local dual-daemon shape from a current `--features http` build and defaults to `7839` read-only plus `7838` mutation-enabled to match the local harness contract.
+
 If you need a public planner -> builder delegation pattern, including fixed preflight order, coordination TTL discipline, and explicit `release_files`, see [Multi-agent integration](multi-agent-integration.md).
 
 For builder-session audit operations after a run:
@@ -115,9 +117,11 @@ For operator snapshots against a running HTTP daemon, use [`scripts/export-eval-
 For a daily macOS operator snapshot, install the launchd wrapper with [`scripts/install-eval-session-audit-launchd.sh`](../scripts/install-eval-session-audit-launchd.sh). Example:
 
 ```bash
-bash scripts/install-eval-session-audit-launchd.sh . --hour 23 --minute 55
+bash scripts/install-eval-session-audit-launchd.sh . --mcp-url http://127.0.0.1:7839/mcp --hour 23 --minute 55
 launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.codelens.eval-session-audit.codelens-mcp-plugin.plist
 ```
+
+If `export-eval-session-audit.sh` fails with `unsupported analysis job kind 'eval_session_audit'`, the running daemon is older than the current aggregate lane. Restart that daemon from a current build before treating it as a script failure.
 
 Use `resources/read` on `codelens://surface/manifest` when you need the canonical source for workspace version, tool counts, profile membership, or supported-language inventory. Repository docs are generated from the same manifest.
 

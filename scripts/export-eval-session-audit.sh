@@ -103,12 +103,18 @@ if not isinstance(job_id, str) or not job_id:
 
 analysis_id = None
 status = None
+error_detail = None
 for _ in range(max_polls):
     job_payload = tool_call("get_analysis_job", {"job_id": job_id})
     status = first_present(
         job_payload,
         ("result", "structuredContent", "data", "status"),
         ("result", "structuredContent", "status"),
+    )
+    error_detail = first_present(
+        job_payload,
+        ("result", "structuredContent", "data", "error"),
+        ("result", "structuredContent", "error"),
     )
     if status == "completed":
         analysis_id = first_present(
@@ -117,13 +123,15 @@ for _ in range(max_polls):
             ("result", "structuredContent", "analysis_id"),
         )
         break
-    if status in {"failed", "cancelled"}:
-        raise SystemExit(f"eval_session_audit job {job_id} ended with status={status}")
+    if status in {"failed", "cancelled", "error"}:
+        suffix = f": {error_detail}" if isinstance(error_detail, str) and error_detail else ""
+        raise SystemExit(f"eval_session_audit job {job_id} ended with status={status}{suffix}")
     time.sleep(poll_interval_secs)
 
 if not isinstance(analysis_id, str) or not analysis_id:
+    suffix = f", error={error_detail}" if isinstance(error_detail, str) and error_detail else ""
     raise SystemExit(
-        f"Timed out waiting for eval_session_audit completion (job_id={job_id}, status={status or 'unknown'})"
+        f"Timed out waiting for eval_session_audit completion (job_id={job_id}, status={status or 'unknown'}{suffix})"
     )
 
 audit_pass_rate = section_content(
