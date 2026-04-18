@@ -12,6 +12,9 @@
 
 use std::env;
 
+#[cfg(test)]
+pub(crate) static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Resolve an env var honoring both `SYMBIOTE_*` and `CODELENS_*`
 /// prefixes. If `SYMBIOTE_*` is set, it wins (matches the rebrand
 /// direction). Falls back to the canonical `CODELENS_*` name. Returns
@@ -21,11 +24,11 @@ use std::env;
 /// `"CODELENS_RATE_LIMIT"`). Passing a `SYMBIOTE_*` form is a
 /// programmer error and panics in debug, silently degrades in release.
 ///
-/// No consumers yet in the main binary — this helper is published
-/// upfront so Phase 3 (v2.0.0) can rewrite direct `std::env::var` calls
-/// mechanically. Mark `#[allow(dead_code)]` while the call-site fleet
-/// still uses the canonical prefix directly.
-#[allow(dead_code)]
+/// Wired into the startup env-var reads in `main.rs` so both prefixes
+/// work at runtime; ADR-0007 Phase 3 (v2.0.0) will rename the canonical
+/// form from `CODELENS_*` to `SYMBIOTE_*` and this helper becomes a
+/// single-prefix lookup. Until then, every call site that used to do
+/// `std::env::var("CODELENS_*")` should route through here.
 pub fn dual_prefix_env(canonical_name: &str) -> Option<String> {
     debug_assert!(
         canonical_name.starts_with("CODELENS_"),
@@ -49,10 +52,8 @@ mod tests {
     use super::*;
 
     // Serialize env-var tests — std::env is process-global.
-    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn with_env<F: FnOnce()>(symbiote: Option<&str>, codelens: Option<&str>, f: F) {
-        let _guard = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        let _guard = TEST_ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
         let prev_symbiote = env::var("SYMBIOTE_ENV_COMPAT_TEST").ok();
         let prev_codelens = env::var("CODELENS_ENV_COMPAT_TEST").ok();
         // SAFETY: tests run serially under ENV_LOCK.

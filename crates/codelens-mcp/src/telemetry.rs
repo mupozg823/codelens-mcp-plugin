@@ -1,5 +1,6 @@
 //! Per-tool usage telemetry: call counts, latency, and error tracking.
 
+use crate::env_compat::dual_prefix_env;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::OpenOptions;
@@ -256,8 +257,9 @@ struct PersistedEvent<'a> {
 
 /// Append-only JSONL writer for tool invocation telemetry.
 ///
-/// Enabled via `CODELENS_TELEMETRY_ENABLED=1` (default path
-/// `.codelens/telemetry/tool_usage.jsonl`) or `CODELENS_TELEMETRY_PATH=<override>`.
+/// Enabled via `SYMBIOTE_TELEMETRY_ENABLED=1` / `CODELENS_TELEMETRY_ENABLED=1`
+/// (default path `.codelens/telemetry/tool_usage.jsonl`) or
+/// `SYMBIOTE_TELEMETRY_PATH=<override>` / `CODELENS_TELEMETRY_PATH=<override>`.
 ///
 /// The writer runs on the hot dispatch path. All I/O failures are logged once
 /// and swallowed so telemetry can never break tool execution.
@@ -269,14 +271,12 @@ impl TelemetryWriter {
     /// Resolve a writer from environment variables. Returns `None` when
     /// persistence is disabled (the default).
     pub(crate) fn from_env() -> Option<Self> {
-        if let Ok(custom) = std::env::var("CODELENS_TELEMETRY_PATH")
-            && !custom.is_empty()
-        {
+        if let Some(custom) = dual_prefix_env("CODELENS_TELEMETRY_PATH") {
             return Some(Self {
                 path: PathBuf::from(custom),
             });
         }
-        let enabled = std::env::var("CODELENS_TELEMETRY_ENABLED")
+        let enabled = dual_prefix_env("CODELENS_TELEMETRY_ENABLED")
             .map(|v| {
                 let lowered = v.to_ascii_lowercase();
                 matches!(lowered.as_str(), "1" | "true" | "yes" | "on")
@@ -1658,12 +1658,19 @@ mod tests {
 
     #[test]
     fn telemetry_writer_from_env_disabled_by_default() {
+        let _guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
         // Save and clear env
+        let prev_sym_enabled = std::env::var("SYMBIOTE_TELEMETRY_ENABLED").ok();
+        let prev_sym_path = std::env::var("SYMBIOTE_TELEMETRY_PATH").ok();
         let prev_enabled = std::env::var("CODELENS_TELEMETRY_ENABLED").ok();
         let prev_path = std::env::var("CODELENS_TELEMETRY_PATH").ok();
         // SAFETY: tests in this file do not run in parallel across env
         // boundaries for this variable, and we restore afterwards.
         unsafe {
+            std::env::remove_var("SYMBIOTE_TELEMETRY_ENABLED");
+            std::env::remove_var("SYMBIOTE_TELEMETRY_PATH");
             std::env::remove_var("CODELENS_TELEMETRY_ENABLED");
             std::env::remove_var("CODELENS_TELEMETRY_PATH");
         }
@@ -1671,11 +1678,90 @@ mod tests {
         assert!(TelemetryWriter::from_env().is_none());
 
         unsafe {
+            if let Some(val) = prev_sym_enabled {
+                std::env::set_var("SYMBIOTE_TELEMETRY_ENABLED", val);
+            }
+            if let Some(val) = prev_sym_path {
+                std::env::set_var("SYMBIOTE_TELEMETRY_PATH", val);
+            }
             if let Some(val) = prev_enabled {
                 std::env::set_var("CODELENS_TELEMETRY_ENABLED", val);
             }
             if let Some(val) = prev_path {
                 std::env::set_var("CODELENS_TELEMETRY_PATH", val);
+            }
+        }
+    }
+
+    #[test]
+    fn telemetry_writer_from_env_prefers_symbiote_path() {
+        let _guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let prev_sym_path = std::env::var("SYMBIOTE_TELEMETRY_PATH").ok();
+        let prev_path = std::env::var("CODELENS_TELEMETRY_PATH").ok();
+        unsafe {
+            std::env::set_var("SYMBIOTE_TELEMETRY_PATH", "/tmp/symbiote-telemetry.jsonl");
+            std::env::set_var("CODELENS_TELEMETRY_PATH", "/tmp/codelens-telemetry.jsonl");
+        }
+
+        let writer = TelemetryWriter::from_env().expect("telemetry writer should be configured");
+        assert_eq!(
+            writer.path(),
+            std::path::Path::new("/tmp/symbiote-telemetry.jsonl")
+        );
+
+        unsafe {
+            match prev_sym_path {
+                Some(val) => std::env::set_var("SYMBIOTE_TELEMETRY_PATH", val),
+                None => std::env::remove_var("SYMBIOTE_TELEMETRY_PATH"),
+            }
+            match prev_path {
+                Some(val) => std::env::set_var("CODELENS_TELEMETRY_PATH", val),
+                None => std::env::remove_var("CODELENS_TELEMETRY_PATH"),
+            }
+        }
+    }
+
+    #[test]
+    fn telemetry_writer_from_env_accepts_symbiote_enabled_flag() {
+        let _guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let prev_sym_enabled = std::env::var("SYMBIOTE_TELEMETRY_ENABLED").ok();
+        let prev_enabled = std::env::var("CODELENS_TELEMETRY_ENABLED").ok();
+        let prev_sym_path = std::env::var("SYMBIOTE_TELEMETRY_PATH").ok();
+        let prev_path = std::env::var("CODELENS_TELEMETRY_PATH").ok();
+        unsafe {
+            std::env::set_var("SYMBIOTE_TELEMETRY_ENABLED", "1");
+            std::env::remove_var("CODELENS_TELEMETRY_ENABLED");
+            std::env::remove_var("SYMBIOTE_TELEMETRY_PATH");
+            std::env::remove_var("CODELENS_TELEMETRY_PATH");
+        }
+
+        let writer =
+            TelemetryWriter::from_env().expect("symbiote enabled flag should configure telemetry");
+        assert_eq!(
+            writer.path(),
+            std::path::Path::new(".codelens/telemetry/tool_usage.jsonl")
+        );
+
+        unsafe {
+            match prev_sym_enabled {
+                Some(val) => std::env::set_var("SYMBIOTE_TELEMETRY_ENABLED", val),
+                None => std::env::remove_var("SYMBIOTE_TELEMETRY_ENABLED"),
+            }
+            match prev_enabled {
+                Some(val) => std::env::set_var("CODELENS_TELEMETRY_ENABLED", val),
+                None => std::env::remove_var("CODELENS_TELEMETRY_ENABLED"),
+            }
+            match prev_sym_path {
+                Some(val) => std::env::set_var("SYMBIOTE_TELEMETRY_PATH", val),
+                None => std::env::remove_var("SYMBIOTE_TELEMETRY_PATH"),
+            }
+            match prev_path {
+                Some(val) => std::env::set_var("CODELENS_TELEMETRY_PATH", val),
+                None => std::env::remove_var("CODELENS_TELEMETRY_PATH"),
             }
         }
     }

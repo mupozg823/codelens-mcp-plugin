@@ -40,7 +40,12 @@ pub(crate) use state::AppState;
 use anyhow::Result;
 #[cfg(feature = "http")]
 use cli::format_http_startup_banner;
-use cli::{cli_option_value, resolve_startup_project, select_startup_project_source};
+use cli::{
+    attach_host_arg, cli_option_value, is_attach_subcommand, is_detach_subcommand,
+    render_attach_instructions, resolve_startup_project, run_detach_command,
+    select_startup_project_source,
+};
+use env_compat::dual_prefix_env;
 use server::oneshot::run_oneshot;
 use server::transport_stdio::run_stdio;
 use state::RuntimeDaemonMode;
@@ -51,21 +56,42 @@ use tool_defs::{
 
 // ── Tracing / OpenTelemetry initialisation ──────────────────────────
 
+fn configured_log_filter() -> tracing_subscriber::EnvFilter {
+    dual_prefix_env("CODELENS_LOG")
+        .and_then(|value| tracing_subscriber::EnvFilter::try_new(value).ok())
+        .unwrap_or_else(|| tracing_subscriber::EnvFilter::new("warn"))
+}
+
+fn configured_preset_env() -> Option<ToolPreset> {
+    dual_prefix_env("CODELENS_PRESET").map(|value| ToolPreset::from_str(&value))
+}
+
+fn configured_profile_env() -> Option<ToolProfile> {
+    dual_prefix_env("CODELENS_PROFILE").and_then(|value| ToolProfile::from_str(&value))
+}
+
+fn configured_daemon_mode_env() -> Option<RuntimeDaemonMode> {
+    dual_prefix_env("CODELENS_DAEMON_MODE").map(|value| RuntimeDaemonMode::from_str(&value))
+}
+
+#[cfg(feature = "otel")]
+fn configured_otel_endpoint() -> String {
+    dual_prefix_env("CODELENS_OTEL_ENDPOINT").unwrap_or_default()
+}
+
 /// Stderr-only fmt subscriber (default, always present).
 fn init_tracing_fmt_only() {
     tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_env("CODELENS_LOG")
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn")),
-        )
+        .with_env_filter(configured_log_filter())
         .with_writer(std::io::stderr)
         .with_target(false)
         .init();
 }
 
-/// When the `otel` feature is enabled AND `CODELENS_OTEL_ENDPOINT` is set,
-/// build a layered subscriber: fmt (stderr) + OpenTelemetry OTLP exporter.
-/// Otherwise fall back to fmt-only.
+/// When the `otel` feature is enabled AND `SYMBIOTE_OTEL_ENDPOINT` or
+/// `CODELENS_OTEL_ENDPOINT` is set, build a layered subscriber:
+/// fmt (stderr) + OpenTelemetry OTLP exporter. Otherwise fall back to
+/// fmt-only.
 #[cfg(feature = "otel")]
 fn init_tracing() {
     use opentelemetry::trace::TracerProvider as _;
@@ -74,7 +100,7 @@ fn init_tracing() {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    let endpoint = std::env::var("CODELENS_OTEL_ENDPOINT").unwrap_or_default();
+    let endpoint = configured_otel_endpoint();
     if endpoint.is_empty() {
         init_tracing_fmt_only();
         return;
@@ -108,15 +134,12 @@ fn init_tracing() {
     let tracer = provider.tracer("codelens-mcp");
     let otel_layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
-    let env_filter = tracing_subscriber::EnvFilter::try_from_env("CODELENS_LOG")
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
-
     let fmt_layer = tracing_subscriber::fmt::layer()
         .with_writer(std::io::stderr)
         .with_target(false);
 
     tracing_subscriber::registry()
-        .with(env_filter)
+        .with(configured_log_filter())
         .with(fmt_layer)
         .with(otel_layer)
         .init();
@@ -131,41 +154,43 @@ fn init_tracing() {
 
 fn main() -> Result<()> {
     // Initialize tracing subscriber — output to stderr to avoid interfering with
-    // stdio JSON-RPC transport on stdout. Controlled via CODELENS_LOG env var.
+    // stdio JSON-RPC transport on stdout. Controlled via SYMBIOTE_LOG or
+    // CODELENS_LOG.
     //
-    // When the `otel` feature is enabled and CODELENS_OTEL_ENDPOINT is set,
-    // an OpenTelemetry OTLP exporter layer is added so spans are shipped to
-    // an external collector (Jaeger, Grafana Tempo, etc.).
+    // When the `otel` feature is enabled and SYMBIOTE_OTEL_ENDPOINT or
+    // CODELENS_OTEL_ENDPOINT is set, an OpenTelemetry OTLP exporter layer
+    // is added so spans are shipped to an external collector (Jaeger,
+    // Grafana Tempo, etc.).
     init_tracing();
 
     let args: Vec<String> = std::env::args().collect();
+    if is_attach_subcommand(&args) {
+        println!(
+            "{}",
+            render_attach_instructions(attach_host_arg(&args).as_deref())?
+        );
+        return Ok(());
+    }
+    if is_detach_subcommand(&args) {
+        println!("{}", run_detach_command(&args)?);
+        return Ok(());
+    }
+
     let preset = args
         .iter()
         .position(|a| a == "--preset")
         .and_then(|i| args.get(i + 1))
         .map(|s| ToolPreset::from_str(s))
-        .or_else(|| {
-            std::env::var("CODELENS_PRESET")
-                .ok()
-                .map(|s| ToolPreset::from_str(&s))
-        })
+        .or_else(configured_preset_env)
         .unwrap_or_else(|| state::ClientProfile::detect(None).default_preset());
     let profile = cli_option_value(&args, "--profile")
         .as_deref()
         .and_then(ToolProfile::from_str)
-        .or_else(|| {
-            std::env::var("CODELENS_PROFILE")
-                .ok()
-                .and_then(|s| ToolProfile::from_str(&s))
-        });
+        .or_else(configured_profile_env);
     let daemon_mode = cli_option_value(&args, "--daemon-mode")
         .as_deref()
         .map(RuntimeDaemonMode::from_str)
-        .or_else(|| {
-            std::env::var("CODELENS_DAEMON_MODE")
-                .ok()
-                .map(|s| RuntimeDaemonMode::from_str(&s))
-        })
+        .or_else(configured_daemon_mode_env)
         .unwrap_or(RuntimeDaemonMode::Standard);
 
     if args.iter().any(|arg| arg == "--print-surface-manifest") {
@@ -272,3 +297,71 @@ fn main() -> Result<()> {
 #[path = "integration_tests/mod.rs"]
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod env_config_tests {
+    use super::*;
+
+    fn with_env(vars: &[(&str, Option<&str>)], f: impl FnOnce()) {
+        let _guard = crate::env_compat::TEST_ENV_LOCK
+            .lock()
+            .unwrap_or_else(|poison| poison.into_inner());
+        let previous = vars
+            .iter()
+            .map(|(name, _)| ((*name).to_owned(), std::env::var(name).ok()))
+            .collect::<Vec<_>>();
+        unsafe {
+            for (name, value) in vars {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+        f();
+        unsafe {
+            for (name, value) in previous {
+                match value {
+                    Some(value) => std::env::set_var(name, value),
+                    None => std::env::remove_var(name),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn symbiote_preset_profile_and_daemon_mode_override_codelens_values() {
+        with_env(
+            &[
+                ("SYMBIOTE_PRESET", Some("minimal")),
+                ("CODELENS_PRESET", Some("full")),
+                ("SYMBIOTE_PROFILE", Some("builder-minimal")),
+                ("CODELENS_PROFILE", Some("planner-readonly")),
+                ("SYMBIOTE_DAEMON_MODE", Some("mutation-enabled")),
+                ("CODELENS_DAEMON_MODE", Some("read-only")),
+            ],
+            || {
+                assert_eq!(configured_preset_env(), Some(ToolPreset::Minimal));
+                assert_eq!(configured_profile_env(), Some(ToolProfile::BuilderMinimal));
+                assert_eq!(
+                    configured_daemon_mode_env(),
+                    Some(RuntimeDaemonMode::MutationEnabled)
+                );
+            },
+        );
+    }
+
+    #[cfg(feature = "otel")]
+    #[test]
+    fn symbiote_otel_endpoint_overrides_codelens_endpoint() {
+        with_env(
+            &[
+                ("SYMBIOTE_OTEL_ENDPOINT", Some("http://symbiote-collector")),
+                ("CODELENS_OTEL_ENDPOINT", Some("http://codelens-collector")),
+            ],
+            || {
+                assert_eq!(configured_otel_endpoint(), "http://symbiote-collector");
+            },
+        );
+    }
+}
