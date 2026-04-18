@@ -6,6 +6,8 @@
 
 _Becoming **Symbiote MCP** at v2.0 — harness-engineering as a symbiotic substrate. Attach to your agent. Your code intelligence becomes superhuman._ See [ADR-0007](docs/adr/ADR-0007-symbiote-rebrand.md) for the rebrand plan.
 
+If you are preparing automation or host configs for the eventual cutover, use the host-by-host migration guide: [`docs/migrate-from-codelens.md`](docs/migrate-from-codelens.md).
+
 Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, token compression, and enterprise-ready observability — all in a single self-contained binary, no external daemons or service installs required (the binary statically links its dependencies and ships its own SQLite, vector store, and ONNX runtime).
 
 [![CI](https://github.com/mupozg823/codelens-mcp-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/mupozg823/codelens-mcp-plugin/actions)
@@ -17,6 +19,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 </div>
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
+
 ## Surface Snapshot
 
 - Workspace version: `1.9.45`
@@ -266,11 +269,13 @@ verify_change_readiness → "ready" → rename_symbol
 ## Language Support
 
 <!-- SURFACE_MANIFEST_README_LANGUAGES:BEGIN -->
+
 Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
 The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json).
+
 <!-- SURFACE_MANIFEST_README_LANGUAGES:END -->
 
 ## Performance
@@ -309,6 +314,8 @@ Hybrid uplift over lexical: **+0.128 MRR, +15% Acc@1**. Semantic alone beats lex
 Cross-project matrix (6 languages, last run v1.9.23 line — not re-measured this cycle): Rust (self / axum / ripgrep), Python (django / requests), TS/JS (jest / next-js / react-core / typescript), Go (gin), Java (gson), C (curl). Historical hybrid numbers for those projects are tracked in `benchmarks/embedding-quality-phase3-matrix.json`.
 
 > 2-tier NL→code bridges: generic core (15 entries) + auto-generated project bridges (`.codelens/bridges.json`). The self-benchmark above runs with both tiers active.
+>
+> **Bridge measurement honesty (v1.9.46 three-arm ablation, 2026-04-18)**: on the self dataset, project bridges (`.codelens/bridges.json`, 581 entries) contribute **0 MRR** — both-on and generic-on are bit-exact identical to six decimals. Generic core contributes **+0.010 MRR** overall (+0.016 on natural-language queries). Flask pilot (n=20, Python) found **0/20 generic-term matches** — the generic bridges are CodeLens-dev-tooling vocabulary ("categorize", "camelcase", "who calls", "into an ast"), not a language-agnostic mapping. Cross-language bridge contribution remains unverified pending multi-repo pilots. Artifacts: `benchmarks/results/v1.9.46-3arm-bridge-*.json`.
 
 ```bash
 # Measure on your project
