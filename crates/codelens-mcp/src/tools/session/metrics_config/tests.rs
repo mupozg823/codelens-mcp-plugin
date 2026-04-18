@@ -120,7 +120,7 @@ fn semantic_search_status_is_available_only_for_available_variant() {
 #[cfg(feature = "semantic")]
 #[test]
 fn planner_readonly_and_builder_minimal_expose_semantic_search() {
-    use crate::tool_defs::{is_tool_in_surface, ToolProfile, ToolSurface};
+    use crate::tool_defs::{ToolProfile, ToolSurface, is_tool_in_surface};
 
     for profile in [ToolProfile::PlannerReadonly, ToolProfile::BuilderMinimal] {
         let surface = ToolSurface::Profile(profile);

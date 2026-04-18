@@ -2134,6 +2134,215 @@
       }
     ]
   },
+  "host_adapters": {
+    "schema_version": "codelens-host-adapters-v1",
+    "runtime_resource": "codelens://harness/host-adapters",
+    "doc_path": "docs/host-adaptive-harness.md",
+    "goal": "Adapt CodeLens usage to the host's native agent model instead of forcing one universal harness shape everywhere.",
+    "root_causes": [
+      {
+        "code": "memory_only_routing",
+        "problem": "Routing decisions live in chat memory, personal habit, or repo-local folklore instead of a portable product contract.",
+        "effect": "Other repositories repeat bootstrap overhead, skip useful audits, or misuse CodeLens on trivial point edits."
+      },
+      {
+        "code": "host_capability_blindness",
+        "problem": "Claude Code, Codex, Cursor, and similar hosts expose different primitives for subagents, worktrees, rules, background execution, and MCP governance.",
+        "effect": "A one-size-fits-all harness either underuses native host strengths or leaks too much surface into the wrong execution path."
+      },
+      {
+        "code": "substrate_orchestrator_conflation",
+        "problem": "Shared infrastructure is asked to own host UI behavior, live agent chat, and orchestration policy at the same time.",
+        "effect": "Control-plane complexity grows faster than measurable value."
+      },
+      {
+        "code": "eval_free_expansion",
+        "problem": "New routing lanes, skills, or adapters are added without ground-truth data or a merge-gating signal.",
+        "effect": "The harness bloats while quality remains unproven."
+      }
+    ],
+    "design_principles": [
+      "Keep CodeLens as the durable substrate for session state, audit, handoff, and bounded workflow tools.",
+      "Treat host-specific behavior as an adapter/compiler concern, not as a reason to fork the substrate.",
+      "Prefer asymmetric handoff and role-specialized surfaces over always-on live multi-agent chat.",
+      "Escalate from native host tools to CodeLens when the task becomes multi-file, reviewer-heavy, refactor-sensitive, or artifact-worthy.",
+      "Ship only evaluation lanes that add new signal beyond existing audits or benchmark gates."
+    ],
+    "shared_substrate": {
+      "owned_by_codelens": [
+        "prepare_harness_session bootstrap",
+        "role/profile scoped surfaces",
+        "deferred tool loading",
+        "verify_change_readiness and rename preflight",
+        "session metrics and audit_builder_session / audit_planner_session",
+        "analysis jobs and section handles",
+        "portable handoff schema and runtime resources"
+      ],
+      "not_owned_by_codelens": [
+        "host UI and approval UX",
+        "subagent spawning semantics",
+        "worktree lifecycle",
+        "background execution infrastructure",
+        "organization-specific command allowlists",
+        "team-specific prompting style"
+      ]
+    },
+    "adapter_contract": {
+      "detection_inputs": [
+        "host identity",
+        "interactive vs background execution",
+        "task phase (lookup, plan, review, build, eval)",
+        "risk level (single-file vs multi-file / mutation-heavy)",
+        "need for durable artifacts or session audit"
+      ],
+      "routing_outputs": [
+        "recommended harness mode",
+        "recommended CodeLens profile",
+        "preferred native config targets",
+        "whether handoff artifacts are required",
+        "whether analysis jobs should replace direct long reports"
+      ]
+    },
+    "hosts": [
+      {
+        "name": "claude-code",
+        "native_primitives": [
+          "CLAUDE.md",
+          "subagents and agent teams",
+          "hooks",
+          "managed-mcp.json and .mcp.json",
+          "subagent-scoped MCP servers"
+        ],
+        "best_fit": "planner and reviewer orchestration with isolated research and explicit policy control",
+        "recommended_modes": [
+          "solo-local",
+          "planner-builder",
+          "reviewer-gate"
+        ],
+        "preferred_profiles": [
+          "planner-readonly",
+          "reviewer-graph"
+        ],
+        "preferred_codelens_use": [
+          "bootstrap and bounded architecture review",
+          "preflight before dispatching a builder",
+          "planner-session audit and handoff artifact production"
+        ],
+        "avoid": [
+          "defaulting to live bidirectional chat between planner and builder",
+          "exposing mutation-heavy surfaces to read-side sessions"
+        ],
+        "compiler_targets": [
+          "CLAUDE.md",
+          ".mcp.json",
+          "managed-mcp.json",
+          "subagent definitions"
+        ]
+      },
+      {
+        "name": "codex",
+        "native_primitives": [
+          "AGENTS.md",
+          "skills",
+          "worktrees",
+          "shared MCP config",
+          "CLI, app, and IDE continuity"
+        ],
+        "best_fit": "builder and refactor execution, parallel worktree-based implementation, and automation",
+        "recommended_modes": [
+          "solo-local",
+          "planner-builder",
+          "batch-analysis"
+        ],
+        "preferred_profiles": [
+          "builder-minimal",
+          "refactor-full",
+          "ci-audit"
+        ],
+        "preferred_codelens_use": [
+          "bounded mutation after verify_change_readiness",
+          "session-scoped builder audit",
+          "analysis jobs for CI-facing summaries"
+        ],
+        "avoid": [
+          "forcing CodeLens into trivial single-file lookups",
+          "copying Claude-specific subagent topology into Codex worktree flows"
+        ],
+        "compiler_targets": [
+          "AGENTS.md",
+          "~/.codex/config.toml",
+          "repo-local skill files"
+        ]
+      },
+      {
+        "name": "cursor",
+        "native_primitives": [
+          ".cursor/rules",
+          "AGENTS.md",
+          "custom modes",
+          "background agents",
+          "mcp.json"
+        ],
+        "best_fit": "editor-local iteration with scoped rules plus asynchronous remote execution when needed",
+        "recommended_modes": [
+          "solo-local",
+          "reviewer-gate",
+          "batch-analysis"
+        ],
+        "preferred_profiles": [
+          "planner-readonly",
+          "reviewer-graph",
+          "ci-audit"
+        ],
+        "preferred_codelens_use": [
+          "architecture review and diff-aware signoff",
+          "analysis jobs for background-agent queues",
+          "minimal surface exposure through mode- or rule-specific routing"
+        ],
+        "avoid": [
+          "assuming foreground and background agents share the same trust boundary",
+          "shipping the full CodeLens surface into every mode"
+        ],
+        "compiler_targets": [
+          ".cursor/rules",
+          "AGENTS.md",
+          ".cursor/mcp.json",
+          "background-agent environment.json"
+        ]
+      },
+      {
+        "name": "cline",
+        "native_primitives": [
+          "interactive permissioned terminal execution",
+          "browser loop",
+          "workspace checkpoints",
+          "MCP integrations"
+        ],
+        "best_fit": "human-in-the-loop debugging and foreground execution with explicit approvals",
+        "recommended_modes": [
+          "solo-local",
+          "planner-builder"
+        ],
+        "preferred_profiles": [
+          "builder-minimal",
+          "reviewer-graph"
+        ],
+        "preferred_codelens_use": [
+          "review-heavy exploration before write passes",
+          "session audit and handoff artifacts when a change must cross sessions"
+        ],
+        "avoid": [
+          "treating Cline as a headless CI runner",
+          "relying on CodeLens where the foreground checkpoint loop already provides the needed safety"
+        ],
+        "compiler_targets": [
+          "mcp_servers.json",
+          ".clinerules",
+          "repo instructions"
+        ]
+      }
+    ]
+  },
   "harness_artifacts": {
     "schemas": [
       {
@@ -2539,6 +2748,7 @@
       "surface-manifest",
       "harness-modes",
       "portable-harness-spec",
+      "host-adapter-spec",
       "handoff-artifact-schema",
       "semantic-search",
       "streamable-http"
@@ -2554,6 +2764,7 @@
     },
     "harness_mode_count": 4,
     "harness_contract_count": 3,
+    "host_adapter_count": 4,
     "harness_artifact_schema_count": 1,
     "supported_language_families": 30,
     "supported_extensions": 49

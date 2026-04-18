@@ -181,6 +181,7 @@ This document is generated from the same canonical manifest that powers the runt
 
 - `codelens://harness/modes` answers "which topology should I run?"
 - `codelens://harness/spec` answers "what exact contract should the host follow inside that topology?"
+- `codelens://harness/host-adapters` answers "how should that contract be adapted to Claude Code, Codex, Cursor, or another host with different native primitives?"
 - `codelens://schemas/handoff-artifact/v1` exposes the concrete JSON schema for persisted handoff artifacts.
 - The checked-in schema source is [`docs/schemas/handoff-artifact.v1.json`](schemas/handoff-artifact.v1.json).
 - The spec is still audit-first. It documents discipline and handoff shape without adding new runtime hard blocks beyond existing mutation gate behavior.

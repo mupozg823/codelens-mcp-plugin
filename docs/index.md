@@ -7,6 +7,7 @@ CodeLens MCP is a pure Rust MCP server for multi-agent coding harnesses. This si
 - [Platform setup](platform-setup.md)
 - [Harness modes](harness-modes.md)
 - [Portable harness spec](harness-spec.md)
+- [Host-adaptive harness](host-adaptive-harness.md)
 - [Multi-agent integration](multi-agent-integration.md)
 - [Architecture overview](architecture.md)
 - [Release verification](release-verification.md)

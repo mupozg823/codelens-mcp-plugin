@@ -112,6 +112,10 @@ Use `resources/read` on `codelens://surface/manifest` when you need the canonica
 
 Use `resources/read` on `codelens://harness/spec` when the host needs the portable contract for preflight order, coordination TTL discipline, audit hooks, or handoff artifact skeletons.
 
+Use `resources/read` on `codelens://harness/host-adapters` when the host needs portable guidance for adapting that contract to Claude Code, Codex, Cursor, Cline, or another agent runtime with different native primitives.
+
+Use `resources/read` on `codelens://host-adapters/<host>` when you need concrete host-native template bundles rather than only the cross-host summary. Example: `codelens://host-adapters/codex`.
+
 Use `resources/read` on `codelens://schemas/handoff-artifact/v1` when the host needs the JSON schema for persisted planner/builder/reviewer handoff artifacts.
 
 For deferred loading flows, opt in during `initialize` with `{"deferredToolLoading": true}`. After that, the default `tools/list` call returns only the profile's preferred namespaces and tiers first, and omits `outputSchema` during bootstrap to keep session overhead bounded. Clients can expand one namespace at a time with `{"namespace":"reports"}`, open primitive tools with `{"tier":"primitive"}`, request the full surface explicitly with `{"full": true}`, or opt back into schemas with `{"includeOutputSchema": true}`. In deferred sessions, hidden namespaces and primitive tiers can gate `tools/call` until the client explicitly loads them, and `codelens://tools/list` / `codelens://session/http` resources reflect the same session state.

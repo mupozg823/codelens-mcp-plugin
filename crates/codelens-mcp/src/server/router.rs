@@ -1,3 +1,4 @@
+use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::dispatch::dispatch_tool;
 use crate::prompts::{get_prompt, prompts};
@@ -8,8 +9,7 @@ use crate::tool_defs::{
     preferred_phase_labels, preferred_tier_labels, tool_namespace, tool_phase_label,
     tool_tier_label, visible_tools,
 };
-use crate::AppState;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
 
 fn visible_axes_from_tools(

@@ -1,17 +1,21 @@
+use crate::AppState;
 use crate::state::RuntimeDaemonMode;
 use crate::tool_defs::{
-    preferred_namespaces, preferred_phase_labels, preferred_tier_labels, tool_namespace,
-    tool_phase_label, tool_tier_label, tools, visible_tools, ToolPreset, ToolProfile, ToolSurface,
-    ALL_PRESETS, ALL_PROFILES,
+    ALL_PRESETS, ALL_PROFILES, ToolPreset, ToolProfile, ToolSurface, preferred_namespaces,
+    preferred_phase_labels, preferred_tier_labels, tool_namespace, tool_phase_label,
+    tool_tier_label, tools, visible_tools,
 };
-use crate::AppState;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) const SURFACE_MANIFEST_SCHEMA_VERSION: &str = "codelens-surface-manifest-v1";
 pub(crate) const HARNESS_MODES_SCHEMA_VERSION: &str = "codelens-harness-modes-v1";
 pub(crate) const HARNESS_SPEC_SCHEMA_VERSION: &str = "codelens-harness-spec-v1";
+pub(crate) const HOST_ADAPTERS_SCHEMA_VERSION: &str = "codelens-host-adapters-v1";
+pub(crate) const HOST_ADAPTER_HOSTS: [&str; 4] = ["claude-code", "codex", "cursor", "cline"];
 pub(crate) const SURFACE_MANIFEST_DOC_PATH: &str = "docs/generated/surface-manifest.json";
+pub(crate) const HOST_ADAPTERS_DOC_PATH: &str = "docs/host-adaptive-harness.md";
+pub(crate) const HOST_ADAPTERS_RESOURCE_URI: &str = "codelens://harness/host-adapters";
 pub(crate) const HANDOFF_ARTIFACT_SCHEMA_DOC_PATH: &str = "docs/schemas/handoff-artifact.v1.json";
 pub(crate) const HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI: &str =
     "codelens://schemas/handoff-artifact/v1";
@@ -93,6 +97,7 @@ pub(crate) fn build_surface_manifest(
     let language_inventory = build_language_inventory();
     let harness_modes = build_harness_modes();
     let harness_spec = build_harness_spec();
+    let host_adapters = build_host_adapters();
     let harness_artifacts = build_harness_artifacts_summary();
     let language_family_count = language_inventory["language_family_count"]
         .as_u64()
@@ -133,6 +138,7 @@ pub(crate) fn build_surface_manifest(
         },
         "harness_modes": harness_modes,
         "harness_spec": harness_spec,
+        "host_adapters": host_adapters,
         "harness_artifacts": harness_artifacts,
         "languages": language_inventory,
         "runtime": {
@@ -158,6 +164,7 @@ pub(crate) fn build_surface_manifest(
             },
             "harness_mode_count": 4,
             "harness_contract_count": 3,
+            "host_adapter_count": 4,
             "harness_artifact_schema_count": 1,
             "supported_language_families": language_family_count,
             "supported_extensions": extension_count,
@@ -220,6 +227,7 @@ fn server_card_features() -> Vec<&'static str> {
         "surface-manifest",
         "harness-modes",
         "portable-harness-spec",
+        "host-adapter-spec",
         "handoff-artifact-schema",
     ];
     if cfg!(feature = "semantic") {
@@ -281,6 +289,348 @@ fn build_harness_spec() -> Value {
             batch_analysis_contract(),
         ]
     })
+}
+
+fn build_host_adapters() -> Value {
+    json!({
+        "schema_version": HOST_ADAPTERS_SCHEMA_VERSION,
+        "runtime_resource": HOST_ADAPTERS_RESOURCE_URI,
+        "doc_path": HOST_ADAPTERS_DOC_PATH,
+        "goal": "Adapt CodeLens usage to the host's native agent model instead of forcing one universal harness shape everywhere.",
+        "root_causes": [
+            {
+                "code": "memory_only_routing",
+                "problem": "Routing decisions live in chat memory, personal habit, or repo-local folklore instead of a portable product contract.",
+                "effect": "Other repositories repeat bootstrap overhead, skip useful audits, or misuse CodeLens on trivial point edits."
+            },
+            {
+                "code": "host_capability_blindness",
+                "problem": "Claude Code, Codex, Cursor, and similar hosts expose different primitives for subagents, worktrees, rules, background execution, and MCP governance.",
+                "effect": "A one-size-fits-all harness either underuses native host strengths or leaks too much surface into the wrong execution path."
+            },
+            {
+                "code": "substrate_orchestrator_conflation",
+                "problem": "Shared infrastructure is asked to own host UI behavior, live agent chat, and orchestration policy at the same time.",
+                "effect": "Control-plane complexity grows faster than measurable value."
+            },
+            {
+                "code": "eval_free_expansion",
+                "problem": "New routing lanes, skills, or adapters are added without ground-truth data or a merge-gating signal.",
+                "effect": "The harness bloats while quality remains unproven."
+            }
+        ],
+        "design_principles": [
+            "Keep CodeLens as the durable substrate for session state, audit, handoff, and bounded workflow tools.",
+            "Treat host-specific behavior as an adapter/compiler concern, not as a reason to fork the substrate.",
+            "Prefer asymmetric handoff and role-specialized surfaces over always-on live multi-agent chat.",
+            "Escalate from native host tools to CodeLens when the task becomes multi-file, reviewer-heavy, refactor-sensitive, or artifact-worthy.",
+            "Ship only evaluation lanes that add new signal beyond existing audits or benchmark gates."
+        ],
+        "shared_substrate": {
+            "owned_by_codelens": [
+                "prepare_harness_session bootstrap",
+                "role/profile scoped surfaces",
+                "deferred tool loading",
+                "verify_change_readiness and rename preflight",
+                "session metrics and audit_builder_session / audit_planner_session",
+                "analysis jobs and section handles",
+                "portable handoff schema and runtime resources"
+            ],
+            "not_owned_by_codelens": [
+                "host UI and approval UX",
+                "subagent spawning semantics",
+                "worktree lifecycle",
+                "background execution infrastructure",
+                "organization-specific command allowlists",
+                "team-specific prompting style"
+            ]
+        },
+        "adapter_contract": {
+            "detection_inputs": [
+                "host identity",
+                "interactive vs background execution",
+                "task phase (lookup, plan, review, build, eval)",
+                "risk level (single-file vs multi-file / mutation-heavy)",
+                "need for durable artifacts or session audit"
+            ],
+            "routing_outputs": [
+                "recommended harness mode",
+                "recommended CodeLens profile",
+                "preferred native config targets",
+                "whether handoff artifacts are required",
+                "whether analysis jobs should replace direct long reports"
+            ]
+        },
+        "host_resources": HOST_ADAPTER_HOSTS
+            .iter()
+            .map(|host| format!("codelens://host-adapters/{host}"))
+            .collect::<Vec<_>>(),
+        "hosts": HOST_ADAPTER_HOSTS
+            .iter()
+            .filter_map(|host| host_adapter_bundle(host))
+            .map(|bundle| {
+                json!({
+                    "name": bundle["name"],
+                    "resource_uri": bundle["resource_uri"],
+                    "best_fit": bundle["best_fit"],
+                    "recommended_modes": bundle["recommended_modes"],
+                    "preferred_profiles": bundle["preferred_profiles"],
+                    "compiler_targets": bundle["compiler_targets"],
+                })
+            })
+            .collect::<Vec<_>>()
+    })
+}
+
+pub(crate) fn host_adapter_bundle(host: &str) -> Option<Value> {
+    match host {
+        "claude-code" => Some(json!({
+            "name": "claude-code",
+            "resource_uri": format!("codelens://host-adapters/{host}"),
+            "best_fit": "planner and reviewer orchestration with isolated research and explicit policy control",
+            "recommended_modes": ["solo-local", "planner-builder", "reviewer-gate"],
+            "preferred_profiles": ["planner-readonly", "reviewer-graph"],
+            "native_primitives": [
+                "CLAUDE.md",
+                "subagents and agent teams",
+                "hooks",
+                "managed-mcp.json and .mcp.json",
+                "subagent-scoped MCP servers"
+            ],
+            "preferred_codelens_use": [
+                "bootstrap and bounded architecture review",
+                "preflight before dispatching a builder",
+                "planner-session audit and handoff artifact production"
+            ],
+            "routing_defaults": {
+                "point_lookup": "native-first",
+                "multi_file_review": "codelens-after-first-local-step",
+                "builder_dispatch": "planner-builder-handoff-required",
+                "long_running_eval": "analysis-job-first"
+            },
+            "avoid": [
+                "defaulting to live bidirectional chat between planner and builder",
+                "exposing mutation-heavy surfaces to read-side sessions"
+            ],
+            "compiler_targets": [
+                "CLAUDE.md",
+                ".mcp.json",
+                "managed-mcp.json",
+                "subagent definitions"
+            ],
+            "native_files": [
+                {
+                    "path": ".mcp.json",
+                    "format": "json",
+                    "purpose": "Attach the read-only CodeLens daemon to the project by default.",
+                    "template": {
+                        "mcpServers": {
+                            "codelens": {
+                                "type": "http",
+                                "url": "http://127.0.0.1:7837/mcp"
+                            }
+                        }
+                    }
+                },
+                {
+                    "path": "CLAUDE.md",
+                    "format": "markdown",
+                    "purpose": "Carry the routing policy into Claude's project instructions.",
+                    "template": r#"# CodeLens Routing
+
+- Use native Read/Glob/Grep first for trivial point lookups and single-file edits.
+- Escalate to CodeLens after the first local step for multi-file review, refactor preflight, or durable artifact generation.
+- Default CodeLens profile for planning/review is `reviewer-graph`.
+- Before dispatching a builder, run:
+  1. `prepare_harness_session`
+  2. `get_symbols_overview` per target file
+  3. `get_file_diagnostics` per target file
+  4. `verify_change_readiness`
+- Prefer asymmetric handoff over live planner/builder chat.
+"#
+                }
+            ]
+        })),
+        "codex" => Some(json!({
+            "name": "codex",
+            "resource_uri": format!("codelens://host-adapters/{host}"),
+            "best_fit": "builder and refactor execution, parallel worktree-based implementation, and automation",
+            "recommended_modes": ["solo-local", "planner-builder", "batch-analysis"],
+            "preferred_profiles": ["builder-minimal", "refactor-full", "ci-audit"],
+            "native_primitives": [
+                "AGENTS.md",
+                "skills",
+                "worktrees",
+                "shared MCP config",
+                "CLI, app, and IDE continuity"
+            ],
+            "preferred_codelens_use": [
+                "bounded mutation after verify_change_readiness",
+                "session-scoped builder audit",
+                "analysis jobs for CI-facing summaries"
+            ],
+            "routing_defaults": {
+                "point_lookup": "native-first",
+                "multi_file_build": "builder-minimal-after-bootstrap",
+                "rename_or_broad_refactor": "refactor-full-after-preflight",
+                "ci_summary": "analysis-job-first"
+            },
+            "avoid": [
+                "forcing CodeLens into trivial single-file lookups",
+                "copying Claude-specific subagent topology into Codex worktree flows"
+            ],
+            "compiler_targets": [
+                "AGENTS.md",
+                "~/.codex/config.toml",
+                "repo-local skill files"
+            ],
+            "native_files": [
+                {
+                    "path": "~/.codex/config.toml",
+                    "format": "toml",
+                    "purpose": "Share one CodeLens MCP attachment between the Codex CLI and IDE extension.",
+                    "template": r#"[mcp_servers.codelens]
+url = "http://127.0.0.1:7837/mcp"
+"#
+                },
+                {
+                    "path": "AGENTS.md",
+                    "format": "markdown",
+                    "purpose": "Tell Codex when to stay native and when to escalate into CodeLens workflow tools.",
+                    "template": r#"# CodeLens Routing
+
+- Native first for point lookups and already-local single-file edits.
+- Use `prepare_harness_session` before multi-file review or refactor-sensitive work.
+- Default execution profile: `builder-minimal`.
+- Use `refactor-full` only after `verify_change_readiness`; for rename-heavy changes also run `safe_rename_report` or `unresolved_reference_check`.
+- After mutation, run `audit_builder_session` and export the session summary if the change must cross sessions or CI.
+"#
+                }
+            ]
+        })),
+        "cursor" => Some(json!({
+            "name": "cursor",
+            "resource_uri": format!("codelens://host-adapters/{host}"),
+            "best_fit": "editor-local iteration with scoped rules plus asynchronous remote execution when needed",
+            "recommended_modes": ["solo-local", "reviewer-gate", "batch-analysis"],
+            "preferred_profiles": ["planner-readonly", "reviewer-graph", "ci-audit"],
+            "native_primitives": [
+                ".cursor/rules",
+                "AGENTS.md",
+                "custom modes",
+                "background agents",
+                "mcp.json"
+            ],
+            "preferred_codelens_use": [
+                "architecture review and diff-aware signoff",
+                "analysis jobs for background-agent queues",
+                "minimal surface exposure through mode- or rule-specific routing"
+            ],
+            "routing_defaults": {
+                "foreground_lookup": "native-first",
+                "foreground_review": "codelens-after-first-local-step",
+                "background_queue": "analysis-job-first",
+                "wide_surface": "deferred-loading-required"
+            },
+            "avoid": [
+                "assuming foreground and background agents share the same trust boundary",
+                "shipping the full CodeLens surface into every mode"
+            ],
+            "compiler_targets": [
+                ".cursor/rules",
+                "AGENTS.md",
+                ".cursor/mcp.json",
+                "background-agent environment.json"
+            ],
+            "native_files": [
+                {
+                    "path": ".cursor/mcp.json",
+                    "format": "json",
+                    "purpose": "Attach CodeLens to Cursor with the smallest stable project-local config.",
+                    "template": {
+                        "mcpServers": {
+                            "codelens": {
+                                "type": "http",
+                                "url": "http://127.0.0.1:7837/mcp"
+                            }
+                        }
+                    }
+                },
+                {
+                    "path": ".cursor/rules/codelens-routing.mdc",
+                    "format": "mdc",
+                    "purpose": "Scope CodeLens to review-heavy and artifact-worthy tasks instead of every edit.",
+                    "template": r#"---
+description: Route CodeLens usage by task risk and phase
+alwaysApply: true
+---
+
+- Use native code search and local file reads first for trivial lookups and single-file edits.
+- Escalate to CodeLens when the task becomes multi-file, reviewer-heavy, refactor-sensitive, or needs durable analysis artifacts.
+- Prefer `reviewer-graph` for review/signoff and `ci-audit` for async analysis summaries.
+- In background-agent flows, assume localhost CodeLens is unavailable unless the daemon is reachable from the remote machine.
+"#
+                }
+            ]
+        })),
+        "cline" => Some(json!({
+            "name": "cline",
+            "resource_uri": format!("codelens://host-adapters/{host}"),
+            "best_fit": "human-in-the-loop debugging and foreground execution with explicit approvals",
+            "recommended_modes": ["solo-local", "planner-builder"],
+            "preferred_profiles": ["builder-minimal", "reviewer-graph"],
+            "native_primitives": [
+                "interactive permissioned terminal execution",
+                "browser loop",
+                "workspace checkpoints",
+                "MCP integrations"
+            ],
+            "preferred_codelens_use": [
+                "review-heavy exploration before write passes",
+                "session audit and handoff artifacts when a change must cross sessions"
+            ],
+            "routing_defaults": {
+                "foreground_debug": "native-first-with-codelens-escalation",
+                "write_pass": "builder-minimal-after-bootstrap",
+                "handoff": "artifact-required"
+            },
+            "avoid": [
+                "treating Cline as a headless CI runner",
+                "relying on CodeLens where the foreground checkpoint loop already provides the needed safety"
+            ],
+            "compiler_targets": [
+                "mcp_servers.json",
+                ".clinerules",
+                "repo instructions"
+            ],
+            "native_files": [
+                {
+                    "path": "mcp_servers.json",
+                    "format": "json",
+                    "purpose": "Attach CodeLens to Cline with an explicit project-local server entry.",
+                    "template": {
+                        "codelens": {
+                            "type": "http",
+                            "url": "http://127.0.0.1:7837/mcp"
+                        }
+                    }
+                },
+                {
+                    "path": ".clinerules",
+                    "format": "markdown",
+                    "purpose": "Keep CodeLens for reviewer-heavy or handoff-heavy flows, not every approval cycle.",
+                    "template": r#"# CodeLens Routing
+
+- Use Cline's normal foreground loop for local debugging, browser checks, and explicit command approvals.
+- Bring in CodeLens after the first local step when the task spans multiple files or needs refactor preflight.
+- Use `reviewer-graph` for exploration and `builder-minimal` for bounded write passes.
+- If work crosses sessions, export an audit or handoff artifact instead of relying on chat history.
+"#
+                }
+            ]
+        })),
+        _ => None,
+    }
 }
 
 pub(crate) fn handoff_artifact_schema_json() -> Value {
@@ -962,10 +1312,12 @@ mod tests {
         );
         assert_eq!(
             manifest["tool_registry"]["output_schema_count"],
-            json!(tools()
-                .iter()
-                .filter(|tool| tool.output_schema.is_some())
-                .count())
+            json!(
+                tools()
+                    .iter()
+                    .filter(|tool| tool.output_schema.is_some())
+                    .count()
+            )
         );
         assert_eq!(
             manifest["runtime"]["visible_tool_count"],
@@ -986,22 +1338,28 @@ mod tests {
             manifest["harness_spec"]["schema_version"],
             json!(HARNESS_SPEC_SCHEMA_VERSION)
         );
-        assert!(manifest["harness_modes"]["modes"]
-            .as_array()
-            .is_some_and(|modes| modes
-                .iter()
-                .any(|mode| mode["name"] == json!("planner-builder"))));
-        assert!(manifest["harness_spec"]["contracts"]
-            .as_array()
-            .is_some_and(|contracts| contracts
-                .iter()
-                .any(|contract| contract["name"] == json!("planner-builder-handoff"))));
-        assert!(manifest["harness_artifacts"]["schemas"]
-            .as_array()
-            .is_some_and(|schemas| schemas
-                .iter()
-                .any(|schema| schema["runtime_resource"]
-                    == json!(HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI))));
+        assert!(
+            manifest["harness_modes"]["modes"]
+                .as_array()
+                .is_some_and(|modes| modes
+                    .iter()
+                    .any(|mode| mode["name"] == json!("planner-builder")))
+        );
+        assert!(
+            manifest["harness_spec"]["contracts"]
+                .as_array()
+                .is_some_and(|contracts| contracts
+                    .iter()
+                    .any(|contract| contract["name"] == json!("planner-builder-handoff")))
+        );
+        assert!(
+            manifest["harness_artifacts"]["schemas"]
+                .as_array()
+                .is_some_and(
+                    |schemas| schemas.iter().any(|schema| schema["runtime_resource"]
+                        == json!(HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI))
+                )
+        );
 
         let manifest_profiles = manifest["surfaces"]["profiles"]
             .as_array()

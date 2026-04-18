@@ -1,15 +1,15 @@
 use super::audit_common::{
-    add_check, collect_seen_paths, is_builder_surface, missing_paths, push_unique,
-    resolve_audit_session_view, CHECK_FAIL, CHECK_NA, CHECK_PASS, CHECK_WARN,
+    CHECK_FAIL, CHECK_NA, CHECK_PASS, CHECK_WARN, add_check, collect_seen_paths,
+    is_builder_surface, missing_paths, push_unique, resolve_audit_session_view,
 };
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::mutation_gate::is_refactor_gated_mutation_tool;
 use crate::protocol::BackendKind;
 use crate::session_context::SessionRequestContext;
 use crate::telemetry::ToolInvocation;
-use crate::tool_runtime::{success_meta, ToolResult};
-use crate::AppState;
-use serde_json::{json, Value};
+use crate::tool_runtime::{ToolResult, success_meta};
+use serde_json::{Value, json};
 
 fn is_builder_preflight_tool(name: &str) -> bool {
     matches!(

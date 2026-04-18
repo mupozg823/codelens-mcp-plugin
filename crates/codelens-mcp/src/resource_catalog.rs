@@ -1,11 +1,12 @@
 use crate::AppState;
 use crate::resource_context::{ResourceRequestContext, build_visible_tool_context};
+use crate::surface_manifest::HOST_ADAPTER_HOSTS;
 use crate::tool_defs::{tool_namespace, tool_tier_label};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
-    vec![
+    let mut items = vec![
         json!({
             "uri": "codelens://project/overview",
             "name": format!("Project: {project_name}"),
@@ -49,6 +50,12 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "mimeType": "application/json"
         }),
         json!({
+            "uri": "codelens://harness/host-adapters",
+            "name": "Host Adapter Spec",
+            "description": "Portable host-adaptation guidance for Claude Code, Codex, Cursor, and similar agent hosts",
+            "mimeType": "application/json"
+        }),
+        json!({
             "uri": "codelens://schemas/handoff-artifact/v1",
             "name": "Handoff Artifact Schema v1",
             "description": "JSON schema for planner -> builder -> reviewer handoff artifacts",
@@ -72,7 +79,16 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
             "description": "Active agent registrations, advisory claims, and recent per-session activity",
             "mimeType": "application/json"
         }),
-    ]
+    ];
+    items.extend(HOST_ADAPTER_HOSTS.iter().map(|host| {
+        json!({
+            "uri": format!("codelens://host-adapters/{host}"),
+            "name": format!("Host Adapter: {host}"),
+            "description": "Concrete host-native routing and template bundle",
+            "mimeType": "application/json"
+        })
+    }));
+    items
 }
 
 pub(crate) fn visible_tool_summary(state: &AppState, uri: &str, params: Option<&Value>) -> Value {

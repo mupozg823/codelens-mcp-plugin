@@ -131,6 +131,17 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
             crate::surface_manifest::build_surface_manifest_for_state(state)["harness_spec"]
                 .clone(),
         ),
+        "codelens://harness/host-adapters" => json_resource(
+            uri,
+            crate::surface_manifest::build_surface_manifest_for_state(state)["host_adapters"]
+                .clone(),
+        ),
+        _ if uri.starts_with("codelens://host-adapters/") => {
+            let host = uri.trim_start_matches("codelens://host-adapters/");
+            let body = crate::surface_manifest::host_adapter_bundle(host)
+                .unwrap_or_else(|| json!({"error": format!("Unknown host adapter `{host}`")}));
+            json_resource(uri, body)
+        }
         "codelens://schemas/handoff-artifact/v1" => {
             schema_resource(uri, crate::surface_manifest::handoff_artifact_schema_json())
         }
