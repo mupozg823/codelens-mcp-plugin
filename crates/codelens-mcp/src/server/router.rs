@@ -1,4 +1,3 @@
-use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::dispatch::dispatch_tool;
 use crate::prompts::{get_prompt, prompts};
@@ -9,7 +8,8 @@ use crate::tool_defs::{
     preferred_phase_labels, preferred_tier_labels, tool_namespace, tool_phase_label,
     tool_preferred_executor_label, tool_tier_label, visible_tools,
 };
-use serde_json::{Map, Value, json};
+use crate::AppState;
+use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 
 fn visible_axes_from_tools(
@@ -86,7 +86,7 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     "name": "codelens-mcp",
                     "version": env!("CARGO_PKG_VERSION")
                 },
-                "instructions": "CodeLens is a compressed context provider for agent harnesses. Prefer problem-first workflow entrypoints such as explore_codebase, review_architecture, analyze_change_impact, plan_safe_refactor, audit_security_context, trace_request_path, and cleanup_duplicate_logic before expanding raw symbols or graph data. Legacy report tools remain available, but the workflow-first surface is the default path. Keep the visible context bounded, and use get_analysis_section or analysis resources only when you need one section in more detail. For longer reports, start_analysis_job and poll with get_analysis_job."
+                "instructions": "CodeLens is a compressed context provider for agent harnesses. Prefer problem-first workflow entrypoints such as explore_codebase, review_architecture, plan_safe_refactor, trace_request_path, review_changes, cleanup_duplicate_logic, and semantic_code_review before expanding raw symbols or graph data. Legacy report tools remain available, but the workflow-first surface is the default path. Keep the visible context bounded, and use get_analysis_section or analysis resources only when you need one section in more detail. For longer reports, start_analysis_job and poll with get_analysis_job."
             }),
         )),
         "resources/list" => Some(JsonRpcResponse::result(
@@ -278,7 +278,8 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
                     let mut meta = json!({
                         "codelens/preferredExecutor": tool_preferred_executor_label(tool.name),
                     });
-                    if let Some(search_hint) = crate::tool_defs::tool_anthropic_search_hint(tool.name)
+                    if let Some(search_hint) =
+                        crate::tool_defs::tool_anthropic_search_hint(tool.name)
                     {
                         meta["anthropic/searchHint"] = json!(search_hint);
                     }
