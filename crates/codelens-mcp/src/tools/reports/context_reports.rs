@@ -104,6 +104,39 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
     );
     sections.insert("raw_ranked_context".to_owned(), ranked);
     sections.insert("changed_files".to_owned(), changed);
+
+    // P2.1d — attach top matching agent-policy snippets from the rule
+    // corpus so the planner sees relevant CLAUDE.md / memory entries
+    // alongside the code-side ranked context. Corpus lookup is cheap
+    // (< 5 ms for < 200 chunks); an empty corpus yields no section.
+    let rules_corpus = crate::rule_corpus::load_rule_corpus(state.project().as_path());
+    let relevant_rules = crate::rule_retrieval::find_relevant_rules(&rules_corpus, task, 3);
+    if !relevant_rules.is_empty() {
+        let rules_json: Vec<Value> = relevant_rules
+            .iter()
+            .map(|scored| {
+                let preview = scored.snippet.content.chars().take(280).collect::<String>();
+                json!({
+                    "source_file": scored.snippet.source_file.to_string_lossy(),
+                    "source_kind": scored.snippet.source_kind.as_label(),
+                    "frontmatter_name": scored.snippet.frontmatter_name,
+                    "section_title": scored.snippet.section_title,
+                    "line_start": scored.snippet.line_start,
+                    "preview": preview,
+                    "score": (scored.score * 10_000.0).round() / 10_000.0,
+                })
+            })
+            .collect();
+        sections.insert(
+            "relevant_rules".to_owned(),
+            json!({
+                "task": task,
+                "corpus_size": rules_corpus.len(),
+                "rules": rules_json,
+            }),
+        );
+    }
+
     let touched_files = strings_from_array(
         sections
             .get("changed_files")
