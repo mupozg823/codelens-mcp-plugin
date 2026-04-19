@@ -96,7 +96,7 @@ impl LimitsApplied {
             param: None,
             reason: reason.into(),
             remedy: format!(
-                "served by {fallback}; install or warm the preferred backend for higher confidence"
+                "served by {fallback}; run `check_lsp_status` to diagnose the preferred backend, then `get_lsp_recipe` for install instructions"
             ),
         }
     }
@@ -208,6 +208,16 @@ mod tests {
         assert_eq!(entry.kind, LimitsKind::BackendDegraded);
         assert!(entry.reason.contains("LSP failed"));
         assert!(entry.remedy.contains("tree_sitter"));
+        assert!(
+            entry.remedy.contains("check_lsp_status"),
+            "remedy must name check_lsp_status as the concrete next tool: {}",
+            entry.remedy
+        );
+        assert!(
+            entry.remedy.contains("get_lsp_recipe"),
+            "remedy must name get_lsp_recipe as the install oracle: {}",
+            entry.remedy
+        );
         assert!(entry.total.is_none() && entry.returned.is_none() && entry.dropped.is_none());
     }
 

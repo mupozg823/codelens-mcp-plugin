@@ -134,6 +134,48 @@ fn enhance_lsp_error(err: anyhow::Error, command: &str) -> CodeLensError {
     }
 }
 
+/// Shared tail for both `find_referencing_symbols` text-path branches:
+/// turn a `TextRefsReport` into the `(data, ToolResponseMeta)` tuple,
+/// attaching the decisions array (sampling + shadow_suppression +
+/// optional leading `backend_degraded`) to both the envelope's
+/// `data.limits_applied` and `meta.decisions`.
+///
+/// `leading_decisions` is pushed before shadow_suppression; pass
+/// `vec![LimitsApplied::backend_degraded(...)]` on the LSP-fallback
+/// path, or `Vec::new()` on the primary path.
+fn finalize_text_refs_response(
+    report: codelens_engine::TextRefsReport,
+    include_context: bool,
+    full_results: bool,
+    sample_limit: usize,
+    leading_decisions: Vec<LimitsApplied>,
+    mut meta: crate::protocol::ToolResponseMeta,
+) -> (serde_json::Value, crate::protocol::ToolResponseMeta) {
+    let shadow_count = report.shadow_files_suppressed.len();
+    let (references, total_count, sampled) =
+        compact_text_references(report.references, include_context, full_results, sample_limit);
+    let mut extra = leading_decisions;
+    if shadow_count > 0 {
+        extra.push(LimitsApplied::shadow_suppression(shadow_count));
+    }
+    let envelope = build_text_refs_response_with_decisions(
+        references,
+        total_count,
+        sampled,
+        include_context,
+        extra,
+    );
+    let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
+    let decisions_array = envelope
+        .get("_meta")
+        .and_then(|m| m.get("decisions"))
+        .and_then(|d| d.as_array())
+        .cloned()
+        .unwrap_or_default();
+    meta.decisions = decisions_array;
+    (data, meta)
+}
+
 /// tree-sitter-first strategy:
 ///
 /// Default (symbol_name only):
@@ -228,26 +270,14 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             max_results,
         )
         .map(|report| {
-            let shadow_count = report.shadow_files_suppressed.len();
-            let (references, total_count, sampled) =
-                compact_text_references(report.references, include_context, full_results, sample_limit);
-            let mut extra: Vec<LimitsApplied> = Vec::new();
-            if shadow_count > 0 {
-                extra.push(LimitsApplied::shadow_suppression(shadow_count));
-            }
-            let envelope = build_text_refs_response_with_decisions(
-                references, total_count, sampled, include_context, extra,
-            );
-            let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
-            let decisions_array = envelope
-                .get("_meta")
-                .and_then(|m| m.get("decisions"))
-                .and_then(|d| d.as_array())
-                .cloned()
-                .unwrap_or_default();
-            let mut meta = meta_for_backend("tree_sitter", 0.85);
-            meta.decisions = decisions_array;
-            (data, meta)
+            finalize_text_refs_response(
+                report,
+                include_context,
+                full_results,
+                sample_limit,
+                Vec::new(),
+                meta_for_backend("tree_sitter", 0.85),
+            )
         })?);
     }
 
@@ -312,34 +342,17 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
     Ok(
         find_referencing_symbols_via_text(&state.project(), &word, Some(&file_path), max_results)
             .map(|report| {
-                let shadow_count = report.shadow_files_suppressed.len();
-                let (references, total_count, sampled) =
-                    compact_text_references(report.references, include_context, full_results, sample_limit);
-                let mut extra: Vec<LimitsApplied> = Vec::new();
-                extra.push(LimitsApplied::backend_degraded(
-                    "LSP failed, used tree-sitter",
-                    "tree_sitter",
-                ));
-                if shadow_count > 0 {
-                    extra.push(LimitsApplied::shadow_suppression(shadow_count));
-                }
-                let envelope = build_text_refs_response_with_decisions(
-                    references, total_count, sampled, include_context, extra,
-                );
-                let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
-                let decisions_array = envelope
-                    .get("_meta")
-                    .and_then(|m| m.get("decisions"))
-                    .and_then(|d| d.as_array())
-                    .cloned()
-                    .unwrap_or_default();
-                let mut meta = meta_degraded(
-                    "tree_sitter_fallback",
-                    0.85,
-                    "LSP failed, used tree-sitter",
-                );
-                meta.decisions = decisions_array;
-                (data, meta)
+                finalize_text_refs_response(
+                    report,
+                    include_context,
+                    full_results,
+                    sample_limit,
+                    vec![LimitsApplied::backend_degraded(
+                        "LSP failed, used tree-sitter",
+                        "tree_sitter",
+                    )],
+                    meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"),
+                )
             })?,
     )
 }
