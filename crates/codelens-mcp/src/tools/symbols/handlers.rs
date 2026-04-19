@@ -106,16 +106,20 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         sym
                     })
                     .collect();
-                return Ok((
-                    json!({
-                        "symbols": syms,
-                        "count": count,
-                        "body_truncated_count": 0,
-                        "body_preview": false,
-                        "backend": "scip",
-                    }),
-                    success_meta(BackendKind::Scip, 0.98),
-                ));
+                let mut payload = json!({
+                    "symbols": syms,
+                    "count": count,
+                    "body_truncated_count": 0,
+                    "body_preview": false,
+                    "backend": "scip",
+                });
+                let mut meta = success_meta(BackendKind::Scip, 0.98);
+                crate::tools::transparency::attach_decisions_to_meta(
+                    &mut payload,
+                    &mut meta,
+                    Vec::new(),
+                );
+                return Ok((payload, meta));
             }
         }
     }
@@ -137,6 +141,7 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                 "body_truncated_count": body_truncated_count,
                 "body_preview": include_body && !body_full,
             });
+            let mut decisions: Vec<crate::limits::LimitsApplied> = Vec::new();
             if value.is_empty() {
                 if let Some(map) = payload.as_object_mut() {
                     map.insert(
@@ -164,8 +169,15 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         }),
                     );
                 }
+                decisions.push(crate::limits::LimitsApplied::exact_match_only(name));
             }
-            (payload, success_meta(BackendKind::TreeSitter, 0.93))
+            let mut meta = success_meta(BackendKind::TreeSitter, 0.93);
+            crate::tools::transparency::attach_decisions_to_meta(
+                &mut payload,
+                &mut meta,
+                decisions,
+            );
+            (payload, meta)
         })?)
 }
 
