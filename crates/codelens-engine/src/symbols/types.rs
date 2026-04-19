@@ -246,6 +246,13 @@ pub struct RankedContextResult {
     pub count: usize,
     pub token_budget: usize,
     pub chars_used: usize,
+    /// Number of candidate symbols dropped by `prune_to_budget`.
+    /// 0 when every candidate fit in the budget.
+    pub pruned_count: usize,
+    /// Relevance score of the lowest-ranked kept entry.
+    /// Agents can use this to tell "we almost lost relevant context"
+    /// from "only junk got dropped".
+    pub last_kept_score: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

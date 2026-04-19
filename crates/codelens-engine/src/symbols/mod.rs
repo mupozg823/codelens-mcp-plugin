@@ -15,15 +15,15 @@ pub use scoring::{
 };
 pub(crate) use types::ReadDb;
 pub use types::{
-    IndexStats, RankedContextEntry, RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance,
-    make_symbol_id, parse_symbol_id,
+    make_symbol_id, parse_symbol_id, IndexStats, RankedContextEntry, RankedContextResult,
+    SymbolInfo, SymbolKind, SymbolProvenance,
 };
 
-use crate::db::{self, IndexDb, content_hash, index_db_path};
+use crate::db::{self, content_hash, index_db_path, IndexDb};
 // Re-export language_for_path so downstream crate modules keep working.
-pub(crate) use crate::lang_config::{LanguageConfig, language_for_path};
+pub(crate) use crate::lang_config::{language_for_path, LanguageConfig};
 use crate::project::ProjectRoot;
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -473,7 +473,7 @@ impl SymbolIndex {
             .collect::<Vec<_>>();
         scored.sort_by(|left, right| right.1.cmp(&left.1));
 
-        let (selected, chars_used) =
+        let (selected, chars_used, pruned_count, last_kept_score) =
             prune_to_budget(scored, max_tokens, include_body, self.project.as_path());
 
         Ok(RankedContextResult {
@@ -482,6 +482,8 @@ impl SymbolIndex {
             symbols: selected,
             token_budget: max_tokens,
             chars_used,
+            pruned_count,
+            last_kept_score,
         })
     }
 

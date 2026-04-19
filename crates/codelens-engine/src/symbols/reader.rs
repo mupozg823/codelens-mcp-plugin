@@ -1,9 +1,9 @@
-use super::SymbolIndex;
 use super::parser::{flatten_symbol_infos, slice_source};
-use super::ranking::{self, RankingContext, prune_to_budget, rank_symbols};
+use super::ranking::{self, prune_to_budget, rank_symbols, RankingContext};
 use super::types::{
-    RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance, make_symbol_id, parse_symbol_id,
+    make_symbol_id, parse_symbol_id, RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance,
 };
+use super::SymbolIndex;
 use crate::db::IndexDb;
 use crate::project::ProjectRoot;
 use anyhow::Result;
@@ -338,7 +338,7 @@ impl SymbolIndex {
 
         let scored = rank_symbols(query, flat_symbols, &ranking_ctx);
 
-        let (selected, chars_used) =
+        let (selected, chars_used, pruned_count, last_kept_score) =
             prune_to_budget(scored, max_tokens, include_body, self.project.as_path());
 
         Ok(RankedContextResult {
@@ -347,6 +347,8 @@ impl SymbolIndex {
             symbols: selected,
             token_budget: max_tokens,
             chars_used,
+            pruned_count,
+            last_kept_score,
         })
     }
 

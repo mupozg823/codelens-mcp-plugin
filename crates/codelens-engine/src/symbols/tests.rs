@@ -1,4 +1,4 @@
-use super::{SymbolIndex, SymbolKind, SymbolProvenance, find_symbol, get_symbols_overview};
+use super::{find_symbol, get_symbols_overview, SymbolIndex, SymbolKind, SymbolProvenance};
 use crate::ProjectRoot;
 use std::fs;
 
@@ -20,13 +20,11 @@ fn finds_typescript_symbol_with_body() {
     let matches = find_symbol(&project, "fetchUser", None, true, true, 10).expect("find symbol");
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].kind, SymbolKind::Function);
-    assert!(
-        matches[0]
-            .body
-            .as_ref()
-            .expect("body")
-            .contains("return userId")
-    );
+    assert!(matches[0]
+        .body
+        .as_ref()
+        .expect("body")
+        .contains("return userId"));
 }
 
 #[test]
@@ -50,13 +48,11 @@ fn index_refreshes_after_file_change() {
         .find_symbol("loadUser", None, true, true, 10)
         .expect("refreshed symbol lookup");
     assert_eq!(refreshed.len(), 1);
-    assert!(
-        refreshed[0]
-            .body
-            .as_ref()
-            .expect("body")
-            .contains("loadUser")
-    );
+    assert!(refreshed[0]
+        .body
+        .as_ref()
+        .expect("body")
+        .contains("loadUser"));
 }
 
 #[test]
@@ -97,13 +93,11 @@ fn ranked_context_prefers_exact_matches_and_respects_budget() {
     assert!(!ranked.symbols.is_empty());
     assert_eq!(ranked.symbols[0].name, "fetchUser");
     assert_eq!(ranked.symbols[0].relevance_score, 100);
-    assert!(
-        ranked.symbols[0]
-            .body
-            .as_ref()
-            .expect("body")
-            .contains("fetchUser")
-    );
+    assert!(ranked.symbols[0]
+        .body
+        .as_ref()
+        .expect("body")
+        .contains("fetchUser"));
     assert!(ranked.chars_used <= ranked.token_budget * 4);
 }
 
@@ -432,7 +426,7 @@ fn prune_to_budget_respects_char_limit() {
         .collect();
 
     // Very small budget: should not fit all 20 symbols
-    let (selected, chars_used) =
+    let (selected, chars_used, _pruned_count, _last_kept_score) =
         prune_to_budget(symbols, 50, false, std::path::Path::new("/nonexistent"));
     assert!(!selected.is_empty());
     assert!(selected.len() < 20, "budget should limit entries");
@@ -464,7 +458,7 @@ fn prune_to_budget_includes_first_even_if_oversized() {
     )];
 
     // Budget of 1 token = 4 chars, way too small for even the JSON entry
-    let (selected, chars_used) =
+    let (selected, chars_used, _pruned_count, _last_kept_score) =
         prune_to_budget(symbols, 1, false, std::path::Path::new("/nonexistent"));
     assert_eq!(selected.len(), 1, "first entry must always be included");
     // chars_used is capped at char_budget (max_tokens * 4 = 4), even though
@@ -473,8 +467,49 @@ fn prune_to_budget_includes_first_even_if_oversized() {
 }
 
 #[test]
+fn prune_to_budget_reports_dropped_count_and_last_kept_score() {
+    use super::ranking::prune_to_budget;
+    use super::types::{SymbolInfo, SymbolProvenance};
+
+    let symbols: Vec<(SymbolInfo, i32)> = (0..5)
+        .map(|i| {
+            (
+                SymbolInfo {
+                    name: format!("sym_{i}"),
+                    kind: SymbolKind::Function,
+                    file_path: "a.rs".into(),
+                    line: i,
+                    column: 0,
+                    signature: format!("fn sym_{i}()"),
+                    name_path: format!("sym_{i}"),
+                    id: format!("a.rs#function:sym_{i}"),
+                    body: None,
+                    children: Vec::new(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    provenance: SymbolProvenance::default(),
+                },
+                100 - (i as i32) * 10,
+            )
+        })
+        .collect();
+
+    // Budget too tight to fit all five — expect a drop.
+    let (kept, _chars_used, pruned_count, last_kept_score) =
+        prune_to_budget(symbols, 50, false, std::path::Path::new("/tmp"));
+    assert!(
+        pruned_count + kept.len() == 5,
+        "{pruned_count} + {} != 5",
+        kept.len()
+    );
+    assert!(pruned_count > 0, "budget 50 should not fit all 5");
+    let last_expected = kept.last().map(|e| e.relevance_score as f64).unwrap_or(0.0);
+    assert_eq!(last_kept_score, last_expected);
+}
+
+#[test]
 fn rank_symbols_returns_full_scored_list() {
-    use super::ranking::{RankingContext, rank_symbols};
+    use super::ranking::{rank_symbols, RankingContext};
     use super::types::{SymbolInfo, SymbolProvenance};
 
     let symbols: Vec<SymbolInfo> = ["alpha", "beta_alpha", "gamma"]
@@ -507,7 +542,7 @@ fn rank_symbols_returns_full_scored_list() {
 
 #[test]
 fn score_and_rank_empty_query() {
-    use super::ranking::{RankingContext, rank_symbols};
+    use super::ranking::{rank_symbols, RankingContext};
     use super::types::{SymbolInfo, SymbolProvenance};
 
     let symbols = vec![SymbolInfo {

@@ -929,19 +929,26 @@ pub(crate) fn rank_symbols(
 }
 
 /// Budget-aware pruning: take ranked symbols, extract bodies, stop when budget exhausted.
-/// Returns (selected_entries, chars_used).
+/// Returns (selected_entries, chars_used, pruned_count, last_kept_score).
+///
+/// `pruned_count` is the number of candidate symbols dropped because the
+/// budget ran out (0 if everything fit). `last_kept_score` is the relevance
+/// score of the lowest-ranked entry that was kept, so callers can tell
+/// "we almost lost relevant context" from "only junk got dropped".
 pub(crate) fn prune_to_budget(
     scored: Vec<(SymbolInfo, i32)>,
     max_tokens: usize,
     include_body: bool,
     project_root: &Path,
-) -> (Vec<RankedContextEntry>, usize) {
+) -> (Vec<RankedContextEntry>, usize, usize, f64) {
     // Dynamic file cache limit: scale with token budget, cap at 128
     let file_cache_limit = (max_tokens / 200).clamp(32, 128);
     let char_budget = max_tokens.saturating_mul(4);
     let mut remaining = char_budget;
     let mut file_cache: HashMap<String, Option<String>> = HashMap::new();
     let mut selected = Vec::new();
+    let total = scored.len();
+    let mut last_kept_score: f64 = 0.0;
 
     for (symbol, score) in scored {
         let body = if include_body && symbol.end_byte > symbol.start_byte {
@@ -988,9 +995,11 @@ pub(crate) fn prune_to_budget(
             break;
         }
         remaining = remaining.saturating_sub(entry_size);
+        last_kept_score = score as f64;
         selected.push(entry);
     }
 
+    let pruned_count = total.saturating_sub(selected.len());
     let chars_used = char_budget.saturating_sub(remaining);
-    (selected, chars_used)
+    (selected, chars_used, pruned_count, last_kept_score)
 }

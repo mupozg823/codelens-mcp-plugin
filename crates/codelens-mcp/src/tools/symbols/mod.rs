@@ -22,6 +22,8 @@ mod tests {
             count: 1,
             token_budget: 1200,
             chars_used: 128,
+            pruned_count: 0,
+            last_kept_score: 0.0,
             symbols: vec![RankedContextEntry {
                 name: "project_scope_renames_across_files".to_owned(),
                 kind: "function".to_owned(),
@@ -79,6 +81,8 @@ mod tests {
             count: 1,
             token_budget: 1200,
             chars_used: 64,
+            pruned_count: 0,
+            last_kept_score: 0.0,
             symbols: vec![RankedContextEntry {
                 name: "change_signature".to_owned(),
                 kind: "function".to_owned(),
@@ -146,6 +150,8 @@ mod tests {
             count: 2,
             token_budget: 1200,
             chars_used: 128,
+            pruned_count: 0,
+            last_kept_score: 0.0,
             symbols: vec![
                 RankedContextEntry {
                     name: "project_scope_renames_across_files".to_owned(),
