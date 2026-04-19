@@ -221,6 +221,15 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
             Value::String(degraded_reason.clone()),
         );
     }
+    // Structured decisions mirror `data.limits_applied`. Emitted to the
+    // response root (CodeLens's flat `_meta` surface) so byte-for-byte
+    // equality holds between the two locations on the wire.
+    if !resp.decisions.is_empty() {
+        out.insert(
+            "decisions".to_owned(),
+            Value::Array(resp.decisions.clone()),
+        );
+    }
     if let Some(truncated) = resp
         .data
         .as_ref()
@@ -359,6 +368,11 @@ fn slim_text_payload_for_async_job(
             .filter(|calls| !calls.is_empty())
             .and_then(|calls| serde_json::to_value(calls).ok()),
     );
+    insert_if_present(
+        &mut payload,
+        "decisions",
+        (!resp.decisions.is_empty()).then(|| Value::Array(resp.decisions.clone())),
+    );
 
     let mut text_data = Map::new();
     copy_summarized_field(&mut text_data, data, "job_id");
@@ -458,6 +472,11 @@ fn slim_text_payload_for_async_handle(
             .as_ref()
             .filter(|calls| !calls.is_empty())
             .and_then(|calls| serde_json::to_value(calls).ok()),
+    );
+    insert_if_present(
+        &mut payload,
+        "decisions",
+        (!resp.decisions.is_empty()).then(|| Value::Array(resp.decisions.clone())),
     );
 
     let mut text_data = Map::new();

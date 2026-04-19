@@ -113,6 +113,16 @@ Rationale:
 - The two are byte-identical clones built from the same source; no risk
   of divergence because they are serialized from one structure.
 
+**CodeLens envelope note.** In CodeLens's response envelope, `_meta` is
+flat at the response root — `backend_used`, `degraded_reason`,
+`confidence`, `source`, `freshness`, `staleness_ms` already live there
+as peers of `data`. The second location is therefore shipped as a
+top-level `decisions` array on the tool result (not a nested
+`_meta.decisions` object). `data.limits_applied` and the root-level
+`decisions` array are byte-identical and skipped from the wire when
+empty. The JSON example above is the conceptual shape; the concrete
+wire shape flattens the `_meta` block onto the response root.
+
 An empty decision list is represented as `[]` in both places when the
 tool _could_ have reported a decision but didn't need to (everything
 returned). It is _omitted_ (not `null`) when the tool has no decision

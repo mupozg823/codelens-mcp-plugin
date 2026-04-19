@@ -169,6 +169,12 @@ pub struct ToolCallResponse {
     pub freshness: Option<Freshness>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub staleness_ms: Option<u64>,
+    /// Structured decision records mirrored from `data.limits_applied`.
+    /// Written to the response root (CodeLens's flat `_meta` surface)
+    /// so consumers that walk either `data` or the response root see
+    /// byte-identical arrays. Absent from the wire when empty.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub decisions: Vec<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -291,6 +297,13 @@ pub struct ToolResponseMeta {
     pub freshness: Freshness,
     /// Milliseconds since the index was last updated (None for live results).
     pub staleness_ms: Option<u64>,
+    /// Structured decision records attached by the tool (sampling,
+    /// shadow suppression, backend degradation, …). Mirrors
+    /// `data.limits_applied`; serialized onto the response root as
+    /// `decisions` — CodeLens's pragmatic `_meta` surface, given the
+    /// response envelope is already flat (backend_used, degraded_reason,
+    /// etc. live there). Empty vec = no decisions.
+    pub decisions: Vec<Value>,
 }
 
 impl JsonRpcResponse {
@@ -429,6 +442,7 @@ impl ToolCallResponse {
             partial: partial_flag,
             freshness: Some(meta.freshness),
             staleness_ms: meta.staleness_ms,
+            decisions: meta.decisions,
             data: Some(data),
             error: None,
             token_estimate: None,
@@ -453,6 +467,7 @@ impl ToolCallResponse {
             partial: None,
             freshness: None,
             staleness_ms: None,
+            decisions: Vec::new(),
             data: None,
             error: Some(message.into()),
             token_estimate: None,
@@ -499,6 +514,7 @@ mod tests {
             partial: false,
             freshness: Freshness::Live,
             staleness_ms: None,
+            decisions: Vec::new(),
         };
         assert_eq!(meta.backend_used, "tree-sitter");
         assert!((meta.confidence - 0.9).abs() < f64::EPSILON);
@@ -517,6 +533,7 @@ mod tests {
             partial: false,
             freshness: Freshness::Live,
             staleness_ms: None,
+            decisions: Vec::new(),
         };
         let mut resp = ToolCallResponse::success(json!({"ok": true}), meta);
         assert!(resp.elapsed_ms.is_none());

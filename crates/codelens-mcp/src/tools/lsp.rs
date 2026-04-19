@@ -239,7 +239,15 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 references, total_count, sampled, include_context, extra,
             );
             let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
-            (data, meta_for_backend("tree_sitter", 0.85))
+            let decisions_array = envelope
+                .get("_meta")
+                .and_then(|m| m.get("decisions"))
+                .and_then(|d| d.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let mut meta = meta_for_backend("tree_sitter", 0.85);
+            meta.decisions = decisions_array;
+            (data, meta)
         })?);
     }
 
@@ -319,7 +327,19 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     references, total_count, sampled, include_context, extra,
                 );
                 let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
-                (data, meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"))
+                let decisions_array = envelope
+                    .get("_meta")
+                    .and_then(|m| m.get("decisions"))
+                    .and_then(|d| d.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let mut meta = meta_degraded(
+                    "tree_sitter_fallback",
+                    0.85,
+                    "LSP failed, used tree-sitter",
+                );
+                meta.decisions = decisions_array;
+                (data, meta)
             })?,
     )
 }

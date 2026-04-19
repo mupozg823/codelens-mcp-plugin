@@ -26,6 +26,7 @@ mod memory;
 mod mutation;
 mod protocol;
 mod readonly;
+mod transparency_phase1;
 mod workflow;
 
 // ── Test helpers ─────────────────────────────────────────────────────
