@@ -13,6 +13,33 @@ use codelens_engine::{
 };
 use serde_json::json;
 
+/// Build the `find_referencing_symbols` text-path response payload.
+/// When `sampled` is true, an explicit `sampling_notice` is injected so
+/// agents (and benchmarks) do not mistake a truncated `returned_count`
+/// for the complete result set.
+fn build_text_refs_response(
+    references: Vec<serde_json::Value>,
+    total_count: usize,
+    sampled: bool,
+    include_context: bool,
+) -> serde_json::Value {
+    let returned_count = references.len();
+    let mut value = json!({
+        "references": references,
+        "count": total_count,
+        "returned_count": returned_count,
+        "sampled": sampled,
+        "include_context": include_context,
+    });
+    if sampled {
+        value["sampling_notice"] = json!(format!(
+            "Returned {returned_count} of {total_count} matches (sampled). \
+             Set `full_results=true` or raise `max_results` to retrieve the full set."
+        ));
+    }
+    value
+}
+
 fn compact_text_references(
     references: Vec<codelens_engine::TextReference>,
     include_context: bool,
@@ -189,13 +216,7 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             let (references, total_count, sampled) =
                 compact_text_references(value, include_context, full_results, sample_limit);
             (
-                json!({
-                    "references": references,
-                    "count": total_count,
-                    "returned_count": references.len(),
-                    "sampled": sampled,
-                    "include_context": include_context,
-                }),
+                build_text_refs_response(references, total_count, sampled, include_context),
                 meta_for_backend("tree_sitter", 0.85),
             )
         })?);
@@ -262,19 +283,13 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
     Ok(
         find_referencing_symbols_via_text(&state.project(), &word, Some(&file_path), max_results)
             .map(|value| {
-            let (references, total_count, sampled) =
-                compact_text_references(value, include_context, full_results, sample_limit);
-            (
-                json!({
-                    "references": references,
-                    "count": total_count,
-                    "returned_count": references.len(),
-                    "sampled": sampled,
-                    "include_context": include_context,
-                }),
-                meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"),
-            )
-        })?,
+                let (references, total_count, sampled) =
+                    compact_text_references(value, include_context, full_results, sample_limit);
+                (
+                    build_text_refs_response(references, total_count, sampled, include_context),
+                    meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"),
+                )
+            })?,
     )
 }
 
@@ -501,5 +516,37 @@ pub fn get_lsp_recipe(_state: &AppState, arguments: &serde_json::Value) -> ToolR
         None => Err(CodeLensError::NotFound(format!(
             "LSP recipe for extension: {extension}"
         ))),
+    }
+}
+
+#[cfg(test)]
+mod sampling_notice_tests {
+    use super::build_text_refs_response;
+    use serde_json::json;
+
+    #[test]
+    fn notice_is_absent_when_not_sampled() {
+        let resp =
+            build_text_refs_response(vec![json!({"file_path": "a.py", "line": 1})], 1, false, false);
+        assert_eq!(resp["sampled"], json!(false));
+        assert!(resp.get("sampling_notice").is_none());
+    }
+
+    #[test]
+    fn notice_is_present_and_mentions_full_results_when_sampled() {
+        let refs = vec![
+            json!({"file_path": "a.py", "line": 1}),
+            json!({"file_path": "a.py", "line": 2}),
+        ];
+        let resp = build_text_refs_response(refs, 62, true, false);
+        assert_eq!(resp["sampled"], json!(true));
+        let notice = resp["sampling_notice"]
+            .as_str()
+            .expect("sampling_notice should be a string when sampled=true");
+        assert!(notice.contains("2 of 62"), "notice={notice}");
+        assert!(
+            notice.contains("full_results=true") && notice.contains("max_results"),
+            "notice should guide the caller to both remediation paths: {notice}"
+        );
     }
 }
