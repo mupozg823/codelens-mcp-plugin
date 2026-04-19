@@ -1,6 +1,16 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// MCP protocol version this server prefers in the initialize response when the
+/// client does not pin a specific supported version. Newest first.
+pub(crate) const LATEST_PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// Versions we will accept in the `MCP-Protocol-Version` header and reply with
+/// verbatim during initialize negotiation. Anything outside this set is 400.
+/// Older MCP clients that omit the header on non-initialize requests are
+/// assumed to be on `2025-03-26` per spec §"Protocol Version Header".
+pub(crate) const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
+
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
