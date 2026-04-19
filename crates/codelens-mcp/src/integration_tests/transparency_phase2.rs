@@ -95,6 +95,104 @@ fn find_symbol_with_match_emits_empty_limits_applied() {
     );
 }
 
+// ── Task 7 — search_for_pattern sampling + filter_applied ─────────────
+//
+// Scope: two decisions can fire on `search_for_pattern_tool`:
+//   1. `filter_applied` whenever `file_glob` was supplied.
+//   2. `sampling` whenever `matches.len() >= max_results` (engine hit
+//      the cap). We honestly surface returned == total, dropped == 0
+//      because determining the true total requires a second unbounded
+//      pass; the signal still tells the caller "raise max_results to
+//      see if there's more."
+// Both can appear on the same call.
+
+#[test]
+fn search_for_pattern_emits_filter_applied_when_glob_supplied() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).expect("mkdir src");
+    fs::write(
+        project.as_path().join("src/lib.rs"),
+        "// TODO: something\nfn hello() {}\n",
+    )
+    .expect("write lib.rs");
+    fs::write(
+        project.as_path().join("src/other.py"),
+        "# TODO: python side\n",
+    )
+    .expect("write other.py");
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "search_for_pattern",
+        json!({ "pattern": "TODO", "file_glob": "*.rs", "max_results": 50 }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+
+    let kinds: Vec<String> = payload["data"]["limits_applied"]
+        .as_array()
+        .expect("data.limits_applied must be an array")
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap_or("").to_owned())
+        .collect();
+    assert!(
+        kinds.iter().any(|k| k == "filter_applied"),
+        "expected filter_applied, got {kinds:?}"
+    );
+    let entry = payload["data"]["limits_applied"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "filter_applied")
+        .expect("entry present");
+    assert_eq!(entry["param"], json!("file_glob=*.rs"));
+    assert_eq!(payload["decisions"], payload["data"]["limits_applied"]);
+}
+
+#[test]
+fn search_for_pattern_emits_sampling_when_max_results_cap_hit() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).expect("mkdir src");
+    // Seed enough TODO mentions to exceed max_results=3.
+    for i in 0..10 {
+        fs::write(
+            project.as_path().join(format!("src/f{i}.rs")),
+            format!("// TODO: entry {i}\nfn f{i}() {{}}\n"),
+        )
+        .expect("write file");
+    }
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "search_for_pattern",
+        json!({ "pattern": "TODO", "max_results": 3 }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    assert_eq!(payload["data"]["count"].as_u64().unwrap_or(0), 3);
+
+    let kinds: Vec<String> = payload["data"]["limits_applied"]
+        .as_array()
+        .expect("data.limits_applied must be an array")
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap_or("").to_owned())
+        .collect();
+    assert!(
+        kinds.iter().any(|k| k == "sampling"),
+        "expected sampling when cap hit, got {kinds:?}"
+    );
+    let entry = payload["data"]["limits_applied"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "sampling")
+        .expect("entry present");
+    assert_eq!(entry["param"], json!("max_results=3"));
+    assert_eq!(payload["decisions"], payload["data"]["limits_applied"]);
+}
+
 // ── Task 6 — get_symbols_overview depth_limit ─────────────────────────
 //
 // Scope: the handler auto-trims when the default budget would be
