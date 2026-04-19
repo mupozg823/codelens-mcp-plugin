@@ -17,6 +17,7 @@
 //! docs/superpowers/specs/2026-04-19-transparency-fields-design.md.
 
 use serde::Serialize;
+use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -98,6 +99,24 @@ impl LimitsApplied {
                 "served by {fallback}; install or warm the preferred backend for higher confidence"
             ),
         }
+    }
+}
+
+/// Serialize `decisions` once and attach the result to both
+/// `data.limits_applied` and `meta.decisions`. Both targets MUST be
+/// JSON objects; if either is not an object the corresponding side is
+/// a no-op.
+///
+/// The two attached values are byte-identical clones of the same
+/// serialized array — consumers that walk only `data` and consumers
+/// that walk only `_meta` see the same thing.
+pub fn inject_into(data: &mut Value, meta: &mut Value, decisions: &[LimitsApplied]) {
+    let array = serde_json::to_value(decisions).unwrap_or_else(|_| Value::Array(Vec::new()));
+    if let Some(obj) = data.as_object_mut() {
+        obj.insert("limits_applied".into(), array.clone());
+    }
+    if let Some(obj) = meta.as_object_mut() {
+        obj.insert("decisions".into(), array);
     }
 }
 
@@ -190,5 +209,47 @@ mod tests {
         assert!(entry.reason.contains("LSP failed"));
         assert!(entry.remedy.contains("tree_sitter"));
         assert!(entry.total.is_none() && entry.returned.is_none() && entry.dropped.is_none());
+    }
+
+    #[test]
+    fn inject_into_writes_both_locations_byte_identically() {
+        let decisions = vec![
+            LimitsApplied::sampling(62, 8, "sample_limit=8"),
+            LimitsApplied::shadow_suppression(2),
+        ];
+        let mut data = json!({ "references": [] });
+        let mut meta = json!({ "backend_used": "tree_sitter" });
+        inject_into(&mut data, &mut meta, &decisions);
+        assert_eq!(
+            data["limits_applied"], meta["decisions"],
+            "data.limits_applied and _meta.decisions must be byte-identical"
+        );
+        assert_eq!(data["limits_applied"].as_array().map(Vec::len), Some(2));
+        assert_eq!(data["limits_applied"][0]["kind"], json!("sampling"));
+        assert_eq!(
+            data["limits_applied"][1]["kind"],
+            json!("shadow_suppression")
+        );
+    }
+
+    #[test]
+    fn inject_into_writes_empty_array_when_decisions_empty() {
+        let mut data = json!({ "references": [] });
+        let mut meta = json!({});
+        inject_into(&mut data, &mut meta, &[]);
+        assert_eq!(data["limits_applied"], json!([]));
+        assert_eq!(meta["decisions"], json!([]));
+    }
+
+    #[test]
+    fn inject_into_preserves_existing_fields() {
+        let decisions = vec![LimitsApplied::sampling(10, 5, "max_results=5")];
+        let mut data = json!({ "references": ["a", "b"], "count": 10 });
+        let mut meta = json!({ "backend_used": "tree_sitter", "confidence": 0.85 });
+        inject_into(&mut data, &mut meta, &decisions);
+        assert_eq!(data["references"], json!(["a", "b"]));
+        assert_eq!(data["count"], json!(10));
+        assert_eq!(meta["backend_used"], json!("tree_sitter"));
+        assert_eq!(meta["confidence"], json!(0.85));
     }
 }
