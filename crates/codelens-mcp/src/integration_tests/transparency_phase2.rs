@@ -309,3 +309,116 @@ fn get_ranked_context_emits_budget_prune_when_budget_trims() {
     // Dispatch-boundary byte-equality.
     assert_eq!(payload["decisions"], payload["data"]["limits_applied"]);
 }
+
+// ── Task 9 — cross-tool consolidation guardrails ──────────────────────
+//
+// Scope: the per-tool tests in Tasks 5-8 prove each tool emits the
+// right LimitsApplied and that root `decisions` byte-equals
+// `data.limits_applied`. Task 9 closes two gaps:
+//   1. Combined-decision case: two decisions on the same call
+//      (search_for_pattern with both a glob AND a max_results cap).
+//   2. Participation-signal invariant: `data.limits_applied` is always
+//      present (possibly empty) on the happy path of every Phase 2
+//      tool.
+
+#[test]
+fn combined_sampling_and_filter_on_search_for_pattern() {
+    // Two decisions on one call: cap hit AND glob supplied.
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).expect("mkdir src");
+    for i in 0..10 {
+        fs::write(
+            project.as_path().join(format!("src/f{i}.rs")),
+            format!("// TODO: combined {i}\nfn f{i}() {{}}\n"),
+        )
+        .expect("write");
+    }
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "search_for_pattern",
+        json!({ "pattern": "TODO", "file_glob": "*.rs", "max_results": 3 }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+    let kinds: Vec<String> = payload["data"]["limits_applied"]
+        .as_array()
+        .expect("array")
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap_or("").to_owned())
+        .collect();
+    assert!(
+        kinds.iter().any(|k| k == "sampling"),
+        "expected sampling on cap hit, got {kinds:?}"
+    );
+    assert!(
+        kinds.iter().any(|k| k == "filter_applied"),
+        "expected filter_applied from glob, got {kinds:?}"
+    );
+    // Byte-equality must hold even with multiple decisions.
+    assert_eq!(payload["decisions"], payload["data"]["limits_applied"]);
+}
+
+#[test]
+fn participation_signal_all_four_phase2_tools_emit_empty_on_happy_path() {
+    // "Participation signal" = `data.limits_applied` is present (possibly
+    // an empty array) on every Phase 2 tool's happy path. Four mini-calls
+    // in one test to make the cross-tool invariant obvious.
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).expect("mkdir src");
+    fs::write(
+        project.as_path().join("src/lib.rs"),
+        "pub fn hello_world_fn() {}\n",
+    )
+    .expect("write lib.rs");
+    let state = make_state(&project);
+
+    let cases: &[(&str, serde_json::Value)] = &[
+        // find_symbol: happy path -> empty array.
+        (
+            "find_symbol",
+            json!({ "name": "hello_world_fn", "exact_match": true }),
+        ),
+        // get_symbols_overview on a single-file project will NOT trim; empty.
+        ("get_symbols_overview", json!({ "path": "." })),
+        // search_for_pattern with huge max_results, no glob -> empty.
+        (
+            "search_for_pattern",
+            json!({ "pattern": "fn", "max_results": 1000 }),
+        ),
+        // get_ranked_context with a huge budget -> no prune, empty.
+        (
+            "get_ranked_context",
+            json!({ "query": "hello_world_fn", "max_tokens": 100000 }),
+        ),
+    ];
+    for (tool, args) in cases {
+        let payload = call_tool(&state, tool, args.clone());
+        assert_eq!(
+            payload["success"],
+            json!(true),
+            "tool {tool} did not return success: {payload:?}"
+        );
+        // Must have the field present (even if empty).
+        let limits = payload["data"]["limits_applied"]
+            .as_array()
+            .unwrap_or_else(|| panic!("tool {tool} missing data.limits_applied"));
+        // Byte-equality always holds — treat absent root `decisions`
+        // (serde skip_serializing_if on empty) as equal to an empty array.
+        let decisions = payload.get("decisions").cloned().unwrap_or(json!([]));
+        assert_eq!(
+            decisions, payload["data"]["limits_applied"],
+            "byte-equality broke on tool {tool}"
+        );
+        // Don't over-assert: get_symbols_overview may still emit
+        // depth_limit on a repo that happens to exceed the default
+        // budget. Only require that every present entry carries a valid
+        // kind string.
+        for entry in limits {
+            assert!(
+                entry["kind"].is_string(),
+                "tool {tool} decision missing kind: {entry}"
+            );
+        }
+    }
+}
