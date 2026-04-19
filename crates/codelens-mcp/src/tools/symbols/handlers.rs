@@ -435,7 +435,28 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     } else {
         BackendKind::Semantic
     };
-    Ok((payload, success_meta(backend, 0.91)))
+
+    let mut decisions: Vec<crate::limits::LimitsApplied> = Vec::new();
+    if result.pruned_count > 0 {
+        let returned = result.symbols.len();
+        let total = returned + result.pruned_count;
+        decisions.push(crate::limits::LimitsApplied::budget_prune(
+            returned,
+            total,
+            result.last_kept_score,
+            format!("max_tokens={max_tokens}"),
+        ));
+    }
+    // Semantic index cold: caller did NOT disable semantic, but the
+    // engine produced zero semantic evidence. Agents relying on
+    // natural-language retrieval benefit from seeing this.
+    if !effective_disable_semantic && semantic_results.is_empty() {
+        decisions.push(crate::limits::LimitsApplied::index_partial("semantic"));
+    }
+
+    let mut meta = success_meta(backend, 0.91);
+    crate::tools::transparency::attach_decisions_to_meta(&mut payload, &mut meta, decisions);
+    Ok((payload, meta))
 }
 
 pub fn refresh_symbol_index(state: &AppState, _arguments: &Value) -> ToolResult {

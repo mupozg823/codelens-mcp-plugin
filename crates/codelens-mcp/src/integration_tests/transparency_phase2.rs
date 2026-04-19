@@ -248,3 +248,64 @@ fn get_symbols_overview_emits_depth_limit_when_trimmed() {
         "root decisions must mirror data.limits_applied (treating absent as [])"
     );
 }
+
+// ── Task 8 — get_ranked_context budget_prune + index_partial ──────────
+//
+// Scope: when the engine's `prune_to_budget` drops candidates because
+// `max_tokens` cannot hold them all, the handler MUST emit a
+// `budget_prune` decision carrying `returned` = kept entries, `total`
+// = returned + dropped, and `param` = `max_tokens=<value>`. The
+// `index_partial` twin (semantic lane produced zero evidence while
+// the caller did not disable it) is exercised by the Task 10
+// reproducer — a fixture-stable cold embedding state is too fragile
+// for this level.
+
+#[test]
+fn get_ranked_context_emits_budget_prune_when_budget_trims() {
+    let project = project_root();
+    fs::create_dir_all(project.as_path().join("src")).expect("mkdir src");
+    // Seed many symbols — a tight token budget cannot hold them all.
+    for f in 0..40 {
+        let mut src = String::new();
+        for s in 0..10 {
+            src.push_str(&format!(
+                "pub fn sym_{f}_{s}_example_budget_prune_target() {{}}\n"
+            ));
+        }
+        fs::write(project.as_path().join(format!("src/m{f}.rs")), &src).expect("write file");
+    }
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "get_ranked_context",
+        json!({
+            "query": "example_budget_prune_target",
+            "max_tokens": 500,
+        }),
+    );
+
+    assert_eq!(payload["success"], json!(true));
+
+    let kinds: Vec<String> = payload["data"]["limits_applied"]
+        .as_array()
+        .expect("data.limits_applied must be an array")
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap_or("").to_owned())
+        .collect();
+    assert!(
+        kinds.iter().any(|k| k == "budget_prune"),
+        "expected budget_prune, got {kinds:?}"
+    );
+    let entry = payload["data"]["limits_applied"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|e| e["kind"] == "budget_prune")
+        .expect("entry present");
+    assert_eq!(entry["param"], json!("max_tokens=500"));
+    assert!(entry["dropped"].as_u64().unwrap_or(0) > 0);
+
+    // Dispatch-boundary byte-equality.
+    assert_eq!(payload["decisions"], payload["data"]["limits_applied"]);
+}
