@@ -1,0 +1,95 @@
+{
+  "schema_version": "downstream-quality-mini-v1",
+  "created": "2026-04-19",
+  "target_repo": "codelens-mcp-plugin",
+  "purpose": "Measure whether CodeLens's compressed context (get_ranked_context) preserves enough information for a language model to answer targeted code-navigation questions as accurately as a Read-original baseline.",
+  "methodology": {
+    "answer_generation": "Claude Code subagent, one per (question, context) cell, with strict 'answer only, do not explore the codebase' instructions so the context under test is the only source of truth.",
+    "evaluation": {
+      "automatic_label_match": "Python script checks whether each required label substring appears anywhere in the subagent's answer. Case-sensitive except for paths. Score = matched / total per answer.",
+      "independent_llm_judge": "Codex CLI reviews all six answers and the labels, returns per-answer verdict and one paragraph of reasoning. Included to cross-check the automatic match against a non-Claude perspective."
+    },
+    "bias_notes": [
+      "Same-model bias between answer generator and one evaluator is mitigated by (a) raw label matching as the primary metric and (b) Codex as an independent second evaluator.",
+      "ctx_A is Read of the full relevant file(s); ctx_B is get_ranked_context with a natural-language query. The comparison measures whether compression preserves the label regions."
+    ]
+  },
+  "questions": [
+    {
+      "id": "Q1_find_symbol_location",
+      "difficulty": "easy",
+      "query": "Where is the find_symbol handler implemented, and what file does it live in?",
+      "labels": [
+        "crates/codelens-mcp/src/tools/symbols/handlers.rs",
+        "find_symbol"
+      ],
+      "label_notes": "answer must cite both the handler file and the function name; exact line number not required",
+      "ctx_A": {
+        "mode": "read_files",
+        "files": ["crates/codelens-mcp/src/tools/symbols/handlers.rs"],
+        "line_range": "1-200"
+      },
+      "ctx_B": {
+        "mode": "get_ranked_context",
+        "args": {
+          "query": "find_symbol handler implementation",
+          "max_tokens": 3000,
+          "include_body": true
+        }
+      }
+    },
+    {
+      "id": "Q2_sampling_notice_origin",
+      "difficulty": "medium",
+      "query": "Which helper function in the MCP crate first injected the sampling_notice string onto find_referencing_symbols responses, and which file does it live in? Also name the test module that covers it.",
+      "labels": [
+        "build_text_refs_response",
+        "sampling_notice",
+        "crates/codelens-mcp/src/tools/lsp.rs",
+        "sampling_notice_tests"
+      ],
+      "label_notes": "answer must name the helper, the literal field name sampling_notice, the file path, and the test module",
+      "ctx_A": {
+        "mode": "read_files",
+        "files": ["crates/codelens-mcp/src/tools/lsp.rs"],
+        "line_range": "1-200"
+      },
+      "ctx_B": {
+        "mode": "get_ranked_context",
+        "args": {
+          "query": "sampling_notice structured helper build_text_refs_response",
+          "max_tokens": 3000,
+          "include_body": true
+        }
+      }
+    },
+    {
+      "id": "Q3_prune_to_budget_extension",
+      "difficulty": "hard",
+      "query": "prune_to_budget in the engine was recently extended to report drop statistics. What two new fields were added to RankedContextResult as part of that change, and which file in the engine holds the struct definition?",
+      "labels": [
+        "pruned_count",
+        "last_kept_score",
+        "RankedContextResult",
+        "crates/codelens-engine/src/symbols"
+      ],
+      "label_notes": "answer must name both new fields, the struct, and cite a symbols-module path in the engine crate",
+      "ctx_A": {
+        "mode": "read_files",
+        "files": [
+          "crates/codelens-engine/src/symbols/ranking.rs",
+          "crates/codelens-engine/src/symbols/mod.rs"
+        ],
+        "line_range": "whole"
+      },
+      "ctx_B": {
+        "mode": "get_ranked_context",
+        "args": {
+          "query": "prune_to_budget pruned_count last_kept_score RankedContextResult drop statistics",
+          "max_tokens": 3000,
+          "include_body": true
+        }
+      }
+    }
+  ]
+}
