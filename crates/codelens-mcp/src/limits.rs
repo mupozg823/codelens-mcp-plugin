@@ -43,6 +43,64 @@ pub struct LimitsApplied {
     pub remedy: String,
 }
 
+impl LimitsApplied {
+    /// Result array was truncated from `total` to `returned` because of
+    /// a sampling/pagination parameter. `param` names the parameter
+    /// responsible (e.g. `"sample_limit=8"`).
+    pub fn sampling(total: usize, returned: usize, param: impl Into<String>) -> Self {
+        let dropped = total.saturating_sub(returned);
+        Self {
+            kind: LimitsKind::Sampling,
+            total: Some(total),
+            returned: Some(returned),
+            dropped: Some(dropped),
+            param: Some(param.into()),
+            reason: format!("returned {returned} of {total} (sampled)"),
+            remedy: "set full_results=true or raise max_results to retrieve the full set".into(),
+        }
+    }
+
+    /// Whole files were dropped by shadow-file suppression because they
+    /// redefine the target symbol. `dropped_files` is the number of
+    /// files removed; the call retains structural recall inside the
+    /// declaration file.
+    pub fn shadow_suppression(dropped_files: usize) -> Self {
+        Self {
+            kind: LimitsKind::ShadowSuppression,
+            total: None,
+            returned: None,
+            dropped: Some(dropped_files),
+            param: None,
+            reason: format!(
+                "{dropped_files} file(s) dropped because they re-declare the target symbol (shadow suppression)"
+            ),
+            remedy: "pass declaration_file to scope the search, or inspect the shadowing files individually".into(),
+        }
+    }
+
+    /// The preferred backend failed (LSP, SCIP, …) and the tool
+    /// fell back to an alternative. `reason` is the raw failure
+    /// message; `fallback_backend` is the backend that actually served
+    /// the response.
+    pub fn backend_degraded(
+        reason: impl Into<String>,
+        fallback_backend: impl Into<String>,
+    ) -> Self {
+        let fallback = fallback_backend.into();
+        Self {
+            kind: LimitsKind::BackendDegraded,
+            total: None,
+            returned: None,
+            dropped: None,
+            param: None,
+            reason: reason.into(),
+            remedy: format!(
+                "served by {fallback}; install or warm the preferred backend for higher confidence"
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -101,5 +159,36 @@ mod tests {
             let v = serde_json::to_value(kind).expect("serialize kind");
             assert_eq!(v, json!(wire), "kind {:?}", kind);
         }
+    }
+
+    #[test]
+    fn sampling_constructor_fills_counts_and_remedy() {
+        let entry = LimitsApplied::sampling(62, 8, "sample_limit=8");
+        assert_eq!(entry.kind, LimitsKind::Sampling);
+        assert_eq!(entry.total, Some(62));
+        assert_eq!(entry.returned, Some(8));
+        assert_eq!(entry.dropped, Some(54));
+        assert_eq!(entry.param.as_deref(), Some("sample_limit=8"));
+        assert!(entry.remedy.contains("full_results=true"));
+        assert!(entry.remedy.contains("max_results"));
+    }
+
+    #[test]
+    fn shadow_suppression_constructor_reports_file_count() {
+        let entry = LimitsApplied::shadow_suppression(3);
+        assert_eq!(entry.kind, LimitsKind::ShadowSuppression);
+        assert_eq!(entry.dropped, Some(3));
+        assert!(entry.param.is_none());
+        assert!(entry.reason.contains("shadow"));
+        assert!(entry.remedy.contains("declaration_file"));
+    }
+
+    #[test]
+    fn backend_degraded_constructor_carries_reason() {
+        let entry = LimitsApplied::backend_degraded("LSP failed", "tree_sitter");
+        assert_eq!(entry.kind, LimitsKind::BackendDegraded);
+        assert!(entry.reason.contains("LSP failed"));
+        assert!(entry.remedy.contains("tree_sitter"));
+        assert!(entry.total.is_none() && entry.returned.is_none() && entry.dropped.is_none());
     }
 }
