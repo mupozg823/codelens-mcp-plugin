@@ -575,14 +575,20 @@ fn summarize_text_object(source: &Map<String, Value>, depth: usize) -> Value {
     const MAX_OBJECT_ITEMS: usize = 8;
 
     let mut summarized = Map::new();
+    let mut array_shrunk = false;
     for (index, (key, value)) in source.iter().enumerate() {
         if index >= MAX_OBJECT_ITEMS {
             summarized.insert("truncated".to_owned(), Value::Bool(true));
             break;
         }
+        if let Value::Array(items) = value
+            && items.len() > TEXT_CHANNEL_MAX_ARRAY_ITEMS
+        {
+            array_shrunk = true;
+        }
         summarized.insert(key.clone(), summarize_text_value(value, depth + 1));
     }
-    if source.contains_key("truncated") {
+    if source.contains_key("truncated") || array_shrunk {
         summarized.insert("truncated".to_owned(), Value::Bool(true));
     }
     Value::Object(summarized)
@@ -719,9 +725,14 @@ pub(crate) fn success_jsonrpc_response(
     JsonRpcResponse::result(id, result)
 }
 
+// Keeping `count`/`returned_count` metadata consistent with the visible array
+// requires `summarize_text_object` and `summarize_structured_content` to share
+// the same cap, so the shrink detector and the shrinker never disagree.
+const TEXT_CHANNEL_MAX_ARRAY_ITEMS: usize = 3;
+
 fn summarize_structured_content(value: &Value, depth: usize) -> Value {
     const MAX_STRING_CHARS: usize = 240;
-    const MAX_ARRAY_ITEMS: usize = 3;
+    const MAX_ARRAY_ITEMS: usize = TEXT_CHANNEL_MAX_ARRAY_ITEMS;
     const MAX_OBJECT_DEPTH: usize = 4;
 
     match value {
@@ -759,5 +770,69 @@ fn summarize_structured_content(value: &Value, depth: usize) -> Value {
             }
             Value::Object(summarized)
         }
+    }
+}
+
+#[cfg(test)]
+mod text_channel_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn shrinking_array_child_flags_parent_truncated() {
+        let payload = json!({
+            "references": [1, 2, 3, 4, 5],
+            "count": 5,
+            "returned_count": 5,
+            "sampled": false,
+        });
+        let summarized = summarize_text_data_for_response(&payload);
+        let obj = summarized.as_object().expect("object");
+        assert_eq!(
+            obj.get("truncated").and_then(Value::as_bool),
+            Some(true),
+            "parent must be flagged when an array child was shrunk"
+        );
+        assert_eq!(
+            obj.get("references").and_then(Value::as_array).map(Vec::len),
+            Some(TEXT_CHANNEL_MAX_ARRAY_ITEMS)
+        );
+        assert_eq!(obj.get("count").and_then(Value::as_i64), Some(5));
+        assert_eq!(obj.get("returned_count").and_then(Value::as_i64), Some(5));
+    }
+
+    #[test]
+    fn short_array_leaves_parent_untruncated() {
+        let payload = json!({
+            "references": [1, 2],
+            "count": 2,
+            "returned_count": 2,
+        });
+        let summarized = summarize_text_data_for_response(&payload);
+        let obj = summarized.as_object().expect("object");
+        assert!(obj.get("truncated").is_none());
+        assert_eq!(
+            obj.get("references").and_then(Value::as_array).map(Vec::len),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn nested_object_array_shrink_flags_inner_parent() {
+        let payload = json!({
+            "outer": {
+                "items": [1, 2, 3, 4],
+                "total": 4,
+            }
+        });
+        let summarized = summarize_text_data_for_response(&payload);
+        let inner = summarized
+            .get("outer")
+            .and_then(Value::as_object)
+            .expect("outer object");
+        assert_eq!(
+            inner.get("truncated").and_then(Value::as_bool),
+            Some(true)
+        );
     }
 }
