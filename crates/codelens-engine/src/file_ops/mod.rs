@@ -87,6 +87,16 @@ pub struct TextReference {
     pub is_declaration: bool,
 }
 
+/// Outcome of a text-based reference scan: the returned references plus
+/// the files that were suppressed because they re-declare the symbol
+/// (shadow-file suppression). The MCP layer surfaces the suppressed
+/// list via a `shadow_suppression` LimitsApplied entry.
+#[derive(Debug, Clone)]
+pub struct TextRefsReport {
+    pub references: Vec<TextReference>,
+    pub shadow_files_suppressed: Vec<String>,
+}
+
 // --- Helper structs and functions (pub(super) for use within file_ops) ---
 
 pub(super) struct FlatSymbol {
@@ -193,7 +203,7 @@ pub fn find_referencing_symbols_via_text(
     symbol_name: &str,
     declaration_file: Option<&str>,
     max_results: usize,
-) -> Result<Vec<TextReference>> {
+) -> Result<TextRefsReport> {
     use crate::rename::find_all_word_matches;
     use crate::symbols::get_symbols_overview;
 
@@ -243,7 +253,13 @@ pub fn find_referencing_symbols_via_text(
         });
     }
 
-    Ok(results)
+    let mut shadow_files_sorted: Vec<String> = shadow_files.into_iter().collect();
+    shadow_files_sorted.sort();
+
+    Ok(TextRefsReport {
+        references: results,
+        shadow_files_suppressed: shadow_files_sorted,
+    })
 }
 
 /// Extract the word (identifier) at a given line/column position in a file.
@@ -474,8 +490,9 @@ mod tests {
     fn text_reference_finds_all_occurrences() {
         let root = fixture_root();
         let project = ProjectRoot::new(&root).expect("project");
-        let refs = super::find_referencing_symbols_via_text(&project, "greet", None, 100)
+        let report = super::find_referencing_symbols_via_text(&project, "greet", None, 100)
             .expect("text refs");
+        let refs = &report.references;
         assert_eq!(refs.len(), 2); // "def greet" + "print(greet(...))"
         assert!(refs.iter().all(|r| r.file_path == "src/main.py"));
         assert!(refs.iter().all(|r| !r.line_content.is_empty()));
@@ -485,21 +502,21 @@ mod tests {
     fn text_reference_with_declaration_file() {
         let dir = ref_fixture_root();
         let project = ProjectRoot::new(&dir).expect("project");
-        let refs =
+        let report =
             super::find_referencing_symbols_via_text(&project, "helper", Some("src/utils.py"), 100)
                 .expect("text refs");
-        assert!(refs.len() >= 2);
+        assert!(report.references.len() >= 2);
     }
 
     #[test]
     fn text_reference_shadowing_excluded() {
         let dir = ref_fixture_root();
         let project = ProjectRoot::new(&dir).expect("project");
-        let refs =
+        let report =
             super::find_referencing_symbols_via_text(&project, "run", Some("src/service.py"), 100)
                 .expect("text refs");
         assert!(
-            refs.iter().all(|r| r.file_path != "src/other.py"),
+            report.references.iter().all(|r| r.file_path != "src/other.py"),
             "should exclude other.py (has own 'run' declaration)"
         );
     }
@@ -558,5 +575,35 @@ mod tests {
         )
         .expect("write fixture");
         dir
+    }
+
+    #[test]
+    fn text_refs_report_exposes_shadow_suppression_count() {
+        use crate::file_ops::find_referencing_symbols_via_text;
+        use std::fs;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        let root = dir.path();
+        fs::write(root.join("decl.py"), "class Target:\n    pass\n").unwrap();
+        fs::write(
+            root.join("shadow.py"),
+            "class Target:\n    pass\n# Target\n",
+        )
+        .unwrap();
+        fs::write(root.join("use.py"), "from decl import Target\nTarget()\n").unwrap();
+
+        let project = crate::ProjectRoot::new(root).expect("project");
+        let report =
+            find_referencing_symbols_via_text(&project, "Target", Some("decl.py"), 50).unwrap();
+
+        assert!(
+            report.shadow_files_suppressed.iter().any(|f| f == "shadow.py"),
+            "shadow.py should be suppressed, got: {:?}",
+            report.shadow_files_suppressed
+        );
+        assert!(
+            report.references.iter().all(|r| r.file_path != "shadow.py"),
+            "no reference should come from the suppressed file"
+        );
     }
 }

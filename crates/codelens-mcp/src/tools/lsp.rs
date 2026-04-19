@@ -212,9 +212,9 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             Some(&file_path),
             max_results,
         )
-        .map(|value| {
+        .map(|report| {
             let (references, total_count, sampled) =
-                compact_text_references(value, include_context, full_results, sample_limit);
+                compact_text_references(report.references, include_context, full_results, sample_limit);
             (
                 build_text_refs_response(references, total_count, sampled, include_context),
                 meta_for_backend("tree_sitter", 0.85),
@@ -282,9 +282,9 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         .ok_or_else(|| CodeLensError::MissingParam("could not determine symbol name".into()))?;
     Ok(
         find_referencing_symbols_via_text(&state.project(), &word, Some(&file_path), max_results)
-            .map(|value| {
+            .map(|report| {
                 let (references, total_count, sampled) =
-                    compact_text_references(value, include_context, full_results, sample_limit);
+                    compact_text_references(report.references, include_context, full_results, sample_limit);
                 (
                     build_text_refs_response(references, total_count, sampled, include_context),
                     meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"),
