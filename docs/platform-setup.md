@@ -192,6 +192,25 @@ thresholds over the latest builder/planner pass rates plus coverage gaps. It is
 an operator/CI layer on top of the file-based trend report, not a replacement
 for per-session `audit_builder_session` / `audit_planner_session`.
 
+If `.codelens/eval-session-audit-gate.json` exists in the repo root, the gate
+script loads that policy automatically. Use CLI flags or env vars only when you
+intentionally want to override the repo-local baseline.
+
+Example policy:
+
+```json
+{
+  "version": 1,
+  "limit": 14,
+  "thresholds": {
+    "min_builder_pass_rate": 0.5,
+    "min_planner_pass_rate": 0.5,
+    "max_no_applicable_snapshots": 0,
+    "fail_on_warn": false
+  }
+}
+```
+
 The export script can refresh that gate artifact automatically after each JSON
 snapshot, so the recommended operator chain is:
 

@@ -171,6 +171,11 @@ That gate does not inspect the daemon directly. It reuses the historical
 summary and applies configurable thresholds to classify the recent window as
 `pass`, `warn`, or `fail`.
 
+If `.codelens/eval-session-audit-gate.json` exists in the repo root, the gate
+script loads that repo-local policy automatically before applying any CLI or
+env overrides. That keeps manual runs, scheduled refreshes, and CI checks on
+the same baseline unless a caller deliberately overrides it.
+
 When the daily export job stays on JSON output, the recommended artifact chain
 is:
 

@@ -253,6 +253,9 @@ bash scripts/eval-session-audit-operator-gate.sh
 bash scripts/eval-session-audit-operator-gate.sh --fail-on-warn
 ```
 
+If `.codelens/eval-session-audit-gate.json` exists, the gate script loads it
+automatically. CLI flags and env vars still override the repo-local policy.
+
 The export script can also refresh that gate artifact automatically after each
 JSON snapshot, so scheduled operators do not need a second wrapper job just to
 keep `latest-gate.md` current.

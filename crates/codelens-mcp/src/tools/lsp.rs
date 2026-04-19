@@ -352,7 +352,17 @@ pub fn get_file_diagnostics(state: &AppState, arguments: &serde_json::Value) -> 
 
 pub fn search_workspace_symbols(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let query = required_string(arguments, "query")?.to_owned();
-    let command = required_string(arguments, "command")?.to_owned();
+    // `command` is the LSP server binary (rust-analyzer / pyright / gopls …).
+    // When missing, point users at the non-LSP fuzzy fallback instead of the
+    // generic "Missing required parameter" error so CLI one-shot callers
+    // don't hit a dead end.
+    let Some(command) = optional_string(arguments, "command").map(ToOwned::to_owned) else {
+        return Err(CodeLensError::MissingParam(format!(
+            "command (LSP server binary, e.g. rust-analyzer/pyright). \
+             For LSP-free fuzzy search over `{query}`, call \
+             `bm25_symbol_search` (or `find_symbol` with an exact name)."
+        )));
+    };
     let args = parse_lsp_args(arguments, &command);
     let max_results = optional_usize(arguments, "max_results", 50);
 

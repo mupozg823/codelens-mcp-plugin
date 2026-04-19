@@ -1,6 +1,7 @@
 # CodeLens MCP
 
 <!-- CODELENS_HOST_ROUTING:BEGIN -->
+
 ## CodeLens Routing
 
 - Use native Read/Glob/Grep first for trivial point lookups and single-file edits.
@@ -22,22 +23,55 @@
 - `planner-readonly` + `onboarding` [bias: `claude`]: `prepare_harness_session` -> `analyze_change_request` -> `review_changes` -> `impact_report` -> `onboard_project` -> `explore_codebase` -> `review_architecture`
 <!-- CODELENS_HOST_ROUTING:END -->
 
-## Tool Routing — PREFER CodeLens over Read/Grep for code tasks
+## Tool Routing — honest scenario matrix (updated 2026-04-19)
 
-| Task                      | Use This                                         | Not This              |
-| ------------------------- | ------------------------------------------------ | --------------------- |
-| Find function/class/type  | `mcp__codelens__find_symbol` (include_body=true) | Grep                  |
-| File/directory structure  | `mcp__codelens__get_symbols_overview`            | Read entire file      |
-| Who calls/references X    | `mcp__codelens__find_referencing_symbols`        | Grep for name         |
-| Smart context for a query | `mcp__codelens__get_ranked_context`              | Multiple Read calls   |
-| What breaks if I change X | `mcp__codelens__get_impact_analysis`             | Manual tracing        |
-| Type errors after edit    | `mcp__codelens__get_file_diagnostics`            | Manual check          |
-| First look at codebase    | `mcp__codelens__onboard_project`                 | ls + Read             |
-| Safe multi-file rename    | `mcp__codelens__rename_symbol`                   | Find & replace        |
-| NL code search            | `mcp__codelens__semantic_search`                 | Grep for guessed name |
-| Change impact report      | `mcp__codelens__impact_report`                   | Manual multi-grep     |
+Benchmarks (see `benchmarks/bench-accuracy-and-usefulness-2026-04-19.md`)
+show CodeLens and grep are **complementary, not a one-way replacement**.
+Pick by question shape, not by reflex.
 
-**Use Read/Grep ONLY for:** non-code files, exact string search, files < 30 lines.
+### Precision / structural navigation — prefer CodeLens
+
+| Task                                    | Use                                              | Why                                                                |
+| --------------------------------------- | ------------------------------------------------ | ------------------------------------------------------------------ |
+| Find function/class/type definition     | `mcp__codelens__find_symbol` (include_body=true) | Exact file/line/column + kind + signature + `suggested_next_tools` |
+| File/directory structure                | `mcp__codelens__get_symbols_overview`            | AST-accurate, includes private symbols grep can miss               |
+| Who calls / inherits X (real callsites) | `mcp__codelens__find_referencing_symbols`        | Rejects imports / strings / type annotations grep floods you with  |
+| Smart context for a query               | `mcp__codelens__get_ranked_context`              | Bundled by importance + hybrid BM25 + semantic                     |
+| What breaks if I change X               | `mcp__codelens__get_impact_analysis`             | Blast radius + importer evidence grep cannot produce               |
+| Type errors after edit                  | `mcp__codelens__get_file_diagnostics`            | Machine-readable diagnostics stream                                |
+| First look at unfamiliar repo           | `mcp__codelens__onboard_project`                 | Key files + structure + health in one call                         |
+| Safe multi-file rename                  | `mcp__codelens__rename_symbol`                   | Verifier-gated; refuses broken renames                             |
+| NL query over embeddings                | `mcp__codelens__semantic_search` (if indexed)    | Fallback to `bm25_symbol_search` when semantic index is absent     |
+| Change impact report                    | `mcp__codelens__impact_report`                   | Bounded, summary + evidence                                        |
+
+### Recall / text audits / fuzzy — prefer Grep (or specific CodeLens fuzzy tools)
+
+| Task                                              | Use                                       | Why                                                                                  |
+| ------------------------------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------ |
+| "Where is this string mentioned at all?"          | **Grep**                                  | CodeLens's call-graph view intentionally drops imports / strings / comments          |
+| Imports + comments + docstring audits             | **Grep**                                  | Tree-sitter does not index non-code mentions                                         |
+| Fuzzy / partial name ("register…")                | `mcp__codelens__bm25_symbol_search`       | `find_symbol` requires exact name; BM25 tolerates partial or NL token shape          |
+| LSP-aware workspace fuzzy (when LSP is available) | `mcp__codelens__search_workspace_symbols` | Needs `command` (e.g. rust-analyzer). Without it, handler returns a hint toward BM25 |
+| Single-file known path, < 30 lines                | **Read**                                  | No need to pay index warm-up cost                                                    |
+| Exact 1–2 string matches in 1–2 files             | **Grep**                                  | Often faster than CodeLens on small repos                                            |
+
+### Scale dependency (measured)
+
+| Repo size                    | CodeLens find_symbol advantage | Prefer                                |
+| ---------------------------- | ------------------------------ | ------------------------------------- |
+| Large monorepo (>100K files) | 100–500× faster                | CodeLens everywhere                   |
+| Medium Python/TS (287 files) | ~1–2×, roughly tied            | CodeLens for structure, grep for text |
+| Single file, < 30 lines      | n/a                            | Read / Grep                           |
+
+### Known accuracy limits (2026-04-19)
+
+- Python `find_referencing_symbols` misses imports + type annotations
+  (tree-sitter extractor gap). Use Grep if you also want to audit them.
+- Decorated classes (`@dataclass class X:`) may return two rows
+  (decorator + body). Ignore the decorator row for navigation.
+- `find_symbol` with a non-existent exact name now returns a
+  `fallback_hint` pointing at `search_workspace_symbols`,
+  `search_symbols_fuzzy`, and `bm25_symbol_search` — follow it.
 
 **After ANY code mutation:** follow `suggested_next_tools` — always includes `get_file_diagnostics`.
 

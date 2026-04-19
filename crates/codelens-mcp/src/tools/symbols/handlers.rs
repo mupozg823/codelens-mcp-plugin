@@ -1,6 +1,6 @@
 use super::super::{
-    AppState, ToolResult, optional_bool, optional_string, optional_usize,
-    query_analysis::analyze_retrieval_query, required_string, success_meta,
+    optional_bool, optional_string, optional_usize, query_analysis::analyze_retrieval_query,
+    required_string, success_meta, AppState, ToolResult,
 };
 use super::{
     analyzer::{
@@ -13,8 +13,8 @@ use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::symbol_corpus::build_symbol_corpus;
 use crate::symbol_retrieval::{search_symbols_bm25f, unique_query_terms};
-use codelens_engine::{SymbolInfo, SymbolKind, read_file, search_symbols_hybrid_with_semantic};
-use serde_json::{Value, json};
+use codelens_engine::{read_file, search_symbols_hybrid_with_semantic, SymbolInfo, SymbolKind};
+use serde_json::{json, Value};
 
 pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
     let path = required_string(arguments, "path")?;
@@ -129,15 +129,43 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
             } else {
                 0
             };
-            (
-                json!({
-                    "symbols": value,
-                    "count": value.len(),
-                    "body_truncated_count": body_truncated_count,
-                    "body_preview": include_body && !body_full,
-                }),
-                success_meta(BackendKind::TreeSitter, 0.93),
-            )
+            // 0-result fallback hint: agents guessing a slightly wrong name
+            // hit dead-ends silently otherwise. Recommend the fuzzy path.
+            let mut payload = json!({
+                "symbols": value,
+                "count": value.len(),
+                "body_truncated_count": body_truncated_count,
+                "body_preview": include_body && !body_full,
+            });
+            if value.is_empty() {
+                if let Some(map) = payload.as_object_mut() {
+                    map.insert(
+                        "fallback_hint".to_owned(),
+                        json!({
+                            "reason": "no exact match",
+                            "query": name,
+                            "try": [
+                                {
+                                    "tool": "search_workspace_symbols",
+                                    "arguments": {"query": name, "limit": 10},
+                                    "why": "fuzzy / partial-name search across the full symbol index",
+                                },
+                                {
+                                    "tool": "search_symbols_fuzzy",
+                                    "arguments": {"query": name, "max_results": 10},
+                                    "why": "alternate fuzzy matcher with score ranking",
+                                },
+                                {
+                                    "tool": "bm25_symbol_search",
+                                    "arguments": {"query": name, "max_results": 10},
+                                    "why": "NL / identifier-token retrieval when the exact name is uncertain",
+                                },
+                            ],
+                        }),
+                    );
+                }
+            }
+            (payload, success_meta(BackendKind::TreeSitter, 0.93))
         })?)
 }
 

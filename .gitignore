@@ -13,7 +13,9 @@ Thumbs.db
 *.iml
 
 # CodeLens runtime (recursive — catches crates/*/.codelens/ too)
-**/.codelens/
+**/.codelens/**
+!/.codelens/
+!/.codelens/eval-session-audit-gate.json
 .codelens-port
 
 # Serena runtime

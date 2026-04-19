@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "limit": 14,
+  "thresholds": {
+    "min_builder_pass_rate": 0.5,
+    "min_planner_pass_rate": 0.5,
+    "max_no_applicable_snapshots": 0,
+    "fail_on_warn": false
+  }
+}
