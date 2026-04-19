@@ -171,6 +171,18 @@ repo) but conveys the wrong headline. The honest pitch is:
 
 ## 6. Known accuracy limitations (open backlog)
 
+**2026-04-19 update — Phase 2 closed the remaining read-hot-path
+transparency gaps** (`get_symbols_overview` depth trim,
+`search_for_pattern` cap, `get_ranked_context` budget prune,
+`find_symbol` exact-match refusal). Each trim/suppression decision
+now surfaces as a structured `LimitsApplied` entry on both
+`data.limits_applied` and the response-root `decisions` array, so
+the "silent decision" class of bugs can no longer hide behind a
+single boolean flag. See
+`docs/superpowers/specs/2026-04-19-transparency-fields-design.md`
+§5.2 and the reproducer at
+`benchmarks/transparency-reproducer.sh`.
+
 | Limitation                                                                                                                                                                                                                                                                      | Impact                                                              | Priority                                                                                                                                                                  |
 | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ~~Python reference extraction misses imports + type annotations~~ **Retracted 2026-04-19.** Re-measurement (see Test B correction) shows code-reference recall is 100% on the Serena fixture; the original claim came from a sampled response that was read as the full result. | —                                                                   | —                                                                                                                                                                         |

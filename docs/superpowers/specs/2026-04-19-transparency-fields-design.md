@@ -177,21 +177,31 @@ the envelope location.
 
 ### 5.2 Per-tool call sites (phase split)
 
-Phase 1 — already in flight from C2:
+Phase 1 — landed 2026-04-19 (PR #81):
 
 - [x] `find_referencing_symbols`: `sampling` (sampling_notice exists,
       migrate to emitter)
-- [ ] `find_referencing_symbols`: `shadow_suppression`
-- [ ] `find_referencing_symbols`: `backend_degraded` (existing
+- [x] `find_referencing_symbols`: `shadow_suppression`
+- [x] `find_referencing_symbols`: `backend_degraded` (existing
       `meta_degraded` → structured)
 
-Phase 2 — read-hot-path tools:
+Phase 2 — landed 2026-04-19 (same branch, see plan
+`docs/superpowers/plans/2026-04-19-transparency-layer-phase2.md`):
 
-- [ ] `search_for_pattern`: `sampling`, `filter_applied`
-- [ ] `get_symbols_overview`: `depth_limit`
-- [ ] `get_ranked_context`: `budget_prune`, `index_partial` (when
+- [x] `search_for_pattern`: `sampling`, `filter_applied`
+- [x] `get_symbols_overview`: `depth_limit`
+- [x] `get_ranked_context`: `budget_prune`, `index_partial` (when
       embedding index is cold)
-- [ ] `find_symbol`: `exact_match_only` (backs existing `fallback_hint`)
+- [x] `find_symbol`: `exact_match_only` (backs existing `fallback_hint`)
+
+**Phase 2 landing note.** All five Phase 2 decision kinds emit on
+the response root `decisions` array and mirror `data.limits_applied`
+byte-for-byte. The reproducer at
+`benchmarks/transparency-reproducer.sh` exercises every kind against
+the Serena fixture; the last run printed `ok sampling`,
+`ok full_results`, `ok exact_match_only`, `ok get_symbols_overview
+decisions: ['depth_limit']`, `ok search_for_pattern: ['sampling',
+'filter_applied']`, `ok get_ranked_context: ['budget_prune']`.
 
 Phase 3 — remaining surface:
 
