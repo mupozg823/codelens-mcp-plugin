@@ -103,6 +103,95 @@ impl LimitsApplied {
             ),
         }
     }
+
+    /// The ranker's budget-aware prune dropped symbols whose blended
+    /// score did not fit in the caller's `max_tokens`. `returned` is
+    /// the kept count, `total` is the candidate set before pruning,
+    /// `last_kept_score` is the score of the lowest-ranked kept entry
+    /// so the caller can judge how close they are to losing relevant
+    /// context. `param` names the budget parameter (`max_tokens=…`).
+    pub fn budget_prune(
+        returned: usize,
+        total: usize,
+        last_kept_score: f64,
+        param: impl Into<String>,
+    ) -> Self {
+        let dropped = total.saturating_sub(returned);
+        Self {
+            kind: LimitsKind::BudgetPrune,
+            total: Some(total),
+            returned: Some(returned),
+            dropped: Some(dropped),
+            param: Some(param.into()),
+            reason: format!(
+                "kept top {returned} of {total} by blended score; last kept score {last_kept_score:.2}"
+            ),
+            remedy: "raise max_tokens or narrow the query to fit the most relevant context in budget".into(),
+        }
+    }
+
+    /// `get_symbols_overview` trimmed the tree because the requested
+    /// (or default) depth cap would have exceeded the caller's token
+    /// budget. `param` names the depth cap driving the decision.
+    pub fn depth_limit(param: impl Into<String>) -> Self {
+        Self {
+            kind: LimitsKind::DepthLimit,
+            total: None,
+            returned: None,
+            dropped: None,
+            param: Some(param.into()),
+            reason: "symbol tree trimmed at the depth limit".into(),
+            remedy: "pass an explicit `depth` greater than the current limit, or narrow `path` to a sub-tree".into(),
+        }
+    }
+
+    /// The tool applied a caller-supplied filter (glob, file type,
+    /// exclude pattern) that narrowed the candidate set before
+    /// matching. `param` names the filter (`file_glob=…`).
+    pub fn filter_applied(param: impl Into<String>) -> Self {
+        Self {
+            kind: LimitsKind::FilterApplied,
+            total: None,
+            returned: None,
+            dropped: None,
+            param: Some(param.into()),
+            reason: "caller-supplied filter narrowed the candidate set before matching".into(),
+            remedy: "remove or broaden the filter to see matches that were excluded".into(),
+        }
+    }
+
+    /// `find_symbol` refused to return a fuzzy match because the
+    /// caller did not opt into one and the exact name was not found.
+    /// `query` is the rejected input so the remedy text can cite it.
+    pub fn exact_match_only(query: impl Into<String>) -> Self {
+        let q = query.into();
+        Self {
+            kind: LimitsKind::ExactMatchOnly,
+            total: None,
+            returned: None,
+            dropped: None,
+            param: Some(format!("name={q}")),
+            reason: format!("no exact match for `{q}`; fuzzy matching requires a different tool"),
+            remedy: "call bm25_symbol_search or search_workspace_symbols for fuzzy / partial-name retrieval".into(),
+        }
+    }
+
+    /// A required index (embedding, SCIP, symbol) was not fully warm
+    /// when the call was served; the result may be less complete than
+    /// the tool could produce on a fully indexed repo. `index` names
+    /// the cold lane (`semantic`, `scip`, `symbols`).
+    pub fn index_partial(index: impl Into<String>) -> Self {
+        let index = index.into();
+        Self {
+            kind: LimitsKind::IndexPartial,
+            total: None,
+            returned: None,
+            dropped: None,
+            param: Some(format!("index={index}")),
+            reason: format!("{index} index was not fully warm when the call was served"),
+            remedy: "call refresh_symbol_index or warm the index out-of-band before relying on completeness".into(),
+        }
+    }
 }
 
 /// Serialize `decisions` once and attach the result to both
@@ -278,5 +367,57 @@ mod tests {
             let v = serde_json::to_value(kind).expect("serialize kind");
             assert_eq!(v, json!(wire), "kind {:?}", kind);
         }
+    }
+
+    #[test]
+    fn budget_prune_constructor_carries_drop_stats() {
+        let entry = LimitsApplied::budget_prune(34, 258, 0.41, "max_tokens=6000");
+        assert_eq!(entry.kind, LimitsKind::BudgetPrune);
+        assert_eq!(entry.total, Some(258));
+        assert_eq!(entry.returned, Some(34));
+        assert_eq!(entry.dropped, Some(224));
+        assert_eq!(entry.param.as_deref(), Some("max_tokens=6000"));
+        assert!(
+            entry.reason.contains("0.41"),
+            "last_kept_score must be visible: {}",
+            entry.reason
+        );
+        assert!(entry.remedy.contains("max_tokens"));
+    }
+
+    #[test]
+    fn depth_limit_constructor_reports_param() {
+        let entry = LimitsApplied::depth_limit("depth=2");
+        assert_eq!(entry.kind, LimitsKind::DepthLimit);
+        assert_eq!(entry.param.as_deref(), Some("depth=2"));
+        assert!(entry.reason.contains("depth"));
+        assert!(entry.remedy.contains("depth"));
+    }
+
+    #[test]
+    fn filter_applied_constructor_names_filter() {
+        let entry = LimitsApplied::filter_applied("file_glob=*.rs");
+        assert_eq!(entry.kind, LimitsKind::FilterApplied);
+        assert_eq!(entry.param.as_deref(), Some("file_glob=*.rs"));
+        assert!(entry.reason.contains("filter"));
+        assert!(entry.remedy.contains("remove") || entry.remedy.contains("broaden"));
+    }
+
+    #[test]
+    fn exact_match_only_constructor_names_fallback_tools() {
+        let entry = LimitsApplied::exact_match_only("register");
+        assert_eq!(entry.kind, LimitsKind::ExactMatchOnly);
+        assert!(entry.reason.contains("register"));
+        assert!(entry.remedy.contains("bm25_symbol_search"));
+        assert!(entry.remedy.contains("search_workspace_symbols"));
+    }
+
+    #[test]
+    fn index_partial_constructor_reports_missing_signal() {
+        let entry = LimitsApplied::index_partial("semantic");
+        assert_eq!(entry.kind, LimitsKind::IndexPartial);
+        assert_eq!(entry.param.as_deref(), Some("index=semantic"));
+        assert!(entry.reason.contains("semantic"));
+        assert!(entry.remedy.contains("refresh_symbol_index") || entry.remedy.contains("warm"));
     }
 }
