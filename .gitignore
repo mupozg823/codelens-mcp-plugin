@@ -7,6 +7,11 @@ target/
 .DS_Store
 Thumbs.db
 
+# Python generated files
+__pycache__/
+*.py[cod]
+.venv/
+
 # IDE
 .idea/
 .vscode/

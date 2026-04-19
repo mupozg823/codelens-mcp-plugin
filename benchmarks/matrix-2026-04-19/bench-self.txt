@@ -1,0 +1,45 @@
+
+[1m=== CodeLens MCP Benchmark ===[0m
+Project : /Users/bagjaeseog/codelens-mcp-plugin
+Binary  : ./target/release/codelens-mcp
+
+[0;36m[1/2] Building release binary...[0m
+error: manifest path `./target/Cargo.toml` does not exist
+    Finished `release` profile [optimized] target(s) in 0.37s
+[0;32mBuild OK[0m
+
+[1m[2/2] Running benchmarks (3 runs each)...[0m
+
+  Metric                                           Min       Avg       Max
+  ------------------------------------------  --------  --------  --------
+  Cold start + get_current_config                327 ms     775 ms    1579 ms
+  Symbol indexing (refresh_symbol_index)         257 ms     274 ms     298 ms
+  get_symbols_overview path=src                   51 ms      51 ms      52 ms
+  find_symbol name=main                           51 ms      51 ms      53 ms
+  get_impact_analysis src/main.rs                 51 ms      51 ms      52 ms
+
+  ------------------------------------------  --------  --------  --------
+
+[1m[3/3] CodeLens vs grep comparison (3 runs each)...[0m
+
+  Comparison                                       Min       Avg       Max
+  ------------------------------------------  --------  --------  --------
+  CodeLens: find_symbol "dispatch_tool"           51 ms      51 ms      52 ms
+  grep: fn dispatch_tool                       19270 ms   22356 ms   24402 ms
+  CodeLens: get_symbols_overview                  47 ms      62 ms      93 ms
+  grep: pub/fn/struct patterns                    21 ms      21 ms      22 ms
+  CodeLens: find_referencing_symbols              46 ms      46 ms      47 ms
+  grep: references to dispatch_tool             8831 ms    8892 ms    9009 ms
+
+[1mOutput size comparison (tokens ≈ bytes/4):[0m
+  CodeLens find_symbol              2755 bytes  (~  688 tokens)
+  grep -A 20                       65855 bytes  (~16463 tokens)
+  [0;32mCodeLens is 23.9x more token-efficient[0m
+
+  ------------------------------------------  --------  --------  --------
+
+[1mBinary info[0m
+  Size       : 74.0 MB
+  Tool count : N/A
+
+[0;33mDone.[0m
