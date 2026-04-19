@@ -4,6 +4,7 @@ use super::{
 };
 use crate::authority::{meta_degraded, meta_for_backend};
 use crate::error::CodeLensError;
+use crate::limits::{self, LimitsApplied};
 use crate::protocol::BackendKind;
 use codelens_engine::{
     LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspTypeHierarchyRequest,
@@ -13,10 +14,15 @@ use codelens_engine::{
 };
 use serde_json::json;
 
-/// Build the `find_referencing_symbols` text-path response payload.
-/// When `sampled` is true, an explicit `sampling_notice` is injected so
-/// agents (and benchmarks) do not mistake a truncated `returned_count`
-/// for the complete result set.
+/// Build the `find_referencing_symbols` text-path response envelope.
+/// Returns `{ data, _meta }` so the shared transparency emitter
+/// (`limits::inject_into`) can attach decisions to both locations.
+/// Callers unwrap `.data` into their outgoing tool-result payload.
+///
+/// `limits_applied` / `_meta.decisions` are always present (possibly
+/// an empty array) when this helper runs — an empty array means "no
+/// trims applied". The C2 `data.sampling_notice` string stays as the
+/// one-line human-readable mirror of the `sampling` decision.
 fn build_text_refs_response(
     references: Vec<serde_json::Value>,
     total_count: usize,
@@ -24,20 +30,27 @@ fn build_text_refs_response(
     include_context: bool,
 ) -> serde_json::Value {
     let returned_count = references.len();
-    let mut value = json!({
+    let mut data = json!({
         "references": references,
         "count": total_count,
         "returned_count": returned_count,
         "sampled": sampled,
         "include_context": include_context,
     });
+    let mut meta = json!({});
+
+    let mut decisions: Vec<LimitsApplied> = Vec::new();
     if sampled {
-        value["sampling_notice"] = json!(format!(
+        let entry = LimitsApplied::sampling(total_count, returned_count, "sample_limit");
+        data["sampling_notice"] = json!(format!(
             "Returned {returned_count} of {total_count} matches (sampled). \
              Set `full_results=true` or raise `max_results` to retrieve the full set."
         ));
+        decisions.push(entry);
     }
-    value
+    limits::inject_into(&mut data, &mut meta, &decisions);
+
+    json!({ "data": data, "_meta": meta })
 }
 
 fn compact_text_references(
@@ -215,10 +228,11 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         .map(|report| {
             let (references, total_count, sampled) =
                 compact_text_references(report.references, include_context, full_results, sample_limit);
-            (
-                build_text_refs_response(references, total_count, sampled, include_context),
-                meta_for_backend("tree_sitter", 0.85),
-            )
+            let envelope = build_text_refs_response(references, total_count, sampled, include_context);
+            let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
+            // TODO(Task 7/8): merge envelope["_meta"]["decisions"] into the outgoing
+            // ToolResponseMeta so the MCP envelope carries the same decisions.
+            (data, meta_for_backend("tree_sitter", 0.85))
         })?);
     }
 
@@ -285,10 +299,11 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             .map(|report| {
                 let (references, total_count, sampled) =
                     compact_text_references(report.references, include_context, full_results, sample_limit);
-                (
-                    build_text_refs_response(references, total_count, sampled, include_context),
-                    meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"),
-                )
+                let envelope = build_text_refs_response(references, total_count, sampled, include_context);
+                let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
+                // TODO(Task 7/8): merge envelope["_meta"]["decisions"] into the outgoing
+                // ToolResponseMeta so the MCP envelope carries the same decisions.
+                (data, meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"))
             })?,
     )
 }
@@ -525,28 +540,43 @@ mod sampling_notice_tests {
     use serde_json::json;
 
     #[test]
-    fn notice_is_absent_when_not_sampled() {
+    fn notice_and_limits_are_absent_when_not_sampled() {
         let resp =
             build_text_refs_response(vec![json!({"file_path": "a.py", "line": 1})], 1, false, false);
-        assert_eq!(resp["sampled"], json!(false));
-        assert!(resp.get("sampling_notice").is_none());
+        assert_eq!(resp["data"]["sampled"], json!(false));
+        assert!(resp["data"].get("sampling_notice").is_none());
+        // limits_applied is ALWAYS present (possibly empty) on participating tools.
+        assert_eq!(resp["data"]["limits_applied"], json!([]));
+        assert_eq!(resp["_meta"]["decisions"], json!([]));
     }
 
     #[test]
-    fn notice_is_present_and_mentions_full_results_when_sampled() {
+    fn sampled_response_contains_structured_sampling_entry_and_headline_notice() {
         let refs = vec![
             json!({"file_path": "a.py", "line": 1}),
             json!({"file_path": "a.py", "line": 2}),
         ];
         let resp = build_text_refs_response(refs, 62, true, false);
-        assert_eq!(resp["sampled"], json!(true));
-        let notice = resp["sampling_notice"]
-            .as_str()
-            .expect("sampling_notice should be a string when sampled=true");
-        assert!(notice.contains("2 of 62"), "notice={notice}");
+        assert_eq!(resp["data"]["sampled"], json!(true));
+
+        // structured entry
+        let limits = resp["data"]["limits_applied"].as_array().expect("array");
+        assert_eq!(limits.len(), 1);
+        assert_eq!(limits[0]["kind"], json!("sampling"));
+        assert_eq!(limits[0]["total"], json!(62));
+        assert_eq!(limits[0]["returned"], json!(2));
+        assert_eq!(limits[0]["dropped"], json!(60));
         assert!(
-            notice.contains("full_results=true") && notice.contains("max_results"),
-            "notice should guide the caller to both remediation paths: {notice}"
+            limits[0]["remedy"].as_str().unwrap().contains("full_results=true"),
+            "remedy must guide caller: {}",
+            limits[0]["remedy"]
         );
+
+        // data.limits_applied == _meta.decisions (byte-equal)
+        assert_eq!(resp["data"]["limits_applied"], resp["_meta"]["decisions"]);
+
+        // human headline still present
+        let notice = resp["data"]["sampling_notice"].as_str().expect("string");
+        assert!(notice.contains("2 of 62"), "notice={notice}");
     }
 }
