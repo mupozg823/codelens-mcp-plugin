@@ -14,20 +14,39 @@ use codelens_engine::{
 };
 use serde_json::json;
 
-/// Build the `find_referencing_symbols` text-path response envelope.
-/// Returns `{ data, _meta }` so the shared transparency emitter
-/// (`limits::inject_into`) can attach decisions to both locations.
-/// Callers unwrap `.data` into their outgoing tool-result payload.
-///
-/// `limits_applied` / `_meta.decisions` are always present (possibly
-/// an empty array) when this helper runs — an empty array means "no
-/// trims applied". The C2 `data.sampling_notice` string stays as the
-/// one-line human-readable mirror of the `sampling` decision.
+/// Thin wrapper: see `build_text_refs_response_with_decisions`. Used by
+/// the primary (non-fallback) code path where only the `sampling`
+/// decision can arise.
 fn build_text_refs_response(
     references: Vec<serde_json::Value>,
     total_count: usize,
     sampled: bool,
     include_context: bool,
+) -> serde_json::Value {
+    build_text_refs_response_with_decisions(
+        references,
+        total_count,
+        sampled,
+        include_context,
+        Vec::new(),
+    )
+}
+
+/// Build the `find_referencing_symbols` text-path response envelope
+/// `{ data, _meta }`. Emits the `sampling` decision internally when
+/// `sampled == true`, and appends `extra_decisions` (e.g.
+/// `shadow_suppression`, `backend_degraded`) so the caller can tack
+/// on decisions that only it knows about (file-count from the
+/// engine; LSP-fallback signal from the handler branch).
+///
+/// `data.limits_applied` and `_meta.decisions` are always present,
+/// byte-identical, and possibly an empty array.
+pub(super) fn build_text_refs_response_with_decisions(
+    references: Vec<serde_json::Value>,
+    total_count: usize,
+    sampled: bool,
+    include_context: bool,
+    extra_decisions: Vec<LimitsApplied>,
 ) -> serde_json::Value {
     let returned_count = references.len();
     let mut data = json!({
@@ -39,7 +58,7 @@ fn build_text_refs_response(
     });
     let mut meta = json!({});
 
-    let mut decisions: Vec<LimitsApplied> = Vec::new();
+    let mut decisions: Vec<LimitsApplied> = Vec::with_capacity(1 + extra_decisions.len());
     if sampled {
         let entry = LimitsApplied::sampling(total_count, returned_count, "sample_limit");
         data["sampling_notice"] = json!(format!(
@@ -48,8 +67,9 @@ fn build_text_refs_response(
         ));
         decisions.push(entry);
     }
-    limits::inject_into(&mut data, &mut meta, &decisions);
+    decisions.extend(extra_decisions);
 
+    limits::inject_into(&mut data, &mut meta, &decisions);
     json!({ "data": data, "_meta": meta })
 }
 
@@ -226,11 +246,18 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             max_results,
         )
         .map(|report| {
+            let shadow_count = report.shadow_files_suppressed.len();
             let (references, total_count, sampled) =
                 compact_text_references(report.references, include_context, full_results, sample_limit);
-            let envelope = build_text_refs_response(references, total_count, sampled, include_context);
+            let mut extra: Vec<LimitsApplied> = Vec::new();
+            if shadow_count > 0 {
+                extra.push(LimitsApplied::shadow_suppression(shadow_count));
+            }
+            let envelope = build_text_refs_response_with_decisions(
+                references, total_count, sampled, include_context, extra,
+            );
             let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
-            // TODO(Task 7/8): merge envelope["_meta"]["decisions"] into the outgoing
+            // TODO(Task 8): merge envelope["_meta"]["decisions"] into the outgoing
             // ToolResponseMeta so the MCP envelope carries the same decisions.
             (data, meta_for_backend("tree_sitter", 0.85))
         })?);
@@ -297,11 +324,18 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
     Ok(
         find_referencing_symbols_via_text(&state.project(), &word, Some(&file_path), max_results)
             .map(|report| {
+                let shadow_count = report.shadow_files_suppressed.len();
                 let (references, total_count, sampled) =
                     compact_text_references(report.references, include_context, full_results, sample_limit);
-                let envelope = build_text_refs_response(references, total_count, sampled, include_context);
+                let mut extra: Vec<LimitsApplied> = Vec::new();
+                if shadow_count > 0 {
+                    extra.push(LimitsApplied::shadow_suppression(shadow_count));
+                }
+                let envelope = build_text_refs_response_with_decisions(
+                    references, total_count, sampled, include_context, extra,
+                );
                 let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
-                // TODO(Task 7/8): merge envelope["_meta"]["decisions"] into the outgoing
+                // TODO(Task 8): merge envelope["_meta"]["decisions"] into the outgoing
                 // ToolResponseMeta so the MCP envelope carries the same decisions.
                 (data, meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"))
             })?,
@@ -578,5 +612,21 @@ mod sampling_notice_tests {
         // human headline still present
         let notice = resp["data"]["sampling_notice"].as_str().expect("string");
         assert!(notice.contains("2 of 62"), "notice={notice}");
+    }
+
+    #[test]
+    fn shadow_suppression_emits_decision_when_files_dropped() {
+        use super::build_text_refs_response_with_decisions;
+        use crate::limits::LimitsApplied;
+
+        let refs = vec![json!({"file_path": "a.py", "line": 1})];
+        let extra = vec![LimitsApplied::shadow_suppression(2)];
+        let resp = build_text_refs_response_with_decisions(refs, 1, false, false, extra);
+
+        let limits = resp["data"]["limits_applied"].as_array().expect("array");
+        assert_eq!(limits.len(), 1);
+        assert_eq!(limits[0]["kind"], json!("shadow_suppression"));
+        assert_eq!(limits[0]["dropped"], json!(2));
+        assert_eq!(resp["data"]["limits_applied"], resp["_meta"]["decisions"]);
     }
 }
