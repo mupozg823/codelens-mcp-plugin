@@ -25,8 +25,11 @@ pub enum LimitsKind {
     Sampling,
     ShadowSuppression,
     BackendDegraded,
-    // Phase 2 kinds added here as they land:
-    // BudgetPrune, DepthLimit, FilterApplied, ExactMatchOnly, IndexPartial,
+    BudgetPrune,
+    DepthLimit,
+    FilterApplied,
+    ExactMatchOnly,
+    IndexPartial,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -261,5 +264,19 @@ mod tests {
         assert_eq!(data["count"], json!(10));
         assert_eq!(meta["backend_used"], json!("tree_sitter"));
         assert_eq!(meta["confidence"], json!(0.85));
+    }
+
+    #[test]
+    fn phase2_kinds_serialize_as_snake_case() {
+        for (kind, wire) in [
+            (LimitsKind::BudgetPrune, "budget_prune"),
+            (LimitsKind::DepthLimit, "depth_limit"),
+            (LimitsKind::FilterApplied, "filter_applied"),
+            (LimitsKind::ExactMatchOnly, "exact_match_only"),
+            (LimitsKind::IndexPartial, "index_partial"),
+        ] {
+            let v = serde_json::to_value(kind).expect("serialize kind");
+            assert_eq!(v, json!(wire), "kind {:?}", kind);
+        }
     }
 }
