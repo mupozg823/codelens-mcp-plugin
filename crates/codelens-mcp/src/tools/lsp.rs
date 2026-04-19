@@ -635,4 +635,33 @@ mod sampling_notice_tests {
         assert!(limits[0]["reason"].as_str().unwrap().contains("LSP failed"));
         assert!(limits[0]["remedy"].as_str().unwrap().contains("tree_sitter"));
     }
+
+    #[test]
+    fn all_combinations_keep_data_and_meta_byte_equal() {
+        use super::build_text_refs_response_with_decisions;
+        use crate::limits::LimitsApplied;
+
+        let scenarios: Vec<(bool, Vec<LimitsApplied>)> = vec![
+            (false, vec![]),
+            (true, vec![]),
+            (false, vec![LimitsApplied::shadow_suppression(3)]),
+            (
+                true,
+                vec![
+                    LimitsApplied::shadow_suppression(1),
+                    LimitsApplied::backend_degraded("LSP failed", "tree_sitter"),
+                ],
+            ),
+        ];
+
+        for (sampled, extra) in scenarios {
+            let refs = vec![json!({"file_path": "a.py", "line": 1})];
+            let extra_len = extra.len();
+            let resp = build_text_refs_response_with_decisions(refs, 5, sampled, false, extra);
+            assert_eq!(
+                resp["data"]["limits_applied"], resp["_meta"]["decisions"],
+                "byte-equality failed for sampled={sampled}, extra_len={extra_len}"
+            );
+        }
+    }
 }
