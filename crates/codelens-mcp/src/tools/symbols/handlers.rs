@@ -50,15 +50,27 @@ pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
         symbols.truncate(max_symbols);
     }
 
-    Ok((
-        json!({
-            "symbols": symbols,
-            "count": symbols.len(),
-            "truncated": truncated,
-            "auto_summarized": stripped,
-        }),
-        success_meta(BackendKind::TreeSitter, 0.93),
-    ))
+    let mut payload = json!({
+        "symbols": symbols,
+        "count": symbols.len(),
+        "truncated": truncated,
+        "auto_summarized": stripped,
+    });
+    let mut decisions: Vec<crate::limits::LimitsApplied> = Vec::new();
+    if stripped || truncated {
+        let param = if explicit_depth.is_some() {
+            format!("depth={depth}")
+        } else {
+            format!(
+                "depth=auto (default 1, hit at {}-char budget)",
+                budget_chars
+            )
+        };
+        decisions.push(crate::limits::LimitsApplied::depth_limit(param));
+    }
+    let mut meta = success_meta(BackendKind::TreeSitter, 0.93);
+    crate::tools::transparency::attach_decisions_to_meta(&mut payload, &mut meta, decisions);
+    Ok((payload, meta))
 }
 
 pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {

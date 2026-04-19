@@ -94,3 +94,59 @@ fn find_symbol_with_match_emits_empty_limits_applied() {
         "root decisions must mirror data.limits_applied (treating absent as [])"
     );
 }
+
+// ── Task 6 — get_symbols_overview depth_limit ─────────────────────────
+//
+// Scope: the handler auto-trims when the default budget would be
+// exceeded (either `stripped` = children cleared, or `truncated` =
+// list cut). Either signal MUST emit a structured `depth_limit`
+// decision on `data.limits_applied` (and mirrored on root
+// `decisions`). On the happy path (nothing trimmed) the array must
+// still be present but empty (participation signal).
+
+#[test]
+fn get_symbols_overview_emits_depth_limit_when_trimmed() {
+    // Seed enough symbols that the default token budget forces a trim.
+    // 60 files × 20 symbols each is comfortably beyond the default
+    // budget, which triggers either `stripped` (children cleared) or
+    // `truncated` (list cut). Either path must emit `depth_limit`.
+    let project = project_root();
+    for f in 0..60 {
+        let mut src = String::new();
+        for s in 0..20 {
+            src.push_str(&format!("pub fn sym_{f}_{s}() {{}}\n"));
+        }
+        fs::write(project.as_path().join(format!("m{f}.rs")), &src).unwrap();
+    }
+
+    let state = make_state(&project);
+    let payload = call_tool(&state, "get_symbols_overview", json!({ "path": "." }));
+
+    assert_eq!(payload["success"], json!(true));
+
+    let was_trimmed = payload["data"]["auto_summarized"]
+        .as_bool()
+        .unwrap_or(false)
+        || payload["data"]["truncated"].as_bool().unwrap_or(false);
+    let kinds: Vec<String> = payload["data"]["limits_applied"]
+        .as_array()
+        .expect("data.limits_applied must be an array")
+        .iter()
+        .map(|e| e["kind"].as_str().unwrap_or("").to_owned())
+        .collect();
+    let has_depth_limit = kinds.iter().any(|k| k == "depth_limit");
+    assert_eq!(
+        was_trimmed, has_depth_limit,
+        "depth_limit must emit iff auto_summarized or truncated; \
+         was_trimmed={was_trimmed} kinds={kinds:?}"
+    );
+
+    // Dispatch-boundary byte-equality: when non-empty, root `decisions`
+    // mirrors `data.limits_applied`. When empty, root field is absent
+    // per `skip_serializing_if`, so treat missing as [].
+    let decisions = payload.get("decisions").cloned().unwrap_or(json!([]));
+    assert_eq!(
+        decisions, payload["data"]["limits_applied"],
+        "root decisions must mirror data.limits_applied (treating absent as [])"
+    );
+}
