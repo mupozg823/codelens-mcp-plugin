@@ -16,6 +16,7 @@ pub mod rules;
 pub mod session;
 mod suggestions;
 pub mod symbols;
+pub(crate) mod transparency;
 pub mod workflows;
 
 use crate::AppState;
