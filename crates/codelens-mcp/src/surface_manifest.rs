@@ -215,6 +215,8 @@ pub(crate) fn build_server_card(state: &AppState) -> Value {
             runtime["daemon_mode"].as_str().unwrap_or("standard")
         ),
         "transport": runtime["transport"],
+        "supportedProtocolVersions": crate::protocol::SUPPORTED_PROTOCOL_VERSIONS,
+        "latestProtocolVersion": crate::protocol::LATEST_PROTOCOL_VERSION,
         "capabilities": {
             "tools": true,
             "resources": true,

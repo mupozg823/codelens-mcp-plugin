@@ -2263,6 +2263,33 @@ async fn server_card_exposes_daemon_mode() {
 }
 
 #[tokio::test]
+async fn server_card_advertises_supported_protocol_versions() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/.well-known/mcp.json")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains(r#""latestProtocolVersion": "2025-06-18""#),
+        "card should pin latest version, got: {body}"
+    );
+    assert!(
+        body.contains(r#""supportedProtocolVersions""#)
+            && body.contains(r#""2025-03-26""#)
+            && body.contains(r#""2025-06-18""#),
+        "card should list both supported versions, got: {body}"
+    );
+}
+
+#[tokio::test]
 async fn post_notification_returns_accepted() {
     // Spec §"Sending Messages to the Server" item 4: JSON-RPC notifications
     // (no `id`) and responses MUST yield 202 Accepted, not 204 No Content.
