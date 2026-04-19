@@ -172,8 +172,12 @@ pub struct ToolCallResponse {
     /// Structured decision records mirrored from `data.limits_applied`.
     /// Written to the response root (CodeLens's flat `_meta` surface)
     /// so consumers that walk either `data` or the response root see
-    /// byte-identical arrays. Absent from the wire when empty.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    /// byte-identical arrays.
+    ///
+    /// ALWAYS serialized (empty array = "this tool participates in the
+    /// transparency layer and made no trimming decisions today").
+    /// This participation signal lets consumers distinguish "no trims"
+    /// from "does not participate".
     pub decisions: Vec<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,

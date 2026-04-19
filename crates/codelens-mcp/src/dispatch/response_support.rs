@@ -224,12 +224,16 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
     // Structured decisions mirror `data.limits_applied`. Emitted to the
     // response root (CodeLens's flat `_meta` surface) so byte-for-byte
     // equality holds between the two locations on the wire.
-    if !resp.decisions.is_empty() {
-        out.insert(
-            "decisions".to_owned(),
-            Value::Array(resp.decisions.clone()),
-        );
-    }
+    //
+    // Always present (empty array = "this tool participates in the
+    // transparency layer and made no trimming decisions today"),
+    // regardless of whether the tool emitted anything. This is the
+    // universal participation signal consumers use to distinguish
+    // "no trims" from "tool does not participate".
+    out.insert(
+        "decisions".to_owned(),
+        Value::Array(resp.decisions.clone()),
+    );
     if let Some(truncated) = resp
         .data
         .as_ref()

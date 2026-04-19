@@ -403,9 +403,13 @@ fn participation_signal_all_four_phase2_tools_emit_empty_on_happy_path() {
         let limits = payload["data"]["limits_applied"]
             .as_array()
             .unwrap_or_else(|| panic!("tool {tool} missing data.limits_applied"));
-        // Byte-equality always holds — treat absent root `decisions`
-        // (serde skip_serializing_if on empty) as equal to an empty array.
-        let decisions = payload.get("decisions").cloned().unwrap_or(json!([]));
+        // Byte-equality always holds — post-Phase-3 `decisions` is
+        // ALWAYS present on the wire (even as an empty array), so a
+        // missing field is itself a failure.
+        let decisions = payload
+            .get("decisions")
+            .unwrap_or_else(|| panic!("tool {tool} missing root decisions field (Phase 3 universal participation): {payload:?}"))
+            .clone();
         assert_eq!(
             decisions, payload["data"]["limits_applied"],
             "byte-equality broke on tool {tool}"
@@ -421,4 +425,46 @@ fn participation_signal_all_four_phase2_tools_emit_empty_on_happy_path() {
             );
         }
     }
+}
+
+#[test]
+fn phase3_universal_participation_non_transparency_tool_still_exposes_decisions() {
+    // Phase 3 lift: EVERY tool response carries a root `decisions` field,
+    // even tools that never emit a transparency decision of their own
+    // (`list_dir`, `read_file`, …). An empty array is the "I participate
+    // in the transparency layer; nothing was trimmed today" signal.
+    // A missing `decisions` field now means the envelope drifted and
+    // is a bug.
+    let project = project_root();
+    fs::write(project.as_path().join("lib.rs"), "fn hello() {}\n").unwrap();
+    let state = make_state(&project);
+
+    // list_dir participates by virtue of the shared envelope, not by
+    // emitting any LimitsApplied of its own.
+    let payload = call_tool(&state, "list_dir", json!({ "relative_path": "." }));
+    assert_eq!(
+        payload["success"],
+        json!(true),
+        "list_dir failed: {payload:?}"
+    );
+    let decisions = payload
+        .get("decisions")
+        .unwrap_or_else(|| panic!("list_dir missing root decisions field: {payload:?}"));
+    assert_eq!(
+        decisions,
+        &json!([]),
+        "list_dir emits no decisions but must still expose an empty array: {decisions:?}"
+    );
+
+    // read_file: same contract.
+    let payload = call_tool(&state, "read_file", json!({ "relative_path": "lib.rs" }));
+    assert_eq!(
+        payload["success"],
+        json!(true),
+        "read_file failed: {payload:?}"
+    );
+    let decisions = payload
+        .get("decisions")
+        .unwrap_or_else(|| panic!("read_file missing root decisions field: {payload:?}"));
+    assert_eq!(decisions, &json!([]));
 }

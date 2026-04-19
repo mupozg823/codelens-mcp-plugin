@@ -506,14 +506,21 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
                 depth,
             )
             .map(|value| {
-                (
-                    json!(value),
-                    meta_degraded(
-                        "tree-sitter-native",
-                        0.80,
+                let mut payload = json!(value);
+                let mut meta = meta_degraded(
+                    "tree-sitter-native",
+                    0.80,
+                    "LSP failed, fell back to native",
+                );
+                crate::tools::transparency::attach_decisions_to_meta(
+                    &mut payload,
+                    &mut meta,
+                    vec![crate::limits::LimitsApplied::backend_degraded(
                         "LSP failed, fell back to native",
-                    ),
-                )
+                        "tree-sitter-native",
+                    )],
+                );
+                (payload, meta)
             })?),
         }
     } else {
@@ -525,10 +532,17 @@ pub fn get_type_hierarchy(state: &AppState, arguments: &serde_json::Value) -> To
             depth,
         )
         .map(|value| {
-            (
-                json!(value),
-                meta_degraded("tree-sitter-native", 0.80, "no LSP command available"),
-            )
+            let mut payload = json!(value);
+            let mut meta = meta_degraded("tree-sitter-native", 0.80, "no LSP command available");
+            crate::tools::transparency::attach_decisions_to_meta(
+                &mut payload,
+                &mut meta,
+                vec![crate::limits::LimitsApplied::backend_degraded(
+                    "no LSP command available",
+                    "tree-sitter-native",
+                )],
+            );
+            (payload, meta)
         })?)
     }
 }

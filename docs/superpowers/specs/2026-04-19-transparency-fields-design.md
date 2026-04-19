@@ -203,10 +203,21 @@ the Serena fixture; the last run printed `ok sampling`,
 decisions: ['depth_limit']`, `ok search_for_pattern: ['sampling',
 'filter_applied']`, `ok get_ranked_context: ['budget_prune']`.
 
-Phase 3 — remaining surface:
+Phase 3 — landed 2026-04-19 (same branch):
 
-- [ ] all other tools that today emit `meta_degraded`: bulk-migrate to
-      `backend_degraded` decision entry.
+- [x] all other tools that today emit `meta_degraded`: bulk-migrate to
+      `backend_degraded` decision entry. Concretely, `get_type_hierarchy`
+      on both the LSP-fallback path and the no-LSP-command path now
+      emits a structured `backend_degraded` alongside the existing
+      `meta_degraded` reason.
+- [x] **Universal participation signal lifted to the wire.** The
+      `decisions` field is now ALWAYS serialized on the response root
+      (empty array when no trim fired), so consumers can never mistake
+      "no trims" for "tool does not participate". Before Phase 3 the
+      field was `skip_serializing_if_empty`, which meant absent-from-wire
+      was ambiguous. Integration test
+      `phase3_universal_participation_non_transparency_tool_still_exposes_decisions`
+      exercises the contract on `list_dir` and `read_file`.
 
 Phases are separate PRs. Each PR lands its emitter use + its tests
 together. The shared module (5.1) is the only prerequisite; once it
