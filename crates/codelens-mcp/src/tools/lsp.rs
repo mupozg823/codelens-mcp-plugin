@@ -14,24 +14,6 @@ use codelens_engine::{
 };
 use serde_json::json;
 
-/// Thin wrapper: see `build_text_refs_response_with_decisions`. Used by
-/// the primary (non-fallback) code path where only the `sampling`
-/// decision can arise.
-fn build_text_refs_response(
-    references: Vec<serde_json::Value>,
-    total_count: usize,
-    sampled: bool,
-    include_context: bool,
-) -> serde_json::Value {
-    build_text_refs_response_with_decisions(
-        references,
-        total_count,
-        sampled,
-        include_context,
-        Vec::new(),
-    )
-}
-
 /// Build the `find_referencing_symbols` text-path response envelope
 /// `{ data, _meta }`. Emits the `sampling` decision internally when
 /// `sampled == true`, and appends `extra_decisions` (e.g.
@@ -257,8 +239,6 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 references, total_count, sampled, include_context, extra,
             );
             let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
-            // TODO(Task 8): merge envelope["_meta"]["decisions"] into the outgoing
-            // ToolResponseMeta so the MCP envelope carries the same decisions.
             (data, meta_for_backend("tree_sitter", 0.85))
         })?);
     }
@@ -328,6 +308,10 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                 let (references, total_count, sampled) =
                     compact_text_references(report.references, include_context, full_results, sample_limit);
                 let mut extra: Vec<LimitsApplied> = Vec::new();
+                extra.push(LimitsApplied::backend_degraded(
+                    "LSP failed, used tree-sitter",
+                    "tree_sitter",
+                ));
                 if shadow_count > 0 {
                     extra.push(LimitsApplied::shadow_suppression(shadow_count));
                 }
@@ -335,8 +319,6 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
                     references, total_count, sampled, include_context, extra,
                 );
                 let data = envelope.get("data").cloned().unwrap_or_else(|| json!({}));
-                // TODO(Task 8): merge envelope["_meta"]["decisions"] into the outgoing
-                // ToolResponseMeta so the MCP envelope carries the same decisions.
                 (data, meta_degraded("tree_sitter_fallback", 0.85, "LSP failed, used tree-sitter"))
             })?,
     )
@@ -570,13 +552,18 @@ pub fn get_lsp_recipe(_state: &AppState, arguments: &serde_json::Value) -> ToolR
 
 #[cfg(test)]
 mod sampling_notice_tests {
-    use super::build_text_refs_response;
+    use super::build_text_refs_response_with_decisions;
     use serde_json::json;
 
     #[test]
     fn notice_and_limits_are_absent_when_not_sampled() {
-        let resp =
-            build_text_refs_response(vec![json!({"file_path": "a.py", "line": 1})], 1, false, false);
+        let resp = build_text_refs_response_with_decisions(
+            vec![json!({"file_path": "a.py", "line": 1})],
+            1,
+            false,
+            false,
+            Vec::new(),
+        );
         assert_eq!(resp["data"]["sampled"], json!(false));
         assert!(resp["data"].get("sampling_notice").is_none());
         // limits_applied is ALWAYS present (possibly empty) on participating tools.
@@ -590,7 +577,7 @@ mod sampling_notice_tests {
             json!({"file_path": "a.py", "line": 1}),
             json!({"file_path": "a.py", "line": 2}),
         ];
-        let resp = build_text_refs_response(refs, 62, true, false);
+        let resp = build_text_refs_response_with_decisions(refs, 62, true, false, Vec::new());
         assert_eq!(resp["data"]["sampled"], json!(true));
 
         // structured entry
@@ -628,5 +615,24 @@ mod sampling_notice_tests {
         assert_eq!(limits[0]["kind"], json!("shadow_suppression"));
         assert_eq!(limits[0]["dropped"], json!(2));
         assert_eq!(resp["data"]["limits_applied"], resp["_meta"]["decisions"]);
+    }
+
+    #[test]
+    fn fallback_path_emits_backend_degraded_decision() {
+        use super::build_text_refs_response_with_decisions;
+        use crate::limits::LimitsApplied;
+
+        let refs = vec![json!({"file_path": "a.py", "line": 1})];
+        let extra = vec![LimitsApplied::backend_degraded(
+            "LSP failed, used tree-sitter",
+            "tree_sitter",
+        )];
+        let resp = build_text_refs_response_with_decisions(refs, 1, false, false, extra);
+
+        let limits = resp["data"]["limits_applied"].as_array().expect("array");
+        assert_eq!(limits.len(), 1);
+        assert_eq!(limits[0]["kind"], json!("backend_degraded"));
+        assert!(limits[0]["reason"].as_str().unwrap().contains("LSP failed"));
+        assert!(limits[0]["remedy"].as_str().unwrap().contains("tree_sitter"));
     }
 }
