@@ -266,21 +266,16 @@ fn bench_gate_impact_report_warm_latency_under_500ms() {
 }
 
 #[test]
-#[ignore = "RED gate for Phase P3 (state unification). Fails today \
-            because review_architecture omits the `loaded` field \
-            while get_ranked_context emits `semantic_ready:false`. \
-            Run via `cargo test -- --ignored` to see the gap; the \
-            ignore flag flips off when P3 ships a unified \
-            AppState::embedding_status() shared by both handlers."]
 fn bench_gate_cross_tool_semantic_ready_consistency() {
-    // P3 invariant: review_architecture.data.semantic.loaded must
-    // agree with get_ranked_context.retrieval.semantic_ready for the
-    // same session. The current live-session divergence (observed
-    // 2026-04-21: loaded=true from review_architecture vs
-    // semantic_ready=false from get_ranked_context) reproduces here
-    // even on a minimal fixture because the two handlers consult
-    // different sources — the on-disk index vs the in-memory engine
-    // handle. Phase P3 replaces both with a single source of truth.
+    // P3 invariant (now active): review_architecture.data.semantic.loaded
+    // must agree with get_ranked_context.retrieval.semantic_ready for
+    // the same session. Before P3 the two handlers consulted different
+    // sources — `engine.is_indexed()` vs `embedding_ref().is_some()`
+    // vs inline disk inspection — and drifted out of sync in live
+    // sessions (observed 2026-04-21: loaded=true vs
+    // semantic_ready=false). Phase P3 routes every readiness check
+    // through `AppState::embedding_status().ready()`, so this test
+    // guards the unified source.
     let project = fixture_with_widget();
     let state = make_state(&project);
 

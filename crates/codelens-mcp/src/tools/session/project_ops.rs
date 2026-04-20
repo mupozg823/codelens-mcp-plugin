@@ -1,6 +1,6 @@
 use crate::AppState;
 use crate::protocol::BackendKind;
-use crate::resource_context::{
+use crate::resources::context::{
     ResourceRequestContext, build_http_session_payload, build_visible_tool_context,
 };
 use crate::tool_defs::{
@@ -512,10 +512,10 @@ pub fn activate_project(state: &AppState, arguments: &serde_json::Value) -> Tool
         state.set_token_budget(auto_budget);
     }
 
-    #[cfg(feature = "semantic")]
-    let embedding_ready = state.embedding_ref().is_some();
-    #[cfg(not(feature = "semantic"))]
-    let embedding_ready = false;
+    // Phase P3: unified readiness — `embedding_ready=true` means the lane
+    // can actually serve queries, matching `semantic_lane_ready(state)` and
+    // `review_architecture.data.semantic.loaded`.
+    let embedding_ready = state.embedding_status().ready();
 
     Ok((
         json!({

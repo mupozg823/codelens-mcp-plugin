@@ -7,9 +7,16 @@ use serde_json::{Value, json};
 #[cfg(feature = "semantic")]
 use super::super::query_analysis::semantic_query_for_embedding_search;
 
+/// Build the `semantic_status` JSON blob exposed by `impact_report`,
+/// `review_architecture` and related workflows. Phase P3 pins the
+/// `loaded` field to [`AppState::embedding_status().ready()`] so it
+/// always matches `semantic_lane_ready()`.
 #[cfg(feature = "semantic")]
 pub(crate) fn semantic_status(state: &AppState) -> Value {
     let configured_model = codelens_engine::configured_embedding_model_name();
+    let status = state.embedding_status();
+    let loaded = status.ready();
+
     let guard = state.embedding_ref();
     if let Some(engine) = guard.as_ref() {
         let info = engine.index_info();
@@ -18,14 +25,14 @@ pub(crate) fn semantic_status(state: &AppState) -> Value {
                 "status": "ready",
                 "model": info.model_name,
                 "indexed_symbols": info.indexed_symbols,
-                "loaded": true,
+                "loaded": loaded,
             })
         } else {
             json!({
                 "status": "unavailable",
                 "model": info.model_name,
                 "indexed_symbols": info.indexed_symbols,
-                "loaded": true,
+                "loaded": loaded,
                 "reason": "embedding index is empty; call index_embeddings",
             })
         };
@@ -40,27 +47,27 @@ pub(crate) fn semantic_status(state: &AppState) -> Value {
             "status": "ready",
             "model": info.model_name,
             "indexed_symbols": info.indexed_symbols,
-            "loaded": false,
+            "loaded": loaded,
         }),
         Some(info) if info.model_name != configured_model => json!({
             "status": "unavailable",
             "model": info.model_name,
             "expected_model": configured_model,
             "indexed_symbols": info.indexed_symbols,
-            "loaded": false,
+            "loaded": loaded,
             "reason": "embedding index model mismatch; call index_embeddings to rebuild",
         }),
         Some(info) => json!({
             "status": "unavailable",
             "model": info.model_name,
             "indexed_symbols": info.indexed_symbols,
-            "loaded": false,
+            "loaded": loaded,
             "reason": "embedding index is empty; call index_embeddings",
         }),
         None => json!({
             "status": "unavailable",
             "model": configured_model,
-            "loaded": false,
+            "loaded": loaded,
             "reason": "embedding index missing; call index_embeddings",
         }),
     }
@@ -69,6 +76,7 @@ pub(crate) fn semantic_status(state: &AppState) -> Value {
 #[cfg(not(feature = "semantic"))]
 pub(crate) fn semantic_status(state: &AppState) -> Value {
     let configured_model = codelens_engine::configured_embedding_model_name();
+    let loaded = state.embedding_status().ready();
     let indexed = codelens_engine::EmbeddingEngine::inspect_existing_index(&state.project())
         .ok()
         .flatten();
@@ -78,13 +86,13 @@ pub(crate) fn semantic_status(state: &AppState) -> Value {
             "status": "not_compiled",
             "model": info.model_name,
             "indexed_symbols": info.indexed_symbols,
-            "loaded": false,
+            "loaded": loaded,
             "reason": "semantic feature not compiled into this binary",
         }),
         None => json!({
             "status": "not_compiled",
             "model": configured_model,
-            "loaded": false,
+            "loaded": loaded,
             "reason": "semantic feature not compiled into this binary",
         }),
     }
@@ -141,24 +149,17 @@ pub(crate) fn semantic_results_for_query(
     Vec::new()
 }
 
-/// Whether the semantic lane can actually contribute in this call —
-/// i.e. the `semantic` feature is compiled in AND the embedding engine
-/// has a warm, non-empty index. The ranked_context handler uses this to
-/// avoid advertising `semantic_enabled=true` on a cold index (the prior
-/// behavior that forced the harness to assume semantic contributed
-/// while every `provenance.semantic_score` was `null`).
-#[cfg(feature = "semantic")]
+/// Whether the semantic lane can actually contribute in this call.
+///
+/// Phase P3: this is now a thin wrapper around
+/// [`AppState::embedding_status`], so the answer agrees byte-for-byte
+/// with the `loaded` field in `review_architecture` and with the
+/// `embedding_ready` hint in `prepare_harness_session`. Prior to P3
+/// each of those three handlers had its own predicate — `is_indexed()`
+/// vs `embedding_ref().is_some()` vs an inline disk-inspection path —
+/// and they drifted out of sync in live sessions.
 pub(crate) fn semantic_lane_ready(state: &AppState) -> bool {
-    let guard = state.embedding_engine();
-    guard
-        .as_ref()
-        .map(|engine| engine.is_indexed())
-        .unwrap_or(false)
-}
-
-#[cfg(not(feature = "semantic"))]
-pub(crate) fn semantic_lane_ready(_state: &AppState) -> bool {
-    false
+    state.embedding_status().ready()
 }
 
 pub(super) fn semantic_scores_for_query(

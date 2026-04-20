@@ -447,6 +447,12 @@ fn onboard_project_compute(state: &AppState, _arguments: &serde_json::Value) -> 
     // 4. Auto-index embeddings if semantic feature enabled and index empty
     //    Skip for large projects (>2000 files) to avoid multi-minute blocking.
     //    Users can call index_embeddings explicitly for large projects.
+    //
+    //    Phase P3: the final JSON shape is emitted by `analyzer::semantic_status(state)`
+    //    so the `loaded` field always agrees with `embedding_status().ready()`. The
+    //    block below is purely about side effects (triggering auto-index) plus a
+    //    bail-out for oversized projects — once those run, we ask the unified
+    //    helper for the final blob.
     #[cfg(feature = "semantic")]
     let semantic_status = {
         let total_files: usize = structure.iter().map(|d| d.files).sum();
@@ -456,98 +462,36 @@ fn onboard_project_compute(state: &AppState, _arguments: &serde_json::Value) -> 
             json!({
                 "status": "skipped",
                 "model": configured_model,
+                "loaded": state.embedding_status().ready(),
                 "reason": format!("project too large ({total_files} files > {MAX_AUTO_EMBED_FILES}), call index_embeddings explicitly")
             })
         } else {
             let existing = codelens_engine::EmbeddingEngine::inspect_existing_index(&project)
                 .ok()
                 .flatten();
-            if let Some(info) = existing {
-                if info.model_name == configured_model && info.indexed_symbols > 0 {
-                    json!({
-                        "status": "ready",
-                        "model": info.model_name,
-                        "indexed_symbols": info.indexed_symbols,
-                        "loaded": false
-                    })
-                } else {
-                    let guard = state.embedding_engine();
-                    match guard.as_ref() {
-                        Some(engine) if !engine.is_indexed() => {
-                            match engine.index_from_project(&project) {
-                                Ok(count) => json!({
-                                    "status": "indexed",
-                                    "model": engine.model_name(),
-                                    "indexed_symbols": count,
-                                    "loaded": true
-                                }),
-                                Err(e) => json!({
-                                    "status": "failed",
-                                    "model": engine.model_name(),
-                                    "error": e.to_string()
-                                }),
-                            }
-                        }
-                        Some(engine) => json!({
-                            "status": "ready",
-                            "model": engine.model_name(),
-                            "indexed_symbols": engine.index_info().indexed_symbols,
-                            "loaded": true
-                        }),
-                        None => json!({"status": "unavailable", "model": configured_model}),
-                    }
+            let needs_warmup = match existing.as_ref() {
+                Some(info) => {
+                    info.model_name != configured_model || info.indexed_symbols == 0
                 }
-            } else {
+                None => true,
+            };
+            if needs_warmup {
                 let guard = state.embedding_engine();
-                match guard.as_ref() {
-                    Some(engine) if !engine.is_indexed() => {
-                        match engine.index_from_project(&project) {
-                            Ok(count) => json!({
-                                "status": "indexed",
-                                "model": engine.model_name(),
-                                "indexed_symbols": count,
-                                "loaded": true
-                            }),
-                            Err(e) => json!({
-                                "status": "failed",
-                                "model": engine.model_name(),
-                                "error": e.to_string()
-                            }),
-                        }
-                    }
-                    Some(engine) => json!({
-                        "status": "ready",
-                        "model": engine.model_name(),
-                        "indexed_symbols": engine.index_info().indexed_symbols,
-                        "loaded": true
-                    }),
-                    None => json!({"status": "unavailable", "model": configured_model}),
+                if let Some(engine) = guard.as_ref()
+                    && !engine.is_indexed()
+                    && let Err(error) = engine.index_from_project(&project)
+                {
+                    // Surface the auto-index failure; `semantic_status`
+                    // below will still reflect whatever the post-attempt
+                    // engine state reports.
+                    tracing::warn!(%error, "onboard_project auto-index failed");
                 }
             }
+            super::symbols::semantic_status(state)
         }
     };
     #[cfg(not(feature = "semantic"))]
-    let semantic_status = {
-        let configured_model = codelens_engine::configured_embedding_model_name();
-        match codelens_engine::EmbeddingEngine::inspect_existing_index(&project)
-            .ok()
-            .flatten()
-        {
-            Some(info) if info.model_name == configured_model && info.indexed_symbols > 0 => {
-                json!({
-                    "status": "ready",
-                    "model": info.model_name,
-                    "indexed_symbols": info.indexed_symbols,
-                    "loaded": false
-                })
-            }
-            _ => json!({
-                "status": "not_compiled",
-                "model": configured_model,
-                "loaded": false
-            }),
-        }
-    };
+    let semantic_status = super::symbols::semantic_status(state);
 
     Ok((
         json!({
