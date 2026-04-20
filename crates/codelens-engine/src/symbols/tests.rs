@@ -508,6 +508,120 @@ fn prune_to_budget_reports_dropped_count_and_last_kept_score() {
 }
 
 #[test]
+fn ranked_context_with_lsp_boost_promotes_boost_files() {
+    // Caller-level wiring: when an LSP `textDocument/references` probe
+    // produces a set of file paths, feeding those paths through the
+    // `get_ranked_context_cached_with_lsp_boost` method must re-rank a
+    // symbol that lives in one of those files above an otherwise
+    // identical candidate in an unrelated file. A large weight pins
+    // down the direction of the boost regardless of other ranking
+    // signals the real pipeline may contribute.
+    use std::collections::{HashMap, HashSet};
+
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-lsp-boost-fixture-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(dir.join("src")).expect("create src");
+    fs::write(dir.join("src/a.rs"), "pub fn handler() -> u32 { 1 }\n").expect("write a.rs");
+    fs::write(dir.join("src/b.rs"), "pub fn handler() -> u32 { 2 }\n").expect("write b.rs");
+
+    let project = ProjectRoot::new(&dir).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh index");
+
+    // Baseline: without boost, either file may win — we only need an
+    // honest "before" to prove the boost flips direction, so capture it.
+    let baseline = index
+        .get_ranked_context_cached("handler", None, 400, false, 2, None, HashMap::new())
+        .expect("baseline ranked");
+    assert!(
+        baseline.symbols.len() >= 2,
+        "fixture should produce two candidates, got {}",
+        baseline.symbols.len()
+    );
+    let baseline_first = baseline.symbols[0].file.clone();
+    let other_file = if baseline_first == "src/a.rs" {
+        "src/b.rs"
+    } else {
+        "src/a.rs"
+    };
+
+    // Boost the OTHER file via LSP boost — high weight forces the
+    // boost signal to dominate, so the loser of the baseline must
+    // become the winner.
+    let mut boost: HashSet<String> = HashSet::new();
+    boost.insert(other_file.to_string());
+
+    let ranked = index
+        .get_ranked_context_cached_with_lsp_boost(
+            "handler",
+            None,
+            400,
+            false,
+            2,
+            None,
+            HashMap::new(),
+            None,
+            boost,
+            Some(10.0),
+        )
+        .expect("ranked with lsp boost");
+
+    assert!(!ranked.symbols.is_empty(), "expected at least one symbol");
+    assert_eq!(
+        ranked.symbols[0].file, other_file,
+        "LSP-boosted file must rank first when weight is positive"
+    );
+}
+
+#[test]
+fn ranked_context_without_lsp_boost_is_neutral() {
+    // Passing an empty boost set (or None weight) must leave the result
+    // indistinguishable from the legacy `get_ranked_context_cached`
+    // entrypoint, preserving the "opt-in, default no-op" contract.
+    use std::collections::{HashMap, HashSet};
+
+    let root = fixture_root();
+    let project = ProjectRoot::new(&root).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh index");
+
+    let baseline = index
+        .get_ranked_context_cached("fetchUser", None, 200, false, 2, None, HashMap::new())
+        .expect("baseline");
+    let via_boost = index
+        .get_ranked_context_cached_with_lsp_boost(
+            "fetchUser",
+            None,
+            200,
+            false,
+            2,
+            None,
+            HashMap::new(),
+            None,
+            HashSet::new(),
+            None,
+        )
+        .expect("via lsp boost path");
+
+    let baseline_keys: Vec<_> = baseline
+        .symbols
+        .iter()
+        .map(|e| (e.file.clone(), e.name.clone(), e.relevance_score))
+        .collect();
+    let via_keys: Vec<_> = via_boost
+        .symbols
+        .iter()
+        .map(|e| (e.file.clone(), e.name.clone(), e.relevance_score))
+        .collect();
+    assert_eq!(baseline_keys, via_keys, "empty boost must be a no-op");
+}
+
+#[test]
 fn rank_symbols_returns_full_scored_list() {
     use super::ranking::{rank_symbols, RankingContext};
     use super::types::{SymbolInfo, SymbolProvenance};

@@ -1,6 +1,7 @@
 use super::super::{
-    optional_bool, optional_string, optional_usize, query_analysis::analyze_retrieval_query,
-    required_string, success_meta, AppState, ToolResult,
+    default_lsp_args_for_command, default_lsp_command_for_path, optional_bool, optional_string,
+    optional_usize, query_analysis::analyze_retrieval_query, required_string, success_meta,
+    AppState, ToolResult,
 };
 use super::{
     analyzer::{
@@ -13,7 +14,9 @@ use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
 use crate::symbol_corpus::build_symbol_corpus;
 use crate::symbol_retrieval::{search_symbols_bm25f, unique_query_terms};
-use codelens_engine::{read_file, search_symbols_hybrid_with_semantic, SymbolInfo, SymbolKind};
+use codelens_engine::{
+    read_file, search_symbols_hybrid_with_semantic, LspRequest, SymbolInfo, SymbolKind,
+};
 use serde_json::{json, Value};
 
 pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
@@ -310,6 +313,16 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     let include_body = optional_bool(arguments, "include_body", false);
     let depth = optional_usize(arguments, "depth", 2);
     let disable_semantic = optional_bool(arguments, "disable_semantic", false);
+    // P1-4 caller wiring: opt-in LSP reference boost. When `true`, the
+    // handler asks the LSP pool for `textDocument/references` on the
+    // query target, collects the hit files, and feeds them through
+    // `get_ranked_context_cached_with_lsp_boost`. The probe is
+    // best-effort — if no `path` was supplied, if no LSP command is
+    // available, or if the LSP call fails, the handler silently falls
+    // back to the default (empty-boost) path so the response is
+    // byte-identical to `lsp_boost=false`. Default `false` preserves
+    // the existing benchmark envelope.
+    let lsp_boost = optional_bool(arguments, "lsp_boost", false);
     let exact_identifier_projection = query_analysis.original_query
         != query_analysis.expanded_query
         && !query_analysis.expanded_query.contains(char::is_whitespace);
@@ -344,15 +357,25 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     // query-type-aware weights available via get_ranked_context_cached_with_query_type
     // but current dataset shows default weights are near-optimal (0.680 MRR).
     // Kept as None until per-type weight tuning yields measurable improvement.
-    let mut result = state.symbol_index().get_ranked_context_cached(
-        &query_analysis.expanded_query,
-        path,
-        max_tokens,
-        include_body,
-        depth,
-        Some(&state.graph_cache()),
-        boosted_scores,
-    )?;
+    let (lsp_boost_files, lsp_signal_weight) = if lsp_boost {
+        lsp_boost_probe(state, query, path)
+    } else {
+        (std::collections::HashSet::new(), None)
+    };
+    let mut result = state
+        .symbol_index()
+        .get_ranked_context_cached_with_lsp_boost(
+            &query_analysis.expanded_query,
+            path,
+            max_tokens,
+            include_body,
+            depth,
+            Some(&state.graph_cache()),
+            boosted_scores,
+            None,
+            lsp_boost_files,
+            lsp_signal_weight,
+        )?;
     let structural_keys = result
         .symbols
         .iter()
@@ -749,4 +772,59 @@ mod confidence_tier_tests {
             "low"
         );
     }
+}
+
+/// P1-4 caller wiring: run a best-effort LSP `textDocument/references`
+/// probe for `query` anchored at `path` and turn the hit files into a
+/// boost set. Returns `(files, weight)`. Any failure returns
+/// `(empty_set, None)` so the caller falls through to the default
+/// no-op path. The weight is read from
+/// `CODELENS_LSP_SIGNAL_WEIGHT` (default `0.25`); callers can dial
+/// the boost down to zero without code changes.
+fn lsp_boost_probe(
+    state: &AppState,
+    query: &str,
+    path: Option<&str>,
+) -> (std::collections::HashSet<String>, Option<f64>) {
+    let empty = (std::collections::HashSet::new(), None);
+    let Some(path) = path else {
+        return empty;
+    };
+    let Some(command) = default_lsp_command_for_path(path) else {
+        return empty;
+    };
+    // Resolve the query to a concrete (line, column) anchor inside the
+    // caller-supplied file. Without an anchor, `textDocument/references`
+    // has no symbol to probe for.
+    let anchor = match state
+        .symbol_index()
+        .find_symbol(query, Some(path), false, true, 1)
+    {
+        Ok(rows) => rows.into_iter().next().map(|s| (s.line, s.column)),
+        Err(_) => None,
+    };
+    let Some((line, column)) = anchor else {
+        return empty;
+    };
+    let request = LspRequest {
+        command: command.clone(),
+        args: default_lsp_args_for_command(&command),
+        file_path: path.to_owned(),
+        line,
+        column,
+        max_results: 64,
+    };
+    let refs = match state.lsp_pool().find_referencing_symbols(&request) {
+        Ok(refs) => refs,
+        Err(_) => return empty,
+    };
+    if refs.is_empty() {
+        return empty;
+    }
+    let files: std::collections::HashSet<String> = refs.into_iter().map(|r| r.file_path).collect();
+    let weight = std::env::var("CODELENS_LSP_SIGNAL_WEIGHT")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.25);
+    (files, Some(weight))
 }
