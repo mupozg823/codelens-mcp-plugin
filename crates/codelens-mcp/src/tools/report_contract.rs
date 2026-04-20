@@ -7,6 +7,52 @@ use crate::tool_defs::{ToolProfile, ToolSurface};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+/// Phase P4-b: infer a `cargo test -p <crate>` command from a
+/// `crates/<crate>/...` touched path. Returns `None` when no path
+/// matches the pattern, which lets callers emit the structured entry
+/// with `command: null` — preserving the backward-compatible
+/// string-only `next_actions` contract.
+fn crate_from_touched_paths(touched_files: &[String]) -> Option<String> {
+    for file in touched_files {
+        let normalized = file.replace('\\', "/");
+        let mut components = normalized.split('/');
+        while let Some(segment) = components.next() {
+            if segment == "crates"
+                && let Some(candidate) = components.next()
+                && !candidate.is_empty()
+                && !candidate.starts_with('.')
+            {
+                return Some(candidate.to_owned());
+            }
+        }
+    }
+    None
+}
+
+/// Phase P4-b: promote each `next_actions` string to a structured
+/// `{text, command?}` entry. When a cargo crate can be inferred from
+/// touched files, prepend a `cargo test -p <crate>` entry so the
+/// harness can run verification without re-deriving the crate name.
+fn synthesize_next_actions_detailed(
+    next_actions: &[String],
+    touched_files: &[String],
+) -> Vec<Value> {
+    let mut detailed: Vec<Value> = Vec::with_capacity(next_actions.len() + 1);
+    if let Some(crate_name) = crate_from_touched_paths(touched_files) {
+        detailed.push(serde_json::json!({
+            "text": format!(
+                "Run crate-scoped tests after editing {crate_name} to catch regressions early"
+            ),
+            "command": format!("cargo test -p {crate_name}"),
+            "kind": "verification",
+        }));
+    }
+    for action in next_actions {
+        detailed.push(serde_json::json!({ "text": action, "command": null }));
+    }
+    detailed
+}
+
 fn overlapping_claims_from_section(value: &Value) -> Vec<Value> {
     value
         .get("claims")
@@ -86,6 +132,12 @@ pub(super) fn make_handle_response(
         if !overlapping_claims.is_empty() {
             data["overlapping_claims"] = serde_json::json!(overlapping_claims);
         }
+        // Phase P4-b: structured next actions with optional `command`
+        // hints. Emit alongside the legacy string array so older
+        // consumers keep working.
+        data["next_actions_detailed"] = serde_json::json!(
+            synthesize_next_actions_detailed(&artifact.next_actions, &touched_files)
+        );
         state.metrics().record_quality_contract_emitted_for_session(
             data["quality_focus"]
                 .as_array()
@@ -144,6 +196,10 @@ pub(super) fn make_handle_response(
     if !inline_overlapping_claims.is_empty() {
         data["overlapping_claims"] = serde_json::json!(inline_overlapping_claims);
     }
+    // Phase P4-b: structured next actions (see cache-hit branch above).
+    data["next_actions_detailed"] = serde_json::json!(
+        synthesize_next_actions_detailed(&artifact.next_actions, &touched_files)
+    );
     state.metrics().record_quality_contract_emitted_for_session(
         data["quality_focus"]
             .as_array()

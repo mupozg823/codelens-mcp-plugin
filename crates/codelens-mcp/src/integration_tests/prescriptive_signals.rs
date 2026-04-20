@@ -83,6 +83,60 @@ fn impact_report_caution_on_high_blast_radius_emits_blockers() {
 }
 
 #[test]
+fn impact_report_emits_command_hint_for_touched_crate() {
+    // Phase P4-b contract: when the touched path lives under a
+    // cargo crate (`crates/<name>/src/...`), the response must
+    // surface an executable `command` hint keyed on that crate so
+    // the harness can run verification without re-deriving the
+    // crate name. We assert on `next_actions_detailed[*].command`
+    // so old string-only consumers keep working unchanged.
+    let project = project_root();
+    // Lay out a miniature cargo-style layout inside the temp project
+    // so the heuristic can extract the crate name from the touched
+    // path. The impact_report handler only needs the path string;
+    // actual cargo metadata is not required.
+    fs::create_dir_all(project.as_path().join("crates/fake-crate/src")).unwrap();
+    fs::write(
+        project.as_path().join("crates/fake-crate/src/lib.rs"),
+        "pub fn helper() -> u32 {\n    42\n}\n",
+    )
+    .unwrap();
+
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "impact_report",
+        json!({ "path": "crates/fake-crate/src/lib.rs" }),
+    );
+    assert_eq!(payload["success"], json!(true), "payload={payload}");
+
+    let detailed = payload["data"]["next_actions_detailed"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !detailed.is_empty(),
+        "next_actions_detailed must be present; payload={payload}"
+    );
+
+    let commands: Vec<String> = detailed
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .get("command")
+                .and_then(|c| c.as_str())
+                .map(ToOwned::to_owned)
+        })
+        .collect();
+    assert!(
+        commands
+            .iter()
+            .any(|cmd| cmd.contains("cargo test") && cmd.contains("fake-crate")),
+        "expected a `cargo test -p fake-crate` command hint; got commands={commands:?}"
+    );
+}
+
+#[test]
 fn impact_report_blockers_reference_actual_dependent_file_paths() {
     let project = project_root();
     write_fixture_with_many_importers(&project, 10);
