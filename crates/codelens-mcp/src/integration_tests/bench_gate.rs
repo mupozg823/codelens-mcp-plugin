@@ -206,6 +206,66 @@ fn bench_gate_find_symbol_primitive_mode_matches_serena_byte_envelope() {
 }
 
 #[test]
+fn bench_gate_review_architecture_warm_latency_under_500ms() {
+    // Phase P2 contract: the first `review_architecture` call runs
+    // the full onboarding compute; a second call against the same
+    // project state hits the process-wide cache and must come back
+    // in ≤500 ms. This protects the "continuous agent loop" scenario
+    // where an orchestrator calls review_architecture once per
+    // phase boundary.
+    let project = fixture_with_widget();
+    let state = make_state(&project);
+
+    let first = call_tool(&state, "review_architecture", json!({}));
+    assert_eq!(first["success"], json!(true));
+
+    let start = Instant::now();
+    let second = call_tool(&state, "review_architecture", json!({}));
+    let warm_ms = start.elapsed().as_millis() as usize;
+    assert_eq!(second["success"], json!(true));
+    assert!(
+        warm_ms <= 500,
+        "warm review_architecture took {warm_ms} ms; target is ≤500 ms. \
+         Investigate whether the WorkflowAnalysisCache hit path was bypassed."
+    );
+}
+
+#[test]
+fn bench_gate_impact_report_warm_latency_under_500ms() {
+    // Phase P2 contract: after one miss-path compute, an equivalent
+    // impact_report call on the same project state must hit the
+    // process-wide WorkflowAnalysisCache and return in under 500 ms.
+    // The first call has no latency floor (it performs the real
+    // blast-radius walk); only the second is gated.
+    let project = fixture_with_widget();
+    let state = make_state(&project);
+
+    // Seed the cache.
+    let first = call_tool(&state, "impact_report", json!({ "path": "widget.rs" }));
+    assert_eq!(first["success"], json!(true));
+
+    let start = Instant::now();
+    let second = call_tool(&state, "impact_report", json!({ "path": "widget.rs" }));
+    let warm_ms = start.elapsed().as_millis() as usize;
+    assert_eq!(second["success"], json!(true));
+    assert!(
+        warm_ms <= 500,
+        "warm impact_report took {warm_ms} ms; target is ≤500 ms. \
+         Investigate whether the WorkflowAnalysisCache hit path was bypassed."
+    );
+
+    // The cache hit must flag itself as an indexed read so a harness
+    // can tell cached results from fresh ones.
+    let analysis_id = second["data"]["analysis_id"]
+        .as_str()
+        .expect("second call should still produce an analysis_id");
+    assert!(
+        !analysis_id.is_empty(),
+        "cached response must still surface analysis_id for chaining"
+    );
+}
+
+#[test]
 #[ignore = "RED gate for Phase P3 (state unification). Fails today \
             because review_architecture omits the `loaded` field \
             while get_ranked_context emits `semantic_ready:false`. \

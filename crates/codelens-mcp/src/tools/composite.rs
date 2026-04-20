@@ -1,12 +1,12 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_engine::change_signature::{ParamSpec, change_signature};
+use codelens_engine::change_signature::{change_signature, ParamSpec};
 use codelens_engine::inline::inline_function;
 use codelens_engine::move_symbol::move_symbol;
 use codelens_engine::{
-    SymbolKind, find_circular_dependencies, get_callees, get_callers, get_importance,
-    get_importers, get_symbols_overview,
+    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
+    get_symbols_overview, SymbolKind,
 };
 use serde_json::json;
 
@@ -387,7 +387,48 @@ pub fn propagate_deletions(state: &AppState, arguments: &serde_json::Value) -> T
 
 /// One-shot project onboarding: structure + key symbols + health signals.
 /// When built with `--features semantic`, automatically indexes embeddings if empty.
-pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+pub fn onboard_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    // Phase P2: short-circuit on the process-wide workflow cache
+    // before the ~47 s cold-path runs. Cold computation dominates
+    // `review_architecture` latency because `get_importance`
+    // (PageRank) walks the entire import graph and — on `semantic`
+    // builds — we may auto-index embeddings. The result is a pure
+    // function of the indexed file set, so any warm call with the
+    // same project-state hash can reuse it.
+    let cache = state.workflow_cache();
+    let args_hash = crate::state::workflow_cache::hash_canonical_args(arguments);
+    let state_hash = state.workflow_project_state_hash();
+    let cache_key = crate::state::workflow_cache::WorkflowAnalysisCache::build_key(
+        "onboard_project",
+        args_hash,
+        state_hash,
+    );
+    if let Some(hit) = cache.get(&cache_key) {
+        cache.record_hit();
+        let mut meta = success_meta(BackendKind::Hybrid, 0.95);
+        meta.staleness_ms = Some(hit.staleness_ms());
+        meta.freshness = crate::protocol::Freshness::Indexed;
+        return Ok((hit.payload.clone(), meta));
+    }
+    cache.record_miss();
+    let compute_started = std::time::Instant::now();
+    let result = onboard_project_compute(state, arguments);
+    if let Ok((payload, _meta)) = &result {
+        let elapsed = compute_started.elapsed().as_millis() as u64;
+        cache.insert(
+            cache_key,
+            crate::state::workflow_cache::CachedResponse {
+                payload: payload.clone(),
+                meta_extra: serde_json::Value::Null,
+                created_at: std::time::Instant::now(),
+                compute_elapsed_ms: elapsed,
+            },
+        );
+    }
+    result
+}
+
+fn onboard_project_compute(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let project = state.project();
     let graph_cache = state.graph_cache();
 

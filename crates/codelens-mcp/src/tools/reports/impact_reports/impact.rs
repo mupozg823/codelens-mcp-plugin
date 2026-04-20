@@ -1,16 +1,53 @@
-use crate::AppState;
-use crate::tool_runtime::ToolResult;
+use crate::protocol::BackendKind;
+use crate::state::workflow_cache::{hash_canonical_args, WorkflowAnalysisCache};
+use crate::tool_runtime::{success_meta, ToolResult};
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use crate::tools::symbols::{semantic_results_for_query, semantic_status};
+use crate::AppState;
 use codelens_engine::search::SEMANTIC_COUPLING_THRESHOLD;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 use super::{insert_semantic_status, push_unique, semantic_degraded_note};
 
 #[allow(deprecated)]
 pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
+    // Phase P2: short-circuit when a recent equivalent call is
+    // already in the process-wide workflow cache. The key binds
+    // tool name + canonical arg hash + project state hash, so any
+    // divergence in arguments or in the indexed file set produces a
+    // miss and re-enters the full compute path below.
+    let cache = state.workflow_cache();
+    let args_hash = hash_canonical_args(arguments);
+    let state_hash = state.workflow_project_state_hash();
+    let cache_key = WorkflowAnalysisCache::build_key("impact_report", args_hash, state_hash);
+    if let Some(hit) = cache.get(&cache_key) {
+        cache.record_hit();
+        let mut meta = success_meta(BackendKind::TreeSitter, 0.88);
+        meta.staleness_ms = Some(hit.staleness_ms());
+        meta.freshness = crate::protocol::Freshness::Indexed;
+        return Ok((hit.payload.clone(), meta));
+    }
+    cache.record_miss();
+    let compute_started = std::time::Instant::now();
+    impact_report_compute(state, arguments).map(|(payload, meta)| {
+        let elapsed = compute_started.elapsed().as_millis() as u64;
+        cache.insert(
+            cache_key,
+            crate::state::workflow_cache::CachedResponse {
+                payload: payload.clone(),
+                meta_extra: Value::Null,
+                created_at: std::time::Instant::now(),
+                compute_elapsed_ms: elapsed,
+            },
+        );
+        (payload, meta)
+    })
+}
+
+#[allow(deprecated)]
+fn impact_report_compute(state: &AppState, arguments: &Value) -> ToolResult {
     let changed_files = strings_from_array(
         arguments
             .get("changed_files")
