@@ -516,7 +516,7 @@ fn ranked_context_with_lsp_boost_promotes_boost_files() {
     // identical candidate in an unrelated file. A large weight pins
     // down the direction of the boost regardless of other ranking
     // signals the real pipeline may contribute.
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     let dir = std::env::temp_dir().join(format!(
         "codelens-lsp-boost-fixture-{}",
@@ -550,11 +550,12 @@ fn ranked_context_with_lsp_boost_promotes_boost_files() {
         "src/a.rs"
     };
 
-    // Boost the OTHER file via LSP boost — high weight forces the
-    // boost signal to dominate, so the loser of the baseline must
+    // Boost the OTHER file via LSP boost — high weight + a ref on
+    // line 1 (where the fixture's `handler` lives) drives the
+    // proximity factor to 1.0, so the loser of the baseline must
     // become the winner.
-    let mut boost: HashSet<String> = HashSet::new();
-    boost.insert(other_file.to_string());
+    let mut boost: HashMap<String, Vec<usize>> = HashMap::new();
+    boost.insert(other_file.to_string(), vec![1]);
 
     let ranked = index
         .get_ranked_context_cached_with_lsp_boost(
@@ -580,10 +581,10 @@ fn ranked_context_with_lsp_boost_promotes_boost_files() {
 
 #[test]
 fn ranked_context_without_lsp_boost_is_neutral() {
-    // Passing an empty boost set (or None weight) must leave the result
+    // Passing an empty ref map (or None weight) must leave the result
     // indistinguishable from the legacy `get_ranked_context_cached`
     // entrypoint, preserving the "opt-in, default no-op" contract.
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
 
     let root = fixture_root();
     let project = ProjectRoot::new(&root).expect("project");
@@ -603,7 +604,7 @@ fn ranked_context_without_lsp_boost_is_neutral() {
             None,
             HashMap::new(),
             None,
-            HashSet::new(),
+            HashMap::new(),
             None,
         )
         .expect("via lsp boost path");

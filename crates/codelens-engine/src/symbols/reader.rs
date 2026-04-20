@@ -303,23 +303,27 @@ impl SymbolIndex {
             graph_cache,
             semantic_scores,
             query_type,
-            std::collections::HashSet::new(),
+            std::collections::HashMap::new(),
             None,
         )
     }
 
-    /// Full form that additionally accepts an LSP reference boost set.
+    /// Full form that additionally accepts per-file LSP reference line
+    /// information for the P1-4 per-symbol boost.
     ///
-    /// `lsp_boost_files` is the set of project-relative file paths that
-    /// an LSP `textDocument/references` probe flagged for the query
-    /// symbol. `lsp_signal_weight` is the weight applied to that boost
-    /// in the blended score. When the set is empty or the weight is
-    /// `None`, this entrypoint is byte-identical to
-    /// `get_ranked_context_cached_with_query_type`.
+    /// `lsp_boost_refs` maps project-relative file paths to the list of
+    /// reference lines that a caller-side reference probe (LSP
+    /// `textDocument/references`, unioned with the tree-sitter text
+    /// search) returned for the query's target symbol. Inside
+    /// `rank_symbols`, each candidate is boosted by how close its
+    /// declaration line is to the nearest ref line at or below it —
+    /// file-level uniform boost used to over-promote unrelated helpers
+    /// in large ref'd files, per-symbol proximity keeps the lift
+    /// targeted on plausible containers.
     ///
-    /// This is the caller-wiring entrypoint for P1-4: upstream tools
-    /// that can afford an LSP probe populate the set; everyone else
-    /// keeps the existing behaviour.
+    /// `lsp_signal_weight` scales the final boost. An empty ref map OR
+    /// a `None` weight keeps the blend byte-identical to the pre-P1-4
+    /// pipeline.
     #[allow(clippy::too_many_arguments)]
     pub fn get_ranked_context_cached_with_lsp_boost(
         &self,
@@ -331,9 +335,17 @@ impl SymbolIndex {
         graph_cache: Option<&crate::import_graph::GraphCache>,
         semantic_scores: std::collections::HashMap<String, f64>,
         query_type: Option<&str>,
-        lsp_boost_files: std::collections::HashSet<String>,
+        mut lsp_boost_refs: std::collections::HashMap<String, Vec<usize>>,
         lsp_signal_weight: Option<f64>,
     ) -> Result<RankedContextResult> {
+        // `rank_symbols` uses a binary search on the ref-line list;
+        // normalise here so the contract holds regardless of the
+        // caller's input shape.
+        for lines in lsp_boost_refs.values_mut() {
+            lines.sort_unstable();
+            lines.dedup();
+        }
+
         let mut all_symbols = if let Some(path) = path {
             self.get_symbols_overview_cached(path, depth)?
         } else {
@@ -347,10 +359,10 @@ impl SymbolIndex {
         // scoped to one file. The LSP boost is only meaningful when
         // the probe actually extends the candidate surface across the
         // caller graph.
-        if !lsp_boost_files.is_empty() {
+        if !lsp_boost_refs.is_empty() {
             let mut seen: std::collections::HashSet<String> =
                 all_symbols.iter().map(|s| s.id.clone()).collect();
-            for extra_path in &lsp_boost_files {
+            for extra_path in lsp_boost_refs.keys() {
                 if Some(extra_path.as_str()) == path {
                     continue;
                 }
@@ -395,15 +407,15 @@ impl SymbolIndex {
             ranking_ctx
         };
 
-        // P1-4 caller wiring: fold LSP boost set + weight into the ctx.
-        // Empty set OR `None` weight keeps pre-P1-4 behaviour byte-for-byte
-        // because `lsp_component` in `rank_symbols` gates on both
-        // membership and `weights.lsp_signal`.
-        let ranking_ctx = if lsp_boost_files.is_empty() && lsp_signal_weight.is_none() {
+        // P1-4 caller wiring: fold the ref map + weight into the ctx.
+        // Empty map AND `None` weight keeps pre-P1-4 behaviour
+        // byte-for-byte because both the gate rescue and the blend
+        // gate on `lsp_signal_weight > 0.0`.
+        let ranking_ctx = if lsp_boost_refs.is_empty() && lsp_signal_weight.is_none() {
             ranking_ctx
         } else {
             let mut ctx = ranking_ctx;
-            ctx.lsp_boost_files = lsp_boost_files;
+            ctx.lsp_boost_refs = lsp_boost_refs;
             if let Some(w) = lsp_signal_weight {
                 ctx.weights.lsp_signal = w;
             }

@@ -1,7 +1,7 @@
 use super::parser::slice_source;
 use super::scoring::score_symbol_with_lower;
 use super::types::{RankedContextEntry, SymbolInfo, SymbolKind};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Weights for blending multiple relevance signals.
@@ -40,14 +40,47 @@ pub(crate) struct RankingContext {
     pub recent_files: HashMap<String, f64>,
     /// Semantic similarity scores by "file_path:symbol_name" key.
     pub semantic_scores: HashMap<String, f64>,
-    /// P1-4: file paths returned by an LSP `textDocument/references`
-    /// call for the query's target symbol. Any candidate whose
-    /// `file_path` is in this set receives an `lsp_signal`-weighted
-    /// boost. Empty set (default) contributes nothing, so every
-    /// existing caller keeps its pre-P1-4 behaviour byte-for-byte.
-    pub lsp_boost_files: HashSet<String>,
+    /// P1-4 per-symbol LSP boost: map of `file_path` → **sorted**
+    /// reference lines returned by the caller-side reference probe
+    /// (LSP `textDocument/references`, unioned with the tree-sitter
+    /// text search). Each symbol in one of those files is scored by
+    /// its distance to the nearest ref line that is greater than or
+    /// equal to the symbol's own `line` — i.e. a ref that could
+    /// plausibly live inside the symbol's span. Missing files or an
+    /// empty list contribute zero, matching the pre-P1-4 behaviour
+    /// byte-for-byte.
+    pub lsp_boost_refs: HashMap<String, Vec<usize>>,
     /// Blending weights.
     pub weights: RankWeights,
+}
+
+/// Maximum line distance (inclusive) between a symbol's declaration
+/// line and a LSP reference line for the symbol to still receive any
+/// P1-4 boost. 250 is generous enough to cover the tail of real
+/// function bodies observed in this repo (the top 5% of functions in
+/// `crates/codelens-*` are 150-220 lines long) while still refusing
+/// to rescue every symbol in a giant file after a single far-away
+/// reference. A future revision can replace this heuristic with the
+/// symbol's true `end_line` once it is plumbed through `SymbolInfo`.
+pub(crate) const LSP_PROXIMITY_WINDOW_LINES: usize = 250;
+
+/// Compute the proximity factor (0.0..=1.0) for the nearest reference
+/// line at or below `symbol_line` within `LSP_PROXIMITY_WINDOW_LINES`.
+/// `ref_lines` must be sorted ascending. Returns 0.0 when no reference
+/// is close enough.
+pub(crate) fn lsp_proximity_factor(ref_lines: &[usize], symbol_line: usize) -> f64 {
+    if ref_lines.is_empty() {
+        return 0.0;
+    }
+    let idx = ref_lines.partition_point(|&l| l < symbol_line);
+    let Some(&nearest_at_or_above) = ref_lines.get(idx) else {
+        return 0.0;
+    };
+    let distance = nearest_at_or_above.saturating_sub(symbol_line);
+    if distance > LSP_PROXIMITY_WINDOW_LINES {
+        return 0.0;
+    }
+    1.0 - (distance as f64) / (LSP_PROXIMITY_WINDOW_LINES as f64)
 }
 
 impl RankingContext {
@@ -57,7 +90,7 @@ impl RankingContext {
             pagerank,
             recent_files: HashMap::new(),
             semantic_scores: HashMap::new(),
-            lsp_boost_files: HashSet::new(),
+            lsp_boost_refs: HashMap::new(),
             weights: RankWeights {
                 text: 0.70,
                 pagerank: 0.20,
@@ -81,7 +114,7 @@ impl RankingContext {
             pagerank,
             recent_files: HashMap::new(),
             semantic_scores,
-            lsp_boost_files: HashSet::new(),
+            lsp_boost_refs: HashMap::new(),
             weights,
         }
     }
@@ -92,7 +125,7 @@ impl RankingContext {
             pagerank: HashMap::new(),
             recent_files: HashMap::new(),
             semantic_scores: HashMap::new(),
-            lsp_boost_files: HashSet::new(),
+            lsp_boost_refs: HashMap::new(),
             weights: RankWeights {
                 text: 1.0,
                 pagerank: 0.0,
@@ -871,14 +904,14 @@ mod tests {
     }
 
     fn lsp_flat_context(
-        lsp_boost_files: super::HashSet<String>,
+        lsp_boost_refs: super::HashMap<String, Vec<usize>>,
         lsp_weight: f64,
     ) -> super::RankingContext {
         super::RankingContext {
             pagerank: super::HashMap::new(),
             recent_files: super::HashMap::new(),
             semantic_scores: super::HashMap::new(),
-            lsp_boost_files,
+            lsp_boost_refs,
             weights: super::RankWeights {
                 text: 1.0,
                 pagerank: 0.0,
@@ -889,18 +922,24 @@ mod tests {
         }
     }
 
+    fn boost_refs_at(file: &str, lines: &[usize]) -> super::HashMap<String, Vec<usize>> {
+        let mut map = super::HashMap::new();
+        let mut sorted = lines.to_vec();
+        sorted.sort();
+        map.insert(file.to_owned(), sorted);
+        map
+    }
+
     #[test]
     fn lsp_signal_weight_zero_is_neutral() {
-        // Default weight 0.0: even with a populated `lsp_boost_files`
-        // set, the blended score must be identical between the two
+        // Default weight 0.0: even with a populated `lsp_boost_refs`
+        // map, the blended score must be identical between the two
         // candidates. This is the regression contract that guarantees
         // existing benchmarks do not shift until a caller opts in.
         let in_boost = lsp_test_symbol("handler_a", "crates/x/src/a.rs");
         let not_in_boost = lsp_test_symbol("handler_b", "crates/x/src/b.rs");
 
-        let mut boost = super::HashSet::new();
-        boost.insert("crates/x/src/a.rs".to_string());
-        let ctx = lsp_flat_context(boost, 0.0);
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/a.rs", &[1]), 0.0);
 
         let ranked = super::rank_symbols("handler", vec![in_boost, not_in_boost], &ctx);
         assert_eq!(ranked.len(), 2);
@@ -912,22 +951,22 @@ mod tests {
 
     #[test]
     fn lsp_signal_rescues_candidate_with_zero_text_score() {
-        // P1-4 caller-wiring contract: when a symbol lives in a file
-        // flagged by the LSP reference probe, it must survive the
+        // P1-4 caller-wiring contract: when a symbol has a ref within
+        // its proximity window, it must survive the
         // "no text match and no semantic match" gate. Otherwise the
         // entire boost is moot for real callers — caller symbols
         // rarely share lexical tokens with the query's target.
         let caller = lsp_test_symbol("unrelated_caller", "crates/x/src/caller.rs");
 
-        let mut boost = super::HashSet::new();
-        boost.insert("crates/x/src/caller.rs".to_string());
-        let ctx = lsp_flat_context(boost, 0.5);
+        // Symbol.line == 1 and ref at line 1 gives the maximum
+        // proximity factor, so the rescue is unambiguous.
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[1]), 0.5);
 
         let ranked = super::rank_symbols("rank_symbols", vec![caller], &ctx);
         assert_eq!(
             ranked.len(),
             1,
-            "LSP-flagged caller with zero text score must survive the gate"
+            "rescued caller with a nearby ref must survive the gate"
         );
         assert!(
             ranked[0].1 >= 1,
@@ -940,13 +979,11 @@ mod tests {
         // The rescue only fires when the LSP signal has a non-zero
         // weight — default 0.0 must preserve the historical gate so
         // pre-P1-4 benchmarks do not accidentally pull in unrelated
-        // symbols the moment a boost set is populated without a
-        // weight lift.
+        // symbols the moment a ref map is populated without a weight
+        // lift.
         let caller = lsp_test_symbol("unrelated_caller", "crates/x/src/caller.rs");
 
-        let mut boost = super::HashSet::new();
-        boost.insert("crates/x/src/caller.rs".to_string());
-        let ctx = lsp_flat_context(boost, 0.0);
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[1]), 0.0);
 
         let ranked = super::rank_symbols("rank_symbols", vec![caller], &ctx);
         assert!(
@@ -956,16 +993,57 @@ mod tests {
     }
 
     #[test]
+    fn lsp_signal_proximity_prefers_nearer_ref_lines() {
+        // Two symbols in the same boosted file, both zero-text-score.
+        // Ref lives on line 10; `near` is declared at line 5 (distance
+        // 5, high proximity), `far` at line 1 (distance 9, lower
+        // proximity). With a positive weight `near` must outrank
+        // `far` — file-level boost alone could not make this call.
+        let mut near = lsp_test_symbol("near_caller", "crates/x/src/caller.rs");
+        near.line = 5;
+        let mut far = lsp_test_symbol("far_caller", "crates/x/src/caller.rs");
+        far.line = 1;
+
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[10]), 0.5);
+
+        let ranked = super::rank_symbols("rank_symbols", vec![far, near], &ctx);
+        assert_eq!(ranked.len(), 2, "both candidates must survive the gate");
+        assert_eq!(
+            ranked[0].0.name, "near_caller",
+            "the candidate whose line is closer to the ref must rank first"
+        );
+        assert!(
+            ranked[0].1 > ranked[1].1,
+            "proximity must produce a strictly higher blended score"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_ignores_refs_above_window() {
+        // A ref far outside the proximity window must not rescue a
+        // symbol. This protects against a giant file where every
+        // symbol would otherwise be lifted by a single far-away ref.
+        let caller = lsp_test_symbol("unrelated_caller", "crates/x/src/caller.rs");
+        let far_ref = super::LSP_PROXIMITY_WINDOW_LINES + 50;
+
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[far_ref]), 0.5);
+
+        let ranked = super::rank_symbols("rank_symbols", vec![caller], &ctx);
+        assert!(
+            ranked.is_empty(),
+            "refs beyond the proximity window must not rescue zero-text candidates"
+        );
+    }
+
+    #[test]
     fn lsp_signal_weight_positive_promotes_lsp_file() {
-        // With a positive weight, the candidate living in a file that
-        // the LSP reference probe flagged must outrank an otherwise
-        // identical candidate in an unrelated file.
+        // With a positive weight, the candidate whose nearest ref is
+        // reachable from its declaration line must outrank an
+        // otherwise identical candidate in an unrelated file.
         let in_boost = lsp_test_symbol("handler_a", "crates/x/src/a.rs");
         let not_in_boost = lsp_test_symbol("handler_b", "crates/x/src/b.rs");
 
-        let mut boost = super::HashSet::new();
-        boost.insert("crates/x/src/a.rs".to_string());
-        let ctx = lsp_flat_context(boost, 0.5);
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/a.rs", &[1]), 0.5);
 
         let ranked = super::rank_symbols("handler", vec![not_in_boost, in_boost], &ctx);
         assert_eq!(ranked.len(), 2);
@@ -1038,13 +1116,25 @@ pub(crate) fn rank_symbols(
                 0.0
             };
 
+            // P1-4 per-symbol proximity: derive the boost factor from
+            // the nearest ref line at or below `symbol.line`. A factor
+            // > 0 means *this specific symbol* is a plausible container
+            // for at least one reference, not just "lives in a ref'd
+            // file". The factor is reused by both the gate rescue and
+            // the blend below to keep the two in sync.
+            let lsp_proximity = ctx
+                .lsp_boost_refs
+                .get(&symbol.file_path)
+                .map(|lines| lsp_proximity_factor(lines, symbol.line))
+                .unwrap_or(0.0);
+
             // Gate: include if text matched OR semantic score is significant
-            // OR the symbol lives in a file flagged by the LSP reference
-            // probe (P1-4). The LSP rescue only fires when the boost has
-            // been given a non-zero weight so that the legacy default
-            // (weight 0.0, no opt-in) keeps dropping the same candidates.
-            let lsp_rescued =
-                ctx.weights.lsp_signal > 0.0 && ctx.lsp_boost_files.contains(&symbol.file_path);
+            // OR the symbol is a per-symbol LSP-rescued container (P1-4).
+            // The LSP rescue only fires when the boost has been given a
+            // non-zero weight AND the symbol has a positive proximity
+            // factor; weight 0.0 or proximity 0.0 keeps the pre-P1-4
+            // gate closed.
+            let lsp_rescued = ctx.weights.lsp_signal > 0.0 && lsp_proximity > 0.0;
             if text_score == 0 && (!has_semantic || sem_score < 0.08) && !lsp_rescued {
                 return None;
             }
@@ -1070,17 +1160,17 @@ pub(crate) fn rank_symbols(
             let sem_normalized = (sem_score / sem_max * 100.0).min(100.0);
             let semantic_component = sem_normalized * ctx.weights.semantic;
 
-            // P1-4: LSP signal. A symbol in a file that an LSP
-            // `textDocument/references` call flagged as a cross-file
-            // user of the query's target gets a fixed +100 contribution
-            // (same 0-100 scale as the other signals) scaled by its
-            // weight. With the default weight of 0.0 the blend is a no-op,
-            // preserving pre-P1-4 scoring byte-for-byte.
-            let lsp_component = if ctx.lsp_boost_files.contains(&symbol.file_path) {
-                100.0 * ctx.weights.lsp_signal
-            } else {
-                0.0
-            };
+            // P1-4 per-symbol proximity signal. A symbol receives up
+            // to `+100 * lsp_signal` when the nearest LSP/tree-sitter
+            // reference line lives exactly on `symbol.line`; the
+            // contribution falls off linearly to zero at
+            // `LSP_PROXIMITY_WINDOW_LINES` below the reference. Refs
+            // above the symbol's own line (i.e. that predate it) never
+            // boost — a reference cannot live inside a symbol that has
+            // not started yet. Uniform file-level boost used to
+            // over-promote unrelated helpers in large ref'd files;
+            // this per-symbol factor keeps the lift targeted.
+            let lsp_component = 100.0 * ctx.weights.lsp_signal * lsp_proximity;
 
             let blended = (text_component
                 + pr_component

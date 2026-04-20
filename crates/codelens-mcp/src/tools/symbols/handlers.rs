@@ -358,10 +358,10 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     // query-type-aware weights available via get_ranked_context_cached_with_query_type
     // but current dataset shows default weights are near-optimal (0.680 MRR).
     // Kept as None until per-type weight tuning yields measurable improvement.
-    let (lsp_boost_files, lsp_signal_weight) = if lsp_boost {
+    let (lsp_boost_refs, lsp_signal_weight) = if lsp_boost {
         lsp_boost_probe(state, query, path)
     } else {
-        (std::collections::HashSet::new(), None)
+        (std::collections::HashMap::new(), None)
     };
     let mut result = state
         .symbol_index()
@@ -374,7 +374,7 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
             Some(&state.graph_cache()),
             boosted_scores,
             None,
-            lsp_boost_files,
+            lsp_boost_refs,
             lsp_signal_weight,
         )?;
     let structural_keys = result
@@ -796,13 +796,14 @@ fn lsp_boost_probe(
     state: &AppState,
     query: &str,
     path: Option<&str>,
-) -> (std::collections::HashSet<String>, Option<f64>) {
-    let empty = (std::collections::HashSet::new(), None);
+) -> (std::collections::HashMap<String, Vec<usize>>, Option<f64>) {
+    let empty = (std::collections::HashMap::new(), None);
     let Some(path) = path else {
         return empty;
     };
 
-    let mut files: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut refs_by_file: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
 
     // LSP leg — optional, only fires when an LSP command is available
     // and the query resolves to an anchor symbol inside `path`.
@@ -825,7 +826,7 @@ fn lsp_boost_probe(
             };
             if let Ok(refs) = state.lsp_pool().find_referencing_symbols(&request) {
                 for r in refs {
-                    files.insert(r.file_path);
+                    refs_by_file.entry(r.file_path).or_default().push(r.line);
                 }
             }
         }
@@ -839,16 +840,16 @@ fn lsp_boost_probe(
     if let Ok(report) = find_referencing_symbols_via_text(&state.project(), query, Some(path), 128)
     {
         for r in report.references {
-            files.insert(r.file_path);
+            refs_by_file.entry(r.file_path).or_default().push(r.line);
         }
     }
 
-    if files.is_empty() {
+    if refs_by_file.is_empty() {
         return empty;
     }
     let weight = std::env::var("CODELENS_LSP_SIGNAL_WEIGHT")
         .ok()
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(0.25);
-    (files, Some(weight))
+    (refs_by_file, Some(weight))
 }
