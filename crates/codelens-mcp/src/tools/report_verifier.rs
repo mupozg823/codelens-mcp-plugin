@@ -56,6 +56,32 @@ fn combine_verifier_status<'a>(statuses: &[&'a str]) -> &'a str {
         .unwrap_or(VERIFIER_READY)
 }
 
+/// Phase P4 helper: extract up to `limit` importer file paths from an
+/// `impact_rows[*].direct_importers` entry. `direct_importers` is
+/// heterogeneous — engine emits either bare strings or `{file, ...}`
+/// objects — so we accept both shapes.
+fn importer_file_list(row: &Value, limit: usize) -> Vec<String> {
+    let Some(importers) = row.get("direct_importers").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity(limit.min(importers.len()));
+    for importer in importers {
+        let candidate = importer
+            .as_str()
+            .or_else(|| importer.get("file").and_then(|v| v.as_str()))
+            .or_else(|| importer.get("path").and_then(|v| v.as_str()));
+        if let Some(path) = candidate
+            && !out.iter().any(|existing| existing == path)
+        {
+            out.push(path.to_owned());
+            if out.len() >= limit {
+                break;
+            }
+        }
+    }
+    out
+}
+
 fn normalized_touched_files(touched_files: &[String]) -> Vec<String> {
     let mut files = Vec::new();
     for file in touched_files {
@@ -270,6 +296,48 @@ pub(crate) fn build_verifier_contract(
             reference_summary =
                 "Large blast radius detected for breaking change; expand importer evidence before broad edits."
                     .to_owned();
+            // Phase P4 — prescriptive blockers: instead of emitting
+            // "caution" with an empty blockers[] and forcing the
+            // harness to re-parse impact_rows, enumerate up to 3
+            // specific dependent files per high-impact target so the
+            // caller can jump straight to a concrete read.
+            for row in impacted
+                .iter()
+                .filter(|row| {
+                    let is_additive = row
+                        .get("change_kind")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|k| k == "additive");
+                    !is_additive
+                        && row
+                            .get("affected_files")
+                            .and_then(|value| value.as_u64())
+                            .unwrap_or_default()
+                            >= 8
+                })
+                .take(2)
+            {
+                let target_path = row
+                    .get("path")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("<target>");
+                let affected = row
+                    .get("affected_files")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or_default();
+                let importer_files = importer_file_list(row, 3);
+                let message = if importer_files.is_empty() {
+                    format!(
+                        "{target_path}: breaking change touches {affected} file(s); expand importer evidence before mutating"
+                    )
+                } else {
+                    format!(
+                        "{target_path}: breaking change touches {affected} file(s); inspect importers {} before mutating",
+                        importer_files.join(", ")
+                    )
+                };
+                push_unique(&mut contract.blockers, message);
+            }
         } else if impacted.is_empty() {
             reference_status = VERIFIER_CAUTION;
             reference_summary =

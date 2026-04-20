@@ -25,6 +25,7 @@ mod coordination;
 mod lsp;
 mod memory;
 mod mutation;
+mod prescriptive_signals;
 mod protocol;
 mod readonly;
 mod transparency_phase1;
