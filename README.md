@@ -19,6 +19,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 </div>
 
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
+
 ## Surface Snapshot
 
 - Workspace version: `1.9.50`
@@ -334,14 +335,30 @@ verify_change_readiness → "ready" → rename_symbol
                         → "blocked" → fix blockers first
 ```
 
+### LSP-Boosted Ranking (opt-in)
+
+`get_ranked_context` accepts an optional `lsp_boost=true` flag that
+unions LSP and tree-sitter references to lift the functions that
+actually call the query target into the ranked output. On a 10-query
+caller-focused dataset per repo (see
+[`docs/benchmarks.md §1c`](docs/benchmarks.md#1c-lsp-boosted-ranking-p1-4-v19502026-04-20)),
+hit rate jumps from baseline **1-4/10** to **4-8/10** depending on
+language; flask (pyright) in particular moves from 2/10 MRR 0.0500 to
+4/10 MRR 0.1053 (+110%) once `CODELENS_LSP_AUTO=true` +
+`prepare_harness_session` warm pyright in the background. Rust self
+stays flat — tree-sitter already saturates the Rust path. Leave the
+flag off for embedding-quality baseline runs.
+
 ## Language Support
 
 <!-- SURFACE_MANIFEST_README_LANGUAGES:BEGIN -->
+
 Canonical parser families (30): C, Clojure/ClojureScript, C++, C#, CSS, Dart, Erlang, Elixir, Go, Haskell, HTML, Java, Julia, JavaScript, Kotlin, Lua, OCaml, PHP, Python, R, Ruby, Rust, Scala, Bash/Shell, Swift, TOML, TypeScript, TSX/JSX, YAML, Zig
 
 Import-graph capable families: C, C++, C#, CSS, Dart, Go, Java, JavaScript, Kotlin, PHP, Python, Ruby, Rust, Scala, Swift, TypeScript, TSX/JSX
 
 The canonical family/extension inventory is generated from `codelens_engine::lang_registry` and published in [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json).
+
 <!-- SURFACE_MANIFEST_README_LANGUAGES:END -->
 
 ## Performance
@@ -373,15 +390,23 @@ Self-benchmark re-measured on commit `26d513e` (v1.9.32, 2026-04-17), model `Min
 | Semantic only                     | 0.689     | 65%     | 74%     | 498     |
 | **Hybrid** (`get_ranked_context`) | **0.712** | **68%** | **75%** | **115** |
 
-Hybrid uplift over lexical: **+0.128 MRR, +15% Acc@1**. Semantic alone beats lexical but hybrid beats semantic by blending both signals. Identifier queries reach `MRR 0.935` with every method (structural matching is sufficient); the hybrid advantage concentrates on natural-language queries (+0.159 MRR) and short phrases (+0.318 MRR).
+Hybrid uplift over lexical on **this repo's dataset**: +0.128 MRR, +15% Acc@1. Semantic alone beats lexical but hybrid beats semantic by blending both signals. Identifier queries reach `MRR 0.935` with every method (structural matching is sufficient); the hybrid advantage concentrates on natural-language queries (+0.159 MRR) and short phrases (+0.318 MRR). **This ordering does not hold cross-language** — see the 5-repo matrix below.
 
 > **v1.9.23 → v1.9.32 re-measurement**: Hybrid −0.046 (0.758 → 0.712), Semantic −0.043, Lexical −0.018. Dataset and model unchanged. Commit span `84c825d..26d513e` includes retrieval-path tuning that slightly dropped the aggregate score; the architecture refactors in v1.9.31–v1.9.32 (`dispatch/`, `tools/`, `main.rs` splits) do not touch retrieval code. Root-cause investigation is a follow-up in a dedicated bench session.
 
 Cross-project matrix (6 languages, last run v1.9.23 line — not re-measured this cycle): Rust (self / axum / ripgrep), Python (django / requests), TS/JS (jest / next-js / react-core / typescript), Go (gin), Java (gson), C (curl). Historical hybrid numbers for those projects are tracked in `benchmarks/embedding-quality-phase3-matrix.json`.
 
-> 2-tier NL→code bridges: generic core (15 entries) + auto-generated project bridges (`.codelens/bridges.json`). The self-benchmark above runs with both tiers active.
+> **5-repo cross-language matrix (v1.9.46, 2026-04-20)** — three-arm bridge ablation:
 >
-> **Bridge measurement honesty (v1.9.46 three-arm ablation, 2026-04-18)**: on the self dataset, project bridges (`.codelens/bridges.json`, 581 entries) contribute **0 MRR** — both-on and generic-on are bit-exact identical to six decimals. Generic core contributes **+0.010 MRR** overall (+0.016 on natural-language queries). Flask pilot (n=20, Python) found **0/20 generic-term matches** — the generic bridges are CodeLens-dev-tooling vocabulary ("categorize", "camelcase", "who calls", "into an ast"), not a language-agnostic mapping. Cross-language bridge contribution remains unverified pending multi-repo pilots. Artifacts: `benchmarks/results/v1.9.46-3arm-bridge-*.json`.
+> | Repo (lang)    |   n |    Hybrid |  Semantic |   Lexical | Winner   |
+> | -------------- | --: | --------: | --------: | --------: | -------- |
+> | self (Rust)    | 104 | **0.681** |     0.647 |     0.532 | hybrid   |
+> | flask (Python) |  20 |     0.525 | **0.558** |     0.317 | semantic |
+> | zod (TS)       |  20 |     0.237 |     0.222 | **0.247** | lexical  |
+> | cobra (Go)     |  20 |     0.767 | **0.797** |     0.514 | semantic |
+> | spring (Java)  |  20 |     0.356 | **0.404** |     0.386 | semantic |
+>
+> Winner distribution: semantic 3, hybrid 1 (self only), lexical 1. On all four external repos, `bridge-off` and `generic-on` arms are **bit-exact identical** — the 15-entry generic NL→code bridge table is CodeLens-specific dev-tooling vocabulary ("categorize", "who calls", "into an ast") and contributes **0 MRR** outside of this repo. Self's 581-entry project bridge file likewise contributes **0 MRR** on its own dataset. Do not cite self or role MRR as evidence of a language-agnostic retrieval lift, and do not claim hybrid is the universal best blend. Artifacts: `benchmarks/results/v1.9.46-3arm-bridge-{self,flask,zod,cobra,spring-core}.json`, datasets under `benchmarks/external-*-dataset.json`.
 
 ```bash
 # Measure on your project

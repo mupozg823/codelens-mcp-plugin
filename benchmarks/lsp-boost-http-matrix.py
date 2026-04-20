@@ -191,14 +191,21 @@ def warm_lsp(base_url: str, session_id: str, dataset: list[dict], timeout: int) 
 
 
 def extract_data(response: dict) -> dict:
-    """Return the tool's `data` payload from an HTTP MCP tools/call
-    response, preferring `result.structuredContent.data` over the
-    possibly-compressed `result.content[0].text`.
+    """Return the tool's payload from an HTTP MCP tools/call response.
 
-    The adaptive compression pipeline can reduce `content[0].text`
-    to a bare `{success, truncated, compression_stage, error,
-    token_estimate}` skeleton long before the structured payload is
-    touched, so rely on structured output first.
+    Two MCP return shapes are in play:
+
+    * Wrapped tools (e.g. `get_ranked_context`) nest the real payload
+      under `result.structuredContent.data`.
+    * Workflow tools (e.g. `prepare_harness_session`) flatten the
+      payload directly under `result.structuredContent` — there is no
+      `data` key, the fields like `lsp_auto_attach` live at the top
+      of `structuredContent`.
+
+    We try the nested form first and fall back to the structured root
+    if `data` is missing or not a dict. Text-channel parsing is the
+    last-resort fallback, because adaptive compression may have
+    reduced `content[0].text` to a skeleton.
     """
     if not isinstance(response, dict):
         return {}
@@ -210,8 +217,8 @@ def extract_data(response: dict) -> dict:
         data = structured.get("data")
         if isinstance(data, dict):
             return data
-        if any(k in structured for k in ("symbols", "lsp_auto_attach", "project")):
-            return structured
+        # Workflow tools: payload is structured itself.
+        return structured
     content = result.get("content")
     if isinstance(content, list) and content:
         text = content[0].get("text", "{}")
