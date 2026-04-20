@@ -68,10 +68,25 @@ pub(crate) fn parse_symbols(
 
         let def_node = def_capture.node;
         let name_node = name_capture.node;
-        let name = node_text(name_node, source_bytes).trim().to_owned();
-        if name.is_empty() {
+        let raw_name = node_text(name_node, source_bytes).trim().to_owned();
+        if raw_name.is_empty() {
             continue;
         }
+
+        // Phase 3-2 Serena-parity: Rust `impl Type { fn method() }`
+        // blocks are captured as `@impl.def` so the method ends up
+        // nested under an `impl Type` container (disambiguation with
+        // `[N]` indices is applied after `nest_symbols`). Without
+        // this, methods of the same type name across multiple impl
+        // blocks collapsed into sibling `function.def` captures at
+        // the file root, and `find_referencing_symbols` could not
+        // report an enclosing impl block at all.
+        let is_impl_capture = capture_name.starts_with("impl.");
+        let name = if is_impl_capture {
+            format!("impl {raw_name}")
+        } else {
+            raw_name.clone()
+        };
 
         let body = include_body.then(|| node_text(def_node, source_bytes).to_owned());
         symbols.push(ParsedSymbol {
@@ -90,7 +105,39 @@ pub(crate) fn parse_symbols(
         });
     }
 
+    // Phase 3-2: assign `[N]` indices to Rust `impl Type` blocks in
+    // source order so repeated `impl ToolMetricsRegistry { … }`
+    // entries stay distinguishable. Matches Serena's
+    // `impl ToolMetricsRegistry[0]/method_name` format.
+    index_impl_blocks(&mut symbols);
+
     Ok(nest_symbols(dedup_symbols(symbols)))
+}
+
+fn index_impl_blocks(symbols: &mut [ParsedSymbol]) {
+    let mut order: Vec<usize> = symbols
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, sym)| {
+            if sym.name.starts_with("impl ") {
+                Some(idx)
+            } else {
+                None
+            }
+        })
+        .collect();
+    // Deterministic source order — the parser iterates query matches
+    // in arbitrary order otherwise.
+    order.sort_by_key(|&idx| symbols[idx].start_byte);
+    let mut counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for idx in order {
+        let key = symbols[idx].name.clone();
+        let n = counts.entry(key).or_insert(0);
+        let suffix = format!("[{n}]");
+        symbols[idx].name.push_str(&suffix);
+        symbols[idx].name_path.push_str(&suffix);
+        *n += 1;
+    }
 }
 
 pub(crate) fn flatten_symbols(symbols: Vec<ParsedSymbol>) -> Vec<ParsedSymbol> {
@@ -167,6 +214,79 @@ pub(crate) fn slice_source(source: &str, start_byte: u32, end_byte: u32) -> Stri
         .to_owned()
 }
 
+/// Walk backward from the symbol's `start_byte` to absorb any
+/// immediately-preceding documentation comment block (Rust `///`/`//!`,
+/// JS/TS `//` line-comments, Python/Shell `#`, Lua `--`). Tree-sitter's
+/// `start_byte` points at the signature's first token, so without this
+/// walk the returned body drops the docstring — a visible regression
+/// against Serena, whose `body_location` already spans the doc run.
+///
+/// Semantics:
+/// - Walk lines upward from the byte just before `start_byte`.
+/// - Include any line whose trimmed form begins with a language-agnostic
+///   line-comment marker (`///`, `//!`, `//`, `#`, `--`).
+/// - Tolerate at most one fully-blank separator line between the doc
+///   block and the signature; stop on any other non-comment line.
+/// - Block comments (`/** … */`) aren't handled here — they require
+///   forward scanning and are left for a dedicated pass.
+///
+/// Returns the byte offset of the first character on the earliest doc
+/// line (or the original `start_byte` if no doc block precedes it).
+pub(crate) fn extend_start_to_doc_comments(source: &str, start_byte: u32) -> u32 {
+    let start = start_byte as usize;
+    if start == 0 || start > source.len() {
+        return start_byte;
+    }
+    let bytes = source.as_bytes();
+    // Position `cursor` at the end of the line that precedes the
+    // signature's start. If `start` already sits at a line start
+    // (common — tree-sitter aligns to token start), back up one byte
+    // to land inside the previous line.
+    let mut cursor = start;
+    if cursor > 0 && bytes[cursor - 1] == b'\n' {
+        cursor -= 1;
+    }
+    let mut doc_block_start: Option<usize> = None;
+    let mut tolerated_blank = false;
+    loop {
+        // Find the start of the line that contains `cursor`.
+        let line_start = bytes[..cursor]
+            .iter()
+            .rposition(|b| *b == b'\n')
+            .map(|nl| nl + 1)
+            .unwrap_or(0);
+        let line_end = cursor;
+        let line_bytes = &bytes[line_start..line_end];
+        let line_str = match std::str::from_utf8(line_bytes) {
+            Ok(s) => s,
+            Err(_) => break,
+        };
+        let trimmed = line_str.trim();
+        let is_doc = trimmed.starts_with("///")
+            || trimmed.starts_with("//!")
+            || trimmed.starts_with("//")
+            || trimmed.starts_with('#')
+            || trimmed.starts_with("--");
+        let is_blank = trimmed.is_empty();
+        if is_doc {
+            doc_block_start = Some(line_start);
+            tolerated_blank = false;
+        } else if is_blank && doc_block_start.is_some() && !tolerated_blank {
+            // Allow a single blank line between the doc block and the
+            // signature (common Rust/JSDoc style).
+            tolerated_blank = true;
+        } else {
+            break;
+        }
+        if line_start == 0 {
+            break;
+        }
+        // Step to the end of the previous line (just before the '\n').
+        cursor = line_start.saturating_sub(1);
+    }
+    doc_block_start.map(|s| s as u32).unwrap_or(start_byte)
+}
+
 fn nest_symbols(symbols: Vec<ParsedSymbol>) -> Vec<ParsedSymbol> {
     let mut sorted = symbols;
     sorted.sort_by_key(|symbol| symbol.start_byte);
@@ -224,6 +344,12 @@ fn capture_name_to_kind(capture_name: &str) -> SymbolKind {
         SymbolKind::Variable
     } else if capture_name.starts_with("type_alias") {
         SymbolKind::TypeAlias
+    } else if capture_name.starts_with("impl") {
+        // Rust impl blocks surface as Class so downstream consumers
+        // (ranking, surface filters) treat them like any other type
+        // container; the `impl ` prefix on the name distinguishes
+        // them from plain `struct`/`enum` entries.
+        SymbolKind::Class
     } else {
         SymbolKind::Unknown
     }

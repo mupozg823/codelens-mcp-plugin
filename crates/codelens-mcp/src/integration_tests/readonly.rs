@@ -29,6 +29,58 @@ fn returns_symbols_via_tool_call() {
 }
 
 #[test]
+fn find_symbol_delivers_body_with_delivery_metadata() {
+    // Serena benchmark parity: a harness that asks for include_body=true
+    // should receive the body and a per-call body_delivery summary so it
+    // can tell "body arrived" from "body dropped" without re-reading the
+    // file. Regression guard for the silent body-drop path that forced a
+    // follow-up Read for every symbol lookup (~2x token cost).
+    let project = project_root();
+    fs::write(
+        project.as_path().join("widget.py"),
+        "class Widget:\n    def emit(self, payload):\n        return payload.encode()\n\ndef widget_tag():\n    return 'w'\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_symbol",
+        json!({
+            "name": "widget_tag",
+            "include_body": true,
+            "exact_match": true,
+            "max_matches": 5,
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let data = &payload["data"];
+    let delivery = &data["body_delivery"];
+    assert_eq!(
+        delivery["requested"],
+        json!(true),
+        "body_delivery.requested missing; payload={data}"
+    );
+    assert_eq!(
+        delivery["status"],
+        json!("full"),
+        "expected full delivery for a single-symbol match; payload={data}"
+    );
+    assert!(
+        delivery["bodies_full"].as_u64().unwrap_or(0) >= 1,
+        "bodies_full must count at least one populated body; payload={data}"
+    );
+    let symbols = data["symbols"].as_array().expect("symbols array");
+    assert!(!symbols.is_empty(), "missing symbol match");
+    let body = symbols[0]["body"]
+        .as_str()
+        .expect("body must be present when body_delivery.status=full");
+    assert!(
+        body.contains("return 'w'"),
+        "body should contain the function source; got={body}"
+    );
+}
+
+#[test]
 fn reports_symbol_index_stats() {
     let project = project_root();
     fs::write(
@@ -64,6 +116,127 @@ fn returns_ranked_context_via_tool_call() {
     assert_eq!(
         payload["data"]["retrieval"]["lexical_query"],
         json!("search users")
+    );
+}
+
+#[test]
+fn ranked_context_preserves_identifier_query_without_lexical_expansion() {
+    // P1-1 contract: identifier queries (no whitespace, alphanumeric +
+    // underscore/dash) must NOT be lexically expanded. Natural-language
+    // queries get camelCase/snake_case term fanout in `lexical_query`
+    // to widen BM25 recall; identifier queries already carry a precise
+    // symbol name and adding more terms only dilutes the signal. The
+    // handler classifies query_type == "identifier" here and sends the
+    // raw name through to BM25/FTS.
+    let project = project_root();
+    fs::write(
+        project.as_path().join("parser.py"),
+        "def parseRequest(data):\n    return data.strip()\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "get_ranked_context",
+        json!({ "query": "parseRequest" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let retrieval = &payload["data"]["retrieval"];
+    assert_eq!(
+        retrieval["query_type"],
+        json!("identifier"),
+        "parseRequest should be classified as identifier; retrieval={retrieval}"
+    );
+    assert_eq!(
+        retrieval["lexical_query"],
+        json!("parseRequest"),
+        "identifier queries must not be expanded in lexical_query; retrieval={retrieval}"
+    );
+}
+
+#[test]
+fn ranked_context_expands_natural_language_lexical_query() {
+    // Companion to the identifier test above: NL queries SHOULD carry
+    // the expanded lexical form (compound identifier aliases) so BM25
+    // can hit both the prose form and common symbol-name spellings.
+    let project = project_root();
+    fs::write(
+        project.as_path().join("nl.py"),
+        "def session_metrics_writer():\n    pass\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "get_ranked_context",
+        json!({ "query": "how do we persist session metrics to disk" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let retrieval = &payload["data"]["retrieval"];
+    assert_eq!(
+        retrieval["query_type"],
+        json!("natural_language"),
+        "multi-word prose should be classified as natural_language; retrieval={retrieval}"
+    );
+    let lexical = retrieval["lexical_query"]
+        .as_str()
+        .expect("lexical_query must be a string");
+    assert!(
+        lexical.len() > "how do we persist session metrics to disk".len(),
+        "NL queries should be expanded with compound identifier aliases; lexical={lexical}"
+    );
+}
+
+#[test]
+fn ranked_context_downgrades_semantic_lane_when_index_is_cold() {
+    // Honesty regression guard: when the embedding index has not been
+    // warmed, the response envelope used to advertise
+    // `semantic_enabled=true, preferred_lane="hybrid_semantic"` even
+    // though every symbol's `provenance.semantic_score` came back
+    // `null` because the lane contributed nothing. The harness then
+    // acted as if semantic had been consulted. This test locks in the
+    // downgraded envelope: on a cold index the response must report
+    // `semantic_ready=false`, `semantic_enabled=false`, and the lane
+    // must fall back to a structural label so the harness can see
+    // "warm me up" instead of "semantic agrees".
+    let project = project_root();
+    fs::write(
+        project.as_path().join("payroll.py"),
+        "def pay_employee(record):\n    return record\n\ndef list_payslips():\n    return []\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "get_ranked_context",
+        json!({ "query": "where do we pay the employee" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let retrieval = &payload["data"]["retrieval"];
+    assert_eq!(
+        retrieval["semantic_ready"],
+        json!(false),
+        "cold index must report semantic_ready=false; retrieval={retrieval}"
+    );
+    assert_eq!(
+        retrieval["semantic_enabled"],
+        json!(false),
+        "cold index must not advertise semantic_enabled=true; retrieval={retrieval}"
+    );
+    assert_ne!(
+        retrieval["preferred_lane"],
+        json!("hybrid_semantic"),
+        "cold index must not route through hybrid_semantic; retrieval={retrieval}"
+    );
+    let applied = payload["data"]["limits_applied"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        applied
+            .iter()
+            .any(|entry| entry["kind"] == json!("index_partial")),
+        "cold index must surface an `index_partial` decision so the harness knows a warmup would change the answer; applied={applied:?}"
     );
 }
 

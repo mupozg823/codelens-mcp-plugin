@@ -109,6 +109,52 @@ fn impact_report_surfaces_unavailable_semantic_status() {
         .contains(expected_reason_fragment));
 }
 
+#[test]
+fn impact_report_promotes_sections_to_suggested_next_tools() {
+    // P2 contract: every analysis report exposes its section handles
+    // a second time as `suggested_next_tools` so the harness has a
+    // single uniform action chain across every report kind, instead
+    // of parsing `section_handles` in a report-specific adapter.
+    let project = project_root();
+    fs::write(
+        project.as_path().join("impact_suggest.py"),
+        "def gamma():\n    return 3\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "impact_report",
+        json!({"path": "impact_suggest.py"}),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let analysis_id = payload["data"]["analysis_id"]
+        .as_str()
+        .expect("analysis_id should be present");
+    let suggested = payload["data"]["suggested_next_tools"]
+        .as_array()
+        .cloned()
+        .expect("suggested_next_tools must be emitted on analysis reports");
+    assert!(
+        !suggested.is_empty(),
+        "suggested_next_tools must mirror section_handles; got empty array"
+    );
+    let expected_prefix = format!("codelens://analysis/{analysis_id}/");
+    let first = &suggested[0];
+    assert_eq!(
+        first["tool"],
+        json!("ReadMcpResourceTool"),
+        "entries must route via ReadMcpResourceTool; got={first}"
+    );
+    let uri = first["arguments"]["uri"]
+        .as_str()
+        .expect("arguments.uri must be a string");
+    assert!(
+        uri.starts_with(&expected_prefix),
+        "uri must point into the current analysis; got={uri}"
+    );
+}
+
 #[cfg(feature = "semantic")]
 #[test]
 fn impact_report_uses_existing_embedding_index_for_semantic_status() {
@@ -2386,38 +2432,40 @@ fn get_capabilities_schema_matches_payload_shape() {
 
 #[test]
 fn prepare_harness_session_schema_matches_payload_shape() {
+    // Phase 7-1 contract: the outputSchema is advisory. Clients read
+    // the real shape from `structuredContent`, so we only guarantee
+    // top-level field discoverability here. Deep property matchers
+    // were costing ~11 KB of `tools/list` payload per call without
+    // adding enforcement (structuredContent already carries the full
+    // shape). The assertions below still lock in the visible harness
+    // envelope.
     let schema = crate::tool_defs::tool_definition("prepare_harness_session")
         .and_then(|tool| tool.output_schema.as_ref())
         .expect("prepare_harness_session schema");
 
     let properties = schema["properties"].as_object().expect("schema properties");
-    assert!(properties.contains_key("project"));
-    assert!(properties.contains_key("capabilities"));
-    assert!(properties.contains_key("health_summary"));
-    assert!(properties.contains_key("warnings"));
-    assert!(properties.contains_key("overlay"));
-    assert!(properties.contains_key("index_recovery"));
-    assert!(properties.contains_key("visible_tools"));
-    assert!(properties.contains_key("routing"));
-    assert!(properties.contains_key("harness"));
-    let http_session = schema["properties"]["http_session"]["properties"]
-        .as_object()
-        .expect("http_session properties");
-    assert!(http_session.contains_key("health_summary"));
-    assert!(http_session.contains_key("daemon_binary_drift"));
-    assert!(http_session.contains_key("supported_files"));
-    assert!(http_session.contains_key("stale_files"));
-    let overlay = schema["properties"]["overlay"]["properties"]
-        .as_object()
-        .expect("overlay properties");
-    assert!(overlay.contains_key("host_context"));
-    assert!(overlay.contains_key("task_overlay"));
-    assert!(overlay.contains_key("preferred_entrypoints_visible"));
-    let routing = schema["properties"]["routing"]["properties"]
-        .as_object()
-        .expect("routing properties");
-    assert!(routing.contains_key("preferred_entrypoints_with_executors"));
-    assert!(routing.contains_key("recommended_entrypoint_preferred_executor"));
+    for key in [
+        "activated",
+        "project",
+        "active_surface",
+        "token_budget",
+        "config",
+        "index_recovery",
+        "capabilities",
+        "health_summary",
+        "warnings",
+        "overlay",
+        "coordination",
+        "http_session",
+        "visible_tools",
+        "routing",
+        "harness",
+    ] {
+        assert!(
+            properties.contains_key(key),
+            "top-level key `{key}` must remain for discoverability"
+        );
+    }
 }
 
 #[test]

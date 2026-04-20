@@ -1,4 +1,4 @@
-use super::parser::{flatten_symbol_infos, slice_source};
+use super::parser::{extend_start_to_doc_comments, flatten_symbol_infos, slice_source};
 use super::ranking::{self, prune_to_budget, rank_symbols, RankingContext};
 use super::types::{
     make_symbol_id, parse_symbol_id, RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance,
@@ -217,7 +217,11 @@ impl SymbolIndex {
                                 // fall back to `line` so P1-4 proximity
                                 // scoring stays valid but assumes a
                                 // single-line span.
-                                end_line: if row.end_line > 0 { row.end_line as usize } else { row_line },
+                                end_line: if row.end_line > 0 {
+                                    row.end_line as usize
+                                } else {
+                                    row_line
+                                },
                             }
                         })
                         .collect(),
@@ -256,7 +260,11 @@ impl SymbolIndex {
                     children: Vec::new(),
                     start_byte: row.start_byte as u32,
                     end_byte: row.end_byte as u32,
-                    end_line: if row.end_line > 0 { row.end_line as usize } else { row_line },
+                    end_line: if row.end_line > 0 {
+                        row.end_line as usize
+                    } else {
+                        row_line
+                    },
                 }
             })
             .collect())
@@ -474,9 +482,14 @@ impl SymbolIndex {
             };
             let body = if include_body {
                 let abs = project.as_path().join(&rel_path);
-                fs::read_to_string(&abs)
-                    .ok()
-                    .map(|source| slice_source(&source, row.start_byte as u32, row.end_byte as u32))
+                fs::read_to_string(&abs).ok().map(|source| {
+                    // Serena-parity: include any immediately-preceding
+                    // doc-comment block so the harness gets the intent
+                    // alongside the signature, without a follow-up Read.
+                    let extended_start =
+                        extend_start_to_doc_comments(&source, row.start_byte as u32);
+                    slice_source(&source, extended_start, row.end_byte as u32)
+                })
             } else {
                 None
             };
@@ -497,7 +510,11 @@ impl SymbolIndex {
                 children: Vec::new(),
                 start_byte: row.start_byte as u32,
                 end_byte: row.end_byte as u32,
-                end_line: if row.end_line > 0 { row.end_line as usize } else { row_line },
+                end_line: if row.end_line > 0 {
+                    row.end_line as usize
+                } else {
+                    row_line
+                },
             });
         }
         Ok(results)

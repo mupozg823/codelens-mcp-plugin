@@ -1,6 +1,6 @@
 use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
 use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::report_verifier::{VERIFIER_BLOCKED, VERIFIER_READY};
 
@@ -70,6 +70,25 @@ pub(crate) fn build_handle_payload(
         infer_performance_watchpoints(summary, top_findings, next_actions);
     let summary_resource = analysis_summary_resource(analysis_id);
     let section_handles = analysis_section_handles(analysis_id, available_sections);
+    // Harness-facing action chain: every section handle is promoted to
+    // a `suggested_next_tools` entry so the orchestrator has a single
+    // uniform place to look for "what do I call next" across every
+    // analysis report, rather than picking section_handles apart by
+    // hand. The tool+args shape matches how other CodeLens responses
+    // already emit `suggested_next_tools`, so the harness can drive
+    // the chain without a report-specific adapter.
+    let suggested_next_tools: Vec<Value> = available_sections
+        .iter()
+        .map(|section| {
+            json!({
+                "tool": "ReadMcpResourceTool",
+                "arguments": {
+                    "uri": format!("codelens://analysis/{analysis_id}/{section}")
+                },
+                "rationale": format!("Expand `{section}` section of analysis {analysis_id}"),
+            })
+        })
+        .collect();
     let mut payload = json!({
         "analysis_id": analysis_id,
         "summary": summary,
@@ -87,6 +106,7 @@ pub(crate) fn build_handle_payload(
         "available_sections": available_sections,
         "summary_resource": summary_resource,
         "section_handles": section_handles,
+        "suggested_next_tools": suggested_next_tools,
         "reused": reused,
     });
     fn status_to_score(s: &str) -> f64 {

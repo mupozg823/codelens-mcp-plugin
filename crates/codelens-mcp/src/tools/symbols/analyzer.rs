@@ -141,6 +141,26 @@ pub(crate) fn semantic_results_for_query(
     Vec::new()
 }
 
+/// Whether the semantic lane can actually contribute in this call —
+/// i.e. the `semantic` feature is compiled in AND the embedding engine
+/// has a warm, non-empty index. The ranked_context handler uses this to
+/// avoid advertising `semantic_enabled=true` on a cold index (the prior
+/// behavior that forced the harness to assume semantic contributed
+/// while every `provenance.semantic_score` was `null`).
+#[cfg(feature = "semantic")]
+pub(crate) fn semantic_lane_ready(state: &AppState) -> bool {
+    let guard = state.embedding_engine();
+    guard
+        .as_ref()
+        .map(|engine| engine.is_indexed())
+        .unwrap_or(false)
+}
+
+#[cfg(not(feature = "semantic"))]
+pub(crate) fn semantic_lane_ready(_state: &AppState) -> bool {
+    false
+}
+
 pub(super) fn semantic_scores_for_query(
     state: &AppState,
     query: &str,

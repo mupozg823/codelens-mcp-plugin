@@ -68,15 +68,64 @@ fn compact_text_references(
         sample_limit.min(references.len())
     };
     let sampled = !full_results && total_count > effective_limit;
+    // Serena-parity output: always surface the enclosing symbol as
+    // `container` (name_path + signature + line range) and a `snippet`
+    // object with the matched line decorated so the harness can orient
+    // itself in one response instead of following up with a Read.
+    // `include_context=true` still adds the legacy `line_content` and
+    // `enclosing_symbol` fields for backward compatibility.
     let compact = references
         .into_iter()
         .take(effective_limit)
         .map(|reference| {
+            let container = reference.enclosing_symbol.as_ref().map(|symbol| {
+                json!({
+                    "name_path": symbol.name_path,
+                    "kind": symbol.kind,
+                    "signature": symbol.signature,
+                    "start_line": symbol.start_line,
+                    "end_line": symbol.end_line,
+                })
+            });
+            let line_text = reference.line_content.trim_end_matches('\n');
+            // Build the `> N: text` decorated window Serena emits as
+            // `content_around_reference`: preceding lines prefixed with
+            // `... N:`, the match line with `> N:`, following lines
+            // prefixed with `... N:`. `before`/`after` arrays stay
+            // available separately so a programmatic consumer can
+            // skip the decoration.
+            let match_line_number = reference.line;
+            let before_start_line = reference
+                .line
+                .saturating_sub(reference.context_before.len());
+            let before_decorated: Vec<String> = reference
+                .context_before
+                .iter()
+                .enumerate()
+                .map(|(idx, text)| format!("... {}: {}", before_start_line + idx, text))
+                .collect();
+            let after_decorated: Vec<String> = reference
+                .context_after
+                .iter()
+                .enumerate()
+                .map(|(idx, text)| format!("... {}: {}", match_line_number + 1 + idx, text))
+                .collect();
+            let snippet = json!({
+                "line": match_line_number,
+                "match": format!("> {}: {}", match_line_number, line_text),
+                "text": line_text,
+                "before": reference.context_before,
+                "after": reference.context_after,
+                "before_decorated": before_decorated,
+                "after_decorated": after_decorated,
+            });
             let mut value = json!({
                 "file_path": reference.file_path,
                 "line": reference.line,
                 "column": reference.column,
                 "is_declaration": reference.is_declaration,
+                "container": container,
+                "snippet": snippet,
             });
             if include_context {
                 value["line_content"] = json!(reference.line_content);

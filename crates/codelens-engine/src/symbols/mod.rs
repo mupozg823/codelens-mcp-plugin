@@ -7,7 +7,10 @@ mod tests;
 mod types;
 mod writer;
 
-use parser::{flatten_symbol_infos, flatten_symbols, parse_symbols, slice_source, to_symbol_info};
+use parser::{
+    extend_start_to_doc_comments, flatten_symbol_infos, flatten_symbols, parse_symbols,
+    slice_source, to_symbol_info,
+};
 use ranking::prune_to_budget;
 use scoring::score_symbol;
 pub use scoring::{
@@ -334,7 +337,7 @@ impl SymbolIndex {
                             .collect(),
                         start_byte: 0,
                         end_byte: 0,
-                end_line: 0,
+                        end_line: 0,
                     });
                 }
             }
@@ -375,7 +378,9 @@ impl SymbolIndex {
                 let body = if include_body {
                     let abs = self.project.as_path().join(&rel_path);
                     fs::read_to_string(&abs).ok().map(|source| {
-                        slice_source(&source, row.start_byte as u32, row.end_byte as u32)
+                        let extended_start =
+                            extend_start_to_doc_comments(&source, row.start_byte as u32);
+                        slice_source(&source, extended_start, row.end_byte as u32)
                     })
                 } else {
                     None
@@ -397,7 +402,11 @@ impl SymbolIndex {
                     children: Vec::new(),
                     start_byte: row.start_byte as u32,
                     end_byte: row.end_byte as u32,
-                    end_line: if row.end_line > 0 { row.end_line as usize } else { row.line as usize },
+                    end_line: if row.end_line > 0 {
+                        row.end_line as usize
+                    } else {
+                        row.line as usize
+                    },
                 });
             }
             return Ok(results);
@@ -425,9 +434,11 @@ impl SymbolIndex {
             let rel_path = db.get_file_path(row.file_id)?.unwrap_or_default();
             let body = if include_body {
                 let abs = self.project.as_path().join(&rel_path);
-                fs::read_to_string(&abs)
-                    .ok()
-                    .map(|source| slice_source(&source, row.start_byte as u32, row.end_byte as u32))
+                fs::read_to_string(&abs).ok().map(|source| {
+                    let extended_start =
+                        extend_start_to_doc_comments(&source, row.start_byte as u32);
+                    slice_source(&source, extended_start, row.end_byte as u32)
+                })
             } else {
                 None
             };
@@ -448,7 +459,11 @@ impl SymbolIndex {
                 children: Vec::new(),
                 start_byte: row.start_byte as u32,
                 end_byte: row.end_byte as u32,
-                    end_line: if row.end_line > 0 { row.end_line as usize } else { row.line as usize },
+                end_line: if row.end_line > 0 {
+                    row.end_line as usize
+                } else {
+                    row.line as usize
+                },
             });
         }
         Ok(results)

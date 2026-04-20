@@ -153,6 +153,16 @@ pub(crate) fn compact_response_payload(resp: &mut ToolCallResponse) {
             }
         }
     }
+    // Phase 5: "lean by default for lookups" — when _compact=true the
+    // heavy orchestration scaffold is dropped. Callers still receive
+    // `suggested_next_tools` (list of tool names, tiny) so they can
+    // discover the chain, but the per-entry Codex delegation brief
+    // and the human-readable rationales (which duplicate the tool
+    // names) are removed. This trims ~1.5–2 KB from the typical
+    // find_symbol / find_referencing_symbols response without losing
+    // anything actionable for an agent already following the chain.
+    resp.suggested_next_calls = None;
+    resp.suggestion_reasons = None;
 }
 
 pub(crate) fn text_payload_for_response(

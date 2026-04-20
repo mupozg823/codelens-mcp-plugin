@@ -85,6 +85,15 @@ pub struct TextReference {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enclosing_symbol: Option<EnclosingSymbol>,
     pub is_declaration: bool,
+    /// Lines immediately preceding `line_content` (closest line last).
+    /// Populated by `find_referencing_symbols_via_text` so reviewers
+    /// can read the callsite in its local scope without a follow-up
+    /// Read — matches Serena's `content_around_reference` window.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_before: Vec<String>,
+    /// Lines immediately following `line_content` (closest line first).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub context_after: Vec<String>,
 }
 
 /// Outcome of a text-based reference scan: the returned references plus
@@ -135,6 +144,16 @@ pub(super) fn flatten_to_ranges(symbols: &[crate::symbols::SymbolInfo]) -> Vec<F
 }
 
 fn estimate_end_line(symbol: &crate::symbols::SymbolInfo) -> usize {
+    // Phase 2-2: prefer the tree-sitter-accurate `end_line` populated
+    // at parse time (Migration 7). Without this preference, container
+    // resolution for a call site inside `impl Type { fn foo() { … } }`
+    // fell back to the `line + 10` heuristic, which under-estimated
+    // the enclosing method and caused `find_enclosing_symbol` to
+    // return `None` for any reference past the tenth line of its
+    // container — the exact behavior seen in the Serena A/B test.
+    if symbol.end_line > symbol.line {
+        return symbol.end_line;
+    }
     if let Some(body) = &symbol.body {
         symbol.line + body.lines().count()
     } else if !symbol.children.is_empty() {
@@ -227,7 +246,9 @@ pub fn find_referencing_symbols_via_text(
             continue;
         }
 
-        let line_content = read_line_at(project, file_path, *line).unwrap_or_default();
+        let (context_before, line_content, context_after) =
+            read_line_window(project, file_path, *line, 2, 2)
+                .unwrap_or_else(|_| (Vec::new(), String::new(), Vec::new()));
 
         if !symbol_cache.contains_key(file_path)
             && let Ok(symbols) = get_symbols_overview(project, file_path, 3)
@@ -250,6 +271,8 @@ pub fn find_referencing_symbols_via_text(
             line_content,
             enclosing_symbol: enclosing,
             is_declaration,
+            context_before,
+            context_after,
         });
     }
 
@@ -309,14 +332,32 @@ fn is_ident_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
-fn read_line_at(project: &ProjectRoot, file_path: &str, line: usize) -> Result<String> {
+/// Read `n_before` lines preceding `line`, the line itself, and
+/// `n_after` lines following it (each tuple element collected in
+/// source order). Used by `find_referencing_symbols_via_text` to
+/// build the Serena-parity `content_around_reference` window so a
+/// reviewer can read a callsite in its local scope without a
+/// follow-up Read.
+fn read_line_window(
+    project: &ProjectRoot,
+    file_path: &str,
+    line: usize,
+    n_before: usize,
+    n_after: usize,
+) -> Result<(Vec<String>, String, Vec<String>)> {
     let resolved = project.resolve(file_path)?;
     let content = fs::read_to_string(&resolved)?;
-    content
-        .lines()
-        .nth(line.saturating_sub(1))
-        .map(|l| l.to_string())
-        .ok_or_else(|| anyhow::anyhow!("line {} out of range", line))
+    let all_lines: Vec<&str> = content.lines().collect();
+    if line == 0 || line > all_lines.len() {
+        return Err(anyhow::anyhow!("line {} out of range", line));
+    }
+    let idx = line - 1;
+    let before_start = idx.saturating_sub(n_before);
+    let after_end = (idx + 1 + n_after).min(all_lines.len());
+    let before: Vec<String> = all_lines[before_start..idx].iter().map(|s| s.to_string()).collect();
+    let current = all_lines[idx].to_string();
+    let after: Vec<String> = all_lines[idx + 1..after_end].iter().map(|s| s.to_string()).collect();
+    Ok((before, current, after))
 }
 
 fn find_shadowing_files_for_refs(
@@ -518,6 +559,63 @@ mod tests {
         assert!(
             report.references.iter().all(|r| r.file_path != "src/other.py"),
             "should exclude other.py (has own 'run' declaration)"
+        );
+    }
+
+    #[test]
+    fn text_reference_resolves_rust_impl_method_as_enclosing() {
+        // Phase 2-2: the Serena A/B benchmark exposed that a call
+        // inside a Rust `impl Type { fn method() { call() } }` was
+        // returning `enclosing_symbol: None` because `estimate_end_line`
+        // fell back to a `line + 10` heuristic (ignoring the tree-sitter
+        // `end_line` populated by Migration 7). Once the method's
+        // span exceeded 10 lines, `find_enclosing_symbol` silently
+        // dropped it. Lock the correct resolution path in.
+        let dir = std::env::temp_dir().join(format!(
+            "codelens-impl-enclosing-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("time")
+                .as_nanos()
+        ));
+        fs::create_dir_all(&dir).expect("create dir");
+        fs::write(
+            dir.join("lib.rs"),
+            "pub fn helper() -> usize { 1 }\n\
+             pub struct Widget;\n\
+             impl Widget {\n\
+             \x20   pub fn run(&self) -> usize {\n\
+             \x20       // intentionally long so the 10-line heuristic would miss it\n\
+             \x20       let _a = 1;\n\
+             \x20       let _b = 2;\n\
+             \x20       let _c = 3;\n\
+             \x20       let _d = 4;\n\
+             \x20       let _e = 5;\n\
+             \x20       let _f = 6;\n\
+             \x20       let _g = 7;\n\
+             \x20       let _h = 8;\n\
+             \x20       let _i = 9;\n\
+             \x20       let _j = 10;\n\
+             \x20       helper()\n\
+             \x20   }\n\
+             }\n",
+        )
+        .expect("write rust");
+        let project = ProjectRoot::new(&dir).expect("project");
+        let report = super::find_referencing_symbols_via_text(&project, "helper", None, 100)
+            .expect("text refs");
+        let call_site = report
+            .references
+            .iter()
+            .find(|r| !r.is_declaration)
+            .expect("should find call site reference");
+        let enclosing = call_site
+            .enclosing_symbol
+            .as_ref()
+            .expect("call site inside impl Widget::run must resolve to an enclosing symbol");
+        assert!(
+            enclosing.name_path.contains("run"),
+            "enclosing symbol should be the `run` method; got {enclosing:?}"
         );
     }
 

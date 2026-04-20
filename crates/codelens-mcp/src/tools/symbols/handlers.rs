@@ -12,8 +12,7 @@ use super::{
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use crate::symbol_corpus::build_symbol_corpus;
-use crate::symbol_retrieval::{search_symbols_bm25f, unique_query_terms};
+use crate::retrieval::symbols::{build_symbol_corpus, search_symbols_bm25f, unique_query_terms};
 use codelens_engine::{
     find_all_word_matches, read_file, search_symbols_hybrid_with_semantic, LspRequest, SymbolInfo,
     SymbolKind,
@@ -144,11 +143,67 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
         .symbol_index()
         .find_symbol_cached(name, file_path, include_body, exact_match, max_matches)
         .map(|mut value| {
+            let max_symbols_with_body = 3usize;
             let body_truncated_count = if include_body && !body_full {
-                compact_symbol_bodies(&mut value, 3, body_line_limit, body_char_limit)
+                compact_symbol_bodies(
+                    &mut value,
+                    max_symbols_with_body,
+                    body_line_limit,
+                    body_char_limit,
+                )
             } else {
                 0
             };
+            // Per-symbol body_delivery transparency. The harness needs to
+            // tell "body present and full" from "body truncated" from
+            // "body dropped over the per-response cap" without re-reading
+            // the file just to guess. Derive by inspection: idx < cap AND
+            // body Some => full|truncated (truncated_count is top-wide,
+            // so we split using signature heuristics below).
+            let bodies_present = value.iter().filter(|s| s.body.is_some()).count();
+            let bodies_missing = value.len().saturating_sub(bodies_present);
+            let truncation_marker = "[truncated; rerun with body_full=true";
+            let mut bodies_full = 0usize;
+            let mut bodies_truncated = 0usize;
+            for sym in value.iter() {
+                if let Some(body) = sym.body.as_ref() {
+                    if body.contains(truncation_marker) {
+                        bodies_truncated += 1;
+                    } else {
+                        bodies_full += 1;
+                    }
+                }
+            }
+            let body_delivery = if !include_body {
+                json!({"requested": false, "status": "disabled"})
+            } else {
+                let status = if bodies_missing == 0 && bodies_truncated == 0 {
+                    "full"
+                } else if bodies_missing > 0 && bodies_full == 0 && bodies_truncated == 0 {
+                    "dropped"
+                } else {
+                    "partial"
+                };
+                json!({
+                    "requested": true,
+                    "status": status,
+                    "bodies_full": bodies_full,
+                    "bodies_truncated": bodies_truncated,
+                    "bodies_omitted_over_cap": bodies_missing,
+                    "max_symbols_with_body": if body_full { value.len() } else { max_symbols_with_body },
+                    "line_limit": if body_full { 0 } else { body_line_limit },
+                    "char_limit": if body_full { 0 } else { body_char_limit },
+                    "hint": if !body_full && (bodies_truncated > 0 || bodies_missing > 0) {
+                        "pass body_full=true for untruncated bodies, or narrow the query (file_path/exact_match) to fit within the default cap"
+                    } else {
+                        ""
+                    },
+                })
+            };
+            // body_truncated_count kept for backward compatibility;
+            // body_preview retained so existing clients reading that flag
+            // still get meaningful behavior. Both are now summarized in
+            // body_delivery.
             // 0-result fallback hint: agents guessing a slightly wrong name
             // hit dead-ends silently otherwise. Recommend the fuzzy path.
             let mut payload = json!({
@@ -156,6 +211,7 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                 "count": value.len(),
                 "body_truncated_count": body_truncated_count,
                 "body_preview": include_body && !body_full,
+                "body_delivery": body_delivery,
             });
             let mut decisions: Vec<crate::limits::LimitsApplied> = Vec::new();
             if value.is_empty() {
@@ -329,6 +385,15 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
         && !query_analysis.expanded_query.contains(char::is_whitespace);
     let effective_disable_semantic =
         disable_semantic || query_analysis.prefer_lexical_only || exact_identifier_projection;
+    // Semantic lane readiness: the embedding index must be warm AND
+    // the feature must be compiled in. When cold, the handler used to
+    // keep `semantic_enabled=true` in the response envelope even
+    // though every symbol's `provenance.semantic_score` came back
+    // `null`. The harness had no way to tell that semantic actually
+    // contributed nothing — so it made downstream decisions under a
+    // false premise. Fold readiness into the effective flag here.
+    let semantic_ready = super::semantic_lane_ready(state);
+    let effective_disable_semantic = effective_disable_semantic || !semantic_ready;
     let use_semantic_in_core = !effective_disable_semantic;
     // Build semantic scores for hybrid ranking if embeddings are available.
     // The default model is the bundled CodeSearchNet MiniLM-L12 INT8 variant.
@@ -434,6 +499,15 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
             json!({
                 "semantic_enabled": !effective_disable_semantic,
                 "semantic_used_in_core": use_semantic_in_core,
+                // `semantic_ready` is orthogonal to `semantic_enabled`:
+                // the former reports whether the embedding index is
+                // warm (structural readiness of the lane), the latter
+                // reports whether the lane actually contributed to
+                // this call (caller may have disabled it, query may
+                // be an identifier, etc). Exposing both lets the
+                // harness distinguish "turned off by policy" from
+                // "lane is cold, warm me up".
+                "semantic_ready": semantic_ready,
                 "preferred_lane": if query_analysis.prefer_sparse_symbol_search {
                     "sparse_bm25f"
                 } else if effective_disable_semantic {
@@ -471,10 +545,21 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
             format!("max_tokens={max_tokens}"),
         ));
     }
-    // Semantic index cold: caller did NOT disable semantic, but the
-    // engine produced zero semantic evidence. Agents relying on
-    // natural-language retrieval benefit from seeing this.
-    if !effective_disable_semantic && semantic_results.is_empty() {
+    // Semantic index cold / caller did not disable semantic, but the
+    // lane could not contribute. Two triggers:
+    //   a) lane produced zero evidence even though it ran
+    //      (`!effective_disable_semantic`), or
+    //   b) lane never ran because the index is cold (`!semantic_ready`)
+    //      and the caller had not turned semantic off.
+    //      Previously (b) was hidden because the envelope still
+    //      advertised `semantic_enabled=true`; now we downgrade the
+    //      envelope AND surface the cold index as a decision so the
+    //      harness knows a warmup would change the answer.
+    let semantic_wanted =
+        !disable_semantic && !query_analysis.prefer_lexical_only && !exact_identifier_projection;
+    if (!effective_disable_semantic && semantic_results.is_empty())
+        || (semantic_wanted && !semantic_ready)
+    {
         decisions.push(crate::limits::LimitsApplied::index_partial("semantic"));
     }
 

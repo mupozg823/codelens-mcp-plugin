@@ -20,6 +20,88 @@ fn returns_lsp_references_via_tool_call() {
 }
 
 #[test]
+fn find_referencing_symbols_exposes_container_and_snippet() {
+    // Serena-parity check: every reference must carry the enclosing
+    // symbol as `container` and an annotated `snippet.match` line so
+    // the harness can identify the caller context without an extra
+    // Read. Regression guard for the bare `{file_path, line, column,
+    // is_declaration}` shape that forced a follow-up read per ref.
+    let project = project_root();
+    fs::write(
+        project.as_path().join("mylib.py"),
+        "def helper():\n    return 1\n\ndef consumer():\n    value = helper()\n    return value\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_referencing_symbols",
+        json!({ "file_path": "mylib.py", "symbol_name": "helper" }),
+    );
+    assert_eq!(payload["success"], json!(true));
+    let data = &payload["data"];
+    let refs = data["references"]
+        .as_array()
+        .or_else(|| data["results"].as_array())
+        .expect("references array");
+    assert!(!refs.is_empty(), "expected at least one reference");
+    let call_ref = refs
+        .iter()
+        .find(|r| r["is_declaration"] == json!(false))
+        .expect("call-site reference");
+    let container = &call_ref["container"];
+    assert!(
+        container.is_object(),
+        "container must be an object; got={call_ref}"
+    );
+    assert!(
+        container["name_path"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
+        "container.name_path must be a non-empty string; got={container}"
+    );
+    assert!(
+        container["signature"].as_str().is_some_and(|s| !s.is_empty()),
+        "container.signature must be non-empty so the harness can identify the enclosing symbol; got={container}"
+    );
+    let snippet = &call_ref["snippet"];
+    let match_line = snippet["match"]
+        .as_str()
+        .expect("snippet.match must be a string");
+    assert!(
+        match_line.contains("helper()"),
+        "snippet.match should include the reference text; got={match_line}"
+    );
+    assert!(
+        match_line.starts_with("> "),
+        "snippet.match should be decorated with the `> LINE:` marker; got={match_line}"
+    );
+    // Phase 3-1: before/after context lines for Serena parity.
+    let before = snippet["before"]
+        .as_array()
+        .expect("snippet.before must be an array");
+    let after = snippet["after"]
+        .as_array()
+        .expect("snippet.after must be an array");
+    assert!(
+        !before.is_empty() || !after.is_empty(),
+        "call site must carry at least one surrounding context line; snippet={snippet}"
+    );
+    let before_decorated = snippet["before_decorated"]
+        .as_array()
+        .expect("snippet.before_decorated must be an array");
+    if !before_decorated.is_empty() {
+        let first = before_decorated[0]
+            .as_str()
+            .expect("before_decorated entries must be strings");
+        assert!(
+            first.starts_with("... "),
+            "before_decorated entries should be prefixed with `... N:`; got={first}"
+        );
+    }
+}
+
+#[test]
 fn returns_lsp_diagnostics_via_tool_call() {
     let project = project_root();
     let mock_lsp = concat!(

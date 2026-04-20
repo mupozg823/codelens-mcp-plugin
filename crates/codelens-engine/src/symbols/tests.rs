@@ -28,6 +28,139 @@ fn finds_typescript_symbol_with_body() {
 }
 
 #[test]
+fn rust_impl_block_surfaces_with_indexed_name_path() {
+    // Phase 3-2: Serena-parity. Methods declared inside
+    // `impl Type { fn method() {} }` must be nested under an
+    // `impl Type[0]/method` name path so the caller can
+    // distinguish them from free functions and from same-name
+    // methods declared in additional impl blocks.
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-rust-impl-fixture-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).expect("create dir");
+    fs::write(
+        dir.join("lib.rs"),
+        "pub struct Widget;\n\
+         impl Widget {\n    pub fn run(&self) {}\n}\n\
+         impl Widget {\n    pub fn stop(&self) {}\n}\n",
+    )
+    .expect("write rust");
+    let project = ProjectRoot::new(&dir).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh");
+
+    let run_matches = index
+        .find_symbol_cached("run", None, false, true, 20)
+        .expect("find run");
+    let run = run_matches
+        .iter()
+        .find(|s| s.name == "run")
+        .expect("run symbol present");
+    assert_eq!(
+        run.name_path, "impl Widget[0]/run",
+        "first impl block's run should carry [0] index; got {}",
+        run.name_path
+    );
+
+    let stop_matches = index
+        .find_symbol_cached("stop", None, false, true, 20)
+        .expect("find stop");
+    let stop = stop_matches
+        .iter()
+        .find(|s| s.name == "stop")
+        .expect("stop symbol present");
+    assert_eq!(
+        stop.name_path, "impl Widget[1]/stop",
+        "second impl block's stop should carry [1] index; got {}",
+        stop.name_path
+    );
+}
+
+#[test]
+fn find_symbol_cached_body_includes_preceding_doc_comments() {
+    // Phase 2-1: Serena-parity. Tree-sitter's `start_byte` aligns to
+    // the first signature token, so a raw slice drops the `///` doc
+    // block that precedes the definition. The MCP handler's body
+    // path re-extends the range via `extend_start_to_doc_comments`
+    // so the harness gets the intent alongside the signature in a
+    // single call.
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-docstring-fixture-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).expect("create dir");
+    fs::write(
+        dir.join("lib.rs"),
+        "/// Top-line summary.\n\
+         ///\n\
+         /// Extended body describing the contract.\n\
+         pub fn documented_api(input: &str) -> usize {\n    \
+             input.len()\n\
+         }\n",
+    )
+    .expect("write rust");
+    let project = ProjectRoot::new(&dir).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh");
+
+    let matches = index
+        .find_symbol_cached("documented_api", None, true, true, 10)
+        .expect("find_symbol_cached");
+    assert_eq!(matches.len(), 1);
+    let body = matches[0]
+        .body
+        .as_ref()
+        .expect("body must be populated when include_body=true");
+    assert!(
+        body.contains("/// Top-line summary."),
+        "body should include preceding doc block; got: {body}"
+    );
+    assert!(
+        body.contains("/// Extended body describing the contract."),
+        "body should include the full doc block; got: {body}"
+    );
+    assert!(
+        body.contains("pub fn documented_api"),
+        "body should still include the signature; got: {body}"
+    );
+}
+
+#[test]
+fn find_symbol_cached_populates_body_from_db_path() {
+    // Regression: the MCP find_symbol tool handler calls find_symbol_cached
+    // (DB-backed), not the free find_symbol (live-parse). Both paths must
+    // return a populated body when include_body=true, otherwise the tool
+    // drops the body field (serde skip_if_none) and the harness is forced
+    // to issue a follow-up Read — the single biggest source of wasted
+    // tokens vs Serena-style servers that bundle body in one response.
+    let root = fixture_root();
+    let project = ProjectRoot::new(&root).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh all");
+
+    let matches = index
+        .find_symbol_cached("fetchUser", None, true, true, 10)
+        .expect("find_symbol_cached");
+    assert_eq!(matches.len(), 1, "expected single fetchUser match");
+    assert_eq!(matches[0].kind, SymbolKind::Function);
+    let body = matches[0]
+        .body
+        .as_ref()
+        .expect("DB-cached path must populate body when include_body=true");
+    assert!(
+        body.contains("return userId"),
+        "body should slice the function body; got: {body:?}"
+    );
+}
+
+#[test]
 fn index_refreshes_after_file_change() {
     let root = fixture_root();
     let project = ProjectRoot::new(&root).expect("project");
