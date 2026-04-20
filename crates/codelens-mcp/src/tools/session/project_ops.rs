@@ -9,11 +9,188 @@ use crate::tool_defs::{
 };
 use crate::tool_runtime::{ToolResult, required_string, success_meta};
 use codelens_engine::memory::list_memory_names;
-use codelens_engine::{compute_dominant_language, detect_frameworks};
+use codelens_engine::{
+    LSP_RECIPES, LspRecipe, LspWorkspaceSymbolRequest, compute_dominant_language,
+    detect_frameworks, lsp_binary_exists,
+};
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 const DEFAULT_AUTO_REFRESH_STALE_THRESHOLD: usize = 32;
+
+/// Upper bound on files sampled for LSP language detection during
+/// bootstrap. This runs on every `prepare_harness_session` call so the
+/// walk is strictly bounded: shallow depth + early exit once the cap is
+/// reached. The legacy `collect_files` walk is O(project) and turned a
+/// 48 ms bootstrap into a 1.4 s bootstrap on Flask-sized repos.
+const LSP_AUTO_ATTACH_SAMPLE_LIMIT: usize = 120;
+
+/// Max directory depth traversed during LSP language detection. Large
+/// repos keep LSP-relevant files close to the root (src/, lib/, crates/)
+/// so a shallow walk catches almost everything while keeping cost
+/// bounded. Node_modules / vendored dirs never need to be entered.
+const LSP_AUTO_ATTACH_MAX_DEPTH: usize = 3;
+
+const LSP_AUTO_ATTACH_SKIP_DIRS: &[&str] = &[
+    ".git",
+    "node_modules",
+    "target",
+    "dist",
+    "build",
+    "venv",
+    ".venv",
+    "__pycache__",
+    ".idea",
+    ".vscode",
+    ".codelens",
+    "external-repos",
+];
+
+/// Shallow, early-terminating walk that returns up to `limit` files with
+/// extensions. Walk order is not stable — any ordering is fine because
+/// the caller only needs a representative language sample.
+fn shallow_sample_files(root: &Path, limit: usize, max_depth: usize) -> Vec<std::path::PathBuf> {
+    let mut out = Vec::with_capacity(limit);
+    let mut stack: Vec<(std::path::PathBuf, usize)> = vec![(root.to_path_buf(), 0)];
+    while let Some((dir, depth)) = stack.pop() {
+        if out.len() >= limit || depth > max_depth {
+            continue;
+        }
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            if out.len() >= limit {
+                break;
+            }
+            let path = entry.path();
+            let Ok(ft) = entry.file_type() else { continue };
+            if ft.is_dir() {
+                if depth + 1 > max_depth {
+                    continue;
+                }
+                let name = entry.file_name();
+                let name_str = name.to_string_lossy();
+                if name_str.starts_with('.') && name_str.as_ref() != "." {
+                    // skip hidden dirs except repo root marker (handled elsewhere)
+                    if !LSP_AUTO_ATTACH_SKIP_DIRS.iter().any(|s| *s == name_str) {
+                        // still allow walking unlisted hidden dirs is not useful
+                        // for language detection; skip all .prefix directories
+                    }
+                    continue;
+                }
+                if LSP_AUTO_ATTACH_SKIP_DIRS.iter().any(|s| *s == name_str) {
+                    continue;
+                }
+                stack.push((path, depth + 1));
+            } else if ft.is_file() && path.extension().is_some() {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// Fire a best-effort LSP prewarm for every language detected in the
+/// project whose LSP binary is already on PATH. The prewarm uses
+/// `workspace/symbol` with an empty query so the server's `initialize`
+/// handshake runs in the background — by the time a caller later issues
+/// a real `find_referencing_symbols(use_lsp=true, …)`, the session is
+/// warm and indexing is further along than on-demand spawn would be.
+///
+/// Baseline (see `benchmarks/results/v1.9.46-lsp-reference-precision.json`)
+/// is that on-demand pyright returns 0 refs on Flask because the server
+/// has not finished indexing when the references request lands. P0-3 is
+/// the first mechanical step to lift that floor; P0-4 (per-language
+/// adapter with explicit wait-for-indexing) is the follow-up.
+///
+/// Opt-out: set `CODELENS_LSP_AUTO=false`.
+fn auto_attach_lsp_prewarm(state: &AppState) -> Value {
+    let opt_env = std::env::var("CODELENS_LSP_AUTO").ok();
+    let opt_out = opt_env.as_deref() == Some("false");
+    let opt_in = opt_env.as_deref() == Some("true");
+    if opt_out {
+        return json!({
+            "enabled": false,
+            "disabled_reason": "user_opt_out",
+            "detected_languages": [],
+            "prewarm_fired": [],
+        });
+    }
+
+    // Prewarm is only meaningful in a persistent transport (HTTP session
+    // or long-lived stdio daemon). In CLI one-shot invocations the LSP
+    // server spawned by the prewarm cannot survive the exiting process,
+    // so we skip it unless the caller explicitly asked for it. This also
+    // keeps the one-shot bench numbers (`target/release/codelens-mcp
+    // --cmd ...`) representative of the tool they actually call.
+    let transport_is_http = matches!(
+        state.transport_mode(),
+        crate::runtime_types::RuntimeTransportMode::Http
+    );
+    if !opt_in && !transport_is_http {
+        return json!({
+            "enabled": false,
+            "disabled_reason": "non_persistent_transport",
+            "detected_languages": [],
+            "prewarm_fired": [],
+        });
+    }
+
+    let project = state.project();
+    let sample = shallow_sample_files(
+        project.as_path(),
+        LSP_AUTO_ATTACH_SAMPLE_LIMIT,
+        LSP_AUTO_ATTACH_MAX_DEPTH,
+    );
+
+    let mut lang_present: HashMap<&'static str, &'static LspRecipe> = HashMap::new();
+    for file in &sample {
+        let Some(ext) = file.extension().and_then(|e| e.to_str()) else {
+            continue;
+        };
+        for recipe in LSP_RECIPES {
+            if recipe.extensions.contains(&ext) {
+                lang_present.entry(recipe.language).or_insert(recipe);
+                break;
+            }
+        }
+    }
+
+    let mut detected: Vec<String> = lang_present.keys().map(|s| (*s).to_owned()).collect();
+    detected.sort();
+
+    let mut prewarm_fired: Vec<String> = Vec::new();
+    for (lang, recipe) in &lang_present {
+        if !lsp_binary_exists(recipe.binary_name) {
+            continue;
+        }
+        let pool = state.lsp_pool();
+        let command = recipe.binary_name.to_owned();
+        let args: Vec<String> = recipe.args.iter().map(|s| (*s).to_owned()).collect();
+        // fire-and-forget. Any failure (timeout, missing server) is
+        // logged by the pool itself; the bootstrap response reports
+        // that the prewarm was *fired*, not that it succeeded.
+        std::thread::spawn(move || {
+            let _ = pool.search_workspace_symbols(&LspWorkspaceSymbolRequest {
+                command,
+                args,
+                query: String::new(),
+                max_results: 1,
+            });
+        });
+        prewarm_fired.push((*lang).to_owned());
+    }
+    prewarm_fired.sort();
+
+    json!({
+        "enabled": true,
+        "disabled_reason": Value::Null,
+        "detected_languages": detected,
+        "prewarm_fired": prewarm_fired,
+    })
+}
 
 fn push_prepare_harness_warning(
     warnings: &mut Vec<Value>,
@@ -404,6 +581,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
     }
 
     let index_recovery = prepare_harness_index_recovery(state, arguments);
+    let lsp_auto_attach = auto_attach_lsp_prewarm(state);
 
     let detail = arguments
         .get("detail")
@@ -618,6 +796,7 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
             "token_budget": token_budget,
             "config": config_payload,
             "index_recovery": index_recovery,
+            "lsp_auto_attach": lsp_auto_attach,
             "capabilities": capabilities_payload,
             "health_summary": health_summary,
             "warnings": warnings,

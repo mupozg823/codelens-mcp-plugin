@@ -54,29 +54,49 @@ pub(crate) struct RankingContext {
     pub weights: RankWeights,
 }
 
-/// Maximum line distance (inclusive) between a symbol's declaration
-/// line and a LSP reference line for the symbol to still receive any
-/// P1-4 boost. 250 is generous enough to cover the tail of real
-/// function bodies observed in this repo (the top 5% of functions in
-/// `crates/codelens-*` are 150-220 lines long) while still refusing
-/// to rescue every symbol in a giant file after a single far-away
-/// reference. A future revision can replace this heuristic with the
-/// symbol's true `end_line` once it is plumbed through `SymbolInfo`.
+/// Window used to scale a ref's distance to a *non-containing* symbol
+/// into a `0.0..1.0` P1-4 proximity factor. Only consulted when the
+/// symbol's own `[line, end_line]` span does not already contain a
+/// ref — containment yields a full `1.0` factor directly. The 250
+/// value is intentionally conservative: with real `end_line`
+/// available, very few refs fall outside containment yet stay close
+/// enough to be meaningful, and the remaining ones decay gracefully.
 pub(crate) const LSP_PROXIMITY_WINDOW_LINES: usize = 250;
 
 /// Compute the proximity factor (0.0..=1.0) for the nearest reference
-/// line at or below `symbol_line` within `LSP_PROXIMITY_WINDOW_LINES`.
-/// `ref_lines` must be sorted ascending. Returns 0.0 when no reference
-/// is close enough.
-pub(crate) fn lsp_proximity_factor(ref_lines: &[usize], symbol_line: usize) -> f64 {
+/// line in `ref_lines` relative to the symbol span `[symbol_line,
+/// symbol_end_line]`. Returns `1.0` when any ref is inside the span,
+/// a linear-decay factor when the nearest ref is above the span and
+/// within `LSP_PROXIMITY_WINDOW_LINES`, and `0.0` otherwise.
+/// `ref_lines` must be sorted ascending.
+///
+/// The containment branch is what makes the P1-4 boost robust: a
+/// large function whose body receives many refs earns a full boost
+/// regardless of where in its body the nearest ref lies, and
+/// unrelated neighbour symbols sitting right next to it earn a
+/// partial boost only when they are actually close to the *span* of
+/// the caller.
+pub(crate) fn lsp_proximity_factor(
+    ref_lines: &[usize],
+    symbol_line: usize,
+    symbol_end_line: usize,
+) -> f64 {
     if ref_lines.is_empty() {
         return 0.0;
     }
-    let idx = ref_lines.partition_point(|&l| l < symbol_line);
-    let Some(&nearest_at_or_above) = ref_lines.get(idx) else {
+    // `max` keeps the span non-empty for symbols constructed without a
+    // known end_line (fallback = `line`).
+    let upper = symbol_end_line.max(symbol_line);
+    let start_idx = ref_lines.partition_point(|&l| l < symbol_line);
+    let Some(&first_at_or_above) = ref_lines.get(start_idx) else {
         return 0.0;
     };
-    let distance = nearest_at_or_above.saturating_sub(symbol_line);
+    // Containment: any ref in [symbol_line, upper] yields full boost.
+    if first_at_or_above <= upper {
+        return 1.0;
+    }
+    // Outside span — linear decay from `upper` outward.
+    let distance = first_at_or_above.saturating_sub(upper);
     if distance > LSP_PROXIMITY_WINDOW_LINES {
         return 0.0;
     }
@@ -557,6 +577,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let type_symbol = SymbolInfo {
             name: "ToolHandler".into(),
@@ -572,6 +593,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "route an incoming tool request to the right handler";
@@ -596,6 +618,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let type_symbol = SymbolInfo {
             name: "MoveEdit".into(),
@@ -611,6 +634,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "primary move handler";
@@ -635,6 +659,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let helper_symbol = SymbolInfo {
             name: "is_entry_point_file".into(),
@@ -650,6 +675,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which entrypoint handles inline";
@@ -674,6 +700,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let generic = SymbolInfo {
             name: "find_files".into(),
@@ -689,6 +716,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which helper implements find";
@@ -711,6 +739,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let generic = SymbolInfo {
             name: "EmbeddingEngine".into(),
@@ -726,6 +755,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which builder creates build embedding text";
@@ -748,6 +778,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let generic = SymbolInfo {
             name: "build_coreml_execution_provider".into(),
@@ -763,6 +794,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which builder creates build embedding text";
@@ -785,6 +817,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let generic = SymbolInfo {
             name: "embed_texts_cached".into(),
@@ -800,6 +833,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which builder creates build embedding text";
@@ -822,6 +856,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let generic = SymbolInfo {
             name: "find_symbol".into(),
@@ -837,6 +872,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which helper implements find all word matches";
@@ -859,6 +895,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let broader = SymbolInfo {
             name: "find_all_word_matches".into(),
@@ -874,6 +911,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which helper implements find word matches in files";
@@ -900,6 +938,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         }
     }
 
@@ -1036,6 +1075,34 @@ mod tests {
     }
 
     #[test]
+    fn lsp_signal_containment_beats_nearby_non_container() {
+        // `container` spans lines 10..=200 and contains a ref at
+        // line 150. `non_container` starts right after at line 201,
+        // with no known body span (end_line falls back to line). The
+        // containment branch must pin container's factor to 1.0, so
+        // it must outrank the neighbour that is only close to the
+        // ref, not actually containing it.
+        let mut container = lsp_test_symbol("container_fn", "crates/x/src/caller.rs");
+        container.line = 10;
+        container.end_line = 200;
+        // `preceding` is a short symbol just before the ref — close
+        // enough to earn a partial boost via the decay branch, but
+        // not close enough to beat the container's full 1.0 factor.
+        let mut preceding = lsp_test_symbol("preceding_fn", "crates/x/src/caller.rs");
+        preceding.line = 50;
+        preceding.end_line = 60;
+
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[150]), 0.5);
+
+        let ranked = super::rank_symbols("rank_symbols", vec![preceding, container], &ctx);
+        assert_eq!(ranked.len(), 2, "both candidates must survive the gate");
+        assert_eq!(
+            ranked[0].0.name, "container_fn",
+            "the symbol whose span contains the ref must rank first"
+        );
+    }
+
+    #[test]
     fn lsp_signal_weight_positive_promotes_lsp_file() {
         // With a positive weight, the candidate whose nearest ref is
         // reachable from its declaration line must outrank an
@@ -1125,7 +1192,7 @@ pub(crate) fn rank_symbols(
             let lsp_proximity = ctx
                 .lsp_boost_refs
                 .get(&symbol.file_path)
-                .map(|lines| lsp_proximity_factor(lines, symbol.line))
+                .map(|lines| lsp_proximity_factor(lines, symbol.line, symbol.end_line))
                 .unwrap_or(0.0);
 
             // Gate: include if text matched OR semantic score is significant

@@ -134,6 +134,10 @@ pub(super) fn record_span_fields(
         span.record("otel.status_code", "OK");
         if let Ok((_, meta)) = result {
             span.record("tool.backend", meta.backend_used.as_str());
+            if let Some(reason) = meta.degraded_reason.as_deref() {
+                span.record("tool.degraded_reason", reason);
+            }
+            span.record("tool.decisions_count", meta.decisions.len() as u64);
         }
     } else {
         span.record("otel.status_code", "ERROR");

@@ -62,6 +62,8 @@ pub(crate) fn dispatch_tool(
         tool.backend = tracing::field::Empty,
         tool.elapsed_ms = tracing::field::Empty,
         tool.surface = tracing::field::Empty,
+        tool.degraded_reason = tracing::field::Empty,
+        tool.decisions_count = tracing::field::Empty,
     );
     let _guard = span.enter();
     let start = std::time::Instant::now();

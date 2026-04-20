@@ -231,6 +231,7 @@ mod tests {
                     signature: "class ServiceManager:",
                     name_path: "ServiceManager",
                     parent_id: None,
+                    end_line: 0,
                 },
                 NewSymbol {
                     name: "run_service",
@@ -242,6 +243,7 @@ mod tests {
                     signature: "def run_service():",
                     name_path: "run_service",
                     parent_id: None,
+                    end_line: 0,
                 },
                 NewSymbol {
                     name: "helper",
@@ -253,6 +255,7 @@ mod tests {
                     signature: "def helper():",
                     name_path: "helper",
                     parent_id: None,
+                    end_line: 0,
                 },
             ],
         )

@@ -81,6 +81,7 @@ fn write_python_file_with_symbols(
                 signature,
                 name_path,
                 parent_id: None,
+                end_line: 0,
             }
         })
         .collect();

@@ -198,11 +198,12 @@ impl SymbolIndex {
                         .map(|row| {
                             let kind = SymbolKind::from_str_label(&row.kind);
                             let sid = make_symbol_id(&rel, &kind, &row.name_path);
+                            let row_line = row.line as usize;
                             SymbolInfo {
                                 name: row.name,
                                 kind,
                                 file_path: rel.clone(),
-                                line: row.line as usize,
+                                line: row_line,
                                 column: row.column_num as usize,
                                 signature: row.signature,
                                 name_path: row.name_path,
@@ -212,11 +213,17 @@ impl SymbolIndex {
                                 children: Vec::new(),
                                 start_byte: row.start_byte as u32,
                                 end_byte: row.end_byte as u32,
+                                // DB rows pre-date the end_line column;
+                                // fall back to `line` so P1-4 proximity
+                                // scoring stays valid but assumes a
+                                // single-line span.
+                                end_line: if row.end_line > 0 { row.end_line as usize } else { row_line },
                             }
                         })
                         .collect(),
                     start_byte: 0,
                     end_byte: 0,
+                    end_line: 0,
                 });
             }
             return Ok(symbols);
@@ -234,12 +241,13 @@ impl SymbolIndex {
             .map(|row| {
                 let kind = SymbolKind::from_str_label(&row.kind);
                 let id = make_symbol_id(&relative, &kind, &row.name_path);
+                let row_line = row.line as usize;
                 SymbolInfo {
                     name: row.name,
                     kind,
                     file_path: relative.clone(),
                     provenance: SymbolProvenance::from_path(&relative),
-                    line: row.line as usize,
+                    line: row_line,
                     column: row.column_num as usize,
                     signature: row.signature,
                     name_path: row.name_path,
@@ -248,6 +256,7 @@ impl SymbolIndex {
                     children: Vec::new(),
                     start_byte: row.start_byte as u32,
                     end_byte: row.end_byte as u32,
+                    end_line: if row.end_line > 0 { row.end_line as usize } else { row_line },
                 }
             })
             .collect())
@@ -473,12 +482,13 @@ impl SymbolIndex {
             };
             let kind = SymbolKind::from_str_label(&row.kind);
             let id = make_symbol_id(&rel_path, &kind, &row.name_path);
+            let row_line = row.line as usize;
             results.push(SymbolInfo {
                 name: row.name,
                 kind,
                 provenance: SymbolProvenance::from_path(&rel_path),
                 file_path: rel_path,
-                line: row.line as usize,
+                line: row_line,
                 column: row.column_num as usize,
                 signature: row.signature,
                 name_path: row.name_path,
@@ -487,6 +497,7 @@ impl SymbolIndex {
                 children: Vec::new(),
                 start_byte: row.start_byte as u32,
                 end_byte: row.end_byte as u32,
+                end_line: if row.end_line > 0 { row.end_line as usize } else { row_line },
             });
         }
         Ok(results)

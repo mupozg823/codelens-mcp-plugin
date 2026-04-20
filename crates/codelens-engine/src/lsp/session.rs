@@ -1,10 +1,12 @@
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result, bail};
+use dashmap::DashMap;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use url::Url;
@@ -34,9 +36,16 @@ struct OpenDocumentState {
     text: String,
 }
 
+/// P1-1: each live language-server session is wrapped in its own
+/// `Mutex<LspSession>`. The pool itself is a lock-free `DashMap` so that
+/// requests routed to *different* (command, args) sessions (e.g. pyright
+/// vs rust-analyzer in a polyglot monorepo) no longer serialize on a
+/// single pool-level mutex. Requests hitting the **same** session still
+/// take a session-local mutex — the LSP JSON-RPC wire is inherently
+/// serial per stdin/stdout pair.
 pub struct LspSessionPool {
     project: ProjectRoot,
-    sessions: std::sync::Mutex<HashMap<SessionKey, LspSession>>,
+    sessions: DashMap<SessionKey, Arc<Mutex<LspSession>>>,
 }
 
 struct LspSession {
@@ -85,12 +94,16 @@ pub(super) const ALLOWED_COMMANDS: &[&str] = &[
     "python",
 ];
 
-fn ensure_session<'a>(
-    sessions: &'a mut HashMap<SessionKey, LspSession>,
+/// Fetch an existing live session or start a new one for the given
+/// (command, args). Lock-scope: the DashMap shard lock is held only long
+/// enough to check liveness + swap in a new entry; session execution
+/// itself uses a per-session `Arc<Mutex<…>>` returned to the caller.
+fn get_or_start_session(
+    sessions: &DashMap<SessionKey, Arc<Mutex<LspSession>>>,
     project: &ProjectRoot,
     command: &str,
     args: &[String],
-) -> Result<&'a mut LspSession> {
+) -> Result<Arc<Mutex<LspSession>>> {
     if !is_allowed_lsp_command(command) {
         bail!(
             "Blocked: '{command}' is not a known LSP server. Only whitelisted LSP binaries are allowed."
@@ -102,25 +115,35 @@ fn ensure_session<'a>(
         args: args.to_owned(),
     };
 
-    // Check for dead sessions: if the child process has exited, remove the stale entry.
-    if let Some(session) = sessions.get_mut(&key) {
-        match session.child.try_wait() {
-            Ok(Some(_status)) => {
-                // Process exited — remove stale session so we start fresh below.
-                sessions.remove(&key);
+    // Fast path: check whether a live session already exists.
+    if let Some(existing) = sessions.get(&key) {
+        let arc = existing.clone();
+        drop(existing); // release the DashMap shard read-lock
+        let dead = {
+            let mut guard = arc.lock().unwrap_or_else(|p| p.into_inner());
+            match guard.child.try_wait() {
+                Ok(Some(_status)) => true, // process exited
+                Err(_) => true,            // child gone
+                Ok(None) => false,         // still running
             }
-            Ok(None) => {} // Still running — will return it via Occupied below.
-            Err(_) => {
-                sessions.remove(&key);
-            }
+        };
+        if !dead {
+            return Ok(arc);
         }
+        sessions.remove(&key);
     }
 
+    // Slow path: spawn a new LSP process. We use `entry(..).or_try_insert_with`
+    // semantics via match so that if two threads race to create the session,
+    // only one spawn actually succeeds.
+    use dashmap::mapref::entry::Entry;
     match sessions.entry(key) {
-        std::collections::hash_map::Entry::Occupied(e) => Ok(e.into_mut()),
-        std::collections::hash_map::Entry::Vacant(e) => {
+        Entry::Occupied(e) => Ok(e.get().clone()),
+        Entry::Vacant(e) => {
             let session = LspSession::start(project, command, args)?;
-            Ok(e.insert(session))
+            let arc = Arc::new(Mutex::new(session));
+            e.insert(arc.clone());
+            Ok(arc)
         }
     }
 }
@@ -129,46 +152,40 @@ impl LspSessionPool {
     pub fn new(project: ProjectRoot) -> Self {
         Self {
             project,
-            sessions: std::sync::Mutex::new(HashMap::new()),
+            sessions: DashMap::new(),
         }
     }
 
     /// Replace the project root and close all existing sessions.
     pub fn reset(&self, project: ProjectRoot) -> Self {
         // Drop existing sessions so LSP processes are killed.
-        self.sessions
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
+        self.sessions.clear();
         Self::new(project)
     }
 
     pub fn session_count(&self) -> usize {
-        self.sessions
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .len()
+        self.sessions.len()
     }
 
     pub fn find_referencing_symbols(&self, request: &LspRequest) -> Result<Vec<LspReference>> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
+        let arc = get_or_start_session(
+            &self.sessions,
             &self.project,
             &request.command,
             &request.args,
         )?;
+        let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
         session.find_references(request)
     }
 
     pub fn get_diagnostics(&self, request: &LspDiagnosticRequest) -> Result<Vec<LspDiagnostic>> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
+        let arc = get_or_start_session(
+            &self.sessions,
             &self.project,
             &request.command,
             &request.args,
         )?;
+        let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
         session.get_diagnostics(request)
     }
 
@@ -176,13 +193,13 @@ impl LspSessionPool {
         &self,
         request: &LspWorkspaceSymbolRequest,
     ) -> Result<Vec<LspWorkspaceSymbol>> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
+        let arc = get_or_start_session(
+            &self.sessions,
             &self.project,
             &request.command,
             &request.args,
         )?;
+        let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
         session.search_workspace_symbols(request)
     }
 
@@ -190,24 +207,24 @@ impl LspSessionPool {
         &self,
         request: &LspTypeHierarchyRequest,
     ) -> Result<HashMap<String, Value>> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
+        let arc = get_or_start_session(
+            &self.sessions,
             &self.project,
             &request.command,
             &request.args,
         )?;
+        let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
         session.get_type_hierarchy(request)
     }
 
     pub fn get_rename_plan(&self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
+        let arc = get_or_start_session(
+            &self.sessions,
             &self.project,
             &request.command,
             &request.args,
         )?;
+        let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
         session.get_rename_plan(request)
     }
 }

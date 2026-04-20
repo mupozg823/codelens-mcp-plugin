@@ -1,8 +1,8 @@
-use super::SymbolIndex;
 use super::parser::{flatten_symbols, parse_symbols};
 use super::types::{AnalyzedFile, IndexStats, ParsedSymbol};
+use super::SymbolIndex;
 use super::{collect_candidate_files, file_modified_ms, language_for_path};
-use crate::db::{self, NewCall, NewImport, NewSymbol, content_hash};
+use crate::db::{self, content_hash, NewCall, NewImport, NewSymbol};
 use crate::import_graph::{extract_imports_from_source, resolve_module_for_file};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};
@@ -93,6 +93,7 @@ fn commit_analyzed(conn: &rusqlite::Connection, analyzed: &AnalyzedFile) -> Resu
             signature: &s.signature,
             name_path: &s.name_path,
             parent_id: None,
+            end_line: s.end_line as i64,
         })
         .collect();
     db::insert_symbols(conn, file_id, &new_syms)?;
@@ -221,18 +222,31 @@ impl SymbolIndex {
             let db_symbols = db.get_file_symbols(file_row.id)?;
             return Ok(db_symbols
                 .into_iter()
-                .map(|row| ParsedSymbol {
-                    name: row.name,
-                    kind: super::types::SymbolKind::from_str_label(&row.kind),
-                    file_path: relative.to_owned(),
-                    line: row.line as usize,
-                    column: row.column_num as usize,
-                    start_byte: row.start_byte as u32,
-                    end_byte: row.end_byte as u32,
-                    signature: row.signature,
-                    body: None,
-                    name_path: row.name_path,
-                    children: Vec::new(),
+                .map(|row| {
+                    let row_line = row.line as usize;
+                    let row_end_line = if row.end_line > 0 {
+                        row.end_line as usize
+                    } else {
+                        row_line
+                    };
+                    ParsedSymbol {
+                        name: row.name,
+                        kind: super::types::SymbolKind::from_str_label(&row.kind),
+                        file_path: relative.to_owned(),
+                        line: row_line,
+                        column: row.column_num as usize,
+                        start_byte: row.start_byte as u32,
+                        end_byte: row.end_byte as u32,
+                        // Migration 7 persists end_line. Pre-migration
+                        // rows read back as 0 — we fall back to `line`
+                        // so the P1-4 proximity factor keeps working
+                        // on legacy caches.
+                        end_line: row_end_line,
+                        signature: row.signature,
+                        body: None,
+                        name_path: row.name_path,
+                        children: Vec::new(),
+                    }
                 })
                 .collect());
         }
@@ -269,6 +283,7 @@ impl SymbolIndex {
                 signature: &s.signature,
                 name_path: &s.name_path,
                 parent_id: None,
+                end_line: s.end_line as i64,
             })
             .collect();
         db.insert_symbols(file_id, &new_syms)?;

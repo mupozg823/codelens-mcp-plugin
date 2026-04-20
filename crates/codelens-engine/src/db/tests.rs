@@ -49,6 +49,7 @@ fn inserts_and_queries_symbols() {
             signature: "class Service:",
             name_path: "Service",
             parent_id: None,
+            end_line: 0,
         },
         NewSymbol {
             name: "run",
@@ -60,6 +61,7 @@ fn inserts_and_queries_symbols() {
             signature: "def run(self):",
             name_path: "Service/run",
             parent_id: None,
+            end_line: 0,
         },
     ];
     let ids = db.insert_symbols(file_id, &syms).unwrap();
@@ -95,6 +97,7 @@ fn upsert_file_clears_old_symbols() {
             signature: "class Old:",
             name_path: "Old",
             parent_id: None,
+            end_line: 0,
         }],
     )
     .unwrap();
@@ -125,6 +128,7 @@ fn streams_symbols_grouped_by_file_in_path_order() {
                 signature: "def b_second():",
                 name_path: "b_second",
                 parent_id: None,
+                end_line: 0,
             },
             NewSymbol {
                 name: "b_first",
@@ -136,6 +140,7 @@ fn streams_symbols_grouped_by_file_in_path_order() {
                 signature: "def b_first():",
                 name_path: "b_first",
                 parent_id: None,
+                end_line: 0,
             },
         ],
     )
@@ -152,6 +157,7 @@ fn streams_symbols_grouped_by_file_in_path_order() {
             signature: "def a_only():",
             name_path: "a_only",
             parent_id: None,
+            end_line: 0,
         }],
     )
     .unwrap();

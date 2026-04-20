@@ -419,6 +419,7 @@ fn prune_to_budget_respects_char_limit() {
                     start_byte: 0,
                     end_byte: 0,
                     provenance: SymbolProvenance::default(),
+                    end_line: 0,
                 },
                 100 - i as i32,
             )
@@ -453,6 +454,7 @@ fn prune_to_budget_includes_first_even_if_oversized() {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         },
         100,
     )];
@@ -488,6 +490,7 @@ fn prune_to_budget_reports_dropped_count_and_last_kept_score() {
                     start_byte: 0,
                     end_byte: 0,
                     provenance: SymbolProvenance::default(),
+                    end_line: 0,
                 },
                 100 - (i as i32) * 10,
             )
@@ -643,6 +646,7 @@ fn rank_symbols_returns_full_scored_list() {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         })
         .collect();
 
@@ -674,6 +678,7 @@ fn score_and_rank_empty_query() {
         start_byte: 0,
         end_byte: 0,
         provenance: SymbolProvenance::default(),
+        end_line: 0,
     }];
 
     let ctx = RankingContext::text_only();

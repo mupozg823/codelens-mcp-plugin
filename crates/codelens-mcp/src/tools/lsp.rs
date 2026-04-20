@@ -302,6 +302,14 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
         .map(ToOwned::to_owned)
         .or_else(|| default_lsp_command_for_path(&file_path));
 
+    // P0-2: `union=true` merges LSP and tree-sitter reference sets so
+    // that tree-sitter hits missed by LSP (common during LSP cold-start
+    // on large repos; see `benchmarks/results/v1.9.46-lsp-reference-precision.json`)
+    // do not silently drop out of the response. Default is `false` for
+    // backwards compatibility — existing callers that explicitly opted
+    // into `use_lsp=true` keep their LSP-only envelope.
+    let union_mode = optional_bool(arguments, "union", false);
+
     if let Some(command) = command {
         let args = parse_lsp_args(arguments, &command);
         let lsp_result = state
@@ -317,15 +325,86 @@ pub fn find_referencing_symbols(state: &AppState, arguments: &serde_json::Value)
             .map_err(|e| enhance_lsp_error(e, &command));
 
         match lsp_result {
-            Ok(value) => {
+            Ok(lsp_refs) => {
+                if !union_mode {
+                    return Ok((
+                        json!({
+                            "references": lsp_refs,
+                            "count": lsp_refs.len(),
+                            "returned_count": lsp_refs.len(),
+                            "sampled": false,
+                            "backend": "lsp",
+                        }),
+                        meta_for_backend("lsp", 0.95),
+                    ));
+                }
+                // Union path: LSP + tree-sitter. Only meaningful when we
+                // can recover a symbol name for the text-search fallback.
+                let sym_name_owned = symbol_name_param
+                    .map(ToOwned::to_owned)
+                    .or_else(|| {
+                        extract_word_at_position(&state.project(), &file_path, line, column).ok()
+                    });
+                let ts_refs_opt = sym_name_owned.as_ref().and_then(|name| {
+                    find_referencing_symbols_via_text(
+                        &state.project(),
+                        name,
+                        Some(&file_path),
+                        max_results.saturating_mul(2),
+                    )
+                    .ok()
+                });
+                // Dedupe by (file_path, line). LSP and tree-sitter may
+                // report slightly different columns for the same hit, so
+                // the column is not part of the key.
+                let mut seen: std::collections::HashSet<(String, usize)> = lsp_refs
+                    .iter()
+                    .map(|r| (r.file_path.clone(), r.line))
+                    .collect();
+                let mut merged: Vec<serde_json::Value> = lsp_refs
+                    .iter()
+                    .map(|r| {
+                        json!({
+                            "file_path": r.file_path,
+                            "line": r.line,
+                            "column": r.column,
+                            "source": "lsp",
+                        })
+                    })
+                    .collect();
+                let mut tree_sitter_added = 0usize;
+                if let Some(ts_report) = ts_refs_opt {
+                    for ts_ref in ts_report.references {
+                        let key = (ts_ref.file_path.clone(), ts_ref.line);
+                        if seen.insert(key) {
+                            merged.push(json!({
+                                "file_path": ts_ref.file_path,
+                                "line": ts_ref.line,
+                                "column": ts_ref.column,
+                                "line_content": ts_ref.line_content,
+                                "is_declaration": ts_ref.is_declaration,
+                                "source": "tree_sitter",
+                            }));
+                            tree_sitter_added += 1;
+                        }
+                    }
+                }
+                let lsp_count = lsp_refs.len();
+                let merged_count = merged.len();
                 return Ok((
                     json!({
-                        "references": value,
-                        "count": value.len(),
-                        "returned_count": value.len(),
+                        "references": merged,
+                        "count": merged_count,
+                        "returned_count": merged_count,
                         "sampled": false,
+                        "backend": "union",
+                        "sources": {
+                            "lsp": lsp_count,
+                            "tree_sitter_added": tree_sitter_added,
+                            "merged": merged_count,
+                        },
                     }),
-                    meta_for_backend("lsp", 0.95),
+                    meta_for_backend("union", 0.93),
                 ));
             }
             Err(_) => {

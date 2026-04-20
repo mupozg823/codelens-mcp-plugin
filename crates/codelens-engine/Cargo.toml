@@ -67,6 +67,7 @@ url.workspace = true
 walkdir.workspace = true
 libc.workspace = true
 tracing.workspace = true
+dashmap.workspace = true
 fastembed = { workspace = true, optional = true }
 ort = { version = "2.0.0-rc.11", default-features = false, optional = true }
 sqlite-vec = { workspace = true, optional = true }

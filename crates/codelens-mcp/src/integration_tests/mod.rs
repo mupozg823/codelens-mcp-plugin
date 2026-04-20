@@ -29,6 +29,7 @@ mod readonly;
 mod transparency_phase1;
 mod transparency_phase2;
 mod workflow;
+mod workflow_contract;
 
 // ── Test helpers ─────────────────────────────────────────────────────
 

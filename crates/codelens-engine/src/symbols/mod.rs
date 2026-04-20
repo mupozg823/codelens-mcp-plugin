@@ -334,6 +334,7 @@ impl SymbolIndex {
                             .collect(),
                         start_byte: 0,
                         end_byte: 0,
+                end_line: 0,
                     });
                 }
             }
@@ -396,6 +397,7 @@ impl SymbolIndex {
                     children: Vec::new(),
                     start_byte: row.start_byte as u32,
                     end_byte: row.end_byte as u32,
+                    end_line: if row.end_line > 0 { row.end_line as usize } else { row.line as usize },
                 });
             }
             return Ok(results);
@@ -446,6 +448,7 @@ impl SymbolIndex {
                 children: Vec::new(),
                 start_byte: row.start_byte as u32,
                 end_byte: row.end_byte as u32,
+                    end_line: if row.end_line > 0 { row.end_line as usize } else { row.line as usize },
             });
         }
         Ok(results)
@@ -648,6 +651,7 @@ fn get_directory_symbols(
                 children: file_symbols,
                 start_byte: 0,
                 end_byte: 0,
+                end_line: 0,
             });
         }
     }

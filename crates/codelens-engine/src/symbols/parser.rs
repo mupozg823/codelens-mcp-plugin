@@ -1,5 +1,5 @@
+use super::types::{make_symbol_id, ParsedSymbol, SymbolInfo, SymbolKind, SymbolProvenance};
 use super::LanguageConfig;
-use super::types::{ParsedSymbol, SymbolInfo, SymbolKind, SymbolProvenance, make_symbol_id};
 use anyhow::{Context, Result};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -82,6 +82,7 @@ pub(crate) fn parse_symbols(
             column: name_node.start_position().column + 1,
             start_byte: def_node.start_byte() as u32,
             end_byte: def_node.end_byte() as u32,
+            end_line: def_node.end_position().row + 1,
             signature: build_signature(def_node, source_bytes, &name),
             body,
             name_path: name,
@@ -151,6 +152,7 @@ pub(crate) fn to_symbol_info_with_source(
         children,
         start_byte: symbol.start_byte,
         end_byte: symbol.end_byte,
+        end_line: symbol.end_line,
     }
 }
 

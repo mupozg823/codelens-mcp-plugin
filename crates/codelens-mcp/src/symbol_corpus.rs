@@ -259,6 +259,7 @@ mod tests {
             children: Vec::new(),
             start_byte: 0,
             end_byte: body.map(|b| b.len() as u32).unwrap_or(0),
+            end_line: 10,
         }
     }
 
