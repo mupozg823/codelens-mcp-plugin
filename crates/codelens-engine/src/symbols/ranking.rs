@@ -1,7 +1,7 @@
 use super::parser::slice_source;
 use super::scoring::score_symbol_with_lower;
 use super::types::{RankedContextEntry, SymbolInfo, SymbolKind};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Weights for blending multiple relevance signals.
@@ -10,6 +10,14 @@ pub(crate) struct RankWeights {
     pub pagerank: f64,
     pub recency: f64,
     pub semantic: f64,
+    /// P1-4: boost applied to a symbol when its `file_path` appears in
+    /// `RankingContext.lsp_boost_files`. The files are expected to come
+    /// from an LSP `textDocument/references` call so the boost pulls
+    /// type-aware cross-file reference hits toward the top of the ranked
+    /// context. Kept at 0.0 by default: with no populated file set, the
+    /// signal contributes nothing and none of the existing benchmarks
+    /// change.
+    pub lsp_signal: f64,
 }
 
 impl Default for RankWeights {
@@ -19,6 +27,7 @@ impl Default for RankWeights {
             pagerank: 0.15,
             recency: 0.10,
             semantic: 0.20,
+            lsp_signal: 0.0,
         }
     }
 }
@@ -31,6 +40,12 @@ pub(crate) struct RankingContext {
     pub recent_files: HashMap<String, f64>,
     /// Semantic similarity scores by "file_path:symbol_name" key.
     pub semantic_scores: HashMap<String, f64>,
+    /// P1-4: file paths returned by an LSP `textDocument/references`
+    /// call for the query's target symbol. Any candidate whose
+    /// `file_path` is in this set receives an `lsp_signal`-weighted
+    /// boost. Empty set (default) contributes nothing, so every
+    /// existing caller keeps its pre-P1-4 behaviour byte-for-byte.
+    pub lsp_boost_files: HashSet<String>,
     /// Blending weights.
     pub weights: RankWeights,
 }
@@ -42,11 +57,13 @@ impl RankingContext {
             pagerank,
             recent_files: HashMap::new(),
             semantic_scores: HashMap::new(),
+            lsp_boost_files: HashSet::new(),
             weights: RankWeights {
                 text: 0.70,
                 pagerank: 0.20,
                 recency: 0.10,
                 semantic: 0.0,
+                lsp_signal: 0.0,
             },
         }
     }
@@ -64,6 +81,7 @@ impl RankingContext {
             pagerank,
             recent_files: HashMap::new(),
             semantic_scores,
+            lsp_boost_files: HashSet::new(),
             weights,
         }
     }
@@ -74,11 +92,13 @@ impl RankingContext {
             pagerank: HashMap::new(),
             recent_files: HashMap::new(),
             semantic_scores: HashMap::new(),
+            lsp_boost_files: HashSet::new(),
             weights: RankWeights {
                 text: 1.0,
                 pagerank: 0.0,
                 recency: 0.0,
                 semantic: 0.0,
+                lsp_signal: 0.0,
             },
         }
     }
@@ -105,6 +125,7 @@ fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankW
             pagerank: 0.10,
             recency: 0.05,
             semantic: if has_rich_semantic { 0.20 } else { 0.10 },
+            lsp_signal: 0.0,
         };
     }
 
@@ -116,6 +137,7 @@ fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankW
                 pagerank: 0.05,
                 recency: 0.05,
                 semantic: 0.70,
+                lsp_signal: 0.0,
             }
         } else {
             RankWeights {
@@ -123,6 +145,7 @@ fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankW
                 pagerank: 0.20,
                 recency: 0.10,
                 semantic: 0.10,
+                lsp_signal: 0.0,
             }
         };
     }
@@ -137,6 +160,7 @@ fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankW
             pagerank: 0.10,
             recency: 0.10,
             semantic: 0.30,
+            lsp_signal: 0.0,
         }
     } else {
         RankWeights {
@@ -144,6 +168,7 @@ fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankW
             pagerank: 0.15,
             recency: 0.10,
             semantic: 0.15,
+            lsp_signal: 0.0,
         }
     }
 }
@@ -449,18 +474,21 @@ pub fn weights_for_query_type(query_type: &str) -> RankWeights {
             pagerank: 0.15,
             recency: 0.05,
             semantic: 0.10,
+            lsp_signal: 0.0,
         },
         "natural_language" => RankWeights {
             text: 0.25,
             pagerank: 0.15,
             recency: 0.15,
             semantic: 0.45,
+            lsp_signal: 0.0,
         },
         "short_phrase" => RankWeights {
             text: 0.35,
             pagerank: 0.15,
             recency: 0.15,
             semantic: 0.35,
+            lsp_signal: 0.0,
         },
         _ => RankWeights::default(),
     }
@@ -818,6 +846,138 @@ mod tests {
         let query = "which helper implements find word matches in files";
         assert!(symbol_kind_prior(query, &exact) > symbol_kind_prior(query, &broader));
     }
+
+    // P1-4: LSP signal boost tests. Two otherwise-identical symbols are
+    // ranked against each other, differing only by which file they live
+    // in. The `lsp_boost_files` set flags one of those files as an LSP
+    // `textDocument/references` hit.
+
+    fn lsp_test_symbol(name: &str, file_path: &str) -> SymbolInfo {
+        SymbolInfo {
+            name: name.into(),
+            kind: SymbolKind::Function,
+            file_path: file_path.into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: name.into(),
+            id: name.into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+            provenance: SymbolProvenance::default(),
+        }
+    }
+
+    fn lsp_flat_context(
+        lsp_boost_files: super::HashSet<String>,
+        lsp_weight: f64,
+    ) -> super::RankingContext {
+        super::RankingContext {
+            pagerank: super::HashMap::new(),
+            recent_files: super::HashMap::new(),
+            semantic_scores: super::HashMap::new(),
+            lsp_boost_files,
+            weights: super::RankWeights {
+                text: 1.0,
+                pagerank: 0.0,
+                recency: 0.0,
+                semantic: 0.0,
+                lsp_signal: lsp_weight,
+            },
+        }
+    }
+
+    #[test]
+    fn lsp_signal_weight_zero_is_neutral() {
+        // Default weight 0.0: even with a populated `lsp_boost_files`
+        // set, the blended score must be identical between the two
+        // candidates. This is the regression contract that guarantees
+        // existing benchmarks do not shift until a caller opts in.
+        let in_boost = lsp_test_symbol("handler_a", "crates/x/src/a.rs");
+        let not_in_boost = lsp_test_symbol("handler_b", "crates/x/src/b.rs");
+
+        let mut boost = super::HashSet::new();
+        boost.insert("crates/x/src/a.rs".to_string());
+        let ctx = lsp_flat_context(boost, 0.0);
+
+        let ranked = super::rank_symbols("handler", vec![in_boost, not_in_boost], &ctx);
+        assert_eq!(ranked.len(), 2);
+        assert_eq!(
+            ranked[0].1, ranked[1].1,
+            "with lsp_signal=0.0 the boost must contribute nothing"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_rescues_candidate_with_zero_text_score() {
+        // P1-4 caller-wiring contract: when a symbol lives in a file
+        // flagged by the LSP reference probe, it must survive the
+        // "no text match and no semantic match" gate. Otherwise the
+        // entire boost is moot for real callers — caller symbols
+        // rarely share lexical tokens with the query's target.
+        let caller = lsp_test_symbol("unrelated_caller", "crates/x/src/caller.rs");
+
+        let mut boost = super::HashSet::new();
+        boost.insert("crates/x/src/caller.rs".to_string());
+        let ctx = lsp_flat_context(boost, 0.5);
+
+        let ranked = super::rank_symbols("rank_symbols", vec![caller], &ctx);
+        assert_eq!(
+            ranked.len(),
+            1,
+            "LSP-flagged caller with zero text score must survive the gate"
+        );
+        assert!(
+            ranked[0].1 >= 1,
+            "rescued caller must still get a positive blended score"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_gate_stays_closed_when_weight_is_zero() {
+        // The rescue only fires when the LSP signal has a non-zero
+        // weight — default 0.0 must preserve the historical gate so
+        // pre-P1-4 benchmarks do not accidentally pull in unrelated
+        // symbols the moment a boost set is populated without a
+        // weight lift.
+        let caller = lsp_test_symbol("unrelated_caller", "crates/x/src/caller.rs");
+
+        let mut boost = super::HashSet::new();
+        boost.insert("crates/x/src/caller.rs".to_string());
+        let ctx = lsp_flat_context(boost, 0.0);
+
+        let ranked = super::rank_symbols("rank_symbols", vec![caller], &ctx);
+        assert!(
+            ranked.is_empty(),
+            "with lsp_signal=0.0 the gate must still drop zero-text candidates"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_weight_positive_promotes_lsp_file() {
+        // With a positive weight, the candidate living in a file that
+        // the LSP reference probe flagged must outrank an otherwise
+        // identical candidate in an unrelated file.
+        let in_boost = lsp_test_symbol("handler_a", "crates/x/src/a.rs");
+        let not_in_boost = lsp_test_symbol("handler_b", "crates/x/src/b.rs");
+
+        let mut boost = super::HashSet::new();
+        boost.insert("crates/x/src/a.rs".to_string());
+        let ctx = lsp_flat_context(boost, 0.5);
+
+        let ranked = super::rank_symbols("handler", vec![not_in_boost, in_boost], &ctx);
+        assert_eq!(ranked.len(), 2);
+        assert_eq!(
+            ranked[0].0.file_path, "crates/x/src/a.rs",
+            "LSP-flagged file must rank first when lsp_signal > 0"
+        );
+        assert!(
+            ranked[0].1 > ranked[1].1,
+            "LSP-boosted score must strictly exceed the non-boosted baseline"
+        );
+    }
 }
 
 /// Score and rank a list of symbols against a query, using multiple signals.
@@ -879,7 +1039,13 @@ pub(crate) fn rank_symbols(
             };
 
             // Gate: include if text matched OR semantic score is significant
-            if text_score == 0 && (!has_semantic || sem_score < 0.08) {
+            // OR the symbol lives in a file flagged by the LSP reference
+            // probe (P1-4). The LSP rescue only fires when the boost has
+            // been given a non-zero weight so that the legacy default
+            // (weight 0.0, no opt-in) keeps dropping the same candidates.
+            let lsp_rescued =
+                ctx.weights.lsp_signal > 0.0 && ctx.lsp_boost_files.contains(&symbol.file_path);
+            if text_score == 0 && (!has_semantic || sem_score < 0.08) && !lsp_rescued {
                 return None;
             }
 
@@ -904,10 +1070,23 @@ pub(crate) fn rank_symbols(
             let sem_normalized = (sem_score / sem_max * 100.0).min(100.0);
             let semantic_component = sem_normalized * ctx.weights.semantic;
 
+            // P1-4: LSP signal. A symbol in a file that an LSP
+            // `textDocument/references` call flagged as a cross-file
+            // user of the query's target gets a fixed +100 contribution
+            // (same 0-100 scale as the other signals) scaled by its
+            // weight. With the default weight of 0.0 the blend is a no-op,
+            // preserving pre-P1-4 scoring byte-for-byte.
+            let lsp_component = if ctx.lsp_boost_files.contains(&symbol.file_path) {
+                100.0 * ctx.weights.lsp_signal
+            } else {
+                0.0
+            };
+
             let blended = (text_component
                 + pr_component
                 + recency_component
                 + semantic_component
+                + lsp_component
                 + symbol_kind_prior(&query_lower, &symbol)
                 + file_path_prior(&query_lower, &symbol.file_path))
                 as i32;

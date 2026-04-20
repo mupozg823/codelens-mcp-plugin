@@ -334,11 +334,35 @@ impl SymbolIndex {
         lsp_boost_files: std::collections::HashSet<String>,
         lsp_signal_weight: Option<f64>,
     ) -> Result<RankedContextResult> {
-        let all_symbols = if let Some(path) = path {
+        let mut all_symbols = if let Some(path) = path {
             self.get_symbols_overview_cached(path, depth)?
         } else {
             self.select_solve_symbols_cached(query, depth)?
         };
+
+        // P1-4: pull symbols from every LSP-flagged file into the
+        // candidate pool. Without this step the downstream gate still
+        // drops a rescued caller for the trivial reason that it never
+        // entered the pool — `get_symbols_overview_cached(path)` is
+        // scoped to one file. The LSP boost is only meaningful when
+        // the probe actually extends the candidate surface across the
+        // caller graph.
+        if !lsp_boost_files.is_empty() {
+            let mut seen: std::collections::HashSet<String> =
+                all_symbols.iter().map(|s| s.id.clone()).collect();
+            for extra_path in &lsp_boost_files {
+                if Some(extra_path.as_str()) == path {
+                    continue;
+                }
+                if let Ok(extra_symbols) = self.get_symbols_overview_cached(extra_path, depth) {
+                    for sym in extra_symbols {
+                        if seen.insert(sym.id.clone()) {
+                            all_symbols.push(sym);
+                        }
+                    }
+                }
+            }
+        }
 
         let ranking_ctx = match graph_cache {
             Some(gc) => {

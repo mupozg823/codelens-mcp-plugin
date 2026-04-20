@@ -15,7 +15,8 @@ use crate::protocol::BackendKind;
 use crate::symbol_corpus::build_symbol_corpus;
 use crate::symbol_retrieval::{search_symbols_bm25f, unique_query_terms};
 use codelens_engine::{
-    read_file, search_symbols_hybrid_with_semantic, LspRequest, SymbolInfo, SymbolKind,
+    find_referencing_symbols_via_text, read_file, search_symbols_hybrid_with_semantic, LspRequest,
+    SymbolInfo, SymbolKind,
 };
 use serde_json::{json, Value};
 
@@ -774,13 +775,23 @@ mod confidence_tier_tests {
     }
 }
 
-/// P1-4 caller wiring: run a best-effort LSP `textDocument/references`
-/// probe for `query` anchored at `path` and turn the hit files into a
-/// boost set. Returns `(files, weight)`. Any failure returns
-/// `(empty_set, None)` so the caller falls through to the default
-/// no-op path. The weight is read from
-/// `CODELENS_LSP_SIGNAL_WEIGHT` (default `0.25`); callers can dial
-/// the boost down to zero without code changes.
+/// P1-4 caller wiring: run a best-effort reference probe for `query`
+/// anchored at `path` and turn the hit files into a boost set.
+///
+/// Strategy mirrors `find_referencing_symbols` with `union=true`: try
+/// LSP `textDocument/references` first, then merge tree-sitter text
+/// references. The tree-sitter pass is the key fallback — LSP is
+/// commonly cold (returning 0 refs for 5-30s on rust-analyzer /
+/// pyright), and without a fallback the boost would be silently inert
+/// on every cold CLI invocation. The union gives us a populated set
+/// whenever *either* backend resolves anything, so the P1-4 wiring
+/// meets the caller regardless of LSP readiness. Matches the
+/// `benchmarks/results/v1.9.46-lsp-reference-precision.json` finding
+/// that tree-sitter refs are a useful floor, not a ceiling.
+///
+/// Returns `(files, weight)`. Empty set means the caller should fall
+/// through to the default no-op path; the weight is read from
+/// `CODELENS_LSP_SIGNAL_WEIGHT` (default `0.25`).
 fn lsp_boost_probe(
     state: &AppState,
     query: &str,
@@ -790,38 +801,51 @@ fn lsp_boost_probe(
     let Some(path) = path else {
         return empty;
     };
-    let Some(command) = default_lsp_command_for_path(path) else {
-        return empty;
-    };
-    // Resolve the query to a concrete (line, column) anchor inside the
-    // caller-supplied file. Without an anchor, `textDocument/references`
-    // has no symbol to probe for.
-    let anchor = match state
-        .symbol_index()
-        .find_symbol(query, Some(path), false, true, 1)
+
+    let mut files: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // LSP leg — optional, only fires when an LSP command is available
+    // and the query resolves to an anchor symbol inside `path`.
+    if let Some(command) = default_lsp_command_for_path(path) {
+        let anchor = match state
+            .symbol_index()
+            .find_symbol(query, Some(path), false, true, 1)
+        {
+            Ok(rows) => rows.into_iter().next().map(|s| (s.line, s.column)),
+            Err(_) => None,
+        };
+        if let Some((line, column)) = anchor {
+            let request = LspRequest {
+                command: command.clone(),
+                args: default_lsp_args_for_command(&command),
+                file_path: path.to_owned(),
+                line,
+                column,
+                max_results: 64,
+            };
+            if let Ok(refs) = state.lsp_pool().find_referencing_symbols(&request) {
+                for r in refs {
+                    files.insert(r.file_path);
+                }
+            }
+        }
+    }
+
+    // Tree-sitter leg — always attempted; populates callers that LSP
+    // has not yet surfaced (e.g. cold rust-analyzer) or cannot see
+    // (languages without an installed LSP recipe). `find_symbol`
+    // guarantees the query string is a real symbol name in `path`, so
+    // the tree-sitter text search is well-anchored.
+    if let Ok(report) = find_referencing_symbols_via_text(&state.project(), query, Some(path), 128)
     {
-        Ok(rows) => rows.into_iter().next().map(|s| (s.line, s.column)),
-        Err(_) => None,
-    };
-    let Some((line, column)) = anchor else {
-        return empty;
-    };
-    let request = LspRequest {
-        command: command.clone(),
-        args: default_lsp_args_for_command(&command),
-        file_path: path.to_owned(),
-        line,
-        column,
-        max_results: 64,
-    };
-    let refs = match state.lsp_pool().find_referencing_symbols(&request) {
-        Ok(refs) => refs,
-        Err(_) => return empty,
-    };
-    if refs.is_empty() {
+        for r in report.references {
+            files.insert(r.file_path);
+        }
+    }
+
+    if files.is_empty() {
         return empty;
     }
-    let files: std::collections::HashSet<String> = refs.into_iter().map(|r| r.file_path).collect();
     let weight = std::env::var("CODELENS_LSP_SIGNAL_WEIGHT")
         .ok()
         .and_then(|s| s.parse::<f64>().ok())

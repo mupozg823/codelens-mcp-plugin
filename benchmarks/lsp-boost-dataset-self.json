@@ -1,0 +1,74 @@
+[
+  {
+    "query": "rank_symbols",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/ranking.rs",
+    "note": "definition file; expected_symbol is a real caller in reader.rs",
+    "expected_symbol": "get_ranked_context_cached_with_query_type",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/reader.rs"
+  },
+  {
+    "query": "prune_to_budget",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/ranking.rs",
+    "expected_symbol": "get_ranked_context",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs"
+  },
+  {
+    "query": "find_referencing_symbols_via_lsp",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/lsp/mod.rs",
+    "note": "exported; called from tests/benchmarks and re-exported from lib.rs",
+    "expected_symbol": "search_workspace_symbols_via_lsp",
+    "expected_file_suffix": "crates/codelens-engine/src/lsp/mod.rs"
+  },
+  {
+    "query": "LspRequest",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/lsp/types.rs",
+    "expected_symbol": "find_referencing_symbols",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/lsp.rs"
+  },
+  {
+    "query": "RankingContext",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/ranking.rs",
+    "expected_symbol": "get_ranked_context_cached_with_query_type",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/reader.rs"
+  },
+  {
+    "query": "default_lsp_command_for_path",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/lsp/registry.rs",
+    "expected_symbol": "find_referencing_symbols",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/lsp.rs"
+  },
+  {
+    "query": "LspSessionPool",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/lsp/session.rs",
+    "expected_symbol": "find_referencing_symbols_via_lsp",
+    "expected_file_suffix": "crates/codelens-engine/src/lsp/mod.rs"
+  },
+  {
+    "query": "score_symbol_with_lower",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/scoring.rs",
+    "expected_symbol": "rank_symbols",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/ranking.rs"
+  },
+  {
+    "query": "slice_source",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/parser.rs",
+    "expected_symbol": "prune_to_budget",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/ranking.rs"
+  },
+  {
+    "query": "SymbolInfo",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/types.rs",
+    "expected_symbol": "rank_symbols",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/ranking.rs"
+  }
+]

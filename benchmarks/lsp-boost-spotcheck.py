@@ -83,7 +83,28 @@ def parse_args():
     p.add_argument("--preset", default="balanced")
     p.add_argument("--output", required=True)
     p.add_argument("--timeout", type=int, default=120)
+    p.add_argument(
+        "--dataset",
+        default="",
+        help="Optional JSON file with queries. Falls back to the built-in 5-row "
+        "micro dataset when omitted. Each row must carry query, path, "
+        "expected_symbol and (optionally) expected_file_suffix.",
+    )
     return p.parse_args()
+
+
+def load_dataset(path: str):
+    if not path:
+        return DATASET
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise SystemExit(f"dataset must be a JSON list, got {type(data).__name__}")
+    for idx, row in enumerate(data):
+        if "query" not in row or "path" not in row or "expected_symbol" not in row:
+            raise SystemExit(
+                f"dataset row {idx} missing required fields (query/path/expected_symbol)"
+            )
+    return data
 
 
 def run_tool(
@@ -151,10 +172,11 @@ def rank_of(symbol, file_suffix, rows):
 
 def main() -> int:
     args = parse_args()
+    dataset = load_dataset(args.dataset)
     arms_output = []
     for arm_name, lsp_boost in ARMS:
         rows = []
-        for item in DATASET:
+        for item in dataset:
             tool_args = {
                 "query": item["query"],
                 "path": item["path"],
@@ -214,7 +236,8 @@ def main() -> int:
         "project": str(args.project),
         "binary": str(args.binary),
         "preset": args.preset,
-        "dataset_size": len(DATASET),
+        "dataset_path": args.dataset or "<built-in micro>",
+        "dataset_size": len(dataset),
         "arms": arms_output,
     }
     out_path = Path(args.output)
@@ -223,7 +246,7 @@ def main() -> int:
     for arm in arms_output:
         print(
             f"[{arm['arm']} lsp_boost={arm['lsp_boost']}] "
-            f"MRR={arm['mrr']:.4f} hits={arm['hits']}/{len(DATASET)}"
+            f"MRR={arm['mrr']:.4f} hits={arm['hits']}/{len(dataset)}"
         )
     return 0
 
