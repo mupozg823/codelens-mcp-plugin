@@ -349,6 +349,34 @@ language; flask (pyright) in particular moves from 2/10 MRR 0.0500 to
 stays flat — tree-sitter already saturates the Rust path. Leave the
 flag off for embedding-quality baseline runs.
 
+Use `get_lsp_readiness` (new in v1.9.50) to wait for per-language
+LSP sessions to finish indexing instead of sleeping a fixed
+duration. Each session exposes `is_alive` (handshake done) and
+`is_ready` (≥ 1 non-empty response) latches plus per-milestone
+elapsed-ms timers; the pool also records `failure_count` so a dead
+LSP binary surfaces immediately instead of hiding inside a blind
+wait.
+
+Before merging a change to `crates/codelens-engine/src/symbols/ranking.rs`,
+`crates/codelens-mcp/src/tools/symbols/handlers.rs::lsp_boost_probe`,
+or `crates/codelens-engine/src/lsp/**`, run the regression gate:
+
+```bash
+# Clone test worktrees once:
+git clone https://github.com/pallets/flask external-repos/flask
+git clone https://github.com/colinhacks/zod external-repos/zod
+
+cargo build -p codelens-mcp --release --features http --bin codelens-mcp
+python3 benchmarks/lsp-boost-regression-check.py
+# exit 0 = contract holds, exit 1 = thick_caller hit-rate regressed
+```
+
+The contract is pinned to the v1.9.50 post-rescue numbers
+(self 5/5, flask 3/3, zod 3/3 thick_caller hits). Replay mode
+(`--current-self <json> --current-flask <json> --current-zod <json>`)
+lets CI or a pre-merge hook rerun the check against archived
+artifacts without spinning up LSPs.
+
 ## Language Support
 
 <!-- SURFACE_MANIFEST_README_LANGUAGES:BEGIN -->
