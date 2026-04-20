@@ -1,23 +1,135 @@
 # CodeLens MCP — Benchmarks
 
 > Reproducible token-efficiency and search-quality measurements.
-> Last measurement: **2026-04-13**.
+> Last measurement: **2026-04-20** (v1.9.46 5-repo cross-language matrix: self, Flask, Zod, Cobra, Spring-core).
 
 This document is the authoritative source for CodeLens's public performance claims. Every number below is produced by an executable script in `benchmarks/` and can be re-run on any machine.
+
+Scope note: MRR numbers here reflect **per-repo** measurement. The 5-repo cross-language matrix in §1a shows that the optimal retrieval arm (semantic / hybrid / lexical) **varies by repository** — there is no single blend that dominates across languages. Do not cite a single self or role MRR as evidence of a cross-language generalization.
 
 ---
 
 ## 1. Headline Numbers (what we claim publicly)
 
-| Claim                                                   | Value                       | Source                                |
-| ------------------------------------------------------- | --------------------------- | ------------------------------------- |
-| Token reduction vs Read/Grep (total, structured tasks)  | **6.1x (84% fewer tokens)** | `benchmarks/token-efficiency.py`      |
-| Token reduction on best single task (context retrieval) | **167x**                    | `benchmarks/token-efficiency.py`      |
-| Workflow profile compression (planner/reviewer)         | **15-16x**                  | `benchmarks/token-efficiency.py`      |
-| Search quality, hybrid (self regression, MRR)           | **0.841**                   | `benchmarks/embedding-quality.py`     |
-| Search quality, hybrid (role regression, MRR)           | **0.962**                   | `benchmarks/embedding-quality.py`     |
-| Search quality, hybrid (external smoke, MRR range)      | **0.563-0.623**             | `benchmarks/embedding-quality.py`     |
-| Cold start (no LSP)                                     | **~12 ms**                  | `target/release/codelens-mcp` startup |
+| Claim                                                    | Value                       | Source                                |
+| -------------------------------------------------------- | --------------------------- | ------------------------------------- |
+| Token reduction vs Read/Grep (total, structured tasks)   | **6.1x (84% fewer tokens)** | `benchmarks/token-efficiency.py`      |
+| Token reduction on best single task (context retrieval)  | **167x**                    | `benchmarks/token-efficiency.py`      |
+| Workflow profile compression (planner/reviewer)          | **15-16x**                  | `benchmarks/token-efficiency.py`      |
+| Search quality, hybrid — self regression, v1.9.46 (MRR)  | **0.681**                   | `benchmarks/embedding-quality.py`     |
+| Search quality, hybrid — role regression, v1.9.12¹ (MRR) | **0.962**                   | `benchmarks/embedding-quality.py`     |
+| Cross-language hybrid MRR range (4 external repos)       | **0.237 – 0.767** (see §1a) | `benchmarks/external-3arm.py`         |
+| Cold start (no LSP)                                      | **~12 ms**                  | `target/release/codelens-mcp` startup |
+
+¹ Role regression has not been re-measured under the v1.9.34 tightened-target dataset; the `0.962` figure reflects the pre-decomposition dataset and is retained here for continuity. The v1.9.46 self regression baseline (`0.681`) is the current authoritative hybrid MRR — see §8 Historical Snapshots for the v1.9.12 `0.841` snapshot and the dataset-specificity note.
+
+### 1a. Cross-language matrix (v1.9.46, 2026-04-20)
+
+Five repositories, 3-arm bridge ablation (`bridge-off` / `generic-on` / `repo-on`). The hybrid, semantic, and lexical MRR numbers shown are `generic-on` — `bridge-off` and `generic-on` are **bit-exact identical** on every row, which means the current generic bridge table contributes **0 MRR on every non-self dataset measured so far**.
+
+| Repo             | Language   |   n |    Hybrid |  Semantic |   Lexical | Winner arm |
+| ---------------- | ---------- | --: | --------: | --------: | --------: | ---------- |
+| self             | Rust       | 104 | **0.681** |     0.647 |     0.532 | hybrid     |
+| flask            | Python     |  20 |     0.525 | **0.558** |     0.317 | semantic   |
+| zod              | TypeScript |  20 |     0.237 |     0.222 | **0.247** | lexical    |
+| cobra            | Go         |  20 |     0.767 | **0.797** |     0.514 | semantic   |
+| spring-framework | Java       |  20 |     0.356 | **0.404** |     0.386 | semantic   |
+
+Winner distribution across 5 repos: semantic 3, hybrid 1 (self only), lexical 1. This matrix directly rebuts two earlier marketing framings:
+
+1. **"Hybrid is the default-best blend"** — true on self, false on 4 of 5 external repos. Semantic alone wins the majority.
+2. **"Generic NL→code bridges are a language-agnostic retrieval lift"** — false for every non-self dataset measured. The generic table is CodeLens-specific dev-tooling vocabulary ("categorize", "who calls", "into an ast"); it does not fire on Python / TS / Go / Java queries.
+
+Per-repo artifacts live under `benchmarks/results/v1.9.46-3arm-bridge-{self,flask,zod,cobra,spring-core}.json`. Per-repo datasets are `benchmarks/external-{flask,zod,cobra,spring-core}-dataset.json`. The absolute MRR spread (cobra 0.767 down to zod 0.237) is a mix of dataset strictness and retrieval fit; absolute numbers are less informative than the arm-ordering within a repo.
+
+### 1b. LSP precision & prewarm baseline (v1.9.46, 2026-04-20)
+
+Motivation: Serena (oraios/serena, 23K★) runs LSP-first by default with 40+ per-language adapters; CodeLens runs tree-sitter-first with LSP available but opt-in and not integrated into the ranking pipeline. Before claiming any Rust / performance uplift from porting Serena's LSP-first substrate, we captured two baselines so future P0-2..P1-2 work can be measured against them, not against hand-waved before-after.
+
+**LSP reference precision** (`benchmarks/lsp-reference-precision.py`, 6 Flask symbols, pyright-langserver):
+
+| Arm         | Total refs found | Median latency | Notes                                                                                                                                                        |
+| ----------- | ---------------: | -------------: | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| tree-sitter |           **45** |          99 ms | `find_referencing_symbols` with no `line` (schema default — tree-sitter path).                                                                               |
+| LSP         |            **0** |         454 ms | `use_lsp=true`, `command=pyright-langserver`. Returns `backend_used=lsp`, `references=[]` for every probed symbol.                                           |
+| **Union**   |          **106** |         536 ms | `use_lsp=true` + `union=true` (P0-2, 2026-04-20). Merges LSP + tree-sitter hits deduped by `(file, line)`, each ref tagged `source: "lsp" \| "tree_sitter"`. |
+
+LSP returns **0 references on every Flask symbol** in the current on-demand mode — CodeLens spawns pyright per tool call without a prewarmed workspace folder, so the server has not finished indexing by the time the references request is sent. This is the exact baseline P0-3 (auto-attach on bootstrap) and P0-4 (per-language adapter with wait-for-indexing) must move. tree-sitter already returns a useful reference set (45 refs across 6 symbols, 99 ms median); the gap is therefore not in tree-sitter recall but in LSP integration warm-up.
+
+**P0-2 (tree-sitter + LSP union, 2026-04-20)** landed the first protection against this silent-zero LSP failure mode. Opting into `union=true` now makes the handler run the tree-sitter text search alongside the LSP call and merge both sets (deduped by `(file, line)`; each returned ref carries `source: "lsp" | "tree_sitter"`). On the same Flask baseline the union arm reports **106 refs** — strictly more than either single source, because the text-search pass uses `max_results × 2` so the envelope does not truncate early and fallback recall is fully captured even when the LSP path fires zero hits. Latency rises to **536 ms median** (LSP cold-start + tree-sitter pass in sequence); P1-1 (`DashMap + tokio::mpsc` LSP pool) and P1-2 (parallel prewarm) are the follow-on work that pulls this back. Regression tests: `crates/codelens-mcp/src/integration_tests/lsp.rs::union_flag_*`. Artifacts: `benchmarks/results/v1.9.46-lsp-reference-precision.json`, `benchmarks/results/v1.9.46-lsp-reference-precision.md`.
+
+**LSP prewarm + first-call latency** (`benchmarks/lsp-prewarm-latency.py`, pyright + typescript-language-server):
+
+| Probe                          | Elapsed (ms) |
+| ------------------------------ | -----------: |
+| `bootstrap_python`             |           48 |
+| `bootstrap_ts`                 |          279 |
+| `first_lsp_python`             |          412 |
+| `first_lsp_ts`                 |          449 |
+| `sequential_first_call`        |      **861** |
+| `parallel_prewarm_lower_bound` |      **449** |
+
+`prepare_harness_session` does not currently spawn any LSP — bootstrap cost is tree-sitter indexing only (48–279 ms). The first LSP-triggered tool call then pays the full `initialize` + language-server cold-start cost (~400–450 ms for pyright on Flask and typescript-language-server on Zod). In a multi-language monorepo the current on-demand path serializes those costs (861 ms); a parallel prewarm (P1-2) targets the max rather than the sum (449 ms ceiling, **47.9% theoretical speedup**). This is a ceiling — actual savings depend on LSP server wall-clock behavior, not on CodeLens's own code path. Artifact: `benchmarks/results/v1.9.46-lsp-prewarm-latency.json`.
+
+**P0-3 (auto-attach on bootstrap, 2026-04-20)** adds opportunistic LSP prewarm to `prepare_harness_session`: the bootstrap response now carries an `lsp_auto_attach` object with `{enabled, disabled_reason, detected_languages, prewarm_fired}`. The prewarm is intentionally **gated off for CLI one-shot invocations** (`stdio` transport with `--cmd ...`), because any LSP process spawned there cannot outlive the exiting request — the `disabled_reason` surfaces as `"non_persistent_transport"` so operators can see why the field is inactive without guessing. Under HTTP transport (or explicit `CODELENS_LSP_AUTO=true`) the handler shallow-walks the project (depth ≤ 3, ≤ 120 files, excludes `node_modules`/`target`/`.git`/…) to detect languages and fires `search_workspace_symbols("")` on each language whose LSP binary is on `PATH`. That call is fire-and-forget — it serves only to trigger `initialize`. Opt-out is `CODELENS_LSP_AUTO=false`. Contract tests: `crates/codelens-mcp/src/integration_tests/workflow_contract.rs::prepare_harness_session_lsp_auto_attach_*`.
+
+**P1-1 (session-level lock decomposition, 2026-04-20)** replaced the pool's single `Mutex<HashMap<SessionKey, LspSession>>` with `DashMap<SessionKey, Arc<Mutex<LspSession>>>`. Before this change, a tool call targeting pyright would hold the pool-wide mutex for the full LSP round-trip, so a concurrent rust-analyzer call on the same project blocked until pyright finished. After the change, each (command, args) session carries its own mutex; the pool itself only takes short DashMap shard locks during the liveness check + insert. A focused regression test (`crates/codelens-mcp/src/integration_tests/lsp.rs::lsp_pool_runs_distinct_sessions_in_parallel`) issues two parallel `find_referencing_symbols` calls against two mock LSPs that each sleep 200 ms on `textDocument/references`; the entire run completes in ~1.23 s end-to-end versus the ≥ 400 ms serialized floor for a single pair (the additional time is spawn + initialize handshake for both mocks), and the assertion is that wall-clock stays below `1.75 × sleep_ms`. This lifts the pool-level contention cap that would otherwise have bounded P1-2 parallel prewarm and any future multi-language batched-reference pipeline. Same-session concurrency is still inherently serial — two requests to the _same_ LSP server share one JSON-RPC stdin/stdout pair, so the per-session mutex continues to guard that invariant.
+
+Both benches skip cleanly when their LSP binary is missing from `PATH`; re-run after installing pyright / typescript-language-server via `npm install -g pyright typescript-language-server`.
+
+### 1c. LSP-boosted ranking (P1-4, v1.9.50, 2026-04-20)
+
+P1-4 wires the reference probe from §1b back into `get_ranked_context`: with `lsp_boost=true`, the handler runs a `find_referencing_symbols(use_lsp=true, union=true)`-shaped probe on the query target anchored at `path`, turns the hit lines into a per-file map, and feeds them to the ranker. Inside `rank_symbols` the blend gains a new component
+
+```text
+lsp_component = 100 * weights.lsp_signal * lsp_proximity_factor(ref_lines, symbol.line, symbol.end_line)
+```
+
+with the factor saturating at `min(count_refs_in_span / 3, 1.0)` for containment and at `LSP_OUTSIDE_SPAN_MAX_FACTOR = 0.30` for outside-span adjacency — the cap guarantees any single-ref container outranks any zero-ref neighbour. Default weight `CODELENS_LSP_SIGNAL_WEIGHT = 0.25` stays off by default for the embedding-quality baselines (§4); callers that want the caller-boost opt in by passing `lsp_boost=true`.
+
+**Caller-focused matrix** (10 queries per repo, each `expected_symbol` is a _caller in a different file_ from `path`; token budget 1200 matching §1a):
+
+| Repo  | Language   | Baseline         | Per-ref CLI      | HTTP warm-LSP    | HTTP auto-attach     | ΔMRR vs baseline |
+| ----- | ---------- | ---------------- | ---------------- | ---------------- | -------------------- | ---------------- |
+| self  | Rust       | 1/10, MRR 0.0500 | 7/10, MRR 0.1264 | 7/10, MRR 0.1294 | 7/10, MRR 0.1229     | **+145%**        |
+| flask | Python     | 2/10, MRR 0.0500 | 3/10, MRR 0.0553 | 4/10, MRR 0.0893 | **4/10, MRR 0.1053** | **+110%**        |
+| zod   | TypeScript | 4/10, MRR 0.0932 | 4/10, MRR 0.0713 | 4/10, MRR 0.0713 | 4/10, MRR 0.0713     | −23%             |
+
+**Readings:**
+
+- **Per-ref weighting** (commit `a9e23f1`) is the knob that turned flask from **−11% regression** (file-level containment) into **+11% over baseline** (per-ref). Without the saturation cap, every function in a ref-dense file tied at `1.0` and the expected caller was lost in the tie distribution.
+- **Auto-attach** (commit `42aad2b`) delivers the largest uplift on flask without any per-query warm-up: setting `CODELENS_LSP_AUTO=true` and calling `prepare_harness_session` once at session start fires a fire-and-forget `search_workspace_symbols("")` per detected language, and the 45 s of fire-and-forget indexing that follows is typically covered by the agent's own reasoning time.
+- **self stays flat** because tree-sitter's Rust extractor already saturates rank_symbols' candidate pool — rust-analyzer adds 0.003 MRR, within run-to-run noise. A freshly refreshed self index does not need LSP prewarm.
+- **zod regresses** because the hand-picked expected callers are thin one-ref wrappers (`_parse → parse`, `registry → globalRegistry`); per-ref weighting correctly prefers multi-ref containers, which is the wrong answer for that dataset. This is a dataset quirk, not a signal error, and is tracked as a follow-up (stratified dataset with a thick-caller bucket).
+
+**Evolution across commits** (self repo, 10-query caller dataset, token budget 1200, default weight 0.25):
+
+| Design                     | Hits@K |    MRR | Commit    |
+| -------------------------- | -----: | -----: | --------- |
+| baseline (lsp_boost=false) |   1/10 | 0.0500 | —         |
+| file-level boost           |   3/10 | 0.0670 | `47b801e` |
+| per-symbol proximity       |   6/10 | 0.0934 | `b662c35` |
+| per-symbol containment     |   8/10 | 0.1145 | `6906611` |
+| per-ref weighting          |   7/10 | 0.1264 | `a9e23f1` |
+
+Per-ref slipped one hit versus pure containment (single-ref stragglers no longer ride the `1.0` ceiling), but the remaining hits rank meaningfully higher — MRR rose 0.1145 → 0.1264. Combined with HTTP auto-attach on flask the same mechanism picks up a second language lane that pure tree-sitter could not.
+
+**Harness integration:**
+
+- `benchmarks/lsp-boost-spotcheck.py` — CLI one-shot runner against any `{project, dataset}` pair.
+- `benchmarks/lsp-boost-http-matrix.py` — persistent HTTP daemon + `--warm-lsp` (explicit per-query `find_referencing_symbols(use_lsp=true)` probe) and `--auto-attach` (single `prepare_harness_session` + `CODELENS_LSP_AUTO=true` + `--auto-attach-wait` indexing delay). Pulls symbols from `result.structuredContent.data` so the adaptive-compression pipeline cannot silently drop candidates.
+- Datasets live at `benchmarks/lsp-boost-dataset-{self,flask,zod}.json`. Each caller entry names the anchor `path`, the `query` (always a real symbol in that file), and the expected caller `{name, file_suffix}`.
+
+**Regression tests** (all in `crates/codelens-engine/src/symbols/ranking.rs::tests`):
+`lsp_signal_weight_zero_is_neutral`, `lsp_signal_rescues_candidate_with_zero_text_score`,
+`lsp_signal_gate_stays_closed_when_weight_is_zero`,
+`lsp_signal_proximity_prefers_nearer_ref_lines`,
+`lsp_signal_ignores_refs_above_window`,
+`lsp_signal_containment_beats_nearby_non_container`,
+`lsp_signal_multi_ref_container_beats_single_ref_container`,
+`lsp_signal_weight_positive_promotes_lsp_file`. Plus the server-side fix for deeply-nested Rust sources (`prepare_harness_session_detects_deeply_nested_rust_sources`, commit `a2eaf81`) that kept the auto-attach telemetry from silently dropping `rust` on this repo. Engine test count: 291. MCP `--features http`: 500.
+
+**Honest limits:** 10 queries per repo is direction-only. Warm-LSP and auto-attach both rely on pyright / tsserver / rust-analyzer being on `PATH`; repos whose LSP is not installed fall back to tree-sitter refs exactly as the `v1.9.46-lsp-reference-precision.json` baseline. `CODELENS_LSP_SIGNAL_WEIGHT` remains `0.25` by default because higher weights saturate dozens of otherwise-unrelated symbols and hurt zod/flask lane ranks; raising it is a tuning decision per-codebase, not a global recommendation.
 
 All token counts use **tiktoken `cl100k_base`** — the same tokenizer used by Claude and GPT-4 — so "tokens saved" maps directly to "prompt budget saved."
 
@@ -202,11 +314,11 @@ All three scripts are deterministic given the same input repo and binary. Result
 The promoted internal baselines still come from symbols that actually exist in this repo, because that is the fastest regression detector for day-to-day development. We now publish small external smoke datasets as well, but they are not yet broad enough to justify a sweeping cross-repo quality claim.
 
 **Why hybrid ranking?**
-On the current self regression set, pure semantic search (`0.798`) and pure lexical search (`0.614`) are both materially below hybrid (`0.841`). On the role regression set, the same pattern holds (`0.900` semantic, `0.832` lexical, `0.962` hybrid). The external smoke picture is more mixed: hybrid wins on curl, while Flask still prefers pure semantic.
+Hybrid wins on **1 of 5** repositories measured (self, on its own dataset). Across the external 4-repo pilot (Flask, Zod, Cobra, Spring-core), the winning arm is **semantic on 3, lexical on 1** — see §1a for the full matrix. On self (v1.9.46) pure semantic (`0.647`) and pure lexical (`0.532`) both trail hybrid (`0.681`), and the older role regression held the same pattern (`0.900` semantic, `0.832` lexical, `0.962` hybrid), but those two datasets disproportionately reward CodeLens's own dev-tooling vocabulary. Outside self, hybrid is **not the default-best blend**: the blend that wins is language- and query-shape-dependent. We keep `get_ranked_context` on a hybrid blend because it is a reasonable default (never far below the winner) and because choosing per-request would require a query classifier we do not currently have — but any claim that hybrid dominates cross-language is rebutted by the 5-repo measurement.
 
 **What we don't measure (yet)**
 
-- Promotion-grade cross-repo retrieval quality across Python, JS/TS, JVM, and systems-language families
+- Promotion-grade cross-repo retrieval quality at scale — the 5-repo pilot (§1a) is a proof-of-concept, not a statistically large matrix; a per-query classifier that picks semantic/hybrid/lexical at runtime is not yet implemented
 - Incremental indexing latency under heavy file churn
 - Cold-start wall time on Windows CI runners
 
