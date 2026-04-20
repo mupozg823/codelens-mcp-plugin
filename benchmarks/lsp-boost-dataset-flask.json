@@ -3,71 +3,107 @@
     "query": "url_for",
     "query_type": "identifier",
     "path": "src/flask/helpers.py",
-    "note": "definition; expected caller uses it elsewhere",
     "expected_symbol": "view",
-    "expected_file_suffix": "src/flask/views.py"
+    "expected_file_suffix": "src/flask/views.py",
+    "bucket": "thin_wrapper"
   },
   {
     "query": "make_response",
     "query_type": "identifier",
     "path": "src/flask/helpers.py",
     "expected_symbol": "full_dispatch_request",
-    "expected_file_suffix": "src/flask/app.py"
+    "expected_file_suffix": "src/flask/app.py",
+    "bucket": "thin_wrapper"
   },
   {
     "query": "render_template",
     "query_type": "identifier",
     "path": "src/flask/templating.py",
     "expected_symbol": "stream_template",
-    "expected_file_suffix": "src/flask/templating.py"
+    "expected_file_suffix": "src/flask/templating.py",
+    "bucket": "thin_wrapper"
   },
   {
     "query": "Blueprint",
     "query_type": "identifier",
     "path": "src/flask/sansio/blueprints.py",
     "expected_symbol": "Blueprint",
-    "expected_file_suffix": "src/flask/blueprints.py"
+    "expected_file_suffix": "src/flask/blueprints.py",
+    "bucket": "thin_wrapper"
   },
   {
     "query": "copy_current_request_context",
     "query_type": "identifier",
     "path": "src/flask/ctx.py",
     "expected_symbol": "generate",
-    "expected_file_suffix": "src/flask/ctx.py"
+    "expected_file_suffix": "src/flask/ctx.py",
+    "bucket": "thin_wrapper"
   },
   {
     "query": "Flask",
     "query_type": "identifier",
     "path": "src/flask/app.py",
     "expected_symbol": "create_app",
-    "expected_file_suffix": "src/flask/cli.py"
+    "expected_file_suffix": "src/flask/cli.py",
+    "bucket": "thin_wrapper"
   },
   {
     "query": "abort",
     "query_type": "identifier",
     "path": "src/flask/helpers.py",
     "expected_symbol": "get_template_attribute",
-    "expected_file_suffix": "src/flask/helpers.py"
+    "expected_file_suffix": "src/flask/helpers.py",
+    "bucket": "thin_wrapper"
   },
   {
     "query": "send_file",
     "query_type": "identifier",
     "path": "src/flask/helpers.py",
     "expected_symbol": "send_from_directory",
-    "expected_file_suffix": "src/flask/helpers.py"
+    "expected_file_suffix": "src/flask/helpers.py",
+    "bucket": "thin_wrapper"
   },
   {
     "query": "jsonify",
     "query_type": "identifier",
     "path": "src/flask/json/__init__.py",
     "expected_symbol": "jsonify",
-    "expected_file_suffix": "src/flask/json/provider.py"
+    "expected_file_suffix": "src/flask/json/provider.py",
+    "bucket": "thin_wrapper"
   },
   {
     "query": "Scaffold",
     "query_type": "identifier",
     "path": "src/flask/sansio/scaffold.py",
     "expected_symbol": "App",
-    "expected_file_suffix": "src/flask/sansio/app.py"
+    "expected_file_suffix": "src/flask/sansio/app.py",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "Flask",
+    "query_type": "identifier",
+    "path": "src/flask/app.py",
+    "note": "find_best_app in cli.py has 8 refs to Flask — the discovery function iterates module attrs looking for Flask instances.",
+    "expected_symbol": "find_best_app",
+    "expected_file_suffix": "src/flask/cli.py",
+    "bucket": "thick_caller"
+  },
+  {
+    "query": "Flask",
+    "query_type": "identifier",
+    "path": "src/flask/app.py",
+    "note": "find_app_by_string in cli.py has 4 refs — resolves a user string to a Flask app by name or factory call.",
+    "expected_symbol": "find_app_by_string",
+    "expected_file_suffix": "src/flask/cli.py",
+    "bucket": "thick_caller"
+  },
+  {
+    "query": "Flask",
+    "query_type": "identifier",
+    "path": "src/flask/app.py",
+    "note": "load_app in cli.py references Flask 4 times — multi-source app loader.",
+    "expected_symbol": "load_app",
+    "expected_file_suffix": "src/flask/cli.py",
+    "bucket": "thick_caller"
   }
 ]

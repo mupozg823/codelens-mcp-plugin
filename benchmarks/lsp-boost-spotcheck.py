@@ -212,6 +212,7 @@ def main() -> int:
                     "path": item["path"],
                     "expected_symbol": item["expected_symbol"],
                     "expected_file_suffix": item.get("expected_file_suffix"),
+                    "bucket": item.get("bucket"),
                     "rank": rank,
                     "elapsed_ms": r["elapsed_ms"],
                     "returncode": r["returncode"],
@@ -221,12 +222,39 @@ def main() -> int:
                 }
             )
         reciprocal = [1.0 / row["rank"] for row in rows if row["rank"] is not None]
+        # Per-bucket breakdown so `thin_wrapper` (the per-ref-hostile
+        # case by design) and `thick_caller` (what per-ref was built
+        # for) can be read separately. Reports `null` bucket as a
+        # catch-all for legacy entries.
+        by_bucket: dict[str, dict] = {}
+        for row in rows:
+            bucket = row.get("bucket") or "unlabeled"
+            summary = by_bucket.setdefault(
+                bucket, {"count": 0, "hits": 0, "reciprocal": 0.0}
+            )
+            summary["count"] += 1
+            if row["rank"] is not None:
+                summary["hits"] += 1
+                summary["reciprocal"] += 1.0 / row["rank"]
+        bucket_summary = {
+            name: {
+                "count": summary["count"],
+                "hits": summary["hits"],
+                "mrr": (
+                    summary["reciprocal"] / summary["count"]
+                    if summary["count"]
+                    else 0.0
+                ),
+            }
+            for name, summary in by_bucket.items()
+        }
         arms_output.append(
             {
                 "arm": arm_name,
                 "lsp_boost": lsp_boost,
                 "mrr": sum(reciprocal) / len(rows) if rows else 0.0,
                 "hits": len(reciprocal),
+                "by_bucket": bucket_summary,
                 "rows": rows,
             }
         )
@@ -248,6 +276,11 @@ def main() -> int:
             f"[{arm['arm']} lsp_boost={arm['lsp_boost']}] "
             f"MRR={arm['mrr']:.4f} hits={arm['hits']}/{len(dataset)}"
         )
+        for name, summary in sorted(arm["by_bucket"].items()):
+            print(
+                f"    bucket={name:14} "
+                f"MRR={summary['mrr']:.4f} hits={summary['hits']}/{summary['count']}"
+            )
     return 0
 
 

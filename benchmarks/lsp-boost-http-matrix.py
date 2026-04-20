@@ -275,6 +275,7 @@ def run_arm(
             {
                 "query": item["query"],
                 "expected_symbol": item["expected_symbol"],
+                "bucket": item.get("bucket"),
                 "rank": rank,
                 "elapsed_ms": elapsed_ms,
                 "candidate_count": len(symbols),
@@ -282,10 +283,33 @@ def run_arm(
             }
         )
     reciprocal = [1.0 / row["rank"] for row in rows if row["rank"] is not None]
+    # Same stratification as the CLI spotcheck — per-ref weighting was
+    # designed for `thick_caller` containers, so the matrix ought to
+    # separate them from `thin_wrapper` single-ref callers that the
+    # design intentionally refuses to promote.
+    by_bucket: dict[str, dict] = {}
+    for row in rows:
+        name = row.get("bucket") or "unlabeled"
+        summary = by_bucket.setdefault(name, {"count": 0, "hits": 0, "reciprocal": 0.0})
+        summary["count"] += 1
+        if row["rank"] is not None:
+            summary["hits"] += 1
+            summary["reciprocal"] += 1.0 / row["rank"]
+    bucket_summary = {
+        name: {
+            "count": summary["count"],
+            "hits": summary["hits"],
+            "mrr": (
+                summary["reciprocal"] / summary["count"] if summary["count"] else 0.0
+            ),
+        }
+        for name, summary in by_bucket.items()
+    }
     return {
         "lsp_boost": lsp_boost,
         "mrr": sum(reciprocal) / len(rows) if rows else 0.0,
         "hits": len(reciprocal),
+        "by_bucket": bucket_summary,
         "rows": rows,
     }
 
@@ -381,6 +405,12 @@ def main() -> int:
             f"[{arm['arm']} lsp_boost={arm['lsp_boost']}] "
             f"MRR={arm['mrr']:.4f} hits={arm['hits']}/{len(dataset)}"
         )
+        buckets = arm.get("by_bucket") or {}
+        for name, summary in sorted(buckets.items()):
+            print(
+                f"    bucket={name:14} "
+                f"MRR={summary['mrr']:.4f} hits={summary['hits']}/{summary['count']}"
+            )
     return 0
 
 
