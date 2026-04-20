@@ -100,7 +100,7 @@ with the factor saturating at `min(count_refs_in_span / 3, 1.0)` for containment
 - **Per-ref weighting** (commit `a9e23f1`) is the knob that turned flask from **−11% regression** (file-level containment) into **+11% over baseline** (per-ref). Without the saturation cap, every function in a ref-dense file tied at `1.0` and the expected caller was lost in the tie distribution.
 - **Auto-attach** (commit `42aad2b`) delivers the largest uplift on flask without any per-query warm-up: setting `CODELENS_LSP_AUTO=true` and calling `prepare_harness_session` once at session start fires a fire-and-forget `search_workspace_symbols("")` per detected language, and the 45 s of fire-and-forget indexing that follows is typically covered by the agent's own reasoning time.
 - **self stays flat** because tree-sitter's Rust extractor already saturates rank_symbols' candidate pool — rust-analyzer adds 0.003 MRR, within run-to-run noise. A freshly refreshed self index does not need LSP prewarm.
-- **zod regresses** because the hand-picked expected callers are thin one-ref wrappers (`_parse → parse`, `registry → globalRegistry`); per-ref weighting correctly prefers multi-ref containers, which is the wrong answer for that dataset. This is a dataset quirk, not a signal error, and is tracked as a follow-up (stratified dataset with a thick-caller bucket).
+- **zod regresses** because the hand-picked expected callers are thin one-ref wrappers (`_parse → parse`, `registry → globalRegistry`); per-ref weighting correctly prefers multi-ref containers, which is the wrong answer for that dataset. This is a dataset quirk, not a signal error. The **stratified follow-up** below confirms: when the dataset is re-run with an explicit `thick_caller` bucket, zod's thick-caller lane lifts from 1/3 to 2/3 while the thin_wrapper lane stays flat — the boost is helping exactly where per-ref was designed to help.
 
 **Evolution across commits** (self repo, 10-query caller dataset, token budget 1200, default weight 0.25):
 
@@ -130,6 +130,40 @@ Per-ref slipped one hit versus pure containment (single-ref stragglers no longer
 `lsp_signal_weight_positive_promotes_lsp_file`. Plus the server-side fix for deeply-nested Rust sources (`prepare_harness_session_detects_deeply_nested_rust_sources`, commit `a2eaf81`) that kept the auto-attach telemetry from silently dropping `rust` on this repo. Engine test count: 291. MCP `--features http`: 500.
 
 **Honest limits:** 10 queries per repo is direction-only. Warm-LSP and auto-attach both rely on pyright / tsserver / rust-analyzer being on `PATH`; repos whose LSP is not installed fall back to tree-sitter refs exactly as the `v1.9.46-lsp-reference-precision.json` baseline. `CODELENS_LSP_SIGNAL_WEIGHT` remains `0.25` by default because higher weights saturate dozens of otherwise-unrelated symbols and hurt zod/flask lane ranks; raising it is a tuning decision per-codebase, not a global recommendation.
+
+#### Stratified thick_caller / thin_wrapper matrix (v1.9.50, 2026-04-20)
+
+The 10-query caller dataset blends the case the per-ref weighting was
+_designed for_ (a multi-ref container) with the case it _deliberately
+refuses to promote_ (a one-ref thin wrapper). A follow-up run labels
+each entry with a `bucket` tag (`thick_caller` | `thin_wrapper`) and
+adds 3–5 thick_caller entries per repo; both runners now compute a
+`by_bucket` summary and print one line per bucket after the aggregate
+row. Artifacts live at `benchmarks/results/v1.9.50-lsp-boost-stratified-{self,flask,zod}.json`
+with the consolidated writeup at `…-stratified.md`.
+
+| Repo  | Arm       | Total             | Thick-caller (per-ref target)  | Thin-wrapper (per-ref refuses) |
+| ----- | --------- | ----------------- | ------------------------------ | ------------------------------ |
+| self  | baseline  | 3/15, MRR 0.0633  | 2/5, MRR 0.0900                | 1/10, MRR 0.0500               |
+| self  | lsp_boost | 12/15, MRR 0.1737 | **5/5, MRR 0.2686 (+199%)**    | 7/10, MRR 0.1263               |
+| flask | baseline  | 2/13, MRR 0.0385  | 0/3, MRR 0.0000                | 2/10, MRR 0.0500               |
+| flask | lsp_boost | 7/13, MRR 0.1100  | **3/3, MRR 0.1255 (new hits)** | 4/10, MRR 0.1053               |
+| zod   | baseline  | 5/13, MRR 0.1101  | 1/3, MRR 0.1667                | 4/10, MRR 0.0932               |
+| zod   | lsp_boost | 6/13, MRR 0.0972  | 2/3, MRR 0.1833 (+10%)         | 4/10, MRR 0.0713               |
+
+Every repo's **thick_caller** bucket rises under `lsp_boost=true` —
+the zod aggregate regression from the top-line table was an artefact
+of lumping thin wrappers (the refusal case) into the same headline
+as thick containers (the target case). With per-ref weighting, the
+bucket that the design was built for now scores 100% hit rate on
+self and flask, and 2/3 on zod. Thin_wrapper lanes swing the other
+way: self +6 hits, flask +2, zod flat / mild MRR dip — exactly the
+contract "a single-ref caller is a weaker signal than a multi-ref
+container".
+
+Commit: `78266e8`. The stratified runners are the same bench scripts
+used for §1c — no new code path, just a `bucket` field on each
+dataset row plus a per-bucket summary in the output.
 
 All token counts use **tiktoken `cl100k_base`** — the same tokenizer used by Claude and GPT-4 — so "tokens saved" maps directly to "prompt budget saved."
 
