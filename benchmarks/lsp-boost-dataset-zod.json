@@ -1,0 +1,72 @@
+[
+  {
+    "query": "safeParse",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "expected_symbol": "safeParse",
+    "expected_file_suffix": "packages/zod/src/v4/classic/schemas.ts"
+  },
+  {
+    "query": "$ZodRegistry",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/registries.ts",
+    "expected_symbol": "registry",
+    "expected_file_suffix": "packages/zod/src/v4/core/registries.ts"
+  },
+  {
+    "query": "parseAsync",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "expected_symbol": "parseAsync",
+    "expected_file_suffix": "packages/zod/src/v4/classic/schemas.ts"
+  },
+  {
+    "query": "JSONSchemaGenerator",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/json-schema-generator.ts",
+    "expected_symbol": "toJSONSchema",
+    "expected_file_suffix": "packages/zod/src/v4/core/to-json-schema.ts"
+  },
+  {
+    "query": "globalRegistry",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/registries.ts",
+    "expected_symbol": "describe",
+    "expected_file_suffix": "packages/zod/src/v4/classic/schemas.ts"
+  },
+  {
+    "query": "_parse",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "expected_symbol": "parse",
+    "expected_file_suffix": "packages/zod/src/v4/core/parse.ts"
+  },
+  {
+    "query": "_encode",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "expected_symbol": "encode",
+    "expected_file_suffix": "packages/zod/src/v4/core/parse.ts"
+  },
+  {
+    "query": "$output",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/registries.ts",
+    "expected_symbol": "$ZodRegistry",
+    "expected_file_suffix": "packages/zod/src/v4/core/registries.ts"
+  },
+  {
+    "query": "registry",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/registries.ts",
+    "expected_symbol": "globalRegistry",
+    "expected_file_suffix": "packages/zod/src/v4/core/registries.ts"
+  },
+  {
+    "query": "safeParseAsync",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "expected_symbol": "safeParseAsync",
+    "expected_file_suffix": "packages/zod/src/v4/classic/schemas.ts"
+  }
+]
