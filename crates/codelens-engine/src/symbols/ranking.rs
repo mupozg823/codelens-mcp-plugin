@@ -57,25 +57,47 @@ pub(crate) struct RankingContext {
 /// Window used to scale a ref's distance to a *non-containing* symbol
 /// into a `0.0..1.0` P1-4 proximity factor. Only consulted when the
 /// symbol's own `[line, end_line]` span does not already contain a
-/// ref — containment yields a full `1.0` factor directly. The 250
-/// value is intentionally conservative: with real `end_line`
-/// available, very few refs fall outside containment yet stay close
-/// enough to be meaningful, and the remaining ones decay gracefully.
+/// ref. The 250 value is intentionally conservative: with real
+/// `end_line` available, very few refs fall outside containment yet
+/// stay close enough to be meaningful, and the remaining ones decay
+/// gracefully.
 pub(crate) const LSP_PROXIMITY_WINDOW_LINES: usize = 250;
 
+/// Number of refs inside a symbol's span at which the P1-4 boost
+/// reaches its full strength. One ref yields `1/3`, two refs `2/3`,
+/// three or more refs `1.0`. The cap matters on ref-dense files
+/// (flask, zod): without it every function containing a single ref
+/// tied at `1.0` and the expected caller lost to its neighbours.
+pub(crate) const LSP_CONTAINMENT_SATURATION_REFS: usize = 3;
+
+/// Maximum factor awarded to a symbol whose declaration is close
+/// to — but not inside — a ref line. Kept strictly below the
+/// single-ref containment floor (`1 /
+/// LSP_CONTAINMENT_SATURATION_REFS ≈ 0.333`) so that *any* genuine
+/// container outranks *any* mere neighbour regardless of how tight
+/// the neighbour sits. Without this invariant, a ref-dense file
+/// would promote a zero-ref symbol that happens to sit one line
+/// above a call site over a one-ref symbol that actually encloses
+/// it.
+pub(crate) const LSP_OUTSIDE_SPAN_MAX_FACTOR: f64 = 0.30;
+
 /// Compute the proximity factor (0.0..=1.0) for the nearest reference
-/// line in `ref_lines` relative to the symbol span `[symbol_line,
-/// symbol_end_line]`. Returns `1.0` when any ref is inside the span,
-/// a linear-decay factor when the nearest ref is above the span and
-/// within `LSP_PROXIMITY_WINDOW_LINES`, and `0.0` otherwise.
-/// `ref_lines` must be sorted ascending.
+/// in `ref_lines` relative to the symbol span `[symbol_line,
+/// symbol_end_line]`:
 ///
-/// The containment branch is what makes the P1-4 boost robust: a
-/// large function whose body receives many refs earns a full boost
-/// regardless of where in its body the nearest ref lies, and
-/// unrelated neighbour symbols sitting right next to it earn a
-/// partial boost only when they are actually close to the *span* of
-/// the caller.
+/// * **Inside the span** — the factor is `min(refs_in_span /
+///   LSP_CONTAINMENT_SATURATION_REFS, 1.0)`. A symbol carrying many
+///   refs to the probe target outranks one that only happens to
+///   enclose a single call site.
+/// * **Above the span, within `LSP_PROXIMITY_WINDOW_LINES`** — linear
+///   decay from `LSP_OUTSIDE_SPAN_MAX_FACTOR` down to `0.0`. Capped
+///   below the single-ref containment floor so containment always
+///   wins on ties.
+/// * **Above the span, beyond the window, or below the span** —
+///   `0.0`. A ref that predates the symbol cannot live inside its
+///   body.
+///
+/// `ref_lines` must be sorted ascending.
 pub(crate) fn lsp_proximity_factor(
     ref_lines: &[usize],
     symbol_line: usize,
@@ -91,16 +113,21 @@ pub(crate) fn lsp_proximity_factor(
     let Some(&first_at_or_above) = ref_lines.get(start_idx) else {
         return 0.0;
     };
-    // Containment: any ref in [symbol_line, upper] yields full boost.
+    // Containment: count how many refs sit inside [symbol_line, upper].
     if first_at_or_above <= upper {
-        return 1.0;
+        let end_idx = ref_lines.partition_point(|&l| l <= upper);
+        let count = end_idx - start_idx;
+        let saturated = (count as f64) / (LSP_CONTAINMENT_SATURATION_REFS as f64);
+        return saturated.min(1.0);
     }
-    // Outside span — linear decay from `upper` outward.
+    // Outside span — linear decay from `upper` outward, capped so a
+    // zero-ref neighbour can never outrank a one-ref container.
     let distance = first_at_or_above.saturating_sub(upper);
     if distance > LSP_PROXIMITY_WINDOW_LINES {
         return 0.0;
     }
-    1.0 - (distance as f64) / (LSP_PROXIMITY_WINDOW_LINES as f64)
+    let linear = 1.0 - (distance as f64) / (LSP_PROXIMITY_WINDOW_LINES as f64);
+    linear * LSP_OUTSIDE_SPAN_MAX_FACTOR
 }
 
 impl RankingContext {
@@ -1034,26 +1061,62 @@ mod tests {
     #[test]
     fn lsp_signal_proximity_prefers_nearer_ref_lines() {
         // Two symbols in the same boosted file, both zero-text-score.
-        // Ref lives on line 10; `near` is declared at line 5 (distance
-        // 5, high proximity), `far` at line 1 (distance 9, lower
-        // proximity). With a positive weight `near` must outrank
-        // `far` — file-level boost alone could not make this call.
+        // A ref lives on line 20: `near` encloses it (lines 10..=30),
+        // so the containment branch fires with a single-ref factor;
+        // `far` is a tiny stub at line 1 that is only *near* the
+        // ref, so it falls into the outside-span decay. Containment
+        // must outrank adjacency — this is the core invariant the
+        // `LSP_OUTSIDE_SPAN_MAX_FACTOR` cap is written to preserve.
         let mut near = lsp_test_symbol("near_caller", "crates/x/src/caller.rs");
-        near.line = 5;
+        near.line = 10;
+        near.end_line = 30;
         let mut far = lsp_test_symbol("far_caller", "crates/x/src/caller.rs");
         far.line = 1;
 
-        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[10]), 0.5);
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[20]), 0.5);
 
         let ranked = super::rank_symbols("rank_symbols", vec![far, near], &ctx);
         assert_eq!(ranked.len(), 2, "both candidates must survive the gate");
         assert_eq!(
             ranked[0].0.name, "near_caller",
-            "the candidate whose line is closer to the ref must rank first"
+            "a single-ref container must outrank an outside-span neighbour"
         );
         assert!(
             ranked[0].1 > ranked[1].1,
-            "proximity must produce a strictly higher blended score"
+            "containment must produce a strictly higher blended score"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_multi_ref_container_beats_single_ref_container() {
+        // Per-ref weighting contract: when two symbols both contain
+        // at least one ref, the one that encloses more of them must
+        // win. Three refs is the saturation point, so `heavy` lands
+        // on 1.0 while `light` sits at 1/3 — the ranker must respect
+        // that gap even when the two candidates are otherwise
+        // identical. This is the invariant that pulls the flask /
+        // zod regression out of the tie-distribution hole.
+        let mut heavy = lsp_test_symbol("heavy_caller", "crates/x/src/caller.rs");
+        heavy.line = 10;
+        heavy.end_line = 50;
+        let mut light = lsp_test_symbol("light_caller", "crates/x/src/caller.rs");
+        light.line = 60;
+        light.end_line = 100;
+
+        let ctx = lsp_flat_context(
+            boost_refs_at("crates/x/src/caller.rs", &[15, 25, 35, 80]),
+            0.5,
+        );
+
+        let ranked = super::rank_symbols("rank_symbols", vec![light, heavy], &ctx);
+        assert_eq!(ranked.len(), 2, "both containers must survive the gate");
+        assert_eq!(
+            ranked[0].0.name, "heavy_caller",
+            "the container enclosing more refs must rank first"
+        );
+        assert!(
+            ranked[0].1 > ranked[1].1,
+            "multi-ref containment must dominate single-ref containment"
         );
     }
 

@@ -1,0 +1,716 @@
+{
+  "schema_version": 1,
+  "project": "external-repos/flask",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "preset": "balanced",
+  "dataset_path": "benchmarks/lsp-boost-dataset-flask.json",
+  "dataset_size": 10,
+  "arms": [
+    {
+      "arm": "baseline",
+      "lsp_boost": false,
+      "mrr": 0.05,
+      "hits": 2,
+      "rows": [
+        {
+          "query": "url_for",
+          "path": "src/flask/helpers.py",
+          "expected_symbol": "view",
+          "expected_file_suffix": "src/flask/views.py",
+          "rank": null,
+          "elapsed_ms": 22.03,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "url_for",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 90
+            }
+          ],
+          "candidate_count": 1,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "make_response",
+          "path": "src/flask/helpers.py",
+          "expected_symbol": "full_dispatch_request",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": null,
+          "elapsed_ms": 18.54,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "make_response",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 90
+            },
+            {
+              "name": "args",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 34
+            },
+            {
+              "name": "abort",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 30
+            }
+          ],
+          "candidate_count": 3,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "render_template",
+          "path": "src/flask/templating.py",
+          "expected_symbol": "stream_template",
+          "expected_file_suffix": "src/flask/templating.py",
+          "rank": 6,
+          "elapsed_ms": 20.04,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "render_template",
+              "file": "src/flask/templating.py",
+              "relevance_score": 90
+            },
+            {
+              "name": "render_template_string",
+              "file": "src/flask/templating.py",
+              "relevance_score": 62
+            },
+            {
+              "name": "_render",
+              "file": "src/flask/templating.py",
+              "relevance_score": 48
+            },
+            {
+              "name": "_default_template_ctx_processor",
+              "file": "src/flask/templating.py",
+              "relevance_score": 45
+            },
+            {
+              "name": "list_templates",
+              "file": "src/flask/templating.py",
+              "relevance_score": 45
+            }
+          ],
+          "candidate_count": 16,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "Blueprint",
+          "path": "src/flask/sansio/blueprints.py",
+          "expected_symbol": "Blueprint",
+          "expected_file_suffix": "src/flask/blueprints.py",
+          "rank": null,
+          "elapsed_ms": 21.28,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "Blueprint",
+              "file": "src/flask/sansio/blueprints.py",
+              "relevance_score": 78
+            },
+            {
+              "name": "_merge_blueprint_funcs",
+              "file": "src/flask/sansio/blueprints.py",
+              "relevance_score": 50
+            },
+            {
+              "name": "from_blueprint",
+              "file": "src/flask/sansio/blueprints.py",
+              "relevance_score": 50
+            },
+            {
+              "name": "register_blueprint",
+              "file": "src/flask/sansio/blueprints.py",
+              "relevance_score": 50
+            },
+            {
+              "name": "register_blueprint",
+              "file": "src/flask/sansio/blueprints.py",
+              "relevance_score": 50
+            }
+          ],
+          "candidate_count": 26,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "copy_current_request_context",
+          "path": "src/flask/ctx.py",
+          "expected_symbol": "generate",
+          "expected_file_suffix": "src/flask/ctx.py",
+          "rank": null,
+          "elapsed_ms": 18.94,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "copy_current_request_context",
+              "file": "src/flask/ctx.py",
+              "relevance_score": 90
+            },
+            {
+              "name": "has_request_context",
+              "file": "src/flask/ctx.py",
+              "relevance_score": 45
+            },
+            {
+              "name": "AppContext",
+              "file": "src/flask/ctx.py",
+              "relevance_score": 41
+            },
+            {
+              "name": "after_this_request",
+              "file": "src/flask/ctx.py",
+              "relevance_score": 38
+            },
+            {
+              "name": "has_app_context",
+              "file": "src/flask/ctx.py",
+              "relevance_score": 38
+            }
+          ],
+          "candidate_count": 15,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "Flask",
+          "path": "src/flask/app.py",
+          "expected_symbol": "create_app",
+          "expected_file_suffix": "src/flask/cli.py",
+          "rank": null,
+          "elapsed_ms": 18.33,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "Flask",
+              "file": "src/flask/app.py",
+              "relevance_score": 90
+            },
+            {
+              "name": "wrapper",
+              "file": "src/flask/app.py",
+              "relevance_score": 41
+            },
+            {
+              "name": "test_cli_runner",
+              "file": "src/flask/app.py",
+              "relevance_score": 41
+            },
+            {
+              "name": "test_client",
+              "file": "src/flask/app.py",
+              "relevance_score": 41
+            },
+            {
+              "name": "base_method",
+              "file": "src/flask/app.py",
+              "relevance_score": 41
+            }
+          ],
+          "candidate_count": 30,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "abort",
+          "path": "src/flask/helpers.py",
+          "expected_symbol": "get_template_attribute",
+          "expected_file_suffix": "src/flask/helpers.py",
+          "rank": null,
+          "elapsed_ms": 18.29,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "abort",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 90
+            }
+          ],
+          "candidate_count": 1,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "send_file",
+          "path": "src/flask/helpers.py",
+          "expected_symbol": "send_from_directory",
+          "expected_file_suffix": "src/flask/helpers.py",
+          "rank": 3,
+          "elapsed_ms": 22.52,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "send_file",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 90
+            },
+            {
+              "name": "_prepare_send_file_kwargs",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 62
+            },
+            {
+              "name": "send_from_directory",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 51
+            },
+            {
+              "name": "filepath",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 45
+            },
+            {
+              "name": "filepath",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 45
+            }
+          ],
+          "candidate_count": 6,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "jsonify",
+          "path": "src/flask/json/__init__.py",
+          "expected_symbol": "jsonify",
+          "expected_file_suffix": "src/flask/json/provider.py",
+          "rank": null,
+          "elapsed_ms": 18.83,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "jsonify",
+              "file": "src/flask/json/__init__.py",
+              "relevance_score": 90
+            }
+          ],
+          "candidate_count": 1,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "Scaffold",
+          "path": "src/flask/sansio/scaffold.py",
+          "expected_symbol": "App",
+          "expected_file_suffix": "src/flask/sansio/app.py",
+          "rank": null,
+          "elapsed_ms": 19.07,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "Scaffold",
+              "file": "src/flask/sansio/scaffold.py",
+              "relevance_score": 86
+            },
+            {
+              "name": "wrapper_func",
+              "file": "src/flask/sansio/scaffold.py",
+              "relevance_score": 37
+            },
+            {
+              "name": "jinja_loader",
+              "file": "src/flask/sansio/scaffold.py",
+              "relevance_score": 30
+            },
+            {
+              "name": "url_value_preprocessor",
+              "file": "src/flask/sansio/scaffold.py",
+              "relevance_score": 30
+            },
+            {
+              "name": "_get_exc_class_and_code",
+              "file": "src/flask/sansio/scaffold.py",
+              "relevance_score": 30
+            }
+          ],
+          "candidate_count": 30,
+          "stderr_excerpt": ""
+        }
+      ]
+    },
+    {
+      "arm": "lsp_boost",
+      "lsp_boost": true,
+      "mrr": 0.055311355311355316,
+      "hits": 3,
+      "rows": [
+        {
+          "query": "url_for",
+          "path": "src/flask/helpers.py",
+          "expected_symbol": "view",
+          "expected_file_suffix": "src/flask/views.py",
+          "rank": null,
+          "elapsed_ms": 753.42,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "url_for",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 106
+            },
+            {
+              "name": "TestUrlFor",
+              "file": "tests/test_helpers.py",
+              "relevance_score": 70
+            },
+            {
+              "name": "test_url_for_with_alternating_schemes",
+              "file": "tests/test_helpers.py",
+              "relevance_score": 70
+            },
+            {
+              "name": "test_url_for_with_scheme_not_external",
+              "file": "tests/test_helpers.py",
+              "relevance_score": 61
+            },
+            {
+              "name": "test_url_with_method",
+              "file": "tests/test_helpers.py",
+              "relevance_score": 53
+            }
+          ],
+          "candidate_count": 28,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "make_response",
+          "path": "src/flask/helpers.py",
+          "expected_symbol": "full_dispatch_request",
+          "expected_file_suffix": "src/flask/app.py",
+          "rank": null,
+          "elapsed_ms": 678.15,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "make_response",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 106
+            },
+            {
+              "name": "test_make_response_with_response_instance",
+              "file": "tests/test_basic.py",
+              "relevance_score": 70
+            },
+            {
+              "name": "test_make_response",
+              "file": "tests/test_basic.py",
+              "relevance_score": 70
+            },
+            {
+              "name": "test_make_response",
+              "file": "tests/test_helpers.py",
+              "relevance_score": 61
+            },
+            {
+              "name": "_",
+              "file": "tests/test_basic.py",
+              "relevance_score": 52
+            }
+          ],
+          "candidate_count": 30,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "render_template",
+          "path": "src/flask/templating.py",
+          "expected_symbol": "stream_template",
+          "expected_file_suffix": "src/flask/templating.py",
+          "rank": 13,
+          "elapsed_ms": 634.64,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "render_template",
+              "file": "src/flask/templating.py",
+              "relevance_score": 98
+            },
+            {
+              "name": "render_template_string",
+              "file": "src/flask/templating.py",
+              "relevance_score": 62
+            },
+            {
+              "name": "_render",
+              "file": "src/flask/templating.py",
+              "relevance_score": 55
+            },
+            {
+              "name": "RenderTemplateView",
+              "file": "tests/type_check/typing_route.py",
+              "relevance_score": 53
+            },
+            {
+              "name": "test_before_render_template",
+              "file": "tests/test_signals.py",
+              "relevance_score": 53
+            }
+          ],
+          "candidate_count": 25,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "Blueprint",
+          "path": "src/flask/sansio/blueprints.py",
+          "expected_symbol": "Blueprint",
+          "expected_file_suffix": "src/flask/blueprints.py",
+          "rank": null,
+          "elapsed_ms": 759.44,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "Blueprint",
+              "file": "src/flask/sansio/blueprints.py",
+              "relevance_score": 103
+            },
+            {
+              "name": "blueprint",
+              "file": "src/flask/debughelpers.py",
+              "relevance_score": 97
+            },
+            {
+              "name": "blueprint",
+              "file": "tests/test_async.py",
+              "relevance_score": 81
+            },
+            {
+              "name": "blueprint",
+              "file": "tests/test_async.py",
+              "relevance_score": 81
+            },
+            {
+              "name": "blueprint",
+              "file": "tests/test_blueprints.py",
+              "relevance_score": 79
+            }
+          ],
+          "candidate_count": 27,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "copy_current_request_context",
+          "path": "src/flask/ctx.py",
+          "expected_symbol": "generate",
+          "expected_file_suffix": "src/flask/ctx.py",
+          "rank": null,
+          "elapsed_ms": 565.95,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "copy_current_request_context",
+              "file": "src/flask/ctx.py",
+              "relevance_score": 98
+            },
+            {
+              "name": "after_this_request",
+              "file": "src/flask/ctx.py",
+              "relevance_score": 45
+            },
+            {
+              "name": "has_request_context",
+              "file": "src/flask/ctx.py",
+              "relevance_score": 45
+            },
+            {
+              "name": "AppContext",
+              "file": "src/flask/ctx.py",
+              "relevance_score": 41
+            },
+            {
+              "name": "TestGreenletContextCopying",
+              "file": "tests/test_reqctx.py",
+              "relevance_score": 40
+            }
+          ],
+          "candidate_count": 31,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "Flask",
+          "path": "src/flask/app.py",
+          "expected_symbol": "create_app",
+          "expected_file_suffix": "src/flask/cli.py",
+          "rank": null,
+          "elapsed_ms": 1002.94,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "Flask",
+              "file": "src/flask/app.py",
+              "relevance_score": 115
+            },
+            {
+              "name": "FlaskProxy",
+              "file": "src/flask/globals.py",
+              "relevance_score": 70
+            },
+            {
+              "name": "FlaskClient",
+              "file": "src/flask/testing.py",
+              "relevance_score": 66
+            },
+            {
+              "name": "FlaskCliRunner",
+              "file": "src/flask/testing.py",
+              "relevance_score": 66
+            },
+            {
+              "name": "FlaskGroup",
+              "file": "src/flask/cli.py",
+              "relevance_score": 64
+            }
+          ],
+          "candidate_count": 27,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "abort",
+          "path": "src/flask/helpers.py",
+          "expected_symbol": "get_template_attribute",
+          "expected_file_suffix": "src/flask/helpers.py",
+          "rank": null,
+          "elapsed_ms": 681.27,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "abort",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 98
+            },
+            {
+              "name": "test_abort_no_app",
+              "file": "tests/test_helpers.py",
+              "relevance_score": 61
+            },
+            {
+              "name": "allow_abort",
+              "file": "tests/test_basic.py",
+              "relevance_score": 53
+            },
+            {
+              "name": "test_abort_with_app",
+              "file": "tests/test_helpers.py",
+              "relevance_score": 53
+            },
+            {
+              "name": "allow_abort",
+              "file": "tests/test_basic.py",
+              "relevance_score": 53
+            }
+          ],
+          "candidate_count": 31,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "send_file",
+          "path": "src/flask/helpers.py",
+          "expected_symbol": "send_from_directory",
+          "expected_file_suffix": "src/flask/helpers.py",
+          "rank": 7,
+          "elapsed_ms": 653.66,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "send_file",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 106
+            },
+            {
+              "name": "_prepare_send_file_kwargs",
+              "file": "src/flask/helpers.py",
+              "relevance_score": 69
+            },
+            {
+              "name": "TestSendfile",
+              "file": "tests/test_helpers.py",
+              "relevance_score": 66
+            },
+            {
+              "name": "test_static_file",
+              "file": "tests/test_helpers.py",
+              "relevance_score": 59
+            },
+            {
+              "name": "test_send_file",
+              "file": "tests/test_helpers.py",
+              "relevance_score": 53
+            }
+          ],
+          "candidate_count": 30,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "jsonify",
+          "path": "src/flask/json/__init__.py",
+          "expected_symbol": "jsonify",
+          "expected_file_suffix": "src/flask/json/provider.py",
+          "rank": null,
+          "elapsed_ms": 543.17,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "jsonify",
+              "file": "src/flask/json/__init__.py",
+              "relevance_score": 98
+            },
+            {
+              "name": "test_jsonify_dicts",
+              "file": "tests/test_json.py",
+              "relevance_score": 61
+            },
+            {
+              "name": "test_jsonify_arrays",
+              "file": "tests/test_json.py",
+              "relevance_score": 61
+            },
+            {
+              "name": "test_jsonify_basic_types",
+              "file": "tests/test_json.py",
+              "relevance_score": 53
+            },
+            {
+              "name": "test_jsonify_uuid_types",
+              "file": "tests/test_json.py",
+              "relevance_score": 53
+            }
+          ],
+          "candidate_count": 30,
+          "stderr_excerpt": ""
+        },
+        {
+          "query": "Scaffold",
+          "path": "src/flask/sansio/scaffold.py",
+          "expected_symbol": "App",
+          "expected_file_suffix": "src/flask/sansio/app.py",
+          "rank": 3,
+          "elapsed_ms": 730.78,
+          "returncode": 0,
+          "top": [
+            {
+              "name": "Scaffold",
+              "file": "src/flask/sansio/scaffold.py",
+              "relevance_score": 95
+            },
+            {
+              "name": "_iter_loaders",
+              "file": "src/flask/templating.py",
+              "relevance_score": 49
+            },
+            {
+              "name": "App",
+              "file": "src/flask/sansio/app.py",
+              "relevance_score": 49
+            },
+            {
+              "name": "wrapper_func",
+              "file": "src/flask/sansio/scaffold.py",
+              "relevance_score": 46
+            },
+            {
+              "name": "Blueprint",
+              "file": "src/flask/sansio/blueprints.py",
+              "relevance_score": 37
+            }
+          ],
+          "candidate_count": 30,
+          "stderr_excerpt": ""
+        }
+      ]
+    }
+  ]
+}
