@@ -10,7 +10,14 @@ mod ops;
 #[cfg(test)]
 mod tests;
 
-const SCHEMA_VERSION: i64 = 6;
+// MUST match the highest (version, _) entry in `IndexDb::MIGRATIONS`.
+// `migrate()` early-exits when `current >= SCHEMA_VERSION`, so any
+// mismatch here permanently prevents later migrations from running on
+// DBs that are already at the stale constant's value. Bumped to 7 to
+// cover the P1-4 `end_line` ALTER added in migration 7; the
+// regression test `opening_a_db_at_the_previous_schema_version_runs_every_subsequent_migration`
+// locks the invariant in.
+const SCHEMA_VERSION: i64 = 7;
 
 /// SQLite-backed symbol and import index for a single project.
 pub struct IndexDb {
