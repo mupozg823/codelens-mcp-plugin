@@ -22,6 +22,29 @@ fn push_unique(values: &mut Vec<String>, value: impl Into<String>) {
     }
 }
 
+/// Phase P4-c: per-check closing condition. Picks a machine-readable
+/// phrase describing what evidence would flip this check to ready.
+pub(crate) fn default_pass_condition(check: &str) -> String {
+    match check {
+        "diagnostic_verifier" => {
+            "all diagnostics resolved (diagnostic_count == 0)".to_owned()
+        }
+        "reference_verifier" => {
+            "symbol resolves to exactly one ref set; blast radius ≤ 8 for breaking changes".to_owned()
+        }
+        "test_readiness_verifier" => {
+            "at least one related test target found or change explicitly scoped".to_owned()
+        }
+        "coordination_overlap_verifier" => {
+            "no overlapping session claims on touched files".to_owned()
+        }
+        "mutation_readiness_verifier" => {
+            "all blockers resolved and all upstream checks ready".to_owned()
+        }
+        other => format!("{other} reports status=ready"),
+    }
+}
+
 fn push_verifier_check(
     checks: &mut Vec<AnalysisVerifierCheck>,
     check: &str,
@@ -37,6 +60,7 @@ fn push_verifier_check(
         status: status.to_owned(),
         summary: summary.into(),
         evidence_section: evidence_section.map(ToOwned::to_owned),
+        pass_condition: default_pass_condition(check),
     });
 }
 
@@ -488,6 +512,38 @@ pub(crate) fn build_verifier_contract(
     }
 
     contract.blockers.truncate(5);
+
+    // Phase P4-c: populate the rationale map for any axis that is
+    // caution/blocked. Pulls the summary the upstream branches
+    // already computed into `verifier_checks`, keyed by axis name
+    // so callers don't have to re-derive the mapping.
+    let rationale_by_check = |target: &str| -> Option<String> {
+        contract
+            .verifier_checks
+            .iter()
+            .find(|entry| entry.check == target)
+            .filter(|entry| entry.status != VERIFIER_READY)
+            .map(|entry| entry.summary.clone())
+    };
+    if let Some(note) = rationale_by_check("diagnostic_verifier") {
+        contract
+            .readiness
+            .rationale
+            .insert("diagnostics_ready".to_owned(), note);
+    }
+    if let Some(note) = rationale_by_check("reference_verifier") {
+        contract
+            .readiness
+            .rationale
+            .insert("reference_safety".to_owned(), note);
+    }
+    if let Some(note) = rationale_by_check("test_readiness_verifier") {
+        contract
+            .readiness
+            .rationale
+            .insert("test_readiness".to_owned(), note);
+    }
+
     let mutation_status = if !contract.blockers.is_empty() {
         VERIFIER_BLOCKED
     } else {

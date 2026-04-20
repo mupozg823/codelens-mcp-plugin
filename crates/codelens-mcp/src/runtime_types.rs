@@ -100,6 +100,13 @@ pub(crate) struct AnalysisReadiness {
     pub test_readiness: String,
     #[serde(default = "default_verifier_status")]
     pub mutation_ready: String,
+    /// Phase P4-c: per-axis human-readable explanation for
+    /// caution/blocked verdicts. Keyed by axis name
+    /// (`"reference_safety"`, `"mutation_ready"`, etc). Always
+    /// serialized (even when empty) so schema readers get a stable
+    /// shape.
+    #[serde(default)]
+    pub rationale: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for AnalysisReadiness {
@@ -109,6 +116,7 @@ impl Default for AnalysisReadiness {
             reference_safety: default_verifier_status(),
             test_readiness: default_verifier_status(),
             mutation_ready: default_verifier_status(),
+            rationale: std::collections::BTreeMap::new(),
         }
     }
 }
@@ -123,6 +131,13 @@ pub(crate) struct AnalysisVerifierCheck {
     pub summary: String,
     #[serde(default)]
     pub evidence_section: Option<String>,
+    /// Phase P4-c: machine-readable closing condition for the check.
+    /// Populated via `default_pass_condition(check, status)` when the
+    /// verifier doesn't have a check-specific template. Always
+    /// non-empty on the write path so a downstream filter can assert
+    /// `every_check_has_pass_condition`.
+    #[serde(default)]
+    pub pass_condition: String,
 }
 
 #[derive(Clone, Serialize, Deserialize)]

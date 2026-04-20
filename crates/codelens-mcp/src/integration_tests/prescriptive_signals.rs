@@ -137,6 +137,81 @@ fn impact_report_emits_command_hint_for_touched_crate() {
 }
 
 #[test]
+fn verifier_checks_include_pass_condition_for_mutation_gate() {
+    // Phase P4-c: each verifier_check entry must expose a
+    // machine-readable `pass_condition` so the harness can tell a
+    // caller exactly what evidence would flip the check from
+    // caution/blocked to ready. Without this, "caution" is just a
+    // label with no closed-form remedy.
+    // Uses `verify_change_readiness` as the probe — it carries the
+    // same verifier contract as impact_report but is NOT in the
+    // `trim_preview_first_handle_payload` size-gated list, so
+    // `verifier_checks` is guaranteed inline regardless of fixture
+    // size.
+    let project = project_root();
+    fs::write(
+        project.as_path().join("core.py"),
+        "def gate_probe():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "verify_change_readiness",
+        json!({ "task": "mutate core.py", "changed_files": ["core.py"] }),
+    );
+    assert_eq!(payload["success"], json!(true), "payload={payload}");
+
+    let checks = payload["data"]["verifier_checks"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !checks.is_empty(),
+        "verifier_checks must not be empty; payload={payload}"
+    );
+
+    // Every check entry must carry a non-empty pass_condition
+    // string — either literal code-oriented ("diagnostic_count == 0")
+    // or a process condition ("all blockers resolved").
+    for check in &checks {
+        let kind = check["check"].as_str().unwrap_or("<missing>");
+        let pass = check["pass_condition"].as_str().unwrap_or("");
+        assert!(
+            !pass.is_empty(),
+            "verifier_check `{kind}` missing pass_condition; check={check}"
+        );
+    }
+}
+
+#[test]
+fn readiness_rationale_explains_caution_axes() {
+    // Phase P4-c: when a readiness axis is caution/blocked, the
+    // `rationale` map must carry a human-readable sentence for
+    // that axis so the harness (and the caller) know WHY. The
+    // 10-importer fixture triggers reference_safety=caution with
+    // a "Large blast radius" rationale.
+    let project = project_root();
+    write_fixture_with_many_importers(&project, 10);
+    let state = make_state(&project);
+    let payload = call_tool(&state, "impact_report", json!({ "path": "core.py" }));
+    assert_eq!(payload["success"], json!(true));
+
+    let rationale = &payload["data"]["readiness"]["rationale"];
+    assert!(
+        rationale.is_object(),
+        "readiness.rationale must be an object; readiness={}",
+        payload["data"]["readiness"]
+    );
+    let reference_note = rationale["reference_safety"].as_str().unwrap_or_default();
+    assert!(
+        !reference_note.is_empty(),
+        "reference_safety rationale must be present when the axis is \
+         not ready; rationale={rationale}"
+    );
+}
+
+#[test]
 fn impact_report_blockers_reference_actual_dependent_file_paths() {
     let project = project_root();
     write_fixture_with_many_importers(&project, 10);

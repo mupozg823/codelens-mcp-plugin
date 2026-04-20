@@ -28,6 +28,9 @@ pub(crate) fn build_handle_payload(
                 summary: "Refresh diagnostics evidence before trusting a reused artifact."
                     .to_owned(),
                 evidence_section: None,
+                pass_condition: super::report_verifier::default_pass_condition(
+                    "diagnostic_verifier",
+                ),
             },
             AnalysisVerifierCheck {
                 check: "reference_verifier".to_owned(),
@@ -35,6 +38,9 @@ pub(crate) fn build_handle_payload(
                 summary: "Refresh reference evidence before mutating reused analysis targets."
                     .to_owned(),
                 evidence_section: None,
+                pass_condition: super::report_verifier::default_pass_condition(
+                    "reference_verifier",
+                ),
             },
             AnalysisVerifierCheck {
                 check: "test_readiness_verifier".to_owned(),
@@ -42,6 +48,9 @@ pub(crate) fn build_handle_payload(
                 summary: "Refresh test-readiness evidence before relying on a reused artifact."
                     .to_owned(),
                 evidence_section: None,
+                pass_condition: super::report_verifier::default_pass_condition(
+                    "test_readiness_verifier",
+                ),
             },
             AnalysisVerifierCheck {
                 check: "mutation_readiness_verifier".to_owned(),
@@ -53,6 +62,9 @@ pub(crate) fn build_handle_payload(
                         .to_owned()
                 },
                 evidence_section: None,
+                pass_condition: super::report_verifier::default_pass_condition(
+                    "mutation_readiness_verifier",
+                ),
             },
         ]
     } else {
