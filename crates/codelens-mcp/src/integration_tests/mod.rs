@@ -26,6 +26,7 @@ mod lsp;
 mod memory;
 mod mutation;
 mod parallel_agents;
+mod parallel_agents_ttl;
 mod prescriptive_signals;
 mod protocol;
 mod readonly;
