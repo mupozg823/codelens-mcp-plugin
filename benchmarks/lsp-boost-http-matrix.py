@@ -106,6 +106,18 @@ def parse_args() -> argparse.Namespace:
         "alive proves handshake succeeded, the extra seconds cover "
         "typical indexing. Default 5 s; rust-analyzer may need 15-30.",
     )
+    p.add_argument(
+        "--dead-lsp-timeout",
+        type=int,
+        default=20,
+        help="Short-circuit when every expected LSP session has "
+        "`failure_count > 0 && !is_alive` for this many seconds. "
+        "Before P0-4b the wait-for-ready loop sat through the full "
+        "--auto-attach-wait window for a dead LSP (e.g. broken "
+        "tsserver on zod burned the full 60s). Now the poll exits "
+        'early with termination_reason="dead_lsp" so the bench / '
+        "agent can abort or fall back quickly. Set to 0 to disable.",
+    )
     return p.parse_args()
 
 
@@ -116,12 +128,16 @@ def poll_readiness_until(
     max_seconds: int,
     poll_interval_ms: int,
     grace_seconds: int,
+    dead_lsp_timeout: int = 20,
 ) -> dict:
     """Poll get_lsp_readiness until every detected LSP session is alive
-    and the grace window has elapsed (or the upper-bound wait runs
-    out). Returns a record capturing the elapsed time and the final
-    readiness snapshot so the bench output can reason about how much
-    wall-clock the old blind-sleep was over-paying.
+    and the grace window has elapsed — or exit early when every
+    expected session is confirmed dead (`failure_count > 0 &&
+    is_alive=false`) for `dead_lsp_timeout` seconds. Returns a record
+    capturing the elapsed time, the final readiness snapshot, and a
+    `termination_reason` so the bench output can distinguish "alive
+    plus grace" from "strong ready latch" from "dead LSP abort" from
+    "upper bound expired".
 
     Note on `is_alive` vs `is_ready`: pyright and
     typescript-language-server both answer empty-string
@@ -140,6 +156,8 @@ def poll_readiness_until(
     alive_at: float | None = None
     ready_at: float | None = None
     returned_at: float | None = None
+    dead_since: float | None = None
+    termination_reason: str = "max_seconds_expired"
     while time.perf_counter() < deadline:
         poll_count += 1
         resp = rc.mcp_http_tool_call(
@@ -168,6 +186,18 @@ def poll_readiness_until(
             all_ready = (not missing) and all(
                 seen[lang].get("is_ready") for lang in expected_languages
             )
+            # Dead-LSP: every expected session present, none alive,
+            # every one has recorded at least one failure. Missing
+            # sessions do not count as dead — they may still be spawning.
+            all_dead = (
+                (not missing)
+                and bool(expected_languages)
+                and all(
+                    not seen[lang].get("is_alive")
+                    and (seen[lang].get("failure_count") or 0) > 0
+                    for lang in expected_languages
+                )
+            )
         else:
             all_alive = bool(sessions_with_binary) and all(
                 s.get("is_alive") for s in sessions_with_binary
@@ -175,19 +205,36 @@ def poll_readiness_until(
             all_ready = bool(sessions_with_binary) and all(
                 s.get("is_ready") for s in sessions_with_binary
             )
+            all_dead = bool(sessions_with_binary) and all(
+                not s.get("is_alive") and (s.get("failure_count") or 0) > 0
+                for s in sessions_with_binary
+            )
         if all_alive and alive_at is None:
             alive_at = time.perf_counter()
         if all_ready and ready_at is None:
             ready_at = time.perf_counter()
-        # Terminate when every session is alive AND the grace window
-        # has elapsed since the alive transition. Short-circuit fully
-        # when `all_ready` flips (the strong signal) without waiting
-        # out the grace window.
+        if all_dead:
+            if dead_since is None:
+                dead_since = time.perf_counter()
+        else:
+            dead_since = None  # reset on any improvement
+        # Terminate order matters: strongest positive signal first
+        # (all_ready), then alive+grace, then dead-LSP short-circuit.
         if all_ready:
             returned_at = time.perf_counter()
+            termination_reason = "all_ready"
             break
         if alive_at is not None and (time.perf_counter() - alive_at) >= grace_seconds:
             returned_at = time.perf_counter()
+            termination_reason = "alive_plus_grace"
+            break
+        if (
+            dead_lsp_timeout > 0
+            and dead_since is not None
+            and (time.perf_counter() - dead_since) >= dead_lsp_timeout
+        ):
+            returned_at = time.perf_counter()
+            termination_reason = "dead_lsp"
             break
         time.sleep(interval)
     elapsed = time.perf_counter() - start
@@ -196,6 +243,7 @@ def poll_readiness_until(
         "max_seconds": max_seconds,
         "poll_interval_ms": poll_interval_ms,
         "grace_seconds": grace_seconds,
+        "dead_lsp_timeout": dead_lsp_timeout,
         "poll_count": poll_count,
         "elapsed_seconds": round(elapsed, 3),
         "alive_seconds": round(alive_at - start, 3) if alive_at is not None else None,
@@ -205,6 +253,8 @@ def poll_readiness_until(
         ),
         "all_alive": alive_at is not None,
         "all_ready": ready_at is not None,
+        "dead_detected": dead_since is not None,
+        "termination_reason": termination_reason,
         "expected_languages": expected_languages,
         "final_snapshot": last_snapshot,
     }
@@ -526,6 +576,7 @@ def main() -> int:
                     max_seconds=args.auto_attach_wait,
                     poll_interval_ms=args.ready_poll_interval_ms,
                     grace_seconds=args.ready_grace_seconds,
+                    dead_lsp_timeout=args.dead_lsp_timeout,
                 )
                 warm_report["readiness_poll"] = readiness_record
             elif args.auto_attach_wait > 0:
