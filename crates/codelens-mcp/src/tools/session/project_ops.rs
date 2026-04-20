@@ -24,13 +24,19 @@ const DEFAULT_AUTO_REFRESH_STALE_THRESHOLD: usize = 32;
 /// walk is strictly bounded: shallow depth + early exit once the cap is
 /// reached. The legacy `collect_files` walk is O(project) and turned a
 /// 48 ms bootstrap into a 1.4 s bootstrap on Flask-sized repos.
-const LSP_AUTO_ATTACH_SAMPLE_LIMIT: usize = 120;
+/// Maximum total files visited by the shallow walker. Sized so a
+/// mixed repo (e.g. a Rust workspace with a large `benchmarks/` tree
+/// of Python/JSON data files) still reaches `crates/*/src` before the
+/// quota is exhausted. 120 was too small — this repo's own sample
+/// filled up with `.py`, `.jsonl`, and `.sh` files before a single
+/// `.rs` file was seen.
+const LSP_AUTO_ATTACH_SAMPLE_LIMIT: usize = 800;
 
 /// Max directory depth traversed during LSP language detection. Large
 /// repos keep LSP-relevant files close to the root (src/, lib/, crates/)
 /// so a shallow walk catches almost everything while keeping cost
 /// bounded. Node_modules / vendored dirs never need to be entered.
-const LSP_AUTO_ATTACH_MAX_DEPTH: usize = 3;
+const LSP_AUTO_ATTACH_MAX_DEPTH: usize = 4;
 
 const LSP_AUTO_ATTACH_SKIP_DIRS: &[&str] = &[
     ".git",

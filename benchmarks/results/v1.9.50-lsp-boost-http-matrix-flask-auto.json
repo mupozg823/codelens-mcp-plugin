@@ -8,7 +8,16 @@
   "warm_lsp": false,
   "warm_report": {
     "mode": "auto_attach",
-    "lsp_auto_attach": null,
+    "lsp_auto_attach": {
+      "enabled": true,
+      "disabled_reason": null,
+      "detected_languages": [
+        "python"
+      ],
+      "prewarm_fired": [
+        "python"
+      ]
+    },
     "wait_seconds": 45
   },
   "arms": [
@@ -22,7 +31,7 @@
           "query": "url_for",
           "expected_symbol": "view",
           "rank": null,
-          "elapsed_ms": 10.08,
+          "elapsed_ms": 8.57,
           "candidate_count": 1,
           "top": [
             {
@@ -36,7 +45,7 @@
           "query": "make_response",
           "expected_symbol": "full_dispatch_request",
           "rank": null,
-          "elapsed_ms": 1.53,
+          "elapsed_ms": 1.72,
           "candidate_count": 3,
           "top": [
             {
@@ -60,7 +69,7 @@
           "query": "render_template",
           "expected_symbol": "stream_template",
           "rank": 6,
-          "elapsed_ms": 1.19,
+          "elapsed_ms": 1.6,
           "candidate_count": 16,
           "top": [
             {
@@ -94,7 +103,7 @@
           "query": "Blueprint",
           "expected_symbol": "Blueprint",
           "rank": null,
-          "elapsed_ms": 1.32,
+          "elapsed_ms": 1.43,
           "candidate_count": 26,
           "top": [
             {
@@ -128,7 +137,7 @@
           "query": "copy_current_request_context",
           "expected_symbol": "generate",
           "rank": null,
-          "elapsed_ms": 1.2,
+          "elapsed_ms": 1.06,
           "candidate_count": 15,
           "top": [
             {
@@ -162,7 +171,7 @@
           "query": "Flask",
           "expected_symbol": "create_app",
           "rank": null,
-          "elapsed_ms": 1.83,
+          "elapsed_ms": 1.13,
           "candidate_count": 30,
           "top": [
             {
@@ -196,7 +205,7 @@
           "query": "abort",
           "expected_symbol": "get_template_attribute",
           "rank": null,
-          "elapsed_ms": 1.61,
+          "elapsed_ms": 1.28,
           "candidate_count": 1,
           "top": [
             {
@@ -210,7 +219,7 @@
           "query": "send_file",
           "expected_symbol": "send_from_directory",
           "rank": 3,
-          "elapsed_ms": 1.15,
+          "elapsed_ms": 1.13,
           "candidate_count": 6,
           "top": [
             {
@@ -244,7 +253,7 @@
           "query": "jsonify",
           "expected_symbol": "jsonify",
           "rank": null,
-          "elapsed_ms": 0.89,
+          "elapsed_ms": 1.6,
           "candidate_count": 1,
           "top": [
             {
@@ -258,7 +267,7 @@
           "query": "Scaffold",
           "expected_symbol": "App",
           "rank": null,
-          "elapsed_ms": 1.19,
+          "elapsed_ms": 1.81,
           "candidate_count": 30,
           "top": [
             {
@@ -300,7 +309,7 @@
           "query": "url_for",
           "expected_symbol": "view",
           "rank": null,
-          "elapsed_ms": 711.2,
+          "elapsed_ms": 545.03,
           "candidate_count": 28,
           "top": [
             {
@@ -324,7 +333,7 @@
               "relevance_score": 61
             },
             {
-              "name": "test_url_for_passes_special_values_to_build_error_handler",
+              "name": "test_url_processors",
               "file": "tests/test_basic.py",
               "relevance_score": 53
             }
@@ -334,7 +343,7 @@
           "query": "make_response",
           "expected_symbol": "full_dispatch_request",
           "rank": null,
-          "elapsed_ms": 93.88,
+          "elapsed_ms": 75.37,
           "candidate_count": 30,
           "top": [
             {
@@ -343,12 +352,12 @@
               "relevance_score": 106
             },
             {
-              "name": "test_make_response_with_response_instance",
+              "name": "test_make_response",
               "file": "tests/test_basic.py",
               "relevance_score": 70
             },
             {
-              "name": "test_make_response",
+              "name": "test_make_response_with_response_instance",
               "file": "tests/test_basic.py",
               "relevance_score": 70
             },
@@ -368,7 +377,7 @@
           "query": "render_template",
           "expected_symbol": "stream_template",
           "rank": 13,
-          "elapsed_ms": 97.62,
+          "elapsed_ms": 76.75,
           "candidate_count": 25,
           "top": [
             {
@@ -402,7 +411,7 @@
           "query": "Blueprint",
           "expected_symbol": "Blueprint",
           "rank": 3,
-          "elapsed_ms": 261.86,
+          "elapsed_ms": 106.92,
           "candidate_count": 27,
           "top": [
             {
@@ -436,7 +445,7 @@
           "query": "copy_current_request_context",
           "expected_symbol": "generate",
           "rank": null,
-          "elapsed_ms": 114.98,
+          "elapsed_ms": 59.4,
           "candidate_count": 31,
           "top": [
             {
@@ -470,8 +479,8 @@
           "query": "Flask",
           "expected_symbol": "create_app",
           "rank": null,
-          "elapsed_ms": 358.26,
-          "candidate_count": 28,
+          "elapsed_ms": 260.39,
+          "candidate_count": 27,
           "top": [
             {
               "name": "Flask",
@@ -484,12 +493,12 @@
               "relevance_score": 70
             },
             {
-              "name": "FlaskCliRunner",
+              "name": "FlaskClient",
               "file": "src/flask/testing.py",
               "relevance_score": 66
             },
             {
-              "name": "FlaskClient",
+              "name": "FlaskCliRunner",
               "file": "src/flask/testing.py",
               "relevance_score": 66
             },
@@ -504,7 +513,7 @@
           "query": "abort",
           "expected_symbol": "get_template_attribute",
           "rank": null,
-          "elapsed_ms": 94.64,
+          "elapsed_ms": 79.28,
           "candidate_count": 32,
           "top": [
             {
@@ -518,13 +527,13 @@
               "relevance_score": 61
             },
             {
-              "name": "allow_abort",
-              "file": "tests/test_basic.py",
+              "name": "do_abort",
+              "file": "tests/test_user_error_handler.py",
               "relevance_score": 53
             },
             {
-              "name": "allow_abort",
-              "file": "tests/test_basic.py",
+              "name": "do_abort",
+              "file": "tests/test_user_error_handler.py",
               "relevance_score": 53
             },
             {
@@ -538,7 +547,7 @@
           "query": "send_file",
           "expected_symbol": "send_from_directory",
           "rank": 7,
-          "elapsed_ms": 73.45,
+          "elapsed_ms": 55.95,
           "candidate_count": 30,
           "top": [
             {
@@ -572,7 +581,7 @@
           "query": "jsonify",
           "expected_symbol": "jsonify",
           "rank": null,
-          "elapsed_ms": 90.35,
+          "elapsed_ms": 74.19,
           "candidate_count": 30,
           "top": [
             {
@@ -591,13 +600,13 @@
               "relevance_score": 61
             },
             {
-              "name": "test_jsonify_datetime",
+              "name": "test_jsonify_uuid_types",
               "file": "tests/test_json.py",
               "relevance_score": 53
             },
             {
-              "name": "test_jsonify_args_and_kwargs_check",
-              "file": "tests/test_basic.py",
+              "name": "test_jsonify_datetime",
+              "file": "tests/test_json.py",
               "relevance_score": 53
             }
           ]
@@ -606,7 +615,7 @@
           "query": "Scaffold",
           "expected_symbol": "App",
           "rank": 2,
-          "elapsed_ms": 119.68,
+          "elapsed_ms": 67.34,
           "candidate_count": 30,
           "top": [
             {

@@ -186,6 +186,61 @@ fn prepare_harness_session_honors_lsp_auto_opt_out_env() {
     assert_eq!(auto["prewarm_fired"], json!([]));
 }
 
+#[test]
+fn prepare_harness_session_detects_deeply_nested_rust_sources() {
+    // Regression contract: before the `LSP_AUTO_ATTACH_SAMPLE_LIMIT`
+    // bump to 800 / `LSP_AUTO_ATTACH_MAX_DEPTH` bump to 4, the shallow
+    // language walker filled its 120-file quota with near-root Python
+    // / JSON / shell files (the bench tree on this repo hit 103
+    // non-Rust files at depth ≤ 3 before touching a single `.rs`), so
+    // `detected_languages` for a Rust workspace silently dropped the
+    // `rust` entry. This test pins the language detection on a Rust
+    // source file placed at `crates/<crate>/src/deep/<...>.rs` — the
+    // shape every repo in this workspace uses.
+    let project = project_root();
+    let nested = project
+        .as_path()
+        .join("crates")
+        .join("workflow_contract_fixture_crate")
+        .join("src")
+        .join("deep");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(
+        nested.join("lib.rs"),
+        "pub fn greet() -> &'static str { \"hi\" }\n",
+    )
+    .unwrap();
+    // A pile of cheap non-Rust files near the root so the walker has
+    // to decide between "fill up on the easy ones" and "reach into the
+    // Rust tree". This mirrors what benchmarks/ + docs/ + scripts/ do
+    // in the real codelens-mcp-plugin checkout.
+    let noise = project.as_path().join("workflow_contract_noise");
+    fs::create_dir_all(&noise).unwrap();
+    for idx in 0..150 {
+        fs::write(noise.join(format!("row_{idx:03}.py")), "x = 1\n").unwrap();
+    }
+
+    unsafe {
+        std::env::set_var("CODELENS_LSP_AUTO", "true");
+    }
+    let state = make_state(&project);
+    let payload = call_tool(&state, "prepare_harness_session", json!({}));
+    unsafe {
+        std::env::remove_var("CODELENS_LSP_AUTO");
+    }
+    let auto = &payload["data"]["lsp_auto_attach"];
+    let detected: Vec<String> = auto["detected_languages"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|v| v.as_str().map(str::to_owned))
+        .collect();
+    assert!(
+        detected.iter().any(|lang| lang == "rust"),
+        "deeply-nested Rust sources must still register as detected; got {detected:?}"
+    );
+}
+
 // ── analyze_change_request ──────────────────────────────────────────
 
 #[test]

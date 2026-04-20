@@ -190,45 +190,46 @@ def warm_lsp(base_url: str, session_id: str, dataset: list[dict], timeout: int) 
     return warmed
 
 
-def extract_symbols(response: dict) -> list[dict]:
-    """Pull the ranked-context symbol list out of the HTTP MCP envelope.
+def extract_data(response: dict) -> dict:
+    """Return the tool's `data` payload from an HTTP MCP tools/call
+    response, preferring `result.structuredContent.data` over the
+    possibly-compressed `result.content[0].text`.
 
-    `extract_tool_payload` parses `content[0].text`, which the adaptive
-    compression pipeline may have already shrunk to a skeleton
-    (`{success, truncated, compression_stage, error, token_estimate}`).
-    The full payload survives in `structuredContent.data.symbols`, so
-    prefer that and fall back to text only when the server did not
-    attach a structured version.
+    The adaptive compression pipeline can reduce `content[0].text`
+    to a bare `{success, truncated, compression_stage, error,
+    token_estimate}` skeleton long before the structured payload is
+    touched, so rely on structured output first.
     """
     if not isinstance(response, dict):
-        return []
+        return {}
     result = response.get("result")
     if not isinstance(result, dict):
-        return []
+        return {}
     structured = result.get("structuredContent")
     if isinstance(structured, dict):
         data = structured.get("data")
         if isinstance(data, dict):
-            syms = data.get("symbols")
-            if isinstance(syms, list):
-                return syms
-        syms = structured.get("symbols")
-        if isinstance(syms, list):
-            return syms
-    # Fallback: parse the text content even if it may have been compressed.
+            return data
+        if any(k in structured for k in ("symbols", "lsp_auto_attach", "project")):
+            return structured
     content = result.get("content")
     if isinstance(content, list) and content:
         text = content[0].get("text", "{}")
         try:
             parsed = json.loads(text)
         except Exception:
-            return []
+            return {}
         data = parsed.get("data") if isinstance(parsed.get("data"), dict) else parsed
         if isinstance(data, dict):
-            syms = data.get("symbols")
-            if isinstance(syms, list):
-                return syms
-    return []
+            return data
+    return {}
+
+
+def extract_symbols(response: dict) -> list[dict]:
+    """Convenience: `extract_data(...).get("symbols")`."""
+    data = extract_data(response)
+    syms = data.get("symbols")
+    return syms if isinstance(syms, list) else []
 
 
 def run_arm(
@@ -334,19 +335,10 @@ def main() -> int:
                 session_id=session_id,
                 timeout_seconds=30,
             )
-            auto_payload = rc.extract_tool_payload(auto_resp)
-            auto_data = (
-                auto_payload.get("data")
-                if isinstance(auto_payload.get("data"), dict)
-                else auto_payload
-            )
+            auto_data = extract_data(auto_resp)
             warm_report = {
                 "mode": "auto_attach",
-                "lsp_auto_attach": (
-                    auto_data.get("lsp_auto_attach")
-                    if isinstance(auto_data, dict)
-                    else None
-                ),
+                "lsp_auto_attach": auto_data.get("lsp_auto_attach"),
                 "wait_seconds": args.auto_attach_wait,
             }
             if args.auto_attach_wait > 0:
