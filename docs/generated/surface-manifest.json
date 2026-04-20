@@ -1,7 +1,7 @@
 {
   "schema_version": "codelens-surface-manifest-v1",
   "workspace": {
-    "version": "1.9.46",
+    "version": "1.9.50",
     "description": "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows",
     "members": [
       "crates/codelens-engine",
@@ -201,7 +201,7 @@
         "phase": "plan",
         "preferred_executor": null,
         "has_output_schema": false,
-        "estimated_tokens": 130
+        "estimated_tokens": 167
       },
       {
         "name": "get_type_hierarchy",
@@ -3184,7 +3184,7 @@
   },
   "runtime": {
     "server_name": "codelens-mcp",
-    "version": "1.9.46",
+    "version": "1.9.50",
     "transport": [
       "stdio",
       "streamable-http"
@@ -3220,7 +3220,7 @@
     ]
   },
   "summary": {
-    "workspace_version": "1.9.46",
+    "workspace_version": "1.9.50",
     "workspace_member_count": 3,
     "registered_tool_definitions": 111,
     "tool_output_schemas": {
