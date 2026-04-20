@@ -23,6 +23,7 @@ fn tool_title_override(name: &str) -> Option<&'static str> {
         "get_complexity" => Some("Complexity"),
         "check_lsp_status" => Some("LSP Status"),
         "get_lsp_recipe" => Some("LSP Recipe"),
+        "get_lsp_readiness" => Some("LSP Readiness"),
         "get_changed_files" => Some("Changed Files"),
         "get_impact_analysis" => Some("Impact Analysis"),
         "get_symbol_importance" => Some("Symbol Importance"),
@@ -127,6 +128,7 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("plan_symbol_rename", "[CodeLens:Symbol] Preview rename refactoring via LSP — check before applying.", json!({"required":["file_path","line","column"],"type":"object","properties":{"file_path":{"type":"string"},"line":{"type":"integer"},"column":{"type":"integer"},"new_name":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}})).with_annotations(ro_a.clone()),
         Tool::new("check_lsp_status", "[CodeLens:Session] Check installed LSP servers with install commands.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
         Tool::new("get_lsp_recipe", "[CodeLens:Session] Get LSP server install instructions for a file extension.", json!({"required":["extension"],"type":"object","properties":{"extension":{"type":"string","description":"File extension (e.g. 'py', 'rs')"}}})).with_annotations(ro_p.clone()),
+        Tool::new("get_lsp_readiness", "[CodeLens:Session] Per-LSP-session readiness snapshot. Poll after prepare_harness_session (auto-attach prewarm) to wait for indexing to complete instead of sleeping; each session exposes is_alive (handshake done) and is_ready (≥ 1 non-empty response) latches plus elapsed-ms timers.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
 
         // ── Analysis (architecture & dependencies) ──────────────────────
         Tool::new("get_changed_files", "[CodeLens:Analysis] Files changed since a git ref with symbol counts. Use for diff review.", json!({"type":"object","properties":{"ref":{"type":"string"},"include_untracked":{"type":"boolean"}}})).with_output_schema(changed_files_output_schema()).with_annotations(ro_p.clone()),

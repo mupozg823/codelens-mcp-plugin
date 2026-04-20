@@ -1,8 +1,8 @@
 use super::{
-    LspDiagnosticRequest, LspRenamePlanRequest, LspRequest, LspSessionPool,
-    LspTypeHierarchyRequest, LspWorkspaceSymbolRequest, default_lsp_args_for_command,
-    default_lsp_command_for_path, find_referencing_symbols_via_lsp, get_diagnostics_via_lsp,
-    get_rename_plan_via_lsp, get_type_hierarchy_via_lsp, search_workspace_symbols_via_lsp,
+    default_lsp_args_for_command, default_lsp_command_for_path, find_referencing_symbols_via_lsp,
+    get_diagnostics_via_lsp, get_rename_plan_via_lsp, get_type_hierarchy_via_lsp,
+    search_workspace_symbols_via_lsp, LspDiagnosticRequest, LspRenamePlanRequest, LspRequest,
+    LspSessionPool, LspTypeHierarchyRequest, LspWorkspaceSymbolRequest,
 };
 use crate::ProjectRoot;
 use serde_json::Value;
@@ -168,18 +168,14 @@ fn reads_type_hierarchy_from_mock_lsp() {
         hierarchy.get("fully_qualified_name"),
         Some(&Value::String("sample.Service".to_owned()))
     );
-    assert!(
-        hierarchy
-            .get("supertypes")
-            .and_then(Value::as_array)
-            .is_some_and(|items: &Vec<Value>| !items.is_empty())
-    );
-    assert!(
-        hierarchy
-            .get("subtypes")
-            .and_then(Value::as_array)
-            .is_some_and(|items: &Vec<Value>| !items.is_empty())
-    );
+    assert!(hierarchy
+        .get("supertypes")
+        .and_then(Value::as_array)
+        .is_some_and(|items: &Vec<Value>| !items.is_empty()));
+    assert!(hierarchy
+        .get("subtypes")
+        .and_then(Value::as_array)
+        .is_some_and(|items: &Vec<Value>| !items.is_empty()));
 }
 
 #[test]
@@ -208,6 +204,104 @@ fn reads_rename_plan_from_mock_lsp() {
     assert_eq!(plan.current_name, "Service");
     assert_eq!(plan.placeholder.as_deref(), Some("Service"));
     assert_eq!(plan.new_name.as_deref(), Some("RenamedService"));
+}
+
+#[test]
+fn readiness_snapshot_is_empty_until_a_session_starts() {
+    // P0-4: the pool reports no readiness rows until the first LSP
+    // call actually spawns a session. A fresh pool MUST NOT fake an
+    // entry; otherwise bench pollers would see a bogus "alive" signal
+    // before `prepare_harness_session` has even fired its prewarm.
+    let dir = temp_dir("codelens-lsp-readiness-empty");
+    let project = ProjectRoot::new(&dir).expect("project");
+    let pool = LspSessionPool::new(project);
+    assert!(pool.readiness_snapshot().is_empty());
+}
+
+#[test]
+fn readiness_latches_first_response_and_nonempty_on_ok_call() {
+    // P0-4: after a successful LSP call the session's readiness
+    // snapshot latches `ms_to_first_response` (alive) and, if the
+    // response carried any refs, `ms_to_first_nonempty` (ready).
+    // These two latches are what the bench wait-for-ready loop keys
+    // on, so the test pins both.
+    let dir = temp_dir("codelens-lsp-readiness-ok");
+    let project = ProjectRoot::new(&dir).expect("project");
+    fs::write(dir.join("sample.py"), "def greet():\n    return 1\n").expect("write sample");
+    let server_path = dir.join("mock_lsp.py");
+    fs::write(&server_path, mock_server_script()).expect("write mock server");
+    chmod_exec(&server_path);
+
+    let pool = LspSessionPool::new(project);
+    let request = LspRequest {
+        command: "python3".to_owned(),
+        args: vec![
+            server_path.display().to_string(),
+            dir.join("count.txt").display().to_string(),
+        ],
+        file_path: "sample.py".to_owned(),
+        line: 1,
+        column: 5,
+        max_results: 10,
+    };
+
+    let refs = pool.find_referencing_symbols(&request).expect("refs");
+    assert_eq!(refs.len(), 1, "mock returns exactly one ref");
+
+    let snapshots = pool.readiness_snapshot();
+    assert_eq!(snapshots.len(), 1, "one session, one readiness row");
+    let snap = &snapshots[0];
+    assert_eq!(snap.command, "python3");
+    assert!(
+        snap.is_alive(),
+        "alive bit must latch after the mock's first Ok response"
+    );
+    assert!(
+        snap.is_ready(),
+        "ready bit must latch when the Ok response carried ≥ 1 ref"
+    );
+    assert_eq!(snap.response_count, 1);
+    assert_eq!(snap.nonempty_count, 1);
+    assert_eq!(snap.failure_count, 0);
+}
+
+#[test]
+fn readiness_records_failure_when_lsp_call_errors() {
+    // P0-4: an LSP call that returns `Err` must bump `failure_count`
+    // without flipping any latch. This lets the bench poll distinguish
+    // "warming" (alive=false, failure_count=0) from "broken"
+    // (alive=false, failure_count>0) and fail fast in the latter case.
+    let dir = temp_dir("codelens-lsp-readiness-failure");
+    let project = ProjectRoot::new(&dir).expect("project");
+    fs::write(dir.join("sample.py"), "x\n").expect("write sample");
+    let server_path = dir.join("mock_lsp.py");
+    fs::write(&server_path, mock_server_script()).expect("write mock server");
+    chmod_exec(&server_path);
+
+    let pool = LspSessionPool::new(project);
+    // Missing file intentionally: triggers a resolve error before the
+    // wire, which the pool wraps as `Err`. The session itself still
+    // spawns, so readiness row is created even though no Ok response
+    // ever lands.
+    let bad_request = LspRequest {
+        command: "python3".to_owned(),
+        args: vec![server_path.display().to_string()],
+        file_path: "does-not-exist.py".to_owned(),
+        line: 1,
+        column: 1,
+        max_results: 10,
+    };
+    let err = pool.find_referencing_symbols(&bad_request);
+    assert!(err.is_err(), "missing file must produce an error");
+
+    let snaps = pool.readiness_snapshot();
+    assert_eq!(snaps.len(), 1);
+    let snap = &snaps[0];
+    assert!(!snap.is_alive(), "no Ok response must mean alive=false");
+    assert!(!snap.is_ready(), "ready cannot flip without alive");
+    assert_eq!(snap.failure_count, 1);
+    assert_eq!(snap.response_count, 0);
+    assert_eq!(snap.nonempty_count, 0);
 }
 
 #[test]

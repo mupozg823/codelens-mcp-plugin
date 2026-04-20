@@ -666,6 +666,67 @@ pub fn check_lsp_status(_state: &AppState, _arguments: &serde_json::Value) -> To
     ))
 }
 
+/// Snapshot per-LSP-session readiness for the current project's
+/// session pool. Intended as the polling target for bench harnesses
+/// and long-lived agent sessions that want to wait for LSP indexing
+/// to complete instead of sleeping a fixed wall-clock duration.
+///
+/// Two milestones per session:
+/// - `is_alive` (`ms_to_first_response != null`) — handshake + any
+///   `Ok` round-trip succeeded. Useful as a liveness signal.
+/// - `is_ready` (`ms_to_first_nonempty != null`) — the server has
+///   returned at least one non-empty result. This is the stronger
+///   signal that indexing has progressed far enough to serve real
+///   caller queries; pyright and rust-analyzer both emit `[]` while
+///   still walking the project, so a caller polling for `is_alive`
+///   alone would unblock early.
+///
+/// Aggregates at the top level (`all_alive`, `all_ready`, `any_ready`)
+/// let callers short-circuit the poll when every pooled session has
+/// warmed without iterating the per-session array themselves. For
+/// projects with no sessions yet (e.g. pre-prewarm), the aggregates
+/// are conservatively `false` and the array is empty — callers should
+/// treat an empty snapshot as "not ready yet" rather than "ready".
+pub fn get_lsp_readiness(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+    let snapshots = state.lsp_pool().readiness_snapshot();
+
+    let total = snapshots.len();
+    let alive_count = snapshots.iter().filter(|s| s.is_alive()).count();
+    let ready_count = snapshots.iter().filter(|s| s.is_ready()).count();
+
+    let sessions_json: Vec<serde_json::Value> = snapshots
+        .iter()
+        .map(|s| {
+            json!({
+                "command": s.command,
+                "args": s.args,
+                "elapsed_ms": s.elapsed_ms,
+                "ms_to_first_response": s.ms_to_first_response,
+                "ms_to_first_nonempty": s.ms_to_first_nonempty,
+                "ms_to_last_response": s.ms_to_last_response,
+                "response_count": s.response_count,
+                "nonempty_count": s.nonempty_count,
+                "failure_count": s.failure_count,
+                "is_alive": s.is_alive(),
+                "is_ready": s.is_ready(),
+            })
+        })
+        .collect();
+
+    Ok((
+        json!({
+            "sessions": sessions_json,
+            "session_count": total,
+            "alive_count": alive_count,
+            "ready_count": ready_count,
+            "all_alive": total > 0 && alive_count == total,
+            "all_ready": total > 0 && ready_count == total,
+            "any_ready": ready_count > 0,
+        }),
+        success_meta(BackendKind::Lsp, 1.0),
+    ))
+}
+
 pub fn get_lsp_recipe(_state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let extension = required_string(arguments, "extension")?;
     match core_get_lsp_recipe(extension) {

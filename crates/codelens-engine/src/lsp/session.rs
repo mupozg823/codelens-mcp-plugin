@@ -46,6 +46,11 @@ struct OpenDocumentState {
 pub struct LspSessionPool {
     project: ProjectRoot,
     sessions: DashMap<SessionKey, Arc<Mutex<LspSession>>>,
+    /// Per-session readiness state kept alongside `sessions`. Lock-free
+    /// reads so the MCP `get_lsp_readiness` handler can poll at
+    /// 500 ms cadence without contending with the per-session I/O
+    /// mutex. See `lsp::readiness` for the full rationale.
+    readiness: DashMap<SessionKey, Arc<super::readiness::ReadinessState>>,
 }
 
 struct LspSession {
@@ -100,10 +105,14 @@ pub(super) const ALLOWED_COMMANDS: &[&str] = &[
 /// itself uses a per-session `Arc<Mutex<…>>` returned to the caller.
 fn get_or_start_session(
     sessions: &DashMap<SessionKey, Arc<Mutex<LspSession>>>,
+    readiness: &DashMap<SessionKey, Arc<super::readiness::ReadinessState>>,
     project: &ProjectRoot,
     command: &str,
     args: &[String],
-) -> Result<Arc<Mutex<LspSession>>> {
+) -> Result<(
+    Arc<Mutex<LspSession>>,
+    Arc<super::readiness::ReadinessState>,
+)> {
     if !is_allowed_lsp_command(command) {
         bail!(
             "Blocked: '{command}' is not a known LSP server. Only whitelisted LSP binaries are allowed."
@@ -128,22 +137,74 @@ fn get_or_start_session(
             }
         };
         if !dead {
-            return Ok(arc);
+            let ready = readiness
+                .get(&key)
+                .map(|r| r.clone())
+                .unwrap_or_else(|| {
+                    // Defensive: if readiness was somehow pruned under
+                    // a live session, reattach a fresh marker rather
+                    // than panic. The observable effect is a reset
+                    // timer for this session, which is benign.
+                    let r = Arc::new(super::readiness::ReadinessState::new(
+                        command.to_owned(),
+                        args.to_owned(),
+                    ));
+                    readiness.insert(key.clone(), r.clone());
+                    r
+                });
+            return Ok((arc, ready));
         }
         sessions.remove(&key);
+        readiness.remove(&key);
     }
 
     // Slow path: spawn a new LSP process. We use `entry(..).or_try_insert_with`
     // semantics via match so that if two threads race to create the session,
     // only one spawn actually succeeds.
     use dashmap::mapref::entry::Entry;
-    match sessions.entry(key) {
-        Entry::Occupied(e) => Ok(e.get().clone()),
+    match sessions.entry(key.clone()) {
+        Entry::Occupied(e) => {
+            let arc = e.get().clone();
+            let ready = readiness
+                .get(&key)
+                .map(|r| r.clone())
+                .unwrap_or_else(|| {
+                    let r = Arc::new(super::readiness::ReadinessState::new(
+                        command.to_owned(),
+                        args.to_owned(),
+                    ));
+                    readiness.insert(key.clone(), r.clone());
+                    r
+                });
+            Ok((arc, ready))
+        }
         Entry::Vacant(e) => {
-            let session = LspSession::start(project, command, args)?;
-            let arc = Arc::new(Mutex::new(session));
-            e.insert(arc.clone());
-            Ok(arc)
+            // P0-4: insert the readiness row *before* `LspSession::start`
+            // so a slow-to-handshake or failed-to-start LSP still leaves
+            // a visible trail. Without this, a poller for
+            // `get_lsp_readiness` sees `sessions=[]` for the entire
+            // spawn window and cannot distinguish "still warming" from
+            // "failed silently" — which is the exact failure mode the
+            // wait-for-ready feature was built to surface.
+            let ready = Arc::new(super::readiness::ReadinessState::new(
+                command.to_owned(),
+                args.to_owned(),
+            ));
+            readiness.insert(key.clone(), ready.clone());
+            match LspSession::start(project, command, args) {
+                Ok(session) => {
+                    let arc = Arc::new(Mutex::new(session));
+                    e.insert(arc.clone());
+                    Ok((arc, ready))
+                }
+                Err(err) => {
+                    ready.record_failure();
+                    // Leave the readiness row in place with
+                    // `failure_count > 0 && is_alive=false` so callers
+                    // can distinguish a warming LSP from a dead one.
+                    Err(err)
+                }
+            }
         }
     }
 }
@@ -153,6 +214,7 @@ impl LspSessionPool {
         Self {
             project,
             sessions: DashMap::new(),
+            readiness: DashMap::new(),
         }
     }
 
@@ -160,6 +222,7 @@ impl LspSessionPool {
     pub fn reset(&self, project: ProjectRoot) -> Self {
         // Drop existing sessions so LSP processes are killed.
         self.sessions.clear();
+        self.readiness.clear();
         Self::new(project)
     }
 
@@ -167,65 +230,131 @@ impl LspSessionPool {
         self.sessions.len()
     }
 
+    /// Snapshot the per-session readiness state for all currently
+    /// pooled LSP servers. Cheap and lock-free: it allocates a `Vec`
+    /// and clones a handful of atomic counters per session. Intended
+    /// for the MCP `get_lsp_readiness` handler and for bench-harness
+    /// polling loops that need to wait for indexing to complete
+    /// instead of sleeping a fixed duration.
+    pub fn readiness_snapshot(&self) -> Vec<super::readiness::ReadinessSnapshot> {
+        let mut out: Vec<super::readiness::ReadinessSnapshot> = self
+            .readiness
+            .iter()
+            .map(|entry| entry.value().snapshot())
+            .collect();
+        // Stable ordering: command, then args. Makes test and bench
+        // output deterministic.
+        out.sort_by(|a, b| a.command.cmp(&b.command).then(a.args.cmp(&b.args)));
+        out
+    }
+
     pub fn find_referencing_symbols(&self, request: &LspRequest) -> Result<Vec<LspReference>> {
-        let arc = get_or_start_session(
+        let (arc, readiness) = get_or_start_session(
             &self.sessions,
+            &self.readiness,
             &self.project,
             &request.command,
             &request.args,
         )?;
-        let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
-        session.find_references(request)
+        let result = {
+            let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
+            session.find_references(request)
+        };
+        match &result {
+            Ok(refs) => readiness.record_ok(!refs.is_empty()),
+            Err(_) => readiness.record_failure(),
+        }
+        result
     }
 
     pub fn get_diagnostics(&self, request: &LspDiagnosticRequest) -> Result<Vec<LspDiagnostic>> {
-        let arc = get_or_start_session(
+        let (arc, readiness) = get_or_start_session(
             &self.sessions,
+            &self.readiness,
             &self.project,
             &request.command,
             &request.args,
         )?;
-        let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
-        session.get_diagnostics(request)
+        let result = {
+            let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
+            session.get_diagnostics(request)
+        };
+        match &result {
+            Ok(diags) => readiness.record_ok(!diags.is_empty()),
+            Err(_) => readiness.record_failure(),
+        }
+        result
     }
 
     pub fn search_workspace_symbols(
         &self,
         request: &LspWorkspaceSymbolRequest,
     ) -> Result<Vec<LspWorkspaceSymbol>> {
-        let arc = get_or_start_session(
+        let (arc, readiness) = get_or_start_session(
             &self.sessions,
+            &self.readiness,
             &self.project,
             &request.command,
             &request.args,
         )?;
-        let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
-        session.search_workspace_symbols(request)
+        let result = {
+            let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
+            session.search_workspace_symbols(request)
+        };
+        match &result {
+            Ok(symbols) => readiness.record_ok(!symbols.is_empty()),
+            Err(_) => readiness.record_failure(),
+        }
+        result
     }
 
     pub fn get_type_hierarchy(
         &self,
         request: &LspTypeHierarchyRequest,
     ) -> Result<HashMap<String, Value>> {
-        let arc = get_or_start_session(
+        let (arc, readiness) = get_or_start_session(
             &self.sessions,
+            &self.readiness,
             &self.project,
             &request.command,
             &request.args,
         )?;
-        let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
-        session.get_type_hierarchy(request)
+        let result = {
+            let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
+            session.get_type_hierarchy(request)
+        };
+        match &result {
+            Ok(map) => readiness.record_ok(!map.is_empty()),
+            Err(_) => readiness.record_failure(),
+        }
+        result
     }
 
     pub fn get_rename_plan(&self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
-        let arc = get_or_start_session(
+        let (arc, readiness) = get_or_start_session(
             &self.sessions,
+            &self.readiness,
             &self.project,
             &request.command,
             &request.args,
         )?;
-        let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
-        session.get_rename_plan(request)
+        let result = {
+            let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
+            session.get_rename_plan(request)
+        };
+        match &result {
+            Ok(plan) => {
+                // A rename plan is non-trivial when the server returned
+                // an actual edit block; fall back to counting
+                // current_name so a plain "prepareRename" round-trip
+                // still flips the ready bit when the response is
+                // meaningful.
+                let nonempty = !plan.current_name.is_empty();
+                readiness.record_ok(nonempty);
+            }
+            Err(_) => readiness.record_failure(),
+        }
+        result
     }
 }
 

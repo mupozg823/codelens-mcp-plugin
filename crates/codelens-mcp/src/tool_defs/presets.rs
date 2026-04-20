@@ -631,6 +631,10 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "start_analysis_job",
     "get_analysis_job",
     "get_analysis_section",
+    // LSP readiness — read-only snapshot used by planners/benches to
+    // wait for LSP indexing to complete before kicking off analysis
+    // that depends on `find_referencing_symbols(use_lsp=true)`.
+    "get_lsp_readiness",
 ];
 
 pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
@@ -656,6 +660,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "get_ranked_context",
     "find_referencing_symbols",
     "get_file_diagnostics",
+    "get_lsp_readiness",
     "find_tests",
     "refresh_symbol_index",
     // Phase 4a §capability-reporting: builders occasionally need NL
@@ -705,6 +710,7 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "find_scoped_references",
     // Diagnostics
     "get_file_diagnostics",
+    "get_lsp_readiness",
     // Graph / impact
     "get_impact_analysis",
     "get_changed_files",
@@ -753,6 +759,7 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "find_scoped_references",
     // Diagnostics
     "get_file_diagnostics",
+    "get_lsp_readiness",
     // Graph / impact
     "get_impact_analysis",
     "get_changed_files",
@@ -1031,6 +1038,7 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
         | "get_file_diagnostics"
         | "check_lsp_status"
         | "get_lsp_recipe"
+        | "get_lsp_readiness"
         | "audit_builder_session"
         | "audit_planner_session"
         | "semantic_code_review" => Some(ToolPhase::Review),
@@ -1213,7 +1221,9 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         "list_memories" | "read_memory" | "write_memory" | "delete_memory" | "rename_memory" => {
             "memory"
         }
-        "get_file_diagnostics" | "check_lsp_status" | "get_lsp_recipe" => "lsp",
+        "get_file_diagnostics" | "check_lsp_status" | "get_lsp_recipe" | "get_lsp_readiness" => {
+            "lsp"
+        }
         _ => "session",
     }
 }
@@ -1244,10 +1254,9 @@ mod overlay_tests {
         let plan = compile_surface_overlay(full_surface(), Some(HostContext::ClaudeCode), None);
         assert!(plan.applied());
         assert_eq!(plan.preferred_executor_bias, Some("claude"));
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
         assert!(!plan.routing_notes.is_empty());
     }
 
@@ -1272,10 +1281,9 @@ mod overlay_tests {
                 "planning overlay should avoid {mutation}"
             );
         }
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
     }
 
     #[test]
@@ -1292,10 +1300,9 @@ mod overlay_tests {
                 "editing overlay should emphasize {mutation}"
             );
         }
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"verify_change_readiness")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"verify_change_readiness"));
         assert!(plan.avoid_tools.is_empty());
     }
 
@@ -1356,11 +1363,9 @@ mod overlay_tests {
             Some(HostContext::ClaudeCode),
             None,
         );
-        assert!(
-            !plan
-                .preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(!plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
     }
 
     #[test]

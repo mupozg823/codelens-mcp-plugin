@@ -75,9 +75,153 @@ def parse_args() -> argparse.Namespace:
         default=45,
         help="Seconds to sleep after prepare_harness_session before the "
         "measurement arms start. Default 45 covers pyright / tsserver "
-        "indexing on Flask / Zod; rust-analyzer on self needs ~15-30s.",
+        "indexing on Flask / Zod; rust-analyzer on self needs ~15-30s. "
+        "Used as the upper bound when `--wait-for-ready` is also set.",
+    )
+    p.add_argument(
+        "--wait-for-ready",
+        action="store_true",
+        help="P0-4: instead of sleeping `--auto-attach-wait` seconds "
+        "unconditionally, poll `get_lsp_readiness` every 500 ms and "
+        "proceed as soon as every detected LSP session reports "
+        "is_ready=true (or the upper-bound wait elapses). Produces a "
+        "`readiness_poll` record in the output so the bench-timing "
+        "gap between blind-sleep and wait-for-ready is measurable.",
+    )
+    p.add_argument(
+        "--ready-poll-interval-ms",
+        type=int,
+        default=500,
+        help="Polling cadence for --wait-for-ready (default 500 ms).",
+    )
+    p.add_argument(
+        "--ready-grace-seconds",
+        type=int,
+        default=5,
+        help="Minimum wait after all sessions report is_alive before the "
+        "poll returns. pyright / tsserver frequently answer empty "
+        "workspace/symbol queries with `[]` even after indexing "
+        "completes, so is_ready (nonempty latch) alone never flips "
+        "from the prewarm. The grace window is a pragmatic hedge: "
+        "alive proves handshake succeeded, the extra seconds cover "
+        "typical indexing. Default 5 s; rust-analyzer may need 15-30.",
     )
     return p.parse_args()
+
+
+def poll_readiness_until(
+    base_url: str,
+    session_id: str,
+    expected_languages: list[str],
+    max_seconds: int,
+    poll_interval_ms: int,
+    grace_seconds: int,
+) -> dict:
+    """Poll get_lsp_readiness until every detected LSP session is alive
+    and the grace window has elapsed (or the upper-bound wait runs
+    out). Returns a record capturing the elapsed time and the final
+    readiness snapshot so the bench output can reason about how much
+    wall-clock the old blind-sleep was over-paying.
+
+    Note on `is_alive` vs `is_ready`: pyright and
+    typescript-language-server both answer empty-string
+    `workspace/symbol` prewarm calls with `[]`, so the stronger
+    `ms_to_first_nonempty` latch seldom flips from auto-attach alone.
+    The practical ship-ready signal is `all_alive && elapsed >= grace`;
+    `all_ready` is reported as a bonus when it happens to flip (e.g.
+    rust-analyzer warming returns a populated workspace symbol
+    result)."""
+
+    start = time.perf_counter()
+    deadline = start + max_seconds
+    interval = max(0.05, poll_interval_ms / 1000.0)
+    poll_count = 0
+    last_snapshot: dict = {}
+    alive_at: float | None = None
+    ready_at: float | None = None
+    returned_at: float | None = None
+    while time.perf_counter() < deadline:
+        poll_count += 1
+        resp = rc.mcp_http_tool_call(
+            base_url,
+            "get_lsp_readiness",
+            {},
+            request_id=3000 + poll_count,
+            session_id=session_id,
+            timeout_seconds=10,
+        )
+        data = extract_data(resp)
+        last_snapshot = data
+        sessions = data.get("sessions") or []
+        sessions_with_binary = [
+            s for s in sessions if s.get("command") and s.get("command") != ""
+        ]
+        if expected_languages:
+            seen = {
+                _language_for_command(s.get("command", "")): s
+                for s in sessions_with_binary
+            }
+            missing = [lang for lang in expected_languages if lang not in seen]
+            all_alive = (not missing) and all(
+                seen[lang].get("is_alive") for lang in expected_languages
+            )
+            all_ready = (not missing) and all(
+                seen[lang].get("is_ready") for lang in expected_languages
+            )
+        else:
+            all_alive = bool(sessions_with_binary) and all(
+                s.get("is_alive") for s in sessions_with_binary
+            )
+            all_ready = bool(sessions_with_binary) and all(
+                s.get("is_ready") for s in sessions_with_binary
+            )
+        if all_alive and alive_at is None:
+            alive_at = time.perf_counter()
+        if all_ready and ready_at is None:
+            ready_at = time.perf_counter()
+        # Terminate when every session is alive AND the grace window
+        # has elapsed since the alive transition. Short-circuit fully
+        # when `all_ready` flips (the strong signal) without waiting
+        # out the grace window.
+        if all_ready:
+            returned_at = time.perf_counter()
+            break
+        if alive_at is not None and (time.perf_counter() - alive_at) >= grace_seconds:
+            returned_at = time.perf_counter()
+            break
+        time.sleep(interval)
+    elapsed = time.perf_counter() - start
+    return {
+        "mode": "wait_for_ready",
+        "max_seconds": max_seconds,
+        "poll_interval_ms": poll_interval_ms,
+        "grace_seconds": grace_seconds,
+        "poll_count": poll_count,
+        "elapsed_seconds": round(elapsed, 3),
+        "alive_seconds": round(alive_at - start, 3) if alive_at is not None else None,
+        "ready_seconds": round(ready_at - start, 3) if ready_at is not None else None,
+        "returned_seconds": (
+            round(returned_at - start, 3) if returned_at is not None else None
+        ),
+        "all_alive": alive_at is not None,
+        "all_ready": ready_at is not None,
+        "expected_languages": expected_languages,
+        "final_snapshot": last_snapshot,
+    }
+
+
+def _language_for_command(command: str) -> str:
+    # Shallow mapping mirrors LSP_RECIPES; enough for the bench's
+    # three repos. Unknown commands key as the raw command so we do
+    # not silently collapse distinct servers.
+    name = command.rsplit("/", 1)[-1]
+    return {
+        "pyright-langserver": "python",
+        "typescript-language-server": "typescript",
+        "rust-analyzer": "rust",
+        "gopls": "go",
+        "clangd": "c",
+    }.get(name, name)
 
 
 def load_dataset(path: str) -> list[dict]:
@@ -372,7 +516,19 @@ def main() -> int:
                 "lsp_auto_attach": auto_data.get("lsp_auto_attach"),
                 "wait_seconds": args.auto_attach_wait,
             }
-            if args.auto_attach_wait > 0:
+            if args.wait_for_ready:
+                auto_block = auto_data.get("lsp_auto_attach") or {}
+                prewarm_fired = auto_block.get("prewarm_fired") or []
+                readiness_record = poll_readiness_until(
+                    base_url,
+                    session_id,
+                    expected_languages=prewarm_fired,
+                    max_seconds=args.auto_attach_wait,
+                    poll_interval_ms=args.ready_poll_interval_ms,
+                    grace_seconds=args.ready_grace_seconds,
+                )
+                warm_report["readiness_poll"] = readiness_record
+            elif args.auto_attach_wait > 0:
                 time.sleep(args.auto_attach_wait)
 
         if args.warm_lsp:
@@ -380,6 +536,19 @@ def main() -> int:
 
         baseline = run_arm(base_url, session_id, dataset, False, request_base=5000)
         boosted = run_arm(base_url, session_id, dataset, True, request_base=6000)
+        # Capture a final readiness snapshot AFTER the arms run so we
+        # can distinguish "prewarm never populated the pool" from "pool
+        # was populated but the poll window missed it". Useful
+        # diagnostic when the poll's final_snapshot is empty.
+        post_arm_resp = rc.mcp_http_tool_call(
+            base_url,
+            "get_lsp_readiness",
+            {},
+            request_id=7000,
+            session_id=session_id,
+            timeout_seconds=10,
+        )
+        post_arm_readiness = extract_data(post_arm_resp)
     finally:
         rc.stop_http_daemon(proc)
 
@@ -392,6 +561,7 @@ def main() -> int:
         "preset": args.preset,
         "warm_lsp": bool(args.warm_lsp),
         "warm_report": warm_report,
+        "post_arm_readiness": post_arm_readiness,
         "arms": [
             {"arm": "baseline", **baseline},
             {"arm": "lsp_boost", **boosted},

@@ -654,6 +654,62 @@ fn tool_call_result_meta_exposes_preferred_executor() {
 }
 
 #[test]
+fn get_lsp_readiness_reports_empty_pool_conservatively() {
+    // P0-4: when no LSP session has been spawned yet (e.g. the
+    // auto-attach prewarm was suppressed on a non-persistent
+    // transport, or the project had no detected languages), the
+    // readiness tool must report `session_count=0` with all aggregate
+    // flags `false`. A caller polling for readiness should treat this
+    // as "not ready yet" and either wait or fall back, never as "no
+    // LSPs needed, proceed immediately".
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_lsp_readiness",
+                "arguments": {
+                    "_session_id": default_session_id(&state),
+                }
+            })),
+        },
+    )
+    .expect("tools/call should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    let text = value["result"]["content"][0]["text"]
+        .as_str()
+        .expect("content[0].text present");
+    let envelope: serde_json::Value = serde_json::from_str(text).expect("parse envelope json");
+    let data = &envelope["data"];
+    assert_eq!(data["session_count"], json!(0), "no sessions pre-prewarm");
+    assert_eq!(data["alive_count"], json!(0));
+    assert_eq!(data["ready_count"], json!(0));
+    assert_eq!(
+        data["all_alive"],
+        json!(false),
+        "empty pool must not claim all_alive=true"
+    );
+    assert_eq!(
+        data["all_ready"],
+        json!(false),
+        "empty pool must not claim all_ready=true"
+    );
+    assert_eq!(data["any_ready"], json!(false));
+    assert!(
+        data["sessions"]
+            .as_array()
+            .is_some_and(|arr| arr.is_empty()),
+        "sessions array must be present and empty"
+    );
+}
+
+#[test]
 fn deferred_tools_list_omits_output_schema_by_default() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
