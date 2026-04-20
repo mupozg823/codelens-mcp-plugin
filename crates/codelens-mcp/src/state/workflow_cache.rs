@@ -131,6 +131,17 @@ impl WorkflowAnalysisCache {
         self.entries.retain(|key, _| !key.ends_with(&suffix));
     }
 
+    /// Phase P5 slice 2b: drop all cached entries regardless of scope.
+    /// Called after a successful mutation, because we can't cheaply
+    /// determine which project_state_hash the cache keyed against
+    /// before the mutation (the state hash may or may not have
+    /// rolled over depending on whether the index has been
+    /// re-ingested yet). Dropping all entries is cheap relative to
+    /// the cost of serving a stale `impact_report`.
+    pub(crate) fn invalidate_all(&self) {
+        self.entries.clear();
+    }
+
     /// Observational counters for the metrics lane. Incremented on
     /// every lookup in [`Self::record_hit`] / [`Self::record_miss`];
     /// callers choose when to record because the cache itself does

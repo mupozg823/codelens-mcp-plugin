@@ -1,14 +1,14 @@
-use crate::AppState;
 use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 use crate::tool_defs::ToolSurface;
 use crate::tool_runtime::ToolResult;
+use crate::AppState;
 use serde_json::Value;
 
 use super::table::DISPATCH_TABLE;
-use crate::mutation_gate::{
-    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
-    is_refactor_gated_mutation_tool,
+use crate::mutation::gate::{
+    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
+    MutationGateFailure,
 };
 
 /// Orchestrates tool discovery, validation, and lifecycle execution.
@@ -63,6 +63,7 @@ impl<'a> QueryEngine<'a> {
             match evaluate_mutation_gate(self.state, name, session, surface, arguments) {
                 Ok(allowance) => {
                     let result = tool.execute(self.state, arguments);
+                    broadcast_workflow_cache_invalidation(self.state, name, &result);
                     (result, allowance, None)
                 }
                 Err(failure) => {
@@ -92,7 +93,24 @@ impl<'a> QueryEngine<'a> {
             }
         } else {
             let result = tool.execute(self.state, arguments);
+            broadcast_workflow_cache_invalidation(self.state, name, &result);
             (result, None, None)
         }
     }
+}
+
+/// Phase P5 slice 2b: after a successful mutation tool, drop every
+/// entry in the process-wide workflow cache so a sibling session
+/// reading impact_report / review_architecture immediately after
+/// the mutation recomputes rather than serving a pre-mutation
+/// artifact. Non-mutation tools and failed mutations are no-ops so
+/// the read hot path stays zero-overhead.
+fn broadcast_workflow_cache_invalidation(state: &AppState, tool_name: &str, result: &ToolResult) {
+    if result.is_err() {
+        return;
+    }
+    if !crate::tools::suggestions::MUTATION_TOOLS.contains(&tool_name) {
+        return;
+    }
+    state.workflow_cache().invalidate_all();
 }

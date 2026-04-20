@@ -14,7 +14,7 @@ mod report_verifier;
 pub mod reports;
 pub mod rules;
 pub mod session;
-mod suggestions;
+pub(crate) mod suggestions;
 pub mod symbols;
 pub(crate) mod transparency;
 pub mod workflows;

@@ -12,6 +12,74 @@ use serde_json::json;
 use std::time::Duration;
 
 #[test]
+fn mutation_invalidates_workflow_cache_for_sibling_reads() {
+    // Phase P5 slice 2b: after a mutation tool succeeds, the
+    // process-wide workflow cache must drop every entry so a sibling
+    // session reading impact_report / review_architecture doesn't
+    // get a stale pre-mutation artifact. We probe this by:
+    //   1. Warming the cache via a first impact_report call
+    //   2. Running a mutation (create_text_file — it's in MUTATION_TOOLS
+    //      and has the simplest schema)
+    //   3. Re-running impact_report and asserting `freshness: live`
+    //      (cache miss) rather than `freshness: indexed` (cache hit)
+    //
+    // If the invalidation broadcast is missing, step 3 will return
+    // a cached payload with `freshness: indexed` and the assertion
+    // fails — making this the contract test for slice 2b.
+    let project = project_root();
+    fs::write(
+        project.as_path().join("before.py"),
+        "def before():\n    return 1\n",
+    )
+    .unwrap();
+    let state = make_state(&project);
+
+    // Warm the cache.
+    let first = call_tool(&state, "impact_report", json!({ "path": "before.py" }));
+    assert_eq!(first["success"], json!(true));
+
+    // Second call should be cached: freshness=indexed.
+    let cached = call_tool(&state, "impact_report", json!({ "path": "before.py" }));
+    assert_eq!(
+        cached["freshness"],
+        json!("indexed"),
+        "precondition: second identical call should hit cache; cached={cached}"
+    );
+
+    // Mutation. `create_text_file` is the smallest-surface
+    // MUTATION_TOOLS entry — one relative_path + content + done.
+    let mutation = call_tool(
+        &state,
+        "create_text_file",
+        json!({
+            "relative_path": "after.py",
+            "content": "def after():\n    return 2\n",
+        }),
+    );
+    assert_eq!(
+        mutation["success"],
+        json!(true),
+        "mutation must succeed so the cache broadcast fires; mutation={mutation}"
+    );
+
+    // Post-mutation read must be a MISS (freshness=live). If the
+    // broadcast didn't fire, freshness stays "indexed".
+    let post_mutation = call_tool(&state, "impact_report", json!({ "path": "before.py" }));
+    assert_eq!(
+        post_mutation["success"],
+        json!(true),
+        "post_mutation={post_mutation}"
+    );
+    assert_eq!(
+        post_mutation["freshness"],
+        json!("live"),
+        "post-mutation impact_report must recompute (freshness=live); \
+         got freshness={}; payload={post_mutation}",
+        post_mutation["freshness"]
+    );
+}
+
+#[test]
 fn claim_files_auto_release_after_ttl_when_heartbeat_missing() {
     let project = project_root();
     fs::write(
