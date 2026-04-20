@@ -854,7 +854,12 @@ pub fn prepare_harness_session(state: &AppState, arguments: &serde_json::Value) 
                 "schema_pre_validation": true,
                 "doom_loop_threshold": 3,
                 "preflight_ttl_seconds": state.preflight_ttl_seconds(),
-            }
+            },
+            // Phase P5 slice 1: surface recent analyses across all
+            // sessions so a peer agent can reuse the `analysis_id`
+            // (and call `get_analysis_section`) instead of re-running
+            // the same workflow tool.
+            "shared_analysis_pool": state.shared_analysis_pool_snapshot(20),
         }),
         success_meta(BackendKind::Session, 1.0),
     ))
