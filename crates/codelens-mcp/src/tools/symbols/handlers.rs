@@ -15,8 +15,8 @@ use crate::protocol::BackendKind;
 use crate::symbol_corpus::build_symbol_corpus;
 use crate::symbol_retrieval::{search_symbols_bm25f, unique_query_terms};
 use codelens_engine::{
-    find_referencing_symbols_via_text, read_file, search_symbols_hybrid_with_semantic, LspRequest,
-    SymbolInfo, SymbolKind,
+    find_all_word_matches, read_file, search_symbols_hybrid_with_semantic, LspRequest, SymbolInfo,
+    SymbolKind,
 };
 use serde_json::{json, Value};
 
@@ -834,13 +834,64 @@ fn lsp_boost_probe(
 
     // Tree-sitter leg — always attempted; populates callers that LSP
     // has not yet surfaced (e.g. cold rust-analyzer) or cannot see
-    // (languages without an installed LSP recipe). `find_symbol`
-    // guarantees the query string is a real symbol name in `path`, so
-    // the tree-sitter text search is well-anchored.
-    if let Ok(report) = find_referencing_symbols_via_text(&state.project(), query, Some(path), 128)
-    {
-        for r in report.references {
-            refs_by_file.entry(r.file_path).or_default().push(r.line);
+    // (languages without an installed LSP recipe). We prefer
+    // `find_all_word_matches` over `find_referencing_symbols_via_text`
+    // here because the boost probe cares about **file coverage**
+    // (does schemas.ts see any safeParse refs?) rather than the 128
+    // highest-ranked individual refs. In large monorepos the global
+    // 128-ref cap in the referencing helper saturates on test files
+    // alphabetically and silently excludes the interface-bearing file
+    // we actually want to promote (zod `classic/schemas.ts` was the
+    // smoking-gun case, 875 matches × 86 files → container file missed).
+    // Per-file cap keeps hot files from dominating the signal set,
+    // global cap bounds the downstream ranking cost.
+    const LSP_BOOST_PER_FILE_CAP: usize = 8;
+    const LSP_BOOST_GLOBAL_CAP: usize = 512;
+    // Test files deflect the global cap from the production files an
+    // agent actually wants to navigate to. In zod the `tests/` trees
+    // fire ~800 of 875 safeParse matches and saturated the cap before
+    // `classic/schemas.ts` (the ZodType interface container) was ever
+    // visited. Two-pass collection: production files first, then tests
+    // fill the remainder. This keeps tests eligible when the caller
+    // graph is sparse without letting them crowd out interfaces.
+    fn is_test_path(p: &str) -> bool {
+        let lower = p.to_ascii_lowercase();
+        lower.contains("/tests/")
+            || lower.contains("/test/")
+            || lower.contains("/__tests__/")
+            || lower.ends_with(".test.ts")
+            || lower.ends_with(".test.tsx")
+            || lower.ends_with(".test.js")
+            || lower.ends_with(".spec.ts")
+            || lower.ends_with(".spec.js")
+            || lower.ends_with("_test.go")
+            || lower.ends_with("_test.py")
+            || lower.ends_with("_test.rs")
+    }
+    if let Ok(matches) = find_all_word_matches(&state.project(), query) {
+        let mut per_file: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut total = 0usize;
+        for pass in 0..2 {
+            let want_tests = pass == 1;
+            for (file, line, _col) in &matches {
+                if total >= LSP_BOOST_GLOBAL_CAP {
+                    break;
+                }
+                if is_test_path(file) != want_tests {
+                    continue;
+                }
+                let count = per_file.entry(file.clone()).or_insert(0);
+                if *count >= LSP_BOOST_PER_FILE_CAP {
+                    continue;
+                }
+                *count += 1;
+                total += 1;
+                refs_by_file.entry(file.clone()).or_default().push(*line);
+            }
+            if total >= LSP_BOOST_GLOBAL_CAP {
+                break;
+            }
         }
     }
 

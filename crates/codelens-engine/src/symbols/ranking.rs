@@ -1166,6 +1166,51 @@ mod tests {
     }
 
     #[test]
+    fn lsp_signal_interface_container_beats_name_match_helper_when_text_score_zero() {
+        // Regression: zod `safeParse → ZodType` case. An interface
+        // whose name does not overlap the query (e.g. `ZodType`) but
+        // whose span contains multiple refs to the query identifier
+        // (`safeParse` at lines inside the interface body) was ranked
+        // below type aliases like `SafeParseReturnType` that *partially
+        // match the query name* but have no body-level refs. Agents
+        // tracing callers of `safeParse` actually want the interface
+        // that declares it, not a helper whose only relation is a
+        // shared prefix. When text_score == 0 but proximity is strong,
+        // treat proximity as a text-component substitute so the
+        // container can compete.
+        let mut container = lsp_test_symbol("ZodType", "packages/zod/src/v4/classic/schemas.ts");
+        container.line = 20;
+        container.end_line = 151;
+
+        let mut helper =
+            lsp_test_symbol("SafeParseReturnType", "packages/zod/src/v4/core/parse.ts");
+        helper.line = 156;
+        helper.end_line = 156;
+
+        let boost = boost_refs_at(
+            "packages/zod/src/v4/classic/schemas.ts",
+            &[58, 60, 196, 255, 256],
+        );
+        let ctx = lsp_flat_context(boost, 0.25);
+
+        let ranked = super::rank_symbols("safeParse", vec![helper, container], &ctx);
+        let container_rank = ranked
+            .iter()
+            .position(|(s, _)| s.name == "ZodType")
+            .expect("ZodType must survive the gate");
+        let helper_rank = ranked
+            .iter()
+            .position(|(s, _)| s.name == "SafeParseReturnType");
+        if let Some(h) = helper_rank {
+            assert!(
+                container_rank < h,
+                "interface container with multi-ref containment must outrank \
+                 partial-name-match helper (container at {container_rank}, helper at {h})"
+            );
+        }
+    }
+
+    #[test]
     fn lsp_signal_weight_positive_promotes_lsp_file() {
         // With a positive weight, the candidate whose nearest ref is
         // reachable from its declaration line must outrank an
@@ -1269,7 +1314,34 @@ pub(crate) fn rank_symbols(
                 return None;
             }
 
-            let text_component = text_score as f64 * ctx.weights.text;
+            // P1-4 follow-up: when a candidate's name does **not**
+            // overlap the query but its body span contains multiple
+            // refs (high-containment factor), treat proximity as a
+            // text-score substitute. Without this branch, interface
+            // containers whose name is unrelated to the query
+            // identifier (zod `ZodType` containing `safeParse`
+            // declarations) rank below helpers that share a prefix
+            // with the query (`SafeParseReturnType`) but contain no
+            // body-level refs — the opposite of what a caller-tracing
+            // agent wants.
+            //
+            // Threshold pinned at `>= 0.6` (≈ 2 contained refs under
+            // `LSP_CONTAINMENT_SATURATION_REFS=3`) so single-ref
+            // containers do not get the rescue — keeps the "per-ref
+            // weighting refuses thin wrappers" contract intact.
+            // Magnitude is `70 * proximity`, not `100 * proximity`, so
+            // the rescue competes with partial-name helpers
+            // (text_score ≈ 30-50) without overrunning exact-name
+            // matches (text_score ≈ 100).
+            //
+            // Gated by `lsp_signal > 0.0` so the default pipeline is
+            // byte-identical pre-P1-4 follow-up.
+            let text_component =
+                if text_score == 0 && ctx.weights.lsp_signal > 0.0 && lsp_proximity >= 0.6 {
+                    70.0 * lsp_proximity * ctx.weights.text
+                } else {
+                    text_score as f64 * ctx.weights.text
+                };
 
             // PageRank: scale raw score to 0-100 range
             let pr = ctx.pagerank.get(&symbol.file_path).copied().unwrap_or(0.0);
