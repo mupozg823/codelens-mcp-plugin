@@ -58,6 +58,25 @@ def parse_args() -> argparse.Namespace:
         default=90,
         help="Per-prewarm timeout in seconds (default 90).",
     )
+    p.add_argument(
+        "--auto-attach",
+        action="store_true",
+        help="Instead of issuing explicit find_referencing_symbols probes, "
+        "rely on `prepare_harness_session`'s `CODELENS_LSP_AUTO=true` "
+        "auto-attach to fire a fire-and-forget workspace_symbols warm-up "
+        "and then wait `--auto-attach-wait` seconds for indexing before "
+        "the measurement arms run. Measures whether an agent session that "
+        "calls `prepare_harness_session` once gets the same uplift as the "
+        "explicit per-query prewarm.",
+    )
+    p.add_argument(
+        "--auto-attach-wait",
+        type=int,
+        default=45,
+        help="Seconds to sleep after prepare_harness_session before the "
+        "measurement arms start. Default 45 covers pyright / tsserver "
+        "indexing on Flask / Zod; rust-analyzer on self needs ~15-30s.",
+    )
     return p.parse_args()
 
 
@@ -267,6 +286,13 @@ def main() -> int:
     args = parse_args()
     dataset = load_dataset(args.dataset)
 
+    # --auto-attach relies on `prepare_harness_session`'s fire-and-forget
+    # LSP warm-up which only runs when `CODELENS_LSP_AUTO=true` is set on
+    # the daemon process. We set it on the parent environment so the
+    # subprocess inherits.
+    if args.auto_attach:
+        os.environ["CODELENS_LSP_AUTO"] = "true"
+
     base_url, port, proc = rc.start_http_daemon(
         args.binary, args.project, preset=args.preset
     )
@@ -294,6 +320,37 @@ def main() -> int:
             session_id=session_id,
             timeout_seconds=300,
         )
+
+        if args.auto_attach:
+            # One-shot bootstrap the way an agent session would. The
+            # daemon fires a fire-and-forget `search_workspace_symbols`
+            # per detected language; we then sleep to let the LSP index
+            # the workspace before the arms ask it for refs.
+            auto_resp = rc.mcp_http_tool_call(
+                base_url,
+                "prepare_harness_session",
+                {},
+                request_id=2,
+                session_id=session_id,
+                timeout_seconds=30,
+            )
+            auto_payload = rc.extract_tool_payload(auto_resp)
+            auto_data = (
+                auto_payload.get("data")
+                if isinstance(auto_payload.get("data"), dict)
+                else auto_payload
+            )
+            warm_report = {
+                "mode": "auto_attach",
+                "lsp_auto_attach": (
+                    auto_data.get("lsp_auto_attach")
+                    if isinstance(auto_data, dict)
+                    else None
+                ),
+                "wait_seconds": args.auto_attach_wait,
+            }
+            if args.auto_attach_wait > 0:
+                time.sleep(args.auto_attach_wait)
 
         if args.warm_lsp:
             warm_report = warm_lsp(base_url, session_id, dataset, args.warm_timeout)
