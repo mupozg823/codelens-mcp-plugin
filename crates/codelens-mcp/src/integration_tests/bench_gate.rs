@@ -148,6 +148,64 @@ fn bench_gate_review_architecture_cold_latency_under_threshold() {
 }
 
 #[test]
+fn bench_gate_find_symbol_primitive_mode_matches_serena_byte_envelope() {
+    // Phase P1 target: primitive response mode must keep a Claude
+    // Code–facing `find_symbol` response below the 900-byte ceiling
+    // set in `benchmarks/baselines/extreme-efficiency.json` under
+    // `target_after_phase_p1.payload_bytes_max`. Enforces the
+    // Serena-parity envelope directly so the gate fails loudly if a
+    // future change silently re-introduces scaffold bytes.
+    let baseline = baseline_json();
+    let primitive_ceiling = baseline["tasks"]["find_symbol_body"]["target_after_phase_p1"]
+        ["payload_bytes_max"]
+        .as_u64()
+        .unwrap_or(900) as usize;
+
+    let project = fixture_with_widget();
+    let state = make_state(&project);
+    let payload = call_tool(
+        &state,
+        "find_symbol",
+        json!({
+            "name": "widget_fn",
+            "include_body": true,
+            "exact_match": true,
+            "max_matches": 5,
+            "_session_client_name": "Claude Code",
+            "_detail": "primitive",
+        }),
+    );
+    assert_eq!(payload["success"], json!(true));
+
+    // The primitive shape never emits structuredContent, only the
+    // text body. call_tool above merges structuredContent under
+    // `data`, so we re-serialize the textual portion we actually sent
+    // on the wire to measure.
+    let bytes = serde_json::to_string(&payload)
+        .map(|s| s.len())
+        .expect("serialize primitive payload");
+
+    assert!(
+        bytes <= primitive_ceiling,
+        "find_symbol primitive payload {bytes} bytes exceeds Phase P1 \
+         ceiling {primitive_ceiling}; inspect whether orchestration \
+         scaffold or structuredContent duplication leaked back in"
+    );
+
+    // Contract checks: primitive response keeps the actionable fields
+    // even while dropping metadata.
+    let symbols = payload["data"]["symbols"]
+        .as_array()
+        .expect("primitive response should still carry symbols array");
+    assert!(!symbols.is_empty(), "expected at least one symbol");
+    let body = symbols[0]["body"].as_str().unwrap_or_default();
+    assert!(
+        body.contains("widget_fn"),
+        "primitive response must retain the symbol body; got body={body}"
+    );
+}
+
+#[test]
 #[ignore = "RED gate for Phase P3 (state unification). Fails today \
             because review_architecture omits the `loaded` field \
             while get_ranked_context emits `semantic_ready:false`. \

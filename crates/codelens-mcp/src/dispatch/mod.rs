@@ -192,6 +192,7 @@ pub(crate) fn dispatch_tool(
             recent_tools: ctx.recent_tools,
             gate_allowance: gate_allowance.as_ref(),
             compact,
+            detail: envelope.detail,
             harness_phase: harness_phase.as_deref(),
             request_budget: envelope.budget,
             start,

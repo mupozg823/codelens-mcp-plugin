@@ -25,7 +25,8 @@
         "latency_ms_p95_max": 200
       },
       "target_after_phase_p1": {
-        "payload_bytes_max": 900
+        "$comment": "Primitive mode keeps suggested_next_tools — the CodeLens signature orchestration hint — even though it costs ~120 bytes. Rationale: the hint steers the next agent-loop call (e.g. find_referencing_symbols after find_symbol) and the savings from avoiding one uninformed follow-up call dominate the ~120-byte cost many times over. Target keeps the ≤1.5× Serena ceiling (Serena 662 b × 1.5 ≈ 993, rounded to 1100 for headroom).",
+        "payload_bytes_max": 1100
       }
     },
     "review_architecture": {
