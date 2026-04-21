@@ -153,7 +153,7 @@
     "query": "mutation gate preflight check before editing",
     "query_type": "natural_language",
     "expected_symbol": "evaluate_mutation_gate",
-    "expected_file_suffix": "crates/codelens-mcp/src/mutation_gate.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/mutation/gate.rs"
   },
   {
     "query": "detect if client is Claude Code or Codex",
@@ -381,25 +381,25 @@
     "query": "check if a tool requires preflight verification",
     "query_type": "natural_language",
     "expected_symbol": "is_refactor_gated_mutation_tool",
-    "expected_file_suffix": "crates/codelens-mcp/src/mutation_gate.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/mutation/gate.rs"
   },
   {
     "query": "determine the type of mutation gate failure",
     "query_type": "natural_language",
     "expected_symbol": "mutation_gate_failure",
-    "expected_file_suffix": "crates/codelens-mcp/src/mutation_gate.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/mutation/gate.rs"
   },
   {
     "query": "MutationFailureKind",
     "query_type": "identifier",
     "expected_symbol": "MutationFailureKind",
-    "expected_file_suffix": "crates/codelens-mcp/src/mutation_gate.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/mutation/gate.rs"
   },
   {
     "query": "MutationGateAllowance",
     "query_type": "identifier",
     "expected_symbol": "MutationGateAllowance",
-    "expected_file_suffix": "crates/codelens-mcp/src/mutation_gate.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/mutation/gate.rs"
   },
   {
     "query": "build a success response with suggested next tools",
@@ -459,7 +459,7 @@
     "query": "check if a tool is a symbol-aware mutation",
     "query_type": "natural_language",
     "expected_symbol": "is_symbol_aware_mutation_tool",
-    "expected_file_suffix": "crates/codelens-mcp/src/mutation_gate.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/mutation/gate.rs"
   },
   {
     "query": "collect rename edits across the entire project",
@@ -519,7 +519,7 @@
     "query": "MutationGateFailure",
     "query_type": "identifier",
     "expected_symbol": "MutationGateFailure",
-    "expected_file_suffix": "crates/codelens-mcp/src/mutation_gate.rs"
+    "expected_file_suffix": "crates/codelens-mcp/src/mutation/gate.rs"
   },
   {
     "query": "CalleeEntry",
