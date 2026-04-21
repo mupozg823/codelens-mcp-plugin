@@ -119,12 +119,17 @@ regress — they just don't appear in the default visible set.
 - [x] GREEN: `docs/harness/handoff-protocol.md`
 - [x] Quality Gate: `cargo test -p codelens-mcp --features semantic` → 497 passed
 
-### Phase O7 — xhigh effort level tier (P1, 2h)
+### Phase O7 — xhigh effort level tier (P1, 2h) — ✅ (commit follows)
 
-- [ ] RED: `xhigh_effort_level_raises_budget_multiplier`
-- [ ] RED: `xhigh_compression_threshold_higher_than_high`
-- [ ] RED: `unknown_effort_level_falls_back_to_high`
-- [ ] GREEN: `EffortLevel::XHigh` variant + multiplier table
+- [x] RED: `xhigh_effort_level_raises_budget_multiplier`
+- [x] RED: `xhigh_compression_threshold_higher_than_high`
+- [x] RED: `unknown_effort_level_falls_back_to_high`
+- [x] GREEN: `EffortLevel::XHigh` variant + multiplier table
+- [x] Quality Gate: `cargo test -p codelens-mcp --features semantic` → 500 passed
+- ⚠️ Follow-up: `budget_multiplier()` remains dead code — wire-up
+  requires touching 7+ callsites (main.rs, state.rs build, set_preset,
+  envelope parse, transport_http, http_tests). Deferred to a dedicated
+  phase so O7 stays a single-file contract delta.
 
 ---
 
@@ -166,8 +171,8 @@ All 8 phases additive + feature-flagged where invasive. Full rollback =
 
 - Started: 2026-04-21
 - Last Updated: 2026-04-21
-- Current Phase: **O7 (xhigh effort level tier)**
-- Completed Phases: **O1, O2, O3a, O5, O6** (Tier A: 3/4, Tier B: 2/3)
+- Current Phase: **O8 (Tier C — recency + Stage 5 + reset hint)**
+- Completed Phases: **O1, O2, O3a, O5, O6, O7** (Tier A: 3/4, Tier B: 3/3 ✅)
 - Parked: **O4** (requires `ANTHROPIC_API_KEY` for SDK-direct 2-arm
   measurement; resumes when key is available or we replace the arm
   runner with Agent-tool subagent dispatch)
