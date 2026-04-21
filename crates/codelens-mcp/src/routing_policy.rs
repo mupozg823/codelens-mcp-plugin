@@ -355,4 +355,54 @@ mod tests {
         std::fs::write(&path, render_eval_scenarios_json())
             .unwrap_or_else(|err| panic!("failed to write {}: {err}", path.display()));
     }
+
+    #[test]
+    fn extreme_efficiency_eval_python_runner_dry_run_succeeds() {
+        // Phase P6-b slice 2 smoke test: the Python eval harness at
+        // `benchmarks/extreme-efficiency-eval.py` must load the
+        // checked-in scenarios fixture and emit a per-scenario plan
+        // without errors. Guards against:
+        //   * scenarios fixture drift vs the Python planner's
+        //     PLANNED_TOOL_CALLS map
+        //   * scenarios file path becoming unreachable
+        //   * malformed JSON in the fixture
+        //
+        // If `python3` is unavailable in the test environment we
+        // skip gracefully — this test is a linter, not the actual
+        // measurement lane (that's slice 3).
+        let manifest = env!("CARGO_MANIFEST_DIR");
+        let repo_root = std::path::Path::new(manifest)
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("CARGO_MANIFEST_DIR must have a repo-root ancestor");
+        let script = repo_root.join("benchmarks/extreme-efficiency-eval.py");
+        assert!(
+            script.exists(),
+            "eval runner script missing at {}",
+            script.display()
+        );
+        let output = match std::process::Command::new("python3")
+            .arg(&script)
+            .arg("--dry-run")
+            .output()
+        {
+            Ok(output) => output,
+            Err(err) => {
+                eprintln!("skipping eval runner smoke: python3 unavailable ({err})");
+                return;
+            }
+        };
+        assert!(
+            output.status.success(),
+            "eval runner dry-run failed; stdout={:?}, stderr={:?}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let line_count = stdout.lines().count();
+        assert_eq!(
+            line_count, 10,
+            "dry-run must print exactly 10 plan lines (one per scenario); got {line_count}: {stdout}"
+        );
+    }
 }
