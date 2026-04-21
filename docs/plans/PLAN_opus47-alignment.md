@@ -102,12 +102,13 @@ regress — they just don't appear in the default visible set.
 
 ## Tier B — Harness Pattern Alignment
 
-### Phase O5 — Stage 0 Dense gate for identifiers (P1, 3h)
+### Phase O5 — Stage 0 Dense gate for identifiers (P1, 3h) — ✅ `3797c6a`
 
-- [ ] RED: `identifier_query_emits_null_semantic_score_for_all_results`
-- [ ] RED: `natural_language_query_still_fires_semantic_lane`
-- [ ] Unit: `analyze_retrieval_query` returns `RetrievalLane::LexicalOnly`
-- [ ] GREEN: `RetrievalLane` enum + short-circuit `semantic_results_for_query`
+- [x] RED: `identifier_query_emits_null_semantic_score_for_all_results`
+- [x] RED: `natural_language_query_still_fires_semantic_lane`
+- [x] Unit: `analyze_retrieval_query` returns `RetrievalLane::LexicalOnly`
+- [x] GREEN: `RetrievalLane` enum + short-circuit `semantic_results_for_query`
+- [x] Quality Gate: `cargo test -p codelens-mcp --features semantic` → 494 passed
 
 ### Phase O6 — Managed Agents handoff protocol (P1, 3h)
 
@@ -164,8 +165,11 @@ All 8 phases additive + feature-flagged where invasive. Full rollback =
 
 - Started: 2026-04-21
 - Last Updated: 2026-04-21
-- Current Phase: **O4 (next session — MCP-Atlas 2-arm benchmark)**
-- Completed Phases: **O1, O2, O3a** (Tier A: 3/4)
+- Current Phase: **O6 (Managed Agents handoff protocol)**
+- Completed Phases: **O1, O2, O3a, O5** (Tier A: 3/4, Tier B: 1/3)
+- Parked: **O4** (requires `ANTHROPIC_API_KEY` for SDK-direct 2-arm
+  measurement; resumes when key is available or we replace the arm
+  runner with Agent-tool subagent dispatch)
 
 ## Session Handoff Notes (2026-04-21)
 
