@@ -28,6 +28,7 @@ fn test_state() -> Arc<AppState> {
     std::fs::write(dir.join("hello.txt"), "world\n").unwrap();
     let project = ProjectRoot::new(dir.to_str().unwrap()).unwrap();
     let state = AppState::new(project, crate::tool_defs::ToolPreset::Balanced);
+    state.configure_transport_mode("http");
     Arc::new(state.with_session_store())
 }
 
@@ -90,6 +91,87 @@ fn first_tool_payload(body: &str) -> serde_json::Value {
     }
 
     payload
+}
+
+async fn initialize_profile_session(
+    app: &axum::Router,
+    trusted: bool,
+    profile: &str,
+) -> String {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json");
+    if trusted {
+        request = request.header("x-codelens-trusted-client", "true");
+    }
+    let resp = app
+        .clone()
+        .oneshot(
+            request
+                .body(axum::body::Body::from(
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "initialize",
+                        "params": {
+                            "clientInfo": {"name": "HarnessQA", "version": "2.2.0"},
+                            "profile": profile,
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    resp.headers()
+        .get("mcp-session-id")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_owned()
+}
+
+async fn post_tool_call(
+    app: &axum::Router,
+    session_id: &str,
+    trusted: bool,
+    request_id: u64,
+    name: &str,
+    arguments: serde_json::Value,
+) -> serde_json::Value {
+    let mut request = Request::builder()
+        .method("POST")
+        .uri("/mcp")
+        .header("content-type", "application/json")
+        .header("mcp-session-id", session_id);
+    if trusted {
+        request = request.header("x-codelens-trusted-client", "true");
+    }
+    let resp = app
+        .clone()
+        .oneshot(
+            request
+                .body(axum::body::Body::from(
+                    serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "method": "tools/call",
+                        "params": {
+                            "name": name,
+                            "arguments": arguments,
+                        }
+                    })
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    first_tool_payload(&body)
 }
 
 // ── POST /mcp ────────────────────────────────────────────────────────
@@ -247,7 +329,10 @@ async fn initialize_profile_sets_http_session_surface_and_tools_list() {
     assert!(body.contains("\"active_surface\":\"reviewer-graph\""));
     assert!(body.contains("\"review_architecture\""));
     assert!(body.contains("\"review_changes\""));
-    assert!(body.contains("\"cleanup_duplicate_logic\""));
+    // Deferred tools/list follows preferred namespaces first. The
+    // reviewer-graph default visible surface no longer carries
+    // cleanup_duplicate_logic in the initial list response.
+    assert!(!body.contains("\"cleanup_duplicate_logic\""));
     assert!(!body.contains("\"analyze_change_impact\""));
     assert!(!body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"assess_change_readiness\""));
@@ -1419,6 +1504,357 @@ async fn mutation_enabled_daemon_audits_trusted_client_metadata() {
 }
 
 #[tokio::test]
+async fn advisory_coordination_mode_allows_trusted_http_mutation_without_claim() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Advisory);
+    let app = build_router(state.clone());
+    let sid = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let preflight = post_tool_call(
+        &app,
+        &sid,
+        true,
+        2,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+
+    let mutation = post_tool_call(
+        &app,
+        &sid,
+        true,
+        3,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn strict_coordination_blocks_missing_claim_for_trusted_http_mutation() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Strict);
+    let app = build_router(state.clone());
+    let sid = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let preflight = post_tool_call(
+        &app,
+        &sid,
+        true,
+        2,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+
+    let mutation = post_tool_call(
+        &app,
+        &sid,
+        true,
+        3,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(false));
+    assert!(
+        mutation["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("[MissingClaim]")
+    );
+    assert!(
+        mutation["suggested_next_tools"]
+            .as_array()
+            .map(|tools| tools.iter().any(|tool| tool == "claim_files"))
+            .unwrap_or(false)
+    );
+}
+
+#[tokio::test]
+async fn strict_coordination_blocks_claim_path_mismatch_for_trusted_http_mutation() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Strict);
+    let app = build_router(state.clone());
+    let sid = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let preflight = post_tool_call(
+        &app,
+        &sid,
+        true,
+        2,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+
+    let claim = post_tool_call(
+        &app,
+        &sid,
+        true,
+        3,
+        "claim_files",
+        serde_json::json!({
+            "paths": ["other.txt"],
+            "reason": "wrong path on purpose"
+        }),
+    )
+    .await;
+    assert_eq!(claim["success"], serde_json::json!(true));
+
+    let mutation = post_tool_call(
+        &app,
+        &sid,
+        true,
+        4,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(false));
+    assert!(
+        mutation["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("[ClaimPathMismatch]")
+    );
+}
+
+#[tokio::test]
+async fn strict_coordination_blocks_overlapping_claims_for_trusted_http_mutation() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Strict);
+    let app = build_router(state.clone());
+    let sid_a = initialize_profile_session(&app, true, "refactor-full").await;
+    let sid_b = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let claim_a = post_tool_call(
+        &app,
+        &sid_a,
+        true,
+        2,
+        "claim_files",
+        serde_json::json!({
+            "paths": ["hello.txt"],
+            "reason": "session a owns hello.txt"
+        }),
+    )
+    .await;
+    assert_eq!(claim_a["success"], serde_json::json!(true));
+
+    let claim_b = post_tool_call(
+        &app,
+        &sid_b,
+        true,
+        3,
+        "claim_files",
+        serde_json::json!({
+            "paths": ["hello.txt"],
+            "reason": "session b also wants hello.txt"
+        }),
+    )
+    .await;
+    assert_eq!(claim_b["success"], serde_json::json!(true));
+
+    let preflight = post_tool_call(
+        &app,
+        &sid_b,
+        true,
+        4,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+    assert!(
+        preflight["data"]["overlapping_claims"]
+            .as_array()
+            .map(|claims| !claims.is_empty())
+            .unwrap_or(false)
+    );
+
+    let mutation = post_tool_call(
+        &app,
+        &sid_b,
+        true,
+        5,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(false));
+    assert!(
+        mutation["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("[OverlappingClaimsBlocked]")
+    );
+}
+
+#[tokio::test]
+async fn strict_coordination_allows_claim_covered_trusted_http_mutation() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Strict);
+    let app = build_router(state.clone());
+    let sid = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let preflight = post_tool_call(
+        &app,
+        &sid,
+        true,
+        2,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+
+    let claim = post_tool_call(
+        &app,
+        &sid,
+        true,
+        3,
+        "claim_files",
+        serde_json::json!({
+            "paths": ["hello.txt"],
+            "reason": "strict path coverage"
+        }),
+    )
+    .await;
+    assert_eq!(claim["success"], serde_json::json!(true));
+
+    let mutation = post_tool_call(
+        &app,
+        &sid,
+        true,
+        4,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(true));
+}
+
+#[tokio::test]
+async fn strict_coordination_gate_failure_causes_builder_audit_fail() {
+    let state = test_state();
+    state.configure_daemon_mode(crate::state::RuntimeDaemonMode::MutationEnabled);
+    state.configure_coordination_mode(crate::state::RuntimeCoordinationMode::Strict);
+    let app = build_router(state.clone());
+    let sid = initialize_profile_session(&app, true, "refactor-full").await;
+
+    let bootstrap = post_tool_call(
+        &app,
+        &sid,
+        true,
+        2,
+        "prepare_harness_session",
+        serde_json::json!({
+            "profile": "refactor-full",
+            "detail": "compact"
+        }),
+    )
+    .await;
+    assert_eq!(bootstrap["success"], serde_json::json!(true));
+
+    let preflight = post_tool_call(
+        &app,
+        &sid,
+        true,
+        3,
+        "verify_change_readiness",
+        serde_json::json!({
+            "task": "update hello.txt",
+            "changed_files": ["hello.txt"]
+        }),
+    )
+    .await;
+    assert_eq!(preflight["success"], serde_json::json!(true));
+
+    let mutation = post_tool_call(
+        &app,
+        &sid,
+        true,
+        4,
+        "replace_content",
+        serde_json::json!({
+            "relative_path": "hello.txt",
+            "old_text": "world",
+            "new_text": "mars"
+        }),
+    )
+    .await;
+    assert_eq!(mutation["success"], serde_json::json!(false));
+
+    let audit = post_tool_call(
+        &app,
+        &sid,
+        true,
+        5,
+        "audit_builder_session",
+        serde_json::json!({
+            "session_id": sid,
+        }),
+    )
+    .await;
+    assert_eq!(audit["success"], serde_json::json!(true));
+    assert_eq!(audit["data"]["status"], serde_json::json!("fail"));
+    assert!(
+        audit["data"]["findings"]
+            .as_array()
+            .map(|findings| findings
+                .iter()
+                .any(|finding| finding["code"] == serde_json::json!("mutation_gate")))
+            .unwrap_or(false)
+    );
+}
+
+#[tokio::test]
 async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     let state = test_state();
     state.set_surface(crate::tool_defs::ToolSurface::Profile(
@@ -1473,7 +1909,7 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
     assert!(body.contains("\"loaded_tiers\":[]"));
     assert!(body.contains("\"review_architecture\""));
     assert!(body.contains("\"review_changes\""));
-    assert!(body.contains("\"cleanup_duplicate_logic\""));
+    assert!(!body.contains("\"cleanup_duplicate_logic\""));
     assert!(!body.contains("\"analyze_change_impact\""));
     assert!(!body.contains("\"audit_security_context\""));
     assert!(!body.contains("\"find_symbol\""));
@@ -1495,7 +1931,7 @@ async fn deferred_tools_list_uses_preferred_namespaces_for_session() {
         vec![
             "review_architecture".to_owned(),
             "review_changes".to_owned(),
-            "cleanup_duplicate_logic".to_owned(),
+            "prepare_harness_session".to_owned(),
         ]
     );
 }
@@ -2263,7 +2699,36 @@ async fn server_card_exposes_daemon_mode() {
 }
 
 #[tokio::test]
-async fn post_notification_returns_no_content() {
+async fn server_card_advertises_supported_protocol_versions() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/.well-known/mcp.json")
+                .body(axum::body::Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains(r#""latestProtocolVersion": "2025-06-18""#),
+        "card should pin latest version, got: {body}"
+    );
+    assert!(
+        body.contains(r#""supportedProtocolVersions""#)
+            && body.contains(r#""2025-03-26""#)
+            && body.contains(r#""2025-06-18""#),
+        "card should list both supported versions, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn post_notification_returns_accepted() {
+    // Spec §"Sending Messages to the Server" item 4: JSON-RPC notifications
+    // (no `id`) and responses MUST yield 202 Accepted, not 204 No Content.
     let app = build_router(test_state());
     let resp = app
         .oneshot(
@@ -2279,7 +2744,7 @@ async fn post_notification_returns_no_content() {
         .await
         .unwrap();
 
-    assert_eq!(resp.status(), StatusCode::NO_CONTENT);
+    assert_eq!(resp.status(), StatusCode::ACCEPTED);
 }
 
 // ── GET /mcp (SSE stream) ────────────────────────────────────────────
@@ -2564,4 +3029,134 @@ fn cleanup_only_removes_expired() {
     assert_eq!(removed, 1, "only the expired session should be removed");
     assert!(store.get(&s1.id).is_none());
     assert!(store.get(&s2.id).is_some());
+}
+
+// ── 2025-06-18 compliance ────────────────────────────────────────────
+
+#[tokio::test]
+async fn post_with_unsupported_protocol_version_header_returns_bad_request() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-protocol-version", "1999-01-01")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn post_with_supported_protocol_version_header_is_accepted() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("mcp-protocol-version", "2025-06-18")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn initialize_echoes_requested_supported_protocol_version() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains(r#""protocolVersion":"2025-06-18""#),
+        "expected 2025-06-18 echoed, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn initialize_falls_back_to_latest_for_unknown_client_version() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"1999-01-01"}}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_string(resp).await;
+    assert!(
+        body.contains(r#""protocolVersion":"2025-06-18""#),
+        "expected latest fallback, got: {body}"
+    );
+}
+
+#[tokio::test]
+async fn post_from_remote_origin_is_forbidden() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("origin", "https://evil.example.com")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn post_from_localhost_origin_is_allowed() {
+    let app = build_router(test_state());
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/mcp")
+                .header("content-type", "application/json")
+                .header("origin", "http://localhost:5173")
+                .body(axum::body::Body::from(
+                    r#"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#,
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
 }

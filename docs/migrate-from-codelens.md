@@ -1,4 +1,7 @@
-# Migrate From CodeLens To Symbiote
+# [Archived] Proposed Migration From CodeLens To Symbiote
+
+> Archived proposal: CodeLens remains the public primary product name for now.
+> This document is kept only as a historical migration draft, not an active roadmap.
 
 Status: pre-cutover migration contract for the future v2.0 rename  
 Last updated: 2026-04-18  

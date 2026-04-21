@@ -9,6 +9,9 @@ pub(crate) use intent::semantic_query_for_retrieval;
 // semantic_query_for_embedding_search); re-export it so callers can name the type.
 #[allow(unused_imports)]
 pub(crate) use intent::RetrievalQueryAnalysis;
+// Stage 0 Dense gate (O5) — lane classification is load-bearing for
+// `semantic_results_for_query`, so re-export so callers/tests can name it.
+pub(crate) use intent::RetrievalLane;
 
 #[cfg(feature = "semantic")]
 pub(crate) use bridge::semantic_query_for_embedding_search;

@@ -1,19 +1,22 @@
 use super::super::{
-    optional_bool, optional_string, optional_usize, query_analysis::analyze_retrieval_query,
-    required_string, success_meta, AppState, ToolResult,
+    default_lsp_args_for_command, default_lsp_command_for_path, optional_bool, optional_string,
+    optional_usize, query_analysis::analyze_retrieval_query, required_string, success_meta,
+    AppState, ToolResult,
 };
 use super::{
     analyzer::{
         annotate_ranked_context_provenance, compact_semantic_evidence,
         merge_semantic_ranked_entries, semantic_results_for_query, semantic_scores_for_query,
     },
-    formatter::{compact_symbol_bodies, count_branches},
+    formatter::{count_branches, render_symbols_with_presentation},
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use crate::symbol_corpus::build_symbol_corpus;
-use crate::symbol_retrieval::{search_symbols_bm25f, unique_query_terms};
-use codelens_engine::{read_file, search_symbols_hybrid_with_semantic, SymbolInfo, SymbolKind};
+use crate::retrieval::symbols::{build_symbol_corpus, search_symbols_bm25f, unique_query_terms};
+use codelens_engine::{
+    find_all_word_matches, read_file, search_symbols_hybrid_with_semantic, LspRequest, SymbolInfo,
+    SymbolKind,
+};
 use serde_json::{json, Value};
 
 pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
@@ -50,15 +53,27 @@ pub fn get_symbols_overview(state: &AppState, arguments: &Value) -> ToolResult {
         symbols.truncate(max_symbols);
     }
 
-    Ok((
-        json!({
-            "symbols": symbols,
-            "count": symbols.len(),
-            "truncated": truncated,
-            "auto_summarized": stripped,
-        }),
-        success_meta(BackendKind::TreeSitter, 0.93),
-    ))
+    let mut payload = json!({
+        "symbols": symbols,
+        "count": symbols.len(),
+        "truncated": truncated,
+        "auto_summarized": stripped,
+    });
+    let mut decisions: Vec<crate::limits::LimitsApplied> = Vec::new();
+    if stripped || truncated {
+        let param = if explicit_depth.is_some() {
+            format!("depth={depth}")
+        } else {
+            format!(
+                "depth=auto (default 1, hit at {}-char budget)",
+                budget_chars
+            )
+        };
+        decisions.push(crate::limits::LimitsApplied::depth_limit(param));
+    }
+    let mut meta = success_meta(BackendKind::TreeSitter, 0.93);
+    crate::tools::transparency::attach_decisions_to_meta(&mut payload, &mut meta, decisions);
+    Ok((payload, meta))
 }
 
 pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
@@ -106,37 +121,96 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         sym
                     })
                     .collect();
-                return Ok((
-                    json!({
-                        "symbols": syms,
-                        "count": count,
-                        "body_truncated_count": 0,
-                        "body_preview": false,
-                        "backend": "scip",
-                    }),
-                    success_meta(BackendKind::Scip, 0.98),
-                ));
+                let mut payload = json!({
+                    "symbols": syms,
+                    "count": count,
+                    "body_truncated_count": 0,
+                    "body_preview": false,
+                    "backend": "scip",
+                });
+                let mut meta = success_meta(BackendKind::Scip, 0.98);
+                crate::tools::transparency::attach_decisions_to_meta(
+                    &mut payload,
+                    &mut meta,
+                    Vec::new(),
+                );
+                return Ok((payload, meta));
             }
         }
     }
 
+    // Phase O1 — per-symbol compression level caps. `body_cap` limits
+    // how many top symbols get L2 (signature + body) when
+    // `include_body` is true. `presentation_cap` limits how many
+    // symbols keep at least L1 (signature); beyond this cap they drop
+    // to L0 (id + file + line only). Both caps are overridable via
+    // `_body_cap` / `_presentation_cap` test-time knobs, defaulting to
+    // values that preserve the previous "top-3 get bodies, everyone
+    // else keeps signatures" behavior for real clients.
+    let body_cap = optional_usize(arguments, "_body_cap", 3);
+    let presentation_cap =
+        optional_usize(arguments, "_presentation_cap", max_matches.max(body_cap));
+
     Ok(state
         .symbol_index()
         .find_symbol_cached(name, file_path, include_body, exact_match, max_matches)
-        .map(|mut value| {
-            let body_truncated_count = if include_body && !body_full {
-                compact_symbol_bodies(&mut value, 3, body_line_limit, body_char_limit)
+        .map(|value| {
+            let (rendered_symbols, presentation_stats) = render_symbols_with_presentation(
+                &value,
+                include_body,
+                body_cap,
+                presentation_cap,
+                body_line_limit,
+                body_char_limit,
+                body_full,
+            );
+            let bodies_full_count = presentation_stats.signature_body_full;
+            let bodies_truncated_count = presentation_stats.signature_body_truncated;
+            let bodies_missing_count = presentation_stats.id_only + presentation_stats.signature;
+            let body_delivery = if !include_body {
+                json!({"requested": false, "status": "disabled"})
             } else {
-                0
+                let status = if bodies_missing_count == 0 && bodies_truncated_count == 0 {
+                    "full"
+                } else if bodies_missing_count > 0 && bodies_full_count == 0
+                    && bodies_truncated_count == 0
+                {
+                    "dropped"
+                } else {
+                    "partial"
+                };
+                json!({
+                    "requested": true,
+                    "status": status,
+                    "bodies_full": bodies_full_count,
+                    "bodies_truncated": bodies_truncated_count,
+                    "bodies_omitted_over_cap": bodies_missing_count,
+                    "max_symbols_with_body": if body_full { value.len() } else { body_cap },
+                    "line_limit": if body_full { 0 } else { body_line_limit },
+                    "char_limit": if body_full { 0 } else { body_char_limit },
+                    "hint": if !body_full && (bodies_truncated_count > 0 || bodies_missing_count > 0) {
+                        "pass body_full=true for untruncated bodies, or narrow the query (file_path/exact_match) to fit within the default cap"
+                    } else {
+                        ""
+                    },
+                })
             };
-            // 0-result fallback hint: agents guessing a slightly wrong name
-            // hit dead-ends silently otherwise. Recommend the fuzzy path.
             let mut payload = json!({
-                "symbols": value,
+                "symbols": rendered_symbols,
                 "count": value.len(),
-                "body_truncated_count": body_truncated_count,
+                "body_truncated_count": bodies_truncated_count,
                 "body_preview": include_body && !body_full,
+                "body_delivery": body_delivery,
+                "presentation_summary": {
+                    "id_only": presentation_stats.id_only,
+                    "signature": presentation_stats.signature,
+                    "signature_body_full": presentation_stats.signature_body_full,
+                    "signature_body_truncated": presentation_stats.signature_body_truncated,
+                    "body_cap": body_cap,
+                    "presentation_cap": presentation_cap,
+                },
             });
+            let mut decisions: Vec<crate::limits::LimitsApplied> = Vec::new();
             if value.is_empty() {
                 if let Some(map) = payload.as_object_mut() {
                     map.insert(
@@ -164,8 +238,15 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                         }),
                     );
                 }
+                decisions.push(crate::limits::LimitsApplied::exact_match_only(name));
             }
-            (payload, success_meta(BackendKind::TreeSitter, 0.93))
+            let mut meta = success_meta(BackendKind::TreeSitter, 0.93);
+            crate::tools::transparency::attach_decisions_to_meta(
+                &mut payload,
+                &mut meta,
+                decisions,
+            );
+            (payload, meta)
         })?)
 }
 
@@ -286,11 +367,30 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     let include_body = optional_bool(arguments, "include_body", false);
     let depth = optional_usize(arguments, "depth", 2);
     let disable_semantic = optional_bool(arguments, "disable_semantic", false);
+    // P1-4 caller wiring: opt-in LSP reference boost. When `true`, the
+    // handler asks the LSP pool for `textDocument/references` on the
+    // query target, collects the hit files, and feeds them through
+    // `get_ranked_context_cached_with_lsp_boost`. The probe is
+    // best-effort — if no `path` was supplied, if no LSP command is
+    // available, or if the LSP call fails, the handler silently falls
+    // back to the default (empty-boost) path so the response is
+    // byte-identical to `lsp_boost=false`. Default `false` preserves
+    // the existing benchmark envelope.
+    let lsp_boost = optional_bool(arguments, "lsp_boost", false);
     let exact_identifier_projection = query_analysis.original_query
         != query_analysis.expanded_query
         && !query_analysis.expanded_query.contains(char::is_whitespace);
     let effective_disable_semantic =
         disable_semantic || query_analysis.prefer_lexical_only || exact_identifier_projection;
+    // Semantic lane readiness: the embedding index must be warm AND
+    // the feature must be compiled in. When cold, the handler used to
+    // keep `semantic_enabled=true` in the response envelope even
+    // though every symbol's `provenance.semantic_score` came back
+    // `null`. The harness had no way to tell that semantic actually
+    // contributed nothing — so it made downstream decisions under a
+    // false premise. Fold readiness into the effective flag here.
+    let semantic_ready = super::semantic_lane_ready(state);
+    let effective_disable_semantic = effective_disable_semantic || !semantic_ready;
     let use_semantic_in_core = !effective_disable_semantic;
     // Build semantic scores for hybrid ranking if embeddings are available.
     // The default model is the bundled CodeSearchNet MiniLM-L12 INT8 variant.
@@ -320,15 +420,25 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     // query-type-aware weights available via get_ranked_context_cached_with_query_type
     // but current dataset shows default weights are near-optimal (0.680 MRR).
     // Kept as None until per-type weight tuning yields measurable improvement.
-    let mut result = state.symbol_index().get_ranked_context_cached(
-        &query_analysis.expanded_query,
-        path,
-        max_tokens,
-        include_body,
-        depth,
-        Some(&state.graph_cache()),
-        boosted_scores,
-    )?;
+    let (lsp_boost_refs, lsp_signal_weight) = if lsp_boost {
+        lsp_boost_probe(state, query, path)
+    } else {
+        (std::collections::HashMap::new(), None)
+    };
+    let mut result = state
+        .symbol_index()
+        .get_ranked_context_cached_with_lsp_boost(
+            &query_analysis.expanded_query,
+            path,
+            max_tokens,
+            include_body,
+            depth,
+            Some(&state.graph_cache()),
+            boosted_scores,
+            None,
+            lsp_boost_refs,
+            lsp_signal_weight,
+        )?;
     let structural_keys = result
         .symbols
         .iter()
@@ -386,6 +496,15 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
             json!({
                 "semantic_enabled": !effective_disable_semantic,
                 "semantic_used_in_core": use_semantic_in_core,
+                // `semantic_ready` is orthogonal to `semantic_enabled`:
+                // the former reports whether the embedding index is
+                // warm (structural readiness of the lane), the latter
+                // reports whether the lane actually contributed to
+                // this call (caller may have disabled it, query may
+                // be an identifier, etc). Exposing both lets the
+                // harness distinguish "turned off by policy" from
+                // "lane is cold, warm me up".
+                "semantic_ready": semantic_ready,
                 "preferred_lane": if query_analysis.prefer_sparse_symbol_search {
                     "sparse_bm25f"
                 } else if effective_disable_semantic {
@@ -411,7 +530,39 @@ pub fn get_ranked_context(state: &AppState, arguments: &Value) -> ToolResult {
     } else {
         BackendKind::Semantic
     };
-    Ok((payload, success_meta(backend, 0.91)))
+
+    let mut decisions: Vec<crate::limits::LimitsApplied> = Vec::new();
+    if result.pruned_count > 0 {
+        let returned = result.symbols.len();
+        let total = returned + result.pruned_count;
+        decisions.push(crate::limits::LimitsApplied::budget_prune(
+            returned,
+            total,
+            result.last_kept_score,
+            format!("max_tokens={max_tokens}"),
+        ));
+    }
+    // Semantic index cold / caller did not disable semantic, but the
+    // lane could not contribute. Two triggers:
+    //   a) lane produced zero evidence even though it ran
+    //      (`!effective_disable_semantic`), or
+    //   b) lane never ran because the index is cold (`!semantic_ready`)
+    //      and the caller had not turned semantic off.
+    //      Previously (b) was hidden because the envelope still
+    //      advertised `semantic_enabled=true`; now we downgrade the
+    //      envelope AND surface the cold index as a decision so the
+    //      harness knows a warmup would change the answer.
+    let semantic_wanted =
+        !disable_semantic && !query_analysis.prefer_lexical_only && !exact_identifier_projection;
+    if (!effective_disable_semantic && semantic_results.is_empty())
+        || (semantic_wanted && !semantic_ready)
+    {
+        decisions.push(crate::limits::LimitsApplied::index_partial("semantic"));
+    }
+
+    let mut meta = success_meta(backend, 0.91);
+    crate::tools::transparency::attach_decisions_to_meta(&mut payload, &mut meta, decisions);
+    Ok((payload, meta))
 }
 
 pub fn refresh_symbol_index(state: &AppState, _arguments: &Value) -> ToolResult {
@@ -704,4 +855,134 @@ mod confidence_tier_tests {
             "low"
         );
     }
+}
+
+/// P1-4 caller wiring: run a best-effort reference probe for `query`
+/// anchored at `path` and turn the hit files into a boost set.
+///
+/// Strategy mirrors `find_referencing_symbols` with `union=true`: try
+/// LSP `textDocument/references` first, then merge tree-sitter text
+/// references. The tree-sitter pass is the key fallback — LSP is
+/// commonly cold (returning 0 refs for 5-30s on rust-analyzer /
+/// pyright), and without a fallback the boost would be silently inert
+/// on every cold CLI invocation. The union gives us a populated set
+/// whenever *either* backend resolves anything, so the P1-4 wiring
+/// meets the caller regardless of LSP readiness. Matches the
+/// `benchmarks/results/v1.9.46-lsp-reference-precision.json` finding
+/// that tree-sitter refs are a useful floor, not a ceiling.
+///
+/// Returns `(files, weight)`. Empty set means the caller should fall
+/// through to the default no-op path; the weight is read from
+/// `CODELENS_LSP_SIGNAL_WEIGHT` (default `0.25`).
+fn lsp_boost_probe(
+    state: &AppState,
+    query: &str,
+    path: Option<&str>,
+) -> (std::collections::HashMap<String, Vec<usize>>, Option<f64>) {
+    let empty = (std::collections::HashMap::new(), None);
+    let Some(path) = path else {
+        return empty;
+    };
+
+    let mut refs_by_file: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
+
+    // LSP leg — optional, only fires when an LSP command is available
+    // and the query resolves to an anchor symbol inside `path`.
+    if let Some(command) = default_lsp_command_for_path(path) {
+        let anchor = match state
+            .symbol_index()
+            .find_symbol(query, Some(path), false, true, 1)
+        {
+            Ok(rows) => rows.into_iter().next().map(|s| (s.line, s.column)),
+            Err(_) => None,
+        };
+        if let Some((line, column)) = anchor {
+            let request = LspRequest {
+                command: command.clone(),
+                args: default_lsp_args_for_command(&command),
+                file_path: path.to_owned(),
+                line,
+                column,
+                max_results: 64,
+            };
+            if let Ok(refs) = state.lsp_pool().find_referencing_symbols(&request) {
+                for r in refs {
+                    refs_by_file.entry(r.file_path).or_default().push(r.line);
+                }
+            }
+        }
+    }
+
+    // Tree-sitter leg — always attempted; populates callers that LSP
+    // has not yet surfaced (e.g. cold rust-analyzer) or cannot see
+    // (languages without an installed LSP recipe). We prefer
+    // `find_all_word_matches` over `find_referencing_symbols_via_text`
+    // here because the boost probe cares about **file coverage**
+    // (does schemas.ts see any safeParse refs?) rather than the 128
+    // highest-ranked individual refs. In large monorepos the global
+    // 128-ref cap in the referencing helper saturates on test files
+    // alphabetically and silently excludes the interface-bearing file
+    // we actually want to promote (zod `classic/schemas.ts` was the
+    // smoking-gun case, 875 matches × 86 files → container file missed).
+    // Per-file cap keeps hot files from dominating the signal set,
+    // global cap bounds the downstream ranking cost.
+    const LSP_BOOST_PER_FILE_CAP: usize = 8;
+    const LSP_BOOST_GLOBAL_CAP: usize = 512;
+    // Test files deflect the global cap from the production files an
+    // agent actually wants to navigate to. In zod the `tests/` trees
+    // fire ~800 of 875 safeParse matches and saturated the cap before
+    // `classic/schemas.ts` (the ZodType interface container) was ever
+    // visited. Two-pass collection: production files first, then tests
+    // fill the remainder. This keeps tests eligible when the caller
+    // graph is sparse without letting them crowd out interfaces.
+    fn is_test_path(p: &str) -> bool {
+        let lower = p.to_ascii_lowercase();
+        lower.contains("/tests/")
+            || lower.contains("/test/")
+            || lower.contains("/__tests__/")
+            || lower.ends_with(".test.ts")
+            || lower.ends_with(".test.tsx")
+            || lower.ends_with(".test.js")
+            || lower.ends_with(".spec.ts")
+            || lower.ends_with(".spec.js")
+            || lower.ends_with("_test.go")
+            || lower.ends_with("_test.py")
+            || lower.ends_with("_test.rs")
+    }
+    if let Ok(matches) = find_all_word_matches(&state.project(), query) {
+        let mut per_file: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut total = 0usize;
+        for pass in 0..2 {
+            let want_tests = pass == 1;
+            for (file, line, _col) in &matches {
+                if total >= LSP_BOOST_GLOBAL_CAP {
+                    break;
+                }
+                if is_test_path(file) != want_tests {
+                    continue;
+                }
+                let count = per_file.entry(file.clone()).or_insert(0);
+                if *count >= LSP_BOOST_PER_FILE_CAP {
+                    continue;
+                }
+                *count += 1;
+                total += 1;
+                refs_by_file.entry(file.clone()).or_default().push(*line);
+            }
+            if total >= LSP_BOOST_GLOBAL_CAP {
+                break;
+            }
+        }
+    }
+
+    if refs_by_file.is_empty() {
+        return empty;
+    }
+    let weight = std::env::var("CODELENS_LSP_SIGNAL_WEIGHT")
+        .ok()
+        .and_then(|s| s.parse::<f64>().ok())
+        .unwrap_or(0.25);
+    (refs_by_file, Some(weight))
 }

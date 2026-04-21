@@ -1,4 +1,9 @@
-//! Streamable HTTP transport for MCP (protocol version 2025-03-26).
+//! Streamable HTTP transport for MCP.
+//!
+//! Negotiates protocol versions declared in `protocol::SUPPORTED_PROTOCOL_VERSIONS`
+//! (currently 2025-06-18 and 2025-03-26). Clients pin a version on subsequent
+//! requests via the `MCP-Protocol-Version` header; absent → legacy 2025-03-26,
+//! unknown → 400.
 //!
 //! Endpoints:
 //! - POST /mcp: JSON-RPC requests. Supports Accept: application/json (default) or text/event-stream (SSE).
@@ -13,7 +18,7 @@ use super::transport_http_support::{
     create_initialize_session, extract_initialize_metadata, into_mcp_response,
 };
 use crate::AppState;
-use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
+use crate::protocol::{JsonRpcRequest, JsonRpcResponse, SUPPORTED_PROTOCOL_VERSIONS};
 use crate::tool_defs::{ToolProfile, ToolSurface, default_budget_for_profile};
 use anyhow::Result;
 use axum::extract::State;
@@ -26,6 +31,41 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio_stream::StreamExt;
 use tokio_stream::wrappers::ReceiverStream;
+
+/// Origin header gate — spec §"Security Warning": servers MUST validate Origin
+/// to defeat DNS rebinding attacks. We allow requests that either omit Origin
+/// (curl, same-process tests, stdio-style agents) or present one pointing at
+/// localhost. A non-local Origin means a browser on another site is driving
+/// the request, which is exactly the rebind scenario we refuse.
+fn origin_is_permitted(headers: &HeaderMap) -> bool {
+    let Some(origin) = headers.get("origin").and_then(|v| v.to_str().ok()) else {
+        return true;
+    };
+    if origin == "null" {
+        return true;
+    }
+    let Some(host) = origin
+        .split_once("://")
+        .and_then(|(_, rest)| rest.split('/').next())
+    else {
+        return false;
+    };
+    let host_only = host.rsplit_once(':').map(|(h, _)| h).unwrap_or(host);
+    matches!(host_only, "localhost" | "127.0.0.1" | "[::1]" | "::1")
+}
+
+/// Spec §"Protocol Version Header": clients MUST send `MCP-Protocol-Version`
+/// on every request after initialize. When absent we fall back to `2025-03-26`
+/// for legacy clients; when present but unsupported we reply 400.
+fn protocol_version_header_ok(headers: &HeaderMap) -> bool {
+    match headers
+        .get("mcp-protocol-version")
+        .and_then(|v| v.to_str().ok())
+    {
+        None => true,
+        Some(version) => SUPPORTED_PROTOCOL_VERSIONS.contains(&version),
+    }
+}
 
 fn initialize_surface_and_budget(
     state: &AppState,
@@ -203,6 +243,13 @@ async fn mcp_post_handler(
     headers: HeaderMap,
     body: String,
 ) -> Response {
+    if !origin_is_permitted(&headers) {
+        return (StatusCode::FORBIDDEN, "Origin not permitted").into_response();
+    }
+    if !protocol_version_header_ok(&headers) {
+        return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
+    }
+
     let session_id = headers
         .get("mcp-session-id")
         .and_then(|v| v.to_str().ok())
@@ -297,8 +344,9 @@ async fn mcp_post_handler(
     };
 
     let Some(resp) = response else {
-        // Notification — no response needed
-        return StatusCode::NO_CONTENT.into_response();
+        // Spec §"Sending Messages to the Server" item 4: a notification or
+        // response body with no JSON-RPC reply returns 202 Accepted, not 204.
+        return StatusCode::ACCEPTED.into_response();
     };
 
     into_mcp_response(
@@ -312,6 +360,13 @@ async fn mcp_post_handler(
 // ── GET /mcp (persistent SSE stream) ──────────────────────────────────
 
 async fn mcp_get_handler(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if !origin_is_permitted(&headers) {
+        return (StatusCode::FORBIDDEN, "Origin not permitted").into_response();
+    }
+    if !protocol_version_header_ok(&headers) {
+        return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
+    }
+
     let session_id = headers.get("mcp-session-id").and_then(|v| v.to_str().ok());
 
     let Some(session_id) = session_id else {
@@ -353,14 +408,20 @@ async fn mcp_get_handler(State(state): State<Arc<AppState>>, headers: HeaderMap)
 
 // ── DELETE /mcp (session termination) ─────────────────────────────────
 
-async fn mcp_delete_handler(State(state): State<Arc<AppState>>, headers: HeaderMap) -> StatusCode {
+async fn mcp_delete_handler(State(state): State<Arc<AppState>>, headers: HeaderMap) -> Response {
+    if !origin_is_permitted(&headers) {
+        return (StatusCode::FORBIDDEN, "Origin not permitted").into_response();
+    }
+    if !protocol_version_header_ok(&headers) {
+        return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
+    }
     if let Some(id) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok())
         && let Some(store) = &state.session_store
     {
         store.remove(id);
         tracing::debug!(session_id = id, "session terminated by client");
     }
-    StatusCode::NO_CONTENT
+    StatusCode::NO_CONTENT.into_response()
 }
 
 // ── Phase 4d: single-instance port guard tests ─────────────────────

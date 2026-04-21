@@ -1,0 +1,59 @@
+{
+  "$comment": "Baseline thresholds for PLAN_extreme-efficiency bench gate. Source of truth is docs/plans/PLAN_extreme-efficiency.md. Updated when a phase lands and delta is confirmed.",
+  "schema_version": 1,
+  "recorded_at": "2026-04-21",
+  "recorded_after_commit": "3bda831",
+  "phase": "P0",
+  "tasks": {
+    "find_symbol_body": {
+      "description": "find_symbol with include_body=true returns body in response",
+      "call": {
+        "tool": "find_symbol",
+        "arguments": {
+          "name": "widget_fn",
+          "include_body": true,
+          "exact_match": true,
+          "max_matches": 5
+        }
+      },
+      "current": {
+        "payload_bytes": 2800,
+        "latency_ms_p95": 50
+      },
+      "thresholds": {
+        "payload_bytes_max": 3000,
+        "latency_ms_p95_max": 200
+      },
+      "target_after_phase_p1": {
+        "$comment": "Primitive mode keeps suggested_next_tools — the CodeLens signature orchestration hint — even though it costs ~120 bytes. Rationale: the hint steers the next agent-loop call (e.g. find_referencing_symbols after find_symbol) and the savings from avoiding one uninformed follow-up call dominate the ~120-byte cost many times over. Target keeps the ≤1.5× Serena ceiling (Serena 662 b × 1.5 ≈ 993, rounded to 1100 for headroom).",
+        "payload_bytes_max": 1100
+      }
+    },
+    "review_architecture": {
+      "description": "review_architecture cold call on test fixture",
+      "call": {
+        "tool": "review_architecture",
+        "arguments": {}
+      },
+      "current": {
+        "latency_ms_cold_p95": 500,
+        "latency_ms_warm_p95": 500
+      },
+      "thresholds": {
+        "latency_ms_cold_p95_max": 60000,
+        "latency_ms_warm_p95_max": 10000
+      },
+      "target_after_phase_p2": {
+        "latency_ms_cold_p95_max": 3000,
+        "latency_ms_warm_p95_max": 500
+      }
+    }
+  },
+  "consistency_checks": {
+    "semantic_ready_cross_tool": {
+      "description": "review_architecture and get_ranked_context must report identical semantic readiness for the same session",
+      "current_status": "FAILING",
+      "phase_gating": "P3"
+    }
+  }
+}

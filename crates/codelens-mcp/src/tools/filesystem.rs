@@ -1,6 +1,6 @@
 use super::{
-    AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
-    success_meta,
+    optional_bool, optional_string, optional_usize, required_string, success_meta, AppState,
+    ToolResult,
 };
 use crate::client_profile::ClientProfile;
 use crate::error::CodeLensError;
@@ -9,7 +9,7 @@ use codelens_engine::{
     detect_frameworks, detect_workspace_packages, find_files, list_dir, read_file,
     search_for_pattern, search_for_pattern_smart,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 /// Load `.codelens/config.json` as project-level config policy.
 /// Returns null if file doesn't exist or is malformed.
@@ -108,37 +108,52 @@ pub fn search_for_pattern_tool(state: &AppState, arguments: &serde_json::Value) 
     let ctx_before = optional_usize(arguments, "context_lines_before", ctx_fallback);
     let ctx_after = optional_usize(arguments, "context_lines_after", ctx_fallback);
 
-    if smart {
-        Ok(search_for_pattern_smart(
+    let (matches_json, returned, backend, confidence) = if smart {
+        let v = search_for_pattern_smart(
             &state.project(),
             pattern,
             file_glob,
             max_results,
             ctx_before,
             ctx_after,
-        )
-        .map(|value| {
-            (
-                json!({ "matches": value, "count": value.len() }),
-                success_meta(BackendKind::TreeSitter, 0.96),
-            )
-        })?)
+        )?;
+        let n = v.len();
+        (json!(v), n, BackendKind::TreeSitter, 0.96)
     } else {
-        Ok(search_for_pattern(
+        let v = search_for_pattern(
             &state.project(),
             pattern,
             file_glob,
             max_results,
             ctx_before,
             ctx_after,
-        )
-        .map(|value| {
-            (
-                json!({ "matches": value, "count": value.len() }),
-                success_meta(BackendKind::Filesystem, 0.98),
-            )
-        })?)
+        )?;
+        let n = v.len();
+        (json!(v), n, BackendKind::Filesystem, 0.98)
+    };
+
+    let mut payload = json!({ "matches": matches_json, "count": returned });
+
+    let mut decisions: Vec<crate::limits::LimitsApplied> = Vec::new();
+    if returned >= max_results {
+        // Engine stopped at the cap. We cannot know the true total
+        // without a second, uncapped pass — honestly surface the cap
+        // with returned == total and dropped == 0.
+        decisions.push(crate::limits::LimitsApplied::sampling(
+            returned,
+            returned,
+            format!("max_results={max_results}"),
+        ));
     }
+    if let Some(glob) = file_glob {
+        decisions.push(crate::limits::LimitsApplied::filter_applied(format!(
+            "file_glob={glob}"
+        )));
+    }
+
+    let mut meta = success_meta(backend, confidence);
+    crate::tools::transparency::attach_decisions_to_meta(&mut payload, &mut meta, decisions);
+    Ok((payload, meta))
 }
 
 pub fn find_annotations(state: &AppState, arguments: &serde_json::Value) -> ToolResult {

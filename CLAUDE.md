@@ -107,11 +107,36 @@ Instead of choosing from 90 individual tools, use these **workflow patterns**:
 
 **Precision note**: For type-aware refactoring (rename across type hierarchies, find implementations), use `use_lsp=true` on `find_referencing_symbols`. tree-sitter alone may miss type-level relationships.
 
-## Agent Roles
+## Agent Roles + Model × CodeLens Workflow Matrix
 
-- **Codex**: implementation, local refactor, direct test execution
-- **Claude**: orchestration, review, evaluation, harness supervision
-- CodeLens = external coprocessor, not embedded runtime
+**Tier separation** (orchestrator-worker pattern, 2026-04-21 측정 기반):
+
+- **Worker (Haiku 4.5)** — `codelens-explorer`. bounded·mechanical. file scan, exact lookup.
+- **Default (Sonnet 4.6)** — `orchestrator`, `supervisor`, `builder`, `codex-builder`. multi-file 분석·합성·draft.
+- **Critic (Opus 4.7)** — `evaluator`. judgment·acceptance scoring·plan critique.
+- **Specialist (Codex)** — `codex-builder`가 위임. 확정된 plan의 bulk mutation. read-only Q&A 부적합.
+- CodeLens = external coprocessor, not embedded runtime.
+
+**Model × CodeLens workflow 매트릭스**:
+
+| CodeLens Workflow                        | 추천 tier          | 이유                            |
+| ---------------------------------------- | ------------------ | ------------------------------- |
+| `prepare_harness_session`                | Worker (Haiku)     | mechanical bootstrap            |
+| `find_symbol`/`get_symbols_overview`     | Worker (Haiku)     | 정확한 path 기반 lookup         |
+| `find_referencing_symbols`               | Worker (Haiku)     | bounded scan                    |
+| `analyze_change_request`                 | Default (Sonnet)   | judgment 일부 + multi-file 합성 |
+| `impact_report`/`refactor_safety_report` | Default (Sonnet)   | multi-file synthesis            |
+| `review_changes`+`semantic_code_review`  | Critic (Opus)      | judgment-heavy review           |
+| `verify_change_readiness` 후 mutation    | Specialist (Codex) | 확정된 patch 적용               |
+| `start_analysis_job` (대용량 비동기)     | Default (Sonnet)   | poll + section assembly         |
+
+## Subagent CodeLens 가이드 (`mcpServers` scoping)
+
+- 모든 subagent는 default로 `mcpServers: ["codelens"]` 만 노출 (10-20K 토큰 절약).
+- `serena`/`claude-in-chrome`은 명시적으로 필요한 subagent에만 추가.
+- `codex` MCP는 `codex-builder`에만 (`mcpServers: ["codelens", "codex"]`).
+- read-only subagent (`codelens-explorer`)는 `tools` 화이트리스트로 mutation tools 차단 — 이미 적용됨.
+- subagent의 `maxTurns`는 tier에 맞춰: Worker 8, Default 15-25, Critic 10, Specialist 20.
 
 ## Routing
 

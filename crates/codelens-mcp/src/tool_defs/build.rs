@@ -7,6 +7,7 @@ use serde_json::json;
 use std::sync::LazyLock;
 
 static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_tools);
+static HIDDEN_COMPAT_TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_hidden_compat_tools);
 
 fn estimate_serialized_tokens(tool: &Tool) -> usize {
     serde_json::to_string(tool)
@@ -23,6 +24,7 @@ fn tool_title_override(name: &str) -> Option<&'static str> {
         "get_complexity" => Some("Complexity"),
         "check_lsp_status" => Some("LSP Status"),
         "get_lsp_recipe" => Some("LSP Recipe"),
+        "get_lsp_readiness" => Some("LSP Readiness"),
         "get_changed_files" => Some("Changed Files"),
         "get_impact_analysis" => Some("Impact Analysis"),
         "get_symbol_importance" => Some("Symbol Importance"),
@@ -77,7 +79,18 @@ pub(crate) fn tools() -> &'static [Tool] {
 }
 
 pub(crate) fn tool_definition(name: &str) -> Option<&'static Tool> {
-    tools().iter().find(|tool| tool.name == name)
+    tools()
+        .iter()
+        .find(|tool| tool.name == name)
+        .or_else(|| {
+            HIDDEN_COMPAT_TOOLS
+                .iter()
+                .find(|tool| tool.name == name)
+        })
+        .or_else(|| {
+            super::presets::deprecated_workflow_alias(name)
+                .and_then(|(replacement, _)| tools().iter().find(|tool| tool.name == replacement))
+        })
 }
 
 fn build_tools() -> Vec<Tool> {
@@ -111,8 +124,8 @@ fn build_tools() -> Vec<Tool> {
 
         // ── Symbol Lookup (use these to understand code) ────────────────
         Tool::new("get_symbols_overview", "[CodeLens:Symbol] List all symbols in a file — structural map. Use first to understand a file.", json!({"required":["path"],"type":"object","properties":{"path":{"type":"string"},"depth":{"type":"integer"}}})).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
-        Tool::new("find_symbol", "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body.", json!({"type":"object","properties":{"name":{"type":"string","description":"Symbol name to search for"},"symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},"file_path":{"type":"string"},"include_body":{"type":"boolean"},"exact_match":{"type":"boolean"},"max_matches":{"type":"integer"}}})).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
-        Tool::new("get_ranked_context", "[CodeLens:Symbol] Smart context retrieval — best symbols for a query within token budget.", json!({"required":["query"],"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"},"disable_semantic":{"type":"boolean","description":"Disable semantic/hybrid ranking and use structural signals only"}}})).with_output_schema(ranked_context_output_schema()).with_annotations(ro_a.clone()).with_max_response_tokens(4096),
+        Tool::new("find_symbol", "[CodeLens:Symbol] Find function/class by exact name. Returns signature + body. Pass include_body=true to receive bodies; response.body_delivery reports per-call delivery status (full/truncated/partial/dropped/disabled) so the harness knows whether to issue a follow-up read.", json!({"type":"object","properties":{"name":{"type":"string","description":"Symbol name to search for"},"symbol_id":{"type":"string","description":"Stable symbol ID (file#kind:name_path). Overrides name."},"file_path":{"type":"string"},"include_body":{"type":"boolean","description":"Populate `body` per symbol (only the top 3 by default — see max_symbols_with_body in body_delivery)."},"exact_match":{"type":"boolean"},"max_matches":{"type":"integer"},"body_full":{"type":"boolean","description":"When include_body=true, skip the preview truncation and cap so every matched symbol receives its untruncated body (use with narrow queries)."},"body_line_limit":{"type":"integer","description":"Preview line cap per body (default 12; ignored when body_full=true)."},"body_char_limit":{"type":"integer","description":"Preview char cap per body (default 600; ignored when body_full=true)."}}})).with_output_schema(symbol_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new("get_ranked_context", "[CodeLens:Symbol] Smart context retrieval — best symbols for a query within token budget.", json!({"required":["query"],"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"},"disable_semantic":{"type":"boolean","description":"Disable semantic/hybrid ranking and use structural signals only"},"lsp_boost":{"type":"boolean","description":"Opt-in P1-4: run a textDocument/references probe on the query target and boost symbols in the hit files. Requires `path` and an installed LSP server. Weight comes from $CODELENS_LSP_SIGNAL_WEIGHT (default 0.25); falls back to the no-boost path silently on any failure."}}})).with_output_schema(ranked_context_output_schema()).with_annotations(ro_a.clone()).with_max_response_tokens(4096),
         Tool::new("bm25_symbol_search", "[CodeLens:Symbol] Sparse BM25-F symbol retrieval — best for identifiers, signatures, path tokens, and short lexical phrases.", json!({"required":["query"],"type":"object","properties":{"query":{"type":"string"},"max_results":{"type":"integer","description":"Maximum number of results to return (default 10)"},"include_tests":{"type":"boolean","description":"Include test symbols in the candidate pool"},"include_generated":{"type":"boolean","description":"Include generated symbols in the candidate pool"}}})).with_output_schema(bm25_symbol_search_output_schema()).with_annotations(ro_a.clone()),
         Tool::new("search_symbols_fuzzy", "[CodeLens:Symbol] Fuzzy symbol search — tolerates typos and partial names.", json!({"required":["query"],"type":"object","properties":{"query":{"type":"string","description":"Symbol name to search for"},"max_results":{"type":"integer","description":"Maximum number of results to return (default 30)"},"fuzzy_threshold":{"type":"number","description":"Minimum jaro_winkler similarity 0.0-1.0 for fuzzy matches (default 0.6)"},"disable_semantic":{"type":"boolean","description":"Disable semantic score blending and use lexical search only"}}})).with_annotations(ro_a.clone()),
         Tool::new("get_complexity", "[CodeLens:Analysis] Cyclomatic complexity for functions. Use to find code needing refactoring.", json!({"required":["path"],"type":"object","properties":{"path":{"type":"string"},"symbol_name":{"type":"string"}}})).with_annotations(ro_a.clone()),
@@ -120,20 +133,19 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("get_project_structure", "[CodeLens:Symbol] Directory-level overview — file counts and symbol density per directory.", json!({"type":"object","properties":{}})).with_output_schema(get_project_structure_output_schema()).with_annotations(ro_p.clone()),
 
         // ── LSP (type-aware operations) ─────────────────────────────────
-        Tool::new("find_referencing_symbols", "[CodeLens:Symbol] Find all usages of a symbol. use_lsp=true for type-aware precision.", json!({"required":["file_path"],"type":"object","properties":{"file_path":{"type":"string","description":"File containing or declaring the symbol"},"symbol_name":{"type":"string","description":"Symbol name (default: tree-sitter search)"},"line":{"type":"integer","description":"Line number (triggers LSP path)"},"column":{"type":"integer","description":"Column number (triggers LSP path)"},"use_lsp":{"type":"boolean","description":"Force LSP lookup (slower but type-aware, requires LSP server)"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}})).with_output_schema(references_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new("find_referencing_symbols", "[CodeLens:Symbol] Find all usages of a symbol. use_lsp=true for type-aware precision.", json!({"required":["file_path"],"type":"object","properties":{"file_path":{"type":"string","description":"File containing or declaring the symbol"},"symbol_name":{"type":"string","description":"Symbol name (default: tree-sitter search)"},"line":{"type":"integer","description":"Line number (triggers LSP path)"},"column":{"type":"integer","description":"Column number (triggers LSP path)"},"use_lsp":{"type":"boolean","description":"Force LSP lookup (slower but type-aware, requires LSP server)"},"union":{"type":"boolean","description":"When the LSP path is taken, also run the tree-sitter text search and merge the two reference sets (deduped by file+line). Protects against LSP cold-start misses — see benchmarks/results/v1.9.46-lsp-reference-precision.json."},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}})).with_output_schema(references_output_schema()).with_annotations(ro_p.clone()),
         Tool::new("get_file_diagnostics", "[CodeLens:Symbol] Type errors and lint issues via LSP. Use after editing code.", json!({"required":["file_path"],"type":"object","properties":{"file_path":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}})).with_output_schema(diagnostics_output_schema()).with_annotations(ro_p.clone()),
         Tool::new("search_workspace_symbols", "[CodeLens:Symbol] LSP workspace symbol search. Use when you need type-system-aware results. Requires an LSP server binary via `command` (e.g. rust-analyzer / pyright); the handler returns a structured hint toward `bm25_symbol_search` when omitted.", json!({"required":["query"],"type":"object","properties":{"query":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}},"max_results":{"type":"integer"}}})).with_annotations(ro_p.clone()),
         Tool::new("get_type_hierarchy", "[CodeLens:Symbol] Inheritance hierarchy — supertypes and subtypes of a class/interface.", json!({"type":"object","properties":{"name_path":{"type":"string"},"fully_qualified_name":{"type":"string"},"relative_path":{"type":"string"},"hierarchy_type":{"type":"string","enum":["super","sub","both"]},"depth":{"type":"integer"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}})).with_output_schema(get_type_hierarchy_output_schema()).with_annotations(ro_a.clone()),
         Tool::new("plan_symbol_rename", "[CodeLens:Symbol] Preview rename refactoring via LSP — check before applying.", json!({"required":["file_path","line","column"],"type":"object","properties":{"file_path":{"type":"string"},"line":{"type":"integer"},"column":{"type":"integer"},"new_name":{"type":"string"},"command":{"type":"string"},"args":{"type":"array","items":{"type":"string"}}}})).with_annotations(ro_a.clone()),
         Tool::new("check_lsp_status", "[CodeLens:Session] Check installed LSP servers with install commands.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
         Tool::new("get_lsp_recipe", "[CodeLens:Session] Get LSP server install instructions for a file extension.", json!({"required":["extension"],"type":"object","properties":{"extension":{"type":"string","description":"File extension (e.g. 'py', 'rs')"}}})).with_annotations(ro_p.clone()),
+        Tool::new("get_lsp_readiness", "[CodeLens:Session] Per-LSP-session readiness snapshot. Poll after prepare_harness_session (auto-attach prewarm) to wait for indexing to complete instead of sleeping; each session exposes is_alive (handshake done) and is_ready (≥ 1 non-empty response) latches plus elapsed-ms timers.", json!({"type":"object","properties":{}})).with_annotations(ro_p.clone()),
 
         // ── Analysis (architecture & dependencies) ──────────────────────
         Tool::new("get_changed_files", "[CodeLens:Analysis] Files changed since a git ref with symbol counts. Use for diff review.", json!({"type":"object","properties":{"ref":{"type":"string"},"include_untracked":{"type":"boolean"}}})).with_output_schema(changed_files_output_schema()).with_annotations(ro_p.clone()),
-        Tool::new("get_impact_analysis", "[DEPRECATED v1.12 → removal v2.0] Use impact_report directly. [CodeLens:Analysis] Blast radius — what files break if you change this file. Use before risky edits.", json!({"required":["file_path"],"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}}})).with_output_schema(impact_output_schema()).with_annotations(ro_a.clone()),
         Tool::new("find_scoped_references", "[CodeLens:Analysis] Classify each reference as definition/read/write/import.", json!({"required":["symbol_name"],"type":"object","properties":{"symbol_name":{"type":"string","description":"Symbol name to find references for"},"file_path":{"type":"string","description":"Declaration file (for sorting, optional)"},"max_results":{"type":"integer","description":"Max results (default 50)"}}})).with_output_schema(references_output_schema()).with_annotations(ro_a.clone()),
         Tool::new("get_symbol_importance", "[CodeLens:Analysis] PageRank file importance — find the most critical files in the project.", json!({"type":"object","properties":{"top_n":{"type":"integer"}}})).with_annotations(ro_a.clone()),
-        Tool::new("find_dead_code", "[DEPRECATED v1.12 → removal v2.0] Use dead_code_report directly. [CodeLens:Analysis] Detect unused files and unreferenced symbols via call-graph.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
         Tool::new("find_circular_dependencies", "[CodeLens:Analysis] Detect circular imports using Tarjan SCC algorithm.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
         Tool::new("get_change_coupling", "[CodeLens:Analysis] Files that frequently change together in git history.", json!({"type":"object","properties":{"months":{"type":"integer"},"min_strength":{"type":"number"},"min_commits":{"type":"integer"},"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
 
@@ -164,8 +176,6 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("trace_request_path", "[CodeLens:Workflow] Trace a request or execution path from a function, symbol, or entrypoint.", json!({"type":"object","properties":{"function_name":{"type":"string"},"symbol":{"type":"string"},"entrypoint":{"type":"string"},"max_depth":{"type":"integer"},"max_results":{"type":"integer"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("review_architecture", "[CodeLens:Workflow] Review project or module architecture, boundaries, coupling, and optionally render a diagram.", json!({"type":"object","properties":{"path":{"type":"string"},"include_diagram":{"type":"boolean"},"max_nodes":{"type":"integer"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("plan_safe_refactor", "[CodeLens:Workflow] Preview a safe refactor plan. Uses rename safety when file_path+symbol are given; otherwise falls back to broader refactor safety analysis.", json!({"type":"object","properties":{"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"new_name":{"type":"string"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("audit_security_context", "[DEPRECATED v1.12 → removal v2.0] Use semantic_code_review directly. [CodeLens:Workflow] Review changed files for security-sensitive context, references, and semantic risk cues.", json!({"type":"object","properties":{"changed_files":{"type":"array","items":{"type":"string"}}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("analyze_change_impact", "[DEPRECATED v1.12 → removal v2.0] Use impact_report directly. [CodeLens:Workflow] Problem-first impact entrypoint for changed files or a target path.", json!({"type":"object","properties":{"path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("cleanup_duplicate_logic", "[CodeLens:Workflow] Surface duplicate or removable logic before cleanup. Uses semantic duplicate search when available, otherwise bounded dead-code evidence.", json!({"type":"object","properties":{"threshold":{"type":"number"},"max_pairs":{"type":"integer"},"scope":{"type":"string"},"max_results":{"type":"integer"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("review_changes", "[CodeLens:Workflow] Pre-merge review: diff-aware references or impact analysis for changed files.", json!({
             "type": "object",
@@ -173,14 +183,6 @@ fn build_tools() -> Vec<Tool> {
                 "changed_files": {"type": "array", "items": {"type": "string"}, "description": "File paths that changed"},
                 "task": {"type": "string", "description": "Review focus description"},
                 "path": {"type": "string", "description": "Scope path"}
-            }
-        })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("assess_change_readiness", "[DEPRECATED v1.12 → removal v2.0] Use verify_change_readiness directly. [CodeLens:Workflow] Preflight gate: verify mutation safety before code changes.", json!({
-            "type": "object",
-            "properties": {
-                "file_path": {"type": "string", "description": "Target file to check"},
-                "path": {"type": "string", "description": "Directory scope"},
-                "task": {"type": "string", "description": "Description of the planned change"}
             }
         })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("diagnose_issues", "[CodeLens:Workflow] Diagnostics: file-level issues or unresolved reference check.", json!({
@@ -245,6 +247,7 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("audit_planner_session", "[CodeLens:Session] Audit a planner/reviewer session for bootstrap, workflow-first routing, and read-side evidence discipline.", json!({"type":"object","properties":{"session_id":{"type":"string","description":"Optional logical session id. Defaults to the active _session_id."},"detail":{"type":"string","enum":["compact","full"],"description":"compact returns the ordered audit checks only; full also includes session metrics."}}})).with_output_schema(planner_session_audit_output_schema()).with_annotations(ro_a.clone()).with_max_response_tokens(4096),
         Tool::new("export_session_markdown", "[CodeLens:Session] Export session telemetry as markdown report.", json!({"type":"object","properties":{"name":{"type":"string","description":"Session name for the report header"},"session_id":{"type":"string","description":"Optional logical session id. When present, the markdown includes the role-appropriate builder or planner audit summary."}}})).with_output_schema(session_markdown_output_schema()).with_annotations(ro_p.clone()).with_max_response_tokens(4096),
         Tool::new("summarize_file", "[CodeLens:Session] Get AI-generated summary of a file's purpose and structure.", json!({"required":["path"],"type":"object","properties":{"path":{"type":"string","description":"File path to summarize"}}})).with_annotations(ro_w.clone()),
+        Tool::new("tool_search", "[CodeLens:Session] Search the full CodeLens tool registry by keyword so the agent can discover tools deferred behind the primary surface. Returns matching tool names, descriptions, and the surface they're callable from.", json!({"required":["query"],"type":"object","properties":{"query":{"type":"string","description":"Keyword or phrase to match against tool names and descriptions"},"max_results":{"type":"integer","description":"Max matches to return (default 10)"}}})).with_annotations(ro_p.clone()),
     ];
 
     // ── Semantic (feature-gated) ────────────────────────────────────
@@ -258,7 +261,27 @@ fn build_tools() -> Vec<Tool> {
         tools.push(Tool::new("find_misplaced_code", "[CodeLens:Analysis] Find symbols that are semantic outliers in their file — possible misplacement.", json!({"type":"object","properties":{"max_results":{"type":"integer","description":"Max outliers to return (default 10)"}}})).with_output_schema(find_misplaced_code_output_schema()).with_annotations(ro));
     }
 
-    for tool in &mut tools {
+    finalize_tools(&mut tools);
+
+    tools
+}
+
+fn build_hidden_compat_tools() -> Vec<Tool> {
+    let ro = ToolAnnotations::read_only();
+    let ro_a = ro.with_tier(ToolTier::Analysis);
+    let mut tools = vec![
+        // Kept out of `tools/list` so registry size reflects the
+        // canonical surface, but preserved here so direct calls and
+        // outputSchema lookups remain backward-compatible until v2.0.
+        Tool::new("get_impact_analysis", "[DEPRECATED v1.12 → removal v2.0] Use impact_report directly. [CodeLens:Analysis] Blast radius — what files break if you change this file. Use before risky edits.", json!({"required":["file_path"],"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}}})).with_output_schema(impact_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new("find_dead_code", "[DEPRECATED v1.12 → removal v2.0] Use dead_code_report directly. [CodeLens:Analysis] Detect unused files and unreferenced symbols via call-graph.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
+    ];
+    finalize_tools(&mut tools);
+    tools
+}
+
+fn finalize_tools(tools: &mut [Tool]) {
+    for tool in tools {
         let annotations = tool
             .annotations
             .take()
@@ -268,6 +291,4 @@ fn build_tools() -> Vec<Tool> {
         tool.annotations = Some(annotations);
         tool.estimated_tokens = estimate_serialized_tokens(tool);
     }
-
-    tools
 }

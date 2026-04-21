@@ -1,16 +1,18 @@
+use super::envelope::DetailLevel;
 use super::response_support::{
     apply_contextual_guidance, bounded_result_payload, budget_hint, compact_response_payload,
-    effective_budget_for_tool, max_result_size_chars_for_tool, routing_hint_for_payload,
-    success_jsonrpc_response, text_payload_for_response,
+    effective_budget_for_tool, max_result_size_chars_for_tool, primitive_response_payload,
+    routing_hint_for_payload, success_jsonrpc_response, success_jsonrpc_response_with_meta,
+    text_payload_for_response, text_payload_for_response_with_shape,
 };
-use crate::AppState;
 use crate::error::CodeLensError;
-use crate::mutation_gate::{MutationGateAllowance, MutationGateFailure, is_verifier_source_tool};
+use crate::mutation::gate::{is_verifier_source_tool, MutationGateAllowance, MutationGateFailure};
+use crate::observability::telemetry::CallTelemetryHints;
 use crate::protocol::{JsonRpcResponse, SuggestedNextCall, ToolCallResponse, ToolResponseMeta};
-use crate::telemetry::CallTelemetryHints;
-use crate::tool_defs::{ToolSurface, tool_definition};
+use crate::tool_defs::{tool_definition, ToolSurface};
 use crate::tools;
-use serde_json::{Map, Value, json};
+use crate::AppState;
+use serde_json::{json, Map, Value};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -28,6 +30,11 @@ pub(crate) struct SuccessResponseInput<'a> {
     pub recent_tools: Vec<String>,
     pub gate_allowance: Option<&'a MutationGateAllowance>,
     pub compact: bool,
+    /// Phase P1 response shape tier selected by
+    /// [`super::envelope::default_detail_level`] or overridden via
+    /// `_detail` / `_compact` argument. `compact` above is the boolean
+    /// back-compat view of the same decision.
+    pub detail: DetailLevel,
     pub harness_phase: Option<&'a str>,
     pub request_budget: usize,
     pub start: std::time::Instant,
@@ -51,6 +58,7 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
         recent_tools,
         gate_allowance,
         compact,
+        detail,
         harness_phase,
         request_budget,
         start,
@@ -161,12 +169,31 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
             .map(|tools| tools::suggestion_reasons_for(tools, name));
     }
 
-    if compact {
-        compact_response_payload(&mut resp);
+    match detail {
+        DetailLevel::Primitive => primitive_response_payload(&mut resp),
+        DetailLevel::Core => compact_response_payload(&mut resp),
+        DetailLevel::Rich => {
+            if compact {
+                compact_response_payload(&mut resp);
+            }
+        }
     }
 
     let effort_offset = state.effort_level().compression_threshold_offset();
-    let text = text_payload_for_response(&resp, structured_content.as_ref());
+    let text = text_payload_for_response_with_shape(
+        &resp,
+        structured_content.as_ref(),
+        detail.is_primitive(),
+    );
+    // Phase P1: in primitive mode skip the structuredContent
+    // duplication of the text body to stay inside the Serena-class
+    // byte envelope. Callers needing typed access explicitly request
+    // `_detail="rich"` or `_detail="core"`.
+    let structured_content = if detail.is_primitive() {
+        None
+    } else {
+        structured_content
+    };
     let (text, structured_content, truncated) = bounded_result_payload(
         text,
         structured_content,
@@ -207,7 +234,18 @@ pub(crate) fn build_success_response(input: SuccessResponseInput<'_>) -> JsonRpc
     }
 
     let max_result_size = max_result_size_chars_for_tool(name, truncated);
-    success_jsonrpc_response(id, name, text, structured_content, Some(max_result_size))
+    if detail.is_primitive() {
+        success_jsonrpc_response_with_meta(
+            id,
+            name,
+            text,
+            structured_content,
+            Some(max_result_size),
+            /* include_meta = */ false,
+        )
+    } else {
+        success_jsonrpc_response(id, name, text, structured_content, Some(max_result_size))
+    }
 }
 
 #[allow(clippy::too_many_arguments)]

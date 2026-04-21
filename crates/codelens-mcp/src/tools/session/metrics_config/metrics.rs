@@ -1,11 +1,44 @@
-use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
-use crate::tool_runtime::{ToolResult, success_meta};
+use crate::tool_runtime::{success_meta, ToolResult};
+use crate::AppState;
 use serde_json::json;
 use std::collections::VecDeque;
 
 use super::super::audit_common::{is_builder_surface, is_planner_surface};
+
+/// Phase O6 — Managed Agents handoff protocol schema version.
+///
+/// Consumers (Evaluator primitive, `audit_planner_session` /
+/// `audit_builder_session`) gate on this string so breaking shape
+/// changes require an explicit version bump instead of silently
+/// drifting across the 3-agent Planner/Generator/Evaluator pipeline.
+pub(crate) const HANDOFF_SCHEMA_VERSION: &str = "codelens-handoff-v1";
+
+/// Markdown body cap applied before the handoff artifact is returned.
+///
+/// Opus 4.7 `output_config.task_budget` puts a hard ceiling on per-call
+/// tokens. 50 KiB keeps the markdown comfortably under the inline-token
+/// cutoff while still fitting roughly 1000 lines of structured audit +
+/// telemetry. Anything larger signals a runaway session and should be
+/// persisted to disk rather than replayed inline.
+pub(crate) const HANDOFF_MAX_MARKDOWN_BYTES: usize = 50 * 1024;
+
+/// Effective markdown cap for this call.
+///
+/// The production cap is [`HANDOFF_MAX_MARKDOWN_BYTES`], but tests can
+/// force a smaller cap via `CODELENS_HANDOFF_MAX_BYTES` so the
+/// truncation path can be exercised without synthesising 50+ KiB of
+/// markdown (which itself would fight the outer MCP response
+/// compression). Values below 64 bytes are clamped to 64 so the
+/// sentinel always fits.
+fn handoff_markdown_cap() -> usize {
+    std::env::var("CODELENS_HANDOFF_MAX_BYTES")
+        .ok()
+        .and_then(|raw| raw.parse::<usize>().ok())
+        .map(|override_cap| override_cap.max(64))
+        .unwrap_or(HANDOFF_MAX_MARKDOWN_BYTES)
+}
 
 /// Bucket latency samples into a compact histogram: <10ms, <50ms, <200ms, <1s, 1s+.
 fn latency_histogram(samples: &VecDeque<u64>) -> serde_json::Value {
@@ -45,7 +78,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
                 "avg_output_tokens": if m.call_count > 0 {
                     m.total_tokens / m.call_count as usize
                 } else { 0 },
-                "p95_latency_ms": crate::telemetry::percentile_95(&m.latency_samples),
+                "p95_latency_ms": crate::observability::telemetry::percentile_95(&m.latency_samples),
                 "latency_histogram": latency_histogram(&m.latency_samples),
                 "success_rate": if m.call_count > 0 {
                     m.success_count as f64 / m.call_count as f64
@@ -72,7 +105,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
                 "avg_tokens_per_call": if metrics.call_count > 0 {
                     metrics.total_tokens / metrics.call_count as usize
                 } else { 0 },
-                "p95_latency_ms": crate::telemetry::percentile_95(&metrics.latency_samples),
+                "p95_latency_ms": crate::observability::telemetry::percentile_95(&metrics.latency_samples),
                 "surface_token_efficiency": if metrics.success_count > 0 {
                     metrics.total_tokens as f64 / metrics.success_count as f64
                 } else { 0.0 }
@@ -191,6 +224,13 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
         }
     ));
 
+    // Phase O6 — capture the audit in a structured form so the handoff
+    // artifact can ship it as JSON (see `audit_payload` in the response
+    // below) instead of forcing the Evaluator primitive to regex-scrape
+    // the markdown body.
+    let mut audit_role: Option<&'static str> = None;
+    let mut audit_value: Option<serde_json::Value> = None;
+
     if let Some(session_id) = requested_session_id {
         #[cfg(not(feature = "http"))]
         let _ = session_id;
@@ -209,14 +249,16 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
             .map(|entry| entry.surface.clone())
             .unwrap_or_else(|| state.surface().as_label().to_owned());
 
-        let (audit_title, audit) = if is_builder_surface(&current_surface) {
+        let (audit_title, audit_role_tag, audit) = if is_builder_surface(&current_surface) {
             (
                 "Builder Audit",
+                "builder",
                 super::super::builder_audit::build_builder_session_audit(state, arguments)?,
             )
         } else if is_planner_surface(&current_surface) {
             (
                 "Planner Audit",
+                "planner",
                 super::super::planner_audit::build_planner_session_audit(state, arguments)?,
             )
         } else {
@@ -227,10 +269,11 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
                 .and_then(|value| value.as_str())
                 .is_some_and(|status| status != "not_applicable")
             {
-                ("Builder Audit", builder)
+                ("Builder Audit", "builder", builder)
             } else {
                 (
                     "Planner Audit",
+                    "planner",
                     super::super::planner_audit::build_planner_session_audit(state, arguments)?,
                 )
             }
@@ -278,16 +321,56 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
                 .join(", ");
             md.push_str(&format!("- Recommended next tools: {}\n", tools));
         }
+
+        audit_role = Some(audit_role_tag);
+        audit_value = Some(audit);
     }
+
+    // Phase O6 — cap the markdown body so a runaway session cannot
+    // blow the Opus 4.7 output_config.task_budget ceiling inline. The
+    // cap emits a sentinel line so downstream Evaluator consumers can
+    // surface "artifact truncated" as a first-class signal.
+    let cap = handoff_markdown_cap();
+    let original_markdown_bytes = md.len();
+    let truncated = original_markdown_bytes > cap;
+    if truncated {
+        let mut cutoff = cap.saturating_sub(96);
+        while cutoff > 0 && !md.is_char_boundary(cutoff) {
+            cutoff -= 1;
+        }
+        md.truncate(cutoff);
+        md.push_str(&format!(
+            "\n\n_(handoff truncated at {cap}B; {} bytes dropped)_\n",
+            original_markdown_bytes - cutoff
+        ));
+    }
+    let markdown_bytes = md.len();
+
+    // Structured audit payload so Evaluator primitives can consume the
+    // handoff without regex-scraping markdown. `role` tags which audit
+    // lane produced the payload.
+    let audit_payload = match (audit_role, audit_value) {
+        (Some(role), Some(mut value)) => {
+            if let Some(obj) = value.as_object_mut() {
+                obj.insert("role".to_owned(), json!(role));
+            }
+            value
+        }
+        _ => serde_json::Value::Null,
+    };
 
     Ok((
         json!({
+            "schema_version": HANDOFF_SCHEMA_VERSION,
             "markdown": md,
+            "markdown_bytes": markdown_bytes,
+            "truncated": truncated,
             "session_name": session_name,
             "session_id": requested_session_id,
             "scope": if requested_session_id.is_some() { "session" } else { "global" },
             "tool_count": count,
             "total_calls": total_calls,
+            "audit": audit_payload,
         }),
         success_meta(BackendKind::Telemetry, 1.0),
     ))

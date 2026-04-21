@@ -1,0 +1,127 @@
+[
+  {
+    "query": "rank_symbols",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/ranking.rs",
+    "expected_symbol": "get_ranked_context_cached_with_query_type",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/reader.rs",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "prune_to_budget",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/ranking.rs",
+    "expected_symbol": "get_ranked_context",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "find_referencing_symbols_via_lsp",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/lsp/mod.rs",
+    "expected_symbol": "search_workspace_symbols_via_lsp",
+    "expected_file_suffix": "crates/codelens-engine/src/lsp/mod.rs",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "LspRequest",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/lsp/types.rs",
+    "expected_symbol": "find_referencing_symbols",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/lsp.rs",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "RankingContext",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/ranking.rs",
+    "expected_symbol": "get_ranked_context_cached_with_query_type",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/reader.rs",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "default_lsp_command_for_path",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/lsp/registry.rs",
+    "expected_symbol": "find_referencing_symbols",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/lsp.rs",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "LspSessionPool",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/lsp/session.rs",
+    "expected_symbol": "find_referencing_symbols_via_lsp",
+    "expected_file_suffix": "crates/codelens-engine/src/lsp/mod.rs",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "score_symbol_with_lower",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/scoring.rs",
+    "expected_symbol": "rank_symbols",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/ranking.rs",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "slice_source",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/parser.rs",
+    "expected_symbol": "prune_to_budget",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/ranking.rs",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "SymbolInfo",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/types.rs",
+    "expected_symbol": "rank_symbols",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/ranking.rs",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "get_symbols_overview_cached",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/reader.rs",
+    "note": "select_solve_symbols_cached body contains 3 refs (80, 100, plus wrapping); thick container",
+    "expected_symbol": "select_solve_symbols_cached",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/reader.rs",
+    "bucket": "thick_caller"
+  },
+  {
+    "query": "get_symbols_overview_cached",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/reader.rs",
+    "note": "get_ranked_context_cached_with_lsp_boost body has 3 refs to extend candidate pool",
+    "expected_symbol": "get_ranked_context_cached_with_lsp_boost",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/reader.rs",
+    "bucket": "thick_caller"
+  },
+  {
+    "query": "make_symbol_id",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/types.rs",
+    "note": "get_symbols_overview_cached in reader.rs invokes make_symbol_id 3 times",
+    "expected_symbol": "get_symbols_overview_cached",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/reader.rs",
+    "bucket": "thick_caller"
+  },
+  {
+    "query": "ensure_indexed",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/symbols/writer.rs",
+    "note": "find_symbol in symbols/mod.rs calls ensure_indexed 3 times",
+    "expected_symbol": "find_symbol",
+    "expected_file_suffix": "crates/codelens-engine/src/symbols/mod.rs",
+    "bucket": "thick_caller"
+  },
+  {
+    "query": "find_referencing_symbols_via_text",
+    "query_type": "identifier",
+    "path": "crates/codelens-engine/src/file_ops/mod.rs",
+    "note": "find_referencing_symbols in tools/lsp.rs references it 3 times (default path + union path + fallback)",
+    "expected_symbol": "find_referencing_symbols",
+    "expected_file_suffix": "crates/codelens-mcp/src/tools/lsp.rs",
+    "bucket": "thick_caller"
+  }
+]

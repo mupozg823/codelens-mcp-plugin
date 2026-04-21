@@ -472,6 +472,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         }
     }
 

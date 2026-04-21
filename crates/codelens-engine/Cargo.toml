@@ -3,11 +3,11 @@ name = "codelens-engine"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description.workspace = true
+description = "Pure Rust code intelligence engine for repository indexing, graph analysis, and local semantic retrieval"
 repository.workspace = true
 readme = "README.md"
-keywords.workspace = true
-categories.workspace = true
+keywords = ["code-intelligence", "semantic-search", "tree-sitter", "analysis", "graph"]
+categories = ["development-tools", "command-line-utilities"]
 homepage.workspace = true
 # Runtime artifacts (downloaded model weights, fastembed cache, per-project index)
 # are excluded so `cargo publish` does not try to package symlinks pointing
@@ -67,6 +67,7 @@ url.workspace = true
 walkdir.workspace = true
 libc.workspace = true
 tracing.workspace = true
+dashmap.workspace = true
 fastembed = { workspace = true, optional = true }
 ort = { version = "2.0.0-rc.11", default-features = false, optional = true }
 sqlite-vec = { workspace = true, optional = true }

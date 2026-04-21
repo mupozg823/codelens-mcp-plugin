@@ -23,40 +23,66 @@ the result count.
 
 ## 2. Recall — "does CodeLens find every mention grep would find?"
 
-### Test B. `find_referencing_symbols SerenaAgent` (file-scoped)
+### Test B. `find_referencing_symbols SerenaAgent`
 
-| Source                                            |                                                          Count | Note                                                   |
-| ------------------------------------------------- | -------------------------------------------------------------: | ------------------------------------------------------ |
-| **Ground truth** (grep `SerenaAgent\b` over src/) |                                    36 mentions across 10 files | Includes imports + type annotations + calls + comments |
-| **CodeLens** (tree-sitter, default)               | 3 refs, 1 file (`scripts/demo_progressive_tool_shortening.py`) | Missed 33/36 real mentions                             |
-| **CodeLens** (`use_lsp=true`)                     |                                                 2 refs, 1 file | Worse — LSP not warmed up                              |
+> **2026-04-19 correction.** An earlier version of this section reported
+> "3 refs, 1 file" and claimed a 33/36 recall gap. That was an artifact
+> of calling the tool with the default `max_results=20` /
+> `sample_limit=8` / `full_results=false`, which truncated the real
+> result set without making the truncation obvious in the report.
+> Re-running with explicit `max_results=500, full_results=true` gives
+> the numbers below. The honest headline is **code-reference recall
+> 100%, designed rejection of docstring / log-string / comment
+> mentions**.
 
-**Verdict: recall has a meaningful gap.** CodeLens's
-`find_referencing_symbols` is **call-graph oriented**; it walks symbol
-uses from the engine's import graph + AST. It does not return:
+Measurement command:
 
-- Plain imports (`from serena.agent import SerenaAgent`) — 11 hits missed
-- Type annotations (`agent: SerenaAgent`, `-> SerenaAgent`) — 11 hits missed
-- String/comment mentions — 7 hits missed
+```bash
+codelens-mcp --cmd find_referencing_symbols \
+  --args '{"symbol_name":"SerenaAgent","file_path":"src/serena/agent.py","max_results":500,"full_results":true}'
+```
 
-For audit-style queries ("where is X mentioned at all?"), grep wins.
-For "what calls/inherits this thing?", CodeLens is cleaner because it
-rejects literal mentions and keeps the result list short.
+| Scope                                                                       |   grep | CodeLens (tree_sitter) | overlap |         recall |
+| --------------------------------------------------------------------------- | -----: | ---------------------: | ------: | -------------: |
+| Whole repo                                                                  |     83 |                     62 |       — |          74.7% |
+| `src/` only (prior scope)                                                   |     36 |                     19 |      19 |          52.8% |
+| `src/` **code references only** (imports + annotations + class def + calls) | **19** |                 **19** |  **19** |       **100%** |
+| `src/` docstring / log-string / comment mentions                            |     17 |                      0 |       0 | 0% (by design) |
 
-### Breakdown of grep's 36 hits
+**Verdict: no code-reference recall gap.** `find_referencing_symbols`
+uses a word-boundary text pass (`find_referencing_symbols_via_text`,
+backed by the rename engine's word-match scanner) and then attaches
+the enclosing symbol via `get_symbols_overview`. The 17 misses in the
+`src/` scope are **inside docstrings, log message strings, and
+comments** — e.g. `log.info("SerenaAgent is shutting down ...")`,
+`"""Represents the set of available/exposed tools of a SerenaAgent."""`.
+CodeLens intentionally excludes these because they are not code
+references; an agent auditing string mentions should use grep.
 
-| Category                  | Count | Real callsites?                   |
-| ------------------------- | ----: | --------------------------------- |
-| `import` statements       |    11 | not callsites                     |
-| Class def / inheritance   |     5 | partial (inheritance yes, def no) |
-| Type annotations          |    11 | not callsites                     |
-| Calls `SerenaAgent(...)`  |     6 | **real callsites**                |
-| String / comment mentions |     7 | not callsites                     |
+### Breakdown of grep's 36 src/ hits
 
-So **≈6 / 36 = 17 %** of grep's hits are real callsites. CodeLens
-returned 3 — close to the ground-truth callsite count, but still missed
-~3 real callsites. Tree-sitter Python reference extraction is not
-complete.
+| Category                                             | Count | In CodeLens result? |
+| ---------------------------------------------------- | ----: | :------------------ |
+| `import` statements                                  |     6 | ✅ returned         |
+| Class def / inheritance                              |     1 | ✅ returned         |
+| Type annotations (`: SerenaAgent`, `-> SerenaAgent`) |     6 | ✅ returned         |
+| Calls `SerenaAgent(...)`                             |     6 | ✅ returned         |
+| Docstring / log-string mentions                      |    14 | ❌ by design        |
+| Comment mentions                                     |     3 | ❌ by design        |
+
+So **19 / 19 code references are returned**; the earlier "missed
+33/36" claim conflated (a) sampling truncation with (b) grep's
+inclusion of non-code text, which CodeLens's symbol-graph view
+correctly drops.
+
+### UX lesson: `sampled=true` must be louder
+
+The mistake in the original measurement was believing the
+`returned_count=3` figure at face value. The response did carry
+`sampled=true, count=62`, but that signal was easy to miss next to
+the 3-element result array. Follow-up work (C2 in the residual list)
+surfaces an explicit `sampling_notice` string on truncated responses
+so future benches — and agents — cannot make the same mistake.
 
 ### Test C. `find_symbol register` (common name)
 
@@ -145,12 +171,25 @@ repo) but conveys the wrong headline. The honest pitch is:
 
 ## 6. Known accuracy limitations (open backlog)
 
-| Limitation                                                     | Impact                                                              | Priority                                   |
-| -------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------ |
-| Python reference extraction misses imports + type annotations  | Recall gap on `find_referencing_symbols` for Python                 | Medium — document, or land LSP-first path  |
-| Decorated classes double-counted (`@dataclass` row + body row) | Minor inflation of `find_symbol` result count                       | Low — cosmetic                             |
-| `search_workspace_symbols` failed on one-shot mode             | Fuzzy search unavailable in CLI-oneshot path                        | Medium — look at handler                   |
-| No fuzzy fallback on `find_symbol` exact miss                  | Agents hit 0-result dead ends if they guess the name slightly wrong | Medium — suggest fuzzy variant in response |
+**2026-04-19 update — Phase 2 closed the remaining read-hot-path
+transparency gaps** (`get_symbols_overview` depth trim,
+`search_for_pattern` cap, `get_ranked_context` budget prune,
+`find_symbol` exact-match refusal). Each trim/suppression decision
+now surfaces as a structured `LimitsApplied` entry on both
+`data.limits_applied` and the response-root `decisions` array, so
+the "silent decision" class of bugs can no longer hide behind a
+single boolean flag. See
+`docs/superpowers/specs/2026-04-19-transparency-fields-design.md`
+§5.2 and the reproducer at
+`benchmarks/transparency-reproducer.sh`.
+
+| Limitation                                                                                                                                                                                                                                                                      | Impact                                                              | Priority                                                                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ~~Python reference extraction misses imports + type annotations~~ **Retracted 2026-04-19.** Re-measurement (see Test B correction) shows code-reference recall is 100% on the Serena fixture; the original claim came from a sampled response that was read as the full result. | —                                                                   | —                                                                                                                                                                         |
+| Sampling truncation (`sampled=true`) is easy for agents (and humans) to miss, leading to false "recall gap" reports                                                                                                                                                             | **Resolved by Phase 1.**                                            | `data.limits_applied[]` + `_meta.decisions[]` now carry a structured `sampling` decision whenever the response is truncated, alongside the C2 `sampling_notice` headline. |
+| Decorated classes double-counted (`@dataclass` row + body row)                                                                                                                                                                                                                  | Minor inflation of `find_symbol` result count                       | Low — cosmetic                                                                                                                                                            |
+| `search_workspace_symbols` failed on one-shot mode                                                                                                                                                                                                                              | Fuzzy search unavailable in CLI-oneshot path                        | Medium — look at handler                                                                                                                                                  |
+| No fuzzy fallback on `find_symbol` exact miss                                                                                                                                                                                                                                   | Agents hit 0-result dead ends if they guess the name slightly wrong | Medium — suggest fuzzy variant in response                                                                                                                                |
 
 ## References
 

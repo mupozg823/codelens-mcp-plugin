@@ -1,12 +1,12 @@
-use super::{AppState, ToolResult, required_string, success_meta};
+use super::{required_string, success_meta, AppState, ToolResult};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_engine::change_signature::{ParamSpec, change_signature};
+use codelens_engine::change_signature::{change_signature, ParamSpec};
 use codelens_engine::inline::inline_function;
 use codelens_engine::move_symbol::move_symbol;
 use codelens_engine::{
-    SymbolKind, find_circular_dependencies, get_callees, get_callers, get_importance,
-    get_importers, get_symbols_overview,
+    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
+    get_symbols_overview, SymbolKind,
 };
 use serde_json::json;
 
@@ -387,7 +387,48 @@ pub fn propagate_deletions(state: &AppState, arguments: &serde_json::Value) -> T
 
 /// One-shot project onboarding: structure + key symbols + health signals.
 /// When built with `--features semantic`, automatically indexes embeddings if empty.
-pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+pub fn onboard_project(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+    // Phase P2: short-circuit on the process-wide workflow cache
+    // before the ~47 s cold-path runs. Cold computation dominates
+    // `review_architecture` latency because `get_importance`
+    // (PageRank) walks the entire import graph and — on `semantic`
+    // builds — we may auto-index embeddings. The result is a pure
+    // function of the indexed file set, so any warm call with the
+    // same project-state hash can reuse it.
+    let cache = state.workflow_cache();
+    let args_hash = crate::state::workflow_cache::hash_canonical_args(arguments);
+    let state_hash = state.workflow_project_state_hash();
+    let cache_key = crate::state::workflow_cache::WorkflowAnalysisCache::build_key(
+        "onboard_project",
+        args_hash,
+        state_hash,
+    );
+    if let Some(hit) = cache.get(&cache_key) {
+        cache.record_hit();
+        let mut meta = success_meta(BackendKind::Hybrid, 0.95);
+        meta.staleness_ms = Some(hit.staleness_ms());
+        meta.freshness = crate::protocol::Freshness::Indexed;
+        return Ok((hit.payload.clone(), meta));
+    }
+    cache.record_miss();
+    let compute_started = std::time::Instant::now();
+    let result = onboard_project_compute(state, arguments);
+    if let Ok((payload, _meta)) = &result {
+        let elapsed = compute_started.elapsed().as_millis() as u64;
+        cache.insert(
+            cache_key,
+            crate::state::workflow_cache::CachedResponse {
+                payload: payload.clone(),
+                meta_extra: serde_json::Value::Null,
+                created_at: std::time::Instant::now(),
+                compute_elapsed_ms: elapsed,
+            },
+        );
+    }
+    result
+}
+
+fn onboard_project_compute(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
     let project = state.project();
     let graph_cache = state.graph_cache();
 
@@ -406,6 +447,12 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
     // 4. Auto-index embeddings if semantic feature enabled and index empty
     //    Skip for large projects (>2000 files) to avoid multi-minute blocking.
     //    Users can call index_embeddings explicitly for large projects.
+    //
+    //    Phase P3: the final JSON shape is emitted by `analyzer::semantic_status(state)`
+    //    so the `loaded` field always agrees with `embedding_status().ready()`. The
+    //    block below is purely about side effects (triggering auto-index) plus a
+    //    bail-out for oversized projects — once those run, we ask the unified
+    //    helper for the final blob.
     #[cfg(feature = "semantic")]
     let semantic_status = {
         let total_files: usize = structure.iter().map(|d| d.files).sum();
@@ -415,98 +462,36 @@ pub fn onboard_project(state: &AppState, _arguments: &serde_json::Value) -> Tool
             json!({
                 "status": "skipped",
                 "model": configured_model,
+                "loaded": state.embedding_status().ready(),
                 "reason": format!("project too large ({total_files} files > {MAX_AUTO_EMBED_FILES}), call index_embeddings explicitly")
             })
         } else {
             let existing = codelens_engine::EmbeddingEngine::inspect_existing_index(&project)
                 .ok()
                 .flatten();
-            if let Some(info) = existing {
-                if info.model_name == configured_model && info.indexed_symbols > 0 {
-                    json!({
-                        "status": "ready",
-                        "model": info.model_name,
-                        "indexed_symbols": info.indexed_symbols,
-                        "loaded": false
-                    })
-                } else {
-                    let guard = state.embedding_engine();
-                    match guard.as_ref() {
-                        Some(engine) if !engine.is_indexed() => {
-                            match engine.index_from_project(&project) {
-                                Ok(count) => json!({
-                                    "status": "indexed",
-                                    "model": engine.model_name(),
-                                    "indexed_symbols": count,
-                                    "loaded": true
-                                }),
-                                Err(e) => json!({
-                                    "status": "failed",
-                                    "model": engine.model_name(),
-                                    "error": e.to_string()
-                                }),
-                            }
-                        }
-                        Some(engine) => json!({
-                            "status": "ready",
-                            "model": engine.model_name(),
-                            "indexed_symbols": engine.index_info().indexed_symbols,
-                            "loaded": true
-                        }),
-                        None => json!({"status": "unavailable", "model": configured_model}),
-                    }
+            let needs_warmup = match existing.as_ref() {
+                Some(info) => {
+                    info.model_name != configured_model || info.indexed_symbols == 0
                 }
-            } else {
+                None => true,
+            };
+            if needs_warmup {
                 let guard = state.embedding_engine();
-                match guard.as_ref() {
-                    Some(engine) if !engine.is_indexed() => {
-                        match engine.index_from_project(&project) {
-                            Ok(count) => json!({
-                                "status": "indexed",
-                                "model": engine.model_name(),
-                                "indexed_symbols": count,
-                                "loaded": true
-                            }),
-                            Err(e) => json!({
-                                "status": "failed",
-                                "model": engine.model_name(),
-                                "error": e.to_string()
-                            }),
-                        }
-                    }
-                    Some(engine) => json!({
-                        "status": "ready",
-                        "model": engine.model_name(),
-                        "indexed_symbols": engine.index_info().indexed_symbols,
-                        "loaded": true
-                    }),
-                    None => json!({"status": "unavailable", "model": configured_model}),
+                if let Some(engine) = guard.as_ref()
+                    && !engine.is_indexed()
+                    && let Err(error) = engine.index_from_project(&project)
+                {
+                    // Surface the auto-index failure; `semantic_status`
+                    // below will still reflect whatever the post-attempt
+                    // engine state reports.
+                    tracing::warn!(%error, "onboard_project auto-index failed");
                 }
             }
+            super::symbols::semantic_status(state)
         }
     };
     #[cfg(not(feature = "semantic"))]
-    let semantic_status = {
-        let configured_model = codelens_engine::configured_embedding_model_name();
-        match codelens_engine::EmbeddingEngine::inspect_existing_index(&project)
-            .ok()
-            .flatten()
-        {
-            Some(info) if info.model_name == configured_model && info.indexed_symbols > 0 => {
-                json!({
-                    "status": "ready",
-                    "model": info.model_name,
-                    "indexed_symbols": info.indexed_symbols,
-                    "loaded": false
-                })
-            }
-            _ => json!({
-                "status": "not_compiled",
-                "model": configured_model,
-                "loaded": false
-            }),
-        }
-    };
+    let semantic_status = super::symbols::semantic_status(state);
 
     Ok((
         json!({

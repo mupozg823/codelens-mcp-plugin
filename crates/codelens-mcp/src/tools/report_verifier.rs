@@ -22,6 +22,29 @@ fn push_unique(values: &mut Vec<String>, value: impl Into<String>) {
     }
 }
 
+/// Phase P4-c: per-check closing condition. Picks a machine-readable
+/// phrase describing what evidence would flip this check to ready.
+pub(crate) fn default_pass_condition(check: &str) -> String {
+    match check {
+        "diagnostic_verifier" => {
+            "all diagnostics resolved (diagnostic_count == 0)".to_owned()
+        }
+        "reference_verifier" => {
+            "symbol resolves to exactly one ref set; blast radius ≤ 8 for breaking changes".to_owned()
+        }
+        "test_readiness_verifier" => {
+            "at least one related test target found or change explicitly scoped".to_owned()
+        }
+        "coordination_overlap_verifier" => {
+            "no overlapping session claims on touched files".to_owned()
+        }
+        "mutation_readiness_verifier" => {
+            "all blockers resolved and all upstream checks ready".to_owned()
+        }
+        other => format!("{other} reports status=ready"),
+    }
+}
+
 fn push_verifier_check(
     checks: &mut Vec<AnalysisVerifierCheck>,
     check: &str,
@@ -37,6 +60,7 @@ fn push_verifier_check(
         status: status.to_owned(),
         summary: summary.into(),
         evidence_section: evidence_section.map(ToOwned::to_owned),
+        pass_condition: default_pass_condition(check),
     });
 }
 
@@ -54,6 +78,32 @@ fn combine_verifier_status<'a>(statuses: &[&'a str]) -> &'a str {
         .copied()
         .max_by_key(|status| verifier_status_rank(status))
         .unwrap_or(VERIFIER_READY)
+}
+
+/// Phase P4 helper: extract up to `limit` importer file paths from an
+/// `impact_rows[*].direct_importers` entry. `direct_importers` is
+/// heterogeneous — engine emits either bare strings or `{file, ...}`
+/// objects — so we accept both shapes.
+fn importer_file_list(row: &Value, limit: usize) -> Vec<String> {
+    let Some(importers) = row.get("direct_importers").and_then(|v| v.as_array()) else {
+        return Vec::new();
+    };
+    let mut out = Vec::with_capacity(limit.min(importers.len()));
+    for importer in importers {
+        let candidate = importer
+            .as_str()
+            .or_else(|| importer.get("file").and_then(|v| v.as_str()))
+            .or_else(|| importer.get("path").and_then(|v| v.as_str()));
+        if let Some(path) = candidate
+            && !out.iter().any(|existing| existing == path)
+        {
+            out.push(path.to_owned());
+            if out.len() >= limit {
+                break;
+            }
+        }
+    }
+    out
 }
 
 fn normalized_touched_files(touched_files: &[String]) -> Vec<String> {
@@ -270,6 +320,48 @@ pub(crate) fn build_verifier_contract(
             reference_summary =
                 "Large blast radius detected for breaking change; expand importer evidence before broad edits."
                     .to_owned();
+            // Phase P4 — prescriptive blockers: instead of emitting
+            // "caution" with an empty blockers[] and forcing the
+            // harness to re-parse impact_rows, enumerate up to 3
+            // specific dependent files per high-impact target so the
+            // caller can jump straight to a concrete read.
+            for row in impacted
+                .iter()
+                .filter(|row| {
+                    let is_additive = row
+                        .get("change_kind")
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|k| k == "additive");
+                    !is_additive
+                        && row
+                            .get("affected_files")
+                            .and_then(|value| value.as_u64())
+                            .unwrap_or_default()
+                            >= 8
+                })
+                .take(2)
+            {
+                let target_path = row
+                    .get("path")
+                    .and_then(|value| value.as_str())
+                    .unwrap_or("<target>");
+                let affected = row
+                    .get("affected_files")
+                    .and_then(|value| value.as_u64())
+                    .unwrap_or_default();
+                let importer_files = importer_file_list(row, 3);
+                let message = if importer_files.is_empty() {
+                    format!(
+                        "{target_path}: breaking change touches {affected} file(s); expand importer evidence before mutating"
+                    )
+                } else {
+                    format!(
+                        "{target_path}: breaking change touches {affected} file(s); inspect importers {} before mutating",
+                        importer_files.join(", ")
+                    )
+                };
+                push_unique(&mut contract.blockers, message);
+            }
         } else if impacted.is_empty() {
             reference_status = VERIFIER_CAUTION;
             reference_summary =
@@ -420,6 +512,38 @@ pub(crate) fn build_verifier_contract(
     }
 
     contract.blockers.truncate(5);
+
+    // Phase P4-c: populate the rationale map for any axis that is
+    // caution/blocked. Pulls the summary the upstream branches
+    // already computed into `verifier_checks`, keyed by axis name
+    // so callers don't have to re-derive the mapping.
+    let rationale_by_check = |target: &str| -> Option<String> {
+        contract
+            .verifier_checks
+            .iter()
+            .find(|entry| entry.check == target)
+            .filter(|entry| entry.status != VERIFIER_READY)
+            .map(|entry| entry.summary.clone())
+    };
+    if let Some(note) = rationale_by_check("diagnostic_verifier") {
+        contract
+            .readiness
+            .rationale
+            .insert("diagnostics_ready".to_owned(), note);
+    }
+    if let Some(note) = rationale_by_check("reference_verifier") {
+        contract
+            .readiness
+            .rationale
+            .insert("reference_safety".to_owned(), note);
+    }
+    if let Some(note) = rationale_by_check("test_readiness_verifier") {
+        contract
+            .readiness
+            .rationale
+            .insert("test_readiness".to_owned(), note);
+    }
+
     let mutation_status = if !contract.blockers.is_empty() {
         VERIFIER_BLOCKED
     } else {

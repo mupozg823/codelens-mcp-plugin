@@ -141,6 +141,8 @@ const RUST_QUERY: &str = r#"
     (type_item name: (type_identifier) @type_alias.name) @type_alias.def
     (macro_definition name: (identifier) @function.name) @function.def
     (mod_item name: (identifier) @module.name) @module.def
+    (impl_item type: (type_identifier) @impl.name) @impl.def
+    (impl_item type: (generic_type type: (type_identifier) @impl.name)) @impl.def
 "#;
 
 const C_QUERY: &str = r#"

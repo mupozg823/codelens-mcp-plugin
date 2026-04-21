@@ -1,9 +1,9 @@
-use super::SymbolIndex;
-use super::parser::{flatten_symbol_infos, slice_source};
-use super::ranking::{self, RankingContext, prune_to_budget, rank_symbols};
+use super::parser::{extend_start_to_doc_comments, flatten_symbol_infos, slice_source};
+use super::ranking::{self, prune_to_budget, rank_symbols, RankingContext};
 use super::types::{
-    RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance, make_symbol_id, parse_symbol_id,
+    make_symbol_id, parse_symbol_id, RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance,
 };
+use super::SymbolIndex;
 use crate::db::IndexDb;
 use crate::project::ProjectRoot;
 use anyhow::Result;
@@ -198,11 +198,12 @@ impl SymbolIndex {
                         .map(|row| {
                             let kind = SymbolKind::from_str_label(&row.kind);
                             let sid = make_symbol_id(&rel, &kind, &row.name_path);
+                            let row_line = row.line as usize;
                             SymbolInfo {
                                 name: row.name,
                                 kind,
                                 file_path: rel.clone(),
-                                line: row.line as usize,
+                                line: row_line,
                                 column: row.column_num as usize,
                                 signature: row.signature,
                                 name_path: row.name_path,
@@ -212,11 +213,21 @@ impl SymbolIndex {
                                 children: Vec::new(),
                                 start_byte: row.start_byte as u32,
                                 end_byte: row.end_byte as u32,
+                                // DB rows pre-date the end_line column;
+                                // fall back to `line` so P1-4 proximity
+                                // scoring stays valid but assumes a
+                                // single-line span.
+                                end_line: if row.end_line > 0 {
+                                    row.end_line as usize
+                                } else {
+                                    row_line
+                                },
                             }
                         })
                         .collect(),
                     start_byte: 0,
                     end_byte: 0,
+                    end_line: 0,
                 });
             }
             return Ok(symbols);
@@ -234,12 +245,13 @@ impl SymbolIndex {
             .map(|row| {
                 let kind = SymbolKind::from_str_label(&row.kind);
                 let id = make_symbol_id(&relative, &kind, &row.name_path);
+                let row_line = row.line as usize;
                 SymbolInfo {
                     name: row.name,
                     kind,
                     file_path: relative.clone(),
                     provenance: SymbolProvenance::from_path(&relative),
-                    line: row.line as usize,
+                    line: row_line,
                     column: row.column_num as usize,
                     signature: row.signature,
                     name_path: row.name_path,
@@ -248,6 +260,11 @@ impl SymbolIndex {
                     children: Vec::new(),
                     start_byte: row.start_byte as u32,
                     end_byte: row.end_byte as u32,
+                    end_line: if row.end_line > 0 {
+                        row.end_line as usize
+                    } else {
+                        row_line
+                    },
                 }
             })
             .collect())
@@ -294,11 +311,87 @@ impl SymbolIndex {
         semantic_scores: std::collections::HashMap<String, f64>,
         query_type: Option<&str>,
     ) -> Result<RankedContextResult> {
-        let all_symbols = if let Some(path) = path {
+        self.get_ranked_context_cached_with_lsp_boost(
+            query,
+            path,
+            max_tokens,
+            include_body,
+            depth,
+            graph_cache,
+            semantic_scores,
+            query_type,
+            std::collections::HashMap::new(),
+            None,
+        )
+    }
+
+    /// Full form that additionally accepts per-file LSP reference line
+    /// information for the P1-4 per-symbol boost.
+    ///
+    /// `lsp_boost_refs` maps project-relative file paths to the list of
+    /// reference lines that a caller-side reference probe (LSP
+    /// `textDocument/references`, unioned with the tree-sitter text
+    /// search) returned for the query's target symbol. Inside
+    /// `rank_symbols`, each candidate is boosted by how close its
+    /// declaration line is to the nearest ref line at or below it —
+    /// file-level uniform boost used to over-promote unrelated helpers
+    /// in large ref'd files, per-symbol proximity keeps the lift
+    /// targeted on plausible containers.
+    ///
+    /// `lsp_signal_weight` scales the final boost. An empty ref map OR
+    /// a `None` weight keeps the blend byte-identical to the pre-P1-4
+    /// pipeline.
+    #[allow(clippy::too_many_arguments)]
+    pub fn get_ranked_context_cached_with_lsp_boost(
+        &self,
+        query: &str,
+        path: Option<&str>,
+        max_tokens: usize,
+        include_body: bool,
+        depth: usize,
+        graph_cache: Option<&crate::import_graph::GraphCache>,
+        semantic_scores: std::collections::HashMap<String, f64>,
+        query_type: Option<&str>,
+        mut lsp_boost_refs: std::collections::HashMap<String, Vec<usize>>,
+        lsp_signal_weight: Option<f64>,
+    ) -> Result<RankedContextResult> {
+        // `rank_symbols` uses a binary search on the ref-line list;
+        // normalise here so the contract holds regardless of the
+        // caller's input shape.
+        for lines in lsp_boost_refs.values_mut() {
+            lines.sort_unstable();
+            lines.dedup();
+        }
+
+        let mut all_symbols = if let Some(path) = path {
             self.get_symbols_overview_cached(path, depth)?
         } else {
             self.select_solve_symbols_cached(query, depth)?
         };
+
+        // P1-4: pull symbols from every LSP-flagged file into the
+        // candidate pool. Without this step the downstream gate still
+        // drops a rescued caller for the trivial reason that it never
+        // entered the pool — `get_symbols_overview_cached(path)` is
+        // scoped to one file. The LSP boost is only meaningful when
+        // the probe actually extends the candidate surface across the
+        // caller graph.
+        if !lsp_boost_refs.is_empty() {
+            let mut seen: std::collections::HashSet<String> =
+                all_symbols.iter().map(|s| s.id.clone()).collect();
+            for extra_path in lsp_boost_refs.keys() {
+                if Some(extra_path.as_str()) == path {
+                    continue;
+                }
+                if let Ok(extra_symbols) = self.get_symbols_overview_cached(extra_path, depth) {
+                    for sym in extra_symbols {
+                        if seen.insert(sym.id.clone()) {
+                            all_symbols.push(sym);
+                        }
+                    }
+                }
+            }
+        }
 
         let ranking_ctx = match graph_cache {
             Some(gc) => {
@@ -331,6 +424,21 @@ impl SymbolIndex {
             ranking_ctx
         };
 
+        // P1-4 caller wiring: fold the ref map + weight into the ctx.
+        // Empty map AND `None` weight keeps pre-P1-4 behaviour
+        // byte-for-byte because both the gate rescue and the blend
+        // gate on `lsp_signal_weight > 0.0`.
+        let ranking_ctx = if lsp_boost_refs.is_empty() && lsp_signal_weight.is_none() {
+            ranking_ctx
+        } else {
+            let mut ctx = ranking_ctx;
+            ctx.lsp_boost_refs = lsp_boost_refs;
+            if let Some(w) = lsp_signal_weight {
+                ctx.weights.lsp_signal = w;
+            }
+            ctx
+        };
+
         let flat_symbols: Vec<SymbolInfo> = all_symbols
             .into_iter()
             .flat_map(flatten_symbol_infos)
@@ -338,7 +446,7 @@ impl SymbolIndex {
 
         let scored = rank_symbols(query, flat_symbols, &ranking_ctx);
 
-        let (selected, chars_used) =
+        let (selected, chars_used, pruned_count, last_kept_score) =
             prune_to_budget(scored, max_tokens, include_body, self.project.as_path());
 
         Ok(RankedContextResult {
@@ -347,6 +455,8 @@ impl SymbolIndex {
             symbols: selected,
             token_budget: max_tokens,
             chars_used,
+            pruned_count,
+            last_kept_score,
         })
     }
 
@@ -372,20 +482,26 @@ impl SymbolIndex {
             };
             let body = if include_body {
                 let abs = project.as_path().join(&rel_path);
-                fs::read_to_string(&abs)
-                    .ok()
-                    .map(|source| slice_source(&source, row.start_byte as u32, row.end_byte as u32))
+                fs::read_to_string(&abs).ok().map(|source| {
+                    // Serena-parity: include any immediately-preceding
+                    // doc-comment block so the harness gets the intent
+                    // alongside the signature, without a follow-up Read.
+                    let extended_start =
+                        extend_start_to_doc_comments(&source, row.start_byte as u32);
+                    slice_source(&source, extended_start, row.end_byte as u32)
+                })
             } else {
                 None
             };
             let kind = SymbolKind::from_str_label(&row.kind);
             let id = make_symbol_id(&rel_path, &kind, &row.name_path);
+            let row_line = row.line as usize;
             results.push(SymbolInfo {
                 name: row.name,
                 kind,
                 provenance: SymbolProvenance::from_path(&rel_path),
                 file_path: rel_path,
-                line: row.line as usize,
+                line: row_line,
                 column: row.column_num as usize,
                 signature: row.signature,
                 name_path: row.name_path,
@@ -394,6 +510,11 @@ impl SymbolIndex {
                 children: Vec::new(),
                 start_byte: row.start_byte as u32,
                 end_byte: row.end_byte as u32,
+                end_line: if row.end_line > 0 {
+                    row.end_line as usize
+                } else {
+                    row_line
+                },
             });
         }
         Ok(results)

@@ -1,4 +1,7 @@
-use super::{analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_retrieval};
+use super::{
+    analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_retrieval,
+    RetrievalLane,
+};
 
 #[cfg(feature = "semantic")]
 use super::semantic_query_for_embedding_search;
@@ -32,6 +35,60 @@ fn sparse_symbol_search_prefers_identifiers_and_short_phrases() {
         !analyze_retrieval_query("rename a variable or function across the project")
             .prefer_sparse_symbol_search
     );
+}
+
+// ── Phase O5 — Stage 0 Dense gate ────────────────────────────────────
+//
+// `docs/plans/PLAN_opus47-alignment.md` Tier B introduces
+// `RetrievalLane { LexicalOnly, Hybrid }` so identifier-style queries
+// skip the embedding lane unconditionally. The pre-O5 gate in
+// `semantic_results_for_query` only short-circuited when
+// `prefer_lexical_only && query.len() <= 40`, so an identifier longer
+// than 40 characters still paid for a dense lookup. These tests pin the
+// new contract on `analyze_retrieval_query` directly — length cutoff
+// is irrelevant, only identifier shape matters.
+
+#[test]
+fn analyze_retrieval_query_returns_lexical_only_for_identifier() {
+    assert_eq!(
+        analyze_retrieval_query("rename_symbol").lane,
+        RetrievalLane::LexicalOnly
+    );
+    assert_eq!(
+        analyze_retrieval_query("dispatchToolRequest").lane,
+        RetrievalLane::LexicalOnly
+    );
+    assert_eq!(
+        analyze_retrieval_query("crate::dispatch::tools::handler").lane,
+        RetrievalLane::LexicalOnly
+    );
+}
+
+#[test]
+fn identifier_query_emits_null_semantic_score_for_all_results() {
+    // Short identifier was already gated pre-O5.
+    let short = analyze_retrieval_query("rename_symbol");
+    assert_eq!(short.lane, RetrievalLane::LexicalOnly);
+    assert!(short.prefer_lexical_only);
+
+    // 40+ char identifier — pre-O5 this fell through the gate and paid
+    // for a dense lookup. O5 keeps it on the LexicalOnly lane.
+    let long_name = "extremely_long_snake_case_identifier_name_over_forty_chars";
+    assert!(long_name.len() > 40);
+    let long = analyze_retrieval_query(long_name);
+    assert_eq!(long.lane, RetrievalLane::LexicalOnly);
+    assert!(long.prefer_lexical_only);
+}
+
+#[test]
+fn natural_language_query_still_fires_semantic_lane() {
+    let nl = analyze_retrieval_query("rename a variable or function across the project");
+    assert_eq!(nl.lane, RetrievalLane::Hybrid);
+    assert!(nl.natural_language);
+    assert!(!nl.prefer_lexical_only);
+
+    let phrase = analyze_retrieval_query("change function parameters");
+    assert_eq!(phrase.lane, RetrievalLane::Hybrid);
 }
 
 #[test]

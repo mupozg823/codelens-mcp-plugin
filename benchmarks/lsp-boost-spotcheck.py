@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""P1-4 caller wiring spot-check: measure lsp_boost=true vs baseline.
+
+This is NOT the full 5-repo matrix ideally wanted for Task 2 — it is a
+*honest* minimum-viable measurement whose purpose is to prove the
+engine + MCP wiring fires end-to-end on a real repo with an installed
+LSP server.
+
+Hard constraints this script does not try to paper over:
+  * The CLI one-shot path (`codelens-mcp project --cmd get_ranked_context`)
+    spawns a fresh rust-analyzer per call. Cold start is 2-30s, so keep
+    the query set tiny (≤ 10).
+  * The probe only fires when the request carries `path` (needed to
+    anchor `textDocument/references`). The standard embedding-quality
+    datasets omit `path`, which is why they produce *zero* measured
+    signal for lsp_boost — that is a documented blocker, not a bug.
+
+Usage:
+    python3 benchmarks/lsp-boost-spotcheck.py \\
+        --output benchmarks/results/v1.9.50-lsp-boost-spotcheck-self.json
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import subprocess
+import time
+from pathlib import Path
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+# Hand-crafted micro dataset: 5 self-repo queries that each point at a
+# symbol whose actual cross-file callers are known. The `path` field
+# anchors the LSP probe; `expected_file_suffix` pins the definition
+# file so the baseline still ranks the exact match at the top.
+DATASET = [
+    {
+        "query": "rank_symbols",
+        "path": "crates/codelens-engine/src/symbols/ranking.rs",
+        "expected_symbol": "rank_symbols",
+        "expected_file_suffix": "crates/codelens-engine/src/symbols/ranking.rs",
+    },
+    {
+        "query": "prune_to_budget",
+        "path": "crates/codelens-engine/src/symbols/ranking.rs",
+        "expected_symbol": "prune_to_budget",
+        "expected_file_suffix": "crates/codelens-engine/src/symbols/ranking.rs",
+    },
+    {
+        "query": "get_ranked_context_cached",
+        "path": "crates/codelens-engine/src/symbols/reader.rs",
+        "expected_symbol": "get_ranked_context_cached",
+        "expected_file_suffix": "crates/codelens-engine/src/symbols/reader.rs",
+    },
+    {
+        "query": "find_referencing_symbols_via_lsp",
+        "path": "crates/codelens-engine/src/lsp/mod.rs",
+        "expected_symbol": "find_referencing_symbols_via_lsp",
+        "expected_file_suffix": "crates/codelens-engine/src/lsp/mod.rs",
+    },
+    {
+        "query": "LspSessionPool",
+        "path": "crates/codelens-engine/src/lsp/session.rs",
+        "expected_symbol": "LspSessionPool",
+        "expected_file_suffix": "crates/codelens-engine/src/lsp/session.rs",
+    },
+]
+
+ARMS = (
+    ("baseline", False),
+    ("lsp_boost", True),
+)
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument(
+        "--binary",
+        default=str(REPO_ROOT / "target" / "release" / "codelens-mcp"),
+    )
+    p.add_argument("--project", default=str(REPO_ROOT))
+    p.add_argument("--preset", default="balanced")
+    p.add_argument("--output", required=True)
+    p.add_argument("--timeout", type=int, default=120)
+    p.add_argument(
+        "--dataset",
+        default="",
+        help="Optional JSON file with queries. Falls back to the built-in 5-row "
+        "micro dataset when omitted. Each row must carry query, path, "
+        "expected_symbol and (optionally) expected_file_suffix.",
+    )
+    return p.parse_args()
+
+
+def load_dataset(path: str):
+    if not path:
+        return DATASET
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise SystemExit(f"dataset must be a JSON list, got {type(data).__name__}")
+    for idx, row in enumerate(data):
+        if "query" not in row or "path" not in row or "expected_symbol" not in row:
+            raise SystemExit(
+                f"dataset row {idx} missing required fields (query/path/expected_symbol)"
+            )
+    return data
+
+
+def run_tool(
+    binary: str, project: str, preset: str, cmd: str, args: dict, timeout: int
+):
+    argv = [
+        binary,
+        project,
+        "--preset",
+        preset,
+        "--cmd",
+        cmd,
+        "--args",
+        json.dumps(args),
+    ]
+    t0 = time.perf_counter()
+    r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000, 2)
+    out = (r.stdout or "").strip()
+    payload = None
+    if out:
+        try:
+            payload = json.loads(out)
+        except Exception:
+            try:
+                payload = json.loads(out.splitlines()[-1])
+            except Exception:
+                payload = None
+    return {
+        "returncode": r.returncode,
+        "elapsed_ms": elapsed_ms,
+        "payload": payload,
+        "stderr": (r.stderr or "").strip(),
+    }
+
+
+def top_symbols(payload, limit: int = 5):
+    if not isinstance(payload, dict):
+        return []
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
+    symbols = data.get("symbols") if isinstance(data, dict) else None
+    if not isinstance(symbols, list):
+        return []
+    out = []
+    for row in symbols[:limit]:
+        out.append(
+            {
+                "name": row.get("name"),
+                "file": row.get("file"),
+                "relevance_score": row.get("relevance_score"),
+            }
+        )
+    return out
+
+
+def rank_of(symbol, file_suffix, rows):
+    for idx, row in enumerate(rows, start=1):
+        if row.get("name") != symbol:
+            continue
+        if file_suffix and not str(row.get("file", "")).endswith(file_suffix):
+            continue
+        return idx
+    return None
+
+
+def main() -> int:
+    args = parse_args()
+    dataset = load_dataset(args.dataset)
+    arms_output = []
+    for arm_name, lsp_boost in ARMS:
+        rows = []
+        for item in dataset:
+            tool_args = {
+                "query": item["query"],
+                "path": item["path"],
+                "max_tokens": 1200,
+                "include_body": False,
+                "lsp_boost": lsp_boost,
+            }
+            r = run_tool(
+                args.binary,
+                args.project,
+                args.preset,
+                "get_ranked_context",
+                tool_args,
+                args.timeout,
+            )
+            payload = r["payload"]
+            all_symbols = []
+            if isinstance(payload, dict):
+                data = (
+                    payload.get("data")
+                    if isinstance(payload.get("data"), dict)
+                    else payload
+                )
+                all_symbols = data.get("symbols", []) if isinstance(data, dict) else []
+            rank = rank_of(
+                item["expected_symbol"],
+                item.get("expected_file_suffix"),
+                all_symbols,
+            )
+            rows.append(
+                {
+                    "query": item["query"],
+                    "path": item["path"],
+                    "expected_symbol": item["expected_symbol"],
+                    "expected_file_suffix": item.get("expected_file_suffix"),
+                    "bucket": item.get("bucket"),
+                    "rank": rank,
+                    "elapsed_ms": r["elapsed_ms"],
+                    "returncode": r["returncode"],
+                    "top": top_symbols(payload, 5),
+                    "candidate_count": len(all_symbols),
+                    "stderr_excerpt": r["stderr"][-400:],
+                }
+            )
+        reciprocal = [1.0 / row["rank"] for row in rows if row["rank"] is not None]
+        # Per-bucket breakdown so `thin_wrapper` (the per-ref-hostile
+        # case by design) and `thick_caller` (what per-ref was built
+        # for) can be read separately. Reports `null` bucket as a
+        # catch-all for legacy entries.
+        by_bucket: dict[str, dict] = {}
+        for row in rows:
+            bucket = row.get("bucket") or "unlabeled"
+            summary = by_bucket.setdefault(
+                bucket, {"count": 0, "hits": 0, "reciprocal": 0.0}
+            )
+            summary["count"] += 1
+            if row["rank"] is not None:
+                summary["hits"] += 1
+                summary["reciprocal"] += 1.0 / row["rank"]
+        bucket_summary = {
+            name: {
+                "count": summary["count"],
+                "hits": summary["hits"],
+                "mrr": (
+                    summary["reciprocal"] / summary["count"]
+                    if summary["count"]
+                    else 0.0
+                ),
+            }
+            for name, summary in by_bucket.items()
+        }
+        arms_output.append(
+            {
+                "arm": arm_name,
+                "lsp_boost": lsp_boost,
+                "mrr": sum(reciprocal) / len(rows) if rows else 0.0,
+                "hits": len(reciprocal),
+                "by_bucket": bucket_summary,
+                "rows": rows,
+            }
+        )
+
+    result = {
+        "schema_version": 1,
+        "project": str(args.project),
+        "binary": str(args.binary),
+        "preset": args.preset,
+        "dataset_path": args.dataset or "<built-in micro>",
+        "dataset_size": len(dataset),
+        "arms": arms_output,
+    }
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
+    for arm in arms_output:
+        print(
+            f"[{arm['arm']} lsp_boost={arm['lsp_boost']}] "
+            f"MRR={arm['mrr']:.4f} hits={arm['hits']}/{len(dataset)}"
+        )
+        for name, summary in sorted(arm["by_bucket"].items()):
+            print(
+                f"    bucket={name:14} "
+                f"MRR={summary['mrr']:.4f} hits={summary['hits']}/{summary['count']}"
+            )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

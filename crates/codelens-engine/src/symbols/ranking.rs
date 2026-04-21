@@ -10,6 +10,14 @@ pub(crate) struct RankWeights {
     pub pagerank: f64,
     pub recency: f64,
     pub semantic: f64,
+    /// P1-4: boost applied to a symbol when its `file_path` appears in
+    /// `RankingContext.lsp_boost_files`. The files are expected to come
+    /// from an LSP `textDocument/references` call so the boost pulls
+    /// type-aware cross-file reference hits toward the top of the ranked
+    /// context. Kept at 0.0 by default: with no populated file set, the
+    /// signal contributes nothing and none of the existing benchmarks
+    /// change.
+    pub lsp_signal: f64,
 }
 
 impl Default for RankWeights {
@@ -19,6 +27,7 @@ impl Default for RankWeights {
             pagerank: 0.15,
             recency: 0.10,
             semantic: 0.20,
+            lsp_signal: 0.0,
         }
     }
 }
@@ -31,8 +40,94 @@ pub(crate) struct RankingContext {
     pub recent_files: HashMap<String, f64>,
     /// Semantic similarity scores by "file_path:symbol_name" key.
     pub semantic_scores: HashMap<String, f64>,
+    /// P1-4 per-symbol LSP boost: map of `file_path` → **sorted**
+    /// reference lines returned by the caller-side reference probe
+    /// (LSP `textDocument/references`, unioned with the tree-sitter
+    /// text search). Each symbol in one of those files is scored by
+    /// its distance to the nearest ref line that is greater than or
+    /// equal to the symbol's own `line` — i.e. a ref that could
+    /// plausibly live inside the symbol's span. Missing files or an
+    /// empty list contribute zero, matching the pre-P1-4 behaviour
+    /// byte-for-byte.
+    pub lsp_boost_refs: HashMap<String, Vec<usize>>,
     /// Blending weights.
     pub weights: RankWeights,
+}
+
+/// Window used to scale a ref's distance to a *non-containing* symbol
+/// into a `0.0..1.0` P1-4 proximity factor. Only consulted when the
+/// symbol's own `[line, end_line]` span does not already contain a
+/// ref. The 250 value is intentionally conservative: with real
+/// `end_line` available, very few refs fall outside containment yet
+/// stay close enough to be meaningful, and the remaining ones decay
+/// gracefully.
+pub(crate) const LSP_PROXIMITY_WINDOW_LINES: usize = 250;
+
+/// Number of refs inside a symbol's span at which the P1-4 boost
+/// reaches its full strength. One ref yields `1/3`, two refs `2/3`,
+/// three or more refs `1.0`. The cap matters on ref-dense files
+/// (flask, zod): without it every function containing a single ref
+/// tied at `1.0` and the expected caller lost to its neighbours.
+pub(crate) const LSP_CONTAINMENT_SATURATION_REFS: usize = 3;
+
+/// Maximum factor awarded to a symbol whose declaration is close
+/// to — but not inside — a ref line. Kept strictly below the
+/// single-ref containment floor (`1 /
+/// LSP_CONTAINMENT_SATURATION_REFS ≈ 0.333`) so that *any* genuine
+/// container outranks *any* mere neighbour regardless of how tight
+/// the neighbour sits. Without this invariant, a ref-dense file
+/// would promote a zero-ref symbol that happens to sit one line
+/// above a call site over a one-ref symbol that actually encloses
+/// it.
+pub(crate) const LSP_OUTSIDE_SPAN_MAX_FACTOR: f64 = 0.30;
+
+/// Compute the proximity factor (0.0..=1.0) for the nearest reference
+/// in `ref_lines` relative to the symbol span `[symbol_line,
+/// symbol_end_line]`:
+///
+/// * **Inside the span** — the factor is `min(refs_in_span /
+///   LSP_CONTAINMENT_SATURATION_REFS, 1.0)`. A symbol carrying many
+///   refs to the probe target outranks one that only happens to
+///   enclose a single call site.
+/// * **Above the span, within `LSP_PROXIMITY_WINDOW_LINES`** — linear
+///   decay from `LSP_OUTSIDE_SPAN_MAX_FACTOR` down to `0.0`. Capped
+///   below the single-ref containment floor so containment always
+///   wins on ties.
+/// * **Above the span, beyond the window, or below the span** —
+///   `0.0`. A ref that predates the symbol cannot live inside its
+///   body.
+///
+/// `ref_lines` must be sorted ascending.
+pub(crate) fn lsp_proximity_factor(
+    ref_lines: &[usize],
+    symbol_line: usize,
+    symbol_end_line: usize,
+) -> f64 {
+    if ref_lines.is_empty() {
+        return 0.0;
+    }
+    // `max` keeps the span non-empty for symbols constructed without a
+    // known end_line (fallback = `line`).
+    let upper = symbol_end_line.max(symbol_line);
+    let start_idx = ref_lines.partition_point(|&l| l < symbol_line);
+    let Some(&first_at_or_above) = ref_lines.get(start_idx) else {
+        return 0.0;
+    };
+    // Containment: count how many refs sit inside [symbol_line, upper].
+    if first_at_or_above <= upper {
+        let end_idx = ref_lines.partition_point(|&l| l <= upper);
+        let count = end_idx - start_idx;
+        let saturated = (count as f64) / (LSP_CONTAINMENT_SATURATION_REFS as f64);
+        return saturated.min(1.0);
+    }
+    // Outside span — linear decay from `upper` outward, capped so a
+    // zero-ref neighbour can never outrank a one-ref container.
+    let distance = first_at_or_above.saturating_sub(upper);
+    if distance > LSP_PROXIMITY_WINDOW_LINES {
+        return 0.0;
+    }
+    let linear = 1.0 - (distance as f64) / (LSP_PROXIMITY_WINDOW_LINES as f64);
+    linear * LSP_OUTSIDE_SPAN_MAX_FACTOR
 }
 
 impl RankingContext {
@@ -42,11 +137,13 @@ impl RankingContext {
             pagerank,
             recent_files: HashMap::new(),
             semantic_scores: HashMap::new(),
+            lsp_boost_refs: HashMap::new(),
             weights: RankWeights {
                 text: 0.70,
                 pagerank: 0.20,
                 recency: 0.10,
                 semantic: 0.0,
+                lsp_signal: 0.0,
             },
         }
     }
@@ -64,6 +161,7 @@ impl RankingContext {
             pagerank,
             recent_files: HashMap::new(),
             semantic_scores,
+            lsp_boost_refs: HashMap::new(),
             weights,
         }
     }
@@ -74,11 +172,13 @@ impl RankingContext {
             pagerank: HashMap::new(),
             recent_files: HashMap::new(),
             semantic_scores: HashMap::new(),
+            lsp_boost_refs: HashMap::new(),
             weights: RankWeights {
                 text: 1.0,
                 pagerank: 0.0,
                 recency: 0.0,
                 semantic: 0.0,
+                lsp_signal: 0.0,
             },
         }
     }
@@ -105,6 +205,7 @@ fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankW
             pagerank: 0.10,
             recency: 0.05,
             semantic: if has_rich_semantic { 0.20 } else { 0.10 },
+            lsp_signal: 0.0,
         };
     }
 
@@ -116,6 +217,7 @@ fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankW
                 pagerank: 0.05,
                 recency: 0.05,
                 semantic: 0.70,
+                lsp_signal: 0.0,
             }
         } else {
             RankWeights {
@@ -123,6 +225,7 @@ fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankW
                 pagerank: 0.20,
                 recency: 0.10,
                 semantic: 0.10,
+                lsp_signal: 0.0,
             }
         };
     }
@@ -137,6 +240,7 @@ fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankW
             pagerank: 0.10,
             recency: 0.10,
             semantic: 0.30,
+            lsp_signal: 0.0,
         }
     } else {
         RankWeights {
@@ -144,6 +248,7 @@ fn auto_weights_with_semantic_count(query: &str, semantic_count: usize) -> RankW
             pagerank: 0.15,
             recency: 0.10,
             semantic: 0.15,
+            lsp_signal: 0.0,
         }
     }
 }
@@ -449,18 +554,21 @@ pub fn weights_for_query_type(query_type: &str) -> RankWeights {
             pagerank: 0.15,
             recency: 0.05,
             semantic: 0.10,
+            lsp_signal: 0.0,
         },
         "natural_language" => RankWeights {
             text: 0.25,
             pagerank: 0.15,
             recency: 0.15,
             semantic: 0.45,
+            lsp_signal: 0.0,
         },
         "short_phrase" => RankWeights {
             text: 0.35,
             pagerank: 0.15,
             recency: 0.15,
             semantic: 0.35,
+            lsp_signal: 0.0,
         },
         _ => RankWeights::default(),
     }
@@ -496,6 +604,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let type_symbol = SymbolInfo {
             name: "ToolHandler".into(),
@@ -511,6 +620,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "route an incoming tool request to the right handler";
@@ -535,6 +645,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let type_symbol = SymbolInfo {
             name: "MoveEdit".into(),
@@ -550,6 +661,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "primary move handler";
@@ -574,6 +686,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let helper_symbol = SymbolInfo {
             name: "is_entry_point_file".into(),
@@ -589,6 +702,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which entrypoint handles inline";
@@ -613,6 +727,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let generic = SymbolInfo {
             name: "find_files".into(),
@@ -628,6 +743,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which helper implements find";
@@ -650,6 +766,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let generic = SymbolInfo {
             name: "EmbeddingEngine".into(),
@@ -665,6 +782,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which builder creates build embedding text";
@@ -687,6 +805,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let generic = SymbolInfo {
             name: "build_coreml_execution_provider".into(),
@@ -702,6 +821,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which builder creates build embedding text";
@@ -724,6 +844,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let generic = SymbolInfo {
             name: "embed_texts_cached".into(),
@@ -739,6 +860,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which builder creates build embedding text";
@@ -761,6 +883,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let generic = SymbolInfo {
             name: "find_symbol".into(),
@@ -776,6 +899,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which helper implements find all word matches";
@@ -798,6 +922,7 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
         let broader = SymbolInfo {
             name: "find_all_word_matches".into(),
@@ -813,10 +938,298 @@ mod tests {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         };
 
         let query = "which helper implements find word matches in files";
         assert!(symbol_kind_prior(query, &exact) > symbol_kind_prior(query, &broader));
+    }
+
+    // P1-4: LSP signal boost tests. Two otherwise-identical symbols are
+    // ranked against each other, differing only by which file they live
+    // in. The `lsp_boost_files` set flags one of those files as an LSP
+    // `textDocument/references` hit.
+
+    fn lsp_test_symbol(name: &str, file_path: &str) -> SymbolInfo {
+        SymbolInfo {
+            name: name.into(),
+            kind: SymbolKind::Function,
+            file_path: file_path.into(),
+            line: 1,
+            column: 1,
+            signature: String::new(),
+            name_path: name.into(),
+            id: name.into(),
+            body: None,
+            children: Vec::new(),
+            start_byte: 0,
+            end_byte: 0,
+            provenance: SymbolProvenance::default(),
+            end_line: 0,
+        }
+    }
+
+    fn lsp_flat_context(
+        lsp_boost_refs: super::HashMap<String, Vec<usize>>,
+        lsp_weight: f64,
+    ) -> super::RankingContext {
+        super::RankingContext {
+            pagerank: super::HashMap::new(),
+            recent_files: super::HashMap::new(),
+            semantic_scores: super::HashMap::new(),
+            lsp_boost_refs,
+            weights: super::RankWeights {
+                text: 1.0,
+                pagerank: 0.0,
+                recency: 0.0,
+                semantic: 0.0,
+                lsp_signal: lsp_weight,
+            },
+        }
+    }
+
+    fn boost_refs_at(file: &str, lines: &[usize]) -> super::HashMap<String, Vec<usize>> {
+        let mut map = super::HashMap::new();
+        let mut sorted = lines.to_vec();
+        sorted.sort();
+        map.insert(file.to_owned(), sorted);
+        map
+    }
+
+    #[test]
+    fn lsp_signal_weight_zero_is_neutral() {
+        // Default weight 0.0: even with a populated `lsp_boost_refs`
+        // map, the blended score must be identical between the two
+        // candidates. This is the regression contract that guarantees
+        // existing benchmarks do not shift until a caller opts in.
+        let in_boost = lsp_test_symbol("handler_a", "crates/x/src/a.rs");
+        let not_in_boost = lsp_test_symbol("handler_b", "crates/x/src/b.rs");
+
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/a.rs", &[1]), 0.0);
+
+        let ranked = super::rank_symbols("handler", vec![in_boost, not_in_boost], &ctx);
+        assert_eq!(ranked.len(), 2);
+        assert_eq!(
+            ranked[0].1, ranked[1].1,
+            "with lsp_signal=0.0 the boost must contribute nothing"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_rescues_candidate_with_zero_text_score() {
+        // P1-4 caller-wiring contract: when a symbol has a ref within
+        // its proximity window, it must survive the
+        // "no text match and no semantic match" gate. Otherwise the
+        // entire boost is moot for real callers — caller symbols
+        // rarely share lexical tokens with the query's target.
+        let caller = lsp_test_symbol("unrelated_caller", "crates/x/src/caller.rs");
+
+        // Symbol.line == 1 and ref at line 1 gives the maximum
+        // proximity factor, so the rescue is unambiguous.
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[1]), 0.5);
+
+        let ranked = super::rank_symbols("rank_symbols", vec![caller], &ctx);
+        assert_eq!(
+            ranked.len(),
+            1,
+            "rescued caller with a nearby ref must survive the gate"
+        );
+        assert!(
+            ranked[0].1 >= 1,
+            "rescued caller must still get a positive blended score"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_gate_stays_closed_when_weight_is_zero() {
+        // The rescue only fires when the LSP signal has a non-zero
+        // weight — default 0.0 must preserve the historical gate so
+        // pre-P1-4 benchmarks do not accidentally pull in unrelated
+        // symbols the moment a ref map is populated without a weight
+        // lift.
+        let caller = lsp_test_symbol("unrelated_caller", "crates/x/src/caller.rs");
+
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[1]), 0.0);
+
+        let ranked = super::rank_symbols("rank_symbols", vec![caller], &ctx);
+        assert!(
+            ranked.is_empty(),
+            "with lsp_signal=0.0 the gate must still drop zero-text candidates"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_proximity_prefers_nearer_ref_lines() {
+        // Two symbols in the same boosted file, both zero-text-score.
+        // A ref lives on line 20: `near` encloses it (lines 10..=30),
+        // so the containment branch fires with a single-ref factor;
+        // `far` is a tiny stub at line 1 that is only *near* the
+        // ref, so it falls into the outside-span decay. Containment
+        // must outrank adjacency — this is the core invariant the
+        // `LSP_OUTSIDE_SPAN_MAX_FACTOR` cap is written to preserve.
+        let mut near = lsp_test_symbol("near_caller", "crates/x/src/caller.rs");
+        near.line = 10;
+        near.end_line = 30;
+        let mut far = lsp_test_symbol("far_caller", "crates/x/src/caller.rs");
+        far.line = 1;
+
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[20]), 0.5);
+
+        let ranked = super::rank_symbols("rank_symbols", vec![far, near], &ctx);
+        assert_eq!(ranked.len(), 2, "both candidates must survive the gate");
+        assert_eq!(
+            ranked[0].0.name, "near_caller",
+            "a single-ref container must outrank an outside-span neighbour"
+        );
+        assert!(
+            ranked[0].1 > ranked[1].1,
+            "containment must produce a strictly higher blended score"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_multi_ref_container_beats_single_ref_container() {
+        // Per-ref weighting contract: when two symbols both contain
+        // at least one ref, the one that encloses more of them must
+        // win. Three refs is the saturation point, so `heavy` lands
+        // on 1.0 while `light` sits at 1/3 — the ranker must respect
+        // that gap even when the two candidates are otherwise
+        // identical. This is the invariant that pulls the flask /
+        // zod regression out of the tie-distribution hole.
+        let mut heavy = lsp_test_symbol("heavy_caller", "crates/x/src/caller.rs");
+        heavy.line = 10;
+        heavy.end_line = 50;
+        let mut light = lsp_test_symbol("light_caller", "crates/x/src/caller.rs");
+        light.line = 60;
+        light.end_line = 100;
+
+        let ctx = lsp_flat_context(
+            boost_refs_at("crates/x/src/caller.rs", &[15, 25, 35, 80]),
+            0.5,
+        );
+
+        let ranked = super::rank_symbols("rank_symbols", vec![light, heavy], &ctx);
+        assert_eq!(ranked.len(), 2, "both containers must survive the gate");
+        assert_eq!(
+            ranked[0].0.name, "heavy_caller",
+            "the container enclosing more refs must rank first"
+        );
+        assert!(
+            ranked[0].1 > ranked[1].1,
+            "multi-ref containment must dominate single-ref containment"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_ignores_refs_above_window() {
+        // A ref far outside the proximity window must not rescue a
+        // symbol. This protects against a giant file where every
+        // symbol would otherwise be lifted by a single far-away ref.
+        let caller = lsp_test_symbol("unrelated_caller", "crates/x/src/caller.rs");
+        let far_ref = super::LSP_PROXIMITY_WINDOW_LINES + 50;
+
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[far_ref]), 0.5);
+
+        let ranked = super::rank_symbols("rank_symbols", vec![caller], &ctx);
+        assert!(
+            ranked.is_empty(),
+            "refs beyond the proximity window must not rescue zero-text candidates"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_containment_beats_nearby_non_container() {
+        // `container` spans lines 10..=200 and contains a ref at
+        // line 150. `non_container` starts right after at line 201,
+        // with no known body span (end_line falls back to line). The
+        // containment branch must pin container's factor to 1.0, so
+        // it must outrank the neighbour that is only close to the
+        // ref, not actually containing it.
+        let mut container = lsp_test_symbol("container_fn", "crates/x/src/caller.rs");
+        container.line = 10;
+        container.end_line = 200;
+        // `preceding` is a short symbol just before the ref — close
+        // enough to earn a partial boost via the decay branch, but
+        // not close enough to beat the container's full 1.0 factor.
+        let mut preceding = lsp_test_symbol("preceding_fn", "crates/x/src/caller.rs");
+        preceding.line = 50;
+        preceding.end_line = 60;
+
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/caller.rs", &[150]), 0.5);
+
+        let ranked = super::rank_symbols("rank_symbols", vec![preceding, container], &ctx);
+        assert_eq!(ranked.len(), 2, "both candidates must survive the gate");
+        assert_eq!(
+            ranked[0].0.name, "container_fn",
+            "the symbol whose span contains the ref must rank first"
+        );
+    }
+
+    #[test]
+    fn lsp_signal_interface_container_beats_name_match_helper_when_text_score_zero() {
+        // Regression: zod `safeParse → ZodType` case. An interface
+        // whose name does not overlap the query (e.g. `ZodType`) but
+        // whose span contains multiple refs to the query identifier
+        // (`safeParse` at lines inside the interface body) was ranked
+        // below type aliases like `SafeParseReturnType` that *partially
+        // match the query name* but have no body-level refs. Agents
+        // tracing callers of `safeParse` actually want the interface
+        // that declares it, not a helper whose only relation is a
+        // shared prefix. When text_score == 0 but proximity is strong,
+        // treat proximity as a text-component substitute so the
+        // container can compete.
+        let mut container = lsp_test_symbol("ZodType", "packages/zod/src/v4/classic/schemas.ts");
+        container.line = 20;
+        container.end_line = 151;
+
+        let mut helper =
+            lsp_test_symbol("SafeParseReturnType", "packages/zod/src/v4/core/parse.ts");
+        helper.line = 156;
+        helper.end_line = 156;
+
+        let boost = boost_refs_at(
+            "packages/zod/src/v4/classic/schemas.ts",
+            &[58, 60, 196, 255, 256],
+        );
+        let ctx = lsp_flat_context(boost, 0.25);
+
+        let ranked = super::rank_symbols("safeParse", vec![helper, container], &ctx);
+        let container_rank = ranked
+            .iter()
+            .position(|(s, _)| s.name == "ZodType")
+            .expect("ZodType must survive the gate");
+        let helper_rank = ranked
+            .iter()
+            .position(|(s, _)| s.name == "SafeParseReturnType");
+        if let Some(h) = helper_rank {
+            assert!(
+                container_rank < h,
+                "interface container with multi-ref containment must outrank \
+                 partial-name-match helper (container at {container_rank}, helper at {h})"
+            );
+        }
+    }
+
+    #[test]
+    fn lsp_signal_weight_positive_promotes_lsp_file() {
+        // With a positive weight, the candidate whose nearest ref is
+        // reachable from its declaration line must outrank an
+        // otherwise identical candidate in an unrelated file.
+        let in_boost = lsp_test_symbol("handler_a", "crates/x/src/a.rs");
+        let not_in_boost = lsp_test_symbol("handler_b", "crates/x/src/b.rs");
+
+        let ctx = lsp_flat_context(boost_refs_at("crates/x/src/a.rs", &[1]), 0.5);
+
+        let ranked = super::rank_symbols("handler", vec![not_in_boost, in_boost], &ctx);
+        assert_eq!(ranked.len(), 2);
+        assert_eq!(
+            ranked[0].0.file_path, "crates/x/src/a.rs",
+            "LSP-flagged file must rank first when lsp_signal > 0"
+        );
+        assert!(
+            ranked[0].1 > ranked[1].1,
+            "LSP-boosted score must strictly exceed the non-boosted baseline"
+        );
     }
 }
 
@@ -878,12 +1291,57 @@ pub(crate) fn rank_symbols(
                 0.0
             };
 
+            // P1-4 per-symbol proximity: derive the boost factor from
+            // the nearest ref line at or below `symbol.line`. A factor
+            // > 0 means *this specific symbol* is a plausible container
+            // for at least one reference, not just "lives in a ref'd
+            // file". The factor is reused by both the gate rescue and
+            // the blend below to keep the two in sync.
+            let lsp_proximity = ctx
+                .lsp_boost_refs
+                .get(&symbol.file_path)
+                .map(|lines| lsp_proximity_factor(lines, symbol.line, symbol.end_line))
+                .unwrap_or(0.0);
+
             // Gate: include if text matched OR semantic score is significant
-            if text_score == 0 && (!has_semantic || sem_score < 0.08) {
+            // OR the symbol is a per-symbol LSP-rescued container (P1-4).
+            // The LSP rescue only fires when the boost has been given a
+            // non-zero weight AND the symbol has a positive proximity
+            // factor; weight 0.0 or proximity 0.0 keeps the pre-P1-4
+            // gate closed.
+            let lsp_rescued = ctx.weights.lsp_signal > 0.0 && lsp_proximity > 0.0;
+            if text_score == 0 && (!has_semantic || sem_score < 0.08) && !lsp_rescued {
                 return None;
             }
 
-            let text_component = text_score as f64 * ctx.weights.text;
+            // P1-4 follow-up: when a candidate's name does **not**
+            // overlap the query but its body span contains multiple
+            // refs (high-containment factor), treat proximity as a
+            // text-score substitute. Without this branch, interface
+            // containers whose name is unrelated to the query
+            // identifier (zod `ZodType` containing `safeParse`
+            // declarations) rank below helpers that share a prefix
+            // with the query (`SafeParseReturnType`) but contain no
+            // body-level refs — the opposite of what a caller-tracing
+            // agent wants.
+            //
+            // Threshold pinned at `>= 0.6` (≈ 2 contained refs under
+            // `LSP_CONTAINMENT_SATURATION_REFS=3`) so single-ref
+            // containers do not get the rescue — keeps the "per-ref
+            // weighting refuses thin wrappers" contract intact.
+            // Magnitude is `70 * proximity`, not `100 * proximity`, so
+            // the rescue competes with partial-name helpers
+            // (text_score ≈ 30-50) without overrunning exact-name
+            // matches (text_score ≈ 100).
+            //
+            // Gated by `lsp_signal > 0.0` so the default pipeline is
+            // byte-identical pre-P1-4 follow-up.
+            let text_component =
+                if text_score == 0 && ctx.weights.lsp_signal > 0.0 && lsp_proximity >= 0.6 {
+                    70.0 * lsp_proximity * ctx.weights.text
+                } else {
+                    text_score as f64 * ctx.weights.text
+                };
 
             // PageRank: scale raw score to 0-100 range
             let pr = ctx.pagerank.get(&symbol.file_path).copied().unwrap_or(0.0);
@@ -904,10 +1362,23 @@ pub(crate) fn rank_symbols(
             let sem_normalized = (sem_score / sem_max * 100.0).min(100.0);
             let semantic_component = sem_normalized * ctx.weights.semantic;
 
+            // P1-4 per-symbol proximity signal. A symbol receives up
+            // to `+100 * lsp_signal` when the nearest LSP/tree-sitter
+            // reference line lives exactly on `symbol.line`; the
+            // contribution falls off linearly to zero at
+            // `LSP_PROXIMITY_WINDOW_LINES` below the reference. Refs
+            // above the symbol's own line (i.e. that predate it) never
+            // boost — a reference cannot live inside a symbol that has
+            // not started yet. Uniform file-level boost used to
+            // over-promote unrelated helpers in large ref'd files;
+            // this per-symbol factor keeps the lift targeted.
+            let lsp_component = 100.0 * ctx.weights.lsp_signal * lsp_proximity;
+
             let blended = (text_component
                 + pr_component
                 + recency_component
                 + semantic_component
+                + lsp_component
                 + symbol_kind_prior(&query_lower, &symbol)
                 + file_path_prior(&query_lower, &symbol.file_path))
                 as i32;
@@ -929,19 +1400,26 @@ pub(crate) fn rank_symbols(
 }
 
 /// Budget-aware pruning: take ranked symbols, extract bodies, stop when budget exhausted.
-/// Returns (selected_entries, chars_used).
+/// Returns (selected_entries, chars_used, pruned_count, last_kept_score).
+///
+/// `pruned_count` is the number of candidate symbols dropped because the
+/// budget ran out (0 if everything fit). `last_kept_score` is the relevance
+/// score of the lowest-ranked entry that was kept, so callers can tell
+/// "we almost lost relevant context" from "only junk got dropped".
 pub(crate) fn prune_to_budget(
     scored: Vec<(SymbolInfo, i32)>,
     max_tokens: usize,
     include_body: bool,
     project_root: &Path,
-) -> (Vec<RankedContextEntry>, usize) {
+) -> (Vec<RankedContextEntry>, usize, usize, f64) {
     // Dynamic file cache limit: scale with token budget, cap at 128
     let file_cache_limit = (max_tokens / 200).clamp(32, 128);
     let char_budget = max_tokens.saturating_mul(4);
     let mut remaining = char_budget;
     let mut file_cache: HashMap<String, Option<String>> = HashMap::new();
     let mut selected = Vec::new();
+    let total = scored.len();
+    let mut last_kept_score: f64 = 0.0;
 
     for (symbol, score) in scored {
         let body = if include_body && symbol.end_byte > symbol.start_byte {
@@ -988,9 +1466,11 @@ pub(crate) fn prune_to_budget(
             break;
         }
         remaining = remaining.saturating_sub(entry_size);
+        last_kept_score = score as f64;
         selected.push(entry);
     }
 
+    let pruned_count = total.saturating_sub(selected.len());
     let chars_used = char_budget.saturating_sub(remaining);
-    (selected, chars_used)
+    (selected, chars_used, pruned_count, last_kept_score)
 }

@@ -188,6 +188,16 @@ pub struct SymbolInfo {
     pub start_byte: u32,
     #[serde(skip)]
     pub end_byte: u32,
+    /// Inclusive end line of the symbol's span. Populated from
+    /// tree-sitter's `Node::end_position().row` at extraction time.
+    /// Defaults to `line` when the span is unknown (e.g. symbols
+    /// materialised from DB rows that predate the `end_line` column
+    /// or tests that build `SymbolInfo` by hand). Used by the P1-4
+    /// per-symbol LSP boost to judge whether a ref line plausibly
+    /// lives *inside* the symbol's body rather than just near its
+    /// declaration.
+    #[serde(skip)]
+    pub end_line: usize,
 }
 
 /// Construct a stable symbol ID: `{file_path}#{kind}:{name_path}`
@@ -246,6 +256,13 @@ pub struct RankedContextResult {
     pub count: usize,
     pub token_budget: usize,
     pub chars_used: usize,
+    /// Number of candidate symbols dropped by `prune_to_budget`.
+    /// 0 when every candidate fit in the budget.
+    pub pruned_count: usize,
+    /// Relevance score of the lowest-ranked kept entry.
+    /// Agents can use this to tell "we almost lost relevant context"
+    /// from "only junk got dropped".
+    pub last_kept_score: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,6 +274,12 @@ pub(crate) struct ParsedSymbol {
     pub column: usize,
     pub start_byte: u32,
     pub end_byte: u32,
+    /// Inclusive end line of the symbol's span. Populated from
+    /// tree-sitter's `Node::end_position().row` at parse time.
+    /// Symbols materialised from DB rows (which pre-date the column)
+    /// fall back to `line` so downstream `end_line >= line` invariants
+    /// hold.
+    pub end_line: usize,
     pub signature: String,
     pub body: Option<String>,
     pub name_path: String,

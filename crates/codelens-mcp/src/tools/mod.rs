@@ -14,8 +14,9 @@ mod report_verifier;
 pub mod reports;
 pub mod rules;
 pub mod session;
-mod suggestions;
+pub(crate) mod suggestions;
 pub mod symbols;
+pub(crate) mod transparency;
 pub mod workflows;
 
 use crate::AppState;
@@ -80,6 +81,7 @@ pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_
         "plan_symbol_rename"           => lsp::plan_symbol_rename,
         "check_lsp_status"             => lsp::check_lsp_status,
         "get_lsp_recipe"               => lsp::get_lsp_recipe,
+        "get_lsp_readiness"            => lsp::get_lsp_readiness,
         // ── Analysis ──
         "get_changed_files"            => graph::get_changed_files_tool,
         "get_impact_analysis"          => graph::get_impact_analysis,
@@ -137,6 +139,7 @@ pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_
         "audit_builder_session"        => session::audit_builder_session,
         "audit_planner_session"        => session::audit_planner_session,
         "export_session_markdown"      => session::export_session_markdown,
+        "tool_search"                  => session::tool_search,
         // ── Composite ──
         "summarize_file"               => composite::summarize_file,
         "explain_code_flow"            => composite::explain_code_flow,

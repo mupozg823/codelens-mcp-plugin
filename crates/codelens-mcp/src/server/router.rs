@@ -1,15 +1,17 @@
-use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::dispatch::dispatch_tool;
 use crate::prompts::{get_prompt, prompts};
-use crate::protocol::{JsonRpcRequest, JsonRpcResponse};
+use crate::protocol::{
+    JsonRpcRequest, JsonRpcResponse, LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS,
+};
 use crate::resources::{read_resource, resources};
 use crate::tool_defs::{
     is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
     preferred_phase_labels, preferred_tier_labels, tool_namespace, tool_phase_label,
     tool_preferred_executor_label, tool_tier_label, visible_tools,
 };
-use serde_json::{Map, Value, json};
+use crate::AppState;
+use serde_json::{json, Map, Value};
 use std::collections::BTreeSet;
 
 fn visible_axes_from_tools(
@@ -76,24 +78,39 @@ pub(crate) fn handle_request(state: &AppState, request: JsonRpcRequest) -> Optio
         | "notifications/resources/list_changed"
         | "notifications/prompts/list_changed" => None,
 
-        "initialize" => Some(JsonRpcResponse::result(
-            request.id,
-            json!({
-                "protocolVersion": "2025-03-26",
-                "capabilities": {
-                    "tools": {
-                        "listChanged": state.session_resume_supported()
+        "initialize" => {
+            // Per spec §lifecycle/version negotiation: echo the client's requested
+            // protocol version when we support it, otherwise reply with our latest.
+            // The client is then expected to disconnect if the returned version is
+            // not acceptable.
+            let requested = request
+                .params
+                .as_ref()
+                .and_then(|params| params.get("protocolVersion"))
+                .and_then(|value| value.as_str());
+            let negotiated = match requested {
+                Some(version) if SUPPORTED_PROTOCOL_VERSIONS.contains(&version) => version,
+                _ => LATEST_PROTOCOL_VERSION,
+            };
+            Some(JsonRpcResponse::result(
+                request.id,
+                json!({
+                    "protocolVersion": negotiated,
+                    "capabilities": {
+                        "tools": {
+                            "listChanged": state.session_resume_supported()
+                        },
+                        "resources": { "listChanged": false },
+                        "prompts": { "listChanged": false }
                     },
-                    "resources": { "listChanged": false },
-                    "prompts": { "listChanged": false }
-                },
-                "serverInfo": {
-                    "name": "codelens-mcp",
-                    "version": env!("CARGO_PKG_VERSION")
-                },
-                "instructions": "CodeLens is a compressed context provider for agent harnesses. Prefer problem-first workflow entrypoints such as explore_codebase, review_architecture, plan_safe_refactor, trace_request_path, review_changes, cleanup_duplicate_logic, and semantic_code_review before expanding raw symbols or graph data. Legacy report tools remain available, but the workflow-first surface is the default path. Keep the visible context bounded, and use get_analysis_section or analysis resources only when you need one section in more detail. For longer reports, start_analysis_job and poll with get_analysis_job."
-            }),
-        )),
+                    "serverInfo": {
+                        "name": "codelens-mcp",
+                        "version": env!("CARGO_PKG_VERSION")
+                    },
+                    "instructions": "CodeLens is a compressed context provider for agent harnesses. Prefer problem-first workflow entrypoints such as explore_codebase, review_architecture, plan_safe_refactor, trace_request_path, review_changes, cleanup_duplicate_logic, and semantic_code_review before expanding raw symbols or graph data. Legacy report tools remain available, but the workflow-first surface is the default path. Keep the visible context bounded, and use get_analysis_section or analysis resources only when you need one section in more detail. For longer reports, start_analysis_job and poll with get_analysis_job."
+                }),
+            ))
+        }
         "resources/list" => Some(JsonRpcResponse::result(
             request.id,
             json!({ "resources": resources(state) }),

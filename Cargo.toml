@@ -9,12 +9,12 @@ resolver = "2"
 [workspace.package]
 edition = "2024"
 license = "Apache-2.0"
-version = "1.9.50"
-description = "Harness-native Rust MCP server for code intelligence with generated surface governance, hybrid retrieval, and mutation-gated workflows"
+version = "1.9.56"
+description = "Rust MCP server for bounded code intelligence, gated mutation, and auditable agent workflows"
 repository = "https://github.com/mupozg823/codelens-mcp-plugin"
 homepage = "https://github.com/mupozg823/codelens-mcp-plugin"
 readme = "README.md"
-keywords = ["mcp", "code-intelligence", "tree-sitter", "lsp", "ai"]
+keywords = ["mcp", "code-intelligence", "tree-sitter", "lsp", "agent"]
 categories = ["development-tools", "command-line-utilities"]
 
 [workspace.dependencies]
@@ -77,6 +77,7 @@ url = "2.5"
 walkdir = "2.5"
 libc = "0.2"
 tracing = "0.1"
+dashmap = "6"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 opentelemetry = { version = "0.28", default-features = false, features = ["trace"] }
 opentelemetry_sdk = { version = "0.28", default-features = false, features = ["trace", "rt-tokio"] }

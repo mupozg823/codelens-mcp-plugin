@@ -9,16 +9,16 @@
 //! yet so synthetic scoring would be self-grading. See ADR-0005 §5
 //! "Offline eval lanes" and the session notes dated 2026-04-18.
 
-use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::runtime_types::{AnalysisReadiness, AnalysisVerifierCheck};
 use crate::session_context::SessionRequestContext;
 use crate::tool_defs::{ToolProfile, ToolSurface};
-use crate::tool_runtime::{ToolResult, success_meta};
+use crate::tool_runtime::{success_meta, ToolResult};
 use crate::tools::report_payload::{build_handle_payload, infer_risk_level};
 use crate::tools::report_verifier::{VERIFIER_CAUTION, VERIFIER_READY};
 use crate::tools::session::{audit_builder_session, audit_planner_session};
-use serde_json::{Value, json};
+use crate::AppState;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Default)]
@@ -169,6 +169,7 @@ fn coverage_check(
         status: status.to_owned(),
         summary: summary.into(),
         evidence_section: Some("audit_pass_rate".to_owned()),
+        pass_condition: super::super::report_verifier::default_pass_condition(check),
     }
 }
 
@@ -285,6 +286,7 @@ pub fn eval_session_audit(state: &AppState, arguments: &Value) -> ToolResult {
             reference_safety: VERIFIER_CAUTION.to_owned(),
             test_readiness: VERIFIER_CAUTION.to_owned(),
             mutation_ready: VERIFIER_CAUTION.to_owned(),
+            rationale: std::collections::BTreeMap::new(),
         }
     } else {
         AnalysisReadiness {
@@ -292,6 +294,7 @@ pub fn eval_session_audit(state: &AppState, arguments: &Value) -> ToolResult {
             reference_safety: VERIFIER_READY.to_owned(),
             test_readiness: VERIFIER_READY.to_owned(),
             mutation_ready: VERIFIER_READY.to_owned(),
+            rationale: std::collections::BTreeMap::new(),
         }
     };
     let verifier_checks = vec![

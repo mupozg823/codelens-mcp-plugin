@@ -177,8 +177,8 @@ pub(crate) fn insert_symbols(
 ) -> Result<Vec<i64>> {
     let mut ids = Vec::with_capacity(symbols.len());
     let mut stmt = conn.prepare_cached(
-        "INSERT INTO symbols (file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+        "INSERT INTO symbols (file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id, end_line)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
     )?;
     for sym in symbols {
         stmt.execute(params![
@@ -192,6 +192,7 @@ pub(crate) fn insert_symbols(
             sym.signature,
             sym.name_path,
             sym.parent_id,
+            sym.end_line,
         ])?;
         ids.push(conn.last_insert_rowid());
     }
@@ -357,20 +358,20 @@ impl IndexDb {
     ) -> Result<Vec<SymbolRow>> {
         let (sql, use_file_filter) = match (exact, file_path.is_some()) {
             (true, true) => (
-                "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num, s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id
+                "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num, s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id, s.end_line
                  FROM symbols s JOIN files f ON s.file_id = f.id
                  WHERE s.name = ?1 AND f.relative_path = ?2
                  LIMIT ?3",
                 true,
             ),
             (true, false) => (
-                "SELECT id, file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id
+                "SELECT id, file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id, end_line
                  FROM symbols WHERE name = ?1
                  LIMIT ?2",
                 false,
             ),
             (false, true) => (
-                "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num, s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id
+                "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num, s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id, s.end_line
                  FROM symbols s JOIN files f ON s.file_id = f.id
                  WHERE s.name LIKE '%' || ?1 || '%' AND f.relative_path = ?2
                  ORDER BY LENGTH(s.name), s.name
@@ -378,7 +379,7 @@ impl IndexDb {
                 true,
             ),
             (false, false) => (
-                "SELECT id, file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id
+                "SELECT id, file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id, end_line
                  FROM symbols WHERE name LIKE '%' || ?1 || '%'
                  ORDER BY LENGTH(name), name
                  LIMIT ?2",
@@ -407,6 +408,7 @@ impl IndexDb {
                 signature: row.get(8)?,
                 name_path: row.get(9)?,
                 parent_id: row.get(10)?,
+                end_line: row.get(11)?,
             });
         }
         Ok(results)
@@ -423,14 +425,14 @@ impl IndexDb {
         let sql = if exact {
             "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num,
                     s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id,
-                    f.relative_path
+                    s.end_line, f.relative_path
              FROM symbols s JOIN files f ON s.file_id = f.id
              WHERE s.name = ?1
              LIMIT ?2"
         } else {
             "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num,
                     s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id,
-                    f.relative_path
+                    s.end_line, f.relative_path
              FROM symbols s JOIN files f ON s.file_id = f.id
              WHERE s.name LIKE '%' || ?1 || '%'
              LIMIT ?2"
@@ -453,8 +455,9 @@ impl IndexDb {
                     signature: row.get(8)?,
                     name_path: row.get(9)?,
                     parent_id: row.get(10)?,
+                    end_line: row.get(11)?,
                 },
-                row.get::<_, String>(11)?,
+                row.get::<_, String>(12)?,
             ));
         }
         Ok(results)
@@ -463,7 +466,7 @@ impl IndexDb {
     /// Get all symbols for a file, ordered by start_byte.
     pub fn get_file_symbols(&self, file_id: i64) -> Result<Vec<SymbolRow>> {
         let mut stmt = self.conn.prepare_cached(
-            "SELECT id, file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id
+            "SELECT id, file_id, name, kind, line, column_num, start_byte, end_byte, signature, name_path, parent_id, end_line
              FROM symbols WHERE file_id = ?1 ORDER BY start_byte",
         )?;
         let rows = stmt.query_map(params![file_id], |row| {
@@ -479,6 +482,7 @@ impl IndexDb {
                 signature: row.get(8)?,
                 name_path: row.get(9)?,
                 parent_id: row.get(10)?,
+                end_line: row.get(11)?,
             })
         })?;
         let mut results = Vec::new();
@@ -576,7 +580,7 @@ impl IndexDb {
         let mut stmt = self.conn.prepare_cached(
             "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num,
                     s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id,
-                    f.relative_path, rank
+                    s.end_line, f.relative_path, rank
              FROM symbols_fts
              JOIN symbols s ON symbols_fts.rowid = s.id
              JOIN files f ON s.file_id = f.id
@@ -601,9 +605,10 @@ impl IndexDb {
                     signature: row.get(8)?,
                     name_path: row.get(9)?,
                     parent_id: row.get(10)?,
+                    end_line: row.get(11)?,
                 },
-                row.get::<_, String>(11)?,
-                row.get::<_, f64>(12)?,
+                row.get::<_, String>(12)?,
+                row.get::<_, f64>(13)?,
             ));
         }
         Ok(results)
@@ -620,7 +625,7 @@ impl IndexDb {
         let mut stmt = self.conn.prepare_cached(
             "SELECT s.id, s.file_id, s.name, s.kind, s.line, s.column_num,
                     s.start_byte, s.end_byte, s.signature, s.name_path, s.parent_id,
-                    f.relative_path
+                    s.end_line, f.relative_path
              FROM symbols s
              JOIN files f ON s.file_id = f.id
              WHERE f.relative_path LIKE ?1
@@ -640,8 +645,9 @@ impl IndexDb {
                     signature: row.get(8)?,
                     name_path: row.get(9)?,
                     parent_id: row.get(10)?,
+                    end_line: row.get(11)?,
                 },
-                row.get::<_, String>(11)?,
+                row.get::<_, String>(12)?,
             ))
         })?;
 

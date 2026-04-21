@@ -27,8 +27,8 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `planner-builder`
 - Intent: Planner/reviewer session prepares bounded evidence, then a mutation-enabled builder session executes the change under explicit coordination.
 - Roles:
-  - `planner-reviewer`: `planner-readonly` (35), `reviewer-graph` (35); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
-  - `builder-refactor`: `builder-minimal` (36), `refactor-full` (49); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
+  - `planner-reviewer`: `planner-readonly` (35), `reviewer-graph` (12); mutate=`false`; collect structure, diagnostics, and readiness evidence before dispatch
+  - `builder-refactor`: `builder-minimal` (37), `refactor-full` (49); mutate=`true`; perform bounded mutation only after preflight, diagnostics, and coordination
 
 **Preflight Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: planner or builder bootstrap | purpose: establish session-local project view, visible surface, and health summary
@@ -97,7 +97,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `reviewer-gate`
 - Intent: Read-only reviewer or CI-facing session validates a builder session and exports a human-readable signoff artifact.
 - Roles:
-  - `reviewer`: `reviewer-graph` (35), `ci-audit` (43); mutate=`false`; perform diff-aware review, signoff, and audit validation without content mutation
+  - `reviewer`: `reviewer-graph` (12), `ci-audit` (41); mutate=`false`; perform diff-aware review, signoff, and audit validation without content mutation
 
 **Read Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: before the first reviewer workflow | purpose: bind the reviewer session to the project and bounded read-side surface
@@ -138,7 +138,7 @@ This document is generated from the same canonical manifest that powers the runt
 - Mode: `batch-analysis`
 - Intent: Long-running read-only analyses should move through durable jobs and bounded sections rather than raw full-report expansion.
 - Roles:
-  - `analysis-runner`: `workflow-first` (19), `evaluator-compact` (14), `ci-audit` (43); mutate=`false`; queue durable read-side jobs and consume bounded sections
+  - `analysis-runner`: `workflow-first` (19), `evaluator-compact` (14), `ci-audit` (41); mutate=`false`; queue durable read-side jobs and consume bounded sections
 
 **Analysis Sequence**
 - 1. `prepare_harness_session` | required=`true` | when: before job creation | purpose: establish the analysis surface and runtime health view
@@ -185,6 +185,12 @@ This document is generated from the same canonical manifest that powers the runt
 - `codelens://schemas/handoff-artifact/v1` exposes the concrete JSON schema for persisted handoff artifacts.
 - The checked-in schema source is [`docs/schemas/handoff-artifact.v1.json`](schemas/handoff-artifact.v1.json).
 - The spec is still audit-first. It documents discipline and handoff shape without adding new runtime hard blocks beyond existing mutation gate behavior.
+- The default transport contract is still audit-first and advisory.
+- Strict enforcement is now an optional capability, not the default contract.
+  - enable with `--coordination-mode strict` or `CODELENS_COORDINATION_MODE=strict`
+  - scope: trusted non-local HTTP `refactor-full` mutations only
+  - hard blocks added in strict mode: missing claims, claim/path mismatch, and preflight overlap conflicts
+  - planner/reviewer read-side flows and local stdio mutation flows stay unchanged
 
 ## Eval traces (opt-in)
 

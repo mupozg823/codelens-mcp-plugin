@@ -1,12 +1,10 @@
 <div align="center">
 
-# CodeLens MCP → Symbiote MCP
+# CodeLens MCP
 
-**Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
+**Rust MCP server for bounded code intelligence, gated mutation, and auditable agent workflows.**
 
-_Becoming **Symbiote MCP** at v2.0 — harness-engineering as a symbiotic substrate. Attach to your agent. Your code intelligence becomes superhuman._ See [ADR-0007](docs/adr/ADR-0007-symbiote-rebrand.md) for the rebrand plan.
-
-If you are preparing automation or host configs for the eventual cutover, use the host-by-host migration guide: [`docs/migrate-from-codelens.md`](docs/migrate-from-codelens.md).
+_CodeLens MCP is the control plane for agentic coding: bounded code intelligence, gated mutation, and auditable harness workflows._
 
 Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitter + semantic), mutation-gated refactoring, token compression, and enterprise-ready observability — all in a single self-contained binary, no external daemons or service installs required (the binary statically links its dependencies and ships its own SQLite, vector store, and ONNX runtime).
 
@@ -21,35 +19,69 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
 ## Surface Snapshot
 
-- Workspace version: `1.9.46`
+- Workspace version: `1.9.56`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
-- Registered tool definitions: `111`
-- Tool output schemas: `77 / 111`
+- Registered tool definitions: `108`
+- Tool output schemas: `73 / 108`
 - Supported language families: `30` across `49` extensions
-- Profiles: `planner-readonly` (35), `builder-minimal` (36), `reviewer-graph` (35), `evaluator-compact` (14), `refactor-full` (49), `ci-audit` (43), `workflow-first` (19)
-- Presets: `minimal` (27), `balanced` (78), `full` (111)
+- Profiles: `planner-readonly` (35), `builder-minimal` (37), `reviewer-graph` (12), `evaluator-compact` (14), `refactor-full` (49), `ci-audit` (41), `workflow-first` (19)
+- Presets: `minimal` (27), `balanced` (79), `full` (108)
 - Canonical manifest: [`docs/generated/surface-manifest.json`](docs/generated/surface-manifest.json)
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:END -->
 
 ---
 
-## The Problem
+## Why This Exists
 
-Multi-agent coding harnesses fail when every agent sees too many tools, too much raw code, and too many intermediate results. Tokens get burned on `tools/list`, repeated file reads, and low-value raw graph expansion.
+Most agent stacks are no longer bottlenecked by raw code generation. They are bottlenecked by **harness shape**: too many tools, too much repeated context, and too little verifier evidence before mutation. The result is predictable: token burn on `tools/list`, duplicated `rg + cat` loops, and builders editing outside the part of the repo the planner actually scoped.
 
-## The Solution
+CodeLens sits between the host and the repository as a **bounded code-intelligence substrate**. It narrows the visible surface, answers high-leverage questions with structured artifacts, and turns risky mutation into a preflighted, auditable path instead of "just another tool call."
 
-CodeLens maintains a **live, indexed understanding** of your codebase and exposes it as a harness optimization layer. The model asks a precise question and gets a bounded answer with a handle for deeper expansion only when needed.
+Important distinction: **`108` is the compiled source registry**, not the
+default runtime surface any host sees. In normal operation the visible
+surface is profile-scoped: `reviewer-graph` exposes `12`, `evaluator-compact`
+`14`, `workflow-first` `19`, `planner-readonly` `35`, `builder-minimal` `37`,
+`ci-audit` `41`, and `refactor-full` `49`. The default `balanced` preset shows
+`79`, not `108`.
 
+## What v1.9.56 Delivers
+
+| Layer | What ships in the current release |
+| ----- | --------------------------------- |
+| Package metadata | `codelens-mcp`, `codelens-engine`, `codelens-tui` now publish crate-specific descriptions instead of one shared workspace blurb |
+| Crate landing pages | crate README top sections and release links now align with the `v1.9.56` line |
+| GitHub surface | repository description now matches the MCP server role and no longer overstates the engine crate as a server |
+| Runtime behavior | unchanged from `v1.9.55`; this is a metadata and packaging-clarity patch |
+
+## Performance Proof
+
+| Public claim | Current number | Source |
+| ------------ | -------------- | ------ |
+| Token reduction on structured tasks | **6.1x (84% fewer tokens)** | [`docs/benchmarks.md`](docs/benchmarks.md) |
+| Best single-task compression | **167x** | [`docs/benchmarks.md`](docs/benchmarks.md) |
+| Workflow profile compression | **15-16x** | [`docs/benchmarks.md`](docs/benchmarks.md) |
+| Hybrid self MRR | **0.681** | [`docs/benchmarks.md`](docs/benchmarks.md) |
+| Cold start without LSP | **~12 ms** | [`docs/benchmarks.md`](docs/benchmarks.md) |
+
+The benchmark contract is intentionally conservative: self-repo numbers are not presented as cross-language generalizations, and the 5-repo matrix explicitly shows that hybrid, semantic, and lexical retrieval each win on different repositories.
+
+## Architecture At A Glance
+
+CodeLens is not the agent and not an IDE backend. It is the **MCP control plane** in front of `codelens-engine`.
+
+- Interactive map: [`docs/architecture-d3.html`](docs/architecture-d3.html)
+- Architecture deep dive: [`docs/architecture.md`](docs/architecture.md)
+- Benchmarks and retrieval quality: [`docs/benchmarks.md`](docs/benchmarks.md)
+- Automated harness release notes: [`docs/release-notes/v1.9.56.md`](docs/release-notes/v1.9.56.md)
+
+```text
+Host (Claude / Codex / Cursor / Continue)
+        -> codelens-mcp
+        -> bounded workflows, profiles, mutation gates, audit artifacts
+        -> codelens-engine
+        -> tree-sitter, hybrid retrieval, graph analysis, LSP bridge
+        -> .codelens state + SQLite / sqlite-vec
 ```
-Without CodeLens                                    With CodeLens
-─────────────────────────────────────────────────────────────────
-Read file + grep references   → 4,600 tokens       get_impact_analysis    → 1,500 tokens  (67% saved)
-Read manifest + entry + files → 5,000 tokens       onboard_project        →   660 tokens  (87% saved)
-Read + grep × 3 files         → 3,200 tokens       get_ranked_context     →   800 tokens  (75% saved)
-```
-
-> Measured with tiktoken (cl100k_base) on real projects. Reproducible via `benchmarks/token-efficiency.py`.
 
 ## Quick Install
 
@@ -73,7 +105,7 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features http
 ```
 
-Latest release: [v1.9.35](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.35)
+Latest release: [v1.9.56](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.56)
 
 ### Install Channel Matrix
 
@@ -274,14 +306,15 @@ See [docs/platform-setup.md](docs/platform-setup.md) for Codex, Windsurf, VS Cod
 
 ## Why CodeLens?
 
-|                       | CodeLens                             | Read/Grep baseline           |
-| --------------------- | ------------------------------------ | ---------------------------- |
-| **Token cost**        | 50-87% less                          | Full file content every time |
-| **Context quality**   | Ranked, bounded, structured          | Raw text, no prioritization  |
-| **Multi-file impact** | 1 tool call                          | 5-10 grep + read cycles      |
-| **Runtime**           | Single Rust binary, <12ms cold start | N/A                          |
-| **Language support**  | Generated from the surface manifest  | N/A                          |
-| **Agent awareness**   | Doom-loop detection, mutation gates  | None                         |
+|                       | CodeLens                                                              | Read/Grep baseline           |
+| --------------------- | --------------------------------------------------------------------- | ---------------------------- |
+| **Token cost**        | **6.1x lower** on structured tasks, **167x** on best-case retrieval   | Full file content every time |
+| **Context quality**   | Ranked symbols, workflow reports, analysis handles, bounded sections  | Raw text, no prioritization  |
+| **Multi-file impact** | One workflow tool or one analysis handle                              | 5-10 grep + read cycles      |
+| **Mutation safety**   | Preflight gate, audit trail, optional strict coordination             | None                         |
+| **Harness fit**       | Profiles, claims, role routing, deferred surfaces                     | Ad hoc                       |
+| **Runtime**           | Single Rust binary, stdio or shared HTTP, <12ms cold start            | N/A                          |
+| **Release evidence**  | Usage-drift artifacts plus independent evaluator signoff              | None                         |
 
 ## Key Features
 
@@ -301,13 +334,15 @@ Instead of starting from the full raw tool registry, begin with the workflow-fir
 
 ### Role-Based Surfaces
 
-| Profile            | Tools Visible                  | Use Case                                        |
-| ------------------ | ------------------------------ | ----------------------------------------------- |
-| `planner-readonly` | Workflow-first                 | Planner/architect context compression           |
-| `builder-minimal`  | Workflow-first                 | Implementation with focused Codex/agent surface |
-| `reviewer-graph`   | Review-heavy                   | Graph-aware review and risk analysis            |
-| `refactor-full`    | Preview-first + gated mutation | Safe refactors                                  |
-| `ci-audit`         | Machine-oriented               | CI/CD review and report emission                |
+| Profile | Tool count | Use case | Mutation |
+| ------- | ---------: | -------- | -------- |
+| `planner-readonly` | 36 | planner bootstrap, bounded architecture review, handoff preparation | no |
+| `builder-minimal` | 37 | implementation with a tight editing surface | gated |
+| `reviewer-graph` | 12 | diff, impact, and graph-aware review under a very small surface | no |
+| `evaluator-compact` | 14 | pass/fail scoring, acceptance checks, independent signoff | no |
+| `refactor-full` | 50 | broad multi-file mutation after explicit preflight | yes |
+| `ci-audit` | 43 | machine-oriented reports, exported artifacts, batch analysis | no |
+| `workflow-first` | 19 | low-friction first attach and composite workflow routing | no |
 
 ### Adaptive Token Compression
 
@@ -333,6 +368,48 @@ Refactor flows require verification before code changes:
 verify_change_readiness → "ready" → rename_symbol
                         → "blocked" → fix blockers first
 ```
+
+### LSP-Boosted Ranking (opt-in)
+
+`get_ranked_context` accepts an optional `lsp_boost=true` flag that
+unions LSP and tree-sitter references to lift the functions that
+actually call the query target into the ranked output. On a 10-query
+caller-focused dataset per repo (see
+[`docs/benchmarks.md §1c`](docs/benchmarks.md#1c-lsp-boosted-ranking-p1-4-v19502026-04-20)),
+hit rate jumps from baseline **1-4/10** to **4-8/10** depending on
+language; flask (pyright) in particular moves from 2/10 MRR 0.0500 to
+4/10 MRR 0.1053 (+110%) once `CODELENS_LSP_AUTO=true` +
+`prepare_harness_session` warm pyright in the background. Rust self
+stays flat — tree-sitter already saturates the Rust path. Leave the
+flag off for embedding-quality baseline runs.
+
+Use `get_lsp_readiness` (new in v1.9.50) to wait for per-language
+LSP sessions to finish indexing instead of sleeping a fixed
+duration. Each session exposes `is_alive` (handshake done) and
+`is_ready` (≥ 1 non-empty response) latches plus per-milestone
+elapsed-ms timers; the pool also records `failure_count` so a dead
+LSP binary surfaces immediately instead of hiding inside a blind
+wait.
+
+Before merging a change to `crates/codelens-engine/src/symbols/ranking.rs`,
+`crates/codelens-mcp/src/tools/symbols/handlers.rs::lsp_boost_probe`,
+or `crates/codelens-engine/src/lsp/**`, run the regression gate:
+
+```bash
+# Clone test worktrees once:
+git clone https://github.com/pallets/flask external-repos/flask
+git clone https://github.com/colinhacks/zod external-repos/zod
+
+cargo build -p codelens-mcp --release --features http --bin codelens-mcp
+python3 benchmarks/lsp-boost-regression-check.py
+# exit 0 = contract holds, exit 1 = thick_caller hit-rate regressed
+```
+
+The contract is pinned to the v1.9.50 post-rescue numbers
+(self 5/5, flask 3/3, zod 3/3 thick_caller hits). Replay mode
+(`--current-self <json> --current-flask <json> --current-zod <json>`)
+lets CI or a pre-merge hook rerun the check against archived
+artifacts without spinning up LSPs.
 
 ## Language Support
 
@@ -373,15 +450,23 @@ Self-benchmark re-measured on commit `26d513e` (v1.9.32, 2026-04-17), model `Min
 | Semantic only                     | 0.689     | 65%     | 74%     | 498     |
 | **Hybrid** (`get_ranked_context`) | **0.712** | **68%** | **75%** | **115** |
 
-Hybrid uplift over lexical: **+0.128 MRR, +15% Acc@1**. Semantic alone beats lexical but hybrid beats semantic by blending both signals. Identifier queries reach `MRR 0.935` with every method (structural matching is sufficient); the hybrid advantage concentrates on natural-language queries (+0.159 MRR) and short phrases (+0.318 MRR).
+Hybrid uplift over lexical on **this repo's dataset**: +0.128 MRR, +15% Acc@1. Semantic alone beats lexical but hybrid beats semantic by blending both signals. Identifier queries reach `MRR 0.935` with every method (structural matching is sufficient); the hybrid advantage concentrates on natural-language queries (+0.159 MRR) and short phrases (+0.318 MRR). **This ordering does not hold cross-language** — see the 5-repo matrix below.
 
 > **v1.9.23 → v1.9.32 re-measurement**: Hybrid −0.046 (0.758 → 0.712), Semantic −0.043, Lexical −0.018. Dataset and model unchanged. Commit span `84c825d..26d513e` includes retrieval-path tuning that slightly dropped the aggregate score; the architecture refactors in v1.9.31–v1.9.32 (`dispatch/`, `tools/`, `main.rs` splits) do not touch retrieval code. Root-cause investigation is a follow-up in a dedicated bench session.
 
 Cross-project matrix (6 languages, last run v1.9.23 line — not re-measured this cycle): Rust (self / axum / ripgrep), Python (django / requests), TS/JS (jest / next-js / react-core / typescript), Go (gin), Java (gson), C (curl). Historical hybrid numbers for those projects are tracked in `benchmarks/embedding-quality-phase3-matrix.json`.
 
-> 2-tier NL→code bridges: generic core (15 entries) + auto-generated project bridges (`.codelens/bridges.json`). The self-benchmark above runs with both tiers active.
+> **5-repo cross-language matrix (v1.9.46, 2026-04-20)** — three-arm bridge ablation:
 >
-> **Bridge measurement honesty (v1.9.46 three-arm ablation, 2026-04-18)**: on the self dataset, project bridges (`.codelens/bridges.json`, 581 entries) contribute **0 MRR** — both-on and generic-on are bit-exact identical to six decimals. Generic core contributes **+0.010 MRR** overall (+0.016 on natural-language queries). Flask pilot (n=20, Python) found **0/20 generic-term matches** — the generic bridges are CodeLens-dev-tooling vocabulary ("categorize", "camelcase", "who calls", "into an ast"), not a language-agnostic mapping. Cross-language bridge contribution remains unverified pending multi-repo pilots. Artifacts: `benchmarks/results/v1.9.46-3arm-bridge-*.json`.
+> | Repo (lang)    |   n |    Hybrid |  Semantic |   Lexical | Winner   |
+> | -------------- | --: | --------: | --------: | --------: | -------- |
+> | self (Rust)    | 104 | **0.681** |     0.647 |     0.532 | hybrid   |
+> | flask (Python) |  20 |     0.525 | **0.558** |     0.317 | semantic |
+> | zod (TS)       |  20 |     0.237 |     0.222 | **0.247** | lexical  |
+> | cobra (Go)     |  20 |     0.767 | **0.797** |     0.514 | semantic |
+> | spring (Java)  |  20 |     0.356 | **0.404** |     0.386 | semantic |
+>
+> Winner distribution: semantic 3, hybrid 1 (self only), lexical 1. On all four external repos, `bridge-off` and `generic-on` arms are **bit-exact identical** — the 15-entry generic NL→code bridge table is CodeLens-specific dev-tooling vocabulary ("categorize", "who calls", "into an ast") and contributes **0 MRR** outside of this repo. Self's 581-entry project bridge file likewise contributes **0 MRR** on its own dataset. Do not cite self or role MRR as evidence of a language-agnostic retrieval lift, and do not claim hybrid is the universal best blend. Artifacts: `benchmarks/results/v1.9.46-3arm-bridge-{self,flask,zod,cobra,spring-core}.json`, datasets under `benchmarks/external-*-dataset.json`.
 
 ```bash
 # Measure on your project
@@ -510,18 +595,23 @@ CodeLens is designed as a **harness coprocessor** — it doesn't replace your ag
 
 ## Quality Assurance
 
-| Suite                      | Tests   | Scope                                      |
-| -------------------------- | ------- | ------------------------------------------ |
-| codelens-engine            | 286     | Parsing, ranking, embedding, IR            |
-| codelens-mcp               | 238     | Dispatch, workflows, profiles, schemas     |
-| codelens-mcp (no semantic) | ~190    | Feature-off path verification              |
-| Dataset lint               | 5 rules | file_exists, negative≠positive, duplicates |
+| Gate | Command | Scope |
+| ---- | ------- | ----- |
+| Build | `cargo check` | workspace compile health |
+| Release build | `cargo build --release --features http` | tagged binary path |
+| Engine tests | `cargo test -p codelens-engine` | parsing, ranking, embedding, graph logic |
+| MCP tests | `cargo test -p codelens-mcp --features http` | transport, workflow, schema, strict coordination |
+| Harness tests | `python3 -m unittest discover -s benchmarks/harness/tests -p 'test_*.py'` | release runner, usage drift, independent signoff |
+| Contract check | `python3 scripts/agent-contract-check.py --strict` | repo-shipped agent prompt vs surface contract |
+| Artifact verify | `bash scripts/verify-release-artifacts.sh` | release bundle integrity |
 
 ```bash
 # Full verification
-cargo test -p codelens-engine && cargo test -p codelens-mcp
-cargo test -p codelens-mcp --no-default-features  # semantic=off path
-python3 benchmarks/lint-datasets.py --project .     # dataset hygiene
+cargo check
+cargo test -p codelens-engine
+cargo test -p codelens-mcp --features http
+python3 -m unittest discover -s benchmarks/harness/tests -p 'test_*.py'
+python3 scripts/agent-contract-check.py --strict
 ```
 
 ## Contributing

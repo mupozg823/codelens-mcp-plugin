@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeLens MCP Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<style>
+  :root {
+    --bg: #f6f3ec;
+    --paper: rgba(255, 253, 248, 0.92);
+    --paper-strong: #fffaf1;
+    --text: #1a1712;
+    --muted: #675f51;
+    --line: rgba(125, 98, 64, 0.18);
+    --burnt: #8c4a1d;
+    --burnt-soft: rgba(140, 74, 29, 0.12);
+    --blue: #2468c7;
+    --blue-soft: rgba(36, 104, 199, 0.10);
+    --green: #247a52;
+    --green-soft: rgba(36, 122, 82, 0.10);
+    --plum: #6d47a8;
+    --plum-soft: rgba(109, 71, 168, 0.10);
+    --rose: #b04f69;
+    --rose-soft: rgba(176, 79, 105, 0.10);
+    --shadow: 0 30px 80px rgba(53, 37, 17, 0.10);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    color: var(--text);
+    font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, serif;
+    background:
+      radial-gradient(circle at top left, rgba(140, 74, 29, 0.12), transparent 26rem),
+      radial-gradient(circle at top right, rgba(36, 104, 199, 0.10), transparent 24rem),
+      linear-gradient(180deg, #faf7f0 0%, var(--bg) 100%);
+  }
+
+  .wrap {
+    width: min(1560px, calc(100vw - 24px));
+    margin: 12px auto 24px;
+  }
+
+  .hero {
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    box-shadow: var(--shadow);
+    padding: 20px 24px 18px;
+  }
+
+  .eyebrow {
+    margin: 0;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    font-size: 12px;
+  }
+
+  h1 {
+    margin: 8px 0 10px;
+    font-size: clamp(32px, 4.3vw, 54px);
+    line-height: 1.02;
+  }
+
+  .lede {
+    margin: 0;
+    max-width: 980px;
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1.55;
+  }
+
+  .chip-row,
+  .link-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 16px;
+  }
+
+  .chip,
+  .link-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--line);
+    background: var(--paper-strong);
+    color: var(--text);
+    font-size: 13px;
+    text-decoration: none;
+  }
+
+  .chip strong { margin-right: 6px; }
+
+  .link-pill:hover {
+    border-color: rgba(36, 104, 199, 0.32);
+    color: var(--blue);
+  }
+
+  .stage-note {
+    margin-top: 16px;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .note {
+    padding: 14px 16px;
+    border-radius: 18px;
+    border: 1px solid var(--line);
+    background: rgba(255, 255, 255, 0.55);
+  }
+
+  .note b {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 14px;
+  }
+
+  .note span {
+    display: block;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.5;
+  }
+
+  .canvas {
+    margin-top: 14px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: 28px;
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  .section-label {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+  }
+
+  .card-title {
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  .card-sub {
+    font-size: 12px;
+    fill: #6a6256;
+  }
+
+  .small {
+    font-size: 12px;
+    fill: #6a6256;
+  }
+
+  .mono {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 11px;
+  }
+
+  .metric-number {
+    font-size: 30px;
+    font-weight: 700;
+  }
+
+  .metric-label {
+    font-size: 13px;
+    fill: #6a6256;
+  }
+
+  @media (max-width: 920px) {
+    .stage-note {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <section class="hero">
+    <p class="eyebrow">CodeLens MCP • v1.9.56 • Metadata And Package Copy Cleanup</p>
+    <h1>Bound the harness before the agent burns the repository.</h1>
+    <p class="lede">
+      CodeLens MCP is the control plane between your coding host and your codebase:
+      profile-scoped tool visibility, bounded workflow artifacts, gated mutation,
+      and release evidence that survives beyond a single chat transcript.
+    </p>
+    <div class="chip-row">
+      <span class="chip"><strong>108</strong> definitions in source</span>
+      <span class="chip"><strong>12-49</strong> visible per profile</span>
+      <span class="chip"><strong>7</strong> runtime profiles</span>
+      <span class="chip"><strong>4</strong> harness modes</span>
+      <span class="chip"><strong>30</strong> language families</span>
+      <span class="chip"><strong>strict</strong> coordination is opt-in</span>
+      <span class="chip"><strong>stdio + HTTP</strong> same binary</span>
+    </div>
+    <div class="link-row">
+      <a class="link-pill" href="./architecture.md">Architecture doc</a>
+      <a class="link-pill" href="./benchmarks.md">Benchmarks</a>
+      <a class="link-pill" href="./release-notes/v1.9.56.md">v1.9.56 notes</a>
+      <a class="link-pill" href="https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.56">GitHub Release</a>
+    </div>
+    <div class="stage-note">
+      <div class="note">
+        <b>Product intent</b>
+        <span>Make large-agent coding reliable by shrinking the visible surface and turning risky mutation into an evidence-backed path.</span>
+      </div>
+      <div class="note">
+        <b>Current proof</b>
+        <span>6.1x fewer tokens on structured retrieval tasks, 167x best-case compression, and 15-16x workflow-profile compression.</span>
+      </div>
+      <div class="note">
+        <b>Release shape</b>
+        <span>`release-harness-runner.py` + `usage-drift` + `independent-signoff` close the loop between implementation and public release evidence.</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="canvas">
+    <svg id="diagram" viewBox="0 0 1560 1180" aria-label="CodeLens MCP architecture diagram"></svg>
+  </section>
+</div>
+
+<script>
+const svg = d3.select("#diagram");
+const defs = svg.append("defs");
+
+defs.append("marker")
+  .attr("id", "arrow")
+  .attr("viewBox", "0 0 10 10")
+  .attr("refX", 9)
+  .attr("refY", 5)
+  .attr("markerWidth", 8)
+  .attr("markerHeight", 8)
+  .attr("orient", "auto")
+  .append("path")
+  .attr("d", "M0,0 L10,5 L0,10 Z")
+  .attr("fill", "#2468c7");
+
+svg.append("rect")
+  .attr("x", 0)
+  .attr("y", 0)
+  .attr("width", 1560)
+  .attr("height", 1180)
+  .attr("fill", "transparent");
+
+function roundedCard(g, x, y, w, h, fill, stroke, radius = 22) {
+  return g.append("rect")
+    .attr("x", x)
+    .attr("y", y)
+    .attr("width", w)
+    .attr("height", h)
+    .attr("rx", radius)
+    .attr("fill", fill)
+    .attr("stroke", stroke)
+    .attr("stroke-width", 1.2);
+}
+
+function addLines(g, lines, x, y, lineHeight, cls, fill = null) {
+  lines.forEach((line, index) => {
+    g.append("text")
+      .attr("x", x)
+      .attr("y", y + index * lineHeight)
+      .attr("class", cls)
+      .attr("fill", fill)
+      .text(line);
+  });
+}
+
+function drawArrow(x1, y1, x2, y2, label) {
+  const path = svg.append("path")
+    .attr("d", `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`)
+    .attr("fill", "none")
+    .attr("stroke", "#2468c7")
+    .attr("stroke-width", 2)
+    .attr("marker-end", "url(#arrow)");
+
+  const mx = (x1 + x2) / 2;
+  const my = (y1 + y2) / 2 - 12;
+  svg.append("text")
+    .attr("x", mx)
+    .attr("y", my)
+    .attr("text-anchor", "middle")
+    .attr("class", "small")
+    .attr("fill", "#2468c7")
+    .text(label);
+
+  return path;
+}
+
+const sectionLabels = [
+  { text: "Runtime layers", x: 80, y: 72, fill: "#8c4a1d" },
+  { text: "Control plane", x: 80, y: 430, fill: "#2468c7" },
+  { text: "Data plane", x: 760, y: 430, fill: "#247a52" },
+  { text: "Harness flow", x: 80, y: 850, fill: "#b04f69" },
+  { text: "Public proof", x: 80, y: 1040, fill: "#6d47a8" },
+];
+
+sectionLabels.forEach((item) => {
+  svg.append("text")
+    .attr("x", item.x)
+    .attr("y", item.y)
+    .attr("class", "section-label")
+    .attr("fill", item.fill)
+    .text(item.text);
+});
+
+const layerGroup = svg.append("g");
+
+const layers = [
+  {
+    x: 80, y: 104, w: 240, h: 180,
+    fill: "rgba(140, 74, 29, 0.10)", stroke: "#8c4a1d",
+    title: "Host / Agent Runtime",
+    subtitle: "Claude Code • Codex • Cursor • Continue",
+    lines: [
+      "stdio or streamable HTTP attach",
+      "first attach stays host-native",
+      "bootstrap turns raw repo I/O into bounded context"
+    ]
+  },
+  {
+    x: 390, y: 88, w: 390, h: 212,
+    fill: "rgba(36, 104, 199, 0.10)", stroke: "#2468c7",
+    title: "codelens-mcp",
+    subtitle: "policy layer • 108 source definitions • 7 profiles • 3 presets",
+    lines: [
+      "profiles, presets, deferred surfaces",
+      "workflow tools and analysis handles",
+      "mutation gates, audits, coordination metadata",
+      "usage evidence and release-facing artifacts"
+    ]
+  },
+  {
+    x: 850, y: 88, w: 360, h: 212,
+    fill: "rgba(36, 122, 82, 0.10)", stroke: "#247a52",
+    title: "codelens-engine",
+    subtitle: "tree-sitter • hybrid retrieval • graph • LSP",
+    lines: [
+      "symbol extraction and ranking",
+      "BM25 + dense + graph + LSP signal fusion",
+      "import graph, call graph, refactor machinery",
+      "sqlite + sqlite-vec backed project state"
+    ]
+  },
+  {
+    x: 1275, y: 104, w: 210, h: 180,
+    fill: "rgba(109, 71, 168, 0.10)", stroke: "#6d47a8",
+    title: ".codelens State",
+    subtitle: "symbols.db • vec.db • memories • audit",
+    lines: [
+      "durable per-project state",
+      "analysis artifacts and mutation audit",
+      "release evidence can be exported"
+    ]
+  }
+];
+
+layers.forEach((layer) => {
+  const g = layerGroup.append("g");
+  roundedCard(g, layer.x, layer.y, layer.w, layer.h, layer.fill, layer.stroke, 24);
+  g.append("text")
+    .attr("x", layer.x + 20)
+    .attr("y", layer.y + 34)
+    .attr("class", "card-title")
+    .attr("fill", layer.stroke)
+    .text(layer.title);
+  g.append("text")
+    .attr("x", layer.x + 20)
+    .attr("y", layer.y + 58)
+    .attr("class", "card-sub")
+    .text(layer.subtitle);
+  addLines(g, layer.lines, layer.x + 20, layer.y + 95, 24, "small");
+});
+
+drawArrow(320, 194, 390, 194, "attach + bootstrap");
+drawArrow(780, 194, 850, 194, "query + policy");
+drawArrow(1210, 194, 1275, 194, "read/write state");
+
+const controlPlane = svg.append("g");
+const dataPlane = svg.append("g");
+
+roundedCard(controlPlane, 80, 458, 620, 320, "rgba(36, 104, 199, 0.05)", "rgba(36, 104, 199, 0.22)", 28);
+roundedCard(dataPlane, 760, 458, 720, 320, "rgba(36, 122, 82, 0.05)", "rgba(36, 122, 82, 0.22)", 28);
+
+const controlCards = [
+  {
+    x: 104, y: 490, w: 182, h: 112, fill: "rgba(36, 104, 199, 0.10)", stroke: "#2468c7",
+    title: "Surface shaping",
+    lines: ["tool_defs/build.rs", "profiles + presets", "deferred loading"]
+  },
+  {
+    x: 302, y: 490, w: 182, h: 112, fill: "rgba(140, 74, 29, 0.10)", stroke: "#8c4a1d",
+    title: "Workflow routing",
+    lines: ["explore / trace / review", "analysis handles", "bounded summaries"]
+  },
+  {
+    x: 500, y: 490, w: 176, h: 112, fill: "rgba(176, 79, 105, 0.10)", stroke: "#b04f69",
+    title: "Mutation safety",
+    lines: ["verify_change_readiness", "audit_builder_session", "strict is opt-in"]
+  },
+  {
+    x: 104, y: 624, w: 182, h: 120, fill: "rgba(109, 71, 168, 0.10)", stroke: "#6d47a8",
+    title: "Coordination",
+    lines: ["prepare_harness_session", "register_agent_work", "claim_files"]
+  },
+  {
+    x: 302, y: 624, w: 182, h: 120, fill: "rgba(36, 104, 199, 0.08)", stroke: "#2468c7",
+    title: "Release evidence",
+    lines: ["release-harness-runner.py", "usage-drift.*", "independent-signoff.*"]
+  },
+  {
+    x: 500, y: 624, w: 176, h: 120, fill: "rgba(140, 74, 29, 0.08)", stroke: "#8c4a1d",
+    title: "Transport",
+    lines: ["single binary", "stdio", "shared HTTP daemon"]
+  }
+];
+
+controlCards.forEach((card) => {
+  const g = controlPlane.append("g");
+  roundedCard(g, card.x, card.y, card.w, card.h, card.fill, card.stroke, 18);
+  g.append("text")
+    .attr("x", card.x + 14)
+    .attr("y", card.y + 28)
+    .attr("class", "small")
+    .attr("fill", card.stroke)
+    .style("font-weight", 700)
+    .text(card.title);
+  addLines(g, card.lines.map((line) => "· " + line), card.x + 14, card.y + 52, 20, "small");
+});
+
+const dataCards = [
+  {
+    x: 786, y: 490, w: 206, h: 112, fill: "rgba(36, 122, 82, 0.10)", stroke: "#247a52",
+    title: "Parsing + symbols",
+    lines: ["tree-sitter parsers", "symbol index", "reader/writer"]
+  },
+  {
+    x: 1010, y: 490, w: 206, h: 112, fill: "rgba(36, 104, 199, 0.08)", stroke: "#2468c7",
+    title: "Retrieval blend",
+    lines: ["BM25 sparse lane", "dense MiniLM lane", "5-signal rerank"]
+  },
+  {
+    x: 1234, y: 490, w: 220, h: 112, fill: "rgba(176, 79, 105, 0.08)", stroke: "#b04f69",
+    title: "Program structure",
+    lines: ["import graph", "call graph", "scope and refactor ops"]
+  },
+  {
+    x: 786, y: 624, w: 206, h: 120, fill: "rgba(109, 71, 168, 0.08)", stroke: "#6d47a8",
+    title: "Storage",
+    lines: ["SQLite schema v7", "sqlite-vec", "artifact stores"]
+  },
+  {
+    x: 1010, y: 624, w: 206, h: 120, fill: "rgba(140, 74, 29, 0.08)", stroke: "#8c4a1d",
+    title: "LSP bridge",
+    lines: ["opt-in readiness", "auto-attach aware", "union with tree-sitter"]
+  },
+  {
+    x: 1234, y: 624, w: 220, h: 120, fill: "rgba(36, 122, 82, 0.08)", stroke: "#247a52",
+    title: "Host adapters",
+    lines: ["Claude Code", "Codex", "Cursor / Cline / Windsurf"]
+  }
+];
+
+dataCards.forEach((card) => {
+  const g = dataPlane.append("g");
+  roundedCard(g, card.x, card.y, card.w, card.h, card.fill, card.stroke, 18);
+  g.append("text")
+    .attr("x", card.x + 14)
+    .attr("y", card.y + 28)
+    .attr("class", "small")
+    .attr("fill", card.stroke)
+    .style("font-weight", 700)
+    .text(card.title);
+  addLines(g, card.lines.map((line) => "· " + line), card.x + 14, card.y + 52, 20, "small");
+});
+
+const profileGroup = svg.append("g");
+roundedCard(profileGroup, 1280, 328, 200, 426, "rgba(255,255,255,0.42)", "rgba(125, 98, 64, 0.18)", 24);
+profileGroup.append("text")
+  .attr("x", 1300)
+  .attr("y", 362)
+  .attr("class", "section-label")
+  .attr("fill", "#6d47a8")
+  .text("profiles");
+
+const profiles = [
+  ["planner-readonly", "#2468c7", "rgba(36, 104, 199, 0.10)"],
+  ["builder-minimal", "#8c4a1d", "rgba(140, 74, 29, 0.10)"],
+  ["reviewer-graph", "#247a52", "rgba(36, 122, 82, 0.10)"],
+  ["evaluator-compact", "#6d47a8", "rgba(109, 71, 168, 0.10)"],
+  ["refactor-full", "#b04f69", "rgba(176, 79, 105, 0.10)"],
+  ["ci-audit", "#2468c7", "rgba(36, 104, 199, 0.10)"],
+  ["workflow-first", "#8c4a1d", "rgba(140, 74, 29, 0.10)"]
+];
+
+profiles.forEach((profile, index) => {
+  const y = 386 + index * 48;
+  roundedCard(profileGroup, 1300, y, 160, 34, profile[2], profile[1], 12);
+  profileGroup.append("text")
+    .attr("x", 1312)
+    .attr("y", y + 22)
+    .attr("class", "mono")
+    .attr("fill", profile[1])
+    .text(profile[0]);
+});
+
+profileGroup.append("text")
+  .attr("x", 1300)
+  .attr("y", 738)
+  .attr("class", "small")
+  .text("default mode: advisory");
+
+profileGroup.append("text")
+  .attr("x", 1300)
+  .attr("y", 758)
+  .attr("class", "small")
+  .text("strict only applies to trusted HTTP");
+
+const harnessGroup = svg.append("g");
+roundedCard(harnessGroup, 80, 878, 1400, 118, "rgba(176, 79, 105, 0.05)", "rgba(176, 79, 105, 0.22)", 28);
+
+const flowSteps = [
+  { x: 110, label: "1", title: "prepare_harness_session", sub: "bootstrap + visible surface" },
+  { x: 355, label: "2", title: "workflow tool", sub: "bounded context instead of raw grep" },
+  { x: 600, label: "3", title: "verify_change_readiness", sub: "preflight before mutation" },
+  { x: 845, label: "4", title: "strict coordination", sub: "opt-in for trusted HTTP refactor" },
+  { x: 1090, label: "5", title: "release harness", sub: "orchestrator -> evaluator -> signoff" },
+  { x: 1335, label: "6", title: "public evidence", sub: "usage-drift + independent-signoff" }
+];
+
+flowSteps.forEach((step, index) => {
+  harnessGroup.append("circle")
+    .attr("cx", step.x)
+    .attr("cy", 938)
+    .attr("r", 24)
+    .attr("fill", "rgba(176, 79, 105, 0.10)")
+    .attr("stroke", "#b04f69")
+    .attr("stroke-width", 1.4);
+
+  harnessGroup.append("text")
+    .attr("x", step.x)
+    .attr("y", 944)
+    .attr("text-anchor", "middle")
+    .attr("class", "small")
+    .attr("fill", "#b04f69")
+    .style("font-weight", 700)
+    .text(step.label);
+
+  harnessGroup.append("text")
+    .attr("x", step.x + 36)
+    .attr("y", 928)
+    .attr("class", "mono")
+    .attr("fill", "#1a1712")
+    .text(step.title);
+
+  harnessGroup.append("text")
+    .attr("x", step.x + 36)
+    .attr("y", 948)
+    .attr("class", "small")
+    .text(step.sub);
+
+  if (index < flowSteps.length - 1) {
+    harnessGroup.append("line")
+      .attr("x1", step.x + 145)
+      .attr("y1", 938)
+      .attr("x2", flowSteps[index + 1].x - 34)
+      .attr("y2", 938)
+      .attr("stroke", "rgba(176, 79, 105, 0.35)")
+      .attr("stroke-width", 2);
+  }
+});
+
+const metricsGroup = svg.append("g");
+roundedCard(metricsGroup, 80, 1066, 1400, 86, "rgba(109, 71, 168, 0.05)", "rgba(109, 71, 168, 0.22)", 28);
+
+const metrics = [
+  { x: 120, number: "6.1x", label: "fewer tokens on structured tasks" },
+  { x: 360, number: "167x", label: "best-case retrieval compression" },
+  { x: 620, number: "15-16x", label: "workflow profile compression" },
+  { x: 910, number: "108", label: "generated tool definitions" },
+  { x: 1135, number: "5", label: "host adapters in the current manifest" },
+  { x: 1320, number: "30", label: "language families" }
+];
+
+metrics.forEach((metric) => {
+  metricsGroup.append("text")
+    .attr("x", metric.x)
+    .attr("y", 1104)
+    .attr("class", "metric-number")
+    .attr("fill", "#6d47a8")
+    .text(metric.number);
+
+  metricsGroup.append("text")
+    .attr("x", metric.x)
+    .attr("y", 1128)
+    .attr("class", "metric-label")
+    .text(metric.label);
+});
+</script>
+</body>
+</html>

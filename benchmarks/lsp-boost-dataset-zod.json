@@ -1,0 +1,109 @@
+[
+  {
+    "query": "safeParse",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "expected_symbol": "safeParse",
+    "expected_file_suffix": "packages/zod/src/v4/classic/schemas.ts",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "$ZodRegistry",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/registries.ts",
+    "expected_symbol": "registry",
+    "expected_file_suffix": "packages/zod/src/v4/core/registries.ts",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "parseAsync",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "expected_symbol": "parseAsync",
+    "expected_file_suffix": "packages/zod/src/v4/classic/schemas.ts",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "JSONSchemaGenerator",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/json-schema-generator.ts",
+    "expected_symbol": "toJSONSchema",
+    "expected_file_suffix": "packages/zod/src/v4/core/to-json-schema.ts",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "globalRegistry",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/registries.ts",
+    "expected_symbol": "describe",
+    "expected_file_suffix": "packages/zod/src/v4/classic/schemas.ts",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "_parse",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "expected_symbol": "parse",
+    "expected_file_suffix": "packages/zod/src/v4/core/parse.ts",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "_encode",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "expected_symbol": "encode",
+    "expected_file_suffix": "packages/zod/src/v4/core/parse.ts",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "$output",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/registries.ts",
+    "expected_symbol": "$ZodRegistry",
+    "expected_file_suffix": "packages/zod/src/v4/core/registries.ts",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "registry",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/registries.ts",
+    "expected_symbol": "globalRegistry",
+    "expected_file_suffix": "packages/zod/src/v4/core/registries.ts",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "safeParseAsync",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "expected_symbol": "safeParseAsync",
+    "expected_file_suffix": "packages/zod/src/v4/classic/schemas.ts",
+    "bucket": "thin_wrapper"
+  },
+  {
+    "query": "$ZodRegistry",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/registries.ts",
+    "note": "registry() factory in registries.ts references $ZodRegistry 4 times — constructor + type + generic bound + return.",
+    "expected_symbol": "registry",
+    "expected_file_suffix": "packages/zod/src/v4/core/registries.ts",
+    "bucket": "thick_caller"
+  },
+  {
+    "query": "globalRegistry",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/registries.ts",
+    "note": "registry() factory in registries.ts references globalRegistry 5 times — global fallback + type + two assignments + export.",
+    "expected_symbol": "registry",
+    "expected_file_suffix": "packages/zod/src/v4/core/registries.ts",
+    "bucket": "thick_caller"
+  },
+  {
+    "query": "safeParse",
+    "query_type": "identifier",
+    "path": "packages/zod/src/v4/core/parse.ts",
+    "note": "classic/schemas.ts ZodType interface declares safeParse 7 times across signature overloads and examples.",
+    "expected_symbol": "ZodType",
+    "expected_file_suffix": "packages/zod/src/v4/classic/schemas.ts",
+    "bucket": "thick_caller"
+  }
+]

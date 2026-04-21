@@ -1,6 +1,6 @@
 use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
 use crate::state::{AnalysisReadiness, AnalysisVerifierCheck};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use super::report_verifier::{VERIFIER_BLOCKED, VERIFIER_READY};
 
@@ -28,6 +28,9 @@ pub(crate) fn build_handle_payload(
                 summary: "Refresh diagnostics evidence before trusting a reused artifact."
                     .to_owned(),
                 evidence_section: None,
+                pass_condition: super::report_verifier::default_pass_condition(
+                    "diagnostic_verifier",
+                ),
             },
             AnalysisVerifierCheck {
                 check: "reference_verifier".to_owned(),
@@ -35,6 +38,9 @@ pub(crate) fn build_handle_payload(
                 summary: "Refresh reference evidence before mutating reused analysis targets."
                     .to_owned(),
                 evidence_section: None,
+                pass_condition: super::report_verifier::default_pass_condition(
+                    "reference_verifier",
+                ),
             },
             AnalysisVerifierCheck {
                 check: "test_readiness_verifier".to_owned(),
@@ -42,6 +48,9 @@ pub(crate) fn build_handle_payload(
                 summary: "Refresh test-readiness evidence before relying on a reused artifact."
                     .to_owned(),
                 evidence_section: None,
+                pass_condition: super::report_verifier::default_pass_condition(
+                    "test_readiness_verifier",
+                ),
             },
             AnalysisVerifierCheck {
                 check: "mutation_readiness_verifier".to_owned(),
@@ -53,6 +62,9 @@ pub(crate) fn build_handle_payload(
                         .to_owned()
                 },
                 evidence_section: None,
+                pass_condition: super::report_verifier::default_pass_condition(
+                    "mutation_readiness_verifier",
+                ),
             },
         ]
     } else {
@@ -70,6 +82,30 @@ pub(crate) fn build_handle_payload(
         infer_performance_watchpoints(summary, top_findings, next_actions);
     let summary_resource = analysis_summary_resource(analysis_id);
     let section_handles = analysis_section_handles(analysis_id, available_sections);
+    // Harness-facing action chain: every section handle is promoted to
+    // a `suggested_next_tools` entry so the orchestrator has a single
+    // uniform place to look for "what do I call next" across every
+    // analysis report, rather than picking section_handles apart by
+    // hand. The tool+args shape matches how other CodeLens responses
+    // already emit `suggested_next_tools`, so the harness can drive
+    // the chain without a report-specific adapter.
+    let suggested_next_tools: Vec<Value> = available_sections
+        .iter()
+        .map(|section| {
+            json!({
+                "tool": "ReadMcpResourceTool",
+                "arguments": {
+                    "uri": format!("codelens://analysis/{analysis_id}/{section}")
+                },
+                "rationale": format!("Expand `{section}` section of analysis {analysis_id}"),
+            })
+        })
+        .collect();
+    // Phase O8a — `session_continuation_hint` fires when the verifier
+    // surfaces 3+ blockers so the caller knows to persist-and-resume
+    // instead of driving the work further inline. Threshold matches the
+    // doom-loop burst threshold so both signals align.
+    let session_continuation_hint = blockers.len() >= 3;
     let mut payload = json!({
         "analysis_id": analysis_id,
         "summary": summary,
@@ -79,6 +115,7 @@ pub(crate) fn build_handle_payload(
         "next_actions": next_actions,
         "blockers": blockers,
         "blocker_count": blockers.len(),
+        "session_continuation_hint": session_continuation_hint,
         "readiness": readiness,
         "verifier_checks": normalized_verifier_checks,
         "quality_focus": quality_focus,
@@ -87,6 +124,7 @@ pub(crate) fn build_handle_payload(
         "available_sections": available_sections,
         "summary_resource": summary_resource,
         "section_handles": section_handles,
+        "suggested_next_tools": suggested_next_tools,
         "reused": reused,
     });
     fn status_to_score(s: &str) -> f64 {
@@ -417,6 +455,67 @@ mod preview_first_trim_tests {
         let obj = payload.as_object().unwrap();
         assert!(obj.contains_key("verifier_checks"));
         assert!(obj.contains_key("top_findings"));
+    }
+
+    // ── Phase O8a — session continuation hint ─────────────────────
+    //
+    // `docs/plans/PLAN_opus47-alignment.md` Tier C flips a
+    // `session_continuation_hint` boolean on the workflow handle
+    // payload when the verifier surfaces "many" blockers so the
+    // caller knows to persist-and-resume instead of trying to drive
+    // the work further inline. The threshold is 3+ blockers, chosen
+    // to match the `doom_loop_counter` burst threshold so both
+    // signals fire in the same regime.
+
+    #[test]
+    fn session_continuation_hint_flips_on_many_blockers() {
+        let readiness = AnalysisReadiness::default();
+
+        // No blockers → hint false.
+        let calm = build_handle_payload(
+            "impact_report",
+            "analysis-calm",
+            "summary",
+            &[],
+            "low",
+            0.9,
+            &[],
+            &[],
+            &readiness,
+            &[],
+            &[],
+            false,
+            false,
+        );
+        assert_eq!(
+            calm["session_continuation_hint"],
+            json!(false),
+            "no blockers must not request a session reset"
+        );
+        assert_eq!(calm["blocker_count"], json!(0));
+
+        // 3 blockers → hint true (threshold).
+        let many = build_handle_payload(
+            "impact_report",
+            "analysis-many",
+            "summary",
+            &[],
+            "high",
+            0.8,
+            &[],
+            &["a".to_owned(), "b".to_owned(), "c".to_owned()],
+            &readiness,
+            &[],
+            &[],
+            false,
+            false,
+        );
+        assert_eq!(many["blocker_count"], json!(3));
+        assert_eq!(
+            many["session_continuation_hint"],
+            json!(true),
+            "3+ blockers must flip the session-continuation hint"
+        );
     }
 
     #[test]

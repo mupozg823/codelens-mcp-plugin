@@ -168,6 +168,30 @@ It contains:
 
 Once extracted, the binary can run in place and will resolve `./models/codesearch` automatically.
 
+### 8. Verify the automated harness release gate
+
+v1.9.53 adds a release-side harness gate separate from archive/package verification.
+The expected local checks are:
+
+```bash
+cargo test -p codelens-mcp --features http
+python3 -m unittest discover -s benchmarks/harness/tests -p 'test_*.py'
+python3 scripts/agent-contract-check.py --strict
+```
+
+The Rust HTTP suite covers strict coordination-mode mutation blocks.
+The Python harness suite covers `release-harness-runner.py`, usage-drift parsing,
+checkpoint reuse, and independent signoff disagreement handling.
+
+For a real host-backed smoke run, execute the release harness runner with a compact manifest and verify that it emits:
+
+- `usage-drift.json`
+- `usage-drift.md`
+- `independent-signoff.json`
+- `independent-signoff.md`
+
+Those artifacts are now the release-side proof that the automated harness loop completed and that independent signoff matched the self-grade.
+
 ---
 
 ## Current configured attestation model

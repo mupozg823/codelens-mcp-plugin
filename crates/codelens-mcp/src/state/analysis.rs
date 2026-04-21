@@ -1,12 +1,12 @@
 use serde_json::Value;
 
-use crate::analysis_queue::{AnalysisJobRequest, AnalysisWorkerQueue, analysis_job_cost_units};
+use crate::analysis_queue::{analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue};
 use crate::error::CodeLensError;
 use crate::runtime_types::{
     AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisSummary, AnalysisVerifierCheck,
     JobLifecycle,
 };
-use crate::{mutation_audit, session_context};
+use crate::{mutation, session_context};
 
 use super::AppState;
 
@@ -158,7 +158,7 @@ impl AppState {
         arguments: &serde_json::Value,
         session: &session_context::SessionRequestContext,
     ) -> Result<(), CodeLensError> {
-        mutation_audit::record_mutation_audit(
+        mutation::audit::record_mutation_audit(
             &self.audit_dir(),
             Self::now_ms(),
             &self.current_project_scope(),
@@ -280,6 +280,33 @@ impl AppState {
 
     pub(crate) fn list_analysis_summaries(&self) -> Vec<AnalysisSummary> {
         self.list_analysis_summaries_for_scope(&self.current_project_scope())
+    }
+
+    /// Phase P5 slice 1: cross-session pool of recent analysis artifacts.
+    ///
+    /// Returns up to `limit` of the most recently stored analyses,
+    /// regardless of which project scope or session produced them.
+    /// Intended for the `shared_analysis_pool` field in
+    /// `prepare_harness_session` — a peer agent should be able to see
+    /// an analysis another agent just produced and reuse its
+    /// `analysis_id` instead of recomputing. The entries are bare
+    /// summaries, NOT full artifacts: callers fetch heavy sections
+    /// on demand via `get_analysis_section`.
+    pub(crate) fn shared_analysis_pool_snapshot(&self, limit: usize) -> Vec<serde_json::Value> {
+        self.artifact_store
+            .list_summaries(None)
+            .into_iter()
+            .take(limit)
+            .map(|entry| {
+                serde_json::json!({
+                    "id": entry.id,
+                    "tool": entry.tool_name,
+                    "summary": entry.summary,
+                    "surface": entry.surface,
+                    "created_at_ms": entry.created_at_ms,
+                })
+            })
+            .collect()
     }
 
     pub(crate) fn get_analysis_section(

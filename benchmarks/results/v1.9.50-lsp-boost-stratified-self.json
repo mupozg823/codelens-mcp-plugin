@@ -1,0 +1,1009 @@
+{
+  "schema_version": 1,
+  "project": ".",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "dataset_path": "benchmarks/lsp-boost-dataset-self.json",
+  "dataset_size": 15,
+  "preset": "full",
+  "warm_lsp": false,
+  "warm_report": {
+    "mode": "auto_attach",
+    "lsp_auto_attach": {
+      "enabled": true,
+      "disabled_reason": null,
+      "detected_languages": [
+        "python",
+        "ruby",
+        "rust",
+        "shellscript"
+      ],
+      "prewarm_fired": [
+        "python",
+        "rust"
+      ]
+    },
+    "wait_seconds": 30
+  },
+  "arms": [
+    {
+      "arm": "baseline",
+      "lsp_boost": false,
+      "mrr": 0.06333333333333332,
+      "hits": 3,
+      "by_bucket": {
+        "thin_wrapper": {
+          "count": 10,
+          "hits": 1,
+          "mrr": 0.05
+        },
+        "thick_caller": {
+          "count": 5,
+          "hits": 2,
+          "mrr": 0.09
+        }
+      },
+      "rows": [
+        {
+          "query": "rank_symbols",
+          "expected_symbol": "get_ranked_context_cached_with_query_type",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 20.96,
+          "candidate_count": 22,
+          "top": [
+            {
+              "name": "rank_symbols",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 98
+            },
+            {
+              "name": "RankingContext",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 37
+            },
+            {
+              "name": "RankWeights",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 37
+            },
+            {
+              "name": "embedding_text_target_beats_generic_embedding_symbols",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 33
+            },
+            {
+              "name": "with_pagerank",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 33
+            }
+          ]
+        },
+        {
+          "query": "prune_to_budget",
+          "expected_symbol": "get_ranked_context",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 5.26,
+          "candidate_count": 4,
+          "top": [
+            {
+              "name": "prune_to_budget",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 98
+            },
+            {
+              "name": "LSP_OUTSIDE_SPAN_MAX_FACTOR",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 28
+            },
+            {
+              "name": "lsp_proximity_factor",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 28
+            },
+            {
+              "name": "auto_weights_with_semantic_count",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 28
+            }
+          ]
+        },
+        {
+          "query": "find_referencing_symbols_via_lsp",
+          "expected_symbol": "search_workspace_symbols_via_lsp",
+          "bucket": "thin_wrapper",
+          "rank": 2,
+          "elapsed_ms": 6.97,
+          "candidate_count": 13,
+          "top": [
+            {
+              "name": "find_referencing_symbols_via_lsp",
+              "file": "crates/codelens-engine/src/lsp/mod.rs",
+              "relevance_score": 93
+            },
+            {
+              "name": "search_workspace_symbols_via_lsp",
+              "file": "crates/codelens-engine/src/lsp/mod.rs",
+              "relevance_score": 38
+            },
+            {
+              "name": "get_diagnostics_via_lsp",
+              "file": "crates/codelens-engine/src/lsp/mod.rs",
+              "relevance_score": 31
+            },
+            {
+              "name": "get_type_hierarchy_via_lsp",
+              "file": "crates/codelens-engine/src/lsp/mod.rs",
+              "relevance_score": 31
+            },
+            {
+              "name": "get_rename_plan_via_lsp",
+              "file": "crates/codelens-engine/src/lsp/mod.rs",
+              "relevance_score": 31
+            }
+          ]
+        },
+        {
+          "query": "LspRequest",
+          "expected_symbol": "find_referencing_symbols",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 5.8,
+          "candidate_count": 1,
+          "top": [
+            {
+              "name": "LspRequest",
+              "file": "crates/codelens-engine/src/lsp/types.rs",
+              "relevance_score": 76
+            }
+          ]
+        },
+        {
+          "query": "RankingContext",
+          "expected_symbol": "get_ranked_context_cached_with_query_type",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 5.3,
+          "candidate_count": 1,
+          "top": [
+            {
+              "name": "RankingContext",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 78
+            }
+          ]
+        },
+        {
+          "query": "default_lsp_command_for_path",
+          "expected_symbol": "find_referencing_symbols",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 6.1,
+          "candidate_count": 13,
+          "top": [
+            {
+              "name": "default_lsp_command_for_path",
+              "file": "crates/codelens-engine/src/lsp/registry.rs",
+              "relevance_score": 93
+            },
+            {
+              "name": "default_lsp_command_for_extension",
+              "file": "crates/codelens-engine/src/lsp/registry.rs",
+              "relevance_score": 46
+            },
+            {
+              "name": "default_lsp_args_for_command",
+              "file": "crates/codelens-engine/src/lsp/registry.rs",
+              "relevance_score": 46
+            },
+            {
+              "name": "LspRecipe",
+              "file": "crates/codelens-engine/src/lsp/registry.rs",
+              "relevance_score": 24
+            },
+            {
+              "name": "LspStatus",
+              "file": "crates/codelens-engine/src/lsp/registry.rs",
+              "relevance_score": 24
+            }
+          ]
+        },
+        {
+          "query": "LspSessionPool",
+          "expected_symbol": "find_referencing_symbols_via_lsp",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 5.75,
+          "candidate_count": 1,
+          "top": [
+            {
+              "name": "LspSessionPool",
+              "file": "crates/codelens-engine/src/lsp/session.rs",
+              "relevance_score": 73
+            }
+          ]
+        },
+        {
+          "query": "score_symbol_with_lower",
+          "expected_symbol": "rank_symbols",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 5.36,
+          "candidate_count": 23,
+          "top": [
+            {
+              "name": "score_symbol_with_lower",
+              "file": "crates/codelens-engine/src/symbols/scoring.rs",
+              "relevance_score": 97
+            },
+            {
+              "name": "score_symbol",
+              "file": "crates/codelens-engine/src/symbols/scoring.rs",
+              "relevance_score": 59
+            },
+            {
+              "name": "mk_symbol",
+              "file": "crates/codelens-engine/src/symbols/scoring.rs",
+              "relevance_score": 25
+            },
+            {
+              "name": "sparse_coverage_bonus",
+              "file": "crates/codelens-engine/src/symbols/scoring.rs",
+              "relevance_score": 20
+            },
+            {
+              "name": "sparse_query_tokens",
+              "file": "crates/codelens-engine/src/symbols/scoring.rs",
+              "relevance_score": 14
+            }
+          ]
+        },
+        {
+          "query": "slice_source",
+          "expected_symbol": "prune_to_budget",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 4.93,
+          "candidate_count": 4,
+          "top": [
+            {
+              "name": "slice_source",
+              "file": "crates/codelens-engine/src/symbols/parser.rs",
+              "relevance_score": 99
+            },
+            {
+              "name": "to_symbol_info_with_source",
+              "file": "crates/codelens-engine/src/symbols/parser.rs",
+              "relevance_score": 34
+            },
+            {
+              "name": "build_signature",
+              "file": "crates/codelens-engine/src/symbols/parser.rs",
+              "relevance_score": 19
+            },
+            {
+              "name": "node_text",
+              "file": "crates/codelens-engine/src/symbols/parser.rs",
+              "relevance_score": 19
+            }
+          ]
+        },
+        {
+          "query": "SymbolInfo",
+          "expected_symbol": "rank_symbols",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 4.89,
+          "candidate_count": 1,
+          "top": [
+            {
+              "name": "SymbolInfo",
+              "file": "crates/codelens-engine/src/symbols/types.rs",
+              "relevance_score": 90
+            }
+          ]
+        },
+        {
+          "query": "get_symbols_overview_cached",
+          "expected_symbol": "select_solve_symbols_cached",
+          "bucket": "thick_caller",
+          "rank": 5,
+          "elapsed_ms": 4.85,
+          "candidate_count": 7,
+          "top": [
+            {
+              "name": "get_symbols_overview_cached",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 95
+            },
+            {
+              "name": "get_ranked_context_cached",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 43
+            },
+            {
+              "name": "get_ranked_context_cached_with_query_type",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 43
+            },
+            {
+              "name": "get_ranked_context_cached_with_lsp_boost",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 43
+            },
+            {
+              "name": "select_solve_symbols_cached",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 36
+            }
+          ]
+        },
+        {
+          "query": "get_symbols_overview_cached",
+          "expected_symbol": "get_ranked_context_cached_with_lsp_boost",
+          "bucket": "thick_caller",
+          "rank": 4,
+          "elapsed_ms": 4.77,
+          "candidate_count": 7,
+          "top": [
+            {
+              "name": "get_symbols_overview_cached",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 95
+            },
+            {
+              "name": "get_ranked_context_cached",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 43
+            },
+            {
+              "name": "get_ranked_context_cached_with_query_type",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 43
+            },
+            {
+              "name": "get_ranked_context_cached_with_lsp_boost",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 43
+            },
+            {
+              "name": "select_solve_symbols_cached",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 36
+            }
+          ]
+        },
+        {
+          "query": "make_symbol_id",
+          "expected_symbol": "get_symbols_overview_cached",
+          "bucket": "thick_caller",
+          "rank": null,
+          "elapsed_ms": 4.51,
+          "candidate_count": 22,
+          "top": [
+            {
+              "name": "make_symbol_id",
+              "file": "crates/codelens-engine/src/symbols/types.rs",
+              "relevance_score": 110
+            },
+            {
+              "name": "parse_symbol_id",
+              "file": "crates/codelens-engine/src/symbols/types.rs",
+              "relevance_score": 50
+            },
+            {
+              "name": "SymbolProvenance",
+              "file": "crates/codelens-engine/src/symbols/types.rs",
+              "relevance_score": 43
+            },
+            {
+              "name": "SymbolKind",
+              "file": "crates/codelens-engine/src/symbols/types.rs",
+              "relevance_score": 43
+            },
+            {
+              "name": "ParsedSymbol",
+              "file": "crates/codelens-engine/src/symbols/types.rs",
+              "relevance_score": 43
+            }
+          ]
+        },
+        {
+          "query": "ensure_indexed",
+          "expected_symbol": "find_symbol",
+          "bucket": "thick_caller",
+          "rank": null,
+          "elapsed_ms": 4.93,
+          "candidate_count": 1,
+          "top": [
+            {
+              "name": "ensure_indexed",
+              "file": "crates/codelens-engine/src/symbols/writer.rs",
+              "relevance_score": 95
+            }
+          ]
+        },
+        {
+          "query": "find_referencing_symbols_via_text",
+          "expected_symbol": "find_referencing_symbols",
+          "bucket": "thick_caller",
+          "rank": null,
+          "elapsed_ms": 5.23,
+          "candidate_count": 20,
+          "top": [
+            {
+              "name": "find_referencing_symbols_via_text",
+              "file": "crates/codelens-engine/src/file_ops/mod.rs",
+              "relevance_score": 93
+            },
+            {
+              "name": "text_reference_finds_all_occurrences",
+              "file": "crates/codelens-engine/src/file_ops/mod.rs",
+              "relevance_score": 32
+            },
+            {
+              "name": "find_enclosing_symbol",
+              "file": "crates/codelens-engine/src/file_ops/mod.rs",
+              "relevance_score": 25
+            },
+            {
+              "name": "find_shadowing_files_for_refs",
+              "file": "crates/codelens-engine/src/file_ops/mod.rs",
+              "relevance_score": 25
+            },
+            {
+              "name": "finds_files_by_glob",
+              "file": "crates/codelens-engine/src/file_ops/mod.rs",
+              "relevance_score": 25
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "arm": "lsp_boost",
+      "lsp_boost": true,
+      "mrr": 0.17370370370370372,
+      "hits": 12,
+      "by_bucket": {
+        "thin_wrapper": {
+          "count": 10,
+          "hits": 7,
+          "mrr": 0.12626984126984125
+        },
+        "thick_caller": {
+          "count": 5,
+          "hits": 5,
+          "mrr": 0.26857142857142857
+        }
+      },
+      "rows": [
+        {
+          "query": "rank_symbols",
+          "expected_symbol": "get_ranked_context_cached_with_query_type",
+          "bucket": "thin_wrapper",
+          "rank": 10,
+          "elapsed_ms": 1617.01,
+          "candidate_count": 24,
+          "top": [
+            {
+              "name": "rank_symbols",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 106
+            },
+            {
+              "name": "rank_symbols_returns_full_scored_list",
+              "file": "crates/codelens-engine/src/symbols/tests.rs",
+              "relevance_score": 83
+            },
+            {
+              "name": "score_and_rank_empty_query",
+              "file": "crates/codelens-engine/src/symbols/tests.rs",
+              "relevance_score": 67
+            },
+            {
+              "name": "get_ranked_context_cached_with_lsp_boost",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 39
+            },
+            {
+              "name": "ranked_context_without_lsp_boost_is_neutral",
+              "file": "crates/codelens-engine/src/symbols/tests.rs",
+              "relevance_score": 38
+            }
+          ]
+        },
+        {
+          "query": "prune_to_budget",
+          "expected_symbol": "get_ranked_context",
+          "bucket": "thin_wrapper",
+          "rank": 7,
+          "elapsed_ms": 1000.16,
+          "candidate_count": 24,
+          "top": [
+            {
+              "name": "prune_to_budget",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 106
+            },
+            {
+              "name": "prune_to_budget_reports_dropped_count_and_last_kept_score",
+              "file": "crates/codelens-engine/src/symbols/tests.rs",
+              "relevance_score": 83
+            },
+            {
+              "name": "prune_to_budget_includes_first_even_if_oversized",
+              "file": "crates/codelens-engine/src/symbols/tests.rs",
+              "relevance_score": 83
+            },
+            {
+              "name": "prune_to_budget_respects_char_limit",
+              "file": "crates/codelens-engine/src/symbols/tests.rs",
+              "relevance_score": 83
+            },
+            {
+              "name": "get_directory_symbols",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 40
+            }
+          ]
+        },
+        {
+          "query": "find_referencing_symbols_via_lsp",
+          "expected_symbol": "search_workspace_symbols_via_lsp",
+          "bucket": "thin_wrapper",
+          "rank": 2,
+          "elapsed_ms": 997.26,
+          "candidate_count": 27,
+          "top": [
+            {
+              "name": "find_referencing_symbols_via_lsp",
+              "file": "crates/codelens-engine/src/lsp/mod.rs",
+              "relevance_score": 101
+            },
+            {
+              "name": "search_workspace_symbols_via_lsp",
+              "file": "crates/codelens-engine/src/lsp/mod.rs",
+              "relevance_score": 38
+            },
+            {
+              "name": "reads_references_from_mock_lsp",
+              "file": "crates/codelens-engine/src/lsp/tests.rs",
+              "relevance_score": 34
+            },
+            {
+              "name": "reads_workspace_symbols_from_mock_lsp",
+              "file": "crates/codelens-engine/src/lsp/tests.rs",
+              "relevance_score": 32
+            },
+            {
+              "name": "get_rename_plan_via_lsp",
+              "file": "crates/codelens-engine/src/lsp/mod.rs",
+              "relevance_score": 31
+            }
+          ]
+        },
+        {
+          "query": "LspRequest",
+          "expected_symbol": "find_referencing_symbols",
+          "bucket": "thin_wrapper",
+          "rank": 6,
+          "elapsed_ms": 1492.33,
+          "candidate_count": 25,
+          "top": [
+            {
+              "name": "LspRequest",
+              "file": "crates/codelens-engine/src/lsp/types.rs",
+              "relevance_score": 84
+            },
+            {
+              "name": "find_references",
+              "file": "crates/codelens-engine/src/lsp/session.rs",
+              "relevance_score": 32
+            },
+            {
+              "name": "find_referencing_symbols",
+              "file": "crates/codelens-engine/src/lsp/session.rs",
+              "relevance_score": 32
+            },
+            {
+              "name": "lsp_boost_probe",
+              "file": "crates/codelens-mcp/src/tools/symbols/handlers.rs",
+              "relevance_score": 13
+            },
+            {
+              "name": "confidence_tier_tests",
+              "file": "crates/codelens-mcp/src/tools/symbols/handlers.rs",
+              "relevance_score": 11
+            }
+          ]
+        },
+        {
+          "query": "RankingContext",
+          "expected_symbol": "get_ranked_context_cached_with_query_type",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 1038.61,
+          "candidate_count": 23,
+          "top": [
+            {
+              "name": "RankingContext",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 86
+            },
+            {
+              "name": "get_ranked_context_cached_with_lsp_boost",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 30
+            },
+            {
+              "name": "with_pagerank",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 24
+            },
+            {
+              "name": "lsp_flat_context",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 24
+            },
+            {
+              "name": "tests",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 24
+            }
+          ]
+        },
+        {
+          "query": "default_lsp_command_for_path",
+          "expected_symbol": "find_referencing_symbols",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 1015.83,
+          "candidate_count": 23,
+          "top": [
+            {
+              "name": "default_lsp_command_for_path",
+              "file": "crates/codelens-mcp/src/tools/mod.rs",
+              "relevance_score": 103
+            },
+            {
+              "name": "default_lsp_command_for_path",
+              "file": "crates/codelens-engine/src/lsp/registry.rs",
+              "relevance_score": 102
+            },
+            {
+              "name": "default_lsp_command_is_derived_from_registry_by_path",
+              "file": "crates/codelens-engine/src/lsp/tests.rs",
+              "relevance_score": 84
+            },
+            {
+              "name": "default_lsp_command_for_extension",
+              "file": "crates/codelens-engine/src/lsp/registry.rs",
+              "relevance_score": 54
+            },
+            {
+              "name": "default_lsp_args_for_command",
+              "file": "crates/codelens-mcp/src/tools/mod.rs",
+              "relevance_score": 47
+            }
+          ]
+        },
+        {
+          "query": "LspSessionPool",
+          "expected_symbol": "find_referencing_symbols_via_lsp",
+          "bucket": "thin_wrapper",
+          "rank": null,
+          "elapsed_ms": 1011.51,
+          "candidate_count": 27,
+          "top": [
+            {
+              "name": "LspSessionPool",
+              "file": "crates/codelens-engine/src/lsp/session.rs",
+              "relevance_score": 81
+            },
+            {
+              "name": "lsp_pool",
+              "file": "crates/codelens-mcp/src/state.rs",
+              "relevance_score": 46
+            },
+            {
+              "name": "AppState",
+              "file": "crates/codelens-mcp/src/state.rs",
+              "relevance_score": 25
+            },
+            {
+              "name": "PROJECT_CONTEXT_CACHE_LIMIT",
+              "file": "crates/codelens-mcp/src/state.rs",
+              "relevance_score": 24
+            },
+            {
+              "name": "normalize_path_for_project",
+              "file": "crates/codelens-mcp/src/state.rs",
+              "relevance_score": 24
+            }
+          ]
+        },
+        {
+          "query": "score_symbol_with_lower",
+          "expected_symbol": "rank_symbols",
+          "bucket": "thin_wrapper",
+          "rank": 4,
+          "elapsed_ms": 987.05,
+          "candidate_count": 22,
+          "top": [
+            {
+              "name": "score_symbol_with_lower",
+              "file": "crates/codelens-engine/src/symbols/scoring.rs",
+              "relevance_score": 105
+            },
+            {
+              "name": "score_symbol",
+              "file": "crates/codelens-engine/src/symbols/scoring.rs",
+              "relevance_score": 67
+            },
+            {
+              "name": "lsp_signal_rescues_candidate_with_zero_text_score",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 35
+            },
+            {
+              "name": "rank_symbols",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 34
+            },
+            {
+              "name": "symbol_kind_prior",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 29
+            }
+          ]
+        },
+        {
+          "query": "slice_source",
+          "expected_symbol": "prune_to_budget",
+          "bucket": "thin_wrapper",
+          "rank": 18,
+          "elapsed_ms": 1172.27,
+          "candidate_count": 25,
+          "top": [
+            {
+              "name": "slice_source",
+              "file": "crates/codelens-engine/src/symbols/parser.rs",
+              "relevance_score": 107
+            },
+            {
+              "name": "to_symbol_info_with_source",
+              "file": "crates/codelens-engine/src/symbols/parser.rs",
+              "relevance_score": 43
+            },
+            {
+              "name": "find_symbol",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 36
+            },
+            {
+              "name": "scoring",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 27
+            },
+            {
+              "name": "writer",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 27
+            }
+          ]
+        },
+        {
+          "query": "SymbolInfo",
+          "expected_symbol": "rank_symbols",
+          "bucket": "thin_wrapper",
+          "rank": 21,
+          "elapsed_ms": 1244.26,
+          "candidate_count": 23,
+          "top": [
+            {
+              "name": "SymbolInfo",
+              "file": "crates/codelens-engine/src/symbols/types.rs",
+              "relevance_score": 106
+            },
+            {
+              "name": "get_symbols_overview",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 57
+            },
+            {
+              "name": "select_solve_symbols",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 49
+            },
+            {
+              "name": "get_file_symbols",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 49
+            },
+            {
+              "name": "lsp_test_symbol",
+              "file": "crates/codelens-engine/src/symbols/ranking.rs",
+              "relevance_score": 45
+            }
+          ]
+        },
+        {
+          "query": "get_symbols_overview_cached",
+          "expected_symbol": "select_solve_symbols_cached",
+          "bucket": "thick_caller",
+          "rank": 7,
+          "elapsed_ms": 1169.47,
+          "candidate_count": 22,
+          "top": [
+            {
+              "name": "get_symbols_overview_cached",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 103
+            },
+            {
+              "name": "get_symbols_overview",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 76
+            },
+            {
+              "name": "get_symbols_overview",
+              "file": "crates/codelens-mcp/src/tools/symbols/handlers.rs",
+              "relevance_score": 69
+            },
+            {
+              "name": "get_ranked_context_cached_with_lsp_boost",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 60
+            },
+            {
+              "name": "select_solve_symbols",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 60
+            }
+          ]
+        },
+        {
+          "query": "get_symbols_overview_cached",
+          "expected_symbol": "get_ranked_context_cached_with_lsp_boost",
+          "bucket": "thick_caller",
+          "rank": 5,
+          "elapsed_ms": 1040.29,
+          "candidate_count": 22,
+          "top": [
+            {
+              "name": "get_symbols_overview_cached",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 103
+            },
+            {
+              "name": "get_symbols_overview",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 76
+            },
+            {
+              "name": "get_symbols_overview",
+              "file": "crates/codelens-mcp/src/tools/symbols/handlers.rs",
+              "relevance_score": 69
+            },
+            {
+              "name": "select_solve_symbols",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 60
+            },
+            {
+              "name": "get_ranked_context_cached_with_lsp_boost",
+              "file": "crates/codelens-engine/src/symbols/reader.rs",
+              "relevance_score": 60
+            }
+          ]
+        },
+        {
+          "query": "make_symbol_id",
+          "expected_symbol": "get_symbols_overview_cached",
+          "bucket": "thick_caller",
+          "rank": 6,
+          "elapsed_ms": 999.37,
+          "candidate_count": 24,
+          "top": [
+            {
+              "name": "make_symbol_id",
+              "file": "crates/codelens-engine/src/symbols/types.rs",
+              "relevance_score": 118
+            },
+            {
+              "name": "make_symbol_id_format",
+              "file": "crates/codelens-engine/src/symbols/tests.rs",
+              "relevance_score": 92
+            },
+            {
+              "name": "find_symbol",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 56
+            },
+            {
+              "name": "SymbolInfo",
+              "file": "crates/codelens-engine/src/symbols/types.rs",
+              "relevance_score": 51
+            },
+            {
+              "name": "parse_symbol_id",
+              "file": "crates/codelens-engine/src/symbols/types.rs",
+              "relevance_score": 50
+            }
+          ]
+        },
+        {
+          "query": "ensure_indexed",
+          "expected_symbol": "find_symbol",
+          "bucket": "thick_caller",
+          "rank": 3,
+          "elapsed_ms": 968.28,
+          "candidate_count": 18,
+          "top": [
+            {
+              "name": "ensure_indexed",
+              "file": "crates/codelens-engine/src/symbols/writer.rs",
+              "relevance_score": 103
+            },
+            {
+              "name": "indexed_file_paths",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 52
+            },
+            {
+              "name": "find_symbol",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 45
+            },
+            {
+              "name": "get_symbols_overview",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 36
+            },
+            {
+              "name": "select_solve_symbols",
+              "file": "crates/codelens-engine/src/symbols/mod.rs",
+              "relevance_score": 26
+            }
+          ]
+        },
+        {
+          "query": "find_referencing_symbols_via_text",
+          "expected_symbol": "find_referencing_symbols",
+          "bucket": "thick_caller",
+          "rank": 2,
+          "elapsed_ms": 979.72,
+          "candidate_count": 23,
+          "top": [
+            {
+              "name": "find_referencing_symbols_via_text",
+              "file": "crates/codelens-engine/src/file_ops/mod.rs",
+              "relevance_score": 101
+            },
+            {
+              "name": "find_referencing_symbols",
+              "file": "crates/codelens-mcp/src/tools/lsp.rs",
+              "relevance_score": 77
+            },
+            {
+              "name": "text_refs_report_exposes_shadow_suppression_count",
+              "file": "crates/codelens-engine/src/file_ops/mod.rs",
+              "relevance_score": 42
+            },
+            {
+              "name": "text_reference_finds_all_occurrences",
+              "file": "crates/codelens-engine/src/file_ops/mod.rs",
+              "relevance_score": 40
+            },
+            {
+              "name": "text_reference_shadowing_excluded",
+              "file": "crates/codelens-engine/src/file_ops/mod.rs",
+              "relevance_score": 34
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

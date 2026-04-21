@@ -50,7 +50,22 @@ pub(super) fn symbol_output_schema() -> serde_json::Value {
             "truncated": {"type": "boolean"},
             "auto_summarized": {"type": "boolean"},
             "body_truncated_count": {"type": "integer"},
-            "body_preview": {"type": "boolean"}
+            "body_preview": {"type": "boolean"},
+            "body_delivery": {
+                "type": "object",
+                "description": "Per-call body transparency. `status` is disabled|full|partial|dropped|truncated so the harness knows whether a follow-up read is needed before trusting the symbol body field.",
+                "properties": {
+                    "requested": {"type": "boolean"},
+                    "status": {"type": "string", "enum": ["disabled","full","partial","dropped","truncated"]},
+                    "bodies_full": {"type": "integer"},
+                    "bodies_truncated": {"type": "integer"},
+                    "bodies_omitted_over_cap": {"type": "integer"},
+                    "max_symbols_with_body": {"type": "integer"},
+                    "line_limit": {"type": "integer"},
+                    "char_limit": {"type": "integer"},
+                    "hint": {"type": "string"}
+                }
+            }
         }
     })
 }
@@ -827,195 +842,31 @@ pub(super) fn activate_project_output_schema() -> serde_json::Value {
 }
 
 pub(super) fn prepare_harness_session_output_schema() -> serde_json::Value {
+    // Phase 7-1: the verbose nested spec was ~11 KB per tools/list call
+    // (20% of the default 35-tool schema weight). Clients read the real
+    // shape from `structuredContent`, which ships with every response —
+    // the schema here is advisory only. Collapse deeply-nested blocks
+    // to bare `"type": "object"` so callers still get top-level field
+    // discoverability without paying for every sub-field description.
     json!({
         "type": "object",
         "properties": {
             "activated": {"type": "boolean"},
-            "project": activate_project_output_schema(),
+            "project": {"type": "object"},
             "active_surface": {"type": "string"},
             "token_budget": {"type": "integer"},
-            "config": {
-                "type": "object",
-                "properties": {
-                    "runtime": {"type": "string"},
-                    "project_root": {"type": "string"},
-                    "surface": {"type": "string"},
-                    "token_budget": {"type": "integer"},
-                    "tool_count": {"type": "integer"},
-                    "client_profile": {"type": "string"}
-                }
-            },
-            "index_recovery": {
-                "type": "object",
-                "properties": {
-                    "enabled": {"type": "boolean"},
-                    "threshold": {"type": "integer"},
-                    "status": {"type": "string"},
-                    "reason": {"type": "string"},
-                    "error": {"type": "string"},
-                    "before": {
-                        "type": "object",
-                        "properties": {
-                            "indexed_files": {"type": "integer"},
-                            "supported_files": {"type": "integer"},
-                            "stale_files": {"type": "integer"}
-                        }
-                    },
-                    "after": {
-                        "type": "object",
-                        "properties": {
-                            "indexed_files": {"type": "integer"},
-                            "supported_files": {"type": "integer"},
-                            "stale_files": {"type": "integer"}
-                        }
-                    }
-                }
-            },
-            "capabilities": get_capabilities_output_schema(),
+            "config": {"type": "object"},
+            "index_recovery": {"type": "object"},
+            "capabilities": {"type": "object"},
             "health_summary": health_summary_output_schema(),
-            "warnings": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "code": {"type": "string"},
-                        "message": {"type": "string"},
-                        "restart_recommended": {"type": "boolean"},
-                        "recommended_action": {"type": "string"},
-                        "action_target": {"type": "string"}
-                    }
-                }
-            },
-            "overlay": {
-                "type": "object",
-                "properties": {
-                    "applied": {"type": "boolean"},
-                    "host_context": {"type": ["string", "null"]},
-                    "task_overlay": {"type": ["string", "null"]},
-                    "preferred_executor_bias": {"type": ["string", "null"]},
-                    "preferred_entrypoints": {"type": "array", "items": {"type": "string"}},
-                    "preferred_entrypoints_visible": {"type": "array", "items": {"type": "string"}},
-                    "emphasized_tools": {"type": "array", "items": {"type": "string"}},
-                    "emphasized_tools_visible": {"type": "array", "items": {"type": "string"}},
-                    "avoid_tools": {"type": "array", "items": {"type": "string"}},
-                    "avoid_tools_visible": {"type": "array", "items": {"type": "string"}},
-                    "routing_notes": {"type": "array", "items": {"type": "string"}}
-                }
-            },
-            "coordination": {
-                "type": "object",
-                "properties": {
-                    "mode": {"type": "string"},
-                    "risk_status": {"type": "string", "enum": ["idle", "observe", "caution"]},
-                    "active_agents": {"type": "integer"},
-                    "active_claims": {"type": "integer"},
-                    "recommended_sequence": {"type": "array", "items": {"type": "string"}},
-                    "host_actions_on_overlap": {"type": "array", "items": {"type": "string"}},
-                    "recommended_topology": {"type": "string"}
-                }
-            },
-            "http_session": {
-                "type": "object",
-                "properties": {
-                    "enabled": {"type": "boolean"},
-                    "active_sessions": {"type": "integer"},
-                    "active_coordination_agents": {"type": "integer"},
-                    "active_coordination_claims": {"type": "integer"},
-                    "timeout_seconds": {"type": "integer"},
-                    "resume_supported": {"type": "boolean"},
-                    "daemon_mode": {"type": "string"},
-                    "client_profile": {"type": "string"},
-                    "client_name": {"type": ["string", "null"]},
-                    "active_surface": {"type": "string"},
-                    "semantic_search_status": {"type": "string", "enum": ["available", "model_assets_unavailable", "not_in_active_surface", "index_missing", "feature_disabled", "not_compiled"]},
-                    "indexed_files": {"type": "integer"},
-                    "supported_files": {"type": "integer"},
-                    "stale_files": {"type": "integer"},
-                    "daemon_binary_drift": {
-                        "type": "object",
-                        "properties": {
-                            "status": {"type": "string"},
-                            "stale_daemon": {"type": "boolean"},
-                            "reason": {"type": "string"},
-                            "reason_code": {"type": "string"},
-                            "recommended_action": {"type": "string"},
-                            "action_target": {"type": "string"},
-                            "restart_recommended": {"type": "boolean"}
-                        }
-                    },
-                    "health_summary": health_summary_output_schema(),
-                    "deferred_loading_supported": {"type": "boolean"},
-                    "default_deferred_tool_loading": {"type": "boolean"},
-                    "default_tools_list_contract_mode": {"type": "string"},
-                    "loaded_namespaces": {"type": "array", "items": {"type": "string"}},
-                    "loaded_tiers": {"type": "array", "items": {"type": "string"}},
-                    "full_tool_exposure": {"type": "boolean"},
-                    "deferred_namespace_gate": {"type": "boolean"},
-                    "deferred_tier_gate": {"type": "boolean"},
-                    "preferred_namespaces": {"type": "array", "items": {"type": "string"}},
-                    "preferred_tiers": {"type": "array", "items": {"type": "string"}},
-                    "trusted_client_hook": {"type": "boolean"},
-                    "mutation_requires_trusted_client": {"type": "boolean"},
-                    "mutation_preflight_required": {"type": "boolean"},
-                    "preflight_ttl_seconds": {"type": "integer"},
-                    "rename_requires_symbol_preflight": {"type": "boolean"},
-                    "requires_namespace_listing_before_tool_call": {"type": "boolean"},
-                    "requires_tier_listing_before_tool_call": {"type": "boolean"}
-                }
-            },
-            "visible_tools": {
-                "type": "object",
-                "properties": {
-                    "tool_count": {"type": "integer"},
-                    "tool_count_total": {"type": "integer"},
-                    "tool_names": {"type": "array", "items": {"type": "string"}},
-                    "preferred_executors": {"type": "object"},
-                    "all_namespaces": {"type": "array", "items": {"type": "string"}},
-                    "all_tiers": {"type": "array", "items": {"type": "string"}},
-                    "preferred_namespaces": {"type": "array", "items": {"type": "string"}},
-                    "preferred_tiers": {"type": "array", "items": {"type": "string"}},
-                    "loaded_namespaces": {"type": "array", "items": {"type": "string"}},
-                    "loaded_tiers": {"type": "array", "items": {"type": "string"}},
-                    "effective_namespaces": {"type": "array", "items": {"type": "string"}},
-                    "effective_tiers": {"type": "array", "items": {"type": "string"}},
-                    "selected_namespace": {"type": ["string", "null"]},
-                    "selected_tier": {"type": ["string", "null"]},
-                    "deferred_loading_active": {"type": "boolean"},
-                    "full_tool_exposure": {"type": "boolean"}
-                }
-            },
-            "routing": {
-                "type": "object",
-                "properties": {
-                    "preferred_entrypoints": {"type": "array", "items": {"type": "string"}},
-                    "preferred_entrypoints_source": {"type": "string"},
-                    "preferred_entrypoints_visible": {"type": "array", "items": {"type": "string"}},
-                    "preferred_entrypoints_with_executors": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "tool": {"type": "string"},
-                                "preferred_executor": {"type": "string"}
-                            }
-                        }
-                    },
-                    "recommended_entrypoint": {"type": ["string", "null"]},
-                    "recommended_entrypoint_preferred_executor": {"type": ["string", "null"]}
-                }
-            },
-            "harness": {
-                "type": "object",
-                "properties": {
-                    "effort_level": {"type": "string"},
-                    "compression_offset": {"type": "integer"},
-                    "meta_max_result_size": {"type": "boolean"},
-                    "rapid_burst_detection": {"type": "boolean"},
-                    "schema_pre_validation": {"type": "boolean"},
-                    "doom_loop_threshold": {"type": "integer"},
-                    "preflight_ttl_seconds": {"type": "integer"}
-                }
-            }
+            "warnings": {"type": "array"},
+            "overlay": {"type": "object"},
+            "coordination": {"type": "object"},
+            "http_session": {"type": "object"},
+            "visible_tools": {"type": "object"},
+            "routing": {"type": "object"},
+            "harness": {"type": "object"},
+            "shared_analysis_pool": {"type": "array"}
         }
     })
 }
@@ -1026,6 +877,8 @@ pub(super) fn get_capabilities_output_schema() -> serde_json::Value {
         "properties": {
             "language": {"type": ["string", "null"]},
             "lsp_attached": {"type": "boolean"},
+            "coordination_mode": {"type": "string", "enum": ["advisory", "strict"]},
+            "coordination_enforcement": {"type": "object"},
             "diagnostics_guidance": {
                 "type": "object",
                 "properties": {

@@ -1,4 +1,4 @@
-use super::{SymbolIndex, SymbolKind, SymbolProvenance, find_symbol, get_symbols_overview};
+use super::{find_symbol, get_symbols_overview, SymbolIndex, SymbolKind, SymbolProvenance};
 use crate::ProjectRoot;
 use std::fs;
 
@@ -20,12 +20,143 @@ fn finds_typescript_symbol_with_body() {
     let matches = find_symbol(&project, "fetchUser", None, true, true, 10).expect("find symbol");
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].kind, SymbolKind::Function);
+    assert!(matches[0]
+        .body
+        .as_ref()
+        .expect("body")
+        .contains("return userId"));
+}
+
+#[test]
+fn rust_impl_block_surfaces_with_indexed_name_path() {
+    // Phase 3-2: Serena-parity. Methods declared inside
+    // `impl Type { fn method() {} }` must be nested under an
+    // `impl Type[0]/method` name path so the caller can
+    // distinguish them from free functions and from same-name
+    // methods declared in additional impl blocks.
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-rust-impl-fixture-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).expect("create dir");
+    fs::write(
+        dir.join("lib.rs"),
+        "pub struct Widget;\n\
+         impl Widget {\n    pub fn run(&self) {}\n}\n\
+         impl Widget {\n    pub fn stop(&self) {}\n}\n",
+    )
+    .expect("write rust");
+    let project = ProjectRoot::new(&dir).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh");
+
+    let run_matches = index
+        .find_symbol_cached("run", None, false, true, 20)
+        .expect("find run");
+    let run = run_matches
+        .iter()
+        .find(|s| s.name == "run")
+        .expect("run symbol present");
+    assert_eq!(
+        run.name_path, "impl Widget[0]/run",
+        "first impl block's run should carry [0] index; got {}",
+        run.name_path
+    );
+
+    let stop_matches = index
+        .find_symbol_cached("stop", None, false, true, 20)
+        .expect("find stop");
+    let stop = stop_matches
+        .iter()
+        .find(|s| s.name == "stop")
+        .expect("stop symbol present");
+    assert_eq!(
+        stop.name_path, "impl Widget[1]/stop",
+        "second impl block's stop should carry [1] index; got {}",
+        stop.name_path
+    );
+}
+
+#[test]
+fn find_symbol_cached_body_includes_preceding_doc_comments() {
+    // Phase 2-1: Serena-parity. Tree-sitter's `start_byte` aligns to
+    // the first signature token, so a raw slice drops the `///` doc
+    // block that precedes the definition. The MCP handler's body
+    // path re-extends the range via `extend_start_to_doc_comments`
+    // so the harness gets the intent alongside the signature in a
+    // single call.
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-docstring-fixture-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&dir).expect("create dir");
+    fs::write(
+        dir.join("lib.rs"),
+        "/// Top-line summary.\n\
+         ///\n\
+         /// Extended body describing the contract.\n\
+         pub fn documented_api(input: &str) -> usize {\n    \
+             input.len()\n\
+         }\n",
+    )
+    .expect("write rust");
+    let project = ProjectRoot::new(&dir).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh");
+
+    let matches = index
+        .find_symbol_cached("documented_api", None, true, true, 10)
+        .expect("find_symbol_cached");
+    assert_eq!(matches.len(), 1);
+    let body = matches[0]
+        .body
+        .as_ref()
+        .expect("body must be populated when include_body=true");
     assert!(
-        matches[0]
-            .body
-            .as_ref()
-            .expect("body")
-            .contains("return userId")
+        body.contains("/// Top-line summary."),
+        "body should include preceding doc block; got: {body}"
+    );
+    assert!(
+        body.contains("/// Extended body describing the contract."),
+        "body should include the full doc block; got: {body}"
+    );
+    assert!(
+        body.contains("pub fn documented_api"),
+        "body should still include the signature; got: {body}"
+    );
+}
+
+#[test]
+fn find_symbol_cached_populates_body_from_db_path() {
+    // Regression: the MCP find_symbol tool handler calls find_symbol_cached
+    // (DB-backed), not the free find_symbol (live-parse). Both paths must
+    // return a populated body when include_body=true, otherwise the tool
+    // drops the body field (serde skip_if_none) and the harness is forced
+    // to issue a follow-up Read — the single biggest source of wasted
+    // tokens vs Serena-style servers that bundle body in one response.
+    let root = fixture_root();
+    let project = ProjectRoot::new(&root).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh all");
+
+    let matches = index
+        .find_symbol_cached("fetchUser", None, true, true, 10)
+        .expect("find_symbol_cached");
+    assert_eq!(matches.len(), 1, "expected single fetchUser match");
+    assert_eq!(matches[0].kind, SymbolKind::Function);
+    let body = matches[0]
+        .body
+        .as_ref()
+        .expect("DB-cached path must populate body when include_body=true");
+    assert!(
+        body.contains("return userId"),
+        "body should slice the function body; got: {body:?}"
     );
 }
 
@@ -50,13 +181,11 @@ fn index_refreshes_after_file_change() {
         .find_symbol("loadUser", None, true, true, 10)
         .expect("refreshed symbol lookup");
     assert_eq!(refreshed.len(), 1);
-    assert!(
-        refreshed[0]
-            .body
-            .as_ref()
-            .expect("body")
-            .contains("loadUser")
-    );
+    assert!(refreshed[0]
+        .body
+        .as_ref()
+        .expect("body")
+        .contains("loadUser"));
 }
 
 #[test]
@@ -97,13 +226,11 @@ fn ranked_context_prefers_exact_matches_and_respects_budget() {
     assert!(!ranked.symbols.is_empty());
     assert_eq!(ranked.symbols[0].name, "fetchUser");
     assert_eq!(ranked.symbols[0].relevance_score, 100);
-    assert!(
-        ranked.symbols[0]
-            .body
-            .as_ref()
-            .expect("body")
-            .contains("fetchUser")
-    );
+    assert!(ranked.symbols[0]
+        .body
+        .as_ref()
+        .expect("body")
+        .contains("fetchUser"));
     assert!(ranked.chars_used <= ranked.token_budget * 4);
 }
 
@@ -425,6 +552,7 @@ fn prune_to_budget_respects_char_limit() {
                     start_byte: 0,
                     end_byte: 0,
                     provenance: SymbolProvenance::default(),
+                    end_line: 0,
                 },
                 100 - i as i32,
             )
@@ -432,7 +560,7 @@ fn prune_to_budget_respects_char_limit() {
         .collect();
 
     // Very small budget: should not fit all 20 symbols
-    let (selected, chars_used) =
+    let (selected, chars_used, _pruned_count, _last_kept_score) =
         prune_to_budget(symbols, 50, false, std::path::Path::new("/nonexistent"));
     assert!(!selected.is_empty());
     assert!(selected.len() < 20, "budget should limit entries");
@@ -459,12 +587,13 @@ fn prune_to_budget_includes_first_even_if_oversized() {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         },
         100,
     )];
 
     // Budget of 1 token = 4 chars, way too small for even the JSON entry
-    let (selected, chars_used) =
+    let (selected, chars_used, _pruned_count, _last_kept_score) =
         prune_to_budget(symbols, 1, false, std::path::Path::new("/nonexistent"));
     assert_eq!(selected.len(), 1, "first entry must always be included");
     // chars_used is capped at char_budget (max_tokens * 4 = 4), even though
@@ -473,8 +602,165 @@ fn prune_to_budget_includes_first_even_if_oversized() {
 }
 
 #[test]
+fn prune_to_budget_reports_dropped_count_and_last_kept_score() {
+    use super::ranking::prune_to_budget;
+    use super::types::{SymbolInfo, SymbolProvenance};
+
+    let symbols: Vec<(SymbolInfo, i32)> = (0..5)
+        .map(|i| {
+            (
+                SymbolInfo {
+                    name: format!("sym_{i}"),
+                    kind: SymbolKind::Function,
+                    file_path: "a.rs".into(),
+                    line: i,
+                    column: 0,
+                    signature: format!("fn sym_{i}()"),
+                    name_path: format!("sym_{i}"),
+                    id: format!("a.rs#function:sym_{i}"),
+                    body: None,
+                    children: Vec::new(),
+                    start_byte: 0,
+                    end_byte: 0,
+                    provenance: SymbolProvenance::default(),
+                    end_line: 0,
+                },
+                100 - (i as i32) * 10,
+            )
+        })
+        .collect();
+
+    // Budget too tight to fit all five — expect a drop.
+    let (kept, _chars_used, pruned_count, last_kept_score) =
+        prune_to_budget(symbols, 50, false, std::path::Path::new("/tmp"));
+    assert!(
+        pruned_count + kept.len() == 5,
+        "{pruned_count} + {} != 5",
+        kept.len()
+    );
+    assert!(pruned_count > 0, "budget 50 should not fit all 5");
+    let last_expected = kept.last().map(|e| e.relevance_score as f64).unwrap_or(0.0);
+    assert_eq!(last_kept_score, last_expected);
+}
+
+#[test]
+fn ranked_context_with_lsp_boost_promotes_boost_files() {
+    // Caller-level wiring: when an LSP `textDocument/references` probe
+    // produces a set of file paths, feeding those paths through the
+    // `get_ranked_context_cached_with_lsp_boost` method must re-rank a
+    // symbol that lives in one of those files above an otherwise
+    // identical candidate in an unrelated file. A large weight pins
+    // down the direction of the boost regardless of other ranking
+    // signals the real pipeline may contribute.
+    use std::collections::HashMap;
+
+    let dir = std::env::temp_dir().join(format!(
+        "codelens-lsp-boost-fixture-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(dir.join("src")).expect("create src");
+    fs::write(dir.join("src/a.rs"), "pub fn handler() -> u32 { 1 }\n").expect("write a.rs");
+    fs::write(dir.join("src/b.rs"), "pub fn handler() -> u32 { 2 }\n").expect("write b.rs");
+
+    let project = ProjectRoot::new(&dir).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh index");
+
+    // Baseline: without boost, either file may win — we only need an
+    // honest "before" to prove the boost flips direction, so capture it.
+    let baseline = index
+        .get_ranked_context_cached("handler", None, 400, false, 2, None, HashMap::new())
+        .expect("baseline ranked");
+    assert!(
+        baseline.symbols.len() >= 2,
+        "fixture should produce two candidates, got {}",
+        baseline.symbols.len()
+    );
+    let baseline_first = baseline.symbols[0].file.clone();
+    let other_file = if baseline_first == "src/a.rs" {
+        "src/b.rs"
+    } else {
+        "src/a.rs"
+    };
+
+    // Boost the OTHER file via LSP boost — high weight + a ref on
+    // line 1 (where the fixture's `handler` lives) drives the
+    // proximity factor to 1.0, so the loser of the baseline must
+    // become the winner.
+    let mut boost: HashMap<String, Vec<usize>> = HashMap::new();
+    boost.insert(other_file.to_string(), vec![1]);
+
+    let ranked = index
+        .get_ranked_context_cached_with_lsp_boost(
+            "handler",
+            None,
+            400,
+            false,
+            2,
+            None,
+            HashMap::new(),
+            None,
+            boost,
+            Some(10.0),
+        )
+        .expect("ranked with lsp boost");
+
+    assert!(!ranked.symbols.is_empty(), "expected at least one symbol");
+    assert_eq!(
+        ranked.symbols[0].file, other_file,
+        "LSP-boosted file must rank first when weight is positive"
+    );
+}
+
+#[test]
+fn ranked_context_without_lsp_boost_is_neutral() {
+    // Passing an empty ref map (or None weight) must leave the result
+    // indistinguishable from the legacy `get_ranked_context_cached`
+    // entrypoint, preserving the "opt-in, default no-op" contract.
+    use std::collections::HashMap;
+
+    let root = fixture_root();
+    let project = ProjectRoot::new(&root).expect("project");
+    let index = SymbolIndex::new_memory(project);
+    index.refresh_all().expect("refresh index");
+
+    let baseline = index
+        .get_ranked_context_cached("fetchUser", None, 200, false, 2, None, HashMap::new())
+        .expect("baseline");
+    let via_boost = index
+        .get_ranked_context_cached_with_lsp_boost(
+            "fetchUser",
+            None,
+            200,
+            false,
+            2,
+            None,
+            HashMap::new(),
+            None,
+            HashMap::new(),
+            None,
+        )
+        .expect("via lsp boost path");
+
+    let baseline_keys: Vec<_> = baseline
+        .symbols
+        .iter()
+        .map(|e| (e.file.clone(), e.name.clone(), e.relevance_score))
+        .collect();
+    let via_keys: Vec<_> = via_boost
+        .symbols
+        .iter()
+        .map(|e| (e.file.clone(), e.name.clone(), e.relevance_score))
+        .collect();
+    assert_eq!(baseline_keys, via_keys, "empty boost must be a no-op");
+}
+
+#[test]
 fn rank_symbols_returns_full_scored_list() {
-    use super::ranking::{RankingContext, rank_symbols};
+    use super::ranking::{rank_symbols, RankingContext};
     use super::types::{SymbolInfo, SymbolProvenance};
 
     let symbols: Vec<SymbolInfo> = ["alpha", "beta_alpha", "gamma"]
@@ -493,6 +779,7 @@ fn rank_symbols_returns_full_scored_list() {
             start_byte: 0,
             end_byte: 0,
             provenance: SymbolProvenance::default(),
+            end_line: 0,
         })
         .collect();
 
@@ -507,7 +794,7 @@ fn rank_symbols_returns_full_scored_list() {
 
 #[test]
 fn score_and_rank_empty_query() {
-    use super::ranking::{RankingContext, rank_symbols};
+    use super::ranking::{rank_symbols, RankingContext};
     use super::types::{SymbolInfo, SymbolProvenance};
 
     let symbols = vec![SymbolInfo {
@@ -524,6 +811,7 @@ fn score_and_rank_empty_query() {
         start_byte: 0,
         end_byte: 0,
         provenance: SymbolProvenance::default(),
+        end_line: 0,
     }];
 
     let ctx = RankingContext::text_only();

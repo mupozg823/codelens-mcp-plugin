@@ -1,10 +1,12 @@
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result, bail};
+use dashmap::DashMap;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use url::Url;
@@ -34,9 +36,21 @@ struct OpenDocumentState {
     text: String,
 }
 
+/// P1-1: each live language-server session is wrapped in its own
+/// `Mutex<LspSession>`. The pool itself is a lock-free `DashMap` so that
+/// requests routed to *different* (command, args) sessions (e.g. pyright
+/// vs rust-analyzer in a polyglot monorepo) no longer serialize on a
+/// single pool-level mutex. Requests hitting the **same** session still
+/// take a session-local mutex — the LSP JSON-RPC wire is inherently
+/// serial per stdin/stdout pair.
 pub struct LspSessionPool {
     project: ProjectRoot,
-    sessions: std::sync::Mutex<HashMap<SessionKey, LspSession>>,
+    sessions: DashMap<SessionKey, Arc<Mutex<LspSession>>>,
+    /// Per-session readiness state kept alongside `sessions`. Lock-free
+    /// reads so the MCP `get_lsp_readiness` handler can poll at
+    /// 500 ms cadence without contending with the per-session I/O
+    /// mutex. See `lsp::readiness` for the full rationale.
+    readiness: DashMap<SessionKey, Arc<super::readiness::ReadinessState>>,
 }
 
 struct LspSession {
@@ -85,12 +99,20 @@ pub(super) const ALLOWED_COMMANDS: &[&str] = &[
     "python",
 ];
 
-fn ensure_session<'a>(
-    sessions: &'a mut HashMap<SessionKey, LspSession>,
+/// Fetch an existing live session or start a new one for the given
+/// (command, args). Lock-scope: the DashMap shard lock is held only long
+/// enough to check liveness + swap in a new entry; session execution
+/// itself uses a per-session `Arc<Mutex<…>>` returned to the caller.
+fn get_or_start_session(
+    sessions: &DashMap<SessionKey, Arc<Mutex<LspSession>>>,
+    readiness: &DashMap<SessionKey, Arc<super::readiness::ReadinessState>>,
     project: &ProjectRoot,
     command: &str,
     args: &[String],
-) -> Result<&'a mut LspSession> {
+) -> Result<(
+    Arc<Mutex<LspSession>>,
+    Arc<super::readiness::ReadinessState>,
+)> {
     if !is_allowed_lsp_command(command) {
         bail!(
             "Blocked: '{command}' is not a known LSP server. Only whitelisted LSP binaries are allowed."
@@ -102,25 +124,87 @@ fn ensure_session<'a>(
         args: args.to_owned(),
     };
 
-    // Check for dead sessions: if the child process has exited, remove the stale entry.
-    if let Some(session) = sessions.get_mut(&key) {
-        match session.child.try_wait() {
-            Ok(Some(_status)) => {
-                // Process exited — remove stale session so we start fresh below.
-                sessions.remove(&key);
+    // Fast path: check whether a live session already exists.
+    if let Some(existing) = sessions.get(&key) {
+        let arc = existing.clone();
+        drop(existing); // release the DashMap shard read-lock
+        let dead = {
+            let mut guard = arc.lock().unwrap_or_else(|p| p.into_inner());
+            match guard.child.try_wait() {
+                Ok(Some(_status)) => true, // process exited
+                Err(_) => true,            // child gone
+                Ok(None) => false,         // still running
             }
-            Ok(None) => {} // Still running — will return it via Occupied below.
-            Err(_) => {
-                sessions.remove(&key);
-            }
+        };
+        if !dead {
+            let ready = readiness
+                .get(&key)
+                .map(|r| r.clone())
+                .unwrap_or_else(|| {
+                    // Defensive: if readiness was somehow pruned under
+                    // a live session, reattach a fresh marker rather
+                    // than panic. The observable effect is a reset
+                    // timer for this session, which is benign.
+                    let r = Arc::new(super::readiness::ReadinessState::new(
+                        command.to_owned(),
+                        args.to_owned(),
+                    ));
+                    readiness.insert(key.clone(), r.clone());
+                    r
+                });
+            return Ok((arc, ready));
         }
+        sessions.remove(&key);
+        readiness.remove(&key);
     }
 
-    match sessions.entry(key) {
-        std::collections::hash_map::Entry::Occupied(e) => Ok(e.into_mut()),
-        std::collections::hash_map::Entry::Vacant(e) => {
-            let session = LspSession::start(project, command, args)?;
-            Ok(e.insert(session))
+    // Slow path: spawn a new LSP process. We use `entry(..).or_try_insert_with`
+    // semantics via match so that if two threads race to create the session,
+    // only one spawn actually succeeds.
+    use dashmap::mapref::entry::Entry;
+    match sessions.entry(key.clone()) {
+        Entry::Occupied(e) => {
+            let arc = e.get().clone();
+            let ready = readiness
+                .get(&key)
+                .map(|r| r.clone())
+                .unwrap_or_else(|| {
+                    let r = Arc::new(super::readiness::ReadinessState::new(
+                        command.to_owned(),
+                        args.to_owned(),
+                    ));
+                    readiness.insert(key.clone(), r.clone());
+                    r
+                });
+            Ok((arc, ready))
+        }
+        Entry::Vacant(e) => {
+            // P0-4: insert the readiness row *before* `LspSession::start`
+            // so a slow-to-handshake or failed-to-start LSP still leaves
+            // a visible trail. Without this, a poller for
+            // `get_lsp_readiness` sees `sessions=[]` for the entire
+            // spawn window and cannot distinguish "still warming" from
+            // "failed silently" — which is the exact failure mode the
+            // wait-for-ready feature was built to surface.
+            let ready = Arc::new(super::readiness::ReadinessState::new(
+                command.to_owned(),
+                args.to_owned(),
+            ));
+            readiness.insert(key.clone(), ready.clone());
+            match LspSession::start(project, command, args) {
+                Ok(session) => {
+                    let arc = Arc::new(Mutex::new(session));
+                    e.insert(arc.clone());
+                    Ok((arc, ready))
+                }
+                Err(err) => {
+                    ready.record_failure();
+                    // Leave the readiness row in place with
+                    // `failure_count > 0 && is_alive=false` so callers
+                    // can distinguish a warming LSP from a dead one.
+                    Err(err)
+                }
+            }
         }
     }
 }
@@ -129,86 +213,148 @@ impl LspSessionPool {
     pub fn new(project: ProjectRoot) -> Self {
         Self {
             project,
-            sessions: std::sync::Mutex::new(HashMap::new()),
+            sessions: DashMap::new(),
+            readiness: DashMap::new(),
         }
     }
 
     /// Replace the project root and close all existing sessions.
     pub fn reset(&self, project: ProjectRoot) -> Self {
         // Drop existing sessions so LSP processes are killed.
-        self.sessions
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
+        self.sessions.clear();
+        self.readiness.clear();
         Self::new(project)
     }
 
     pub fn session_count(&self) -> usize {
-        self.sessions
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .len()
+        self.sessions.len()
+    }
+
+    /// Snapshot the per-session readiness state for all currently
+    /// pooled LSP servers. Cheap and lock-free: it allocates a `Vec`
+    /// and clones a handful of atomic counters per session. Intended
+    /// for the MCP `get_lsp_readiness` handler and for bench-harness
+    /// polling loops that need to wait for indexing to complete
+    /// instead of sleeping a fixed duration.
+    pub fn readiness_snapshot(&self) -> Vec<super::readiness::ReadinessSnapshot> {
+        let mut out: Vec<super::readiness::ReadinessSnapshot> = self
+            .readiness
+            .iter()
+            .map(|entry| entry.value().snapshot())
+            .collect();
+        // Stable ordering: command, then args. Makes test and bench
+        // output deterministic.
+        out.sort_by(|a, b| a.command.cmp(&b.command).then(a.args.cmp(&b.args)));
+        out
     }
 
     pub fn find_referencing_symbols(&self, request: &LspRequest) -> Result<Vec<LspReference>> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
+        let (arc, readiness) = get_or_start_session(
+            &self.sessions,
+            &self.readiness,
             &self.project,
             &request.command,
             &request.args,
         )?;
-        session.find_references(request)
+        let result = {
+            let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
+            session.find_references(request)
+        };
+        match &result {
+            Ok(refs) => readiness.record_ok(!refs.is_empty()),
+            Err(_) => readiness.record_failure(),
+        }
+        result
     }
 
     pub fn get_diagnostics(&self, request: &LspDiagnosticRequest) -> Result<Vec<LspDiagnostic>> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
+        let (arc, readiness) = get_or_start_session(
+            &self.sessions,
+            &self.readiness,
             &self.project,
             &request.command,
             &request.args,
         )?;
-        session.get_diagnostics(request)
+        let result = {
+            let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
+            session.get_diagnostics(request)
+        };
+        match &result {
+            Ok(diags) => readiness.record_ok(!diags.is_empty()),
+            Err(_) => readiness.record_failure(),
+        }
+        result
     }
 
     pub fn search_workspace_symbols(
         &self,
         request: &LspWorkspaceSymbolRequest,
     ) -> Result<Vec<LspWorkspaceSymbol>> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
+        let (arc, readiness) = get_or_start_session(
+            &self.sessions,
+            &self.readiness,
             &self.project,
             &request.command,
             &request.args,
         )?;
-        session.search_workspace_symbols(request)
+        let result = {
+            let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
+            session.search_workspace_symbols(request)
+        };
+        match &result {
+            Ok(symbols) => readiness.record_ok(!symbols.is_empty()),
+            Err(_) => readiness.record_failure(),
+        }
+        result
     }
 
     pub fn get_type_hierarchy(
         &self,
         request: &LspTypeHierarchyRequest,
     ) -> Result<HashMap<String, Value>> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
+        let (arc, readiness) = get_or_start_session(
+            &self.sessions,
+            &self.readiness,
             &self.project,
             &request.command,
             &request.args,
         )?;
-        session.get_type_hierarchy(request)
+        let result = {
+            let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
+            session.get_type_hierarchy(request)
+        };
+        match &result {
+            Ok(map) => readiness.record_ok(!map.is_empty()),
+            Err(_) => readiness.record_failure(),
+        }
+        result
     }
 
     pub fn get_rename_plan(&self, request: &LspRenamePlanRequest) -> Result<LspRenamePlan> {
-        let mut sessions = self.sessions.lock().unwrap_or_else(|p| p.into_inner());
-        let session = ensure_session(
-            &mut sessions,
+        let (arc, readiness) = get_or_start_session(
+            &self.sessions,
+            &self.readiness,
             &self.project,
             &request.command,
             &request.args,
         )?;
-        session.get_rename_plan(request)
+        let result = {
+            let mut session = arc.lock().unwrap_or_else(|p| p.into_inner());
+            session.get_rename_plan(request)
+        };
+        match &result {
+            Ok(plan) => {
+                // A rename plan is non-trivial when the server returned
+                // an actual edit block; fall back to counting
+                // current_name so a plain "prepareRename" round-trip
+                // still flips the ready bit when the response is
+                // meaningful.
+                let nonempty = !plan.current_name.is_empty();
+                readiness.record_ok(nonempty);
+            }
+            Err(_) => readiness.record_failure(),
+        }
+        result
     }
 }
 

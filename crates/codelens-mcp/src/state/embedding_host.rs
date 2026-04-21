@@ -1,6 +1,11 @@
 //! Embedding engine and SCIP backend accessors for `AppState`.
 //!
-//! Pure move from `state.rs` — no logic changes.
+//! Phase P3 also parks the single source of truth for "can the semantic
+//! lane actually serve queries right now" here, so every handler that
+//! used to ask `engine.is_indexed()` / `embedding_ref().is_some()` on
+//! its own goes through `AppState::embedding_status()` instead. Unified
+//! semantics means `get_ranked_context.retrieval.semantic_ready` and
+//! `review_architecture.data.semantic.loaded` always agree.
 
 #[cfg(feature = "semantic")]
 use codelens_engine::EmbeddingEngine;
@@ -8,6 +13,31 @@ use codelens_engine::EmbeddingEngine;
 use std::sync::Arc;
 
 use super::AppState;
+
+/// Unified embedding readiness snapshot. `ready()` is the only predicate
+/// downstream handlers should use to decide whether to advertise the
+/// semantic lane.
+#[derive(Debug, Clone)]
+pub(crate) struct EmbeddingStatus {
+    /// Engine is instantiated in the process' memory (not necessarily
+    /// populated — an engine with an empty store is `loaded=true` but
+    /// not `ready`).
+    pub loaded: bool,
+    /// Number of symbols currently indexed in the live engine. 0 when
+    /// the engine is not loaded or its store is empty.
+    pub indexed_symbols: usize,
+    /// The embedding model name. Falls back to the configured default
+    /// when the engine is not loaded.
+    pub model: String,
+}
+
+impl EmbeddingStatus {
+    /// Whether the semantic lane can contribute real scores on this
+    /// call. `loaded && indexed_symbols > 0`.
+    pub fn ready(&self) -> bool {
+        self.loaded && self.indexed_symbols > 0
+    }
+}
 
 impl AppState {
     /// Get or initialize embedding engine for the current project.
@@ -47,6 +77,39 @@ impl AppState {
     pub(crate) fn reset_embedding(&self) {
         let mut guard = self.embedding.write().unwrap_or_else(|p| p.into_inner());
         *guard = None;
+    }
+
+    /// Phase P3: unified embedding readiness snapshot. Does **not**
+    /// trigger engine initialization (read-only via `embedding_ref`),
+    /// so a disk-only index is correctly reported as
+    /// `loaded=false, indexed_symbols=0` until a handler explicitly
+    /// warms the engine via `embedding_engine()`.
+    #[cfg(feature = "semantic")]
+    pub(crate) fn embedding_status(&self) -> EmbeddingStatus {
+        let guard = self.embedding_ref();
+        if let Some(engine) = guard.as_ref() {
+            let info = engine.index_info();
+            EmbeddingStatus {
+                loaded: true,
+                indexed_symbols: info.indexed_symbols,
+                model: info.model_name,
+            }
+        } else {
+            EmbeddingStatus {
+                loaded: false,
+                indexed_symbols: 0,
+                model: codelens_engine::configured_embedding_model_name(),
+            }
+        }
+    }
+
+    #[cfg(not(feature = "semantic"))]
+    pub(crate) fn embedding_status(&self) -> EmbeddingStatus {
+        EmbeddingStatus {
+            loaded: false,
+            indexed_symbols: 0,
+            model: codelens_engine::configured_embedding_model_name(),
+        }
     }
 
     /// Lazy-loaded SCIP backend. Loads the SCIP index on first access

@@ -4,6 +4,7 @@ mod coordination;
 pub(crate) mod metrics_config;
 pub(crate) mod planner_audit;
 mod project_ops;
+mod tool_search;
 
 pub use builder_audit::audit_builder_session;
 pub use coordination::{claim_files, list_active_agents, register_agent_work, release_files};
@@ -17,3 +18,4 @@ pub use project_ops::{
     onboarding, prepare_for_new_conversation, prepare_harness_session, query_project,
     remove_queryable_project, summarize_changes,
 };
+pub use tool_search::tool_search;

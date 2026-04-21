@@ -7,19 +7,33 @@ from pathlib import Path
 
 
 HARNESS_DIR = Path(__file__).resolve().parents[1]
-if str(HARNESS_DIR) not in sys.path:
-    sys.path.insert(0, str(HARNESS_DIR))
+HARNESS_PATH = str(HARNESS_DIR)
+_added_harness_path = False
+if HARNESS_PATH not in sys.path:
+    sys.path.insert(0, HARNESS_PATH)
+    _added_harness_path = True
 
 import harness_eval_common as common  # noqa: E402
 import harness_runner_common as runner_common  # noqa: E402
 
+if _added_harness_path:
+    sys.path.remove(HARNESS_PATH)
+
 
 def load_script_module(module_name: str, filename: str):
     path = HARNESS_DIR / filename
+    added_path = False
+    if HARNESS_PATH not in sys.path:
+        sys.path.insert(0, HARNESS_PATH)
+        added_path = True
     spec = importlib.util.spec_from_file_location(module_name, path)
     module = importlib.util.module_from_spec(spec)
     assert spec and spec.loader
-    spec.loader.exec_module(module)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        if added_path:
+            sys.path.remove(HARNESS_PATH)
     return module
 
 

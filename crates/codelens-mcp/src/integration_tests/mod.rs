@@ -20,13 +20,25 @@ fn embedding_model_available_for_test() -> bool {
     true
 }
 
+mod bench_gate;
 mod coordination;
+mod handoff_protocol;
 mod lsp;
+mod mcp_annotations;
 mod memory;
 mod mutation;
+mod parallel_agents;
+mod parallel_agents_ttl;
+mod per_symbol_compression;
+mod prescriptive_signals;
 mod protocol;
 mod readonly;
+mod tool_surface_lean;
+mod transparency_phase1;
+mod transparency_phase2;
+mod traversal_kind;
 mod workflow;
+mod workflow_contract;
 
 // ── Test helpers ─────────────────────────────────────────────────────
 

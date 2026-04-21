@@ -49,6 +49,7 @@ fn inserts_and_queries_symbols() {
             signature: "class Service:",
             name_path: "Service",
             parent_id: None,
+            end_line: 0,
         },
         NewSymbol {
             name: "run",
@@ -60,6 +61,7 @@ fn inserts_and_queries_symbols() {
             signature: "def run(self):",
             name_path: "Service/run",
             parent_id: None,
+            end_line: 0,
         },
     ];
     let ids = db.insert_symbols(file_id, &syms).unwrap();
@@ -95,6 +97,7 @@ fn upsert_file_clears_old_symbols() {
             signature: "class Old:",
             name_path: "Old",
             parent_id: None,
+            end_line: 0,
         }],
     )
     .unwrap();
@@ -125,6 +128,7 @@ fn streams_symbols_grouped_by_file_in_path_order() {
                 signature: "def b_second():",
                 name_path: "b_second",
                 parent_id: None,
+                end_line: 0,
             },
             NewSymbol {
                 name: "b_first",
@@ -136,6 +140,7 @@ fn streams_symbols_grouped_by_file_in_path_order() {
                 signature: "def b_first():",
                 name_path: "b_first",
                 parent_id: None,
+                end_line: 0,
             },
         ],
     )
@@ -152,6 +157,7 @@ fn streams_symbols_grouped_by_file_in_path_order() {
             signature: "def a_only():",
             name_path: "a_only",
             parent_id: None,
+            end_line: 0,
         }],
     )
     .unwrap();
@@ -316,4 +322,101 @@ fn quarantine_corrupt_sqlite_files_moves_sidecars_when_present() {
             .any(|name| name.starts_with("symbols.db-shm.corrupt-")),
         "expected quarantined shm sidecar, found {backup_names:?}"
     );
+}
+
+/// Regression: when migration `N` is added but `SCHEMA_VERSION` is not
+/// bumped to match, `migrate()`'s `current >= SCHEMA_VERSION` early-exit
+/// silently skips the new migration on any pre-existing DB that was
+/// already at version `SCHEMA_VERSION`. For P1-4 this left `end_line`
+/// missing on every user project that had been indexed before the
+/// migration landed; `find_symbol` then failed with
+/// "no such column: end_line" forever. This test simulates a DB that
+/// reports `schema_version=6` (the state right before migration 7 was
+/// added) and asserts that opening it through `IndexDb::open` brings
+/// it current to the highest migration in `MIGRATIONS`, not just to
+/// `SCHEMA_VERSION`.
+#[test]
+fn opening_a_db_at_the_previous_schema_version_runs_every_subsequent_migration() {
+    let temp = std::env::temp_dir().join(format!(
+        "codelens-migrate-regression-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time")
+            .as_nanos()
+    ));
+    fs::create_dir_all(&temp).expect("create temp dir");
+    let db_path = temp.join("symbols.db");
+
+    // Build a v6 DB by hand: apply migrations 1..=6 and stamp
+    // schema_version=6. This mirrors the on-disk state of every
+    // project indexed before migration 7 landed.
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("open fresh db");
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );",
+        )
+        .expect("meta table");
+        for &(ver, sql) in IndexDb::MIGRATIONS.iter().filter(|(v, _)| *v <= 6) {
+            conn.execute_batch(sql).expect("run migration");
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', ?1)",
+                rusqlite::params![ver.to_string()],
+            )
+            .expect("stamp version");
+        }
+    }
+
+    // Sanity: at this point the manually-built DB is at version 6 and
+    // does NOT have the end_line column.
+    {
+        let conn = rusqlite::Connection::open(&db_path).expect("reopen");
+        let version: i64 = conn
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("version");
+        assert_eq!(version, 6);
+        let has_end_line: bool = conn.prepare("SELECT end_line FROM symbols LIMIT 1").is_ok();
+        assert!(
+            !has_end_line,
+            "precondition: v6 DB must not yet have end_line"
+        );
+    }
+
+    // Open through the real path. This MUST apply migration 7 even
+    // though the stamped version equals the (stale) SCHEMA_VERSION
+    // constant.
+    let _db = IndexDb::open(&db_path).expect("reopen through IndexDb::open");
+
+    // Post-condition: the column is now present.
+    let conn = rusqlite::Connection::open(&db_path).expect("reopen after migrate");
+    let can_select_end_line = conn.prepare("SELECT end_line FROM symbols LIMIT 1").is_ok();
+    assert!(
+        can_select_end_line,
+        "migration 7 must have added end_line; otherwise find_symbol \
+         will fail on every pre-existing project DB"
+    );
+    let version: i64 = conn
+        .query_row(
+            "SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'schema_version'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("version");
+    let max_version = IndexDb::MIGRATIONS
+        .iter()
+        .map(|(v, _)| *v)
+        .max()
+        .expect("at least one migration");
+    assert_eq!(
+        version, max_version,
+        "schema_version must advance to the highest migration, not just SCHEMA_VERSION"
+    );
+
+    let _ = fs::remove_dir_all(&temp);
 }

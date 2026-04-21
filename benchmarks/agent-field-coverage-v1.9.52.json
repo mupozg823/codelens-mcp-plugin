@@ -1,0 +1,518 @@
+{
+  "label": "v1.9.52",
+  "binary": "target/release/codelens-mcp",
+  "project": "/Users/bagjaeseog/codelens-mcp-plugin",
+  "results": [
+    {
+      "tool": "get_impact_analysis",
+      "args": {
+        "file_path": "crates/codelens-mcp/src/main.rs",
+        "max_depth": 2
+      },
+      "stdout": null,
+      "stderr": null,
+      "returncode": 0,
+      "elapsed_ms": 167,
+      "data_keys": [
+        "blast_radius",
+        "direct_importers",
+        "file",
+        "symbol_count",
+        "symbols",
+        "total_affected_files",
+        "traversal_kind"
+      ],
+      "coverage": {
+        "haiku_preclassified": {
+          "present": [
+            "traversal_kind"
+          ],
+          "missing": [
+            "session_continuation_hint",
+            "risk_level",
+            "mutation_ready"
+          ],
+          "rate": 0.25
+        },
+        "sonnet_chain_direct": {
+          "present": [],
+          "missing": [
+            "suggested_next_tools",
+            "section_handles",
+            "available_sections",
+            "summary_resource",
+            "suggestion_reasons"
+          ],
+          "rate": 0.0
+        },
+        "codex_mutation_gate": {
+          "present": [],
+          "missing": [
+            "blockers",
+            "blocker_count",
+            "verifier_checks",
+            "readiness",
+            "readiness_score"
+          ],
+          "rate": 0.0
+        },
+        "opus_deep_context": {
+          "present": [],
+          "missing": [
+            "analysis_id",
+            "top_findings",
+            "next_actions",
+            "quality_focus",
+            "recommended_checks",
+            "performance_watchpoints"
+          ],
+          "rate": 0.0
+        },
+        "parallel_handoff": {
+          "present": [],
+          "missing": [
+            "handoff_id",
+            "carry_forward",
+            "delegate_tool",
+            "delegate_arguments"
+          ],
+          "rate": 0.0
+        }
+      },
+      "response_summary": {
+        "ok": true,
+        "has_structured": true
+      }
+    },
+    {
+      "tool": "impact_report",
+      "args": {
+        "file_path": "crates/codelens-mcp/src/main.rs"
+      },
+      "stdout": null,
+      "stderr": null,
+      "returncode": 0,
+      "elapsed_ms": 2242,
+      "data_keys": [
+        "analysis_id",
+        "available_sections",
+        "blocker_count",
+        "blockers",
+        "confidence",
+        "next_actions",
+        "next_actions_detailed",
+        "performance_watchpoints",
+        "quality_focus",
+        "readiness",
+        "readiness_score",
+        "recommended_checks",
+        "reused",
+        "risk_level",
+        "section_handles",
+        "session_continuation_hint",
+        "suggested_next_tools",
+        "summary",
+        "summary_resource",
+        "top_findings",
+        "verifier_checks"
+      ],
+      "coverage": {
+        "haiku_preclassified": {
+          "present": [
+            "session_continuation_hint",
+            "risk_level"
+          ],
+          "missing": [
+            "traversal_kind",
+            "mutation_ready"
+          ],
+          "rate": 0.5
+        },
+        "sonnet_chain_direct": {
+          "present": [
+            "suggested_next_tools",
+            "section_handles",
+            "available_sections",
+            "summary_resource"
+          ],
+          "missing": [
+            "suggestion_reasons"
+          ],
+          "rate": 0.8
+        },
+        "codex_mutation_gate": {
+          "present": [
+            "blockers",
+            "blocker_count",
+            "verifier_checks",
+            "readiness",
+            "readiness_score"
+          ],
+          "missing": [],
+          "rate": 1.0
+        },
+        "opus_deep_context": {
+          "present": [
+            "analysis_id",
+            "top_findings",
+            "next_actions",
+            "quality_focus",
+            "recommended_checks",
+            "performance_watchpoints"
+          ],
+          "missing": [],
+          "rate": 1.0
+        },
+        "parallel_handoff": {
+          "present": [],
+          "missing": [
+            "handoff_id",
+            "carry_forward",
+            "delegate_tool",
+            "delegate_arguments"
+          ],
+          "rate": 0.0
+        }
+      },
+      "response_summary": {
+        "ok": true,
+        "has_structured": true
+      }
+    },
+    {
+      "tool": "analyze_change_request",
+      "args": {
+        "task": "Add session_continuation_hint to all workflow handle payloads"
+      },
+      "stdout": null,
+      "stderr": null,
+      "returncode": 0,
+      "elapsed_ms": 1176,
+      "data_keys": [
+        "analysis_id",
+        "available_sections",
+        "blocker_count",
+        "blockers",
+        "confidence",
+        "next_actions",
+        "next_actions_detailed",
+        "readiness",
+        "readiness_score",
+        "reused",
+        "risk_level",
+        "section_handles",
+        "session_continuation_hint",
+        "suggested_next_tools",
+        "summary",
+        "summary_resource",
+        "top_findings"
+      ],
+      "coverage": {
+        "haiku_preclassified": {
+          "present": [
+            "session_continuation_hint",
+            "risk_level"
+          ],
+          "missing": [
+            "traversal_kind",
+            "mutation_ready"
+          ],
+          "rate": 0.5
+        },
+        "sonnet_chain_direct": {
+          "present": [
+            "suggested_next_tools",
+            "section_handles",
+            "available_sections",
+            "summary_resource"
+          ],
+          "missing": [
+            "suggestion_reasons"
+          ],
+          "rate": 0.8
+        },
+        "codex_mutation_gate": {
+          "present": [
+            "blockers",
+            "blocker_count",
+            "readiness",
+            "readiness_score"
+          ],
+          "missing": [
+            "verifier_checks"
+          ],
+          "rate": 0.8
+        },
+        "opus_deep_context": {
+          "present": [
+            "analysis_id",
+            "top_findings",
+            "next_actions"
+          ],
+          "missing": [
+            "quality_focus",
+            "recommended_checks",
+            "performance_watchpoints"
+          ],
+          "rate": 0.5
+        },
+        "parallel_handoff": {
+          "present": [],
+          "missing": [
+            "handoff_id",
+            "carry_forward",
+            "delegate_tool",
+            "delegate_arguments"
+          ],
+          "rate": 0.0
+        }
+      },
+      "response_summary": {
+        "ok": true,
+        "has_structured": true
+      }
+    },
+    {
+      "tool": "refactor_safety_report",
+      "args": {
+        "task": "rename handle_request",
+        "symbol": "handle_request",
+        "file_path": "crates/codelens-mcp/src/server/router.rs"
+      },
+      "stdout": null,
+      "stderr": null,
+      "returncode": 0,
+      "elapsed_ms": 4443,
+      "data_keys": [
+        "analysis_id",
+        "available_sections",
+        "blocker_count",
+        "blockers",
+        "confidence",
+        "next_actions",
+        "next_actions_detailed",
+        "prior_analyses",
+        "readiness",
+        "readiness_score",
+        "reused",
+        "risk_level",
+        "section_handles",
+        "session_continuation_hint",
+        "suggested_next_tools",
+        "summary",
+        "summary_resource"
+      ],
+      "coverage": {
+        "haiku_preclassified": {
+          "present": [
+            "session_continuation_hint",
+            "risk_level"
+          ],
+          "missing": [
+            "traversal_kind",
+            "mutation_ready"
+          ],
+          "rate": 0.5
+        },
+        "sonnet_chain_direct": {
+          "present": [
+            "suggested_next_tools",
+            "section_handles",
+            "available_sections",
+            "summary_resource"
+          ],
+          "missing": [
+            "suggestion_reasons"
+          ],
+          "rate": 0.8
+        },
+        "codex_mutation_gate": {
+          "present": [
+            "blockers",
+            "blocker_count",
+            "readiness",
+            "readiness_score"
+          ],
+          "missing": [
+            "verifier_checks"
+          ],
+          "rate": 0.8
+        },
+        "opus_deep_context": {
+          "present": [
+            "analysis_id",
+            "next_actions"
+          ],
+          "missing": [
+            "top_findings",
+            "quality_focus",
+            "recommended_checks",
+            "performance_watchpoints"
+          ],
+          "rate": 0.3333333333333333
+        },
+        "parallel_handoff": {
+          "present": [],
+          "missing": [
+            "handoff_id",
+            "carry_forward",
+            "delegate_tool",
+            "delegate_arguments"
+          ],
+          "rate": 0.0
+        }
+      },
+      "response_summary": {
+        "ok": true,
+        "has_structured": true
+      }
+    },
+    {
+      "tool": "semantic_code_review",
+      "args": {
+        "task": "review the MCP dispatch pipeline"
+      },
+      "stdout": null,
+      "stderr": null,
+      "returncode": 0,
+      "elapsed_ms": 1154,
+      "data_keys": [
+        "analysis_id",
+        "available_sections",
+        "blocker_count",
+        "blockers",
+        "confidence",
+        "next_actions",
+        "next_actions_detailed",
+        "performance_watchpoints",
+        "quality_focus",
+        "readiness",
+        "readiness_score",
+        "recommended_checks",
+        "reused",
+        "risk_level",
+        "section_handles",
+        "session_continuation_hint",
+        "suggested_next_tools",
+        "summary",
+        "summary_resource",
+        "top_findings",
+        "verifier_checks"
+      ],
+      "coverage": {
+        "haiku_preclassified": {
+          "present": [
+            "session_continuation_hint",
+            "risk_level"
+          ],
+          "missing": [
+            "traversal_kind",
+            "mutation_ready"
+          ],
+          "rate": 0.5
+        },
+        "sonnet_chain_direct": {
+          "present": [
+            "suggested_next_tools",
+            "section_handles",
+            "available_sections",
+            "summary_resource"
+          ],
+          "missing": [
+            "suggestion_reasons"
+          ],
+          "rate": 0.8
+        },
+        "codex_mutation_gate": {
+          "present": [
+            "blockers",
+            "blocker_count",
+            "verifier_checks",
+            "readiness",
+            "readiness_score"
+          ],
+          "missing": [],
+          "rate": 1.0
+        },
+        "opus_deep_context": {
+          "present": [
+            "analysis_id",
+            "top_findings",
+            "next_actions",
+            "quality_focus",
+            "recommended_checks",
+            "performance_watchpoints"
+          ],
+          "missing": [],
+          "rate": 1.0
+        },
+        "parallel_handoff": {
+          "present": [],
+          "missing": [
+            "handoff_id",
+            "carry_forward",
+            "delegate_tool",
+            "delegate_arguments"
+          ],
+          "rate": 0.0
+        }
+      },
+      "response_summary": {
+        "ok": true,
+        "has_structured": true
+      }
+    }
+  ],
+  "aggregate_coverage": {
+    "haiku_preclassified": {
+      "mean_rate": 0.45,
+      "per_tool": {
+        "get_impact_analysis": 0.25,
+        "impact_report": 0.5,
+        "analyze_change_request": 0.5,
+        "refactor_safety_report": 0.5,
+        "semantic_code_review": 0.5
+      }
+    },
+    "sonnet_chain_direct": {
+      "mean_rate": 0.64,
+      "per_tool": {
+        "get_impact_analysis": 0.0,
+        "impact_report": 0.8,
+        "analyze_change_request": 0.8,
+        "refactor_safety_report": 0.8,
+        "semantic_code_review": 0.8
+      }
+    },
+    "codex_mutation_gate": {
+      "mean_rate": 0.72,
+      "per_tool": {
+        "get_impact_analysis": 0.0,
+        "impact_report": 1.0,
+        "analyze_change_request": 0.8,
+        "refactor_safety_report": 0.8,
+        "semantic_code_review": 1.0
+      }
+    },
+    "opus_deep_context": {
+      "mean_rate": 0.5666666666666667,
+      "per_tool": {
+        "get_impact_analysis": 0.0,
+        "impact_report": 1.0,
+        "analyze_change_request": 0.5,
+        "refactor_safety_report": 0.3333333333333333,
+        "semantic_code_review": 1.0
+      }
+    },
+    "parallel_handoff": {
+      "mean_rate": 0.0,
+      "per_tool": {
+        "get_impact_analysis": 0.0,
+        "impact_report": 0.0,
+        "analyze_change_request": 0.0,
+        "refactor_safety_report": 0.0,
+        "semantic_code_review": 0.0
+      }
+    }
+  }
+}

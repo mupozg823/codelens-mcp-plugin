@@ -3,7 +3,7 @@
 //!
 //! Pure move from `state.rs` — no logic changes.
 
-use crate::telemetry::ToolMetricsRegistry;
+use crate::observability::telemetry::ToolMetricsRegistry;
 
 use super::AppState;
 

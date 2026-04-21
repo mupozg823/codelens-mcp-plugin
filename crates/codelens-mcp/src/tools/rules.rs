@@ -1,14 +1,14 @@
 //! MCP handler for `find_relevant_rules` — exposes the rule corpus
-//! BM25 retrieval surface built in `rule_corpus` + `rule_retrieval`.
+//! BM25 retrieval surface built in `rule_retrieval`.
 //!
 //! Kept as a separate leaf module so the dispatch-table entry stays
 //! one line and the handler implementation never leaks into
 //! `tools/mod.rs`.
 
-use super::{AppState, ToolResult, required_string};
+use super::{required_string, AppState, ToolResult};
 use crate::protocol::BackendKind;
 use crate::tool_runtime::success_meta;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 const DEFAULT_TOP_K: usize = 3;
 const MAX_TOP_K: usize = 20;
@@ -23,8 +23,8 @@ pub fn find_relevant_rules(state: &AppState, arguments: &Value) -> ToolResult {
     let top_k = requested_k.clamp(1, MAX_TOP_K);
 
     let project = state.project();
-    let corpus = crate::rule_corpus::load_rule_corpus(project.as_path());
-    let scored = crate::rule_retrieval::find_relevant_rules(&corpus, query, top_k);
+    let corpus = crate::retrieval::rules::load_rule_corpus(project.as_path());
+    let scored = crate::retrieval::rules::find_relevant_rules(&corpus, query, top_k);
 
     let rules: Vec<Value> = scored
         .iter()

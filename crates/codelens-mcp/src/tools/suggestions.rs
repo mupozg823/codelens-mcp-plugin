@@ -89,7 +89,7 @@ pub(crate) const EVAL_PHASE_TOOLS: &[&str] = &[
     "get_analysis_section",
 ];
 
-const MUTATION_TOOLS: &[&str] = &[
+pub(crate) const MUTATION_TOOLS: &[&str] = &[
     "rename_symbol",
     "replace_symbol_body",
     "replace_content",

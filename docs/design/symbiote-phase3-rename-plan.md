@@ -1,4 +1,6 @@
-# Symbiote MCP — Phase 3 Rename Execution Plan
+# [Archived] Symbiote MCP — Phase 3 Rename Execution Plan
+
+> Archived proposal: the rename execution plan is not active while CodeLens remains the public product name.
 
 Status: planning baseline for the v2.0.0 cutover session
 Date: 2026-04-18

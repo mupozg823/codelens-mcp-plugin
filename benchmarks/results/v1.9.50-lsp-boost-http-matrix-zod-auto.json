@@ -1,0 +1,672 @@
+{
+  "schema_version": 1,
+  "project": "external-repos/zod",
+  "binary": "/Users/bagjaeseog/codelens-mcp-plugin/target/release/codelens-mcp",
+  "dataset_path": "benchmarks/lsp-boost-dataset-zod.json",
+  "dataset_size": 10,
+  "preset": "full",
+  "warm_lsp": false,
+  "warm_report": {
+    "mode": "auto_attach",
+    "lsp_auto_attach": null,
+    "wait_seconds": 60
+  },
+  "arms": [
+    {
+      "arm": "baseline",
+      "lsp_boost": false,
+      "mrr": 0.09318181818181819,
+      "hits": 4,
+      "rows": [
+        {
+          "query": "safeParse",
+          "expected_symbol": "safeParse",
+          "rank": null,
+          "elapsed_ms": 8.14,
+          "candidate_count": 10,
+          "top": [
+            {
+              "name": "safeParse",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 73
+            },
+            {
+              "name": "$SafeParse",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "_safeParse",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "$SafeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "_safeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            }
+          ]
+        },
+        {
+          "query": "$ZodRegistry",
+          "expected_symbol": "registry",
+          "rank": 2,
+          "elapsed_ms": 170.81,
+          "candidate_count": 13,
+          "top": [
+            {
+              "name": "$ZodRegistry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 73
+            },
+            {
+              "name": "registry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 24
+            },
+            {
+              "name": "globalRegistry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 24
+            },
+            {
+              "name": "add",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 17
+            },
+            {
+              "name": "meta",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 17
+            }
+          ]
+        },
+        {
+          "query": "parseAsync",
+          "expected_symbol": "parseAsync",
+          "rank": null,
+          "elapsed_ms": 1.47,
+          "candidate_count": 11,
+          "top": [
+            {
+              "name": "parseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 73
+            },
+            {
+              "name": "$ParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "_parseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "$SafeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "_safeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            }
+          ]
+        },
+        {
+          "query": "JSONSchemaGenerator",
+          "expected_symbol": "toJSONSchema",
+          "rank": null,
+          "elapsed_ms": 1.63,
+          "candidate_count": 16,
+          "top": [
+            {
+              "name": "JSONSchemaGenerator",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 73
+            },
+            {
+              "name": "JSONSchemaGeneratorConstructorParams",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "EmitParams",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 24
+            },
+            {
+              "name": "constructor",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 24
+            },
+            {
+              "name": "metadataRegistry",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 17
+            }
+          ]
+        },
+        {
+          "query": "globalRegistry",
+          "expected_symbol": "describe",
+          "rank": null,
+          "elapsed_ms": 1.12,
+          "candidate_count": 1,
+          "top": [
+            {
+              "name": "globalRegistry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 73
+            }
+          ]
+        },
+        {
+          "query": "_parse",
+          "expected_symbol": "parse",
+          "rank": 11,
+          "elapsed_ms": 1.59,
+          "candidate_count": 22,
+          "top": [
+            {
+              "name": "_parse",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 73
+            },
+            {
+              "name": "_parseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "_safeParse",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 41
+            },
+            {
+              "name": "_safeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 41
+            },
+            {
+              "name": "$SafeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 41
+            }
+          ]
+        },
+        {
+          "query": "_encode",
+          "expected_symbol": "encode",
+          "rank": 11,
+          "elapsed_ms": 1.68,
+          "candidate_count": 14,
+          "top": [
+            {
+              "name": "_encode",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 73
+            },
+            {
+              "name": "_encodeAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "$Encode",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 41
+            },
+            {
+              "name": "$EncodeAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 41
+            },
+            {
+              "name": "$SafeEncode",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 41
+            }
+          ]
+        },
+        {
+          "query": "$output",
+          "expected_symbol": "$ZodRegistry",
+          "rank": null,
+          "elapsed_ms": 1.51,
+          "candidate_count": 3,
+          "top": [
+            {
+              "name": "$output",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 73
+            },
+            {
+              "name": "$output",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 73
+            },
+            {
+              "name": "$replace",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 24
+            }
+          ]
+        },
+        {
+          "query": "registry",
+          "expected_symbol": "globalRegistry",
+          "rank": 4,
+          "elapsed_ms": 1.52,
+          "candidate_count": 14,
+          "top": [
+            {
+              "name": "registry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 73
+            },
+            {
+              "name": "$ZodRegistry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "GlobalThisWithRegistry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "globalRegistry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "add",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 17
+            }
+          ]
+        },
+        {
+          "query": "safeParseAsync",
+          "expected_symbol": "safeParseAsync",
+          "rank": null,
+          "elapsed_ms": 1.48,
+          "candidate_count": 5,
+          "top": [
+            {
+              "name": "safeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 73
+            },
+            {
+              "name": "$SafeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "_safeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "ctx",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 17
+            },
+            {
+              "name": "result",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 17
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "arm": "lsp_boost",
+      "lsp_boost": true,
+      "mrr": 0.07131313131313131,
+      "hits": 4,
+      "rows": [
+        {
+          "query": "safeParse",
+          "expected_symbol": "safeParse",
+          "rank": null,
+          "elapsed_ms": 1196.77,
+          "candidate_count": 25,
+          "top": [
+            {
+              "name": "safeparse",
+              "file": "packages/bench/safeparse.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "safeParse",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "$SafeParse",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 52
+            },
+            {
+              "name": "_safeParse",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 52
+            },
+            {
+              "name": "safeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            }
+          ]
+        },
+        {
+          "query": "$ZodRegistry",
+          "expected_symbol": "registry",
+          "rank": 2,
+          "elapsed_ms": 410.3,
+          "candidate_count": 25,
+          "top": [
+            {
+              "name": "$ZodRegistry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "registry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 40
+            },
+            {
+              "name": "globalRegistry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 32
+            },
+            {
+              "name": "registry",
+              "file": "packages/zod/src/v4/core/json-schema-processors.ts",
+              "relevance_score": 32
+            },
+            {
+              "name": "metadataRegistry",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 32
+            }
+          ]
+        },
+        {
+          "query": "parseAsync",
+          "expected_symbol": "parseAsync",
+          "rank": null,
+          "elapsed_ms": 764.18,
+          "candidate_count": 23,
+          "top": [
+            {
+              "name": "parseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "$ParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 52
+            },
+            {
+              "name": "_parseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 52
+            },
+            {
+              "name": "safeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "_safeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            }
+          ]
+        },
+        {
+          "query": "JSONSchemaGenerator",
+          "expected_symbol": "toJSONSchema",
+          "rank": null,
+          "elapsed_ms": 336.81,
+          "candidate_count": 16,
+          "top": [
+            {
+              "name": "JSONSchemaGenerator",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "JSONSchemaGeneratorConstructorParams",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 51
+            },
+            {
+              "name": "EmitParams",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 30
+            },
+            {
+              "name": "constructor",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 24
+            },
+            {
+              "name": "metadataRegistry",
+              "file": "packages/zod/src/v4/core/json-schema-generator.ts",
+              "relevance_score": 17
+            }
+          ]
+        },
+        {
+          "query": "globalRegistry",
+          "expected_symbol": "describe",
+          "rank": null,
+          "elapsed_ms": 516.66,
+          "candidate_count": 23,
+          "top": [
+            {
+              "name": "globalRegistry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "meta",
+              "file": "packages/zod/src/v4/classic/tests/from-json-schema.test.ts",
+              "relevance_score": 32
+            },
+            {
+              "name": "existing",
+              "file": "packages/zod/src/v4/core/api.ts",
+              "relevance_score": 32
+            },
+            {
+              "name": "meta",
+              "file": "packages/zod/src/v4/classic/tests/describe-meta-checks.test.ts",
+              "relevance_score": 32
+            },
+            {
+              "name": "existing",
+              "file": "packages/zod/src/v4/core/api.ts",
+              "relevance_score": 32
+            }
+          ]
+        },
+        {
+          "query": "_parse",
+          "expected_symbol": "parse",
+          "rank": 18,
+          "elapsed_ms": 624.09,
+          "candidate_count": 23,
+          "top": [
+            {
+              "name": "_parse",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "_parseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 50
+            },
+            {
+              "name": "parse",
+              "file": "packages/zod/src/v4/classic/parse.ts",
+              "relevance_score": 49
+            },
+            {
+              "name": "ZodSafeParseResult",
+              "file": "packages/zod/src/v4/classic/parse.ts",
+              "relevance_score": 48
+            },
+            {
+              "name": "$SafeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 48
+            }
+          ]
+        },
+        {
+          "query": "_encode",
+          "expected_symbol": "encode",
+          "rank": 15,
+          "elapsed_ms": 515.28,
+          "candidate_count": 23,
+          "top": [
+            {
+              "name": "_encode",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "encode",
+              "file": "packages/zod/src/v4/classic/parse.ts",
+              "relevance_score": 49
+            },
+            {
+              "name": "$Encode",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 48
+            },
+            {
+              "name": "_encodeAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 45
+            },
+            {
+              "name": "$EncodeAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 41
+            }
+          ]
+        },
+        {
+          "query": "$output",
+          "expected_symbol": "$ZodRegistry",
+          "rank": null,
+          "elapsed_ms": 446.87,
+          "candidate_count": 3,
+          "top": [
+            {
+              "name": "$output",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "$output",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "$replace",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 24
+            }
+          ]
+        },
+        {
+          "query": "registry",
+          "expected_symbol": "globalRegistry",
+          "rank": 11,
+          "elapsed_ms": 1531.14,
+          "candidate_count": 25,
+          "top": [
+            {
+              "name": "registry",
+              "file": "packages/zod/src/v4/core/registries.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "myRegistry",
+              "file": "packages/zod/src/v4/classic/tests/to-json-schema.test.ts",
+              "relevance_score": 53
+            },
+            {
+              "name": "npm-registry-fetch",
+              "file": "pnpm-lock.yaml",
+              "relevance_score": 53
+            },
+            {
+              "name": "fieldRegistry",
+              "file": "packages/zod/src/v4/classic/tests/registries.test.ts",
+              "relevance_score": 53
+            },
+            {
+              "name": "npm-registry-fetch@14.0.5",
+              "file": "pnpm-lock.yaml",
+              "relevance_score": 53
+            }
+          ]
+        },
+        {
+          "query": "safeParseAsync",
+          "expected_symbol": "safeParseAsync",
+          "rank": null,
+          "elapsed_ms": 760.19,
+          "candidate_count": 23,
+          "top": [
+            {
+              "name": "safeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 81
+            },
+            {
+              "name": "$SafeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 52
+            },
+            {
+              "name": "_safeParseAsync",
+              "file": "packages/zod/src/v4/core/parse.ts",
+              "relevance_score": 52
+            },
+            {
+              "name": "result",
+              "file": "packages/zod/src/v4/classic/tests/record.test.ts",
+              "relevance_score": 32
+            },
+            {
+              "name": "bad",
+              "file": "packages/zod/src/v4/classic/tests/promise.test.ts",
+              "relevance_score": 32
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

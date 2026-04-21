@@ -1,14 +1,14 @@
-use crate::AppState;
+use crate::observability::telemetry::ToolInvocation;
 use crate::protocol::BackendKind;
 use crate::session_context::SessionRequestContext;
-use crate::telemetry::ToolInvocation;
 use crate::tool_defs::is_content_mutation_tool;
-use crate::tool_runtime::{ToolResult, success_meta};
-use serde_json::{Value, json};
+use crate::tool_runtime::{success_meta, ToolResult};
+use crate::AppState;
+use serde_json::{json, Value};
 
 use super::audit_common::{
-    CHECK_FAIL, CHECK_NA, CHECK_PASS, CHECK_WARN, add_check, collect_seen_paths,
-    is_planner_surface, missing_paths, push_unique, resolve_audit_session_view,
+    add_check, collect_seen_paths, is_planner_surface, missing_paths, push_unique,
+    resolve_audit_session_view, CHECK_FAIL, CHECK_NA, CHECK_PASS, CHECK_WARN,
 };
 
 const CHANGE_EVIDENCE_WORKFLOWS: &[&str] = &[
@@ -167,24 +167,26 @@ pub(crate) fn build_planner_session_audit(
     });
 
     let workflow_targets = planner_workflow_target_paths(&metrics.timeline);
-    let symbols_seen = collect_seen_paths(
-        &metrics.timeline,
+    // Primitive read-side tools that populate per-file evidence.
+    // `review_changes` and `review_architecture` are also counted:
+    // both internally emit diff-aware references and verifier
+    // checks keyed on their `changed_files` arg, so a caller that
+    // used them *did* produce read-side evidence — the prior
+    // implementation's check and `workflow_first` pulled in
+    // opposite directions (composite preferred vs primitive-only
+    // evidence), producing a warn on sessions that used both.
+    let evidence_tools = [
         "get_symbols_overview",
-        0..metrics.timeline.len(),
-    );
-    let diagnostics_seen = collect_seen_paths(
-        &metrics.timeline,
         "get_file_diagnostics",
-        0..metrics.timeline.len(),
-    );
-    let symbol_search_seen =
-        collect_seen_paths(&metrics.timeline, "find_symbol", 0..metrics.timeline.len());
-    let mut evidence_seen = symbols_seen;
-    for path in diagnostics_seen {
-        push_unique(&mut evidence_seen, path);
-    }
-    for path in symbol_search_seen {
-        push_unique(&mut evidence_seen, path);
+        "find_symbol",
+        "review_changes",
+        "review_architecture",
+    ];
+    let mut evidence_seen: Vec<String> = Vec::new();
+    for tool in evidence_tools {
+        for path in collect_seen_paths(&metrics.timeline, tool, 0..metrics.timeline.len()) {
+            push_unique(&mut evidence_seen, path);
+        }
     }
 
     let missing_change_evidence = missing_change_evidence_workflows(&metrics.timeline);
@@ -319,7 +321,7 @@ pub(crate) fn build_planner_session_audit(
             if missing_workflow_targets.is_empty() {
                 "Target files have symbol/diagnostic evidence from read-side exploration tools."
             } else {
-                "Some target files have no get_symbols_overview, find_symbol, or get_file_diagnostics evidence."
+                "Some target files have no get_symbols_overview, find_symbol, get_file_diagnostics, review_changes, or review_architecture evidence."
             },
             json!({
                 "target_files": workflow_targets,

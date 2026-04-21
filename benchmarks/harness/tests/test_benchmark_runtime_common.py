@@ -9,8 +9,6 @@ from urllib.error import URLError
 
 HARNESS_DIR = Path(__file__).resolve().parents[1]
 BENCH_DIR = HARNESS_DIR.parent
-if str(HARNESS_DIR) not in sys.path:
-    sys.path.insert(0, str(HARNESS_DIR))
 
 
 def load_script_module(module_name: str, path: Path):

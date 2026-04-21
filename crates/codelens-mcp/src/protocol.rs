@@ -1,6 +1,16 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+/// MCP protocol version this server prefers in the initialize response when the
+/// client does not pin a specific supported version. Newest first.
+pub(crate) const LATEST_PROTOCOL_VERSION: &str = "2025-06-18";
+
+/// Versions we will accept in the `MCP-Protocol-Version` header and reply with
+/// verbatim during initialize negotiation. Anything outside this set is 400.
+/// Older MCP clients that omit the header on non-initialize requests are
+/// assumed to be on `2025-03-26` per spec §"Protocol Version Header".
+pub(crate) const SUPPORTED_PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26"];
+
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
     pub jsonrpc: String,
@@ -159,6 +169,16 @@ pub struct ToolCallResponse {
     pub freshness: Option<Freshness>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub staleness_ms: Option<u64>,
+    /// Structured decision records mirrored from `data.limits_applied`.
+    /// Written to the response root (CodeLens's flat `_meta` surface)
+    /// so consumers that walk either `data` or the response root see
+    /// byte-identical arrays.
+    ///
+    /// ALWAYS serialized (empty array = "this tool participates in the
+    /// transparency layer and made no trimming decisions today").
+    /// This participation signal lets consumers distinguish "no trims"
+    /// from "does not participate".
+    pub decisions: Vec<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -281,6 +301,13 @@ pub struct ToolResponseMeta {
     pub freshness: Freshness,
     /// Milliseconds since the index was last updated (None for live results).
     pub staleness_ms: Option<u64>,
+    /// Structured decision records attached by the tool (sampling,
+    /// shadow suppression, backend degradation, …). Mirrors
+    /// `data.limits_applied`; serialized onto the response root as
+    /// `decisions` — CodeLens's pragmatic `_meta` surface, given the
+    /// response envelope is already flat (backend_used, degraded_reason,
+    /// etc. live there). Empty vec = no decisions.
+    pub decisions: Vec<Value>,
 }
 
 impl JsonRpcResponse {
@@ -419,6 +446,7 @@ impl ToolCallResponse {
             partial: partial_flag,
             freshness: Some(meta.freshness),
             staleness_ms: meta.staleness_ms,
+            decisions: meta.decisions,
             data: Some(data),
             error: None,
             token_estimate: None,
@@ -443,6 +471,7 @@ impl ToolCallResponse {
             partial: None,
             freshness: None,
             staleness_ms: None,
+            decisions: Vec::new(),
             data: None,
             error: Some(message.into()),
             token_estimate: None,
@@ -489,6 +518,7 @@ mod tests {
             partial: false,
             freshness: Freshness::Live,
             staleness_ms: None,
+            decisions: Vec::new(),
         };
         assert_eq!(meta.backend_used, "tree-sitter");
         assert!((meta.confidence - 0.9).abs() < f64::EPSILON);
@@ -507,6 +537,7 @@ mod tests {
             partial: false,
             freshness: Freshness::Live,
             staleness_ms: None,
+            decisions: Vec::new(),
         };
         let mut resp = ToolCallResponse::success(json!({"ok": true}), meta);
         assert!(resp.elapsed_ms.is_none());

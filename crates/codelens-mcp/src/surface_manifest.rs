@@ -1,5 +1,5 @@
 use crate::AppState;
-use crate::state::RuntimeDaemonMode;
+use crate::state::{RuntimeCoordinationMode, RuntimeDaemonMode};
 use crate::tool_defs::{
     ALL_PRESETS, ALL_PROFILES, HostContext, TaskOverlay, ToolPreset, ToolProfile, ToolSurface,
     compile_surface_overlay, preferred_namespaces, preferred_phase_labels, preferred_tier_labels,
@@ -23,7 +23,7 @@ pub(crate) const SURFACE_MANIFEST_DOC_PATH: &str = "docs/generated/surface-manif
 pub(crate) const HOST_ADAPTERS_DOC_PATH: &str = "docs/host-adaptive-harness.md";
 pub(crate) const HOST_ADAPTERS_RESOURCE_URI: &str = "codelens://harness/host-adapters";
 pub(crate) const HARNESS_HOST_COMPAT_RESOURCE_URI: &str = "codelens://harness/host";
-pub(crate) const AGENT_EXPERIENCE_DOC_PATH: &str = "docs/design/symbiote-ux-flows-v1.md";
+pub(crate) const AGENT_EXPERIENCE_DOC_PATH: &str = "docs/design/codelens-agent-flows-v1.md";
 pub(crate) const AGENT_EXPERIENCE_RESOURCE_URI: &str = "codelens://design/agent-experience";
 pub(crate) const HANDOFF_ARTIFACT_SCHEMA_DOC_PATH: &str = "docs/schemas/handoff-artifact.v1.json";
 pub(crate) const HANDOFF_ARTIFACT_SCHEMA_RESOURCE_URI: &str =
@@ -34,7 +34,11 @@ const HANDOFF_ARTIFACT_SCHEMA_TEXT: &str =
     include_str!(concat!(env!("OUT_DIR"), "/handoff-artifact.v1.json"));
 
 pub(crate) fn build_surface_manifest_for_state(state: &AppState) -> Value {
-    let mut manifest = build_surface_manifest(*state.surface(), state.daemon_mode());
+    let mut manifest = build_surface_manifest(
+        *state.surface(),
+        state.daemon_mode(),
+        state.coordination_mode(),
+    );
     if let Some(object) = manifest.as_object_mut() {
         object.insert(
             "host_adapters".to_owned(),
@@ -47,6 +51,7 @@ pub(crate) fn build_surface_manifest_for_state(state: &AppState) -> Value {
 pub(crate) fn build_surface_manifest(
     surface: ToolSurface,
     daemon_mode: RuntimeDaemonMode,
+    coordination_mode: RuntimeCoordinationMode,
 ) -> Value {
     let workspace_members = workspace_members();
     let workspace_member_count = workspace_members.len();
@@ -177,6 +182,7 @@ pub(crate) fn build_surface_manifest(
             "active_surface": surface.as_label(),
             "visible_tool_count": visible_tools(surface).len(),
             "daemon_mode": daemon_mode.as_str(),
+            "coordination_mode": coordination_mode.as_str(),
             "supports_http": cfg!(feature = "http"),
             "supports_semantic": cfg!(feature = "semantic"),
             "supports_scip_backend": cfg!(feature = "scip-backend"),
@@ -215,6 +221,8 @@ pub(crate) fn build_server_card(state: &AppState) -> Value {
             runtime["daemon_mode"].as_str().unwrap_or("standard")
         ),
         "transport": runtime["transport"],
+        "supportedProtocolVersions": crate::protocol::SUPPORTED_PROTOCOL_VERSIONS,
+        "latestProtocolVersion": crate::protocol::LATEST_PROTOCOL_VERSION,
         "capabilities": {
             "tools": true,
             "resources": true,
@@ -558,15 +566,11 @@ fn build_agent_experience() -> Value {
         "goal": "Expose a portable product and agent-flow contract that both humans and agent hosts can consume directly.",
         "naming_policy": {
             "public_primary_name": "CodeLens MCP",
-            "transition_codename": "Symbiote",
-            "runtime_aliases": ["symbiote://", "SYMBIOTE_*"],
-            "public_cutover_status": "blocked_pending_trademark_clearance",
-            "reason_codes": [
-                "existing_live_symbiote_marks_in_software_adjacent_classes",
-                "marvel_dominates_bare_symbiote_search_results",
-                "linux_rootkit_search_overlap"
-            ],
-            "rule": "Keep the product architecture and UX metaphor symbiotic, but do not flip the public primary install/docs/binary name until clearance is complete."
+            "public_binary_name": "codelens-mcp",
+            "public_workspace_prefix": "codelens",
+            "compatibility_aliases": ["symbiote://", "SYMBIOTE_*"],
+            "public_name_status": "codelens_primary",
+            "rule": "Keep the public install/docs/binary name CodeLens-first. Runtime aliases may remain for compatibility, but outward-facing product language stays CodeLens."
         },
         "information_architecture": {
             "core_surfaces": [
@@ -2007,6 +2011,7 @@ mod tests {
         let manifest = build_surface_manifest(
             ToolSurface::Profile(ToolProfile::PlannerReadonly),
             RuntimeDaemonMode::ReadOnly,
+            RuntimeCoordinationMode::Advisory,
         );
         assert_eq!(
             manifest["workspace"]["version"],

@@ -61,8 +61,20 @@ fn set_preset_changes_tools_list() {
     .unwrap();
     let full_json = serde_json::to_string(&full_resp).unwrap();
     assert!(
-        full_json.contains("find_dead_code"),
-        "Full preset with include_deprecated should include find_dead_code"
+        !full_json.contains("find_dead_code"),
+        "Hidden compat aliases should stay out of tools/list even with include_deprecated"
+    );
+    assert!(
+        !full_json.contains("get_impact_analysis"),
+        "Hidden compat aliases should stay out of tools/list even with include_deprecated"
+    );
+    assert!(
+        full_json.contains("dead_code_report"),
+        "Full preset should expose the canonical dead_code_report workflow"
+    );
+    assert!(
+        full_json.contains("impact_report"),
+        "Full preset should expose the canonical impact_report workflow"
     );
     assert!(
         full_json.contains("set_preset"),
@@ -333,18 +345,19 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(
-        encoded
-            .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]")
-    );
+    assert!(encoded
+        .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"review_architecture\""));
     assert!(encoded.contains("\"review_changes\""));
-    assert!(encoded.contains("\"cleanup_duplicate_logic\""));
+    // Phase O3a: cleanup_duplicate_logic dropped from primary-12
+    // and is now deferred behind tool_search. The negative
+    // assertions below keep their original intent — deprecated
+    // aliases and primitive filesystem tools stay out of the
+    // reviewer-graph deferred view.
     assert!(!encoded.contains("\"analyze_change_impact\""));
     assert!(!encoded.contains("\"audit_security_context\""));
-    assert!(!encoded.contains("\"find_symbol\""));
     assert!(!encoded.contains("\"read_file\""));
     assert!(encoded.contains("\"tool_count_total\""));
 }
@@ -656,6 +669,62 @@ fn tool_call_result_meta_exposes_preferred_executor() {
 }
 
 #[test]
+fn get_lsp_readiness_reports_empty_pool_conservatively() {
+    // P0-4: when no LSP session has been spawned yet (e.g. the
+    // auto-attach prewarm was suppressed on a non-persistent
+    // transport, or the project had no detected languages), the
+    // readiness tool must report `session_count=0` with all aggregate
+    // flags `false`. A caller polling for readiness should treat this
+    // as "not ready yet" and either wait or fall back, never as "no
+    // LSPs needed, proceed immediately".
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let response = handle_request(
+        &state,
+        crate::protocol::JsonRpcRequest {
+            jsonrpc: "2.0".to_owned(),
+            id: Some(json!(1)),
+            method: "tools/call".to_owned(),
+            params: Some(json!({
+                "name": "get_lsp_readiness",
+                "arguments": {
+                    "_session_id": default_session_id(&state),
+                }
+            })),
+        },
+    )
+    .expect("tools/call should return a response");
+
+    let value = serde_json::to_value(&response).expect("serialize");
+    let text = value["result"]["content"][0]["text"]
+        .as_str()
+        .expect("content[0].text present");
+    let envelope: serde_json::Value = serde_json::from_str(text).expect("parse envelope json");
+    let data = &envelope["data"];
+    assert_eq!(data["session_count"], json!(0), "no sessions pre-prewarm");
+    assert_eq!(data["alive_count"], json!(0));
+    assert_eq!(data["ready_count"], json!(0));
+    assert_eq!(
+        data["all_alive"],
+        json!(false),
+        "empty pool must not claim all_alive=true"
+    );
+    assert_eq!(
+        data["all_ready"],
+        json!(false),
+        "empty pool must not claim all_ready=true"
+    );
+    assert_eq!(data["any_ready"], json!(false));
+    assert!(
+        data["sessions"]
+            .as_array()
+            .is_some_and(|arr| arr.is_empty()),
+        "sessions array must be present and empty"
+    );
+}
+
+#[test]
 fn deferred_tools_list_omits_output_schema_by_default() {
     let project = project_root();
     let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
@@ -754,12 +823,10 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("blocked by daemon mode")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("blocked by daemon mode"));
 }
 
 #[test]
@@ -778,12 +845,10 @@ fn hidden_tools_are_blocked_at_call_time() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(
-        payload["error"]
-            .as_str()
-            .unwrap_or("")
-            .contains("not available in active surface")
-    );
+    assert!(payload["error"]
+        .as_str()
+        .unwrap_or("")
+        .contains("not available in active surface"));
 }
 
 #[test]
@@ -808,11 +873,9 @@ fn watch_status_reports_lock_contention_field() {
     assert!(payload["data"].get("stale_index_failures").is_some());
     assert!(payload["data"].get("persistent_index_failures").is_some());
     assert!(payload["data"].get("pruned_missing_failures").is_some());
-    assert!(
-        payload["data"]
-            .get("recent_failure_window_seconds")
-            .is_some()
-    );
+    assert!(payload["data"]
+        .get("recent_failure_window_seconds")
+        .is_some());
 }
 
 #[test]

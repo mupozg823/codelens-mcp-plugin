@@ -3,9 +3,9 @@ name = "codelens-tui"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Terminal dashboard for CodeLens — project explorer, symbol search, diagnostics"
+description = "Terminal dashboard for CodeLens indexes, symbol search, and operator health"
 repository.workspace = true
-keywords = ["tui", "code-intelligence", "dashboard", "terminal"]
+keywords = ["tui", "dashboard", "terminal", "observability", "code-intelligence"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
 
@@ -14,7 +14,7 @@ name = "codelens-tui"
 path = "src/main.rs"
 
 [dependencies]
-codelens-engine = { path = "../codelens-engine", version = "=1.9.50" }
+codelens-engine = { path = "../codelens-engine", version = "=1.9.56" }
 ratatui = "0.29"
 crossterm = "0.28"
 anyhow.workspace = true

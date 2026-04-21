@@ -12,7 +12,7 @@ use crate::analysis_queue::{
 use crate::artifact_store::AnalysisArtifactStore;
 use crate::error::CodeLensError;
 use crate::preflight_store::RecentPreflightStore;
-use crate::telemetry::ToolMetricsRegistry;
+use crate::observability::telemetry::ToolMetricsRegistry;
 use crate::tool_defs::{ToolPreset, ToolProfile, ToolSurface};
 use serde_json::Value;
 
@@ -25,6 +25,7 @@ mod project_runtime;
 mod session_host;
 mod session_runtime;
 mod watcher_health;
+pub(crate) mod workflow_cache;
 
 /// Default preflight TTL: 10 minutes. Override via CODELENS_PREFLIGHT_TTL_SECS.
 /// NLAH (arxiv:2603.25723): overly strict verifiers hurt performance by -0.8~-8.4%.
@@ -44,7 +45,7 @@ pub(crate) use crate::agent_coordination::{
 pub(crate) use crate::client_profile::{ClientProfile, EffortLevel};
 pub(crate) use crate::runtime_types::{
     AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisVerifierCheck, RuntimeDaemonMode,
-    RuntimeTransportMode, WatcherFailureHealth,
+    RuntimeCoordinationMode, RuntimeTransportMode, WatcherFailureHealth,
 };
 
 pub(super) fn push_unique_string(items: &mut Vec<String>, value: String) {
@@ -88,6 +89,7 @@ pub(crate) struct AppState {
     project_context_cache: Mutex<ProjectContextCache>,
     transport_mode: Mutex<RuntimeTransportMode>,
     daemon_mode: Mutex<RuntimeDaemonMode>,
+    coordination_mode: Mutex<RuntimeCoordinationMode>,
     client_profile: ClientProfile,
     effort_level: std::sync::atomic::AtomicU8,
     surface: Mutex<ToolSurface>,
@@ -98,11 +100,11 @@ pub(crate) struct AppState {
     job_store: crate::job_store::AnalysisJobStore,
     pub(crate) metrics: Arc<ToolMetricsRegistry>,
     /// Recent tool call names for context-aware suggestions (max 5).
-    recent_tools: crate::recent_buffer::RecentRingBuffer,
+    recent_tools: crate::observability::recent_buffer::RecentRingBuffer,
     /// Recent file paths accessed in this session (max 20) for ranking boost.
-    recent_files: crate::recent_buffer::RecentRingBuffer,
+    recent_files: crate::observability::recent_buffer::RecentRingBuffer,
     /// Recent analysis IDs for cross-phase context (max 5).
-    recent_analysis_ids: crate::recent_buffer::RecentRingBuffer,
+    recent_analysis_ids: crate::observability::recent_buffer::RecentRingBuffer,
     /// Doom-loop detection: per-session map of (tool_name, args_hash, consecutive_count, first_occurrence_ms).
     /// Keyed by logical session_id so concurrent HTTP sessions do not corrupt each other's counters.
     doom_loop_counter: Mutex<HashMap<String, (String, u64, usize, u64)>>,
@@ -110,6 +112,11 @@ pub(crate) struct AppState {
     coord_store: Arc<AgentCoordinationStore>,
     analysis_queue: OnceLock<AnalysisWorkerQueue>,
     watcher_maintenance: Mutex<HashMap<String, usize>>,
+    /// Phase P2 process-wide cache for workflow-tool results keyed by
+    /// (tool, args_hash, project_state_hash). Shared across sessions
+    /// so sibling agents reuse each other's analyses. See
+    /// `state/workflow_cache.rs`.
+    pub(crate) workflow_cache: Arc<workflow_cache::WorkflowAnalysisCache>,
     #[cfg_attr(not(feature = "http"), allow(dead_code))]
     project_execution_lock: Mutex<()>,
     #[cfg(feature = "semantic")]
@@ -227,6 +234,38 @@ impl AppState {
         self.active_project_context()
             .map(|context| Arc::clone(&context.graph_cache))
             .unwrap_or_else(|| Arc::clone(&self.default_graph_cache))
+    }
+
+    /// Phase P2 accessor for the process-wide workflow result cache.
+    /// Clones the `Arc` so callers can hold on to the cache across
+    /// await points without borrowing `self`.
+    pub(crate) fn workflow_cache(
+        &self,
+    ) -> Arc<workflow_cache::WorkflowAnalysisCache> {
+        Arc::clone(&self.workflow_cache)
+    }
+
+    /// Phase P2 cheap hash of the current project state. Built from
+    /// the indexed file count + the symbol-index stats so any
+    /// addition/removal/refresh changes the value. Used as the
+    /// third component of the cache key so entries computed against
+    /// an older state never serve newer callers.
+    pub(crate) fn workflow_project_state_hash(&self) -> u64 {
+        use std::hash::{DefaultHasher, Hasher};
+        let mut hasher = DefaultHasher::new();
+        if let Ok(stats) = self.symbol_index().stats() {
+            hasher.write_usize(stats.indexed_files);
+            hasher.write_usize(stats.supported_files);
+            hasher.write_usize(stats.stale_files);
+        } else {
+            hasher.write_u8(0xFF);
+        }
+        // Per-project identity also rides in the hash so switching
+        // projects in the same process produces a different key
+        // space — entries never leak across projects even if stats
+        // happen to match.
+        hasher.write(self.project().as_path().as_os_str().as_encoded_bytes());
+        hasher.finish()
     }
 
     /// Get the active memories directory.
@@ -350,6 +389,16 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner()) = daemon_mode;
     }
 
+    pub(crate) fn configure_coordination_mode(
+        &self,
+        coordination_mode: RuntimeCoordinationMode,
+    ) {
+        *self
+            .coordination_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = coordination_mode;
+    }
+
     pub(crate) fn configure_transport_mode(&self, transport: &str) {
         let mode = RuntimeTransportMode::from_str(transport);
         *self
@@ -377,6 +426,13 @@ impl AppState {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    pub(crate) fn coordination_mode(&self) -> RuntimeCoordinationMode {
+        *self
+            .coordination_mode
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub(crate) fn client_profile(&self) -> ClientProfile {
         self.client_profile
     }
@@ -385,6 +441,9 @@ impl AppState {
         match self.effort_level.load(std::sync::atomic::Ordering::Relaxed) {
             0 => EffortLevel::Low,
             1 => EffortLevel::Medium,
+            3 => EffortLevel::XHigh,
+            // 2 or any unknown value decodes to High — matches
+            // `EffortLevel::detect`'s unknown→High fallback policy.
             _ => EffortLevel::High,
         }
     }
@@ -395,6 +454,7 @@ impl AppState {
             EffortLevel::Low => 0u8,
             EffortLevel::Medium => 1,
             EffortLevel::High => 2,
+            EffortLevel::XHigh => 3,
         };
         self.effort_level
             .store(val, std::sync::atomic::Ordering::Relaxed);
@@ -460,6 +520,7 @@ impl AppState {
             project_context_cache: Mutex::new(ProjectContextCache::default()),
             transport_mode: Mutex::new(self.transport_mode()),
             daemon_mode: Mutex::new(self.daemon_mode()),
+            coordination_mode: Mutex::new(self.coordination_mode()),
             client_profile: self.client_profile,
             effort_level: std::sync::atomic::AtomicU8::new(
                 self.effort_level.load(std::sync::atomic::Ordering::Relaxed),
@@ -469,10 +530,10 @@ impl AppState {
             artifact_store: AnalysisArtifactStore::new(analysis_dir.clone()),
             job_store: crate::job_store::AnalysisJobStore::new(analysis_dir.join("jobs")),
             metrics: Arc::clone(&self.metrics),
-            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
-            recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
+            recent_tools: crate::observability::recent_buffer::RecentRingBuffer::new(5),
+            recent_analysis_ids: crate::observability::recent_buffer::RecentRingBuffer::new(5),
             doom_loop_counter: Mutex::new(HashMap::new()),
-            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
+            recent_files: crate::observability::recent_buffer::RecentRingBuffer::new(20),
             preflight_store: RecentPreflightStore::new(),
             // Coordination registry is shared across worker clones so async
             // analysis jobs observe the same active-agent set as the request
@@ -480,6 +541,8 @@ impl AppState {
             coord_store: Arc::clone(&self.coord_store),
             analysis_queue: OnceLock::new(),
             watcher_maintenance: Mutex::new(HashMap::new()),
+            // Shared so worker replicas hit and warm the same cache.
+            workflow_cache: Arc::clone(&self.workflow_cache),
             project_execution_lock: Mutex::new(()),
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]
@@ -543,11 +606,13 @@ impl AppState {
             project_context_cache: Mutex::new(ProjectContextCache::default()),
             transport_mode: Mutex::new(RuntimeTransportMode::Stdio),
             daemon_mode: Mutex::new(RuntimeDaemonMode::Standard),
+            coordination_mode: Mutex::new(RuntimeCoordinationMode::Advisory),
             client_profile: ClientProfile::detect(None),
             effort_level: std::sync::atomic::AtomicU8::new(match EffortLevel::detect() {
                 EffortLevel::Low => 0,
                 EffortLevel::Medium => 1,
                 EffortLevel::High => 2,
+                EffortLevel::XHigh => 3,
             }),
             surface: Mutex::new(ToolSurface::Preset(preset)),
             token_budget: std::sync::atomic::AtomicUsize::new(
@@ -556,14 +621,15 @@ impl AppState {
             artifact_store: AnalysisArtifactStore::new(default_analysis_dir.clone()),
             job_store: crate::job_store::AnalysisJobStore::new(default_analysis_dir.join("jobs")),
             metrics: Arc::new(ToolMetricsRegistry::new()),
-            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
-            recent_analysis_ids: crate::recent_buffer::RecentRingBuffer::new(5),
+            recent_tools: crate::observability::recent_buffer::RecentRingBuffer::new(5),
+            recent_analysis_ids: crate::observability::recent_buffer::RecentRingBuffer::new(5),
             doom_loop_counter: Mutex::new(HashMap::new()),
-            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
+            recent_files: crate::observability::recent_buffer::RecentRingBuffer::new(20),
             preflight_store: RecentPreflightStore::new(),
             coord_store: Arc::new(AgentCoordinationStore::new()),
             analysis_queue: OnceLock::new(),
             watcher_maintenance: Mutex::new(HashMap::new()),
+            workflow_cache: Arc::new(workflow_cache::WorkflowAnalysisCache::new()),
             project_execution_lock: Mutex::new(()),
             secondary_projects: Mutex::new(HashMap::new()),
             #[cfg(feature = "semantic")]

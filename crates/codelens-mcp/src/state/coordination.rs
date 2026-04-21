@@ -214,6 +214,16 @@ impl AppState {
         self.coordination_snapshot_for_scope(&self.project_scope_for_session(session))
     }
 
+    pub(crate) fn active_claim_for_session(
+        &self,
+        session: &SessionRequestContext,
+    ) -> Option<FileClaimEntry> {
+        self.coordination_snapshot_for_session(session)
+            .claims
+            .into_iter()
+            .find(|claim| claim.session_id == session.session_id)
+    }
+
     pub(crate) fn coordination_counts_for_session(
         &self,
         session: &SessionRequestContext,

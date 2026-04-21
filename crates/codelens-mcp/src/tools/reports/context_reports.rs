@@ -1,8 +1,8 @@
-use crate::AppState;
-use crate::tool_runtime::{ToolResult, required_string};
+use crate::tool_runtime::{required_string, ToolResult};
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
-use serde_json::{Value, json};
+use crate::AppState;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult {
@@ -109,8 +109,8 @@ pub fn analyze_change_request(state: &AppState, arguments: &Value) -> ToolResult
     // corpus so the planner sees relevant CLAUDE.md / memory entries
     // alongside the code-side ranked context. Corpus lookup is cheap
     // (< 5 ms for < 200 chunks); an empty corpus yields no section.
-    let rules_corpus = crate::rule_corpus::load_rule_corpus(state.project().as_path());
-    let relevant_rules = crate::rule_retrieval::find_relevant_rules(&rules_corpus, task, 3);
+    let rules_corpus = crate::retrieval::rules::load_rule_corpus(state.project().as_path());
+    let relevant_rules = crate::retrieval::rules::find_relevant_rules(&rules_corpus, task, 3);
     if !relevant_rules.is_empty() {
         let rules_json: Vec<Value> = relevant_rules
             .iter()

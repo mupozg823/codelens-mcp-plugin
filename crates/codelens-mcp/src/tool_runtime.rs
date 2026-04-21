@@ -1,6 +1,6 @@
-use crate::AppState;
 use crate::error::CodeLensError;
 use crate::protocol::{BackendKind, ToolResponseMeta};
+use crate::AppState;
 
 /// Tool handler result type — every handler returns this.
 pub type ToolResult = Result<(serde_json::Value, ToolResponseMeta), CodeLensError>;
@@ -14,6 +14,7 @@ pub fn success_meta(backend: BackendKind, confidence: f64) -> ToolResponseMeta {
         partial: false,
         freshness: crate::protocol::Freshness::Live,
         staleness_ms: None,
+        decisions: Vec::new(),
     }
 }
 

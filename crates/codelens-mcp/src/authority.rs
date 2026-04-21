@@ -64,6 +64,7 @@ pub fn meta_for_backend(backend: &str, confidence: f64) -> ToolResponseMeta {
         partial: false,
         freshness,
         staleness_ms: None,
+        decisions: Vec::new(),
     }
 }
 

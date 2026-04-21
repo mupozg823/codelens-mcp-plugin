@@ -7,7 +7,10 @@ mod tests;
 mod types;
 mod writer;
 
-use parser::{flatten_symbol_infos, flatten_symbols, parse_symbols, slice_source, to_symbol_info};
+use parser::{
+    extend_start_to_doc_comments, flatten_symbol_infos, flatten_symbols, parse_symbols,
+    slice_source, to_symbol_info,
+};
 use ranking::prune_to_budget;
 use scoring::score_symbol;
 pub use scoring::{
@@ -15,15 +18,15 @@ pub use scoring::{
 };
 pub(crate) use types::ReadDb;
 pub use types::{
-    IndexStats, RankedContextEntry, RankedContextResult, SymbolInfo, SymbolKind, SymbolProvenance,
-    make_symbol_id, parse_symbol_id,
+    make_symbol_id, parse_symbol_id, IndexStats, RankedContextEntry, RankedContextResult,
+    SymbolInfo, SymbolKind, SymbolProvenance,
 };
 
-use crate::db::{self, IndexDb, content_hash, index_db_path};
+use crate::db::{self, content_hash, index_db_path, IndexDb};
 // Re-export language_for_path so downstream crate modules keep working.
-pub(crate) use crate::lang_config::{LanguageConfig, language_for_path};
+pub(crate) use crate::lang_config::{language_for_path, LanguageConfig};
 use crate::project::ProjectRoot;
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -334,6 +337,7 @@ impl SymbolIndex {
                             .collect(),
                         start_byte: 0,
                         end_byte: 0,
+                        end_line: 0,
                     });
                 }
             }
@@ -374,7 +378,9 @@ impl SymbolIndex {
                 let body = if include_body {
                     let abs = self.project.as_path().join(&rel_path);
                     fs::read_to_string(&abs).ok().map(|source| {
-                        slice_source(&source, row.start_byte as u32, row.end_byte as u32)
+                        let extended_start =
+                            extend_start_to_doc_comments(&source, row.start_byte as u32);
+                        slice_source(&source, extended_start, row.end_byte as u32)
                     })
                 } else {
                     None
@@ -396,6 +402,11 @@ impl SymbolIndex {
                     children: Vec::new(),
                     start_byte: row.start_byte as u32,
                     end_byte: row.end_byte as u32,
+                    end_line: if row.end_line > 0 {
+                        row.end_line as usize
+                    } else {
+                        row.line as usize
+                    },
                 });
             }
             return Ok(results);
@@ -423,9 +434,11 @@ impl SymbolIndex {
             let rel_path = db.get_file_path(row.file_id)?.unwrap_or_default();
             let body = if include_body {
                 let abs = self.project.as_path().join(&rel_path);
-                fs::read_to_string(&abs)
-                    .ok()
-                    .map(|source| slice_source(&source, row.start_byte as u32, row.end_byte as u32))
+                fs::read_to_string(&abs).ok().map(|source| {
+                    let extended_start =
+                        extend_start_to_doc_comments(&source, row.start_byte as u32);
+                    slice_source(&source, extended_start, row.end_byte as u32)
+                })
             } else {
                 None
             };
@@ -446,6 +459,11 @@ impl SymbolIndex {
                 children: Vec::new(),
                 start_byte: row.start_byte as u32,
                 end_byte: row.end_byte as u32,
+                end_line: if row.end_line > 0 {
+                    row.end_line as usize
+                } else {
+                    row.line as usize
+                },
             });
         }
         Ok(results)
@@ -473,7 +491,7 @@ impl SymbolIndex {
             .collect::<Vec<_>>();
         scored.sort_by(|left, right| right.1.cmp(&left.1));
 
-        let (selected, chars_used) =
+        let (selected, chars_used, pruned_count, last_kept_score) =
             prune_to_budget(scored, max_tokens, include_body, self.project.as_path());
 
         Ok(RankedContextResult {
@@ -482,6 +500,8 @@ impl SymbolIndex {
             symbols: selected,
             token_budget: max_tokens,
             chars_used,
+            pruned_count,
+            last_kept_score,
         })
     }
 
@@ -646,6 +666,7 @@ fn get_directory_symbols(
                 children: file_symbols,
                 start_byte: 0,
                 end_byte: 0,
+                end_line: 0,
             });
         }
     }

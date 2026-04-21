@@ -631,6 +631,10 @@ pub(crate) const PLANNER_READONLY_TOOLS: &[&str] = &[
     "start_analysis_job",
     "get_analysis_job",
     "get_analysis_section",
+    // LSP readiness — read-only snapshot used by planners/benches to
+    // wait for LSP indexing to complete before kicking off analysis
+    // that depends on `find_referencing_symbols(use_lsp=true)`.
+    "get_lsp_readiness",
 ];
 
 pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
@@ -656,6 +660,7 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "get_ranked_context",
     "find_referencing_symbols",
     "get_file_diagnostics",
+    "get_lsp_readiness",
     "find_tests",
     "refresh_symbol_index",
     // Phase 4a §capability-reporting: builders occasionally need NL
@@ -676,6 +681,29 @@ pub(crate) const BUILDER_MINIMAL_TOOLS: &[&str] = &[
     "add_import",
     "find_minimal_context_for_change",
     "verify_change_readiness",
+];
+
+/// Phase O3a — the 12-tool primary set exposed in the reviewer-graph
+/// default `tools/list` response. Shrinking the default surface
+/// pushes deferred tools behind `tool_search` discovery, matching
+/// Anthropic's 2025-11 "advanced tool use" guidance (keep 3-5 tools
+/// loaded + defer the rest when registry size ≥10). Every name in
+/// this list must also appear in [`REVIEWER_GRAPH_TOOLS`] so the
+/// full registry remains callable for sessions that opt into the
+/// broader surface.
+pub(crate) const REVIEWER_GRAPH_PRIMARY_TOOLS: &[&str] = &[
+    "find_symbol",
+    "find_referencing_symbols",
+    "get_symbols_overview",
+    "get_ranked_context",
+    "impact_report",
+    "review_changes",
+    "review_architecture",
+    "verify_change_readiness",
+    "prepare_harness_session",
+    "get_analysis_section",
+    "get_file_diagnostics",
+    "tool_search",
 ];
 
 pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
@@ -705,6 +733,7 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "find_scoped_references",
     // Diagnostics
     "get_file_diagnostics",
+    "get_lsp_readiness",
     // Graph / impact
     "get_impact_analysis",
     "get_changed_files",
@@ -721,6 +750,7 @@ pub(crate) const REVIEWER_GRAPH_TOOLS: &[&str] = &[
     "start_analysis_job",
     "get_analysis_job",
     "get_analysis_section",
+    "tool_search",
 ];
 
 pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
@@ -753,6 +783,7 @@ pub(crate) const REFACTOR_FULL_TOOLS: &[&str] = &[
     "find_scoped_references",
     // Diagnostics
     "get_file_diagnostics",
+    "get_lsp_readiness",
     // Graph / impact
     "get_impact_analysis",
     "get_changed_files",
@@ -944,6 +975,25 @@ pub(crate) fn is_tool_callable_in_surface(name: &str, surface: ToolSurface) -> b
             .unwrap_or(false)
 }
 
+/// Phase O3a: surfaces that declare a primary subset return `true`
+/// only for members of that subset; surfaces without one fall back
+/// to full callability. `is_tool_callable_in_surface` is unchanged,
+/// so deferred tools still execute when called by name — they are
+/// just omitted from the default `tools/list` response.
+pub(crate) fn primary_tools_for_surface(surface: ToolSurface) -> Option<&'static [&'static str]> {
+    match surface {
+        ToolSurface::Profile(ToolProfile::ReviewerGraph) => Some(REVIEWER_GRAPH_PRIMARY_TOOLS),
+        _ => None,
+    }
+}
+
+pub(crate) fn is_tool_primary_in_surface(name: &str, surface: ToolSurface) -> bool {
+    match primary_tools_for_surface(surface) {
+        Some(primary) => primary.contains(&name),
+        None => is_tool_in_surface(name, surface),
+    }
+}
+
 /// Check if a tool is included in a given preset.
 pub(crate) fn is_tool_in_preset(name: &str, preset: ToolPreset) -> bool {
     match preset {
@@ -1031,6 +1081,7 @@ pub(crate) fn tool_phase(name: &str) -> Option<crate::protocol::ToolPhase> {
         | "get_file_diagnostics"
         | "check_lsp_status"
         | "get_lsp_recipe"
+        | "get_lsp_readiness"
         | "audit_builder_session"
         | "audit_planner_session"
         | "semantic_code_review" => Some(ToolPhase::Review),
@@ -1213,7 +1264,9 @@ pub(crate) fn tool_namespace(name: &str) -> &'static str {
         "list_memories" | "read_memory" | "write_memory" | "delete_memory" | "rename_memory" => {
             "memory"
         }
-        "get_file_diagnostics" | "check_lsp_status" | "get_lsp_recipe" => "lsp",
+        "get_file_diagnostics" | "check_lsp_status" | "get_lsp_recipe" | "get_lsp_readiness" => {
+            "lsp"
+        }
         _ => "session",
     }
 }
@@ -1244,10 +1297,9 @@ mod overlay_tests {
         let plan = compile_surface_overlay(full_surface(), Some(HostContext::ClaudeCode), None);
         assert!(plan.applied());
         assert_eq!(plan.preferred_executor_bias, Some("claude"));
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
         assert!(!plan.routing_notes.is_empty());
     }
 
@@ -1272,10 +1324,9 @@ mod overlay_tests {
                 "planning overlay should avoid {mutation}"
             );
         }
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
     }
 
     #[test]
@@ -1292,10 +1343,9 @@ mod overlay_tests {
                 "editing overlay should emphasize {mutation}"
             );
         }
-        assert!(
-            plan.preferred_entrypoints
-                .contains(&"verify_change_readiness")
-        );
+        assert!(plan
+            .preferred_entrypoints
+            .contains(&"verify_change_readiness"));
         assert!(plan.avoid_tools.is_empty());
     }
 
@@ -1356,11 +1406,9 @@ mod overlay_tests {
             Some(HostContext::ClaudeCode),
             None,
         );
-        assert!(
-            !plan
-                .preferred_entrypoints
-                .contains(&"analyze_change_request")
-        );
+        assert!(!plan
+            .preferred_entrypoints
+            .contains(&"analyze_change_request"));
     }
 
     #[test]

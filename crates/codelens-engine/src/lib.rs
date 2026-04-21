@@ -34,7 +34,8 @@ pub use db::{
 };
 pub use file_ops::{
     DirectoryEntry, EnclosingSymbol, FileMatch, FileReadResult, PatternMatch, SmartPatternMatch,
-    TextReference, create_text_file, delete_lines, extract_word_at_position, find_files,
+    TextRefsReport, TextReference, create_text_file, delete_lines, extract_word_at_position,
+    find_files,
     find_referencing_symbols_via_text, insert_after_symbol, insert_at_line, insert_before_symbol,
     list_dir, read_file, replace_content, replace_lines, replace_symbol_body, search_for_pattern,
     search_for_pattern_smart,

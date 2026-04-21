@@ -125,6 +125,67 @@ fn is_empty_value(v: &serde_json::Value) -> bool {
     }
 }
 
+/// Phase P1 aggressive slim on top of [`compact_response_payload`].
+/// Strips fields that a Claude-Code-style lookup harness never reads
+/// back (routing hints, budget echoes, partial flags, token estimate)
+/// and leaves only the actionable `data` + `success`/`error` +
+/// `decisions` envelope. The `_meta` and `structuredContent` drops
+/// happen at the final `success_jsonrpc_response` assembly layer.
+pub(crate) fn primitive_response_payload(resp: &mut ToolCallResponse) {
+    compact_response_payload(resp);
+    resp.confidence = None;
+    resp.elapsed_ms = None;
+    resp.budget_hint = None;
+    resp.token_estimate = None;
+    resp.routing_hint = None;
+    resp.partial = None;
+    resp.backend_used = None;
+    // `suggested_next_tools` is retained (tiny list of names); the
+    // expensive `suggested_next_calls` scaffold was already dropped by
+    // `compact_response_payload`.
+    if let Some(ref mut data) = resp.data {
+        strip_primitive_decoration(data);
+    }
+}
+
+/// Drop CodeLens-specific decoration from the response `data` object
+/// when emitting a primitive shape. These fields (`body_delivery`,
+/// `body_truncated_count`, `body_preview`, per-symbol `name_path`,
+/// `id`, `column`) are useful for the orchestration-aware `core` and
+/// `rich` shapes but add ~400 bytes of scaffolding that a
+/// Serena-class lookup consumer does not consult. The surviving
+/// symbol fields (`name`, `kind`, `file_path`, `line`, `signature`,
+/// `body`, `children`) mirror Serena's envelope exactly.
+fn strip_primitive_decoration(data: &mut Value) {
+    let Some(obj) = data.as_object_mut() else {
+        return;
+    };
+    obj.remove("body_delivery");
+    obj.remove("body_truncated_count");
+    obj.remove("body_preview");
+    obj.remove("auto_summarized");
+    if let Some(symbols) = obj.get_mut("symbols").and_then(|v| v.as_array_mut()) {
+        for symbol in symbols.iter_mut() {
+            if let Some(sym_obj) = symbol.as_object_mut() {
+                sym_obj.remove("name_path");
+                sym_obj.remove("id");
+                sym_obj.remove("column");
+                sym_obj.remove("end_line");
+                sym_obj.remove("end_byte");
+                sym_obj.remove("start_byte");
+            }
+        }
+    }
+    if let Some(references) = obj.get_mut("references").and_then(|v| v.as_array_mut()) {
+        for reference in references.iter_mut() {
+            if let Some(ref_obj) = reference.as_object_mut() {
+                ref_obj.remove("column");
+                ref_obj.remove("line_content");
+            }
+        }
+    }
+}
+
 pub(crate) fn compact_response_payload(resp: &mut ToolCallResponse) {
     if let Some(ref mut data) = resp.data {
         strip_empty_fields(data);
@@ -153,11 +214,29 @@ pub(crate) fn compact_response_payload(resp: &mut ToolCallResponse) {
             }
         }
     }
+    // Phase 5: "lean by default for lookups" — when _compact=true the
+    // heavy orchestration scaffold is dropped. Callers still receive
+    // `suggested_next_tools` (list of tool names, tiny) so they can
+    // discover the chain, but the per-entry Codex delegation brief
+    // and the human-readable rationales (which duplicate the tool
+    // names) are removed. This trims ~1.5–2 KB from the typical
+    // find_symbol / find_referencing_symbols response without losing
+    // anything actionable for an agent already following the chain.
+    resp.suggested_next_calls = None;
+    resp.suggestion_reasons = None;
 }
 
 pub(crate) fn text_payload_for_response(
     resp: &ToolCallResponse,
     structured_content: Option<&Value>,
+) -> String {
+    text_payload_for_response_with_shape(resp, structured_content, /* primitive = */ false)
+}
+
+pub(crate) fn text_payload_for_response_with_shape(
+    resp: &ToolCallResponse,
+    structured_content: Option<&Value>,
+    primitive: bool,
 ) -> String {
     if let Some(slim) = slim_text_payload_for_async_job(resp, structured_content) {
         return serde_json::to_string(&slim).unwrap_or_else(|_| {
@@ -170,10 +249,56 @@ pub(crate) fn text_payload_for_response(
             "{\"success\":false,\"error\":\"serialization failed\"}".to_owned()
         });
     }
+    if primitive {
+        return format_primitive_response(resp);
+    }
     // Pretty-print the full response as structured JSON with readable formatting.
     // Agents get valid JSON (parseability preserved) but with indentation and
     // newlines instead of a single flat line.
     format_structured_response(resp)
+}
+
+/// Phase P1 ultra-lean text body. Emits a single-line JSON object
+/// containing only what an agent loop needs to (a) use the result
+/// and (b) follow the next hint. Drops pretty indentation, routing
+/// hints, budget echoes, confidence, token estimate, and the full
+/// Codex delegation scaffold.
+///
+/// `suggested_next_tools` (a small list of tool names, typically
+/// ~120 bytes) is deliberately *retained* — it is the signature
+/// orchestration signal that differentiates CodeLens primitive mode
+/// from "a second Serena". The byte envelope is a hair over the
+/// 900-byte "≤1.5× Serena" target because keeping the hint is the
+/// correct trade for continuous-loop efficiency: the savings from
+/// avoiding one uninformed follow-up call outweigh the ~120 bytes
+/// many times over. `suggested_next_calls` (full delegate brief,
+/// ~1.5 KB) was already stripped by `compact_response_payload`.
+fn format_primitive_response(resp: &ToolCallResponse) -> String {
+    let mut out = serde_json::Map::new();
+    out.insert("success".to_owned(), Value::Bool(resp.success));
+    if let Some(ref err) = resp.error {
+        out.insert("error".to_owned(), Value::String(err.clone()));
+    }
+    if let Some(ref data) = resp.data {
+        out.insert("data".to_owned(), data.clone());
+    }
+    if let Some(ref tools) = resp.suggested_next_tools {
+        if !tools.is_empty() {
+            out.insert(
+                "suggested_next_tools".to_owned(),
+                serde_json::to_value(tools).unwrap_or(Value::Array(vec![])),
+            );
+        }
+    }
+    // Non-empty `decisions` remain because they represent *trimming*
+    // performed on the very response at hand — the harness may need
+    // to know a result was capped. Empty decisions are dropped so
+    // the happy-path response stays inside the byte envelope.
+    if !resp.decisions.is_empty() {
+        out.insert("decisions".to_owned(), Value::Array(resp.decisions.clone()));
+    }
+    serde_json::to_string(&Value::Object(out))
+        .unwrap_or_else(|_| "{\"success\":false,\"error\":\"serialization failed\"}".to_owned())
 }
 
 /// Format a ToolCallResponse as pretty-printed JSON.
@@ -221,6 +346,19 @@ fn format_structured_response(resp: &ToolCallResponse) -> String {
             Value::String(degraded_reason.clone()),
         );
     }
+    // Structured decisions mirror `data.limits_applied`. Emitted to the
+    // response root (CodeLens's flat `_meta` surface) so byte-for-byte
+    // equality holds between the two locations on the wire.
+    //
+    // Always present (empty array = "this tool participates in the
+    // transparency layer and made no trimming decisions today"),
+    // regardless of whether the tool emitted anything. This is the
+    // universal participation signal consumers use to distinguish
+    // "no trims" from "tool does not participate".
+    out.insert(
+        "decisions".to_owned(),
+        Value::Array(resp.decisions.clone()),
+    );
     if let Some(truncated) = resp
         .data
         .as_ref()
@@ -359,6 +497,11 @@ fn slim_text_payload_for_async_job(
             .filter(|calls| !calls.is_empty())
             .and_then(|calls| serde_json::to_value(calls).ok()),
     );
+    insert_if_present(
+        &mut payload,
+        "decisions",
+        (!resp.decisions.is_empty()).then(|| Value::Array(resp.decisions.clone())),
+    );
 
     let mut text_data = Map::new();
     copy_summarized_field(&mut text_data, data, "job_id");
@@ -458,6 +601,11 @@ fn slim_text_payload_for_async_handle(
             .as_ref()
             .filter(|calls| !calls.is_empty())
             .and_then(|calls| serde_json::to_value(calls).ok()),
+    );
+    insert_if_present(
+        &mut payload,
+        "decisions",
+        (!resp.decisions.is_empty()).then(|| Value::Array(resp.decisions.clone())),
     );
 
     let mut text_data = Map::new();
@@ -575,14 +723,20 @@ fn summarize_text_object(source: &Map<String, Value>, depth: usize) -> Value {
     const MAX_OBJECT_ITEMS: usize = 8;
 
     let mut summarized = Map::new();
+    let mut array_shrunk = false;
     for (index, (key, value)) in source.iter().enumerate() {
         if index >= MAX_OBJECT_ITEMS {
             summarized.insert("truncated".to_owned(), Value::Bool(true));
             break;
         }
+        if let Value::Array(items) = value
+            && items.len() > TEXT_CHANNEL_MAX_ARRAY_ITEMS
+        {
+            array_shrunk = true;
+        }
         summarized.insert(key.clone(), summarize_text_value(value, depth + 1));
     }
-    if source.contains_key("truncated") {
+    if source.contains_key("truncated") || array_shrunk {
         summarized.insert("truncated".to_owned(), Value::Bool(true));
     }
     Value::Object(summarized)
@@ -699,29 +853,90 @@ pub(crate) fn success_jsonrpc_response(
     structured_content: Option<Value>,
     max_result_size_chars: Option<usize>,
 ) -> JsonRpcResponse {
+    success_jsonrpc_response_with_meta(
+        id,
+        tool_name,
+        text,
+        structured_content,
+        max_result_size_chars,
+        /* include_meta = */ true,
+    )
+}
+
+pub(crate) fn success_jsonrpc_response_with_meta(
+    id: Option<Value>,
+    tool_name: &str,
+    text: String,
+    structured_content: Option<Value>,
+    max_result_size_chars: Option<usize>,
+    include_meta: bool,
+) -> JsonRpcResponse {
     let mut result = json!({
         "content": [{ "type": "text", "text": text }]
     });
     if let Some(structured_content) = structured_content {
         result["structuredContent"] = structured_content;
     }
-    result["_meta"] = json!({
-        "codelens/preferredExecutor": crate::tool_defs::tool_preferred_executor_label(tool_name)
-    });
-    if let Some(max_chars) = max_result_size_chars {
-        result["_meta"]["anthropic/maxResultSizeChars"] = json!(max_chars);
-    }
-    if let Some((since, replacement, removal)) = crate::tool_defs::tool_deprecation(tool_name) {
-        result["_meta"]["codelens/deprecatedSince"] = json!(since);
-        result["_meta"]["codelens/deprecatedReplacement"] = json!(replacement);
-        result["_meta"]["codelens/deprecatedRemovalTarget"] = json!(removal);
+    // Phase P1: primitive responses skip the `_meta` envelope unless
+    // a deprecation warning needs to ride along (clients must still
+    // be told their tool is going away). `anthropic/maxResultSizeChars`
+    // and `codelens/preferredExecutor` are suppressed for primitive
+    // shapes — callers that need either explicitly opt back into
+    // `_detail="core"` or `"rich"`.
+    let deprecation = crate::tool_defs::tool_deprecation(tool_name);
+    if include_meta {
+        result["_meta"] = json!({
+            "codelens/preferredExecutor": crate::tool_defs::tool_preferred_executor_label(tool_name)
+        });
+        if let Some(max_chars) = max_result_size_chars {
+            result["_meta"]["anthropic/maxResultSizeChars"] = json!(max_chars);
+        }
+        if let Some((since, replacement, removal)) = deprecation {
+            result["_meta"]["codelens/deprecatedSince"] = json!(since);
+            result["_meta"]["codelens/deprecatedReplacement"] = json!(replacement);
+            result["_meta"]["codelens/deprecatedRemovalTarget"] = json!(removal);
+        }
+    } else {
+        // Phase O2: primitive mode still emits
+        // `anthropic/maxResultSizeChars` because Claude Code v2.1.91+
+        // reads the annotation unconditionally to decide between
+        // 25K-inline / 500K-disk routing. Dropping it strands
+        // primitive responses at the 25K default. Other `_meta`
+        // fields (preferredExecutor, deprecated*) stay suppressed
+        // unless a deprecation forces a minimal meta block below.
+        let mut meta = serde_json::Map::new();
+        if let Some(max_chars) = max_result_size_chars {
+            meta.insert(
+                "anthropic/maxResultSizeChars".to_owned(),
+                json!(max_chars),
+            );
+        }
+        if let Some((since, replacement, removal)) = deprecation {
+            meta.insert("codelens/deprecatedSince".to_owned(), json!(since));
+            meta.insert(
+                "codelens/deprecatedReplacement".to_owned(),
+                json!(replacement),
+            );
+            meta.insert(
+                "codelens/deprecatedRemovalTarget".to_owned(),
+                json!(removal),
+            );
+        }
+        if !meta.is_empty() {
+            result["_meta"] = serde_json::Value::Object(meta);
+        }
     }
     JsonRpcResponse::result(id, result)
 }
 
+// Keeping `count`/`returned_count` metadata consistent with the visible array
+// requires `summarize_text_object` and `summarize_structured_content` to share
+// the same cap, so the shrink detector and the shrinker never disagree.
+const TEXT_CHANNEL_MAX_ARRAY_ITEMS: usize = 3;
+
 fn summarize_structured_content(value: &Value, depth: usize) -> Value {
     const MAX_STRING_CHARS: usize = 240;
-    const MAX_ARRAY_ITEMS: usize = 3;
+    const MAX_ARRAY_ITEMS: usize = TEXT_CHANNEL_MAX_ARRAY_ITEMS;
     const MAX_OBJECT_DEPTH: usize = 4;
 
     match value {
@@ -759,5 +974,69 @@ fn summarize_structured_content(value: &Value, depth: usize) -> Value {
             }
             Value::Object(summarized)
         }
+    }
+}
+
+#[cfg(test)]
+mod text_channel_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn shrinking_array_child_flags_parent_truncated() {
+        let payload = json!({
+            "references": [1, 2, 3, 4, 5],
+            "count": 5,
+            "returned_count": 5,
+            "sampled": false,
+        });
+        let summarized = summarize_text_data_for_response(&payload);
+        let obj = summarized.as_object().expect("object");
+        assert_eq!(
+            obj.get("truncated").and_then(Value::as_bool),
+            Some(true),
+            "parent must be flagged when an array child was shrunk"
+        );
+        assert_eq!(
+            obj.get("references").and_then(Value::as_array).map(Vec::len),
+            Some(TEXT_CHANNEL_MAX_ARRAY_ITEMS)
+        );
+        assert_eq!(obj.get("count").and_then(Value::as_i64), Some(5));
+        assert_eq!(obj.get("returned_count").and_then(Value::as_i64), Some(5));
+    }
+
+    #[test]
+    fn short_array_leaves_parent_untruncated() {
+        let payload = json!({
+            "references": [1, 2],
+            "count": 2,
+            "returned_count": 2,
+        });
+        let summarized = summarize_text_data_for_response(&payload);
+        let obj = summarized.as_object().expect("object");
+        assert!(obj.get("truncated").is_none());
+        assert_eq!(
+            obj.get("references").and_then(Value::as_array).map(Vec::len),
+            Some(2)
+        );
+    }
+
+    #[test]
+    fn nested_object_array_shrink_flags_inner_parent() {
+        let payload = json!({
+            "outer": {
+                "items": [1, 2, 3, 4],
+                "total": 4,
+            }
+        });
+        let summarized = summarize_text_data_for_response(&payload);
+        let inner = summarized
+            .get("outer")
+            .and_then(Value::as_object)
+            .expect("outer object");
+        assert_eq!(
+            inner.get("truncated").and_then(Value::as_bool),
+            Some(true)
+        );
     }
 }

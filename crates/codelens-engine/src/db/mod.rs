@@ -10,7 +10,14 @@ mod ops;
 #[cfg(test)]
 mod tests;
 
-const SCHEMA_VERSION: i64 = 6;
+// MUST match the highest (version, _) entry in `IndexDb::MIGRATIONS`.
+// `migrate()` early-exits when `current >= SCHEMA_VERSION`, so any
+// mismatch here permanently prevents later migrations from running on
+// DBs that are already at the stale constant's value. Bumped to 7 to
+// cover the P1-4 `end_line` ALTER added in migration 7; the
+// regression test `opening_a_db_at_the_previous_schema_version_runs_every_subsequent_migration`
+// locks the invariant in.
+const SCHEMA_VERSION: i64 = 7;
 
 /// SQLite-backed symbol and import index for a single project.
 pub struct IndexDb {
@@ -40,6 +47,10 @@ pub struct SymbolRow {
     pub signature: String,
     pub name_path: String,
     pub parent_id: Option<i64>,
+    /// Inclusive end line (1-indexed). Added in migration 7. Rows
+    /// written before the migration read back as 0 → callers treat
+    /// it as "unknown" and fall back to `line`.
+    pub end_line: i64,
 }
 
 /// Symbol with resolved file path — for embedding pipeline batch processing.
@@ -92,6 +103,8 @@ pub struct NewSymbol<'a> {
     pub signature: &'a str,
     pub name_path: &'a str,
     pub parent_id: Option<i64>,
+    /// Inclusive end line (1-indexed). 0 = unknown.
+    pub end_line: i64,
 }
 
 /// Import data for insertion.
@@ -243,6 +256,14 @@ impl IndexDb {
                 content=symbols, content_rowid=id,
                 tokenize='unicode61 remove_diacritics 2 separators _'
              );",
+        ),
+        (
+            7,
+            // P1-4 per-symbol LSP boost needs the symbol's end line to
+            // run containment-based proximity scoring. Default to 0 so
+            // pre-migration rows read back as "unknown"; callers fall
+            // back to `line` when they see 0.
+            "ALTER TABLE symbols ADD COLUMN end_line INTEGER NOT NULL DEFAULT 0;",
         ),
     ];
 

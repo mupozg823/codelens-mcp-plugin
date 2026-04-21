@@ -14,6 +14,7 @@ CodeLens provides:
 - role-based profiles such as `reviewer-graph` and `refactor-full`
 - bounded bootstrap via `prepare_harness_session`
 - advisory coordination via `register_agent_work`, `claim_files`, `list_active_agents`, and `release_files`
+- optional strict coordination mode for trusted HTTP builder mutations on `refactor-full`
 - mutation safety via `verify_change_readiness`, `safe_rename_report`, and runtime mutation gates
 - session-scoped builder audit via `audit_builder_session`, `get_tool_metrics(session_id=...)`, and `export_session_markdown(session_id=...)`
 - session-scoped planner/reviewer audit via `audit_planner_session`
@@ -200,6 +201,44 @@ Do not auto-dispatch through an overlap. Report it back to the orchestrator.
 ```
 
 TTL expiry is only a safety net. Explicit release is better because it keeps the shared view current.
+
+## Optional Strict Coordination Mode
+
+The default contract stays advisory. Hosts only opt into runtime hard blocks when they start the mutation-enabled daemon with:
+
+```bash
+codelens-mcp /path/to/project \
+  --transport http \
+  --profile refactor-full \
+  --daemon-mode mutation-enabled \
+  --coordination-mode strict
+```
+
+Equivalent env override:
+
+```bash
+CODELENS_COORDINATION_MODE=strict codelens-mcp /path/to/project --transport http ...
+```
+
+Strict mode is intentionally narrow:
+
+- it applies only to trusted non-local HTTP sessions on `refactor-full`
+- read-only planner/reviewer flows are unchanged
+- local stdio mutation flows are unchanged
+
+When strict mode is enabled, CodeLens adds three runtime checks on top of the existing advisory audit path:
+
+- every mutation target path must be covered by the latest `verify_change_readiness.changed_files`
+- every mutation target path must also be covered by the session's active `claim_files`
+- any latest preflight that reports `overlapping_claims` hard-blocks the mutation instead of only warning
+
+The runtime returns structured failures:
+
+- `MissingClaim`
+- `ClaimPathMismatch`
+- `OverlappingClaimsBlocked`
+
+`audit_builder_session` remains the same exported audit surface. Strict mode violations now show up as both runtime blocks and audit failures.
 
 ## Builder Session Audit
 
