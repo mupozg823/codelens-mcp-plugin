@@ -2555,13 +2555,16 @@ fn visible_tools_order_workflow_surfaces_bootstrap_first() {
         .map(|tool| tool.name)
         .take(4)
         .collect::<Vec<_>>();
+    // Phase O3a: cleanup_duplicate_logic is no longer in the
+    // reviewer-graph primary-12 surface — agents reach it via
+    // tool_search instead. Top-4 visible tools after O3a:
     assert_eq!(
         reviewer_tools,
         vec![
             "review_architecture",
             "review_changes",
-            "cleanup_duplicate_logic",
             "prepare_harness_session",
+            "verify_change_readiness",
         ]
     );
 }
@@ -2578,7 +2581,9 @@ fn deprecated_aliases_are_hidden_from_non_full_visible_surfaces() {
     assert!(!reviewer_tools.contains(&"audit_security_context"));
     assert!(!reviewer_tools.contains(&"assess_change_readiness"));
     assert!(reviewer_tools.contains(&"review_changes"));
-    assert!(reviewer_tools.contains(&"cleanup_duplicate_logic"));
+    // Phase O3a: cleanup_duplicate_logic is deferred behind
+    // `tool_search`. review_architecture stays in the primary 12.
+    assert!(reviewer_tools.contains(&"review_architecture"));
 
     let full_tools = visible_tools(ToolSurface::Preset(ToolPreset::Full))
         .into_iter()

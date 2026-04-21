@@ -339,10 +339,13 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"review_architecture\""));
     assert!(encoded.contains("\"review_changes\""));
-    assert!(encoded.contains("\"cleanup_duplicate_logic\""));
+    // Phase O3a: cleanup_duplicate_logic dropped from primary-12
+    // and is now deferred behind tool_search. The negative
+    // assertions below keep their original intent — deprecated
+    // aliases and primitive filesystem tools stay out of the
+    // reviewer-graph deferred view.
     assert!(!encoded.contains("\"analyze_change_impact\""));
     assert!(!encoded.contains("\"audit_security_context\""));
-    assert!(!encoded.contains("\"find_symbol\""));
     assert!(!encoded.contains("\"read_file\""));
     assert!(encoded.contains("\"tool_count_total\""));
 }

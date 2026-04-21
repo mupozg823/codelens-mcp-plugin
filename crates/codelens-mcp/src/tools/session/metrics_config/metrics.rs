@@ -45,7 +45,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
                 "avg_output_tokens": if m.call_count > 0 {
                     m.total_tokens / m.call_count as usize
                 } else { 0 },
-                "p95_latency_ms": crate::telemetry::percentile_95(&m.latency_samples),
+                "p95_latency_ms": crate::observability::telemetry::percentile_95(&m.latency_samples),
                 "latency_histogram": latency_histogram(&m.latency_samples),
                 "success_rate": if m.call_count > 0 {
                     m.success_count as f64 / m.call_count as f64
@@ -72,7 +72,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
                 "avg_tokens_per_call": if metrics.call_count > 0 {
                     metrics.total_tokens / metrics.call_count as usize
                 } else { 0 },
-                "p95_latency_ms": crate::telemetry::percentile_95(&metrics.latency_samples),
+                "p95_latency_ms": crate::observability::telemetry::percentile_95(&metrics.latency_samples),
                 "surface_token_efficiency": if metrics.success_count > 0 {
                     metrics.total_tokens as f64 / metrics.success_count as f64
                 } else { 0.0 }

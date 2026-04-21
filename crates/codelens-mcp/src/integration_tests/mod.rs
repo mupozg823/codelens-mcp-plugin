@@ -32,6 +32,7 @@ mod per_symbol_compression;
 mod prescriptive_signals;
 mod protocol;
 mod readonly;
+mod tool_surface_lean;
 mod transparency_phase1;
 mod transparency_phase2;
 mod workflow;

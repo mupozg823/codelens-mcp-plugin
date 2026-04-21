@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
-use crate::telemetry::{SessionMetrics, ToolInvocation};
+use crate::observability::telemetry::{SessionMetrics, ToolInvocation};
 use serde_json::{Value, json};
 
 pub(super) const CHECK_PASS: &str = "pass";

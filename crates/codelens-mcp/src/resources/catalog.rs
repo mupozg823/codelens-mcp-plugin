@@ -1,8 +1,8 @@
-use crate::AppState;
-use crate::resource_context::{ResourceRequestContext, build_visible_tool_context};
+use crate::resources::context::{build_visible_tool_context, ResourceRequestContext};
 use crate::surface_manifest::{HARNESS_HOST_COMPAT_RESOURCE_URI, HOST_ADAPTER_HOSTS};
 use crate::tool_defs::{tool_namespace, tool_preferred_executor_label, tool_tier_label};
-use serde_json::{Value, json};
+use crate::AppState;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
@@ -264,7 +264,7 @@ pub(crate) fn visible_tool_details(state: &AppState, uri: &str, params: Option<&
 }
 
 fn context_request_client_profile(
-    request: &crate::resource_context::ResourceRequestContext,
+    request: &crate::resources::context::ResourceRequestContext,
 ) -> &'static str {
     request.client_profile.as_str()
 }

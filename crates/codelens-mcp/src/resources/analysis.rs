@@ -1,7 +1,7 @@
-use crate::AppState;
 use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
 use crate::state::AnalysisArtifact;
-use serde_json::{Value, json};
+use crate::AppState;
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
 pub(crate) fn analysis_resource_entries(state: &AppState) -> Vec<Value> {

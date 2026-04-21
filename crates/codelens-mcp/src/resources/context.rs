@@ -1,13 +1,13 @@
-use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::protocol::Tool;
 use crate::tool_defs::{
-    ToolProfile, ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools,
-    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_tier_label,
-    visible_namespaces, visible_tiers, visible_tools,
+    is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
+    preferred_tier_labels, tool_namespace, tool_tier_label, visible_namespaces, visible_tiers,
+    visible_tools, ToolProfile, ToolSurface,
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
-use serde_json::{Value, json};
+use crate::AppState;
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug)]

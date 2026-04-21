@@ -7,11 +7,12 @@ pub mod tool;
 
 // Re-exports from presets
 pub(crate) use presets::{
-    ALL_PRESETS, ALL_PROFILES, HostContext, SurfaceCompilerInput, TaskOverlay, ToolPreset,
-    ToolProfile, ToolSurface, compile_surface_overlay, default_budget_for_preset,
-    default_budget_for_profile, deprecated_workflow_alias, is_tool_callable_in_surface,
-    is_tool_in_surface, tool_anthropic_always_load, tool_anthropic_search_hint, tool_deprecation,
-    tool_namespace, tool_phase_label, tool_preferred_executor, tool_preferred_executor_label,
+    compile_surface_overlay, default_budget_for_preset, default_budget_for_profile,
+    deprecated_workflow_alias, is_tool_callable_in_surface, is_tool_in_surface,
+    is_tool_primary_in_surface, tool_anthropic_always_load, tool_anthropic_search_hint,
+    tool_deprecation, tool_namespace, tool_phase_label, tool_preferred_executor,
+    tool_preferred_executor_label, HostContext, SurfaceCompilerInput, TaskOverlay, ToolPreset,
+    ToolProfile, ToolSurface, ALL_PRESETS, ALL_PROFILES,
 };
 
 // Re-exports from build
@@ -20,10 +21,14 @@ pub(crate) use build::{tool_definition, tools};
 use crate::protocol::ToolTier;
 
 fn raw_visible_tool_entries(surface: ToolSurface) -> Vec<(usize, &'static crate::protocol::Tool)> {
+    // Phase O3a: filter by the primary set when the surface declares
+    // one so the default `tools/list` stays bounded. Deferred tools
+    // still satisfy `is_tool_callable_in_surface` and execute when
+    // called by name — they are just hidden from discovery.
     tools()
         .iter()
         .enumerate()
-        .filter(|(_, tool)| is_tool_in_surface(tool.name, surface))
+        .filter(|(_, tool)| is_tool_primary_in_surface(tool.name, surface))
         .collect::<Vec<_>>()
 }
 

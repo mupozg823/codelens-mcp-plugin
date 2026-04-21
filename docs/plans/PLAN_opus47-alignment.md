@@ -65,15 +65,28 @@ infrastructure. O1 ships L0/L1/L2 fully; nothing stubbed.
 - [ ] GREEN: `budget_exhausted: bool` field on truncated responses
 - [ ] Quality Gate: schema round-trip test, v2.1.91+ spec compliance
 
-### Phase O3 — Tool surface 35→12 primary (P0, 4h)
+### Phase O3a — Tool surface 35→12 primary + tool_search (P0, 3-4h)
 
-- [ ] RED: `default_visible_tools_stays_under_twelve_primary`
-- [ ] RED: `method_param_dispatch_covers_deferred_tools`
-- [ ] RED: `tool_search_surfaces_deferred_tools`
-- [ ] GREEN: 12 primary set in surface_manifest
-- [ ] GREEN: method-param wrappers (search/analysis_job/coordination)
-- [ ] GREEN: deprecation aliases for backward-compat
+Split from the original O3: ships the Anthropic-canonical pattern
+(bounded default + deferred via tool_search) without the invasive
+method-param consolidation. Deferred tools remain **directly
+callable** so existing integration tests and external clients don't
+regress — they just don't appear in the default visible set.
+
+- [ ] RED: `default_visible_tools_stays_at_twelve_primary`
+- [ ] RED: `tool_search_discovers_deferred_tool_by_keyword`
+- [ ] RED: `deferred_tool_still_callable_by_name`
+- [ ] GREEN: new `tool_search` tool (BM25-style over tool registry)
+- [ ] GREEN: reviewer-graph profile's default visible_tools trimmed
+- [ ] GREEN: all 35 tools remain in the dispatch table (no removal)
 - [ ] Quality Gate: `visible_tools.tool_count == 12` for reviewer-graph
+
+### Phase O3b — Method-param dispatch consolidators (deferred, 4h)
+
+- [ ] `search({kind: "symbol"|"fuzzy"|"workspace"|"bm25"})` consolidation
+- [ ] `analysis_job({kind: "start"|"get"|"cancel"})` consolidation
+- [ ] `coordination({kind: "claim"|"release"|"list_agents"|"register"})`
+- [ ] Deprecation aliases preserved until next minor
 
 ### Phase O4 — MCP-Atlas-style 2-arm benchmark (P0, 4h)
 
@@ -151,9 +164,69 @@ All 8 phases additive + feature-flagged where invasive. Full rollback =
 
 - Started: 2026-04-21
 - Last Updated: 2026-04-21
-- Current Phase: **O1 (pending)**
-- Completed Phases: _none_
+- Current Phase: **O4 (next session — MCP-Atlas 2-arm benchmark)**
+- Completed Phases: **O1, O2, O3a** (Tier A: 3/4)
+
+## Session Handoff Notes (2026-04-21)
+
+**Completed this session:**
+
+- **O1** `feat(o1): per-symbol compression L0/L1/L2` — commit `e54a6bd`.
+  `SymbolPresentation { IdOnly, Signature, SignatureBody }` per-symbol
+  in `tools/symbols/formatter.rs`. `find_symbol` handler emits
+  `presentation_level` + `presentation_summary`. 3 RED→GREEN tests at
+  `integration_tests/per_symbol_compression.rs`. L3 deferred to O8b.
+- **O2** `feat(o2): primitive responses keep anthropic/maxResultSizeChars`
+  — commit `48ee65c`. Primitive `_meta` now carries the MCP-spec
+  annotation so Claude Code v2.1.91+ picks inline vs disk-persist
+  correctly. 3 RED→GREEN tests at `integration_tests/mcp_annotations.rs`.
+- **O3a** `feat(o3a): tool_search + 12-primary reviewer-graph surface` —
+  NOT YET COMMITTED at handoff time. Staged files:
+  - `tool_defs/presets.rs` — `REVIEWER_GRAPH_PRIMARY_TOOLS` (12),
+    `primary_tools_for_surface`, `is_tool_primary_in_surface`
+  - `tool_defs/mod.rs` — export `is_tool_primary_in_surface`,
+    `raw_visible_tool_entries` now filters by primary set
+  - `tool_defs/build.rs` — new `tool_search` Tool::new
+  - `tools/session/tool_search.rs` — handler with scoring
+  - `tools/session/mod.rs` — export
+  - `tools/mod.rs` — dispatch entry
+  - `integration_tests/tool_surface_lean.rs` — 3 RED→GREEN
+  - `integration_tests/workflow.rs`,
+    `integration_tests/protocol.rs` — 3 existing tests updated
+    to reflect 12-primary reality
+
+**Test counts:**
+
+- cargo test -p codelens-mcp --features semantic → **491 passed**
+  (was 488 pre-O3a, +3 new tests).
+
+**Remaining tier A — for next session:**
+
+- **O4**: MCP-Atlas-style 2-arm benchmark (4h).
+  `benchmarks/opus-47-mcp-tasks.py` — 10 task × 2 arm (with CodeLens /
+  native only) calling Opus 4.7 API. Extends
+  `benchmarks/extreme-efficiency-eval.py` pattern.
+
+**Tier B/C** (for follow-up sessions): O5 Stage-0 Dense gate, O6
+Managed Agents handoff, O7 xhigh effort, O8 git-mtime+Stage5+reset.
+
+**Known flaky tests:** `prepare_harness_session_honors_lsp_auto_opt_out_env`
+(feature=http+semantic only; env var pollution; guard isolated in
+`workflow_contract.rs` via LspAutoEnvGuard).
 
 ## Notes & Learnings
 
-_To be filled in as phases complete._
+- Opus 4.7 `output_config.task_budget` enforces hard ceilings ⇒ per-symbol
+  compression (O1) + `_meta["anthropic/maxResultSizeChars"]` (O2) are
+  directly prescribed by the 2026-04 model spec, not generic
+  best-practice.
+- The reviewer-graph preset `REVIEWER_GRAPH_TOOLS` list (35 tools)
+  stays untouched so deferred tools remain directly callable by name.
+  O3a only changed the default visible set via
+  `primary_tools_for_surface` + `is_tool_primary_in_surface`. This
+  pattern means any future profile can opt into a primary set without
+  removing tools from its callable list.
+- `tool_search` uses a simple token-overlap scorer (name weight 100/20,
+  description weight 3) sorted by score then name. No embedding or
+  BM25 — the tool registry is small enough that O(N) linear scoring
+  is trivial per call.

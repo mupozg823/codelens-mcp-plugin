@@ -139,6 +139,7 @@ pub fn dispatch_table() -> HashMap<&'static str, std::sync::Arc<dyn crate::tool_
         "audit_builder_session"        => session::audit_builder_session,
         "audit_planner_session"        => session::audit_planner_session,
         "export_session_markdown"      => session::export_session_markdown,
+        "tool_search"                  => session::tool_search,
         // ── Composite ──
         "summarize_file"               => composite::summarize_file,
         "explain_code_flow"            => composite::explain_code_flow,

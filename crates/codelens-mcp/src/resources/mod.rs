@@ -1,24 +1,29 @@
 //! MCP resource definitions and handlers.
 
-use crate::AppState;
-use crate::resource_analysis::{
+pub(crate) mod analysis;
+pub(crate) mod catalog;
+pub(crate) mod context;
+pub(crate) mod profiles;
+
+use crate::resources::analysis::{
     analysis_resource_entries, analysis_summary_payload, recent_analysis_jobs_payload,
     recent_analysis_payload,
 };
-use crate::resource_catalog::{
+use crate::resources::catalog::{
     static_resource_entries, visible_tool_details, visible_tool_summary,
 };
-use crate::resource_context::{
-    ResourceRequestContext, build_agent_activity_payload, build_http_session_payload,
+use crate::resources::context::{
+    build_agent_activity_payload, build_http_session_payload, ResourceRequestContext,
 };
-use crate::resource_profiles::{profile_guide, profile_guide_summary, profile_resource_entries};
+use crate::resources::profiles::{profile_guide, profile_guide_summary, profile_resource_entries};
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    HostContext, SurfaceCompilerInput, TaskOverlay, ToolProfile, visible_tools,
+    visible_tools, HostContext, SurfaceCompilerInput, TaskOverlay, ToolProfile,
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
+use crate::AppState;
 use codelens_engine::{detect_frameworks, detect_workspace_packages};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 pub(crate) fn resources(state: &AppState) -> Vec<Value> {
     let project_name = state

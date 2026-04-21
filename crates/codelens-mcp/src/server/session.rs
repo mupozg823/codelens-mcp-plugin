@@ -54,8 +54,8 @@ pub struct SessionState {
     pub token_budget: AtomicUsize,
     resume_count: AtomicUsize,
     client_metadata: RwLock<SessionClientMetadata>,
-    recent_tools: crate::recent_buffer::RecentRingBuffer,
-    recent_files: crate::recent_buffer::RecentRingBuffer,
+    recent_tools: crate::observability::recent_buffer::RecentRingBuffer,
+    recent_files: crate::observability::recent_buffer::RecentRingBuffer,
     doom_loop_counter: Mutex<(String, u64, usize, u64)>,
     /// SSE sender for server→client push on the GET stream.
     pub sse_tx: Mutex<Option<mpsc::Sender<SseEvent>>>,
@@ -72,8 +72,8 @@ impl SessionState {
             token_budget: AtomicUsize::new(4000),
             resume_count: AtomicUsize::new(0),
             client_metadata: RwLock::new(SessionClientMetadata::default()),
-            recent_tools: crate::recent_buffer::RecentRingBuffer::new(5),
-            recent_files: crate::recent_buffer::RecentRingBuffer::new(20),
+            recent_tools: crate::observability::recent_buffer::RecentRingBuffer::new(5),
+            recent_files: crate::observability::recent_buffer::RecentRingBuffer::new(20),
             doom_loop_counter: Mutex::new((String::new(), 0, 0, 0)),
             sse_tx: Mutex::new(None),
         }

@@ -401,13 +401,13 @@ mod tests {
             "read input from stdin line by line run_stdio stdio stdin",
             vec![
                 semantic_match(
-                    "crates/codelens-core/src/file_ops/mod.rs",
+                    "crates/codelens-engine/src/file_ops/mod.rs",
                     "read_line_at",
                     "function",
                     0.261,
                 ),
                 semantic_match(
-                    "crates/codelens-core/src/file_ops/reader.rs",
+                    "crates/codelens-engine/src/file_ops/reader.rs",
                     "read_file",
                     "function",
                     0.258,
