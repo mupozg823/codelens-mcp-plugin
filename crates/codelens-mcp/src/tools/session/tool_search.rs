@@ -13,9 +13,9 @@
 
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use crate::tool_runtime::{required_string, success_meta, ToolResult};
-use crate::{tool_defs, AppState};
-use serde_json::{json, Value};
+use crate::tool_runtime::{ToolResult, required_string, success_meta};
+use crate::{AppState, tool_defs};
+use serde_json::{Value, json};
 
 const DEFAULT_MAX_MATCHES: usize = 10;
 

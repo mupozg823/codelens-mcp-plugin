@@ -110,7 +110,7 @@ fn real_world_rename_validation() {
     // Test 4: FILE scope — rename 내부 함수만
     let result4 = rename_symbol(
         &project,
-        "src/file_ops/mod.rs",
+        "src/file_ops/support.rs",
         "find_enclosing_symbol",
         "find_nearest_enclosing",
         None,
@@ -133,7 +133,7 @@ fn real_world_rename_validation() {
         result4
             .edits
             .iter()
-            .all(|e| e.file_path == "src/file_ops/mod.rs"),
+            .all(|e| e.file_path == "src/file_ops/support.rs"),
         "FILE scope should stay in one file"
     );
 

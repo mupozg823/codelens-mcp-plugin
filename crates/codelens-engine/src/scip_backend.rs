@@ -1,4 +1,4 @@
-//! SCIP (Source Code Intelligence Protocol) backend implementing [`PreciseBackend`].
+//! SCIP (Source Code Intelligence Protocol) backend.
 //!
 //! Loads a SCIP index file (`index.scip`) and provides type-aware definitions,
 //! references, hover docs, and diagnostics. This is the "precise path" that
@@ -13,9 +13,7 @@ use std::path::Path;
 use protobuf::Message;
 use scip::types::{self as scip_types, Index};
 
-use crate::ir::{
-    CodeDiagnostic, DiagnosticSeverity, IntelligenceSource, PreciseBackend, SearchCandidate,
-};
+use crate::ir::{CodeDiagnostic, DiagnosticSeverity, IntelligenceSource, SearchCandidate};
 
 /// A SCIP-backed precise navigation provider.
 ///
@@ -116,8 +114,8 @@ impl ScipBackend {
     }
 }
 
-impl PreciseBackend for ScipBackend {
-    fn find_definitions(
+impl ScipBackend {
+    pub fn find_definitions(
         &self,
         symbol: &str,
         _file_path: &str,
@@ -183,7 +181,7 @@ impl PreciseBackend for ScipBackend {
         Ok(results)
     }
 
-    fn find_references(
+    pub fn find_references(
         &self,
         symbol: &str,
         _file_path: &str,
@@ -243,7 +241,12 @@ impl PreciseBackend for ScipBackend {
         Ok(results)
     }
 
-    fn hover(&self, file_path: &str, line: usize, column: usize) -> anyhow::Result<Option<String>> {
+    pub fn hover(
+        &self,
+        file_path: &str,
+        line: usize,
+        column: usize,
+    ) -> anyhow::Result<Option<String>> {
         let Some(doc) = self.documents.get(file_path) else {
             return Ok(None);
         };
@@ -269,7 +272,7 @@ impl PreciseBackend for ScipBackend {
         Ok(None)
     }
 
-    fn diagnostics(&self, file_path: &str) -> anyhow::Result<Vec<CodeDiagnostic>> {
+    pub fn diagnostics(&self, file_path: &str) -> anyhow::Result<Vec<CodeDiagnostic>> {
         let Some(doc) = self.documents.get(file_path) else {
             return Ok(Vec::new());
         };
@@ -304,16 +307,13 @@ impl PreciseBackend for ScipBackend {
         Ok(diags)
     }
 
-    fn source(&self) -> IntelligenceSource {
+    pub fn source(&self) -> IntelligenceSource {
         IntelligenceSource::Scip
     }
 
-    fn has_index_for(&self, file_path: &str) -> bool {
+    pub fn has_index_for(&self, file_path: &str) -> bool {
         self.documents.contains_key(file_path)
     }
-}
-
-impl ScipBackend {
     /// Resolve a user-facing symbol name + location to SCIP symbol strings.
     ///
     /// Strategy: if the file has an occurrence at the given line whose short name

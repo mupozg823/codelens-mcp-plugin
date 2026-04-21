@@ -40,8 +40,15 @@
 - Separate warm and cold measurements.
 - Record p50 and p95 where applicable.
 - Do not attribute release-vs-debug differences to refactor wins.
+- `benchmarks/token-efficiency.py` is efficiency evidence only; do not use it as proof that retrieval or answer quality improved.
+- Any retrieval-quality claim must cite `benchmarks/embedding-quality.py` or a same-query downstream A/B harness, and should include failure slices:
+  - retrieval-failure-rate
+  - top-k target-missing rate
+  - disambiguation misses on same/similar symbol names
+- If you claim both efficiency and quality, cite both the efficiency artifact and the quality artifact from the same build/profile family.
 - Internal training validation is not a promotion gate for embedding models.
 - Candidate embedding models must be compared against the currently deployed runtime model on fresh product retrieval benchmarks.
+- Self-repo retrieval measurements are per-repo regression evidence, not cross-repo generalization evidence.
 - Promotion is fail-closed:
   - real-session harness evidence is mandatory
   - exact-label external retrieval evidence is mandatory

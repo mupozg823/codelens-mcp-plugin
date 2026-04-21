@@ -1,8 +1,8 @@
 //! Tool call envelope — normalized JSON-RPC params with profile/compact/harness routing.
 
-use crate::client_profile::ClientProfile;
-use crate::tool_defs::{default_budget_for_profile, ToolProfile};
 use crate::AppState;
+use crate::client_profile::ClientProfile;
+use crate::tool_defs::{ToolProfile, default_budget_for_profile};
 use serde_json::json;
 
 /// Phase P1 response shape tiering.
@@ -201,7 +201,7 @@ fn is_lean_default_tool(name: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{default_detail_level, is_lean_default_tool, DetailLevel};
+    use super::{DetailLevel, default_detail_level, is_lean_default_tool};
     use crate::client_profile::ClientProfile;
     use serde_json::json;
 

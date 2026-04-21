@@ -1,55 +1,32 @@
-//! Static dispatch table: structural tools + feature-gated semantic handler registrations.
+//! Static dispatch table derived from the canonical registered tool catalog.
 
-use crate::tools::{self};
+use crate::tool_defs::registered_tools;
+use crate::tool_runtime::ToolHandler;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+#[cfg(feature = "semantic")]
+use crate::tools;
 #[cfg(feature = "semantic")]
 use crate::{AppState, error::CodeLensError, protocol::BackendKind, tools::ToolResult};
 #[cfg(feature = "semantic")]
 use serde_json::json;
 
-pub(crate) static DISPATCH_TABLE: LazyLock<
-    HashMap<&'static str, std::sync::Arc<dyn crate::tool_defs::tool::McpTool>>,
-> = LazyLock::new(|| {
-    let m = tools::dispatch_table();
-    #[cfg(feature = "semantic")]
-    let mut m = m;
-    #[cfg(feature = "semantic")]
-    {
-        use crate::tool_defs::tool::BuiltTool;
-        m.insert(
-            "semantic_search",
-            std::sync::Arc::new(BuiltTool::new(semantic_search_handler)),
-        );
-        m.insert(
-            "index_embeddings",
-            std::sync::Arc::new(BuiltTool::new(index_embeddings_handler)),
-        );
-        m.insert(
-            "find_similar_code",
-            std::sync::Arc::new(BuiltTool::new(find_similar_code_handler)),
-        );
-        m.insert(
-            "find_code_duplicates",
-            std::sync::Arc::new(BuiltTool::new(find_code_duplicates_handler)),
-        );
-        m.insert(
-            "classify_symbol",
-            std::sync::Arc::new(BuiltTool::new(classify_symbol_handler)),
-        );
-        m.insert(
-            "find_misplaced_code",
-            std::sync::Arc::new(BuiltTool::new(find_misplaced_code_handler)),
-        );
-    }
-    m
-});
+pub(crate) static DISPATCH_TABLE: LazyLock<HashMap<&'static str, ToolHandler>> =
+    LazyLock::new(|| {
+        registered_tools()
+            .iter()
+            .map(|entry| (entry.tool.name, entry.handler))
+            .collect()
+    });
 
 // ── Semantic handlers (feature-gated) ──────────────────────────────────
 
 #[cfg(feature = "semantic")]
-fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+pub(crate) fn semantic_search_handler(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> ToolResult {
     let query = tools::required_string(arguments, "query")?;
     let max_results = arguments
         .get("max_results")
@@ -185,7 +162,10 @@ fn semantic_search_handler(state: &AppState, arguments: &serde_json::Value) -> T
 }
 
 #[cfg(feature = "semantic")]
-fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) -> ToolResult {
+pub(crate) fn index_embeddings_handler(
+    state: &AppState,
+    _arguments: &serde_json::Value,
+) -> ToolResult {
     let project = state.project();
     let guard = state.embedding_engine();
     let engine = guard
@@ -220,7 +200,10 @@ fn index_embeddings_handler(state: &AppState, _arguments: &serde_json::Value) ->
 }
 
 #[cfg(feature = "semantic")]
-fn find_similar_code_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+pub(crate) fn find_similar_code_handler(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> ToolResult {
     let file_path = tools::required_string(arguments, "file_path")?;
     let symbol_name = tools::required_string(arguments, "symbol_name")?;
     let max_results = tools::optional_usize(arguments, "max_results", 10);
@@ -255,7 +238,10 @@ fn find_similar_code_handler(state: &AppState, arguments: &serde_json::Value) ->
 }
 
 #[cfg(feature = "semantic")]
-fn find_code_duplicates_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+pub(crate) fn find_code_duplicates_handler(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> ToolResult {
     let threshold = arguments
         .get("threshold")
         .and_then(|v| v.as_f64())
@@ -278,7 +264,10 @@ fn find_code_duplicates_handler(state: &AppState, arguments: &serde_json::Value)
 }
 
 #[cfg(feature = "semantic")]
-fn classify_symbol_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+pub(crate) fn classify_symbol_handler(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> ToolResult {
     let file_path = tools::required_string(arguments, "file_path")?;
     let symbol_name = tools::required_string(arguments, "symbol_name")?;
     let categories = arguments
@@ -300,7 +289,10 @@ fn classify_symbol_handler(state: &AppState, arguments: &serde_json::Value) -> T
 }
 
 #[cfg(feature = "semantic")]
-fn find_misplaced_code_handler(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
+pub(crate) fn find_misplaced_code_handler(
+    state: &AppState,
+    arguments: &serde_json::Value,
+) -> ToolResult {
     let max_results = arguments
         .get("max_results")
         .and_then(|v| v.as_u64())

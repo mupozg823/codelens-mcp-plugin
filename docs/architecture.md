@@ -181,7 +181,7 @@ Use repo-local contracts alongside this document:
 
 ```
 codelens-mcp-plugin/
-├── Cargo.toml                            # Workspace: 2 crates, 25 tree-sitter deps
+├── Cargo.toml                            # Workspace: 3 crates, 25 tree-sitter deps
 ├── CLAUDE.md                             # AI agent instructions (harness routing)
 ├── AGENTS.md                             # Agent role contracts
 ├── EVAL_CONTRACT.md                      # Verification command contracts
@@ -583,10 +583,10 @@ All mutation tools are gated:
 │  │  ✅ .well-known/mcp.json Server Card              │  │
 │  │  ✅ Deferred tool loading (bootstrap-aware)       │  │
 │  │  ✅ In-memory telemetry (per-tool metrics)        │  │
+│  │  ✅ Persistent telemetry (JSONL)                  │  │
 │  │  ✅ suggest_next_tools (contextual chaining)      │  │
 │  │  ✅ v2.1.91+ `_meta` annotation                   │  │
 │  │  ✅ Doom-loop detection (rapid-burst → async)     │  │
-│  │  ⬜ Persistent telemetry (JSONL, planned)         │  │
 │  │  ⬜ Stateless session tokens (spec pending)       │  │
 │  │  ⬜ A2A Agent Card (long-term)                    │  │
 │  └───────────────────────────────────────────────────┘  │

@@ -452,6 +452,8 @@ Self-benchmark re-measured on commit `26d513e` (v1.9.32, 2026-04-17), model `Min
 
 Hybrid uplift over lexical on **this repo's dataset**: +0.128 MRR, +15% Acc@1. Semantic alone beats lexical but hybrid beats semantic by blending both signals. Identifier queries reach `MRR 0.935` with every method (structural matching is sufficient); the hybrid advantage concentrates on natural-language queries (+0.159 MRR) and short phrases (+0.318 MRR). **This ordering does not hold cross-language** — see the 5-repo matrix below.
 
+`benchmarks/token-efficiency.py` is intentionally kept separate from this table. Token savings are prompt-budget evidence, not retrieval-quality evidence. Any claim that ranking or downstream answer quality improved should be backed by `benchmarks/embedding-quality.py` or a same-query downstream A/B harness, and should include failure slices such as retrieval-failure-rate, top-k target-missing rate, and disambiguation misses.
+
 > **v1.9.23 → v1.9.32 re-measurement**: Hybrid −0.046 (0.758 → 0.712), Semantic −0.043, Lexical −0.018. Dataset and model unchanged. Commit span `84c825d..26d513e` includes retrieval-path tuning that slightly dropped the aggregate score; the architecture refactors in v1.9.31–v1.9.32 (`dispatch/`, `tools/`, `main.rs` splits) do not touch retrieval code. Root-cause investigation is a follow-up in a dedicated bench session.
 
 Cross-project matrix (6 languages, last run v1.9.23 line — not re-measured this cycle): Rust (self / axum / ripgrep), Python (django / requests), TS/JS (jest / next-js / react-core / typescript), Go (gin), Java (gson), C (curl). Historical hybrid numbers for those projects are tracked in `benchmarks/embedding-quality-phase3-matrix.json`.

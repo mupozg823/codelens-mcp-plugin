@@ -1,6 +1,6 @@
 use super::{
-    analyze_retrieval_query, query_prefers_lexical_only, semantic_query_for_retrieval,
-    RetrievalLane,
+    RetrievalLane, analyze_retrieval_query, query_prefers_lexical_only,
+    semantic_query_for_retrieval,
 };
 
 #[cfg(feature = "semantic")]

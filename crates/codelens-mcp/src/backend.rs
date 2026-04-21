@@ -1,20 +1,15 @@
-//! Semantic backend abstraction (P2 scaffold).
+//! Runtime-backed backend capability reporting.
 //!
-//! Serena-comparison §Adopt 2 calls out a formal backend adapter interface.
-//! This module establishes the passive half of that abstraction: a capability
-//! vocabulary and a `SemanticBackend` trait implemented by each existing
-//! retrieval/edit engine. The resource surface reports which backend covers
-//! which capability so callers can reason about the substrate without
-//! committing to a specific engine.
-//!
-//! The trait does NOT yet own dispatch. Concrete tool handlers still call
-//! into the relevant engine directly. This file is the stable declaration
-//! point; actual routing through the trait is tracked separately.
+//! These descriptors power `codelens://backend/capabilities` and the
+//! operator dashboard. They report only capabilities that are both
+//! runtime-backed and reachable from the active tool surface.
 
 use crate::AppState;
+use crate::tool_defs::{ToolSurface, is_tool_callable_in_surface};
+use crate::tools::session::metrics_config::determine_semantic_search_status;
 use serde::Serialize;
 
-/// Capabilities a semantic backend can claim to fulfil.
+/// Capabilities a semantic backend can fulfil.
 ///
 /// Ordered roughly from symbol-surface primitives up to higher-level
 /// reasoning so reporting enumerations read top-down.
@@ -50,85 +45,10 @@ impl BackendCapability {
     }
 }
 
-/// Passive descriptor for a backend. Future work replaces this with a real
-/// trait object that executes retrieval/edit. For now each concrete backend
-/// is a unit struct whose `report` returns a stable snapshot.
-pub trait SemanticBackend {
-    fn name(&self) -> &'static str;
-    fn capabilities(&self) -> &'static [BackendCapability];
-    fn is_available(&self, state: &AppState) -> bool;
-}
-
-pub struct RustEngineBackend;
-pub struct LspBridgeBackend;
-pub struct ScipBridgeBackend;
-
-impl SemanticBackend for RustEngineBackend {
-    fn name(&self) -> &'static str {
-        "rust-engine"
-    }
-
-    fn capabilities(&self) -> &'static [BackendCapability] {
-        &[
-            BackendCapability::SymbolLookup,
-            BackendCapability::SymbolsOverview,
-            BackendCapability::References,
-            BackendCapability::Rename,
-            BackendCapability::Edit,
-            BackendCapability::ImpactAnalysis,
-            BackendCapability::SemanticSearch,
-            BackendCapability::Embeddings,
-        ]
-    }
-
-    fn is_available(&self, _state: &AppState) -> bool {
-        // Always available — this is the primary substrate.
-        true
-    }
-}
-
-impl SemanticBackend for LspBridgeBackend {
-    fn name(&self) -> &'static str {
-        "lsp-bridge"
-    }
-
-    fn capabilities(&self) -> &'static [BackendCapability] {
-        &[
-            BackendCapability::References,
-            BackendCapability::TypeHierarchy,
-            BackendCapability::Rename,
-            BackendCapability::Diagnostics,
-        ]
-    }
-
-    fn is_available(&self, _state: &AppState) -> bool {
-        // The LSP pool is always present on `AppState`, but backends are
-        // only exercised when a caller invokes an LSP tool. Availability
-        // here reflects "compiled in", not "a language server is running
-        // for the current file". The runtime health resource already
-        // carries the per-file diagnostics status.
-        true
-    }
-}
-
-impl SemanticBackend for ScipBridgeBackend {
-    fn name(&self) -> &'static str {
-        "scip-bridge"
-    }
-
-    fn capabilities(&self) -> &'static [BackendCapability] {
-        &[
-            BackendCapability::SymbolLookup,
-            BackendCapability::References,
-            BackendCapability::ImpactAnalysis,
-        ]
-    }
-
-    fn is_available(&self, _state: &AppState) -> bool {
-        // SCIP is compile-time optional. The feature-gated availability
-        // reflects build configuration rather than runtime state.
-        cfg!(feature = "scip-backend")
-    }
+#[derive(Debug, Clone, Copy)]
+struct RuntimeAvailability {
+    semantic_available: bool,
+    scip_available: bool,
 }
 
 /// Snapshot describing one backend at a single point in time. Used by the
@@ -140,51 +60,185 @@ pub struct BackendReport {
     pub capabilities: Vec<&'static str>,
 }
 
-/// Enumerate all known backends with their current availability.
-pub fn enumerate_backends(state: &AppState) -> Vec<BackendReport> {
-    let backends: [&dyn SemanticBackend; 3] =
-        [&RustEngineBackend, &LspBridgeBackend, &ScipBridgeBackend];
-    backends
-        .iter()
-        .map(|backend| BackendReport {
-            name: backend.name(),
-            available: backend.is_available(state),
-            capabilities: backend
-                .capabilities()
-                .iter()
-                .map(|cap| cap.as_str())
-                .collect(),
-        })
-        .collect()
+const ALL_CAPABILITIES: [BackendCapability; 10] = [
+    BackendCapability::SymbolLookup,
+    BackendCapability::SymbolsOverview,
+    BackendCapability::References,
+    BackendCapability::TypeHierarchy,
+    BackendCapability::Rename,
+    BackendCapability::Edit,
+    BackendCapability::Diagnostics,
+    BackendCapability::ImpactAnalysis,
+    BackendCapability::SemanticSearch,
+    BackendCapability::Embeddings,
+];
+
+fn runtime_availability(state: &AppState, surface: ToolSurface) -> RuntimeAvailability {
+    RuntimeAvailability {
+        semantic_available: determine_semantic_search_status(state, surface).is_available(),
+        scip_available: scip_index_available(state),
+    }
 }
 
-/// Reverse index: for every capability, which backends claim to fulfil it
-/// (regardless of current availability). Callers use this to decide which
-/// backend to route a capability to once the dispatch half of P2 lands.
-pub fn capability_coverage() -> Vec<(BackendCapability, Vec<&'static str>)> {
-    let backends: [&dyn SemanticBackend; 3] =
-        [&RustEngineBackend, &LspBridgeBackend, &ScipBridgeBackend];
-    let all_caps = [
-        BackendCapability::SymbolLookup,
-        BackendCapability::SymbolsOverview,
-        BackendCapability::References,
-        BackendCapability::TypeHierarchy,
-        BackendCapability::Rename,
-        BackendCapability::Edit,
-        BackendCapability::Diagnostics,
-        BackendCapability::ImpactAnalysis,
-        BackendCapability::SemanticSearch,
-        BackendCapability::Embeddings,
-    ];
-    all_caps
+fn scip_index_available(state: &AppState) -> bool {
+    cfg!(feature = "scip-backend") && {
+        let project_root = state.project();
+        project_root.as_path().join("index.scip").exists()
+            || project_root.as_path().join(".scip/index.scip").exists()
+            || project_root.as_path().join(".codelens/index.scip").exists()
+    }
+}
+
+fn surface_supports_any(surface: ToolSurface, tools: &[&str]) -> bool {
+    tools
         .iter()
-        .map(|cap| {
-            let fulfillers = backends
+        .any(|tool_name| is_tool_callable_in_surface(tool_name, surface))
+}
+
+fn rust_engine_capabilities(
+    surface: ToolSurface,
+    availability: RuntimeAvailability,
+) -> Vec<BackendCapability> {
+    let mut capabilities = Vec::new();
+
+    if surface_supports_any(surface, &["find_symbol"]) {
+        capabilities.push(BackendCapability::SymbolLookup);
+    }
+    if surface_supports_any(surface, &["get_symbols_overview"]) {
+        capabilities.push(BackendCapability::SymbolsOverview);
+    }
+    if surface_supports_any(surface, &["find_referencing_symbols"]) {
+        capabilities.push(BackendCapability::References);
+    }
+    if surface_supports_any(surface, &["rename_symbol"]) {
+        capabilities.push(BackendCapability::Rename);
+    }
+    if surface_supports_any(
+        surface,
+        &[
+            "replace_symbol_body",
+            "replace_lines",
+            "delete_lines",
+            "insert_at_line",
+            "insert_before_symbol",
+            "insert_after_symbol",
+            "replace",
+            "insert_content",
+            "create_text_file",
+            "add_import",
+        ],
+    ) {
+        capabilities.push(BackendCapability::Edit);
+    }
+    if surface_supports_any(surface, &["get_impact_analysis", "impact_report"]) {
+        capabilities.push(BackendCapability::ImpactAnalysis);
+    }
+    if availability.semantic_available && surface_supports_any(surface, &["semantic_search"]) {
+        capabilities.push(BackendCapability::SemanticSearch);
+    }
+    if availability.semantic_available
+        && surface_supports_any(surface, &["semantic_search", "index_embeddings"])
+    {
+        capabilities.push(BackendCapability::Embeddings);
+    }
+
+    capabilities
+}
+
+fn lsp_bridge_capabilities(surface: ToolSurface) -> Vec<BackendCapability> {
+    let mut capabilities = Vec::new();
+
+    if surface_supports_any(surface, &["find_referencing_symbols"]) {
+        capabilities.push(BackendCapability::References);
+    }
+    if surface_supports_any(surface, &["get_type_hierarchy"]) {
+        capabilities.push(BackendCapability::TypeHierarchy);
+    }
+    if surface_supports_any(surface, &["rename_symbol"]) {
+        capabilities.push(BackendCapability::Rename);
+    }
+    if surface_supports_any(surface, &["get_file_diagnostics"]) {
+        capabilities.push(BackendCapability::Diagnostics);
+    }
+
+    capabilities
+}
+
+fn scip_bridge_capabilities(
+    surface: ToolSurface,
+    availability: RuntimeAvailability,
+) -> Vec<BackendCapability> {
+    if !availability.scip_available {
+        return Vec::new();
+    }
+
+    let mut capabilities = Vec::new();
+
+    if surface_supports_any(surface, &["find_symbol"]) {
+        capabilities.push(BackendCapability::SymbolLookup);
+    }
+    if surface_supports_any(surface, &["find_referencing_symbols"]) {
+        capabilities.push(BackendCapability::References);
+    }
+    if surface_supports_any(surface, &["get_impact_analysis", "impact_report"]) {
+        capabilities.push(BackendCapability::ImpactAnalysis);
+    }
+    if surface_supports_any(surface, &["get_file_diagnostics"]) {
+        capabilities.push(BackendCapability::Diagnostics);
+    }
+
+    capabilities
+}
+
+fn backend_report(name: &'static str, capabilities: Vec<BackendCapability>) -> BackendReport {
+    BackendReport {
+        name,
+        available: !capabilities.is_empty(),
+        capabilities: capabilities.into_iter().map(|cap| cap.as_str()).collect(),
+    }
+}
+
+/// Enumerate all known backends with their current availability.
+pub fn enumerate_backends(state: &AppState, surface: ToolSurface) -> Vec<BackendReport> {
+    let availability = runtime_availability(state, surface);
+    vec![
+        backend_report(
+            "rust-engine",
+            rust_engine_capabilities(surface, availability),
+        ),
+        backend_report("lsp-bridge", lsp_bridge_capabilities(surface)),
+        backend_report(
+            "scip-bridge",
+            scip_bridge_capabilities(surface, availability),
+        ),
+    ]
+}
+
+/// Reverse index: for every capability currently reachable in the active
+/// surface, which backends can fulfil it.
+pub fn capability_coverage(
+    state: &AppState,
+    surface: ToolSurface,
+) -> Vec<(BackendCapability, Vec<&'static str>)> {
+    let reports = enumerate_backends(state, surface);
+    ALL_CAPABILITIES
+        .iter()
+        .filter_map(|capability| {
+            let fulfillers = reports
                 .iter()
-                .filter(|backend| backend.capabilities().contains(cap))
-                .map(|backend| backend.name())
+                .filter(|report| {
+                    report
+                        .capabilities
+                        .iter()
+                        .any(|cap| *cap == capability.as_str())
+                })
+                .map(|report| report.name)
                 .collect::<Vec<_>>();
-            (*cap, fulfillers)
+            if fulfillers.is_empty() {
+                None
+            } else {
+                Some((*capability, fulfillers))
+            }
         })
         .collect()
 }
@@ -192,68 +246,64 @@ pub fn capability_coverage() -> Vec<(BackendCapability, Vec<&'static str>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tool_defs::ToolPreset;
 
-    #[test]
-    fn rust_engine_backend_claims_core_capabilities() {
-        let backend = RustEngineBackend;
-        let caps = backend.capabilities();
-        assert!(caps.contains(&BackendCapability::SymbolLookup));
-        assert!(caps.contains(&BackendCapability::Rename));
-        assert!(caps.contains(&BackendCapability::Edit));
+    fn full_surface() -> ToolSurface {
+        ToolSurface::Preset(ToolPreset::Full)
     }
 
     #[test]
-    fn lsp_backend_claims_diagnostics() {
-        let backend = LspBridgeBackend;
-        assert!(
-            backend
-                .capabilities()
-                .contains(&BackendCapability::Diagnostics)
+    fn rust_engine_report_tracks_surface_reachable_capabilities() {
+        let capabilities = rust_engine_capabilities(
+            full_surface(),
+            RuntimeAvailability {
+                semantic_available: true,
+                scip_available: false,
+            },
         );
+        assert!(capabilities.contains(&BackendCapability::SymbolLookup));
+        assert!(capabilities.contains(&BackendCapability::Edit));
+        assert!(capabilities.contains(&BackendCapability::SemanticSearch));
     }
 
     #[test]
-    fn every_capability_has_at_least_one_backend() {
-        // Regression guard: if a capability is declared but no backend
-        // claims it, the reverse index would surface a gap.
-        for (cap, fulfillers) in capability_coverage() {
-            assert!(
-                !fulfillers.is_empty(),
-                "capability {:?} has zero fulfilling backends",
-                cap
-            );
-        }
+    fn lsp_report_tracks_lsp_specific_capabilities() {
+        let capabilities = lsp_bridge_capabilities(full_surface());
+        assert!(capabilities.contains(&BackendCapability::References));
+        assert!(capabilities.contains(&BackendCapability::Diagnostics));
+        assert!(capabilities.contains(&BackendCapability::TypeHierarchy));
+    }
+
+    #[test]
+    fn scip_report_requires_runtime_availability() {
+        let unavailable = scip_bridge_capabilities(
+            full_surface(),
+            RuntimeAvailability {
+                semantic_available: false,
+                scip_available: false,
+            },
+        );
+        assert!(unavailable.is_empty());
+
+        let available = scip_bridge_capabilities(
+            full_surface(),
+            RuntimeAvailability {
+                semantic_available: false,
+                scip_available: true,
+            },
+        );
+        assert!(available.contains(&BackendCapability::SymbolLookup));
+        assert!(available.contains(&BackendCapability::Diagnostics));
     }
 
     #[test]
     fn capability_string_round_trip_is_stable() {
-        for cap in [
-            BackendCapability::SymbolLookup,
-            BackendCapability::SymbolsOverview,
-            BackendCapability::References,
-            BackendCapability::TypeHierarchy,
-            BackendCapability::Rename,
-            BackendCapability::Edit,
-            BackendCapability::Diagnostics,
-            BackendCapability::ImpactAnalysis,
-            BackendCapability::SemanticSearch,
-            BackendCapability::Embeddings,
-        ] {
+        for capability in ALL_CAPABILITIES {
             assert!(
-                !cap.as_str().is_empty(),
+                !capability.as_str().is_empty(),
                 "capability {:?} produced empty string",
-                cap
+                capability
             );
         }
-    }
-
-    #[test]
-    fn scip_backend_claims_symbol_lookup_and_references() {
-        let backend = ScipBridgeBackend;
-        let caps = backend.capabilities();
-        assert!(caps.contains(&BackendCapability::SymbolLookup));
-        assert!(caps.contains(&BackendCapability::References));
-        // Impact analysis is the distinguishing workload for SCIP.
-        assert!(caps.contains(&BackendCapability::ImpactAnalysis));
     }
 }

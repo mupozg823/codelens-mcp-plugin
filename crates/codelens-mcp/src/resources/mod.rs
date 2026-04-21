@@ -4,7 +4,9 @@ pub(crate) mod analysis;
 pub(crate) mod catalog;
 pub(crate) mod context;
 pub(crate) mod profiles;
+pub(crate) mod tool_listing;
 
+use crate::AppState;
 use crate::resources::analysis::{
     analysis_resource_entries, analysis_summary_payload, recent_analysis_jobs_payload,
     recent_analysis_payload,
@@ -13,17 +15,16 @@ use crate::resources::catalog::{
     static_resource_entries, visible_tool_details, visible_tool_summary,
 };
 use crate::resources::context::{
-    build_agent_activity_payload, build_http_session_payload, ResourceRequestContext,
+    ResourceRequestContext, build_agent_activity_payload, build_http_session_payload,
 };
 use crate::resources::profiles::{profile_guide, profile_guide_summary, profile_resource_entries};
 use crate::session_metrics_payload::build_session_metrics_payload;
 use crate::tool_defs::{
-    visible_tools, HostContext, SurfaceCompilerInput, TaskOverlay, ToolProfile,
+    HostContext, SurfaceCompilerInput, TaskOverlay, ToolProfile, visible_tools,
 };
 use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
-use crate::AppState;
 use codelens_engine::{detect_frameworks, detect_workspace_packages};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 pub(crate) fn resources(state: &AppState) -> Vec<Value> {
     let project_name = state
@@ -196,13 +197,13 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                 uri,
                 json!({
                     "scopes": scopes,
-                    "note": "Passive scaffold (P3). Mutation tools (write_memory / read_memory) currently operate on project scope only. Global scope path is declared so the contract is visible before wiring the active half of P3.",
                 }),
             )
         }
         "codelens://backend/capabilities" => {
-            let reports = crate::backend::enumerate_backends(state);
-            let coverage = crate::backend::capability_coverage();
+            let surface = state.execution_surface(&request.session);
+            let reports = crate::backend::enumerate_backends(state, surface);
+            let coverage = crate::backend::capability_coverage(state, surface);
             let coverage_payload = coverage
                 .into_iter()
                 .map(|(cap, fulfillers)| {
@@ -217,7 +218,6 @@ pub(crate) fn read_resource(state: &AppState, uri: &str, params: Option<&Value>)
                 json!({
                     "backends": reports,
                     "capability_coverage": coverage_payload,
-                    "note": "Passive scaffold (P2). Dispatch does not yet route through the SemanticBackend trait; this resource reports declared capability rather than actual backend selection per call.",
                 }),
             )
         }

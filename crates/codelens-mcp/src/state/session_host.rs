@@ -31,7 +31,11 @@ impl AppState {
     }
 
     pub(super) fn default_project_scope(&self) -> String {
-        self.default_project.as_path().to_string_lossy().to_string()
+        self.project_runtime
+            .default_project
+            .as_path()
+            .to_string_lossy()
+            .to_string()
     }
 
     pub(crate) fn execution_surface(
@@ -128,7 +132,7 @@ impl AppState {
         &self,
         session: &crate::session_context::SessionRequestContext,
     ) -> bool {
-        !session.is_local() && self.session_store.is_some()
+        !session.is_local() && self.runtime_config.session_store.is_some()
     }
 
     #[cfg(feature = "http")]
@@ -150,15 +154,21 @@ impl AppState {
     /// Initialize the session store for HTTP mode.
     #[cfg(feature = "http")]
     pub(crate) fn with_session_store(mut self) -> Self {
-        self.session_store = Some(crate::server::session::SessionStore::new(
+        self.runtime_config.session_store = Some(crate::server::session::SessionStore::new(
             std::time::Duration::from_secs(30 * 60), // 30 minutes
         ));
         self
     }
 
     #[cfg(feature = "http")]
+    pub(crate) fn session_store(&self) -> Option<&crate::server::session::SessionStore> {
+        self.runtime_config.session_store.as_ref()
+    }
+
+    #[cfg(feature = "http")]
     pub(crate) fn active_session_count(&self) -> usize {
-        self.session_store
+        self.runtime_config
+            .session_store
             .as_ref()
             .map(|store| store.len())
             .unwrap_or(0)
@@ -166,7 +176,8 @@ impl AppState {
 
     #[cfg(feature = "http")]
     pub(crate) fn session_timeout_seconds(&self) -> u64 {
-        self.session_store
+        self.runtime_config
+            .session_store
             .as_ref()
             .map(|store| store.timeout_secs())
             .unwrap_or(0)
@@ -174,7 +185,7 @@ impl AppState {
 
     #[cfg(feature = "http")]
     pub(crate) fn session_resume_supported(&self) -> bool {
-        self.session_store.is_some()
+        self.runtime_config.session_store.is_some()
     }
 
     #[cfg(not(feature = "http"))]

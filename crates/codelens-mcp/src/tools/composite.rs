@@ -1,12 +1,12 @@
-use super::{required_string, success_meta, AppState, ToolResult};
+use super::{AppState, ToolResult, required_string, success_meta};
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
-use codelens_engine::change_signature::{change_signature, ParamSpec};
+use codelens_engine::change_signature::{ParamSpec, change_signature};
 use codelens_engine::inline::inline_function;
 use codelens_engine::move_symbol::move_symbol;
 use codelens_engine::{
-    find_circular_dependencies, get_callees, get_callers, get_importance, get_importers,
-    get_symbols_overview, SymbolKind,
+    SymbolKind, find_circular_dependencies, get_callees, get_callers, get_importance,
+    get_importers, get_symbols_overview,
 };
 use serde_json::json;
 
@@ -411,17 +411,13 @@ pub fn onboard_project(state: &AppState, arguments: &serde_json::Value) -> ToolR
         return Ok((hit.payload.clone(), meta));
     }
     cache.record_miss();
-    let compute_started = std::time::Instant::now();
     let result = onboard_project_compute(state, arguments);
     if let Ok((payload, _meta)) = &result {
-        let elapsed = compute_started.elapsed().as_millis() as u64;
         cache.insert(
             cache_key,
             crate::state::workflow_cache::CachedResponse {
                 payload: payload.clone(),
-                meta_extra: serde_json::Value::Null,
                 created_at: std::time::Instant::now(),
-                compute_elapsed_ms: elapsed,
             },
         );
     }
@@ -470,9 +466,7 @@ fn onboard_project_compute(state: &AppState, _arguments: &serde_json::Value) -> 
                 .ok()
                 .flatten();
             let needs_warmup = match existing.as_ref() {
-                Some(info) => {
-                    info.model_name != configured_model || info.indexed_symbols == 0
-                }
+                Some(info) => info.model_name != configured_model || info.indexed_symbols == 0,
                 None => true,
             };
             if needs_warmup {

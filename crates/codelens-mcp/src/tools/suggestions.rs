@@ -5,89 +5,8 @@
 //! Extracted from `tools/mod.rs` as of v1.9.32. The public API is re-exported
 //! through `crate::tools::*` so existing consumers compile unchanged.
 
-use crate::tool_defs::{ToolProfile, ToolSurface};
-
-/// Tools relevant during harness PLAN phase
-pub(crate) const PLAN_PHASE_TOOLS: &[&str] = &[
-    "explore_codebase",
-    "review_architecture",
-    "review_changes",
-    "analyze_change_request",
-    "verify_change_readiness",
-    "find_minimal_context_for_change",
-    "onboard_project",
-    "get_ranked_context",
-    "get_symbols_overview",
-    "find_symbol",
-    "get_impact_analysis",
-    "impact_report",
-    "module_boundary_report",
-    "summarize_symbol_impact",
-    "get_changed_files",
-    "find_referencing_symbols",
-    "get_type_hierarchy",
-];
-
-/// Tools relevant during harness BUILD phase
-pub(crate) const BUILD_PHASE_TOOLS: &[&str] = &[
-    "explore_codebase",
-    "trace_request_path",
-    "plan_safe_refactor",
-    "find_symbol",
-    "get_symbols_overview",
-    "get_ranked_context",
-    "find_referencing_symbols",
-    "get_file_diagnostics",
-    "replace_symbol_body",
-    "insert_content",
-    "replace",
-    "rename_symbol",
-    "create_text_file",
-    "add_import",
-    "analyze_missing_imports",
-    "find_tests",
-    "refresh_symbol_index",
-    "verify_change_readiness",
-];
-
-/// Tools relevant during harness REVIEW phase
-pub(crate) const REVIEW_PHASE_TOOLS: &[&str] = &[
-    "review_architecture",
-    "cleanup_duplicate_logic",
-    "review_changes",
-    "diagnose_issues",
-    "verify_change_readiness",
-    "get_file_diagnostics",
-    "get_impact_analysis",
-    "find_scoped_references",
-    "impact_report",
-    "refactor_safety_report",
-    "diff_aware_references",
-    "semantic_code_review",
-    "dead_code_report",
-    "find_dead_code",
-    "find_circular_dependencies",
-    "get_changed_files",
-    "find_tests",
-    "unresolved_reference_check",
-    "audit_builder_session",
-    "audit_planner_session",
-    "export_session_markdown",
-];
-
-/// Tools relevant during harness EVAL phase
-pub(crate) const EVAL_PHASE_TOOLS: &[&str] = &[
-    "review_changes",
-    "diagnose_issues",
-    "verify_change_readiness",
-    "get_file_diagnostics",
-    "get_changed_files",
-    "find_tests",
-    "get_symbols_overview",
-    "find_symbol",
-    "read_file",
-    "get_analysis_section",
-];
+use crate::protocol::ToolTier;
+use crate::tool_defs::{self, ToolProfile, ToolSurface};
 
 pub(crate) const MUTATION_TOOLS: &[&str] = &[
     "rename_symbol",
@@ -126,6 +45,22 @@ const EXPLORATION_TOOLS: &[&str] = &[
     "onboard_project",
     "get_current_config",
 ];
+
+fn push_canonical_suggestion(suggestions: &mut Vec<String>, name: &str) {
+    if let Some(name) = tool_defs::canonical_tool_name(name)
+        && !suggestions.iter().any(|suggestion| suggestion == name)
+    {
+        suggestions.push(name.to_owned());
+    }
+}
+
+fn filter_suggestions_for_phase(mut suggestions: Vec<String>, phase: &str) -> Vec<String> {
+    let Some(phase_tools) = tool_defs::phase_tool_names_from_label(phase) else {
+        return suggestions;
+    };
+    suggestions.retain(|suggestion| phase_tools.contains(&suggestion.as_str()));
+    suggestions
+}
 
 /// Infer the harness phase from recent tool usage when the client has not
 /// supplied `_harness_phase` explicitly.
@@ -173,7 +108,6 @@ pub(crate) fn infer_harness_phase(recent_tools: &[String]) -> Option<&'static st
         "find_minimal_context_for_change",
         "onboard_project",
         "explore_codebase",
-        "analyze_change_impact",
     ];
 
     // Look at up to the 5 most recent tools. The most recent call is the
@@ -207,7 +141,9 @@ pub fn suggest_next_contextual(
         .any(|t| MUTATION_TOOLS.contains(&t.as_str()));
     if recent_has_mutation || MUTATION_TOOLS.contains(&tool_name) {
         suggestions.retain(|s| s != "get_file_diagnostics");
-        suggestions.insert(0, "get_file_diagnostics".to_owned());
+        if let Some(name) = tool_defs::canonical_tool_name("get_file_diagnostics") {
+            suggestions.insert(0, name.to_owned());
+        }
         suggestions.truncate(3);
     }
 
@@ -222,7 +158,7 @@ pub fn suggest_next_contextual(
             || tool_name == "find_symbol"
             || tool_name == "find_referencing_symbols";
         if is_pre_mutation_context {
-            suggestions.push("verify_change_readiness".to_owned());
+            push_canonical_suggestion(&mut suggestions, "verify_change_readiness");
             suggestions.truncate(4);
         }
     }
@@ -235,7 +171,7 @@ pub fn suggest_next_contextual(
         && !MUTATION_TOOLS.contains(&tool_name)
         && !suggestions.contains(&"get_impact_analysis".to_owned())
     {
-        suggestions.push("get_impact_analysis".to_owned());
+        push_canonical_suggestion(&mut suggestions, "get_impact_analysis");
         suggestions.truncate(3);
     }
 
@@ -248,20 +184,14 @@ pub fn suggest_next_contextual(
         && !REVIEW_TOOLS.contains(&tool_name)
         && !suggestions.contains(&"get_ranked_context".to_owned())
     {
-        suggestions.push("get_ranked_context".to_owned());
+        push_canonical_suggestion(&mut suggestions, "get_ranked_context");
         suggestions.truncate(3);
     }
 
     // Filter suggestions by harness phase if specified
     if let Some(phase) = harness_phase {
-        let phase_tools: &[&str] = match phase {
-            "plan" => PLAN_PHASE_TOOLS,
-            "build" => BUILD_PHASE_TOOLS,
-            "review" => REVIEW_PHASE_TOOLS,
-            "eval" => EVAL_PHASE_TOOLS,
-            _ => return Some(suggestions), // unknown phase, no filtering
-        };
-        suggestions.retain(|s| phase_tools.contains(&s.as_str()));
+        let filtered = filter_suggestions_for_phase(suggestions.clone(), phase);
+        suggestions = filtered;
         // Ensure we always have at least 1 suggestion
         if suggestions.is_empty() {
             suggestions = suggest_next(tool_name).unwrap_or_default();
@@ -273,32 +203,10 @@ pub fn suggest_next_contextual(
 
 fn is_workflow_tool_name(name: &str) -> bool {
     matches!(
-        name,
-        "explore_codebase"
-            | "trace_request_path"
-            | "review_architecture"
-            | "plan_safe_refactor"
-            | "audit_security_context"
-            | "analyze_change_impact"
-            | "cleanup_duplicate_logic"
-            | "review_changes"
-            | "assess_change_readiness"
-            | "diagnose_issues"
-            | "analyze_change_request"
-            | "verify_change_readiness"
-            | "find_minimal_context_for_change"
-            | "summarize_symbol_impact"
-            | "module_boundary_report"
-            | "safe_rename_report"
-            | "unresolved_reference_check"
-            | "dead_code_report"
-            | "impact_report"
-            | "refactor_safety_report"
-            | "diff_aware_references"
-            | "start_analysis_job"
-            | "get_analysis_job"
-            | "cancel_analysis_job"
-            | "get_analysis_section"
+        tool_defs::tool_definition(name)
+            .and_then(|tool| tool.annotations.as_ref())
+            .and_then(|annotations| annotations.tier),
+        Some(ToolTier::Workflow)
     )
 }
 
@@ -311,45 +219,71 @@ fn has_recent_low_level_chain(recent_tools: &[String]) -> bool {
         .all(|tool| !is_workflow_tool_name(tool))
 }
 
-fn composite_suggestions_for_surface(surface: ToolSurface) -> &'static [&'static str] {
+fn composite_suggestions_for_surface(surface: ToolSurface) -> Vec<&'static str> {
     match surface {
-        ToolSurface::Profile(ToolProfile::PlannerReadonly) => &[
-            "explore_codebase",
-            "review_architecture",
-            "review_changes",
-            "plan_safe_refactor",
-        ],
+        ToolSurface::Profile(ToolProfile::PlannerReadonly) => {
+            tool_defs::canonical_surface_tool_names(
+                surface,
+                &[
+                    "explore_codebase",
+                    "review_architecture",
+                    "review_changes",
+                    "plan_safe_refactor",
+                ],
+            )
+        }
         ToolSurface::Profile(ToolProfile::ReviewerGraph)
-        | ToolSurface::Profile(ToolProfile::CiAudit) => &[
-            "review_architecture",
-            "review_changes",
-            "cleanup_duplicate_logic",
-            "diagnose_issues",
-        ],
-        ToolSurface::Profile(ToolProfile::RefactorFull) => &[
-            "plan_safe_refactor",
-            "review_changes",
-            "trace_request_path",
-            "review_architecture",
-        ],
-        ToolSurface::Profile(ToolProfile::EvaluatorCompact) => &[
-            "verify_change_readiness",
-            "get_file_diagnostics",
-            "find_tests",
-        ],
-        ToolSurface::Profile(ToolProfile::WorkflowFirst) => &[
-            "explore_codebase",
-            "review_architecture",
-            "plan_safe_refactor",
-            "review_changes",
-            "diagnose_issues",
-        ],
-        ToolSurface::Profile(ToolProfile::BuilderMinimal) | ToolSurface::Preset(_) => &[
-            "explore_codebase",
-            "trace_request_path",
-            "plan_safe_refactor",
-            "review_changes",
-        ],
+        | ToolSurface::Profile(ToolProfile::CiAudit) => tool_defs::canonical_surface_tool_names(
+            surface,
+            &[
+                "review_architecture",
+                "review_changes",
+                "cleanup_duplicate_logic",
+                "diagnose_issues",
+            ],
+        ),
+        ToolSurface::Profile(ToolProfile::RefactorFull) => tool_defs::canonical_surface_tool_names(
+            surface,
+            &[
+                "plan_safe_refactor",
+                "review_changes",
+                "trace_request_path",
+                "review_architecture",
+            ],
+        ),
+        ToolSurface::Profile(ToolProfile::EvaluatorCompact) => {
+            tool_defs::canonical_surface_tool_names(
+                surface,
+                &[
+                    "verify_change_readiness",
+                    "get_file_diagnostics",
+                    "find_tests",
+                ],
+            )
+        }
+        ToolSurface::Profile(ToolProfile::WorkflowFirst) => {
+            tool_defs::canonical_surface_tool_names(
+                surface,
+                &[
+                    "explore_codebase",
+                    "review_architecture",
+                    "plan_safe_refactor",
+                    "review_changes",
+                    "diagnose_issues",
+                ],
+            )
+        }
+        ToolSurface::Profile(ToolProfile::BuilderMinimal) | ToolSurface::Preset(_) => {
+            tool_defs::canonical_surface_tool_names(
+                surface,
+                &[
+                    "explore_codebase",
+                    "trace_request_path",
+                    "plan_safe_refactor",
+                    "review_changes",
+                ],
+            )
+        }
     }
 }
 
@@ -363,8 +297,7 @@ pub fn composite_guidance_for_chain(
     }
 
     let suggestions = composite_suggestions_for_surface(surface)
-        .iter()
-        .copied()
+        .into_iter()
         .filter(|candidate| *candidate != tool_name)
         .take(3)
         .map(ToOwned::to_owned)
@@ -380,7 +313,7 @@ pub fn composite_guidance_for_chain(
     Some((suggestions, hint))
 }
 
-pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
+fn raw_suggest_next(tool_name: &str) -> Option<&'static [&'static str]> {
     let suggestions: &[&str] = match tool_name {
         // ── Symbols / index ──────────────────────────────────────────
         "get_symbols_overview" => &["find_symbol", "get_impact_analysis", "get_ranked_context"],
@@ -407,8 +340,8 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
         // ── Graph / analysis ─────────────────────────────────────────
         "get_changed_files" => &["get_impact_analysis", "get_symbols_overview"],
         "get_impact_analysis" => &["find_referencing_symbols", "get_symbols_overview"],
-        "get_importers" => &["get_impact_analysis", "get_symbol_importance"],
-        "get_symbol_importance" => &["get_importers", "get_impact_analysis"],
+        "find_importers" => &["get_impact_analysis", "get_symbol_importance"],
+        "get_symbol_importance" => &["find_importers", "get_impact_analysis"],
         "find_dead_code" => &["get_symbols_overview", "delete_lines"],
         "find_circular_dependencies" => &["get_impact_analysis", "get_symbols_overview"],
         "get_change_coupling" => &["get_impact_analysis", "find_dead_code"],
@@ -466,16 +399,6 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
             "review_changes",
             "get_file_diagnostics",
         ],
-        "audit_security_context" => &[
-            "review_changes",
-            "get_analysis_section",
-            "review_architecture",
-        ],
-        "analyze_change_impact" => &[
-            "review_architecture",
-            "review_changes",
-            "get_analysis_section",
-        ],
         "cleanup_duplicate_logic" => &[
             "review_changes",
             "review_architecture",
@@ -520,7 +443,6 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
 
         // ── Composite ────────────────────────────────────────────────
         "summarize_file" => &["get_symbols_overview", "find_symbol"],
-        "explain_code_flow" => &["get_callers", "get_callees"],
         "refactor_extract_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_inline_function" => &["get_file_diagnostics", "find_symbol"],
         "refactor_move_to_file" => &["get_file_diagnostics", "find_referencing_symbols"],
@@ -584,7 +506,17 @@ pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
 
         _ => return None,
     };
-    Some(suggestions.iter().map(|s| s.to_string()).collect())
+    Some(suggestions)
+}
+
+pub fn suggest_next(tool_name: &str) -> Option<Vec<String>> {
+    let suggestions = raw_suggest_next(tool_name)?;
+    Some(
+        tool_defs::canonical_tool_names(suggestions)
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
+    )
 }
 
 /// Returns a map of tool name → brief reason explaining why it is suggested.
@@ -624,7 +556,10 @@ pub fn suggestion_reasons_for(
 
 #[cfg(test)]
 mod phase_inference_tests {
-    use super::infer_harness_phase;
+    use super::{
+        filter_suggestions_for_phase, infer_harness_phase, raw_suggest_next,
+        suggest_next_contextual,
+    };
 
     fn tools(names: &[&str]) -> Vec<String> {
         names.iter().map(|s| (*s).to_owned()).collect()
@@ -683,5 +618,90 @@ mod phase_inference_tests {
             "review_changes", // review (newer)
         ]);
         assert_eq!(infer_harness_phase(&recent), Some("review"));
+    }
+
+    #[test]
+    fn public_tool_suggestions_only_reference_registered_tools() {
+        for tool in crate::tool_defs::tools() {
+            if let Some(suggestions) = raw_suggest_next(tool.name) {
+                for suggested in suggestions {
+                    assert!(
+                        crate::tool_defs::tool_definition(suggested).is_some(),
+                        "tool `{}` suggests unknown tool `{}`",
+                        tool.name,
+                        suggested
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn contextual_suggestions_only_reference_registered_tools() {
+        let recent = tools(&["rename_symbol", "review_changes", "explore_codebase"]);
+        for tool in crate::tool_defs::tools() {
+            if let Some(suggestions) = suggest_next_contextual(tool.name, &recent, Some("review")) {
+                for suggested in suggestions {
+                    assert!(
+                        crate::tool_defs::tool_definition(&suggested).is_some(),
+                        "tool `{}` suggests unknown tool `{}`",
+                        tool.name,
+                        suggested
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn canonical_phase_tool_sets_match_phase_labels() {
+        for phase in ["plan", "build", "review", "eval"] {
+            let phase_tools =
+                crate::tool_defs::phase_tool_names_from_label(phase).expect("known phase");
+            let expected = crate::tool_defs::tools()
+                .iter()
+                .filter_map(|tool| {
+                    (crate::tool_defs::tool_phase_label(tool.name) == Some(phase))
+                        .then_some(tool.name)
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(phase_tools, expected, "phase `{phase}` drifted");
+        }
+    }
+
+    #[test]
+    fn phase_filter_uses_canonical_phase_mapping() {
+        let suggestions = vec![
+            "find_symbol".to_owned(),
+            "rename_symbol".to_owned(),
+            "review_changes".to_owned(),
+            "get_analysis_section".to_owned(),
+        ];
+
+        assert_eq!(
+            filter_suggestions_for_phase(suggestions.clone(), "plan"),
+            vec!["find_symbol".to_owned()]
+        );
+        assert_eq!(
+            filter_suggestions_for_phase(suggestions.clone(), "build"),
+            vec!["rename_symbol".to_owned()]
+        );
+        assert_eq!(
+            filter_suggestions_for_phase(suggestions.clone(), "review"),
+            vec!["review_changes".to_owned()]
+        );
+        assert_eq!(
+            filter_suggestions_for_phase(suggestions.clone(), "eval"),
+            vec!["get_analysis_section".to_owned()]
+        );
+        assert_eq!(
+            filter_suggestions_for_phase(suggestions, "unknown"),
+            vec![
+                "find_symbol".to_owned(),
+                "rename_symbol".to_owned(),
+                "review_changes".to_owned(),
+                "get_analysis_section".to_owned(),
+            ]
+        );
     }
 }

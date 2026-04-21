@@ -1,7 +1,7 @@
+use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::session_metrics_payload::build_session_metrics_payload;
-use crate::tool_runtime::{success_meta, ToolResult};
-use crate::AppState;
+use crate::tool_runtime::{ToolResult, success_meta};
 use serde_json::json;
 use std::collections::VecDeque;
 
@@ -115,7 +115,7 @@ pub fn get_tool_metrics(state: &AppState, _arguments: &serde_json::Value) -> Too
     let coordination_scope: Option<String> = requested_session_id.and_then(|session_id| {
         #[cfg(feature = "http")]
         {
-            state.session_store.as_ref().and_then(|store| {
+            state.session_store().and_then(|store| {
                 store
                     .get(session_id)
                     .and_then(|session| session.client_metadata().project_path)
@@ -236,8 +236,7 @@ pub fn export_session_markdown(state: &AppState, arguments: &serde_json::Value) 
         let _ = session_id;
         #[cfg(feature = "http")]
         let current_surface = state
-            .session_store
-            .as_ref()
+            .session_store()
             .and_then(|store| store.get(session_id))
             .map(|session| session.surface().as_label().to_owned())
             .or_else(|| session.timeline.last().map(|entry| entry.surface.clone()))

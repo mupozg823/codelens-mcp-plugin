@@ -68,7 +68,9 @@ impl RecentPreflightStore {
             if let Some(paths) = claim.get("paths").and_then(|value| value.as_array()) {
                 for path in paths {
                     if let Some(path) = path.as_str()
-                        && !overlapping_claim_paths.iter().any(|existing| existing == path)
+                        && !overlapping_claim_paths
+                            .iter()
+                            .any(|existing| existing == path)
                     {
                         overlapping_claim_paths.push(path.to_owned());
                     }

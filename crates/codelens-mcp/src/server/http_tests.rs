@@ -93,11 +93,7 @@ fn first_tool_payload(body: &str) -> serde_json::Value {
     payload
 }
 
-async fn initialize_profile_session(
-    app: &axum::Router,
-    trusted: bool,
-    profile: &str,
-) -> String {
+async fn initialize_profile_session(app: &axum::Router, trusted: bool, profile: &str) -> String {
     let mut request = Request::builder()
         .method("POST")
         .uri("/mcp")
@@ -258,7 +254,7 @@ async fn initialize_persists_client_metadata() {
         .and_then(|value| value.to_str().ok())
         .unwrap()
         .to_owned();
-    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    let session = state.session_store().unwrap().get(&sid).unwrap();
     let metadata = session.client_metadata();
     assert_eq!(metadata.client_name.as_deref(), Some("HarnessQA"));
     assert_eq!(metadata.client_version.as_deref(), Some("2.1.0"));
@@ -299,7 +295,7 @@ async fn initialize_profile_sets_http_session_surface_and_tools_list() {
         .unwrap()
         .to_owned();
 
-    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    let session = state.session_store().unwrap().get(&sid).unwrap();
     assert_eq!(
         session.surface(),
         crate::tool_defs::ToolSurface::Profile(crate::tool_defs::ToolProfile::ReviewerGraph)
@@ -362,7 +358,7 @@ async fn initialize_persists_deferred_loading_preference() {
         .and_then(|value| value.to_str().ok())
         .unwrap()
         .to_owned();
-    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    let session = state.session_store().unwrap().get(&sid).unwrap();
     let metadata = session.client_metadata();
     assert_eq!(metadata.deferred_tool_loading, Some(true));
     assert!(metadata.loaded_namespaces.is_empty());
@@ -394,7 +390,7 @@ async fn initialize_codex_defaults_to_deferred_loading() {
         .and_then(|value| value.to_str().ok())
         .unwrap()
         .to_owned();
-    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    let session = state.session_store().unwrap().get(&sid).unwrap();
     let metadata = session.client_metadata();
     assert_eq!(metadata.deferred_tool_loading, Some(true));
 }
@@ -423,7 +419,7 @@ async fn initialize_claude_defaults_to_full_contract() {
         .and_then(|value| value.to_str().ok())
         .unwrap()
         .to_owned();
-    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    let session = state.session_store().unwrap().get(&sid).unwrap();
     let metadata = session.client_metadata();
     assert_eq!(metadata.deferred_tool_loading, Some(false));
 }
@@ -867,8 +863,7 @@ async fn session_bound_missing_project_fails_closed() {
 
     let missing = temp_project_dir("missing").join("gone");
     state
-        .session_store
-        .as_ref()
+        .session_store()
         .unwrap()
         .get(&sid)
         .unwrap()
@@ -2560,7 +2555,7 @@ async fn initialize_with_existing_session_resumes_same_session() {
     assert!(body.contains("\"resumed\":true"));
     assert!(body.contains(&sid));
 
-    let session = state.session_store.as_ref().unwrap().get(&sid).unwrap();
+    let session = state.session_store().unwrap().get(&sid).unwrap();
     assert_eq!(session.resume_count(), 1);
     let metadata = session.client_metadata();
     assert_eq!(metadata.client_version.as_deref(), Some("2.2.0"));
@@ -2873,11 +2868,11 @@ async fn delete_returns_no_content() {
 #[tokio::test]
 async fn delete_removes_session() {
     let state = test_state();
-    let session = state.session_store.as_ref().unwrap().create();
+    let session = state.session_store().unwrap().create();
     let sid = session.id.clone();
 
     // Verify session exists
-    assert!(state.session_store.as_ref().unwrap().get(&sid).is_some());
+    assert!(state.session_store().unwrap().get(&sid).is_some());
 
     let app = build_router(state.clone());
     let resp = app
@@ -2894,7 +2889,7 @@ async fn delete_removes_session() {
 
     assert_eq!(resp.status(), StatusCode::NO_CONTENT);
     assert!(
-        state.session_store.as_ref().unwrap().get(&sid).is_none(),
+        state.session_store().unwrap().get(&sid).is_none(),
         "session should be removed after DELETE"
     );
 }

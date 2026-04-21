@@ -15,6 +15,7 @@ pub(super) fn watcher_failure_health(state: &AppState) -> WatcherFailureHealth {
         .unwrap_or_default();
     let scope = state.current_project_scope();
     let pruned_missing_failures = state
+        .project_runtime
         .watcher_maintenance
         .lock()
         .unwrap_or_else(|p| p.into_inner())
@@ -42,6 +43,7 @@ pub(super) fn prune_index_failures(
         db.prune_missing_index_failures(project.as_path())?
     };
     state
+        .project_runtime
         .watcher_maintenance
         .lock()
         .unwrap_or_else(|p| p.into_inner())

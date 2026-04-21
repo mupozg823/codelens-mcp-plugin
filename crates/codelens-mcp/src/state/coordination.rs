@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::agent_coordination::{AgentRegistration, FileClaimRequest};
 use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 
@@ -114,7 +115,7 @@ fn infer_git_branch(project_root: &Path) -> String {
 
 impl AppState {
     pub(crate) fn coordination_snapshot_for_scope(&self, scope: &str) -> CoordinationSnapshot {
-        self.coord_store.snapshot(scope)
+        self.coordination_runtime.coord_store.snapshot(scope)
     }
 
     pub(crate) fn coordination_counts_for_scope(&self, scope: &str) -> CoordinationCounts {
@@ -132,14 +133,16 @@ impl AppState {
         let worktree = crate::tool_runtime::required_string(arguments, "worktree")?;
         let intent = crate::tool_runtime::required_string(arguments, "intent")?;
         let scope = self.project_scope_for_session(&session);
-        Ok(self.coord_store.register_agent_work(
+        Ok(self.coordination_runtime.coord_store.register_agent_work(
             &scope,
-            &session_id,
-            agent_name,
-            branch,
-            worktree,
-            intent,
-            coordination_ttl_seconds(arguments),
+            AgentRegistration {
+                session_id: &session_id,
+                agent_name,
+                branch,
+                worktree,
+                intent,
+                ttl_secs: coordination_ttl_seconds(arguments),
+            },
         ))
     }
 
@@ -148,7 +151,8 @@ impl AppState {
         arguments: &Value,
     ) -> Vec<ActiveAgentEntry> {
         let session = SessionRequestContext::from_json(arguments);
-        self.coord_store
+        self.coordination_runtime
+            .coord_store
             .active_agents(&self.project_scope_for_session(&session))
     }
 
@@ -167,15 +171,17 @@ impl AppState {
             .unwrap_or_else(|| session_id.clone());
         let fallback_worktree = self.project().as_path().to_string_lossy().to_string();
         let fallback_branch = infer_git_branch(self.project().as_path());
-        Ok(self.coord_store.claim_files(
+        Ok(self.coordination_runtime.coord_store.claim_files(
             &scope,
-            &session_id,
-            &fallback_agent_name,
-            &fallback_branch,
-            &fallback_worktree,
-            paths,
-            reason,
-            coordination_ttl_seconds(arguments),
+            FileClaimRequest {
+                session_id: &session_id,
+                fallback_agent_name: &fallback_agent_name,
+                fallback_branch: &fallback_branch,
+                fallback_worktree: &fallback_worktree,
+                paths,
+                reason,
+                ttl_secs: coordination_ttl_seconds(arguments),
+            },
         ))
     }
 
@@ -187,8 +193,10 @@ impl AppState {
         let session_id = resolve_coordination_session_id(&session, arguments)?;
         let paths = normalized_claim_paths(self, arguments)?;
         let scope = self.project_scope_for_session(&session);
-        let (released_paths, remaining_claim) =
-            self.coord_store.release_files(&scope, &session_id, &paths);
+        let (released_paths, remaining_claim) = self
+            .coordination_runtime
+            .coord_store
+            .release_files(&scope, &session_id, &paths);
         Ok((session_id, released_paths, remaining_claim))
     }
 
@@ -200,7 +208,7 @@ impl AppState {
         let session = SessionRequestContext::from_json(arguments);
         let session_id = resolve_coordination_session_id(&session, arguments)
             .unwrap_or_else(|_| session.session_id.clone());
-        self.coord_store.overlapping_claims(
+        self.coordination_runtime.coord_store.overlapping_claims(
             &self.project_scope_for_session(&session),
             &session_id,
             target_paths,
@@ -237,6 +245,6 @@ impl AppState {
     /// metrics so an operator can decide whether the single-mutex design
     /// needs to be sharded before adding any new structure.
     pub(crate) fn coordination_lock_stats(&self) -> CoordinationLockStats {
-        self.coord_store.lock_stats()
+        self.coordination_runtime.coord_store.lock_stats()
     }
 }

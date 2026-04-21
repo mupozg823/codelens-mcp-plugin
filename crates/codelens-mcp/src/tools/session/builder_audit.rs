@@ -5,9 +5,9 @@ use super::audit_common::{
 use crate::AppState;
 use crate::error::CodeLensError;
 use crate::mutation::gate::is_refactor_gated_mutation_tool;
+use crate::observability::telemetry::ToolInvocation;
 use crate::protocol::BackendKind;
 use crate::session_context::SessionRequestContext;
-use crate::observability::telemetry::ToolInvocation;
 use crate::tool_runtime::{ToolResult, success_meta};
 use serde_json::{Value, json};
 

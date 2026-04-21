@@ -156,10 +156,10 @@ fn bench_gate_find_symbol_primitive_mode_matches_serena_byte_envelope() {
     // Serena-parity envelope directly so the gate fails loudly if a
     // future change silently re-introduces scaffold bytes.
     let baseline = baseline_json();
-    let primitive_ceiling = baseline["tasks"]["find_symbol_body"]["target_after_phase_p1"]
-        ["payload_bytes_max"]
-        .as_u64()
-        .unwrap_or(900) as usize;
+    let primitive_ceiling =
+        baseline["tasks"]["find_symbol_body"]["target_after_phase_p1"]["payload_bytes_max"]
+            .as_u64()
+            .unwrap_or(900) as usize;
 
     let project = fixture_with_widget();
     let state = make_state(&project);

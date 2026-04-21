@@ -15,14 +15,15 @@ mod error;
 mod job_store;
 mod limits;
 mod mutation;
+mod observability;
 mod operator;
 mod preflight_store;
 mod prompts;
 mod protocol;
-mod observability;
 mod registry;
 mod resources;
 mod retrieval;
+#[cfg(test)]
 mod routing_policy;
 mod runtime_types;
 mod server;
@@ -39,7 +40,7 @@ pub(crate) use state::AppState;
 
 use anyhow::Result;
 #[cfg(feature = "http")]
-use cli::format_http_startup_banner;
+use cli::{HttpStartupBanner, format_http_startup_banner};
 use cli::{
     attach_host_arg, cli_option_value, is_attach_subcommand, is_detach_subcommand,
     is_doctor_subcommand, render_attach_instructions, resolve_startup_project, run_detach_command,
@@ -272,16 +273,16 @@ fn main() -> Result<()> {
 
     #[cfg(feature = "http")]
     if transport == "http" {
-        let startup_banner = format_http_startup_banner(
-            app_state.project().as_path(),
-            &project_source,
-            app_state.surface().as_label(),
-            app_state.token_budget(),
-            app_state.daemon_mode(),
-            app_state.coordination_mode(),
+        let startup_banner = format_http_startup_banner(&HttpStartupBanner {
+            project_root: app_state.project().as_path(),
+            project_source: &project_source,
+            surface_label: app_state.surface().as_label(),
+            token_budget: app_state.token_budget(),
+            daemon_mode: app_state.daemon_mode(),
+            coordination_mode: app_state.coordination_mode(),
             port,
-            app_state.daemon_started_at(),
-        );
+            daemon_started_at: app_state.daemon_started_at(),
+        });
         // Intentionally `warn!`: the default CODELENS_LOG filter is `warn`,
         // so a session-start marker must be visible without requiring users
         // to opt into `info` logging. This gives appended daemon logs an

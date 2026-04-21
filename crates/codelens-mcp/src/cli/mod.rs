@@ -10,9 +10,7 @@
 
 mod host_adapter;
 
-pub(crate) use host_adapter::{
-    render_attach_instructions, run_detach_command, run_doctor_command,
-};
+pub(crate) use host_adapter::{render_attach_instructions, run_detach_command, run_doctor_command};
 
 use crate::state::RuntimeDaemonMode;
 use anyhow::{Context, Result};
@@ -182,30 +180,37 @@ pub(crate) fn cli_option_value(args: &[String], flag: &str) -> Option<String> {
 /// is `warn`, so session-start markers are visible without users
 /// having to opt into `info` logging.
 #[cfg_attr(not(feature = "http"), allow(dead_code))]
-pub(crate) fn format_http_startup_banner(
-    project_root: &std::path::Path,
-    project_source: &StartupProjectSource,
-    surface_label: &str,
-    token_budget: usize,
-    daemon_mode: RuntimeDaemonMode,
-    coordination_mode: crate::state::RuntimeCoordinationMode,
-    port: u16,
-    daemon_started_at: &str,
-) -> String {
-    let escaped_project_root = project_root.display().to_string().replace('"', "\\\"");
+pub(crate) struct HttpStartupBanner<'a> {
+    pub project_root: &'a std::path::Path,
+    pub project_source: &'a StartupProjectSource,
+    pub surface_label: &'a str,
+    pub token_budget: usize,
+    pub daemon_mode: RuntimeDaemonMode,
+    pub coordination_mode: crate::state::RuntimeCoordinationMode,
+    pub port: u16,
+    pub daemon_started_at: &'a str,
+}
+
+#[cfg_attr(not(feature = "http"), allow(dead_code))]
+pub(crate) fn format_http_startup_banner(banner: &HttpStartupBanner<'_>) -> String {
+    let escaped_project_root = banner
+        .project_root
+        .display()
+        .to_string()
+        .replace('"', "\\\"");
     format!(
         "CODELENS_SESSION_START pid={} transport=http port={} project_root=\"{}\" project_source=\"{}\" surface={} token_budget={} daemon_mode={} coordination_mode={} git_sha={} build_time={} daemon_started_at={} git_dirty={}",
         std::process::id(),
-        port,
+        banner.port,
         escaped_project_root,
-        project_source.label(),
-        surface_label,
-        token_budget,
-        daemon_mode.as_str(),
-        coordination_mode.as_str(),
+        banner.project_source.label(),
+        banner.surface_label,
+        banner.token_budget,
+        banner.daemon_mode.as_str(),
+        banner.coordination_mode.as_str(),
         crate::build_info::BUILD_GIT_SHA,
         crate::build_info::BUILD_TIME,
-        daemon_started_at,
+        banner.daemon_started_at,
         crate::build_info::build_git_dirty()
     )
 }
@@ -282,16 +287,16 @@ mod startup_tests {
     /// removal.
     #[test]
     fn http_startup_banner_includes_runtime_identity_fields() {
-        let banner = super::format_http_startup_banner(
-            std::path::Path::new("/tmp/repo"),
-            &StartupProjectSource::McpEnv("/tmp/repo".to_owned()),
-            "builder-minimal",
-            2400,
-            crate::state::RuntimeDaemonMode::Standard,
-            crate::state::RuntimeCoordinationMode::Advisory,
-            7837,
-            "2026-04-11T19:49:55Z",
-        );
+        let banner = super::format_http_startup_banner(&super::HttpStartupBanner {
+            project_root: std::path::Path::new("/tmp/repo"),
+            project_source: &StartupProjectSource::McpEnv("/tmp/repo".to_owned()),
+            surface_label: "builder-minimal",
+            token_budget: 2400,
+            daemon_mode: crate::state::RuntimeDaemonMode::Standard,
+            coordination_mode: crate::state::RuntimeCoordinationMode::Advisory,
+            port: 7837,
+            daemon_started_at: "2026-04-11T19:49:55Z",
+        });
         assert!(banner.starts_with("CODELENS_SESSION_START pid="));
         assert!(banner.contains("transport=http"));
         assert!(banner.contains("port=7837"));

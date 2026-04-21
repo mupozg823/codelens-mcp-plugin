@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use crate::analysis_queue::{analysis_job_cost_units, AnalysisJobRequest, AnalysisWorkerQueue};
+use crate::analysis_queue::{AnalysisJobRequest, AnalysisWorkerQueue, analysis_job_cost_units};
 use crate::error::CodeLensError;
 use crate::runtime_types::{
     AnalysisArtifact, AnalysisJob, AnalysisReadiness, AnalysisSummary, AnalysisVerifierCheck,
@@ -21,6 +21,7 @@ impl AppState {
         profile_hint: Option<String>,
     ) -> Result<(), CodeLensError> {
         let (depth, weighted_depth, priority_promoted) = self
+            .analysis_runtime
             .analysis_queue
             .get_or_init(|| AnalysisWorkerQueue::new(self))
             .enqueue(AnalysisJobRequest {
@@ -30,8 +31,11 @@ impl AppState {
                 arguments,
                 profile_hint,
             })?;
-        self.metrics
-            .record_analysis_job_enqueued(depth, weighted_depth, priority_promoted);
+        self.telemetry_runtime.metrics.record_analysis_job_enqueued(
+            depth,
+            weighted_depth,
+            priority_promoted,
+        );
         Ok(())
     }
 
@@ -40,6 +44,7 @@ impl AppState {
         &self,
         scope: &str,
         kind: &str,
+        arguments: Value,
         profile_hint: Option<String>,
         estimated_sections: Vec<String>,
         status: JobLifecycle,
@@ -48,8 +53,9 @@ impl AppState {
         analysis_id: Option<String>,
         error: Option<String>,
     ) -> Result<AnalysisJob, CodeLensError> {
-        self.job_store.store(
+        self.analysis_runtime.job_store.store(
             kind,
+            arguments,
             profile_hint,
             estimated_sections,
             status,
@@ -68,6 +74,7 @@ impl AppState {
     pub(crate) fn store_analysis_job_for_current_scope(
         &self,
         kind: &str,
+        arguments: Value,
         profile_hint: Option<String>,
         estimated_sections: Vec<String>,
         status: JobLifecycle,
@@ -79,6 +86,7 @@ impl AppState {
         self.store_analysis_job(
             &self.current_project_scope(),
             kind,
+            arguments,
             profile_hint,
             estimated_sections,
             status,
@@ -94,7 +102,9 @@ impl AppState {
         scope: &str,
         status_filter: Option<&str>,
     ) -> Vec<AnalysisJob> {
-        self.job_store.list(status_filter, Some(scope))
+        self.analysis_runtime
+            .job_store
+            .list(status_filter, Some(scope))
     }
 
     pub(crate) fn get_analysis_job_for_scope(
@@ -102,7 +112,7 @@ impl AppState {
         scope: &str,
         job_id: &str,
     ) -> Option<AnalysisJob> {
-        let job = self.job_store.get(job_id, Some(scope))?;
+        let job = self.analysis_runtime.job_store.get(job_id, Some(scope))?;
         // Cross-concern: warm artifact cache when job references an analysis
         if let Some(analysis_id) = job.analysis_id.as_deref() {
             let _ = self.get_analysis_for_scope(scope, analysis_id);
@@ -120,9 +130,14 @@ impl AppState {
         scope: &str,
         job_id: &str,
     ) -> Result<AnalysisJob, CodeLensError> {
-        let job = self.job_store.cancel(job_id, Some(scope))?;
+        let job = self
+            .analysis_runtime
+            .job_store
+            .cancel(job_id, Some(scope))?;
         if job.status == JobLifecycle::Cancelled {
-            self.metrics.record_analysis_job_cancelled(0, 0);
+            self.telemetry_runtime
+                .metrics
+                .record_analysis_job_cancelled(0, 0);
         }
         Ok(job)
     }
@@ -139,7 +154,7 @@ impl AppState {
         analysis_id: Option<Option<String>>,
         error: Option<Option<String>>,
     ) -> Result<AnalysisJob, CodeLensError> {
-        self.job_store.update(
+        self.analysis_runtime.job_store.update(
             job_id,
             status,
             progress,
@@ -188,7 +203,7 @@ impl AppState {
         verifier_checks: Vec<AnalysisVerifierCheck>,
         sections: std::collections::BTreeMap<String, serde_json::Value>,
     ) -> Result<AnalysisArtifact, CodeLensError> {
-        let artifact = self.artifact_store.store(
+        let artifact = self.analysis_runtime.artifact_store.store(
             tool_name,
             self.surface().as_label(),
             scope.to_owned(),
@@ -246,7 +261,7 @@ impl AppState {
         tool_name: &str,
         cache_key: &str,
     ) -> Option<AnalysisArtifact> {
-        self.artifact_store.find_reusable(
+        self.analysis_runtime.artifact_store.find_reusable(
             tool_name,
             cache_key,
             self.surface().as_label(),
@@ -267,7 +282,9 @@ impl AppState {
         scope: &str,
         analysis_id: &str,
     ) -> Option<AnalysisArtifact> {
-        self.artifact_store.get(analysis_id, Some(scope))
+        self.analysis_runtime
+            .artifact_store
+            .get(analysis_id, Some(scope))
     }
 
     pub(crate) fn get_analysis(&self, analysis_id: &str) -> Option<AnalysisArtifact> {
@@ -275,7 +292,9 @@ impl AppState {
     }
 
     pub(crate) fn list_analysis_summaries_for_scope(&self, scope: &str) -> Vec<AnalysisSummary> {
-        self.artifact_store.list_summaries(Some(scope))
+        self.analysis_runtime
+            .artifact_store
+            .list_summaries(Some(scope))
     }
 
     pub(crate) fn list_analysis_summaries(&self) -> Vec<AnalysisSummary> {
@@ -293,7 +312,8 @@ impl AppState {
     /// summaries, NOT full artifacts: callers fetch heavy sections
     /// on demand via `get_analysis_section`.
     pub(crate) fn shared_analysis_pool_snapshot(&self, limit: usize) -> Vec<serde_json::Value> {
-        self.artifact_store
+        self.analysis_runtime
+            .artifact_store
             .list_summaries(None)
             .into_iter()
             .take(limit)
@@ -314,7 +334,9 @@ impl AppState {
         analysis_id: &str,
         section: &str,
     ) -> Result<serde_json::Value, CodeLensError> {
-        self.artifact_store.get_section(analysis_id, section)
+        self.analysis_runtime
+            .artifact_store
+            .get_section(analysis_id, section)
     }
 
     pub(crate) fn peek_analysis_section(
@@ -322,7 +344,9 @@ impl AppState {
         analysis_id: &str,
         section: &str,
     ) -> Result<serde_json::Value, CodeLensError> {
-        self.artifact_store.get_section(analysis_id, section)
+        self.analysis_runtime
+            .artifact_store
+            .get_section(analysis_id, section)
     }
 
     #[cfg(test)]
@@ -331,7 +355,8 @@ impl AppState {
         analysis_id: &str,
         created_at_ms: u64,
     ) -> Result<(), CodeLensError> {
-        self.artifact_store
+        self.analysis_runtime
+            .artifact_store
             .set_created_at_for_test(analysis_id, created_at_ms)
             .map_err(|e| CodeLensError::Internal(e.into()))
     }

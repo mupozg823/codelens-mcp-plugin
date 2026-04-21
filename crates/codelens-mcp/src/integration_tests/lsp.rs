@@ -61,7 +61,9 @@ fn find_referencing_symbols_exposes_container_and_snippet() {
         "container.name_path must be a non-empty string; got={container}"
     );
     assert!(
-        container["signature"].as_str().is_some_and(|s| !s.is_empty()),
+        container["signature"]
+            .as_str()
+            .is_some_and(|s| !s.is_empty()),
         "container.signature must be non-empty so the harness can identify the enclosing symbol; got={container}"
     );
     let snippet = &call_ref["snippet"];

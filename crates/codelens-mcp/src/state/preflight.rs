@@ -23,7 +23,7 @@ impl AppState {
     }
 
     pub(crate) fn clear_recent_preflights(&self) {
-        self.preflight_store.clear();
+        self.session_signals.preflight_store.clear();
     }
 
     pub(crate) fn normalize_target_path(&self, path: &str) -> String {
@@ -79,7 +79,7 @@ impl AppState {
             &self.project_scope_for_arguments(arguments),
             logical_session,
         );
-        self.preflight_store.record_from_payload(
+        self.session_signals.preflight_store.record_from_payload(
             key,
             tool_name,
             surface,
@@ -95,7 +95,8 @@ impl AppState {
         session: &crate::session_context::SessionRequestContext,
         logical_session: &str,
     ) -> Option<RecentPreflight> {
-        self.preflight_store
+        self.session_signals
+            .preflight_store
             .get(&self.preflight_key_for_session(session, logical_session))
     }
 
@@ -105,7 +106,7 @@ impl AppState {
         logical_session: &str,
         timestamp_ms: u64,
     ) {
-        self.preflight_store.set_timestamp_for_test(
+        self.session_signals.preflight_store.set_timestamp_for_test(
             &self.preflight_key_for_scope(&self.current_project_scope(), logical_session),
             timestamp_ms,
         );

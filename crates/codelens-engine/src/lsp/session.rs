@@ -137,21 +137,18 @@ fn get_or_start_session(
             }
         };
         if !dead {
-            let ready = readiness
-                .get(&key)
-                .map(|r| r.clone())
-                .unwrap_or_else(|| {
-                    // Defensive: if readiness was somehow pruned under
-                    // a live session, reattach a fresh marker rather
-                    // than panic. The observable effect is a reset
-                    // timer for this session, which is benign.
-                    let r = Arc::new(super::readiness::ReadinessState::new(
-                        command.to_owned(),
-                        args.to_owned(),
-                    ));
-                    readiness.insert(key.clone(), r.clone());
-                    r
-                });
+            let ready = readiness.get(&key).map(|r| r.clone()).unwrap_or_else(|| {
+                // Defensive: if readiness was somehow pruned under
+                // a live session, reattach a fresh marker rather
+                // than panic. The observable effect is a reset
+                // timer for this session, which is benign.
+                let r = Arc::new(super::readiness::ReadinessState::new(
+                    command.to_owned(),
+                    args.to_owned(),
+                ));
+                readiness.insert(key.clone(), r.clone());
+                r
+            });
             return Ok((arc, ready));
         }
         sessions.remove(&key);
@@ -165,17 +162,14 @@ fn get_or_start_session(
     match sessions.entry(key.clone()) {
         Entry::Occupied(e) => {
             let arc = e.get().clone();
-            let ready = readiness
-                .get(&key)
-                .map(|r| r.clone())
-                .unwrap_or_else(|| {
-                    let r = Arc::new(super::readiness::ReadinessState::new(
-                        command.to_owned(),
-                        args.to_owned(),
-                    ));
-                    readiness.insert(key.clone(), r.clone());
-                    r
-                });
+            let ready = readiness.get(&key).map(|r| r.clone()).unwrap_or_else(|| {
+                let r = Arc::new(super::readiness::ReadinessState::new(
+                    command.to_owned(),
+                    args.to_owned(),
+                ));
+                readiness.insert(key.clone(), r.clone());
+                r
+            });
             Ok((arc, ready))
         }
         Entry::Vacant(e) => {

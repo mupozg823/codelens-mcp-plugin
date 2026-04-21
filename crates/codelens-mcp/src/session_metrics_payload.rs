@@ -373,7 +373,9 @@ pub(crate) fn build_session_metrics_payload(
     );
     session_json.insert(
         "p95_tool_latency_ms".to_owned(),
-        json!(crate::observability::telemetry::percentile_95(&session.latency_samples)),
+        json!(crate::observability::telemetry::percentile_95(
+            &session.latency_samples
+        )),
     );
     session_json.insert("timeline_length".to_owned(), json!(session.timeline.len()));
 
@@ -473,7 +475,9 @@ pub(crate) fn build_session_metrics_payload(
 }
 
 /// Classify the session based on tool call patterns in the timeline.
-fn infer_session_type(timeline: &[crate::observability::telemetry::ToolInvocation]) -> &'static str {
+fn infer_session_type(
+    timeline: &[crate::observability::telemetry::ToolInvocation],
+) -> &'static str {
     let mut mutation_count = 0u32;
     let mut review_count = 0u32;
     let mut exploration_count = 0u32;
@@ -499,8 +503,6 @@ fn infer_session_type(timeline: &[crate::observability::telemetry::ToolInvocatio
             | "get_impact_analysis"
             | "diff_aware_references"
             | "review_architecture"
-            | "analyze_change_impact"
-            | "audit_security_context"
             | "cleanup_duplicate_logic"
             | "impact_report"
             | "verify_change_readiness" => review_count += 1,

@@ -12,6 +12,7 @@ pub(super) fn http_session_state(
         return None;
     }
     state
+        .runtime_config
         .session_store
         .as_ref()
         .and_then(|store| store.get(&session.session_id))
@@ -50,7 +51,7 @@ pub(super) fn set_session_surface_and_budget(
     surface: ToolSurface,
     budget: usize,
 ) {
-    if let Some(store) = &state.session_store
+    if let Some(store) = &state.runtime_config.session_store
         && let Some(session) = store.get(session_id)
     {
         session.set_surface(surface);
@@ -129,7 +130,7 @@ pub(super) fn doom_loop_count_for_session(
 
 #[cfg(feature = "http")]
 pub(super) fn bind_project_to_session(state: &AppState, session_id: &str, project_path: &str) {
-    if let Some(store) = &state.session_store
+    if let Some(store) = &state.runtime_config.session_store
         && let Some(session) = store.get(session_id)
     {
         session.set_project_path(project_path);
@@ -145,6 +146,7 @@ pub(super) fn ensure_session_project<'a>(
         return Ok(None);
     };
     let guard = state
+        .coordination_runtime
         .project_execution_lock
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());

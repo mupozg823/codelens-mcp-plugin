@@ -143,7 +143,7 @@ fn rename_vs_grep_exhaustive() {
     let grep1 = grep_all_occurrences(root, "PatternMatch");
     let result1 = rename_symbol(
         &project,
-        "src/file_ops/mod.rs",
+        "src/file_ops/types.rs",
         "PatternMatch",
         "X",
         None,
@@ -200,7 +200,7 @@ fn rename_vs_grep_exhaustive() {
     let grep4 = grep_all_occurrences(root, "EnclosingSymbol");
     let result4 = rename_symbol(
         &project,
-        "src/file_ops/mod.rs",
+        "src/file_ops/types.rs",
         "EnclosingSymbol",
         "X",
         None,

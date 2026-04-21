@@ -1,14 +1,14 @@
+use crate::AppState;
 use crate::error::CodeLensError;
 use crate::session_context::SessionRequestContext;
 use crate::tool_defs::ToolSurface;
 use crate::tool_runtime::ToolResult;
-use crate::AppState;
 use serde_json::Value;
 
 use super::table::DISPATCH_TABLE;
 use crate::mutation::gate::{
-    evaluate_mutation_gate, is_refactor_gated_mutation_tool, MutationGateAllowance,
-    MutationGateFailure,
+    MutationGateAllowance, MutationGateFailure, evaluate_mutation_gate,
+    is_refactor_gated_mutation_tool,
 };
 
 /// Orchestrates tool discovery, validation, and lifecycle execution.
@@ -34,8 +34,8 @@ impl<'a> QueryEngine<'a> {
         Option<MutationGateAllowance>,
         Option<MutationGateFailure>,
     ) {
-        let tool = match DISPATCH_TABLE.get(name) {
-            Some(t) => t,
+        let handler = match DISPATCH_TABLE.get(name).copied() {
+            Some(handler) => handler,
             None => {
                 return (
                     Err(CodeLensError::ToolNotFound(name.to_owned())),
@@ -45,24 +45,13 @@ impl<'a> QueryEngine<'a> {
             }
         };
 
-        if !tool.is_enabled(self.state) {
-            return (
-                Err(CodeLensError::Validation(format!(
-                    "Tool {} is currently disabled",
-                    name
-                ))),
-                None,
-                None,
-            );
-        }
-
         if is_refactor_gated_mutation_tool(name) {
             self.state
                 .metrics()
                 .record_mutation_preflight_checked_for_session(Some(session.session_id.as_str()));
             match evaluate_mutation_gate(self.state, name, session, surface, arguments) {
                 Ok(allowance) => {
-                    let result = tool.execute(self.state, arguments);
+                    let result = handler(self.state, arguments);
                     broadcast_workflow_cache_invalidation(self.state, name, &result);
                     (result, allowance, None)
                 }
@@ -92,7 +81,7 @@ impl<'a> QueryEngine<'a> {
                 }
             }
         } else {
-            let result = tool.execute(self.state, arguments);
+            let result = handler(self.state, arguments);
             broadcast_workflow_cache_invalidation(self.state, name, &result);
             (result, None, None)
         }

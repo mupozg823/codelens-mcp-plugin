@@ -315,58 +315,6 @@ pub enum DiagnosticSeverity {
 }
 
 // ---------------------------------------------------------------------------
-// Precise backend trait (fast/precise path separation)
-// ---------------------------------------------------------------------------
-
-/// Trait for optional precise code intelligence backends (LSP, SCIP).
-///
-/// The engine's default fast path uses tree-sitter for all operations.
-/// When a precise backend is available, it supplements or replaces
-/// tree-sitter results with type-aware, cross-file intelligence.
-///
-/// Implementors: `ScipIndex` (planned), `LspClient` (planned).
-///
-/// # Usage
-///
-/// ```ignore
-/// if let Some(precise) = engine.precise_backend() {
-///     let defs = precise.find_definitions("MyStruct", "src/lib.rs", 42)?;
-///     // defs carry IntelligenceSource::Scip or ::Lsp
-/// } else {
-///     // fall back to tree-sitter search
-/// }
-/// ```
-pub trait PreciseBackend: Send + Sync {
-    /// Find definitions of a symbol at the given location.
-    fn find_definitions(
-        &self,
-        symbol: &str,
-        file_path: &str,
-        line: usize,
-    ) -> anyhow::Result<Vec<SearchCandidate>>;
-
-    /// Find all references to a symbol at the given location.
-    fn find_references(
-        &self,
-        symbol: &str,
-        file_path: &str,
-        line: usize,
-    ) -> anyhow::Result<Vec<SearchCandidate>>;
-
-    /// Get hover documentation for a symbol.
-    fn hover(&self, file_path: &str, line: usize, column: usize) -> anyhow::Result<Option<String>>;
-
-    /// Get diagnostics for a file.
-    fn diagnostics(&self, file_path: &str) -> anyhow::Result<Vec<CodeDiagnostic>>;
-
-    /// Which intelligence source this backend provides.
-    fn source(&self) -> IntelligenceSource;
-
-    /// Whether this backend has an index for the given file.
-    fn has_index_for(&self, file_path: &str) -> bool;
-}
-
-// ---------------------------------------------------------------------------
 // Retrieval config defaults
 // ---------------------------------------------------------------------------
 

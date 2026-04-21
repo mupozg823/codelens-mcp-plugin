@@ -10,12 +10,12 @@ use super::AppState;
 impl AppState {
     /// Access the tool metrics registry.
     pub(crate) fn metrics(&self) -> &ToolMetricsRegistry {
-        self.metrics.as_ref()
+        self.telemetry_runtime.metrics.as_ref()
     }
 
     /// Record a tool call in the recent tools ring buffer.
     pub(crate) fn push_recent_tool(&self, name: &str) {
-        self.recent_tools.push(name.to_owned());
+        self.session_signals.recent_tools.push(name.to_owned());
     }
 
     /// Doom-loop detection: returns (repeat_count, is_rapid_burst).
@@ -31,6 +31,7 @@ impl AppState {
         args_hash: u64,
     ) -> (usize, bool) {
         let mut counters = self
+            .session_signals
             .doom_loop_counter
             .lock()
             .unwrap_or_else(|p| p.into_inner());
@@ -49,37 +50,40 @@ impl AppState {
 
     /// Get the recent tool call names (up to 5).
     pub(crate) fn recent_tools(&self) -> Vec<String> {
-        self.recent_tools.snapshot()
+        self.session_signals.recent_tools.snapshot()
     }
 
     /// Record a file path as recently accessed (for ranking boost).
     pub(crate) fn record_file_access(&self, path: &str) {
-        self.recent_files.push_dedup(path);
+        self.session_signals.recent_files.push_dedup(path);
     }
 
     /// Get recently accessed file paths (most recent last).
     pub(crate) fn recent_file_paths(&self) -> Vec<String> {
-        self.recent_files.snapshot()
+        self.session_signals.recent_files.snapshot()
     }
 
     /// Record an analysis_id for cross-phase context.
     pub(crate) fn push_recent_analysis_id(&self, id: String) {
-        self.recent_analysis_ids.push(id);
+        self.session_signals.recent_analysis_ids.push(id);
     }
 
     /// Get recent analysis IDs (most recent last).
     pub(crate) fn recent_analysis_ids(&self) -> Vec<String> {
-        self.recent_analysis_ids.snapshot()
+        self.session_signals.recent_analysis_ids.snapshot()
     }
 
     /// Current global token budget.
     pub(crate) fn token_budget(&self) -> usize {
-        self.token_budget.load(std::sync::atomic::Ordering::Relaxed)
+        self.runtime_config
+            .token_budget
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Set global token budget.
     pub(crate) fn set_token_budget(&self, budget: usize) {
-        self.token_budget
+        self.runtime_config
+            .token_budget
             .store(budget, std::sync::atomic::Ordering::Relaxed);
     }
 }

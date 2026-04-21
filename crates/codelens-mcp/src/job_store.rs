@@ -165,6 +165,7 @@ impl AnalysisJobStore {
     pub fn store(
         &self,
         kind: &str,
+        arguments: serde_json::Value,
         profile_hint: Option<String>,
         estimated_sections: Vec<String>,
         status: JobLifecycle,
@@ -181,6 +182,7 @@ impl AnalysisJobStore {
             id: id.clone(),
             kind: kind.to_owned(),
             project_scope: Some(project_scope),
+            arguments,
             status,
             progress,
             current_step,
@@ -368,6 +370,7 @@ mod tests {
         let job = store
             .store(
                 "impact_report",
+                serde_json::json!({"kind": "impact_report"}),
                 None,
                 vec!["impact_rows".to_owned()],
                 JobLifecycle::Running,

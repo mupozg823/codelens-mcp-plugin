@@ -55,18 +55,18 @@ fn set_preset_changes_tools_list() {
             jsonrpc: "2.0".to_owned(),
             id: Some(json!(1)),
             method: "tools/list".to_owned(),
-            params: Some(json!({"include_deprecated": true})),
+            params: None,
         },
     )
     .unwrap();
     let full_json = serde_json::to_string(&full_resp).unwrap();
     assert!(
-        !full_json.contains("find_dead_code"),
-        "Hidden compat aliases should stay out of tools/list even with include_deprecated"
+        full_json.contains("find_dead_code"),
+        "Full preset should expose the raw dead-code primitive alongside the workflow report"
     );
     assert!(
-        !full_json.contains("get_impact_analysis"),
-        "Hidden compat aliases should stay out of tools/list even with include_deprecated"
+        full_json.contains("get_impact_analysis"),
+        "Full preset should expose the raw impact primitive alongside the workflow report"
     );
     assert!(
         full_json.contains("dead_code_report"),
@@ -345,8 +345,10 @@ fn deferred_tools_list_defaults_to_preferred_namespaces_only() {
     .unwrap();
     let encoded = serde_json::to_string(&list_resp).unwrap();
     assert!(encoded.contains("\"deferred_loading_active\":true"));
-    assert!(encoded
-        .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]"));
+    assert!(
+        encoded
+            .contains("\"preferred_namespaces\":[\"reports\",\"graph\",\"symbols\",\"session\"]")
+    );
     assert!(encoded.contains("\"preferred_tiers\":[\"workflow\"]"));
     assert!(encoded.contains("\"loaded_tiers\":[]"));
     assert!(encoded.contains("\"review_architecture\""));
@@ -823,10 +825,12 @@ fn read_only_daemon_rejects_mutation_even_with_mutating_profile() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("blocked by daemon mode"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("blocked by daemon mode")
+    );
 }
 
 #[test]
@@ -845,10 +849,27 @@ fn hidden_tools_are_blocked_at_call_time() {
         json!({"relative_path": "blocked.txt", "content": "nope"}),
     );
     assert_eq!(payload["success"], json!(false));
-    assert!(payload["error"]
-        .as_str()
-        .unwrap_or("")
-        .contains("not available in active surface"));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not available in active surface")
+    );
+}
+
+#[test]
+fn unknown_tools_are_blocked_even_in_full_surface() {
+    let project = project_root();
+    let state = crate::AppState::new(project, crate::tool_defs::ToolPreset::Full);
+
+    let payload = call_tool(&state, "definitely_not_a_real_tool", json!({}));
+    assert_eq!(payload["success"], json!(false));
+    assert!(
+        payload["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("not available in active surface")
+    );
 }
 
 #[test]
@@ -873,9 +894,11 @@ fn watch_status_reports_lock_contention_field() {
     assert!(payload["data"].get("stale_index_failures").is_some());
     assert!(payload["data"].get("persistent_index_failures").is_some());
     assert!(payload["data"].get("pruned_missing_failures").is_some());
-    assert!(payload["data"]
-        .get("recent_failure_window_seconds")
-        .is_some());
+    assert!(
+        payload["data"]
+            .get("recent_failure_window_seconds")
+            .is_some()
+    );
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use super::super::AppState;
 #[cfg(feature = "semantic")]
-use super::super::query_analysis::{analyze_retrieval_query, RetrievalLane};
+use super::super::query_analysis::{RetrievalLane, analyze_retrieval_query};
 use codelens_engine::{RankedContextResult, SemanticMatch};
 use serde_json::{Value, json};
 

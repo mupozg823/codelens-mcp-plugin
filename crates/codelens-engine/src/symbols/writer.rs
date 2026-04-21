@@ -1,8 +1,8 @@
+use super::SymbolIndex;
 use super::parser::{flatten_symbols, parse_symbols};
 use super::types::{AnalyzedFile, IndexStats, ParsedSymbol};
-use super::SymbolIndex;
 use super::{collect_candidate_files, file_modified_ms, language_for_path};
-use crate::db::{self, content_hash, NewCall, NewImport, NewSymbol};
+use crate::db::{self, NewCall, NewImport, NewSymbol, content_hash};
 use crate::import_graph::{extract_imports_from_source, resolve_module_for_file};
 use crate::project::ProjectRoot;
 use anyhow::{Context, Result};

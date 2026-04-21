@@ -151,8 +151,10 @@ fn strict_coordination_applies(
     session: &crate::session_context::SessionRequestContext,
     surface: ToolSurface,
 ) -> bool {
-    matches!(state.coordination_mode(), crate::state::RuntimeCoordinationMode::Strict)
-        && matches!(surface, ToolSurface::Profile(ToolProfile::RefactorFull))
+    matches!(
+        state.coordination_mode(),
+        crate::state::RuntimeCoordinationMode::Strict
+    ) && matches!(surface, ToolSurface::Profile(ToolProfile::RefactorFull))
         && matches!(
             state.transport_mode(),
             crate::state::RuntimeTransportMode::Http

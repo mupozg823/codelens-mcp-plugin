@@ -1,6 +1,5 @@
 use crate::AppState;
 use crate::error::CodeLensError;
-use crate::tool_defs::deprecated_workflow_alias;
 use crate::tool_runtime::{ToolHandler, ToolResult};
 use serde_json::{Value, json};
 
@@ -10,27 +9,16 @@ use crate::protocol::BackendKind;
 use crate::tool_runtime::success_meta;
 
 fn attach_workflow_metadata(workflow: &str, delegated_tool: &str, payload: Value) -> Value {
-    let deprecation = deprecated_workflow_alias(workflow);
     match payload {
         Value::Object(mut map) => {
             map.insert("workflow".to_owned(), json!(workflow));
             map.insert("delegated_tool".to_owned(), json!(delegated_tool));
-            if let Some((replacement_tool, removal_target)) = deprecation {
-                map.insert("deprecated".to_owned(), json!(true));
-                map.insert("replacement_tool".to_owned(), json!(replacement_tool));
-                map.insert("removal_target".to_owned(), json!(removal_target));
-            }
             Value::Object(map)
         }
         other => {
             let mut map = serde_json::Map::new();
             map.insert("workflow".to_owned(), json!(workflow));
             map.insert("delegated_tool".to_owned(), json!(delegated_tool));
-            if let Some((replacement_tool, removal_target)) = deprecation {
-                map.insert("deprecated".to_owned(), json!(true));
-                map.insert("replacement_tool".to_owned(), json!(replacement_tool));
-                map.insert("removal_target".to_owned(), json!(removal_target));
-            }
             map.insert("result".to_owned(), other);
             Value::Object(map)
         }
@@ -169,34 +157,6 @@ pub fn plan_safe_refactor(state: &AppState, arguments: &Value) -> ToolResult {
     )
 }
 
-#[deprecated(
-    since = "1.12.0",
-    note = "Pure delegate. Call `semantic_code_review` directly. Scheduled for removal in v2.0."
-)]
-pub fn audit_security_context(state: &AppState, arguments: &Value) -> ToolResult {
-    delegate_workflow(
-        state,
-        "audit_security_context",
-        "semantic_code_review",
-        arguments.clone(),
-        crate::tools::reports::semantic_code_review,
-    )
-}
-
-#[deprecated(
-    since = "1.12.0",
-    note = "Pure delegate. Call `impact_report` directly. Scheduled for removal in v2.0."
-)]
-pub fn analyze_change_impact(state: &AppState, arguments: &Value) -> ToolResult {
-    delegate_workflow(
-        state,
-        "analyze_change_impact",
-        "impact_report",
-        arguments.clone(),
-        crate::tools::reports::impact_report,
-    )
-}
-
 pub fn review_changes(state: &AppState, arguments: &Value) -> ToolResult {
     if arguments
         .get("changed_files")
@@ -218,20 +178,6 @@ pub fn review_changes(state: &AppState, arguments: &Value) -> ToolResult {
         "impact_report",
         arguments.clone(),
         crate::tools::reports::impact_report,
-    )
-}
-
-#[deprecated(
-    since = "1.12.0",
-    note = "Pure delegate. Call `verify_change_readiness` directly. Scheduled for removal in v2.0."
-)]
-pub fn assess_change_readiness(state: &AppState, arguments: &Value) -> ToolResult {
-    delegate_workflow(
-        state,
-        "assess_change_readiness",
-        "verify_change_readiness",
-        arguments.clone(),
-        crate::tools::reports::verify_change_readiness,
     )
 }
 

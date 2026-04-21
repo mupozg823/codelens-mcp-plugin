@@ -7,6 +7,8 @@ This document is the authoritative source for CodeLens's public performance clai
 
 Scope note: MRR numbers here reflect **per-repo** measurement. The 5-repo cross-language matrix in §1a shows that the optimal retrieval arm (semantic / hybrid / lexical) **varies by repository** — there is no single blend that dominates across languages. Do not cite a single self or role MRR as evidence of a cross-language generalization.
 
+Claim discipline: `benchmarks/token-efficiency.py` measures prompt-budget / latency efficiency, not retrieval quality. Any claim that retrieval or downstream answer quality improved should cite `benchmarks/embedding-quality.py` or a same-query downstream A/B harness from the same build/profile family, and should include failure slices such as retrieval-failure-rate, top-k target-missing rate, and disambiguation misses.
+
 ---
 
 ## 1. Headline Numbers (what we claim publicly)
@@ -238,6 +240,9 @@ The compression ratio grows when agents would otherwise expand raw graph data (i
 
 - **MRR** (Mean Reciprocal Rank) — `1/rank` of the correct answer, averaged. Higher is better. `1.0` means always rank-1.
 - **Accuracy@k** — fraction of queries where the correct symbol lands in the top-k results.
+- **Retrieval-failure-rate** — fraction of queries where the correct symbol never appears in the returned top-k set at all.
+- **Top-k target-missing rate** — exact-label miss rate for the expected symbol/file pair inside the evaluation cutoff.
+- **Disambiguation misses** — cases where retrieval returns same-name or near-name distractors but not the intended symbol.
 
 ### Current promoted regression baselines
 

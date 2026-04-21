@@ -16,7 +16,7 @@ mod rate_limit;
 mod response;
 mod response_support;
 mod session;
-mod table;
+pub(crate) mod table;
 mod validation;
 
 use crate::AppState;
@@ -94,10 +94,14 @@ pub(crate) fn dispatch_tool(
     // the client did not supply `_harness_phase`. Composite guidance and
     // `suggested_next_tools` both consume this field, so auto-filling it
     // makes phase-aware hints work for clients that never set it explicitly.
+    let phase_recent_tools = match ctx.recent_tools.last() {
+        Some(last) if last == name => &ctx.recent_tools[..ctx.recent_tools.len().saturating_sub(1)],
+        _ => ctx.recent_tools.as_slice(),
+    };
     let harness_phase = envelope
         .harness_phase
         .clone()
-        .or_else(|| crate::tools::infer_harness_phase(&ctx.recent_tools).map(str::to_owned));
+        .or_else(|| crate::tools::infer_harness_phase(phase_recent_tools).map(str::to_owned));
     let _session_project_guard = match state.ensure_session_project(session) {
         Ok(guard) => guard,
         Err(project_err) => {

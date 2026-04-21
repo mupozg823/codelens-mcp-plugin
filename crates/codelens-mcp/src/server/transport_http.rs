@@ -179,7 +179,7 @@ pub(crate) async fn run_http(state: Arc<AppState>, port: u16) -> Result<()> {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
-            if let Some(store) = &cleanup_state.session_store {
+            if let Some(store) = cleanup_state.session_store() {
                 let removed = store.cleanup();
                 if removed > 0 {
                     tracing::debug!(removed, "expired sessions cleaned up");
@@ -280,7 +280,7 @@ async fn mcp_post_handler(
     // Validate session for non-initialize requests
     if !is_initialize
         && let Some(ref sid) = session_id
-        && let Some(store) = &state.session_store
+        && let Some(store) = state.session_store()
         && store.get(sid).is_none()
     {
         return (StatusCode::NOT_FOUND, "Unknown session").into_response();
@@ -289,7 +289,7 @@ async fn mcp_post_handler(
     // Inject session metadata into request params based on method
     if !is_initialize
         && let Some(ref sid) = session_id
-        && let Some(store) = &state.session_store
+        && let Some(store) = state.session_store()
     {
         match request.method.as_str() {
             "tools/call" => {
@@ -332,7 +332,7 @@ async fn mcp_post_handler(
         let (initial_surface, initial_budget) =
             initialize_surface_and_budget(&state, initialize_metadata.as_ref());
         create_initialize_session(
-            state.session_store.as_ref(),
+            state.session_store(),
             session_id.as_deref(),
             initialize_metadata,
             &state.current_project_scope(),
@@ -373,7 +373,7 @@ async fn mcp_get_handler(State(state): State<Arc<AppState>>, headers: HeaderMap)
         return (StatusCode::BAD_REQUEST, "Missing Mcp-Session-Id header").into_response();
     };
 
-    let store = match &state.session_store {
+    let store = match state.session_store() {
         Some(s) => s,
         None => {
             return (
@@ -416,7 +416,7 @@ async fn mcp_delete_handler(State(state): State<Arc<AppState>>, headers: HeaderM
         return (StatusCode::BAD_REQUEST, "Unsupported MCP-Protocol-Version").into_response();
     }
     if let Some(id) = headers.get("mcp-session-id").and_then(|v| v.to_str().ok())
-        && let Some(store) = &state.session_store
+        && let Some(store) = state.session_store()
     {
         store.remove(id);
         tracing::debug!(session_id = id, "session terminated by client");

@@ -1,7 +1,8 @@
-# ADR-0008 — Serena upper-compatible absorption (P1-P4 passive halves)
+# ADR-0008 — Serena upper-compatible absorption
 
 Date: 2026-04-19
 Status: Accepted
+Amended: 2026-04-21
 Supersedes: None
 Related: ADR-0005 (harness-v2), ADR-0007 (archived symbiote rebrand proposal)
 
@@ -35,21 +36,23 @@ A naive "ignore Serena" would leave four genuine gaps unaddressed.
 
 ## Decision
 
-Absorb Serena's strongest ideas as **passive halves first** under
-CodeLens's existing runtime gates and substrate contract. Concretely:
+Absorb Serena's strongest ideas under CodeLens's existing runtime
+gates and substrate contract. P1/P4 remain advisory aggregation
+layers; P2/P3 were later hardened so the exposed resources now report
+runtime truth instead of speculative future wiring. Concretely:
 
 | Phase | Serena idea                | CodeLens landing (passive)                                                                                                                                       | Active rerouting                                                                                        |
 | ----- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | P1    | context + mode composition | `HostContext` × `TaskOverlay` overlays on top of existing role profiles, compiled into a `SurfaceOverlayPlan`. Resource: `codelens://surface/overlay`.           | `prepare_harness_session` accepts the two args and compiles the plan — plan is advisory, not enforcing. |
-| P2    | backend abstraction        | `BackendCapability` enum + `SemanticBackend` trait with passive Rust engine / LSP bridge / SCIP bridge descriptors. Resource: `codelens://backend/capabilities`. | **Not yet.** Dispatch still calls engines directly.                                                     |
-| P3    | project + memory registry  | `MemoryScope::{Project, Global}` enum + `global_memory_dir()` + snapshots. Resources: `codelens://registry/projects`, `codelens://registry/memory-scopes`.       | **Not yet.** `write_memory`/`read_memory` still operate on project scope only.                          |
+| P2    | backend abstraction        | `BackendCapability` enum + runtime-backed Rust engine / LSP bridge / SCIP bridge reports. Resource: `codelens://backend/capabilities`.                            | Dispatch still calls engines directly, but the resource now reports only active, surface-reachable capabilities. |
+| P3    | project + memory registry  | Project registry snapshots + supported memory scopes. Resources: `codelens://registry/projects`, `codelens://registry/memory-scopes`.                             | `write_memory`/`read_memory` still operate on project scope only, and the resource reports only that supported scope. |
 | P4    | operator dashboard         | `build_operator_dashboard()` aggregator. Resource: `codelens://operator/dashboard`.                                                                              | Pure aggregator — no active rerouting planned.                                                          |
 
 **Layering contract:**
 
 ```
 Layer 1  Substrate kernel          (session, mutation gate, audit, handoff)
-Layer 2  Semantic backend adapters (this ADR, passive)
+Layer 2  Semantic backend reporting
 Layer 3  Surface compiler          (profile × host × task, this ADR)
 Layer 4  Host adapter contract     (attach/detach templates, replay)
 Layer 5  Operator plane            (dashboard, this ADR, passive)
@@ -67,25 +70,24 @@ this ADR does not mandate the dispatch rewiring.
   demonstrated without absorbing Serena's runtime coupling.
 - The passive-first shape keeps the public API stable; agents can
   adopt `host_context` / `task_overlay` / new resources incrementally.
-- Each passive half ships with `note: "Passive scaffold (Pn)…"` in
-  its resource payload so downstream agents cannot mistake contract
-  for active routing.
+- Runtime-facing resources now prefer factual capability/scope reports
+  over speculative disclosures, so downstream agents are not told
+  that unavailable routing lanes already exist.
 - Test posture stays green: +25 tests added across P1-P4,
   `cargo test --features http` → 444/444 deterministic.
 
 ### Negative
 
-- Two resource URIs (`codelens://backend/capabilities`,
-  `codelens://registry/memory-scopes`) report capabilities the
-  runtime does not yet honour. Agents that assume "listed ⇒ routed"
-  will be surprised. Mitigation: explicit `note` field + `mutation_wired`
-  boolean on memory scopes.
+- Backend dispatch is still direct rather than trait-routed, so P2 is
+  intentionally a reporting layer rather than a polymorphic execution
+  layer.
 - The `SurfaceCompilerInput` builder API duplicates what
   `compile_surface_overlay(surface, host, task)` already does. Two
   entry points for the same compile step until P2-active lands and
   consolidates them.
-- Deferred work (P2/P3 active) has no deadline. The passive halves
-  could drift if dispatch evolves faster than the trait.
+- Deferred work (for example, if global memory is ever added) still
+  needs end-to-end implementation before it should appear in public
+  resources.
 
 ### Rejected alternatives
 

@@ -2,12 +2,19 @@
 
 use super::output_schemas::*;
 use super::presets::tool_namespace;
+use super::tool::RegisteredTool;
 use crate::protocol::{Tool, ToolAnnotations, ToolTier};
+use crate::tool_runtime::ToolHandler;
 use serde_json::json;
 use std::sync::LazyLock;
 
-static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_tools);
-static HIDDEN_COMPAT_TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(build_hidden_compat_tools);
+static REGISTERED_TOOLS: LazyLock<Vec<RegisteredTool>> = LazyLock::new(build_registered_tools);
+static TOOLS: LazyLock<Vec<Tool>> = LazyLock::new(|| {
+    registered_tools()
+        .iter()
+        .map(|entry| entry.tool.clone())
+        .collect()
+});
 
 fn estimate_serialized_tokens(tool: &Tool) -> usize {
     serde_json::to_string(tool)
@@ -78,19 +85,32 @@ pub(crate) fn tools() -> &'static [Tool] {
     &TOOLS
 }
 
+pub(crate) fn registered_tools() -> &'static [RegisteredTool] {
+    &REGISTERED_TOOLS
+}
+
+pub(crate) fn has_listed_tool(name: &str) -> bool {
+    registered_tool(name).is_some()
+}
+
 pub(crate) fn tool_definition(name: &str) -> Option<&'static Tool> {
-    tools()
+    registered_tool(name).map(|entry| &entry.tool)
+}
+
+fn registered_tool(name: &str) -> Option<&'static RegisteredTool> {
+    registered_tools()
         .iter()
-        .find(|tool| tool.name == name)
-        .or_else(|| {
-            HIDDEN_COMPAT_TOOLS
-                .iter()
-                .find(|tool| tool.name == name)
-        })
-        .or_else(|| {
-            super::presets::deprecated_workflow_alias(name)
-                .and_then(|(replacement, _)| tools().iter().find(|tool| tool.name == replacement))
-        })
+        .find(|entry| entry.tool.name == name)
+}
+
+fn register_tool(tool: Tool) -> RegisteredTool {
+    let handler = handler_for(tool.name)
+        .unwrap_or_else(|| panic!("listed tool `{}` missing dispatch handler", tool.name));
+    RegisteredTool::new(tool, handler)
+}
+
+fn build_registered_tools() -> Vec<RegisteredTool> {
+    build_tools().into_iter().map(register_tool).collect()
 }
 
 fn build_tools() -> Vec<Tool> {
@@ -144,10 +164,17 @@ fn build_tools() -> Vec<Tool> {
 
         // ── Analysis (architecture & dependencies) ──────────────────────
         Tool::new("get_changed_files", "[CodeLens:Analysis] Files changed since a git ref with symbol counts. Use for diff review.", json!({"type":"object","properties":{"ref":{"type":"string"},"include_untracked":{"type":"boolean"}}})).with_output_schema(changed_files_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new("get_impact_analysis", "[CodeLens:Analysis] Blast radius — what files and symbols are downstream of a target path. Use before risky edits when you need the raw graph expansion rather than a workflow summary.", json!({"required":["file_path"],"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}}})).with_output_schema(impact_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new("find_importers", "[CodeLens:Analysis] Direct importer lookup for a file. Use for raw dependency edges instead of the higher-level impact report.", json!({"required":["file_path"],"type":"object","properties":{"file_path":{"type":"string"},"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
         Tool::new("find_scoped_references", "[CodeLens:Analysis] Classify each reference as definition/read/write/import.", json!({"required":["symbol_name"],"type":"object","properties":{"symbol_name":{"type":"string","description":"Symbol name to find references for"},"file_path":{"type":"string","description":"Declaration file (for sorting, optional)"},"max_results":{"type":"integer","description":"Max results (default 50)"}}})).with_output_schema(references_output_schema()).with_annotations(ro_a.clone()),
+        Tool::new("find_referencing_code_snippets", "[CodeLens:Analysis] Textual snippet search for symbol references with surrounding context. Use when you need concrete code excerpts instead of symbol-only hits.", json!({"required":["symbol_name"],"type":"object","properties":{"symbol_name":{"type":"string"},"file_glob":{"type":"string"},"context_lines":{"type":"integer"},"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
         Tool::new("get_symbol_importance", "[CodeLens:Analysis] PageRank file importance — find the most critical files in the project.", json!({"type":"object","properties":{"top_n":{"type":"integer"}}})).with_annotations(ro_a.clone()),
+        Tool::new("get_callers", "[CodeLens:Analysis] Caller lookup for a function. Use when you want the raw reverse call graph without a workflow wrapper.", json!({"required":["function_name"],"type":"object","properties":{"function_name":{"type":"string"},"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
+        Tool::new("get_callees", "[CodeLens:Analysis] Callee lookup for a function. Use when you want the raw forward call graph without a workflow wrapper.", json!({"required":["function_name"],"type":"object","properties":{"function_name":{"type":"string"},"file_path":{"type":"string"},"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
         Tool::new("find_circular_dependencies", "[CodeLens:Analysis] Detect circular imports using Tarjan SCC algorithm.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
         Tool::new("get_change_coupling", "[CodeLens:Analysis] Files that frequently change together in git history.", json!({"type":"object","properties":{"months":{"type":"integer"},"min_strength":{"type":"number"},"min_commits":{"type":"integer"},"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
+        Tool::new("get_architecture", "[CodeLens:Analysis] Import-graph community overview for the active project. Use for the raw structural clusters behind architecture reviews.", json!({"type":"object","properties":{"min_community_size":{"type":"integer"}}})).with_annotations(ro_a.clone()),
+        Tool::new("find_dead_code", "[CodeLens:Analysis] Detect unused files and unreferenced symbols via the raw call/import graph. Use when you need candidate sets before the bounded report layer.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
 
         // ── Editing (code mutations) ────────────────────────────────────
         Tool::new("rename_symbol", "[CodeLens:Edit] Rename across project — safe multi-file refactoring. Use dry_run=true to preview.", json!({"required":["file_path","new_name"],"type":"object","properties":{"file_path":{"type":"string","description":"File containing the symbol declaration"},"symbol_name":{"type":"string","description":"Current symbol name"},"name":{"type":"string","description":"Alias for symbol_name"},"new_name":{"type":"string","description":"Desired new name"},"name_path":{"type":"string","description":"Qualified name path (e.g. 'Class/method')"},"scope":{"type":"string","enum":["file","project"],"description":"Rename scope (default: project)"},"dry_run":{"type":"boolean","description":"Preview changes without modifying files"}}})).with_output_schema(rename_output_schema()).with_annotations(dest_a.clone()),
@@ -172,11 +199,11 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("propagate_deletions", "[CodeLens:Edit] Analyze what breaks if a symbol is deleted and list affected references/imports for cleanup.", json!({"required":["file_path","symbol_name"],"type":"object","properties":{"file_path":{"type":"string","description":"File containing the symbol"},"symbol_name":{"type":"string","description":"Symbol to analyze for deletion"},"dry_run":{"type":"boolean","description":"Preview without modifying (default true)"}}})).with_annotations(mut_w.clone()),
 
         // ── Composite (multi-step workflows) ────────────────────────────
-        Tool::new("explore_codebase", "[CodeLens:Workflow] Problem-first entrypoint for codebase exploration. Use query for targeted context, or call without arguments for onboarding.", json!({"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"},"disable_semantic":{"type":"boolean"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("trace_request_path", "[CodeLens:Workflow] Trace a request or execution path from a function, symbol, or entrypoint.", json!({"type":"object","properties":{"function_name":{"type":"string"},"symbol":{"type":"string"},"entrypoint":{"type":"string"},"max_depth":{"type":"integer"},"max_results":{"type":"integer"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("review_architecture", "[CodeLens:Workflow] Review project or module architecture, boundaries, coupling, and optionally render a diagram.", json!({"type":"object","properties":{"path":{"type":"string"},"include_diagram":{"type":"boolean"},"max_nodes":{"type":"integer"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("plan_safe_refactor", "[CodeLens:Workflow] Preview a safe refactor plan. Uses rename safety when file_path+symbol are given; otherwise falls back to broader refactor safety analysis.", json!({"type":"object","properties":{"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"new_name":{"type":"string"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
-        Tool::new("cleanup_duplicate_logic", "[CodeLens:Workflow] Surface duplicate or removable logic before cleanup. Uses semantic duplicate search when available, otherwise bounded dead-code evidence.", json!({"type":"object","properties":{"threshold":{"type":"number"},"max_pairs":{"type":"integer"},"scope":{"type":"string"},"max_results":{"type":"integer"}}})).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new("explore_codebase", "[CodeLens:Workflow] Problem-first entrypoint for codebase exploration. Use query for targeted context, or call without arguments for onboarding.", json!({"type":"object","properties":{"query":{"type":"string"},"path":{"type":"string"},"max_tokens":{"type":"integer"},"include_body":{"type":"boolean"},"depth":{"type":"integer"},"disable_semantic":{"type":"boolean"}}})).with_output_schema(workflow_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new("trace_request_path", "[CodeLens:Workflow] Trace a request or execution path from a function, symbol, or entrypoint.", json!({"type":"object","properties":{"function_name":{"type":"string"},"symbol":{"type":"string"},"entrypoint":{"type":"string"},"max_depth":{"type":"integer"},"max_results":{"type":"integer"}}})).with_output_schema(workflow_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new("review_architecture", "[CodeLens:Workflow] Review project or module architecture, boundaries, coupling, and optionally render a diagram.", json!({"type":"object","properties":{"path":{"type":"string"},"include_diagram":{"type":"boolean"},"max_nodes":{"type":"integer"}}})).with_output_schema(workflow_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new("plan_safe_refactor", "[CodeLens:Workflow] Preview a safe refactor plan. Uses rename safety when file_path+symbol are given; otherwise falls back to broader refactor safety analysis.", json!({"type":"object","properties":{"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"new_name":{"type":"string"}}})).with_output_schema(workflow_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        Tool::new("cleanup_duplicate_logic", "[CodeLens:Workflow] Surface duplicate or removable logic before cleanup. Uses semantic duplicate search when available, otherwise bounded dead-code evidence.", json!({"type":"object","properties":{"threshold":{"type":"number"},"max_pairs":{"type":"integer"},"scope":{"type":"string"},"max_results":{"type":"integer"}}})).with_output_schema(workflow_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("review_changes", "[CodeLens:Workflow] Pre-merge review: diff-aware references or impact analysis for changed files.", json!({
             "type": "object",
             "properties": {
@@ -184,7 +211,7 @@ fn build_tools() -> Vec<Tool> {
                 "task": {"type": "string", "description": "Review focus description"},
                 "path": {"type": "string", "description": "Scope path"}
             }
-        })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        })).with_output_schema(workflow_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("diagnose_issues", "[CodeLens:Workflow] Diagnostics: file-level issues or unresolved reference check.", json!({
             "type": "object",
             "properties": {
@@ -192,7 +219,7 @@ fn build_tools() -> Vec<Tool> {
                 "path": {"type": "string", "description": "Directory scope"},
                 "symbol": {"type": "string", "description": "Symbol to check references for"}
             }
-        })).with_output_schema(workflow_alias_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
+        })).with_output_schema(workflow_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(3072),
         Tool::new("onboard_project", "[CodeLens:Session] One-shot onboarding: structure, key files, cycles, stats.", json!({"type":"object","properties":{}})).with_output_schema(onboard_output_schema()).with_annotations(ro_w.clone()),
         Tool::new("analyze_change_request", "[CodeLens:Workflow] Compress a change request into ranked files, key symbols, risk, and next actions.", json!({"required":["task"],"type":"object","properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
         Tool::new("verify_change_readiness", "[CodeLens:Workflow] Verifier-first preflight: blockers, readiness, and next evidence before editing.", json!({"required":["task"],"type":"object","properties":{"task":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
@@ -209,6 +236,7 @@ fn build_tools() -> Vec<Tool> {
         Tool::new("semantic_code_review", "[CodeLens:Workflow] Semantic code review — analyze changed symbols via references, embedding similarity, and risk assessment.", json!({"type":"object","properties":{"changed_files":{"type":"array","items":{"type":"string"}}}})).with_output_schema(analysis_handle_output_schema()).with_annotations(ro_w.clone()).with_max_response_tokens(2048),
         Tool::new("start_analysis_job", "[CodeLens:Workflow] Start a durable analysis job and return a job handle for polling.", json!({"required":["kind"],"type":"object","properties":{"kind":{"type":"string","enum":["impact_report","dead_code_report","refactor_safety_report","semantic_code_review","eval_session_audit"]},"task":{"type":"string"},"symbol":{"type":"string"},"path":{"type":"string"},"file_path":{"type":"string"},"changed_files":{"type":"array","items":{"type":"string"}},"profile_hint":{"type":"string","enum":["planner-readonly","builder-minimal","reviewer-graph","refactor-full","ci-audit"]}}})).with_output_schema(analysis_job_output_schema()).with_annotations(ro_w.clone()),
         Tool::new("get_analysis_job", "[CodeLens:Workflow] Poll a durable analysis job by job_id.", json!({"required":["job_id"],"type":"object","properties":{"job_id":{"type":"string"}}})).with_output_schema(analysis_job_output_schema()).with_annotations(ro_p.clone()),
+        Tool::new("retry_analysis_job", "[CodeLens:Workflow] Retry a failed or cancelled durable analysis job using its stored original arguments.", json!({"required":["job_id"],"type":"object","properties":{"job_id":{"type":"string"}}})).with_output_schema(analysis_job_output_schema()).with_annotations(ro_p.clone()),
         Tool::new("cancel_analysis_job", "[CodeLens:Workflow] Cancel a queued or running analysis job by job_id.", json!({"required":["job_id"],"type":"object","properties":{"job_id":{"type":"string"}}})).with_output_schema(analysis_job_output_schema()).with_annotations(mut_w.clone()),
         Tool::new("list_analysis_jobs", "[CodeLens:Workflow] List durable analysis jobs with status counts and any attached analysis handles.", json!({"type":"object","properties":{"status":{"type":"string","enum":["queued","running","completed","cancelled","error"]}}})).with_output_schema(analysis_job_list_output_schema()).with_annotations(ro_p.clone()),
         Tool::new("list_analysis_artifacts", "[CodeLens:Workflow] List stored analysis artifacts with summary resource handles for reuse.", json!({"type":"object","properties":{}})).with_output_schema(analysis_artifact_list_output_schema()).with_annotations(ro_p.clone()),
@@ -266,18 +294,132 @@ fn build_tools() -> Vec<Tool> {
     tools
 }
 
-fn build_hidden_compat_tools() -> Vec<Tool> {
-    let ro = ToolAnnotations::read_only();
-    let ro_a = ro.with_tier(ToolTier::Analysis);
-    let mut tools = vec![
-        // Kept out of `tools/list` so registry size reflects the
-        // canonical surface, but preserved here so direct calls and
-        // outputSchema lookups remain backward-compatible until v2.0.
-        Tool::new("get_impact_analysis", "[DEPRECATED v1.12 → removal v2.0] Use impact_report directly. [CodeLens:Analysis] Blast radius — what files break if you change this file. Use before risky edits.", json!({"required":["file_path"],"type":"object","properties":{"file_path":{"type":"string"},"max_depth":{"type":"integer"}}})).with_output_schema(impact_output_schema()).with_annotations(ro_a.clone()),
-        Tool::new("find_dead_code", "[DEPRECATED v1.12 → removal v2.0] Use dead_code_report directly. [CodeLens:Analysis] Detect unused files and unreferenced symbols via call-graph.", json!({"type":"object","properties":{"max_results":{"type":"integer"}}})).with_annotations(ro_a.clone()),
-    ];
-    finalize_tools(&mut tools);
-    tools
+fn handler_for(name: &str) -> Option<ToolHandler> {
+    Some(match name {
+        "get_current_config" => crate::tools::filesystem::get_current_config,
+        "read_file" => crate::tools::filesystem::read_file_tool,
+        "list_dir" => crate::tools::filesystem::list_dir_tool,
+        "find_file" => crate::tools::filesystem::find_file_tool,
+        "search_for_pattern" => crate::tools::filesystem::search_for_pattern_tool,
+        "find_annotations" => crate::tools::filesystem::find_annotations,
+        "find_tests" => crate::tools::filesystem::find_tests,
+        "get_symbols_overview" => crate::tools::symbols::get_symbols_overview,
+        "find_symbol" => crate::tools::symbols::find_symbol,
+        "get_ranked_context" => crate::tools::symbols::get_ranked_context,
+        "bm25_symbol_search" => crate::tools::symbols::bm25_symbol_search,
+        "refresh_symbol_index" => crate::tools::symbols::refresh_symbol_index,
+        "get_complexity" => crate::tools::symbols::get_complexity,
+        "search_symbols_fuzzy" => crate::tools::symbols::search_symbols_fuzzy,
+        "get_project_structure" => crate::tools::symbols::get_project_structure,
+        "find_referencing_symbols" => crate::tools::lsp::find_referencing_symbols,
+        "get_file_diagnostics" => crate::tools::lsp::get_file_diagnostics,
+        "search_workspace_symbols" => crate::tools::lsp::search_workspace_symbols,
+        "get_type_hierarchy" => crate::tools::lsp::get_type_hierarchy,
+        "plan_symbol_rename" => crate::tools::lsp::plan_symbol_rename,
+        "check_lsp_status" => crate::tools::lsp::check_lsp_status,
+        "get_lsp_recipe" => crate::tools::lsp::get_lsp_recipe,
+        "get_lsp_readiness" => crate::tools::lsp::get_lsp_readiness,
+        "get_changed_files" => crate::tools::graph::get_changed_files_tool,
+        "get_impact_analysis" => crate::tools::graph::get_impact_analysis,
+        "find_importers" => crate::tools::graph::find_importers_tool,
+        "get_symbol_importance" => crate::tools::graph::get_symbol_importance,
+        "find_dead_code" => crate::tools::graph::find_dead_code_v2_tool,
+        "find_referencing_code_snippets" => crate::tools::graph::find_referencing_code_snippets,
+        "find_scoped_references" => crate::tools::graph::find_scoped_references_tool,
+        "get_callers" => crate::tools::graph::get_callers_tool,
+        "get_callees" => crate::tools::graph::get_callees_tool,
+        "find_circular_dependencies" => crate::tools::graph::find_circular_dependencies_tool,
+        "get_change_coupling" => crate::tools::graph::get_change_coupling_tool,
+        "get_architecture" => crate::tools::graph::get_architecture_tool,
+        "rename_symbol" => crate::tools::mutation::rename_symbol,
+        "create_text_file" => crate::tools::mutation::create_text_file_tool,
+        "delete_lines" => crate::tools::mutation::delete_lines_tool,
+        "insert_at_line" => crate::tools::mutation::insert_at_line_tool,
+        "replace_lines" => crate::tools::mutation::replace_lines_tool,
+        "replace_content" => crate::tools::mutation::replace_content_tool,
+        "replace_symbol_body" => crate::tools::mutation::replace_symbol_body_tool,
+        "insert_before_symbol" => crate::tools::mutation::insert_before_symbol_tool,
+        "insert_after_symbol" => crate::tools::mutation::insert_after_symbol_tool,
+        "analyze_missing_imports" => crate::tools::mutation::analyze_missing_imports_tool,
+        "add_import" => crate::tools::mutation::add_import_tool,
+        "insert_content" => crate::tools::mutation::insert_content_tool,
+        "replace" => crate::tools::mutation::replace_content_unified,
+        "list_memories" => crate::tools::memory::list_memories,
+        "read_memory" => crate::tools::memory::read_memory,
+        "write_memory" => crate::tools::memory::write_memory,
+        "delete_memory" => crate::tools::memory::delete_memory,
+        "rename_memory" => crate::tools::memory::rename_memory,
+        "activate_project" => crate::tools::session::activate_project,
+        "prepare_harness_session" => crate::tools::session::prepare_harness_session,
+        "register_agent_work" => crate::tools::session::register_agent_work,
+        "list_active_agents" => crate::tools::session::list_active_agents,
+        "claim_files" => crate::tools::session::claim_files,
+        "release_files" => crate::tools::session::release_files,
+        "prepare_for_new_conversation" => crate::tools::session::prepare_for_new_conversation,
+        "summarize_changes" => crate::tools::session::summarize_changes,
+        "list_queryable_projects" => crate::tools::session::list_queryable_projects,
+        "add_queryable_project" => crate::tools::session::add_queryable_project,
+        "remove_queryable_project" => crate::tools::session::remove_queryable_project,
+        "query_project" => crate::tools::session::query_project,
+        "get_watch_status" => crate::tools::session::get_watch_status,
+        "prune_index_failures" => crate::tools::session::prune_index_failures,
+        "set_preset" => crate::tools::session::set_preset,
+        "set_profile" => crate::tools::session::set_profile,
+        "get_capabilities" => crate::tools::session::get_capabilities,
+        "get_tool_metrics" => crate::tools::session::get_tool_metrics,
+        "audit_builder_session" => crate::tools::session::audit_builder_session,
+        "audit_planner_session" => crate::tools::session::audit_planner_session,
+        "export_session_markdown" => crate::tools::session::export_session_markdown,
+        "tool_search" => crate::tools::session::tool_search,
+        "summarize_file" => crate::tools::composite::summarize_file,
+        "refactor_extract_function" => crate::tools::composite::refactor_extract_function,
+        "refactor_inline_function" => crate::tools::composite::refactor_inline_function,
+        "refactor_move_to_file" => crate::tools::composite::refactor_move_to_file,
+        "refactor_change_signature" => crate::tools::composite::refactor_change_signature,
+        "propagate_deletions" => crate::tools::composite::propagate_deletions,
+        "onboard_project" => crate::tools::composite::onboard_project,
+        "explore_codebase" => crate::tools::workflows::explore_codebase,
+        "trace_request_path" => crate::tools::workflows::trace_request_path,
+        "review_architecture" => crate::tools::workflows::review_architecture,
+        "plan_safe_refactor" => crate::tools::workflows::plan_safe_refactor,
+        "cleanup_duplicate_logic" => crate::tools::workflows::cleanup_duplicate_logic,
+        "review_changes" => crate::tools::workflows::review_changes,
+        "diagnose_issues" => crate::tools::workflows::diagnose_issues,
+        "analyze_change_request" => crate::tools::reports::analyze_change_request,
+        "verify_change_readiness" => crate::tools::reports::verify_change_readiness,
+        "find_minimal_context_for_change" => crate::tools::reports::find_minimal_context_for_change,
+        "summarize_symbol_impact" => crate::tools::reports::summarize_symbol_impact,
+        "module_boundary_report" => crate::tools::reports::module_boundary_report,
+        "mermaid_module_graph" => crate::tools::reports::mermaid_module_graph,
+        "safe_rename_report" => crate::tools::reports::safe_rename_report,
+        "unresolved_reference_check" => crate::tools::reports::unresolved_reference_check,
+        "dead_code_report" => crate::tools::reports::dead_code_report,
+        "impact_report" => crate::tools::reports::impact_report,
+        "refactor_safety_report" => crate::tools::reports::refactor_safety_report,
+        "diff_aware_references" => crate::tools::reports::diff_aware_references,
+        "semantic_code_review" => crate::tools::reports::semantic_code_review,
+        "start_analysis_job" => crate::tools::report_jobs::start_analysis_job,
+        "get_analysis_job" => crate::tools::report_jobs::get_analysis_job,
+        "cancel_analysis_job" => crate::tools::report_jobs::cancel_analysis_job,
+        "get_analysis_section" => crate::tools::report_jobs::get_analysis_section,
+        "list_analysis_jobs" => crate::tools::report_jobs::list_analysis_jobs,
+        "list_analysis_artifacts" => crate::tools::report_jobs::list_analysis_artifacts,
+        "retry_analysis_job" => crate::tools::report_jobs::retry_analysis_job,
+        "find_relevant_rules" => crate::tools::rules::find_relevant_rules,
+        #[cfg(feature = "semantic")]
+        "semantic_search" => crate::dispatch::table::semantic_search_handler,
+        #[cfg(feature = "semantic")]
+        "index_embeddings" => crate::dispatch::table::index_embeddings_handler,
+        #[cfg(feature = "semantic")]
+        "find_similar_code" => crate::dispatch::table::find_similar_code_handler,
+        #[cfg(feature = "semantic")]
+        "find_code_duplicates" => crate::dispatch::table::find_code_duplicates_handler,
+        #[cfg(feature = "semantic")]
+        "classify_symbol" => crate::dispatch::table::classify_symbol_handler,
+        #[cfg(feature = "semantic")]
+        "find_misplaced_code" => crate::dispatch::table::find_misplaced_code_handler,
+        _ => return None,
+    })
 }
 
 fn finalize_tools(tools: &mut [Tool]) {

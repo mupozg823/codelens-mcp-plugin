@@ -126,7 +126,9 @@ impl LimitsApplied {
             reason: format!(
                 "kept top {returned} of {total} by blended score; last kept score {last_kept_score:.2}"
             ),
-            remedy: "raise max_tokens or narrow the query to fit the most relevant context in budget".into(),
+            remedy:
+                "raise max_tokens or narrow the query to fit the most relevant context in budget"
+                    .into(),
         }
     }
 

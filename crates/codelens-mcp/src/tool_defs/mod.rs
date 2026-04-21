@@ -7,18 +7,17 @@ pub mod tool;
 
 // Re-exports from presets
 pub(crate) use presets::{
-    compile_surface_overlay, default_budget_for_preset, default_budget_for_profile,
-    deprecated_workflow_alias, is_tool_callable_in_surface, is_tool_in_surface,
+    ALL_PRESETS, ALL_PROFILES, HostContext, SurfaceCompilerInput, TaskOverlay, ToolPreset,
+    ToolProfile, ToolSurface, compile_surface_overlay, default_budget_for_preset,
+    default_budget_for_profile, is_tool_callable_in_surface, is_tool_in_surface,
     is_tool_primary_in_surface, tool_anthropic_always_load, tool_anthropic_search_hint,
-    tool_deprecation, tool_namespace, tool_phase_label, tool_preferred_executor,
-    tool_preferred_executor_label, HostContext, SurfaceCompilerInput, TaskOverlay, ToolPreset,
-    ToolProfile, ToolSurface, ALL_PRESETS, ALL_PROFILES,
+    tool_namespace, tool_phase_label, tool_preferred_executor, tool_preferred_executor_label,
 };
 
 // Re-exports from build
-pub(crate) use build::{tool_definition, tools};
+pub(crate) use build::{registered_tools, tool_definition, tools};
 
-use crate::protocol::ToolTier;
+use crate::protocol::{ToolPhase, ToolTier};
 
 fn raw_visible_tool_entries(surface: ToolSurface) -> Vec<(usize, &'static crate::protocol::Tool)> {
     // Phase O3a: filter by the primary set when the surface declares
@@ -73,6 +72,58 @@ pub(crate) fn visible_tools(surface: ToolSurface) -> Vec<&'static crate::protoco
 
 pub(crate) fn visible_namespaces(surface: ToolSurface) -> Vec<&'static str> {
     raw_visible_namespaces(surface)
+}
+
+pub(crate) fn canonical_tool_name(name: &str) -> Option<&'static str> {
+    tool_definition(name).map(|tool| tool.name)
+}
+
+pub(crate) fn canonical_tool_names(names: &[&str]) -> Vec<&'static str> {
+    let mut canonical = Vec::with_capacity(names.len());
+    for name in names {
+        if let Some(name) = canonical_tool_name(name)
+            && !canonical.contains(&name)
+        {
+            canonical.push(name);
+        }
+    }
+    canonical
+}
+
+pub(crate) fn canonical_surface_tool_name(
+    surface: ToolSurface,
+    name: &str,
+) -> Option<&'static str> {
+    let name = canonical_tool_name(name)?;
+    is_tool_in_surface(name, surface).then_some(name)
+}
+
+pub(crate) fn canonical_surface_tool_names(
+    surface: ToolSurface,
+    names: &[&str],
+) -> Vec<&'static str> {
+    let mut canonical = Vec::with_capacity(names.len());
+    for name in names {
+        if let Some(name) = canonical_surface_tool_name(surface, name)
+            && !canonical.contains(&name)
+        {
+            canonical.push(name);
+        }
+    }
+    canonical
+}
+
+pub(crate) fn phase_tool_names(phase: ToolPhase) -> Vec<&'static str> {
+    tools()
+        .iter()
+        .filter_map(|tool| {
+            (tool_phase_label(tool.name) == Some(phase.as_label())).then_some(tool.name)
+        })
+        .collect()
+}
+
+pub(crate) fn phase_tool_names_from_label(label: &str) -> Option<Vec<&'static str>> {
+    ToolPhase::from_label(label).map(phase_tool_names)
 }
 
 pub(crate) fn is_deferred_control_tool(name: &str) -> bool {

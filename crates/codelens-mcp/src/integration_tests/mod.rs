@@ -171,29 +171,15 @@ pub(super) fn project_root() -> ProjectRoot {
 /// Catches drift between definitions and implementations.
 #[test]
 fn tool_defs_and_dispatch_are_consistent() {
-    let dispatch = crate::tools::dispatch_table();
-    let defs = crate::tool_defs::tools();
-    // semantic tools are feature-gated, skip if not compiled in
-    let semantic_tools = &[
-        "semantic_search",
-        "index_embeddings",
-        "find_similar_code",
-        "find_code_duplicates",
-        "classify_symbol",
-        "find_misplaced_code",
-    ];
-    let mut missing_handlers = Vec::new();
-    for tool in defs {
-        if semantic_tools.contains(&tool.name) {
-            continue;
-        }
-        if !dispatch.contains_key(tool.name) {
-            missing_handlers.push(tool.name);
-        }
-    }
+    let defs = crate::tool_defs::registered_tools();
+    let dispatch = &crate::dispatch::table::DISPATCH_TABLE;
+    let missing_handlers = defs
+        .iter()
+        .filter_map(|entry| (!dispatch.contains_key(entry.tool.name)).then_some(entry.tool.name))
+        .collect::<Vec<_>>();
     assert!(
         missing_handlers.is_empty(),
-        "Tools defined but missing dispatch handlers: {missing_handlers:?}"
+        "Registered tools missing dispatch handlers: {missing_handlers:?}"
     );
 }
 

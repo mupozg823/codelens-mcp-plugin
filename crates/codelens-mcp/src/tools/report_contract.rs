@@ -135,9 +135,10 @@ pub(super) fn make_handle_response(
         // Phase P4-b: structured next actions with optional `command`
         // hints. Emit alongside the legacy string array so older
         // consumers keep working.
-        data["next_actions_detailed"] = serde_json::json!(
-            synthesize_next_actions_detailed(&artifact.next_actions, &touched_files)
-        );
+        data["next_actions_detailed"] = serde_json::json!(synthesize_next_actions_detailed(
+            &artifact.next_actions,
+            &touched_files
+        ));
         state.metrics().record_quality_contract_emitted_for_session(
             data["quality_focus"]
                 .as_array()
@@ -197,9 +198,10 @@ pub(super) fn make_handle_response(
         data["overlapping_claims"] = serde_json::json!(inline_overlapping_claims);
     }
     // Phase P4-b: structured next actions (see cache-hit branch above).
-    data["next_actions_detailed"] = serde_json::json!(
-        synthesize_next_actions_detailed(&artifact.next_actions, &touched_files)
-    );
+    data["next_actions_detailed"] = serde_json::json!(synthesize_next_actions_detailed(
+        &artifact.next_actions,
+        &touched_files
+    ));
     state.metrics().record_quality_contract_emitted_for_session(
         data["quality_focus"]
             .as_array()

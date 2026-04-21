@@ -8,6 +8,10 @@ fn default_verifier_status() -> String {
     "caution".to_owned()
 }
 
+fn default_job_arguments() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RuntimeTransportMode {
     Stdio,
@@ -210,6 +214,10 @@ pub(crate) struct AnalysisJob {
     pub kind: String,
     #[serde(default)]
     pub project_scope: Option<String>,
+    /// Original request arguments for replay-safe retries. Older persisted jobs
+    /// deserialize as `{}` and retry falls back to the legacy reconstruction.
+    #[serde(default = "default_job_arguments")]
+    pub arguments: serde_json::Value,
     pub status: JobLifecycle,
     pub progress: u8,
     pub current_step: Option<String>,

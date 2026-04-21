@@ -1,12 +1,12 @@
+use crate::AppState;
 use crate::protocol::BackendKind;
-use crate::state::workflow_cache::{hash_canonical_args, WorkflowAnalysisCache};
-use crate::tool_runtime::{success_meta, ToolResult};
+use crate::state::workflow_cache::{WorkflowAnalysisCache, hash_canonical_args};
+use crate::tool_runtime::{ToolResult, success_meta};
 use crate::tools::report_contract::make_handle_response;
 use crate::tools::report_utils::{stable_cache_key, strings_from_array};
 use crate::tools::symbols::{semantic_results_for_query, semantic_status};
-use crate::AppState;
 use codelens_engine::search::SEMANTIC_COUPLING_THRESHOLD;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 use super::{insert_semantic_status, push_unique, semantic_degraded_note};
@@ -30,16 +30,12 @@ pub fn impact_report(state: &AppState, arguments: &Value) -> ToolResult {
         return Ok((hit.payload.clone(), meta));
     }
     cache.record_miss();
-    let compute_started = std::time::Instant::now();
     impact_report_compute(state, arguments).map(|(payload, meta)| {
-        let elapsed = compute_started.elapsed().as_millis() as u64;
         cache.insert(
             cache_key,
             crate::state::workflow_cache::CachedResponse {
                 payload: payload.clone(),
-                meta_extra: Value::Null,
                 created_at: std::time::Instant::now(),
-                compute_elapsed_ms: elapsed,
             },
         );
         (payload, meta)

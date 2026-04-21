@@ -72,6 +72,7 @@ impl ProjectContextCache {
 
 pub(super) fn active_project_context(state: &AppState) -> Option<Arc<ProjectRuntimeContext>> {
     state
+        .project_runtime
         .project_override
         .read()
         .unwrap_or_else(|p| p.into_inner())
@@ -127,23 +128,34 @@ pub(super) fn activate_project_context(
     context: Option<Arc<ProjectRuntimeContext>>,
 ) {
     *state
+        .project_runtime
         .project_override
         .write()
         .unwrap_or_else(|p| p.into_inner()) = context.clone();
     let analysis_dir = context
         .as_ref()
         .map(|override_ctx| override_ctx.analysis_dir.clone())
-        .unwrap_or_else(|| state.default_analysis_dir.clone());
-    state.artifact_store.set_analysis_dir(analysis_dir.clone());
-    state.job_store.set_jobs_dir(analysis_dir.join("jobs"));
-    state.artifact_store.clear();
-    state.job_store.clear();
+        .unwrap_or_else(|| state.project_runtime.default_analysis_dir.clone());
+    state
+        .analysis_runtime
+        .artifact_store
+        .set_analysis_dir(analysis_dir.clone());
+    state
+        .analysis_runtime
+        .job_store
+        .set_jobs_dir(analysis_dir.join("jobs"));
+    state.analysis_runtime.artifact_store.clear();
+    state.analysis_runtime.job_store.clear();
     state.clear_recent_preflights();
     #[cfg(feature = "semantic")]
     state.reset_embedding();
-    state.artifact_store.cleanup_stale_dirs(AppState::now_ms());
+    state
+        .analysis_runtime
+        .artifact_store
+        .cleanup_stale_dirs(AppState::now_ms());
     let scope = state.current_project_scope();
     state
+        .analysis_runtime
         .job_store
         .cleanup_stale_files(AppState::now_ms(), Some(&scope));
 }

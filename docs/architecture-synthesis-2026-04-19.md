@@ -1,9 +1,10 @@
 # CodeLens MCP — Architecture Synthesis (v1.9.49)
 
 Date: 2026-04-19
-Status: Authoritative — supersedes scattered notes in `ARCHITECTURE.md`,
-ADR-0005, ADR-0008, `docs/design/serena-comparison-2026-04-18.md`
-for the single-document summary.
+Status: Historical snapshot
+Amended note: runtime truth for backend capability reporting and
+memory-scope reporting changed on 2026-04-21. Treat this document as a
+dated synthesis, not the current authority for P2/P3 runtime behavior.
 
 ## 1. Identity — what CodeLens is, what it is not
 
@@ -123,26 +124,25 @@ check `mutation_ready ∈ {ready, caution, blocked}` before mutating.
 
 ## 5. Symbolic analysis stack
 
-CodeLens composes three symbolic backends behind a passive
-capability abstraction (P2):
+CodeLens now reports the runtime stack directly instead of describing an
+older passive backend layer. The live shape is:
 
 ```
 ┌──────────────────────────────────────────────┐
-│ SemanticBackend trait (passive declaration)  │
+│ codelens-engine (always present)             │
+├──────────────────────────────────────────────┤
+│ • tree-sitter AST symbol extraction          │
+│ • SQLite FTS5 full-text index                │
+│ • Hybrid BM25 + semantic embedding ranker    │
+│ • Import / call graph + impact primitives    │
 └──────────────────────────────────────────────┘
        │
-       ├──▶ RustEngineBackend   (always present)
-       │     • tree-sitter AST symbol extraction
-       │     • SQLite FTS5 full-text index
-       │     • Hybrid BM25 + semantic embedding ranker
-       │     • Zero-external-dependency, pure Rust
-       │
-       ├──▶ LspBridgeBackend   (compiled in, opt-in per language)
-       │     • Rust-analyzer / pyright / tsserver / gopls / etc.
+       ├──▶ LSP bridge (compiled in, opt-in per language)
+       │     • rust-analyzer / pyright / tsserver / gopls / etc.
        │     • Type-aware references + diagnostics
        │     • `use_lsp=true` opt-in on `find_referencing_symbols`
        │
-       └──▶ ScipBridgeBackend   (#[cfg(feature="scip-backend")])
+       └──▶ SCIP ingestion (`scip-backend` feature)
              • SCIP index ingestion
              • Precise symbol lookup + impact analysis
 ```
@@ -196,9 +196,9 @@ produces a valid truncated-but-parseable payload, not a broken JSON.
 │            profile × host_context × task_overlay        │  v1.9.47
 │            → visible tools + entrypoints + warnings     │
 ├─────────────────────────────────────────────────────────┤
-│  Layer 2.  Semantic backend adapters                    │  P2 passive ✅
-│            SemanticBackend trait + capability map       │  v1.9.47
-│            (rust-engine / lsp-bridge / scip-bridge)     │
+│  Layer 2.  Intelligence sources + capability truth      │  Active ✅
+│            rust-engine / LSP pool / SCIP / embeddings   │
+│            reported from one runtime snapshot           │
 ├─────────────────────────────────────────────────────────┤
 │  Layer 1.  Substrate kernel                             │  Core
 │            session state, mutation gate, telemetry,     │  Pre-existing
@@ -237,9 +237,9 @@ graph TB
     Mutation[mutation gate<br/>verifier preflight]
     Resources[resources.rs<br/>codelens:// URIs]
     Audit[audit + telemetry<br/>+ handoff schema]
-    Backend[SemanticBackend trait<br/>P2 passive]
-    Registry[registry.rs<br/>project + memory scope<br/>P3 passive]
-    Operator[operator.rs<br/>dashboard aggregator<br/>P4 passive]
+    Capabilities[capability snapshot<br/>surface-aware runtime truth]
+    Registry[registry resources<br/>project + memory scope]
+    Operator[operator.rs<br/>dashboard aggregator]
   end
 
   subgraph Engine["codelens-engine crate"]
@@ -259,11 +259,10 @@ graph TB
   Dispatch --> Resources
   Resources --> Operator
   Resources --> Registry
-  Resources --> Backend
+  Resources --> Capabilities
   Dispatch --> Audit
 
   Dispatch -->|today| Engine
-  Backend -.->|future P2-active| Engine
 
   Engine --> TS
   Engine --> FTS
@@ -273,8 +272,6 @@ graph TB
   Engine --> Graph
   Engine --> Memory
 
-  classDef pending fill:#fef9c3,stroke:#ca8a04,color:#713f12;
-  class Backend,Registry,Operator pending;
 ```
 
 ## 9. Maturity scorecard
@@ -297,27 +294,27 @@ Scoring rubric:
 | Schema validation                 |   ✅    |      ✅       |   ✅   |           ✅            |    ✅    | **Mature**                 |
 | Doom-loop detection               |   ✅    |      ✅       |   ✅   |           ✅            |    ✅    | **Mature**                 |
 | P1 context overlay compiler       |   ✅    |      ✅       |   ✅   |       ⚠ advisory        |    ✅    | **Active, advisory**       |
-| P2 semantic backend abstraction   |   ✅    |  ✅ passive   |   ✅   |   ❌ dispatch bypass    |    ✅    | **Scaffold only**          |
-| P3 project + memory registry      |   ✅    |  ✅ passive   |   ✅   | ❌ write routing bypass |    ✅    | **Scaffold only**          |
-| P4 operator dashboard             |   ✅    | ✅ aggregator |   ✅   |     ✅ (read-only)      |    ✅    | **Active, read-only**      |
+| Capability truth snapshot         |   ✅    |      ✅       |   ✅   |           ✅            |    ✅    | **Mature**                 |
+| Project + memory registry         |   ✅    |      ✅       |   ✅   |     ✅ (read-only)      |    ✅    | **Active, read-only**      |
+| Operator dashboard                |   ✅    | ✅ aggregator |   ✅   |     ✅ (read-only)      |    ✅    | **Active, read-only**      |
 | Host adapter doctor CLI           |   ✅    |      ✅       |   ✅   |           ✅            |    ✅    | **Mature**                 |
 | Delegation + handoff schema       |   ✅    |      ✅       |   ✅   |           ✅            |    ✅    | **Mature**                 |
 | Self-benchmark + perf baseline    |   ✅    |      ✅       |   ✅   |    ❌ no CI gate yet    |    ✅    | **Mature, no enforcement** |
 
 **Aggregate maturity (weighted by area)**
 
-- Mature / Active : **10 / 13 areas** (77 %)
-- Scaffold only : 2 / 13 areas (15 %) — P2, P3 passive halves
+- Mature / Active : **12 / 13 areas** (92 %)
+- Scaffold only : 0 / 13 areas (0 %)
 - No enforcement : 1 / 13 areas (8 %) — perf baseline not CI-gated
 
-Overall: **production-ready substrate**, Serena-compatible surface
-absorbed with known scaffold debt tracked in ADR-0008.
+Overall: **production-ready substrate** with remaining debt concentrated in
+module size and CI enforcement, not passive runtime architecture.
 
 ## 10. Known debt + explicit scope
 
 | Item                                           | Status       | Policy                                                                                                      |
 | ---------------------------------------------- | ------------ | ----------------------------------------------------------------------------------------------------------- |
-| P2-active (dispatch through `SemanticBackend`) | Parked       | Lands when a new backend (e.g. JetBrains bridge) creates driving need                                       |
+| Capability/reporting drift                     | Active focus | Keep `get_capabilities`, `prepare_harness_session`, and `session/http` on the same runtime snapshot         |
 | P3-active (write routing to global memory)     | Parked       | Lands when an explicit global-memory tool is requested                                                      |
 | 6 `too_many_arguments` clippy warnings         | Parked       | All on internal coordination helpers; parameter-struct refactor = multi-site churn without behaviour change |
 | Dashboard UI renderer                          | Out of scope | Serena §Layer 5 explicitly scopes P4 to data, not render                                                    |

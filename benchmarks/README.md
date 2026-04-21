@@ -15,6 +15,10 @@
   - 루트의 `harness-eval.py`, `codex-task-runner.py`, `claude-task-runner.py` 등은 기존 경로 호환용 wrapper입니다
   - 소비자 하네스 bootstrap/session overhead는 여기서만 측정합니다
 
+해석 규칙:
+- `token-efficiency.py`는 효율 근거다. retrieval 품질이나 answer quality 향상 근거로 사용하지 않는다.
+- 품질 주장은 `embedding-quality.py` 또는 동일 query 셋 downstream A/B와 함께 보고, 가능하면 retrieval-failure-rate / top-k target-missing rate / disambiguation miss를 같이 적는다.
+
 ## 디렉토리 구조
 
 ```

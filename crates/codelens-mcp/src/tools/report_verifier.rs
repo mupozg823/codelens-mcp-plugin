@@ -26,11 +26,10 @@ fn push_unique(values: &mut Vec<String>, value: impl Into<String>) {
 /// phrase describing what evidence would flip this check to ready.
 pub(crate) fn default_pass_condition(check: &str) -> String {
     match check {
-        "diagnostic_verifier" => {
-            "all diagnostics resolved (diagnostic_count == 0)".to_owned()
-        }
+        "diagnostic_verifier" => "all diagnostics resolved (diagnostic_count == 0)".to_owned(),
         "reference_verifier" => {
-            "symbol resolves to exactly one ref set; blast radius ≤ 8 for breaking changes".to_owned()
+            "symbol resolves to exactly one ref set; blast radius ≤ 8 for breaking changes"
+                .to_owned()
         }
         "test_readiness_verifier" => {
             "at least one related test target found or change explicitly scoped".to_owned()

@@ -1,4 +1,4 @@
-use super::{find_symbol, get_symbols_overview, SymbolIndex, SymbolKind, SymbolProvenance};
+use super::{SymbolIndex, SymbolKind, SymbolProvenance, find_symbol, get_symbols_overview};
 use crate::ProjectRoot;
 use std::fs;
 
@@ -20,11 +20,13 @@ fn finds_typescript_symbol_with_body() {
     let matches = find_symbol(&project, "fetchUser", None, true, true, 10).expect("find symbol");
     assert_eq!(matches.len(), 1);
     assert_eq!(matches[0].kind, SymbolKind::Function);
-    assert!(matches[0]
-        .body
-        .as_ref()
-        .expect("body")
-        .contains("return userId"));
+    assert!(
+        matches[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("return userId")
+    );
 }
 
 #[test]
@@ -181,11 +183,13 @@ fn index_refreshes_after_file_change() {
         .find_symbol("loadUser", None, true, true, 10)
         .expect("refreshed symbol lookup");
     assert_eq!(refreshed.len(), 1);
-    assert!(refreshed[0]
-        .body
-        .as_ref()
-        .expect("body")
-        .contains("loadUser"));
+    assert!(
+        refreshed[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("loadUser")
+    );
 }
 
 #[test]
@@ -226,11 +230,13 @@ fn ranked_context_prefers_exact_matches_and_respects_budget() {
     assert!(!ranked.symbols.is_empty());
     assert_eq!(ranked.symbols[0].name, "fetchUser");
     assert_eq!(ranked.symbols[0].relevance_score, 100);
-    assert!(ranked.symbols[0]
-        .body
-        .as_ref()
-        .expect("body")
-        .contains("fetchUser"));
+    assert!(
+        ranked.symbols[0]
+            .body
+            .as_ref()
+            .expect("body")
+            .contains("fetchUser")
+    );
     assert!(ranked.chars_used <= ranked.token_budget * 4);
 }
 
@@ -760,7 +766,7 @@ fn ranked_context_without_lsp_boost_is_neutral() {
 
 #[test]
 fn rank_symbols_returns_full_scored_list() {
-    use super::ranking::{rank_symbols, RankingContext};
+    use super::ranking::{RankingContext, rank_symbols};
     use super::types::{SymbolInfo, SymbolProvenance};
 
     let symbols: Vec<SymbolInfo> = ["alpha", "beta_alpha", "gamma"]
@@ -794,7 +800,7 @@ fn rank_symbols_returns_full_scored_list() {
 
 #[test]
 fn score_and_rank_empty_query() {
-    use super::ranking::{rank_symbols, RankingContext};
+    use super::ranking::{RankingContext, rank_symbols};
     use super::types::{SymbolInfo, SymbolProvenance};
 
     let symbols = vec![SymbolInfo {

@@ -1,13 +1,13 @@
+use crate::AppState;
 use crate::client_profile::ClientProfile;
 use crate::protocol::Tool;
 use crate::tool_defs::{
-    is_deferred_control_tool, preferred_bootstrap_tools, preferred_namespaces,
-    preferred_tier_labels, tool_namespace, tool_tier_label, visible_namespaces, visible_tiers,
-    visible_tools, ToolProfile, ToolSurface,
+    ToolProfile, ToolSurface, is_deferred_control_tool, preferred_bootstrap_tools,
+    preferred_namespaces, preferred_tier_labels, tool_namespace, tool_phase_label, tool_tier_label,
+    visible_namespaces, visible_tiers, visible_tools,
 };
-use crate::tools::session::metrics_config::collect_runtime_health_snapshot;
-use crate::AppState;
-use serde_json::{json, Value};
+use crate::tools::session::metrics_config::collect_capability_snapshot;
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Clone, Debug)]
@@ -19,6 +19,7 @@ pub(crate) struct ResourceRequestContext {
     pub(crate) full_tool_exposure: bool,
     pub(crate) requested_namespace: Option<String>,
     pub(crate) requested_tier: Option<String>,
+    pub(crate) requested_phase: Option<crate::protocol::ToolPhase>,
     pub(crate) full_listing: bool,
     pub(crate) client_profile: ClientProfile,
     pub(crate) client_name: Option<String>,
@@ -34,6 +35,7 @@ impl Default for ResourceRequestContext {
             full_tool_exposure: false,
             requested_namespace: None,
             requested_tier: None,
+            requested_phase: None,
             full_listing: false,
             client_profile: ClientProfile::Generic,
             client_name: None,
@@ -68,6 +70,9 @@ impl ResourceRequestContext {
             full_tool_exposure,
             requested_namespace: string_param(params, "namespace"),
             requested_tier: string_param(params, "tier"),
+            requested_phase: string_param(params, "phase")
+                .as_deref()
+                .and_then(crate::protocol::ToolPhase::from_label),
             full_listing: uri == "codelens://tools/list/full" || bool_param(params, "full"),
             client_profile,
             client_name,
@@ -165,6 +170,16 @@ pub(crate) fn build_visible_tool_context(
             }
             _ => true,
         })
+        .filter(|tool| match request.requested_phase {
+            Some(phase) => {
+                is_deferred_control_tool(tool.name)
+                    || match tool_phase_label(tool.name) {
+                        Some(label) => label == phase.as_label(),
+                        None => true,
+                    }
+            }
+            None => true,
+        })
         .collect::<Vec<_>>();
     if request.deferred_loading_active() && has_loaded_expansions {
         tools.sort_by_key(|tool| {
@@ -238,9 +253,9 @@ pub(crate) fn build_http_session_payload(
     request: &ResourceRequestContext,
 ) -> Value {
     let surface = state.execution_surface(&request.session);
-    let runtime_health = collect_runtime_health_snapshot(state, surface);
+    let capability = collect_capability_snapshot(state, surface, None);
     let coordination = state.coordination_counts_for_session(&request.session);
-    json!({
+    let mut payload = json!({
         "enabled": state.session_resume_supported(),
         "active_sessions": state.active_session_count(),
         "active_coordination_agents": coordination.active_agents,
@@ -252,12 +267,6 @@ pub(crate) fn build_http_session_payload(
         "client_profile": request.client_profile.as_str(),
         "client_name": request.client_name,
         "active_surface": surface.as_label(),
-        "semantic_search_status": runtime_health.semantic_status.status_key(),
-        "indexed_files": runtime_health.indexed_files(),
-        "supported_files": runtime_health.supported_files(),
-        "stale_files": runtime_health.stale_files(),
-        "daemon_binary_drift": runtime_health.daemon_binary_drift,
-        "health_summary": runtime_health.health_summary,
         "deferred_loading_supported": true,
         "default_deferred_tool_loading": request.client_profile.default_deferred_tool_loading(),
         "default_tools_list_contract_mode": request.client_profile.default_tool_contract_mode(),
@@ -282,7 +291,13 @@ pub(crate) fn build_http_session_payload(
         "rename_requires_symbol_preflight": true,
         "requires_namespace_listing_before_tool_call": true,
         "requires_tier_listing_before_tool_call": true
-    })
+    });
+    if let (Value::Object(payload_map), Value::Object(health_map)) =
+        (&mut payload, capability.session_health_payload())
+    {
+        payload_map.extend(health_map);
+    }
+    payload
 }
 
 pub(crate) fn build_coordination_enforcement_payload(
@@ -333,8 +348,7 @@ pub(crate) fn build_agent_activity_payload(
 
     #[cfg(feature = "http")]
     let http_activity = state
-        .session_store
-        .as_ref()
+        .session_store()
         .map(|store| {
             store
                 .activity_snapshots()

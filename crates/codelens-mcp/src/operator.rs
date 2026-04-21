@@ -1,4 +1,4 @@
-//! Operator dashboard scaffold (P4).
+//! Operator dashboard aggregation.
 //!
 //! Serena-comparison §Adopt 4 calls for a small operator-facing surface over
 //! existing telemetry — not a new orchestration core. This module aggregates
@@ -10,9 +10,9 @@
 //! - recent analysis artifact summary (count by tool)
 //! - symbol index health (indexed / stale / supported)
 //! - backend capability snapshot (names + availability)
-//! - memory scope registry (project + declared global)
+//! - memory scope registry (currently supported scopes)
 //!
-//! The dashboard is a pure aggregator — it does not alter any state and does
+//! The dashboard is a pure aggregator. It does not alter any state and does
 //! not add new retrieval primitives. It reuses `backend::enumerate_backends`,
 //! `registry::enumerate_memory_scopes`, and existing state accessors.
 
@@ -113,7 +113,7 @@ pub fn build_operator_dashboard(state: &AppState) -> OperatorDashboard {
             tool_counts,
             latest_created_at_ms,
         },
-        backends: crate::backend::enumerate_backends(state),
+        backends: crate::backend::enumerate_backends(state, surface),
         memory_scopes: crate::registry::enumerate_memory_scopes(state),
         note: "Operator plane aggregates existing telemetry; it does not execute tools or mutate state.",
     }

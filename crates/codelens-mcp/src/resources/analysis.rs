@@ -1,7 +1,7 @@
+use crate::AppState;
 use crate::analysis_handles::{analysis_section_handles, analysis_summary_resource};
 use crate::state::AnalysisArtifact;
-use crate::AppState;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub(crate) fn analysis_resource_entries(state: &AppState) -> Vec<Value> {
@@ -244,8 +244,6 @@ fn infer_summary_quality_focus(
             | "trace_request_path"
             | "review_architecture"
             | "plan_safe_refactor"
-            | "audit_security_context"
-            | "analyze_change_impact"
             | "cleanup_duplicate_logic"
             | "onboard_project"
             | "analyze_change_request"

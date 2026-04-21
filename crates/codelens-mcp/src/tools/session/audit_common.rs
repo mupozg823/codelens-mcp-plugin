@@ -1,7 +1,7 @@
 use crate::AppState;
 use crate::error::CodeLensError;
-use crate::session_context::SessionRequestContext;
 use crate::observability::telemetry::{SessionMetrics, ToolInvocation};
+use crate::session_context::SessionRequestContext;
 use serde_json::{Value, json};
 
 pub(super) const CHECK_PASS: &str = "pass";
@@ -108,8 +108,7 @@ pub(super) fn resolve_audit_session_view(
     #[cfg(feature = "http")]
     {
         let http_session = state
-            .session_store
-            .as_ref()
+            .session_store()
             .and_then(|store| store.get(&session_id));
 
         if requested_session_id.is_some()

@@ -1,5 +1,5 @@
-use super::types::{make_symbol_id, ParsedSymbol, SymbolInfo, SymbolKind, SymbolProvenance};
 use super::LanguageConfig;
+use super::types::{ParsedSymbol, SymbolInfo, SymbolKind, SymbolProvenance, make_symbol_id};
 use anyhow::{Context, Result};
 use std::collections::{HashSet, VecDeque};
 use std::sync::{Arc, LazyLock, Mutex};

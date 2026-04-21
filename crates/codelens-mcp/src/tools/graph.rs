@@ -1,6 +1,6 @@
 use super::{
-    optional_bool, optional_string, optional_usize, required_string, success_meta, AppState,
-    ToolResult,
+    AppState, ToolResult, optional_bool, optional_string, optional_usize, required_string,
+    success_meta,
 };
 use crate::protocol::BackendKind;
 use crate::tools::symbols::flatten_symbols;
@@ -22,10 +22,6 @@ pub fn get_changed_files_tool(state: &AppState, arguments: &serde_json::Value) -
     ))
 }
 
-#[deprecated(
-    since = "1.9.46",
-    note = "Use `impact_report` for richer structured blast-radius output. Scheduled for removal in v2.0."
-)]
 pub fn get_impact_analysis(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let file_path = required_string(arguments, "file_path")?;
     let max_depth = optional_usize(arguments, "max_depth", 3);
@@ -107,10 +103,6 @@ pub fn get_symbol_importance(state: &AppState, arguments: &serde_json::Value) ->
     )
 }
 
-#[deprecated(
-    since = "1.9.46",
-    note = "Use `dead_code_report` for richer structured output. Scheduled for removal in v2.0."
-)]
 pub fn find_dead_code_v2_tool(state: &AppState, arguments: &serde_json::Value) -> ToolResult {
     let max_results = optional_usize(arguments, "max_results", 50);
     Ok(

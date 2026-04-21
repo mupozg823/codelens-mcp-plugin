@@ -9,16 +9,16 @@
 //! yet so synthetic scoring would be self-grading. See ADR-0005 §5
 //! "Offline eval lanes" and the session notes dated 2026-04-18.
 
+use crate::AppState;
 use crate::protocol::BackendKind;
 use crate::runtime_types::{AnalysisReadiness, AnalysisVerifierCheck};
 use crate::session_context::SessionRequestContext;
 use crate::tool_defs::{ToolProfile, ToolSurface};
-use crate::tool_runtime::{success_meta, ToolResult};
+use crate::tool_runtime::{ToolResult, success_meta};
 use crate::tools::report_payload::{build_handle_payload, infer_risk_level};
 use crate::tools::report_verifier::{VERIFIER_CAUTION, VERIFIER_READY};
 use crate::tools::session::{audit_builder_session, audit_planner_session};
-use crate::AppState;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashMap};
 
 #[derive(Default)]

@@ -34,11 +34,10 @@ pub use db::{
 };
 pub use file_ops::{
     DirectoryEntry, EnclosingSymbol, FileMatch, FileReadResult, PatternMatch, SmartPatternMatch,
-    TextRefsReport, TextReference, create_text_file, delete_lines, extract_word_at_position,
-    find_files,
-    find_referencing_symbols_via_text, insert_after_symbol, insert_at_line, insert_before_symbol,
-    list_dir, read_file, replace_content, replace_lines, replace_symbol_body, search_for_pattern,
-    search_for_pattern_smart,
+    TextReference, TextRefsReport, create_text_file, delete_lines, extract_word_at_position,
+    find_files, find_referencing_symbols_via_text, insert_after_symbol, insert_at_line,
+    insert_before_symbol, list_dir, read_file, replace_content, replace_lines, replace_symbol_body,
+    search_for_pattern, search_for_pattern_smart,
 };
 pub use git::{ChangedFile, DiffSymbol, DiffSymbolEntry, get_changed_files, get_diff_symbols};
 pub use import_graph::{
@@ -93,6 +92,6 @@ pub use watcher::{FileWatcher, WatcherStats};
 // Semantic IR — new types only; existing types are already re-exported above.
 pub use ir::{
     CodeDiagnostic, DiagnosticSeverity, EditAction, EditActionKind, EditPlan, ImpactKind,
-    ImpactNode, IntelligenceSource, IrCallEdge, PreciseBackend, Relation, RelationKind,
-    RetrievalConfig, RetrievalStage, RetrievalWeights, SearchCandidate,
+    ImpactNode, IntelligenceSource, IrCallEdge, Relation, RelationKind, RetrievalConfig,
+    RetrievalStage, RetrievalWeights, SearchCandidate,
 };

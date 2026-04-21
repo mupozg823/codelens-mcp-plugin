@@ -14,8 +14,9 @@ pub use capabilities::get_capabilities;
 // — dead-reexport warnings are suppressed to keep pure-relocation.
 #[allow(unused_imports)]
 pub(crate) use capabilities::{
-    build_health_summary, collect_runtime_health_snapshot, determine_semantic_search_status,
-    DiagnosticsGuidance, DiagnosticsStatus, RuntimeHealthSnapshot, SemanticSearchStatus,
+    CapabilitySnapshot, DiagnosticsGuidance, DiagnosticsStatus, RuntimeHealthSnapshot,
+    SemanticSearchStatus, build_health_summary, collect_capability_snapshot,
+    collect_runtime_health_snapshot, determine_semantic_search_status,
 };
 pub use metrics::{export_session_markdown, get_tool_metrics};
 // Handoff-protocol constants (Phase O6) — exposed at the

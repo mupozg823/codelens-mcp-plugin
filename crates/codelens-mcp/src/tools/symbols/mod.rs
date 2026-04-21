@@ -1,12 +1,14 @@
 mod analyzer;
 mod formatter;
 mod handlers;
+mod support;
 
 pub(crate) use analyzer::{semantic_lane_ready, semantic_results_for_query, semantic_status};
 pub use handlers::{
-    bm25_symbol_search, find_symbol, flatten_symbols, get_complexity, get_project_structure,
-    get_ranked_context, get_symbols_overview, refresh_symbol_index, search_symbols_fuzzy,
+    bm25_symbol_search, find_symbol, get_complexity, get_project_structure, get_ranked_context,
+    get_symbols_overview, refresh_symbol_index, search_symbols_fuzzy,
 };
+pub use support::flatten_symbols;
 
 #[cfg(test)]
 mod tests {

@@ -256,9 +256,11 @@ fn verify_change_readiness_reports_overlapping_claims_without_blocking_mutation(
         "session-b",
     );
     assert_eq!(mutation["success"], json!(true));
-    assert!(fs::read_to_string(project.as_path().join("coord.py"))
-        .unwrap()
-        .contains("2"));
+    assert!(
+        fs::read_to_string(project.as_path().join("coord.py"))
+            .unwrap()
+            .contains("2")
+    );
 
     let metrics = call_tool(&state, "get_tool_metrics", json!({}));
     assert!(

@@ -1,8 +1,8 @@
-use crate::resources::context::{build_visible_tool_context, ResourceRequestContext};
+use crate::AppState;
+use crate::resources::context::{ResourceRequestContext, build_visible_tool_context};
 use crate::surface_manifest::{HARNESS_HOST_COMPAT_RESOURCE_URI, HOST_ADAPTER_HOSTS};
 use crate::tool_defs::{tool_namespace, tool_preferred_executor_label, tool_tier_label};
-use crate::AppState;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
 pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
@@ -46,7 +46,7 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
         json!({
             "uri": "codelens://backend/capabilities",
             "name": "Semantic Backend Capabilities",
-            "description": "Passive capability map for the Rust engine, LSP bridge, and SCIP bridge backends — lists which capability each backend claims to fulfil",
+            "description": "Runtime-backed capability map for the Rust engine, LSP bridge, and SCIP bridge backends in the active tool surface",
             "mimeType": "application/json"
         }),
         json!({
@@ -58,7 +58,7 @@ pub(crate) fn static_resource_entries(project_name: &str) -> Vec<Value> {
         json!({
             "uri": "codelens://registry/memory-scopes",
             "name": "Memory Scope Registry",
-            "description": "Declared memory scopes (project + global) with current paths and mutation-wiring status",
+            "description": "Supported memory scopes with current paths and mutation-wiring status",
             "mimeType": "application/json"
         }),
         json!({

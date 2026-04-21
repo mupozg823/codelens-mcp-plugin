@@ -13,8 +13,7 @@
 //! The store survives across sessions (process-global) so sibling
 //! agents share the same analyses. Entries carry a creation timestamp
 //! and get evicted by TTL (default 5 minutes) or by explicit
-//! [`WorkflowAnalysisCache::invalidate_project`] calls that a
-//! filesystem watcher or mutation handler can fire.
+//! [`WorkflowAnalysisCache::invalidate_all`] calls after mutation.
 //!
 //! The cache is intentionally conservative: the `compute_fn` only runs
 //! once per `(key, state)` combination. If the project state changes
@@ -50,16 +49,11 @@ pub(crate) const DEFAULT_WORKFLOW_CACHE_TTL: Duration = Duration::from_secs(300)
 /// expects a single hot key per (tool, state) combination.
 const MAX_ENTRIES_PER_TOOL: usize = 64;
 
-/// One cached entry. `payload` is the JSON response the tool
-/// returned; `meta_extra` lets callers stash per-entry metadata
-/// (elapsed_ms_on_miss, etc.) that a miss-time observer wants to
-/// echo back on hits.
+/// One cached entry. `payload` is the JSON response the tool returned.
 #[derive(Debug, Clone)]
 pub(crate) struct CachedResponse {
     pub payload: Value,
-    pub meta_extra: Value,
     pub created_at: Instant,
-    pub compute_elapsed_ms: u64,
 }
 
 impl CachedResponse {
@@ -123,14 +117,6 @@ impl WorkflowAnalysisCache {
         self.entries.insert(key, entry);
     }
 
-    /// Drop every entry that belongs to the given project state
-    /// hash. Called by the filesystem watcher / mutation handlers
-    /// when they observe that the state has shifted.
-    pub(crate) fn invalidate_project(&self, project_state_hash: u64) {
-        let suffix = format!("|{project_state_hash:016x}");
-        self.entries.retain(|key, _| !key.ends_with(&suffix));
-    }
-
     /// Phase P5 slice 2b: drop all cached entries regardless of scope.
     /// Called after a successful mutation, because we can't cheaply
     /// determine which project_state_hash the cache keyed against
@@ -152,18 +138,6 @@ impl WorkflowAnalysisCache {
 
     pub(crate) fn record_miss(&self) {
         self.miss_count.fetch_add(1, Ordering::Relaxed);
-    }
-
-    pub(crate) fn hit_count(&self) -> u64 {
-        self.hit_count.load(Ordering::Relaxed)
-    }
-
-    pub(crate) fn miss_count(&self) -> u64 {
-        self.miss_count.load(Ordering::Relaxed)
-    }
-
-    pub(crate) fn len(&self) -> usize {
-        self.entries.len()
     }
 
     fn enforce_per_tool_budget(&self, incoming_key: &str) {
@@ -218,11 +192,10 @@ mod tests {
     use serde_json::json;
 
     fn response(payload: Value, elapsed: u64) -> CachedResponse {
+        let _ = elapsed;
         CachedResponse {
             payload,
-            meta_extra: Value::Null,
             created_at: Instant::now(),
-            compute_elapsed_ms: elapsed,
         }
     }
 
@@ -244,7 +217,6 @@ mod tests {
         cache.insert(key.clone(), response(json!({"ok": true}), 10));
         let hit = cache.get(&key).expect("cache hit");
         assert_eq!(hit.payload, json!({"ok": true}));
-        assert_eq!(hit.compute_elapsed_ms, 10);
     }
 
     #[test]
@@ -254,18 +226,6 @@ mod tests {
         cache.insert(key.clone(), response(json!({"ok": true}), 10));
         std::thread::sleep(Duration::from_millis(5));
         assert!(cache.get(&key).is_none());
-    }
-
-    #[test]
-    fn invalidate_project_drops_entries_for_that_state() {
-        let cache = WorkflowAnalysisCache::new();
-        let k_old = WorkflowAnalysisCache::build_key("review_architecture", 0, 111);
-        let k_new = WorkflowAnalysisCache::build_key("review_architecture", 0, 222);
-        cache.insert(k_old.clone(), response(json!({"old": true}), 10));
-        cache.insert(k_new.clone(), response(json!({"new": true}), 10));
-        cache.invalidate_project(111);
-        assert!(cache.get(&k_old).is_none());
-        assert!(cache.get(&k_new).is_some());
     }
 
     #[test]

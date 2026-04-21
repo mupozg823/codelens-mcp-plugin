@@ -26,9 +26,6 @@ pub(crate) struct EmbeddingStatus {
     /// Number of symbols currently indexed in the live engine. 0 when
     /// the engine is not loaded or its store is empty.
     pub indexed_symbols: usize,
-    /// The embedding model name. Falls back to the configured default
-    /// when the engine is not loaded.
-    pub model: String,
 }
 
 impl EmbeddingStatus {
@@ -48,14 +45,22 @@ impl AppState {
     ) -> std::sync::RwLockReadGuard<'_, Option<EmbeddingEngine>> {
         // Fast path: already initialized
         {
-            let guard = self.embedding.read().unwrap_or_else(|p| p.into_inner());
+            let guard = self
+                .project_runtime
+                .embedding
+                .read()
+                .unwrap_or_else(|p| p.into_inner());
             if guard.is_some() {
                 return guard;
             }
         }
         // Slow path: initialize under write lock
         {
-            let mut wguard = self.embedding.write().unwrap_or_else(|p| p.into_inner());
+            let mut wguard = self
+                .project_runtime
+                .embedding
+                .write()
+                .unwrap_or_else(|p| p.into_inner());
             if wguard.is_none() {
                 let project = self.project();
                 *wguard = EmbeddingEngine::new(&project)
@@ -63,19 +68,29 @@ impl AppState {
                     .ok();
             }
         }
-        self.embedding.read().unwrap_or_else(|p| p.into_inner())
+        self.project_runtime
+            .embedding
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
     }
 
     /// Read-only access to embedding state without triggering initialization.
     #[cfg(feature = "semantic")]
     pub(crate) fn embedding_ref(&self) -> std::sync::RwLockReadGuard<'_, Option<EmbeddingEngine>> {
-        self.embedding.read().unwrap_or_else(|p| p.into_inner())
+        self.project_runtime
+            .embedding
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
     }
 
     /// Drop the current embedding engine (called on project switch).
     #[cfg(feature = "semantic")]
     pub(crate) fn reset_embedding(&self) {
-        let mut guard = self.embedding.write().unwrap_or_else(|p| p.into_inner());
+        let mut guard = self
+            .project_runtime
+            .embedding
+            .write()
+            .unwrap_or_else(|p| p.into_inner());
         *guard = None;
     }
 
@@ -92,13 +107,11 @@ impl AppState {
             EmbeddingStatus {
                 loaded: true,
                 indexed_symbols: info.indexed_symbols,
-                model: info.model_name,
             }
         } else {
             EmbeddingStatus {
                 loaded: false,
                 indexed_symbols: 0,
-                model: codelens_engine::configured_embedding_model_name(),
             }
         }
     }
@@ -108,7 +121,6 @@ impl AppState {
         EmbeddingStatus {
             loaded: false,
             indexed_symbols: 0,
-            model: codelens_engine::configured_embedding_model_name(),
         }
     }
 
@@ -116,7 +128,8 @@ impl AppState {
     /// and caches it for subsequent calls. Returns None if no index found.
     #[cfg(feature = "scip-backend")]
     pub(crate) fn scip(&self) -> Option<&codelens_engine::ScipBackend> {
-        self.scip_backend
+        self.project_runtime
+            .scip_backend
             .get_or_init(|| {
                 let project = self.project();
                 codelens_engine::ScipBackend::detect(project.as_path())
