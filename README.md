@@ -1,6 +1,6 @@
 <div align="center">
 
-# CodeLens MCP → Symbiote MCP
+# CodeLens MCP 
 
 **Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
 
