@@ -18,6 +18,54 @@
 
 use super::*;
 
+/// Serializes the three tests that mutate `CODELENS_LSP_AUTO` plus the one
+/// that asserts its absence. Without this, cargo's parallel runner
+/// interleaves env mutations and a test expecting "not set" sporadically
+/// observes a leaked value from a sibling thread. Pattern mirrors
+/// `PATH_MUTEX` in `workflow.rs`.
+static LSP_AUTO_ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// RAII guard: acquires the shared mutex, optionally sets `CODELENS_LSP_AUTO`
+/// on construction, and *always* removes the var on drop. Both the mutex
+/// hold and the cleanup outlive any panic in the test body.
+struct LspAutoEnvGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+}
+
+impl LspAutoEnvGuard {
+    /// Acquire the mutex and leave `CODELENS_LSP_AUTO` unset so the test
+    /// observes the default code path.
+    fn unset() -> Self {
+        let lock = LSP_AUTO_ENV_MUTEX
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Defensive: clear any leaked value from a prior test.
+        unsafe {
+            std::env::remove_var("CODELENS_LSP_AUTO");
+        }
+        Self { _lock: lock }
+    }
+
+    /// Acquire the mutex and set `CODELENS_LSP_AUTO=value` for the scope.
+    fn set(value: &str) -> Self {
+        let lock = LSP_AUTO_ENV_MUTEX
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        unsafe {
+            std::env::set_var("CODELENS_LSP_AUTO", value);
+        }
+        Self { _lock: lock }
+    }
+}
+
+impl Drop for LspAutoEnvGuard {
+    fn drop(&mut self) {
+        unsafe {
+            std::env::remove_var("CODELENS_LSP_AUTO");
+        }
+    }
+}
+
 /// Universal envelope invariants every successful workflow tool response must
 /// satisfy. Separate from schema-version checks because not every workflow
 /// tool publishes a `schema_version` field (e.g. `prepare_harness_session`'s
@@ -85,6 +133,7 @@ fn prepare_harness_session_lsp_auto_attach_skips_non_persistent_transport() {
     // request. The field is still present with enabled=false and a
     // stable machine-readable disabled_reason so downstream harness
     // adapters can key off it.
+    let _env = LspAutoEnvGuard::unset();
     let project = project_root();
     fs::write(
         project.as_path().join("sample.py"),
@@ -108,20 +157,15 @@ fn prepare_harness_session_reports_lsp_auto_attach_contract_when_opted_in() {
     // extensions are present in the project tree. We don't assert on
     // `prewarm_fired` because CI environments may not have the server
     // binary installed; the contract is on the *detection* step.
+    let _env = LspAutoEnvGuard::set("true");
     let project = project_root();
     fs::write(
         project.as_path().join("sample.py"),
         "def greet(name: str) -> str:\n    return f'hi {name}'\n",
     )
     .unwrap();
-    unsafe {
-        std::env::set_var("CODELENS_LSP_AUTO", "true");
-    }
     let state = make_state(&project);
     let payload = call_tool(&state, "prepare_harness_session", json!({}));
-    unsafe {
-        std::env::remove_var("CODELENS_LSP_AUTO");
-    }
     assert_workflow_envelope("prepare_harness_session", &payload);
 
     let auto = &payload["data"]["lsp_auto_attach"];
@@ -160,24 +204,15 @@ fn prepare_harness_session_honors_lsp_auto_opt_out_env() {
     // entirely. The payload still includes the field so downstream
     // harness code can rely on the key always being present, but
     // `enabled=false` and `disabled_reason="user_opt_out"`.
+    let _env = LspAutoEnvGuard::set("false");
     let project = project_root();
     fs::write(
         project.as_path().join("sample.py"),
         "def greet():\n    return 'hi'\n",
     )
     .unwrap();
-    // SAFETY: env vars are a process-global; the test relies on being
-    // run single-threaded within this test function. If other prepare
-    // tests interleave, the env flag may leak — but cargo test honours
-    // the test harness and inner scope resets before returning.
-    unsafe {
-        std::env::set_var("CODELENS_LSP_AUTO", "false");
-    }
     let state = make_state(&project);
     let payload = call_tool(&state, "prepare_harness_session", json!({}));
-    unsafe {
-        std::env::remove_var("CODELENS_LSP_AUTO");
-    }
     assert_workflow_envelope("prepare_harness_session", &payload);
     let auto = &payload["data"]["lsp_auto_attach"];
     assert_eq!(auto["enabled"], json!(false));
@@ -220,14 +255,9 @@ fn prepare_harness_session_detects_deeply_nested_rust_sources() {
         fs::write(noise.join(format!("row_{idx:03}.py")), "x = 1\n").unwrap();
     }
 
-    unsafe {
-        std::env::set_var("CODELENS_LSP_AUTO", "true");
-    }
+    let _env = LspAutoEnvGuard::set("true");
     let state = make_state(&project);
     let payload = call_tool(&state, "prepare_harness_session", json!({}));
-    unsafe {
-        std::env::remove_var("CODELENS_LSP_AUTO");
-    }
     let auto = &payload["data"]["lsp_auto_attach"];
     let detected: Vec<String> = auto["detected_languages"]
         .as_array()
