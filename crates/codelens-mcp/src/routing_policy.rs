@@ -96,6 +96,115 @@ pub(crate) fn render_routing_policy_markdown() -> String {
     out
 }
 
+/// Phase P6-b slice 1: a single evaluation task referenced by the
+/// eval harness. Each scenario declares the expected routing lane
+/// so Python/Rust runners can cross-check classification without
+/// duplicating rules.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct EvalScenario {
+    /// Stable identifier used by downstream metric files.
+    pub id: &'static str,
+    /// Human-readable one-line summary of the task.
+    pub task: &'static str,
+    /// Which lane this scenario is expected to route through when
+    /// classified by the routing policy.
+    pub expected_lane: RoutingLane,
+}
+
+/// Declarative 10-scenario battery the eval harness will run against
+/// three arms (native, codelens, hybrid) per P6. Deterministic
+/// order keeps the generated JSON stable across runs.
+pub(crate) const EVAL_SCENARIOS: &[EvalScenario] = &[
+    EvalScenario {
+        id: "lookup_single_symbol",
+        task: "Find the definition of `render_routing_policy_markdown`.",
+        expected_lane: RoutingLane::Native,
+    },
+    EvalScenario {
+        id: "edit_single_line",
+        task: "Change a constant value in one file under 30 LOC.",
+        expected_lane: RoutingLane::Native,
+    },
+    EvalScenario {
+        id: "impact_report_multi_file",
+        task: "Summarize the blast radius of modifying `tool_defs/output_schemas.rs`.",
+        expected_lane: RoutingLane::CodeLensAfterBootstrap,
+    },
+    EvalScenario {
+        id: "rename_across_workspace",
+        task: "Rename `shared_analysis_pool_snapshot` across the workspace.",
+        expected_lane: RoutingLane::CodeLensAfterBootstrap,
+    },
+    EvalScenario {
+        id: "onboard_unfamiliar_repo",
+        task: "Produce a first-look overview of an unfamiliar codebase.",
+        expected_lane: RoutingLane::CodeLensAfterBootstrap,
+    },
+    EvalScenario {
+        id: "extract_function",
+        task: "Refactor a 40-line block into a new helper function.",
+        expected_lane: RoutingLane::CodeLensAfterBootstrap,
+    },
+    EvalScenario {
+        id: "audit_module_boundary",
+        task: "Flag modules that leak internals across package boundaries.",
+        expected_lane: RoutingLane::AsyncAnalysis,
+    },
+    EvalScenario {
+        id: "dead_code_report_full_repo",
+        task: "Enumerate dead code across the whole repo.",
+        expected_lane: RoutingLane::AsyncAnalysis,
+    },
+    EvalScenario {
+        id: "trace_call_path",
+        task: "Trace the call path from `main` to `store_analysis`.",
+        expected_lane: RoutingLane::CodeLensAfterBootstrap,
+    },
+    EvalScenario {
+        id: "fix_single_bug",
+        task: "Fix an off-by-one error reported by a failing unit test.",
+        expected_lane: RoutingLane::Native,
+    },
+];
+
+/// Serialize the scenario battery as JSON. Ordered list of objects
+/// so downstream Python runners can zip with measured metrics.
+pub(crate) fn render_eval_scenarios_json() -> String {
+    let entries: Vec<_> = EVAL_SCENARIOS
+        .iter()
+        .map(|scenario| {
+            serde_json::json!({
+                "id": scenario.id,
+                "task": scenario.task,
+                "expected_lane": scenario.expected_lane.as_label(),
+            })
+        })
+        .collect();
+    let doc = serde_json::json!({
+        "schema_version": 1,
+        "generated_by": "codelens-mcp::routing_policy::render_eval_scenarios_json",
+        "scenarios": entries,
+    });
+    // Pretty-printed so humans can diff the snapshot.
+    let mut pretty = serde_json::to_string_pretty(&doc).unwrap_or_default();
+    pretty.push('\n');
+    pretty
+}
+
+/// Path of the checked-in scenarios JSON snapshot, relative to the
+/// repo root.
+pub(crate) const EVAL_SCENARIOS_SNAPSHOT_PATH: &str =
+    "benchmarks/scenarios/extreme-efficiency.json";
+
+pub(crate) fn eval_scenarios_snapshot_path() -> std::path::PathBuf {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    std::path::Path::new(manifest)
+        .parent()
+        .and_then(|p| p.parent())
+        .expect("CARGO_MANIFEST_DIR must have a repo-root ancestor")
+        .join(EVAL_SCENARIOS_SNAPSHOT_PATH)
+}
+
 /// Path of the checked-in markdown snapshot, relative to the repo root.
 pub(crate) const ROUTING_POLICY_SNAPSHOT_PATH: &str = "docs/routing-policy.md";
 
@@ -177,6 +286,73 @@ mod tests {
                 .unwrap_or_else(|err| panic!("failed to create {}: {err}", parent.display()));
         }
         std::fs::write(&path, render_routing_policy_markdown())
+            .unwrap_or_else(|err| panic!("failed to write {}: {err}", path.display()));
+    }
+
+    #[test]
+    fn eval_scenarios_battery_has_ten_entries_across_three_lanes() {
+        // Phase P6-b slice 1: the plan specifies a 10-scenario
+        // battery spanning every routing lane so the eval harness
+        // can report per-lane metrics. Guard the count + lane
+        // coverage so a future edit can't silently shrink the
+        // battery.
+        assert_eq!(
+            EVAL_SCENARIOS.len(),
+            10,
+            "eval battery must hold exactly 10 scenarios; got {}",
+            EVAL_SCENARIOS.len()
+        );
+        let labels: std::collections::BTreeSet<_> = EVAL_SCENARIOS
+            .iter()
+            .map(|scenario| scenario.expected_lane.as_label())
+            .collect();
+        assert!(labels.contains("native"), "missing native-lane scenarios");
+        assert!(
+            labels.contains("codelens_after_bootstrap"),
+            "missing codelens-lane scenarios"
+        );
+        assert!(
+            labels.contains("async_analysis"),
+            "missing async-lane scenarios"
+        );
+    }
+
+    #[test]
+    fn eval_scenarios_json_round_trip_matches_checked_in_snapshot() {
+        // Contract: the fixture at benchmarks/scenarios/extreme-efficiency.json
+        // must equal `render_eval_scenarios_json()` byte-for-byte.
+        // Regenerate via `cargo test -p codelens-mcp
+        // regenerate_eval_scenarios_json -- --ignored`.
+        let snapshot_path = eval_scenarios_snapshot_path();
+        let expected = render_eval_scenarios_json();
+        let actual = std::fs::read_to_string(&snapshot_path).unwrap_or_else(|err| {
+            panic!(
+                "failed to read scenarios snapshot at {}: {err}. \
+                 Run `cargo test -p codelens-mcp \
+                 regenerate_eval_scenarios_json -- --ignored` to create it.",
+                snapshot_path.display()
+            )
+        });
+        assert_eq!(
+            actual, expected,
+            "scenarios JSON drifted from EVAL_SCENARIOS; \
+             regenerate via `cargo test -p codelens-mcp \
+             regenerate_eval_scenarios_json -- --ignored`"
+        );
+    }
+
+    #[test]
+    #[ignore = "Regeneration helper — run explicitly via \
+                `cargo test -p codelens-mcp regenerate_eval_scenarios_json -- --ignored` \
+                after editing EVAL_SCENARIOS. Writes the snapshot to \
+                benchmarks/scenarios/extreme-efficiency.json."]
+    fn regenerate_eval_scenarios_json() {
+        let path = eval_scenarios_snapshot_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .unwrap_or_else(|err| panic!("failed to create {}: {err}", parent.display()));
+        }
+        std::fs::write(&path, render_eval_scenarios_json())
             .unwrap_or_else(|err| panic!("failed to write {}: {err}", path.display()));
     }
 }

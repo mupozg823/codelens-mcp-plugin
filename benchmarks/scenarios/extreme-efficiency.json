@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "generated_by": "codelens-mcp::routing_policy::render_eval_scenarios_json",
+  "scenarios": [
+    {
+      "id": "lookup_single_symbol",
+      "task": "Find the definition of `render_routing_policy_markdown`.",
+      "expected_lane": "native"
+    },
+    {
+      "id": "edit_single_line",
+      "task": "Change a constant value in one file under 30 LOC.",
+      "expected_lane": "native"
+    },
+    {
+      "id": "impact_report_multi_file",
+      "task": "Summarize the blast radius of modifying `tool_defs/output_schemas.rs`.",
+      "expected_lane": "codelens_after_bootstrap"
+    },
+    {
+      "id": "rename_across_workspace",
+      "task": "Rename `shared_analysis_pool_snapshot` across the workspace.",
+      "expected_lane": "codelens_after_bootstrap"
+    },
+    {
+      "id": "onboard_unfamiliar_repo",
+      "task": "Produce a first-look overview of an unfamiliar codebase.",
+      "expected_lane": "codelens_after_bootstrap"
+    },
+    {
+      "id": "extract_function",
+      "task": "Refactor a 40-line block into a new helper function.",
+      "expected_lane": "codelens_after_bootstrap"
+    },
+    {
+      "id": "audit_module_boundary",
+      "task": "Flag modules that leak internals across package boundaries.",
+      "expected_lane": "async_analysis"
+    },
+    {
+      "id": "dead_code_report_full_repo",
+      "task": "Enumerate dead code across the whole repo.",
+      "expected_lane": "async_analysis"
+    },
+    {
+      "id": "trace_call_path",
+      "task": "Trace the call path from `main` to `store_analysis`.",
+      "expected_lane": "codelens_after_bootstrap"
+    },
+    {
+      "id": "fix_single_bug",
+      "task": "Fix an off-by-one error reported by a failing unit test.",
+      "expected_lane": "native"
+    }
+  ]
+}
