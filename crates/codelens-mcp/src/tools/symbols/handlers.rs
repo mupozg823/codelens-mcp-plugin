@@ -8,7 +8,7 @@ use super::{
         annotate_ranked_context_provenance, compact_semantic_evidence,
         merge_semantic_ranked_entries, semantic_results_for_query, semantic_scores_for_query,
     },
-    formatter::{compact_symbol_bodies, count_branches},
+    formatter::{count_branches, render_symbols_with_presentation},
 };
 use crate::error::CodeLensError;
 use crate::protocol::BackendKind;
@@ -139,47 +139,42 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
         }
     }
 
+    // Phase O1 — per-symbol compression level caps. `body_cap` limits
+    // how many top symbols get L2 (signature + body) when
+    // `include_body` is true. `presentation_cap` limits how many
+    // symbols keep at least L1 (signature); beyond this cap they drop
+    // to L0 (id + file + line only). Both caps are overridable via
+    // `_body_cap` / `_presentation_cap` test-time knobs, defaulting to
+    // values that preserve the previous "top-3 get bodies, everyone
+    // else keeps signatures" behavior for real clients.
+    let body_cap = optional_usize(arguments, "_body_cap", 3);
+    let presentation_cap =
+        optional_usize(arguments, "_presentation_cap", max_matches.max(body_cap));
+
     Ok(state
         .symbol_index()
         .find_symbol_cached(name, file_path, include_body, exact_match, max_matches)
-        .map(|mut value| {
-            let max_symbols_with_body = 3usize;
-            let body_truncated_count = if include_body && !body_full {
-                compact_symbol_bodies(
-                    &mut value,
-                    max_symbols_with_body,
-                    body_line_limit,
-                    body_char_limit,
-                )
-            } else {
-                0
-            };
-            // Per-symbol body_delivery transparency. The harness needs to
-            // tell "body present and full" from "body truncated" from
-            // "body dropped over the per-response cap" without re-reading
-            // the file just to guess. Derive by inspection: idx < cap AND
-            // body Some => full|truncated (truncated_count is top-wide,
-            // so we split using signature heuristics below).
-            let bodies_present = value.iter().filter(|s| s.body.is_some()).count();
-            let bodies_missing = value.len().saturating_sub(bodies_present);
-            let truncation_marker = "[truncated; rerun with body_full=true";
-            let mut bodies_full = 0usize;
-            let mut bodies_truncated = 0usize;
-            for sym in value.iter() {
-                if let Some(body) = sym.body.as_ref() {
-                    if body.contains(truncation_marker) {
-                        bodies_truncated += 1;
-                    } else {
-                        bodies_full += 1;
-                    }
-                }
-            }
+        .map(|value| {
+            let (rendered_symbols, presentation_stats) = render_symbols_with_presentation(
+                &value,
+                include_body,
+                body_cap,
+                presentation_cap,
+                body_line_limit,
+                body_char_limit,
+                body_full,
+            );
+            let bodies_full_count = presentation_stats.signature_body_full;
+            let bodies_truncated_count = presentation_stats.signature_body_truncated;
+            let bodies_missing_count = presentation_stats.id_only + presentation_stats.signature;
             let body_delivery = if !include_body {
                 json!({"requested": false, "status": "disabled"})
             } else {
-                let status = if bodies_missing == 0 && bodies_truncated == 0 {
+                let status = if bodies_missing_count == 0 && bodies_truncated_count == 0 {
                     "full"
-                } else if bodies_missing > 0 && bodies_full == 0 && bodies_truncated == 0 {
+                } else if bodies_missing_count > 0 && bodies_full_count == 0
+                    && bodies_truncated_count == 0
+                {
                     "dropped"
                 } else {
                     "partial"
@@ -187,31 +182,33 @@ pub fn find_symbol(state: &AppState, arguments: &Value) -> ToolResult {
                 json!({
                     "requested": true,
                     "status": status,
-                    "bodies_full": bodies_full,
-                    "bodies_truncated": bodies_truncated,
-                    "bodies_omitted_over_cap": bodies_missing,
-                    "max_symbols_with_body": if body_full { value.len() } else { max_symbols_with_body },
+                    "bodies_full": bodies_full_count,
+                    "bodies_truncated": bodies_truncated_count,
+                    "bodies_omitted_over_cap": bodies_missing_count,
+                    "max_symbols_with_body": if body_full { value.len() } else { body_cap },
                     "line_limit": if body_full { 0 } else { body_line_limit },
                     "char_limit": if body_full { 0 } else { body_char_limit },
-                    "hint": if !body_full && (bodies_truncated > 0 || bodies_missing > 0) {
+                    "hint": if !body_full && (bodies_truncated_count > 0 || bodies_missing_count > 0) {
                         "pass body_full=true for untruncated bodies, or narrow the query (file_path/exact_match) to fit within the default cap"
                     } else {
                         ""
                     },
                 })
             };
-            // body_truncated_count kept for backward compatibility;
-            // body_preview retained so existing clients reading that flag
-            // still get meaningful behavior. Both are now summarized in
-            // body_delivery.
-            // 0-result fallback hint: agents guessing a slightly wrong name
-            // hit dead-ends silently otherwise. Recommend the fuzzy path.
             let mut payload = json!({
-                "symbols": value,
+                "symbols": rendered_symbols,
                 "count": value.len(),
-                "body_truncated_count": body_truncated_count,
+                "body_truncated_count": bodies_truncated_count,
                 "body_preview": include_body && !body_full,
                 "body_delivery": body_delivery,
+                "presentation_summary": {
+                    "id_only": presentation_stats.id_only,
+                    "signature": presentation_stats.signature,
+                    "signature_body_full": presentation_stats.signature_body_full,
+                    "signature_body_truncated": presentation_stats.signature_body_truncated,
+                    "body_cap": body_cap,
+                    "presentation_cap": presentation_cap,
+                },
             });
             let mut decisions: Vec<crate::limits::LimitsApplied> = Vec::new();
             if value.is_empty() {

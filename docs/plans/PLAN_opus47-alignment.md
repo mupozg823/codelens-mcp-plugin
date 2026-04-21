@@ -40,17 +40,21 @@ Each phase ≤ 4h, TDD red-green-refactor, independent commit.
 
 ## Tier A — Opus 4.7 Model-Critical
 
-### Phase O1 — Per-symbol compression L0-L3 (P0, 4h)
+### Phase O1 — Per-symbol compression L0-L2 (P0, 3-4h)
 
-- [ ] RED: `identifier_lookup_emits_l0_or_l1_per_symbol` (avg ≤ 300B)
-- [ ] RED: `body_requested_explicit_emits_l2_per_symbol` (per-symbol 300-1500B)
-- [ ] RED: `impact_report_embeds_l3_for_top_blast_radius_symbol`
-- [ ] Unit: `SymbolPresentation::from_intent` mapping 4 cases
-- [ ] GREEN: `enum SymbolPresentation { IdOnly, Signature, SignatureBody, FullContext }`
-- [ ] GREEN: `select_presentation(intent, explicit_body, rank)` in `formatter.rs`
-- [ ] GREEN: rewrite `compact_symbol_bodies` → `apply_presentation_per_symbol`
-- [ ] GREEN: wire 3 handlers to pass intent
-- [ ] Quality Gate: `cargo test -p codelens-mcp --features semantic` pass
+Scope note: L3 (FullContext with callers/callees refs) is deferred to
+O8b (Stage 5 structural traversal) since it reuses the same LSP/refs
+infrastructure. O1 ships L0/L1/L2 fully; nothing stubbed.
+
+- [ ] RED: `identifier_lookup_defaults_to_l1_signature_per_symbol`
+- [ ] RED: `body_requested_explicit_emits_l2_per_symbol` (300-1500B per top symbol)
+- [ ] RED: `symbols_beyond_cap_drop_to_l0_id_only`
+- [ ] Unit: `select_presentation` mapping 4 cases
+- [ ] GREEN: `enum SymbolPresentation { IdOnly, Signature, SignatureBody }`
+- [ ] GREEN: `select_presentation(explicit_body, rank, cap)` in `formatter.rs`
+- [ ] GREEN: `apply_presentation_per_symbol` replaces `compact_symbol_bodies`
+- [ ] GREEN: `find_symbol` handler uses new function + emits `presentation_level` per symbol
+- [ ] Quality Gate: `cargo test -p codelens-mcp --features semantic` pass, bench_gate primitive payload still ≤ 1100B
 
 ### Phase O2 — MCP spec annotations (P0, 2h)
 
