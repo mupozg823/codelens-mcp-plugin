@@ -101,8 +101,17 @@
         "duration_ms": 11829,
         "errors": 0,
         "pass": true,
-        "self_report_accurate": true,
-        "notes": "Bounded scan tier — perfect fit. 5/5 read-only Bash with zero overhead."
+        "self_report": {
+          "tool_calls_used": 5,
+          "time_seconds": 2,
+          "tokens_field_present": false
+        },
+        "self_vs_actual_drift": {
+          "tool_count": "exact",
+          "time_drift_factor": 5.9,
+          "token_field_missing": true
+        },
+        "notes": "Tool count self-report accurate (5=5). Time self-report underestimated 5.9x (self 2s vs actual 11.8s). Token field missing from self-report schema — parent had to pull from trajectory <usage> block. Output quality was NOT cross-checked by parent; 'perfect fit' claim in earlier framing was unverified — retracted to 'completed bounded scan within budget'."
       },
       {
         "role": "orchestrator",
@@ -117,11 +126,17 @@
         "errors": 0,
         "draft_lines": 182,
         "pass": true,
-        "self_report_accurate": false,
-        "self_report_tokens_estimate": 3000,
-        "actual_tokens": 33483,
-        "self_report_drift_factor": 11.16,
-        "notes": "Self-reported ~3k tokens vs trajectory 33k — 11x drift. Cross-check self-stats with trajectory log mandatory. Otherwise clean: 1 Read followed by full draft synthesis."
+        "self_report": {
+          "tool_calls_used": 1,
+          "time_seconds": 15,
+          "tokens_field_present": false
+        },
+        "self_vs_actual_drift": {
+          "tool_count": "exact",
+          "time_drift_factor": 5.1,
+          "token_field_missing": true
+        },
+        "notes": "Tool count self-report accurate (1=1). Time self-report underestimated 5.1x (self 15s vs actual 76.5s). Token field missing from self-report schema — the '~3k tokens self-report' previously attributed to Sonnet in this file was parent fabrication, now retracted. Actual token usage 33,483 is from the trajectory <usage> block only."
       },
       {
         "role": "evaluator",
@@ -167,10 +182,46 @@
       "repairs": [
         "AC2: distinguished Grace et al. 2026 (model+harness pair definition) vs TerminalBench-2 (trajectory + binary pass/fail methodology)",
         "AC3: rendered actual 4-row capability table with Codex timeout reason",
-        "AC4: corrected Sonnet self-stat (3k→33k, 15s→77s) + filled Evaluator row with real numbers (0/32k/32s/PARTIAL→PASS)",
+        "AC4: corrected Sonnet self-stat time (15s→77s actual) + filled Evaluator row with real numbers (0/32k/32s/PARTIAL→PASS). Note: the 'token drift 11x' language previously here was parent fabrication; Sonnet never self-reported tokens since the schema did not request them.",
         "AC5: rendered 4-row tier guidance matrix with when-to-use + when-to-avoid"
       ],
-      "post_repair_verdict": "PASS (1.00)"
+      "post_repair_verdict_before_independent_evaluator": "PASS (1.00) — SELF-GRADED BY PARENT, NOT INDEPENDENT",
+      "observer_effect_warning": "The post-repair verdict was declared by the same parent harness that applied the repairs. Independent re-evaluation added below as 'independent_evaluator_pass' to close the observer loop."
+    },
+    "independent_evaluator_pass": {
+      "tier": "opus-independent-evaluator",
+      "model": "claude-opus-4-7",
+      "agent_id": "a10051c435711aca3",
+      "role": "independent critic, NEW instance (no prior involvement in draft or repair)",
+      "task": "Read final repaired v1.9.52-harness-eval.md in full, score 7 ACs independently",
+      "tool_calls": 1,
+      "tools_list": ["Read"],
+      "tokens": 43108,
+      "duration_ms": 26594,
+      "self_report": {
+        "tool_calls_used": 1,
+        "time_seconds": 25,
+        "tokens_field_present": false
+      },
+      "self_vs_actual_drift": {
+        "tool_count": "exact",
+        "time_drift_factor": 1.06,
+        "token_field_missing": true
+      },
+      "aggregate_score": 1.0,
+      "verdict": "PASS",
+      "failing_criteria": [],
+      "disagreement_with_parent_self_pass": false,
+      "evidence_citations_per_ac": [
+        "AC1: 리트랙트(commit d73deba) opening line",
+        "AC2: Grace et al. 2026 + TerminalBench-2 distinct roles section",
+        "AC3: 4-tier rendered table (line 50-55)",
+        "AC4: 4-row Phase 2 table with Worker/Orch/Eval/Specialist real numbers",
+        "AC5: 4-row tier routing matrix with when-to-use/when-to-avoid",
+        "AC6: 7-item limitations list",
+        "AC7: 6-file frontmatter change list + CLAUDE.md global/project sections + settings.json unchanged"
+      ],
+      "notes": "Opus #2 independently read the file (not a summary) and confirmed every AC with specific quoted evidence. Verdict matches parent-claimed PASS — observer loop closed. Time self-report was within 6% of actual (25s self vs 26.6s actual), contrary to Sonnet/Haiku worker/orchestrator 5-6x underestimation. Suggests Opus self-time estimation may be more accurate than other tiers, but n=2 (this plus round-1 Opus evaluator 35s self vs 32s actual) is too small to generalize."
     },
     "aggregate_metrics": {
       "total_subagent_tool_calls": 6,
