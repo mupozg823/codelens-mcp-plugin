@@ -2,7 +2,7 @@
 
 # CodeLens MCP
 
-**Agent-native code intelligence server with bounded workflows, precise fallback, and auditable releases.**
+**Rust MCP server for bounded code intelligence, gated mutation, and auditable agent workflows.**
 
 _CodeLens MCP is the control plane for agentic coding: bounded code intelligence, gated mutation, and auditable harness workflows._
 
@@ -19,7 +19,7 @@ Pure Rust MCP server for multi-agent harnesses with hybrid retrieval (tree-sitte
 <!-- SURFACE_MANIFEST_README_SNAPSHOT:BEGIN -->
 ## Surface Snapshot
 
-- Workspace version: `1.9.55`
+- Workspace version: `1.9.56`
 - Workspace members: `3` (`crates/codelens-engine`, `crates/codelens-mcp`, `crates/codelens-tui`)
 - Registered tool definitions: `108`
 - Tool output schemas: `73 / 108`
@@ -44,16 +44,14 @@ surface is profile-scoped: `reviewer-graph` exposes `12`, `evaluator-compact`
 `ci-audit` `41`, and `refactor-full` `49`. The default `balanced` preset shows
 `79`, not `108`.
 
-## What v1.9.55 Delivers
+## What v1.9.56 Delivers
 
 | Layer | What ships in the current release |
 | ----- | --------------------------------- |
-| Workflow entrypoints | `explore_codebase`, `trace_request_path`, `review_changes`, `plan_safe_refactor`, `diagnose_issues` |
-| Runtime surfaces | 108 total definitions in source, but only 12-49 visible per profile; 7 runtime profiles plus 3 presets |
-| Multi-agent control | `prepare_harness_session`, `register_agent_work`, `claim_files`, mutation gates, durable analysis handles |
-| Release harness | `benchmarks/harness/release-harness-runner.py`, `usage-drift.*`, `independent-signoff.*` |
-| Coordination | default `advisory`, opt-in `strict` for trusted HTTP `refactor-full` mutations |
-| Deployment | single Rust binary over stdio or streamable HTTP, release assets, Homebrew formula, installer script, source build |
+| Package metadata | `codelens-mcp`, `codelens-engine`, `codelens-tui` now publish crate-specific descriptions instead of one shared workspace blurb |
+| Crate landing pages | crate README top sections and release links now align with the `v1.9.56` line |
+| GitHub surface | repository description now matches the MCP server role and no longer overstates the engine crate as a server |
+| Runtime behavior | unchanged from `v1.9.55`; this is a metadata and packaging-clarity patch |
 
 ## Performance Proof
 
@@ -74,7 +72,7 @@ CodeLens is not the agent and not an IDE backend. It is the **MCP control plane*
 - Interactive map: [`docs/architecture-d3.html`](docs/architecture-d3.html)
 - Architecture deep dive: [`docs/architecture.md`](docs/architecture.md)
 - Benchmarks and retrieval quality: [`docs/benchmarks.md`](docs/benchmarks.md)
-- Automated harness release notes: [`docs/release-notes/v1.9.55.md`](docs/release-notes/v1.9.55.md)
+- Automated harness release notes: [`docs/release-notes/v1.9.56.md`](docs/release-notes/v1.9.56.md)
 
 ```text
 Host (Claude / Codex / Cursor / Continue)
@@ -107,7 +105,7 @@ cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mc
 cargo install --git https://github.com/mupozg823/codelens-mcp-plugin codelens-mcp --features http
 ```
 
-Latest release: [v1.9.55](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.55)
+Latest release: [v1.9.56](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.56)
 
 ### Install Channel Matrix
 

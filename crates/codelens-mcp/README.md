@@ -1,12 +1,12 @@
 # codelens-mcp
 
-Harness-native Model Context Protocol server for
+Rust Model Context Protocol server for
 [CodeLens MCP](https://github.com/mupozg823/codelens-mcp-plugin) — a
 bounded code-intelligence layer for Claude Code, Codex, Cursor,
 Continue, and other agentic coding hosts.
 
 Built on [codelens-engine](https://crates.io/crates/codelens-engine).
-Current release line: [v1.9.54](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.54).
+Current release line: [v1.9.56](https://github.com/mupozg823/codelens-mcp-plugin/releases/tag/v1.9.56).
 
 ## Why it exists
 
@@ -76,7 +76,7 @@ Bootstrap with `prepare_harness_session`. That response carries the
 effective runtime surface, host capability summary, and coordination
 metadata for the current session.
 
-## What v1.9.54 added
+## Current line highlights
 
 - `release-harness-runner.py` for one-command automated harness evaluation
 - `usage-drift.*` and `independent-signoff.*` as standard release artifacts
