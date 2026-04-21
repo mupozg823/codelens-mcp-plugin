@@ -1,6 +1,6 @@
 use super::super::AppState;
 #[cfg(feature = "semantic")]
-use super::super::query_analysis::analyze_retrieval_query;
+use super::super::query_analysis::{analyze_retrieval_query, RetrievalLane};
 use codelens_engine::{RankedContextResult, SemanticMatch};
 use serde_json::{Value, json};
 
@@ -111,8 +111,12 @@ pub(crate) fn semantic_results_for_query(
 
     let query_analysis = analyze_retrieval_query(query);
 
-    // Skip embedding lookup for short single-word identifiers where FTS is more accurate
-    if query_analysis.prefer_lexical_only && query_analysis.original_query.len() <= 40 {
+    // Phase O5 Stage 0 Dense gate — `RetrievalLane::LexicalOnly` queries
+    // (identifier, path-like, or other lexical shape) never benefit from
+    // the embedding lane. Pre-O5 this short-circuit also required
+    // `original_query.len() <= 40`, which leaked long identifiers into
+    // dense lookup. The lane itself is now authoritative.
+    if query_analysis.lane == RetrievalLane::LexicalOnly {
         return Vec::new();
     }
 

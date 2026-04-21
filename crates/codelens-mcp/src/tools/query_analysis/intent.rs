@@ -1,3 +1,21 @@
+/// Stage 0 retrieval lane for a query.
+///
+/// `LexicalOnly` means the query is an identifier, path-like token, or
+/// other shape where dense/semantic lookup contributes no signal and
+/// costs embedding time. Callers (see
+/// [`super::super::symbols::analyzer::semantic_results_for_query`])
+/// short-circuit the embedding lane when the lane is `LexicalOnly`,
+/// unconditionally of query length — pre-O5 the gate had a
+/// `query.len() <= 40` cutoff, which leaked long identifiers into the
+/// dense lane for no benefit.
+///
+/// `Hybrid` means dense + sparse + rerank run as normal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RetrievalLane {
+    LexicalOnly,
+    Hybrid,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RetrievalQueryAnalysis {
     pub original_query: String,
@@ -6,6 +24,7 @@ pub(crate) struct RetrievalQueryAnalysis {
     pub prefer_lexical_only: bool,
     pub natural_language: bool,
     pub prefer_sparse_symbol_search: bool,
+    pub lane: RetrievalLane,
 }
 
 pub(super) fn query_prefers_lexical_only(query: &str) -> bool {
@@ -146,6 +165,7 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
             prefer_lexical_only: false,
             natural_language: false,
             prefer_sparse_symbol_search: false,
+            lane: RetrievalLane::Hybrid,
         };
     }
 
@@ -195,6 +215,12 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
         trimmed.to_owned()
     };
 
+    let lane = if prefer_lexical_only {
+        RetrievalLane::LexicalOnly
+    } else {
+        RetrievalLane::Hybrid
+    };
+
     RetrievalQueryAnalysis {
         original_query: trimmed.to_owned(),
         semantic_query,
@@ -202,6 +228,7 @@ pub(crate) fn analyze_retrieval_query(query: &str) -> RetrievalQueryAnalysis {
         prefer_lexical_only,
         natural_language,
         prefer_sparse_symbol_search,
+        lane,
     }
 }
 
